@@ -1,0 +1,21 @@
+import express from "express";
+import {
+  CreateAIAgent,
+  CreateNewAIAgentWallet,
+  ExecuteTransaction,
+  GetUserDetails,
+  GetSmartAccountClient,
+  ExecuteTransactionWithClient,
+} from "../controllers/private/turnkey.controller";
+import validateApiKey from "../middleware/validateApiKey";
+
+const router = express.Router();
+// router.use(validateApiKey);
+router.get("/user-details", GetUserDetails);
+router.post("/create-ai-agent", CreateAIAgent);
+router.post("/add-new-ai-agent-wallet", CreateNewAIAgentWallet);
+router.post("/execute-transaction", ExecuteTransaction);
+router.get("/smart-account-client", GetSmartAccountClient);
+router.post("/execute-with-client", ExecuteTransactionWithClient);
+
+export default router;
