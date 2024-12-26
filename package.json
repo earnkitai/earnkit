@@ -1,0 +1,35 @@
+{
+  "name": "earnkit",
+  "private": true,
+  "version": "1.0.0",
+  "devDependencies": {
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.4.2",
+    "turbo": "^1.13.4",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "build:backend": "turbo run build --filter=backend...",
+    "dev": "turbo run dev --parallel --filter=backend... --filter=frontend...",
+    "dev:backend": "turbo run --filter=backend... dev",
+    "dev:frontend": "turbo run --filter=frontend... dev",
+    "dev:bot": "turbo run --filter=async-multisend-bot dev",
+    "start:frontend": "turbo run --filter=frontend start",
+    "start:backend": "turbo run --filter=backend start",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:backend": "turbo run test --filter=backend",
+    "test:frontend": "turbo run test --filter=frontend",
+    "test:frontend:watch": "turbo run test:watch --filter=frontend",
+    "deploy": "turbo run deploy",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+  },
+  "pnpm": {
+    "overrides": {}
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}
