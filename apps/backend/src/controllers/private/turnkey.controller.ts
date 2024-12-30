@@ -294,10 +294,10 @@ export const ExecuteTransaction = async (
       );
     }
 
-    const { apiKey, agentName, name, symbol, totalSupply } = req.body;
+    const { apiKey, agentName, name, symbol ,ownerAddress ,tokenImage} = req.body;
 
     console.log("API called by the AI Agent");
-    console.log(apiKey, agentName, name, symbol, totalSupply);
+    console.log(apiKey, agentName, name, symbol,ownerAddress,tokenImage);
 
     if (!apiKey && !agentName) {
       return res.status(400).json({
@@ -386,21 +386,23 @@ export const ExecuteTransaction = async (
       }, //remove paymaster and userOperation if you don't want it to be sponsored
     });
 
-    const args: [string, string, bigint, `0x${string}`] = [
+    const args: [string, string, `0x${string}`,`0x${string}`,bigint] = [
       name,
       symbol,
+      ownerAddress as `0x${string}`,
+      tokenImage as `0x${string}`,
       BigInt(100000000 * 18),
-      wallet.sign_with as `0x${string}`,
+     
     ];
     const txHash = await smartAccountClient.sendTransaction({
-      to: "0x362EEAa2584Ba571F7F853F39460b867d4588bb2",
+      to: "0x1302017D2d3aA9Fe213cd7F9fa76d9299722690E",
       data: encodeFunctionData({
         abi: [
           parseAbiItem(
-            "function createToken(string memory name, string memory symbol, uint256 initialSupply,address _ownerAddress)"
+            "function deployToken(string memory name,string memory symbol,address deployer,string memory image,uint256 totalSupply) public returns (address)"
           ),
         ],
-        functionName: "createToken", // Comma added here
+        functionName: "deployToken", 
         args,
       }),
       value: BigInt(0),
