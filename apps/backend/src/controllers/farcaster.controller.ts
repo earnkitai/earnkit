@@ -1,12 +1,14 @@
-import { Request, Response } from "express";
-import { NeynarAPIClient } from "@neynar/nodejs-sdk";
-import neynarClient from "../utils/neynarClient";
-import mintToken from "../utils/deployToken";
+import { Request, Response } from 'express';
+import { NeynarAPIClient } from '@neynar/nodejs-sdk';
+import neynarClient from '../utils/neynarClient';
+import mintToken from '../utils/deployToken';
 // import { NeynarFrameCreationRequest } from "@neynar/nodejs-sdk";
+import fetch from 'node-fetch';
+import { config } from '../config/config';
 
 export const deployToken = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<any> => {
   try {
     const hookData = req.body;
@@ -59,10 +61,10 @@ export const deployToken = async (
       }
     }
   } catch (e: any) {
-    console.error("Error processing webhook:", e.message);
+    console.error('Error processing webhook:', e.message);
     res.status(400).json({
       success: false,
-      error: "hale error",
+      error: 'hale error',
     });
   }
 };
@@ -74,18 +76,18 @@ async function createFrame(authorUsername: string) {
     pages: [
       {
         image: {
-          url: "https://moralis.io/wp-content/uploads/web3wiki/638-gm/637aeda23eca28502f6d3eae_61QOyzDqTfxekyfVuvH7dO5qeRpU50X-Hs46PiZFReI.jpeg",
-          aspect_ratio: "1:1",
+          url: 'https://moralis.io/wp-content/uploads/web3wiki/638-gm/637aeda23eca28502f6d3eae_61QOyzDqTfxekyfVuvH7dO5qeRpU50X-Hs46PiZFReI.jpeg',
+          aspect_ratio: '1:1',
         },
-        title: "Page title",
+        title: 'Page title',
         buttons: [],
         input: {
           text: {
             enabled: false,
           },
         },
-        uuid: "gm",
-        version: "vNext",
+        uuid: 'gm',
+        version: 'vNext',
       },
     ],
   };
@@ -94,10 +96,67 @@ async function createFrame(authorUsername: string) {
 
   try {
     const frame = await neynarClient.publishNeynarFrame(creationRequest);
-    console.log("Frame Created:", frame);
+    console.log('Frame Created:', frame);
     return frame.link;
   } catch (error) {
-    console.error("Error creating frame:", error);
-    throw new Error("Failed to create frame");
+    console.error('Error creating frame:', error);
+    throw new Error('Failed to create frame');
   }
 }
+
+interface FarcasterMetadata {
+  bio: string;
+  pfp_url: string;
+  url: string;
+  username: string;
+  display_name: string;
+}
+
+interface CreateFarcasterAccountRequest {
+  metadata: FarcasterMetadata;
+  signature: string;
+  fid: number;
+  requested_user_custody_address: string;
+  deadline: number;
+  fname: string;
+}
+
+export const createFarcasterAccount = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const accountData: CreateFarcasterAccountRequest = req.body;
+
+    const response = await fetch('https://api.neynar.com/v2/farcaster/user', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'x-api-key': config.neynarApiKey,
+      },
+      body: JSON.stringify(accountData),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      res.status(response.status).json({
+        success: false,
+        error: data,
+      });
+      return;
+    }
+
+    res.status(201).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error('Error creating Farcaster account:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create Farcaster account',
+    });
+  }
+};
