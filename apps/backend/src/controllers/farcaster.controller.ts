@@ -19,34 +19,45 @@ export const deployToken = async (
       hookData.data.author.verified_addresses.eth_addresses[0] ||
       hookData.data.author.custody_address;
     console.log("Webhook Event Received:", ownerAddress);
-
-    if (castText && castText.includes("0xshinchain")) {
-      // deploy token call
-
-      const txHash = await mintToken(ownerAddress);
-      // Create a custom frame on the fly
-      const frameUrl = await createFrame(authorUsername);
-
-      // Send a reply with the custom frame
-      const reply = await neynarClient.publishCast({
-        signerUuid: process.env.SIGNER_UUID!,
-        text: `your token is deployed https://sepolia.basescan.org/tx/${txHash}`,
-        parent: castHash,
-        embeds: [
-          {
-            url: frameUrl,
-          },
-        ],
-      });
-
-      console.log("Reply Sent:", reply);
-    }
-
     res.status(201).json({
       success: true,
       data: "hale luya",
     });
-    // return new Response("Webhook received!", { status: 200 });
+
+    if (castText && castText.includes("0xshinchain")) {
+      try {
+        // Deploy token call
+        // const txHash = await mintToken(ownerAddress);
+        // console.log("Token minted with transaction hash:", txHash);
+
+        try {
+          // Create a custom frame on the fly
+          const frameUrl = await createFrame(authorUsername);
+          console.log("Frame created with URL:", frameUrl);
+
+          try {
+            // Send a reply with the custom frame
+            const reply = await neynarClient.publishCast({
+              signerUuid: process.env.SIGNER_UUID!,
+              text: `Your token is deployed! Check it here: https://sepolia.basescan.org/tx/`,
+              parent: castHash,
+              embeds: [
+                {
+                  url: frameUrl,
+                },
+              ],
+            });
+            console.log("Reply Sent:", reply);
+          } catch (replyError: any) {
+            console.error("Error sending reply:", replyError.message);
+          }
+        } catch (frameError: any) {
+          console.error("Error creating frame:", frameError.message);
+        }
+      } catch (mintError: any) {
+        console.error("Error minting token:", mintError.message);
+      }
+    }
   } catch (e: any) {
     console.error("Error processing webhook:", e.message);
     res.status(400).json({

@@ -8,6 +8,7 @@ import {
   ExecuteTransactionWithClient,
 } from "../controllers/private/turnkey.controller";
 import validateApiKey from "../middleware/validateApiKey";
+import { deployToken } from "../controllers/farcaster.controller";
 
 const router = express.Router();
 // router.use(validateApiKey);

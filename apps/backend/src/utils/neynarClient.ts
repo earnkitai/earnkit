@@ -1,15 +1,12 @@
-import { NeynarAPIClient, Configuration } from "@neynar/nodejs-sdk";
+import { NeynarAPIClient } from "@neynar/nodejs-sdk";
+import * as dotenv from "dotenv";
 
-// Check if the NEYNAR_API_KEY environment variable is available
+dotenv.config();
+
 if (!process.env.NEYNAR_API_KEY) {
-  throw new Error("Make sure you set NEYNAR_API_KEY in your .env file");
+  throw new Error("NEYNAR_API_KEY is required in environment variables");
 }
-
-// Create the configuration object to pass to the NeynarAPIClient
-const config: Configuration = {
-  apiKey: process.env.NEYNAR_API_KEY!, // Get the API key from environment variables
-};
-
-const neynarClient = new NeynarAPIClient(config); // Initialize the client with the configuration object
+const apiKey = process.env.NEYNAR_API_KEY;
+const neynarClient = new NeynarAPIClient({ apiKey });
 
 export default neynarClient;

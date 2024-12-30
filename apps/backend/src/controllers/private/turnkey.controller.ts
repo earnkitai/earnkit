@@ -98,9 +98,8 @@ export const CreateAIAgent = async (
           userEmail: user.email,
           apiKeys: [
             {
-              apiKeyName: "test-1",
-              publicKey:
-                "031fda0fcbfcdc2afba5271a6e511a68e5f1d852161204cb5268fbda28d1d3284a",
+              apiKeyName: "earnkit",
+              publicKey: process.env.ORG_PUBLIC_KEY as string,
               curveType: "API_KEY_CURVE_P256", // Add this field
             },
           ],
@@ -295,7 +294,10 @@ export const ExecuteTransaction = async (
       );
     }
 
-    const { apiKey, agentName } = req.body;
+    const { apiKey, agentName, name, symbol, totalSupply } = req.body;
+
+    console.log("API called by the AI Agent");
+    console.log(apiKey, agentName, name, symbol, totalSupply);
 
     if (!apiKey && !agentName) {
       return res.status(400).json({
@@ -385,8 +387,8 @@ export const ExecuteTransaction = async (
     });
 
     const args: [string, string, bigint, `0x${string}`] = [
-      "Earnkit",
-      "EKT",
+      name,
+      symbol,
       BigInt(100000000 * 18),
       wallet.sign_with as `0x${string}`,
     ];
@@ -408,9 +410,9 @@ export const ExecuteTransaction = async (
       `User operation included: https://sepolia.basescan.org/tx/${txHash}`
     );
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
-      data: "transaction done successfully",
+      data: txHash,
     });
     // return new Response("Webhook received!", { status: 200 });
   } catch (e: any) {

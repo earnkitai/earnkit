@@ -20,7 +20,7 @@ const privateKey =
   (() => {
     console.log("creating new PVT_KEY");
     const pk = generatePrivateKey();
-    writeFileSync(".env", `PRIVATE_KEY=${pk}`);
+    writeFileSync(".env.local", `PRIVATE_KEY=${pk}`);
     return pk;
   })();
 
