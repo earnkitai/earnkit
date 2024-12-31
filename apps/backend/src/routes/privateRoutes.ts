@@ -6,6 +6,7 @@ import {
   GetUserDetails,
   GetSmartAccountClient,
   ExecuteTransactionWithClient,
+  GetWalletDetails,
 } from "../controllers/private/turnkey.controller";
 import validateApiKey from "../middleware/validateApiKey";
 import { deployToken } from "../controllers/farcaster.controller";
@@ -18,5 +19,5 @@ router.post("/add-new-ai-agent-wallet", CreateNewAIAgentWallet);
 router.post("/execute-transaction", ExecuteTransaction);
 router.get("/smart-account-client", GetSmartAccountClient);
 router.post("/execute-with-client", ExecuteTransactionWithClient);
-
+router.get("/wallet-details", GetWalletDetails);
 export default router;

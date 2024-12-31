@@ -660,3 +660,61 @@ export const ExecuteTransactionWithClient = async (
     });
   }
 };
+
+//to get wallet details with agentName and APIkey to be used in the SDK for initializing the smart account client
+export const GetWalletDetails = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  try {
+    const { apiKey, agentName } = req.body;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: "API key is required",
+      });
+    }
+
+    // Find wallet by API key
+    const wallet = await WalletModel.findByApiKey(apiKey as string);
+    if (!wallet) {
+      return res.status(404).json({
+        success: false,
+        error: "No wallet found for the provided API key",
+      });
+    }
+
+    // Base response with wallet details
+    const response = {
+      wallet: {
+        organizationId: wallet.organization_id,
+        signWith: wallet.sign_with,
+      },
+      agents: wallet.agents || [],
+    };
+
+    // If agentName is provided, validate and include specific agent details
+    if (agentName) {
+      const agent = wallet.agents.find((a: any) => a.name === agentName);
+      if (!agent) {
+        return res.status(404).json({
+          success: false,
+          error: "No agent found with the provided name",
+        });
+      }
+      response.agents = [agent];
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: response,
+    });
+  } catch (e: any) {
+    console.error("Error:", e.message);
+    return res.status(400).json({
+      success: false,
+      error: e.message,
+    });
+  }
+};
