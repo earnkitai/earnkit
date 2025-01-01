@@ -1,7 +1,11 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pnpm install --filter backend... && pnpm build --filter backend..."
-watchPatterns = ["/apps/backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
+buildCommand = """
+  corepack enable && \
+  pnpm install --no-frozen-lockfile && \
+  pnpm install --filter backend... && \
+  pnpm build --filter backend...
+"""
 
 [deploy]
 startCommand = "pnpm start:backend"
@@ -9,5 +13,15 @@ restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 [nixpacks]
-nodejs_version = "22"
+nodejs_version = "20"
 pnpm_version = "9"
+
+[phases.setup]
+nixPkgs = ["nodejs@20"]
+aptPkgs = ["git"]
+
+[phases.install]
+cmds = [
+    "corepack enable",
+    "pnpm install --no-frozen-lockfile"
+]
