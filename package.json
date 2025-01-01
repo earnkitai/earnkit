@@ -29,7 +29,14 @@
   "pnpm": {
     "overrides": {}
   },
+  "engines": {
+    "npm": "use pnpm please!",
+    "node": ">=18.0.0",
+    "yarn": "use pnpm please!",
+    "pnpm": ">8.3.x"
+  },
+  "packageManager": "pnpm@8.15.9",
   "workspaces": [
-    "packages/*"
+    "apps/*"
   ]
 }
