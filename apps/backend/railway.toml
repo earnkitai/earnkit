@@ -1,19 +1,13 @@
 [build]
 builder = "nixpacks"
-buildCommand = """
-cd ../..
-pnpm install --filter backend...
-cd apps/backend
-pnpm build
-"""
+buildCommand = "cd ../.. && pnpm install --filter backend... && cd apps/backend && pnpm build"
+watchPatterns = ["/apps/backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
-startCommand = """
-cd ../..
-cd apps/backend
-pnpm start
-"""
-healthcheckPath = "/api/public/health"
-healthcheckTimeout = 100
+startCommand = "cd apps/backend && NODE_ENV=production pnpm start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+[nixpacks]
+nodejs_version = "20"
+pnpm_version = "9"
