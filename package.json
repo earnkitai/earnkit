@@ -16,6 +16,7 @@
     "dev:backend": "turbo run dev --filter=backend",
     "dev:frontend": "turbo run --filter=frontend... dev",
     "dev:bot": "turbo run --filter=async-multisend-bot dev",
+    "start": "turbo run start",
     "start:frontend": "turbo run --filter=frontend start",
     "start:backend": "turbo run start --filter=backend",
     "lint": "turbo run lint",

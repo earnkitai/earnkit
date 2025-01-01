@@ -9,5 +9,5 @@ restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 [nixpacks]
-nodejs_version = "20"
+nodejs_version = "22"
 pnpm_version = "9"
