@@ -27,6 +27,7 @@ import WalletModel, { IAgent } from '../../models/wallet.model';
 import pool from '../../config/database';
 import { createClient } from '../../utils/smartAccountClient';
 import crypto from 'crypto';
+import { SDKConfig } from '../../types';
 
 export const publicClient = createPublicClient({
   chain: baseSepolia,
@@ -716,6 +717,39 @@ export const GetWalletDetails = async (
     return res.status(400).json({
       success: false,
       error: e.message,
+    });
+  }
+};
+
+export const GetSdkConfig = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  try {
+    // Get API key from request
+    const apiKey = req.headers.authorization?.split(' ')[1];
+    
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'API key is required',
+      });
+    }
+    // You might want to validate the API key against your database
+    // and fetch specific configuration for that API key
+
+    const config: SDKConfig = {
+      turnkeyApiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY!,
+      turnkeyApiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY!,
+      pimlicoApiKey: process.env.PIMLICO_API_KEY!,
+      pimlicoUrl: process.env.PIMLICO_URL!,
+    };
+
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch configuration',
+      message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };

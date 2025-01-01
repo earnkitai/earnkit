@@ -121,42 +121,42 @@ interface CreateFarcasterAccountRequest {
   fname: string;
 }
 
-export const createFarcasterAccount = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  try {
-    const accountData: CreateFarcasterAccountRequest = req.body;
+// export const createFarcasterAccount = async (
+//   req: Request,
+//   res: Response,
+// ): Promise<void> => {
+//   try {
+//     const accountData: CreateFarcasterAccountRequest = req.body;
 
-    const response = await fetch('https://api.neynar.com/v2/farcaster/user', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        'x-api-key': config.neynarApiKey,
-      },
-      body: JSON.stringify(accountData),
-    });
+//     const response = await fetch('https://api.neynar.com/v2/farcaster/user', {
+//       method: 'POST',
+//       headers: {
+//         accept: 'application/json',
+//         'content-type': 'application/json',
+//         'x-api-key': config.neynarApiKey,
+//       },
+//       body: JSON.stringify(accountData),
+//     });
 
-    const data = await response.json();
+//     const data = await response.json();
 
-    if (!response.ok) {
-      res.status(response.status).json({
-        success: false,
-        error: data,
-      });
-      return;
-    }
+//     if (!response.ok) {
+//       res.status(response.status).json({
+//         success: false,
+//         error: data,
+//       });
+//       return;
+//     }
 
-    res.status(201).json({
-      success: true,
-      data,
-    });
-  } catch (error) {
-    console.error('Error creating Farcaster account:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create Farcaster account',
-    });
-  }
-};
+//     res.status(201).json({
+//       success: true,
+//       data,
+//     });
+//   } catch (error) {
+//     console.error('Error creating Farcaster account:', error);
+//     res.status(500).json({
+//       success: false,
+//       error: 'Failed to create Farcaster account',
+//     });
+//   }
+// };

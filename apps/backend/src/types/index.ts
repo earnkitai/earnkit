@@ -19,3 +19,10 @@ export interface IWallet {
   signWith: string;
   createdAt?: Date;
 }
+
+export interface SDKConfig {
+  turnkeyApiPrivateKey: string;
+  turnkeyApiPublicKey: string;
+  pimlicoApiKey: string;
+  pimlicoUrl: string;
+}
