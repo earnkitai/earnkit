@@ -1,11 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = """
-  corepack enable && \
-  pnpm install --no-frozen-lockfile && \
-  pnpm install --filter backend... && \
-  pnpm build --filter backend...
-"""
+buildCommand = "pnpm build:railway"
 
 [deploy]
 startCommand = "pnpm start:backend"
