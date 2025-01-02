@@ -39,3 +39,35 @@ CREATE TABLE api_keys (
     max_usage INT DEFAULT 1000,
     subscription_type VARCHAR(50) DEFAULT 'free'
 );
+
+-- Create Keys table
+CREATE TABLE IF NOT EXISTS keys (
+    id SERIAL PRIMARY KEY,
+    wallet_id INTEGER NOT NULL,
+    public_key TEXT NOT NULL,
+    private_key TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
+); 
+
+ALTER TABLE wallets ADD COLUMN public_key TEXT;
+ALTER TABLE wallets ADD COLUMN private_key TEXT;
+
+-- Ensure proper foreign key relationships
+ALTER TABLE wallets 
+  ADD CONSTRAINT fk_user_id 
+  FOREIGN KEY (user_id) 
+  REFERENCES users(user_id) 
+  ON DELETE CASCADE;
+
+ALTER TABLE agents
+  ADD CONSTRAINT fk_wallet_id
+  FOREIGN KEY (wallet_id)
+  REFERENCES wallets(id)
+  ON DELETE CASCADE;
+
+ALTER TABLE api_keys
+  ADD CONSTRAINT fk_user_id
+  FOREIGN KEY (user_id)
+  REFERENCES users(id)
+  ON DELETE CASCADE;

@@ -2,12 +2,11 @@ import express from 'express';
 import {
   registerUser,
   createApiKey,
-} from "../controllers/public/auth.controller";
-import { deployToken } from "../controllers/farcaster.controller";
+} from '../controllers/public/auth.controller';
+
 const router = express.Router();
 
-router.post("/auth/register", registerUser);
-router.post("/auth/create-api-key", createApiKey);
-router.post("/farcaster/deploy-token", deployToken);
+router.post('/auth/register', registerUser);
+router.post('/auth/create-api-key', createApiKey);
 
 export default router;

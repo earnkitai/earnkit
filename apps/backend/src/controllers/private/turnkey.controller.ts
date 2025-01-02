@@ -1,10 +1,5 @@
 import { Request, Response } from 'express';
-import { NeynarAPIClient } from '@neynar/nodejs-sdk';
-import neynarClient from '../../utils/neynarClient';
-import mintToken from '../../utils/deployToken';
-// import { NeynarFrameCreationRequest } from "@neynar/nodejs-sdk";
 import 'dotenv/config';
-import { writeFileSync } from 'fs';
 import { toSafeSmartAccount } from 'permissionless/accounts'; // using permissionless.js for safe accounts
 import {
   Hex,
@@ -13,7 +8,6 @@ import {
   getContract,
   http,
 } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { sepolia, baseSepolia } from 'viem/chains';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { Turnkey } from '@turnkey/sdk-server';
@@ -25,24 +19,25 @@ import { createSmartAccountClient } from 'permissionless';
 import { parseAbiItem, encodeFunctionData } from 'viem';
 import WalletModel, { IAgent } from '../../models/wallet.model';
 import pool from '../../config/database';
-import { createClient } from '../../utils/smartAccountClient';
 import crypto from 'crypto';
 import { SDKConfig } from '../../types';
+import { generateP256KeyPairHex } from '../../utils/ApiKeyUtils';
+import { CLIENT_RENEG_LIMIT } from 'tls';
 
 export const publicClient = createPublicClient({
   chain: baseSepolia,
   transport: http('https://sepolia.base.org'),
 });
 
-const apiPrivateKey = process.env.ORG_PRIVATE_KEY;
-const apiPublicKey = process.env.ORG_PUBLIC_KEY;
+const apiPrivateKey = process.env.TURNKEY_API_PRIVATE_KEY;
+const apiPublicKey = process.env.TURNKEY_API_PUBLIC_KEY;
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 const orgId = process.env.ORG_ID;
 
 // Ensure the keys are defined
 if (!apiPrivateKey || !apiPublicKey) {
   throw new Error(
-    'API keys are missing. Please set ORG_PRIVATE_KEY and ORG_PUBLIC_KEY in your environment variables.',
+    'API keys are missing. Please set TURNKEY_API_PRIVATE_KEY and TURNKEY_API_PUBLIC_KEY in your environment variables.',
   );
 }
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
@@ -54,18 +49,44 @@ const turnkeyServer = new Turnkey({
   defaultOrganizationId: orgId as string,
 }).apiClient();
 
-// to register a new dev and create a wallet
-export const CreateAIAgent = async (
+// Common function to get API key from headers
+const getApiKeyFromHeader = (req: Request): string | null => {
+  // Check for x-api-key header first
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey) {
+    return apiKey.toString();
+  }
+
+  // Fallback to Authorization header if x-api-key is not present
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    console.log('No Authorization header found');
+    return null;
+  }
+
+  const [bearer, token] = authHeader.split(' ');
+  if (bearer !== 'Bearer' || !token) {
+    console.log('Invalid Authorization format. Expected: Bearer <token>');
+    return null;
+  }
+
+  return token;
+};
+
+// to create a new turnkeysub organization and create a dev wallet(which will be the owner of safe wallet) for that sub organization and a safe Wallet(which will be the AI-Agent Wallet).
+export const CreateAIAgentWallet = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    const { apiKey, agentName } = req.body;
+    const apiKey = getApiKeyFromHeader(req);
+
+    const { agentName } = req.body;
 
     if (!apiKey || !agentName) {
       return res.status(400).json({
         success: false,
-        error: 'API key and agent name are required',
+        error: 'API key in headers and agent name are required',
       });
     }
 
@@ -90,6 +111,16 @@ export const CreateAIAgent = async (
       });
     }
 
+    const keyPair = generateP256KeyPairHex();
+    if (!keyPair) {
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to generate key pair',
+      });
+    }
+
+    const { publicKey, privateKey } = keyPair;
+
     // Create sub organization for the user
     const createSubOrgResponse = await turnkeyServer.createSubOrganization({
       subOrganizationName: 'AIAgent',
@@ -100,7 +131,7 @@ export const CreateAIAgent = async (
           apiKeys: [
             {
               apiKeyName: 'earnkit',
-              publicKey: process.env.ORG_PUBLIC_KEY as string,
+              publicKey: publicKey as string,
               curveType: 'API_KEY_CURVE_P256', // Add this field
             },
           ],
@@ -128,7 +159,12 @@ export const CreateAIAgent = async (
       userId: user.user_id,
       organizationId: createSubOrgResponse.subOrganizationId,
       signWith: createSubOrgResponse.wallet.addresses[0],
+      publicKey,
+      privateKey,
     });
+
+    // Store the keys in the new table
+    await WalletModel.createKeys(wallet.id, publicKey, privateKey);
 
     // Create turnkey account for AI agent
     const turnkeyAccount = await createAccount({
@@ -180,24 +216,19 @@ export const CreateAIAgent = async (
   }
 };
 
-// to create a new AI agent wallet
-export const CreateNewAIAgentWallet = async (
+// to create a new AI agent wallet for a dev wallet(which will be the owner of safe wallet)->requrued when creating new AI agent
+export const AddNewAIAgentWallet = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    if (!apiPrivateKey || !apiPublicKey) {
-      throw new Error(
-        'API keys are missing. Please set ORG_PRIVATE_KEY and ORG_PUBLIC_KEY in your environment variables.',
-      );
-    }
-
-    const { apiKey, agentName } = req.body;
+    const apiKey = getApiKeyFromHeader(req);
+    const { agentName } = req.body;
 
     if (!apiKey || !agentName) {
       return res.status(400).json({
         success: false,
-        error: 'API key and agent name are required',
+        error: 'API key in headers and agent name are required',
       });
     }
 
@@ -289,22 +320,13 @@ export const ExecuteTransaction = async (
   res: Response,
 ): Promise<any> => {
   try {
-    if (!apiPrivateKey || !apiPublicKey) {
-      throw new Error(
-        'API keys are missing. Please set ORG_PRIVATE_KEY and ORG_PUBLIC_KEY in your environment variables.',
-      );
-    }
+    const apiKey = getApiKeyFromHeader(req);
+    const { agentName, name, symbol, ownerAddress, tokenImage } = req.body;
 
-    const { apiKey, agentName, name, symbol, ownerAddress, tokenImage } =
-      req.body;
-
-    console.log('API called by the AI Agent');
-    console.log(apiKey, agentName, name, symbol, ownerAddress, tokenImage);
-
-    if (!apiKey && !agentName) {
+    if (!apiKey || !agentName) {
       return res.status(400).json({
         success: false,
-        error: 'API key and agent name are required',
+        error: 'API key in headers and agent name are required',
       });
     }
 
@@ -313,6 +335,15 @@ export const ExecuteTransaction = async (
       return res.status(404).json({
         success: false,
         error: 'No wallet found for the provided API key',
+      });
+    }
+
+    // Get keys from database
+    const keys = await WalletModel.findKeysByWalletId(wallet.id);
+    if (!keys?.public_key || !keys?.private_key) {
+      return res.status(400).json({
+        success: false,
+        error: 'No keys found for this wallet',
       });
     }
 
@@ -325,8 +356,6 @@ export const ExecuteTransaction = async (
       });
     }
 
-    console.log('Wallet and agent found:', { wallet, agent }); // Debug log
-
     if (!wallet.sign_with) {
       return res.status(400).json({
         success: false,
@@ -336,8 +365,8 @@ export const ExecuteTransaction = async (
 
     const turnkeyServer = new Turnkey({
       apiBaseUrl: 'https://api.turnkey.com',
-      apiPrivateKey: apiPrivateKey,
-      apiPublicKey: apiPublicKey,
+      apiPrivateKey: keys.private_key,
+      apiPublicKey: keys.public_key,
       defaultOrganizationId: wallet.organization_id,
     }).apiClient();
 
@@ -346,8 +375,6 @@ export const ExecuteTransaction = async (
       organizationId: wallet.organization_id,
       signWith: wallet.sign_with,
     });
-
-    console.log('created', turnkeyAccount);
 
     const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`; // bundler URL
 
@@ -359,7 +386,7 @@ export const ExecuteTransaction = async (
         version: '0.7',
       },
     });
-    // console.log("salt", agent.saltnonce);
+
     const account = await toSafeSmartAccount({
       client: publicClient,
       entryPoint: {
@@ -367,7 +394,7 @@ export const ExecuteTransaction = async (
         version: '0.7',
       },
       owners: [turnkeyAccount],
-      saltNonce: BigInt(agent.saltnonce), // Use stored salt
+      saltNonce: BigInt(agent.saltNonce), // Use stored salt
       version: '1.4.1',
       address: agent.address as `0x${string}`,
     });
@@ -427,48 +454,26 @@ export const ExecuteTransaction = async (
   }
 };
 
-//Not in use as of now
-export const CreateNewDevWallet = async (
-  req: Request,
-  res: Response,
-): Promise<any> => {
-  if (!apiPrivateKey || !apiPublicKey) {
-    throw new Error(
-      'API keys are missing. Please set ORG_PRIVATE_KEY and ORG_PUBLIC_KEY in your environment variables.',
-    );
-  }
-
-  const { organizationId, walletName } = req.body;
-
-  const turnkeyServer = new Turnkey({
-    apiBaseUrl: 'https://api.turnkey.com',
-    apiPrivateKey: apiPrivateKey,
-    apiPublicKey: apiPublicKey,
-    defaultOrganizationId: organizationId,
-  }).apiClient();
-
-  const walletResponse = await turnkeyServer.createWallet({
-    walletName: walletName,
-    accounts: DEFAULT_ETHEREUM_ACCOUNTS,
-  });
-
-  const accountAddress = walletResponse.addresses[0];
-
-  console.log('wallet Created Sucessfully', accountAddress);
-};
-
 // to get user and their agents details
 export const GetUserDetails = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    const { email } = req.query;
+    const { address } = req.query;
+    const apiKey = getApiKeyFromHeader(req);
 
-    if (!email || typeof email !== 'string') {
+    if (!apiKey) {
       return res.status(400).json({
         success: false,
-        error: 'Valid email is required',
+        error: 'API key is required in headers',
+      });
+    }
+
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid address is required',
       });
     }
 
@@ -478,6 +483,7 @@ export const GetUserDetails = async (
         u.email,
         w.organization_id,
         w.sign_with,
+        w.id as wallet_id,
         json_agg(
           CASE WHEN a.id IS NOT NULL 
           THEN json_build_object(
@@ -489,20 +495,20 @@ export const GetUserDetails = async (
           END
         ) FILTER (WHERE a.id IS NOT NULL) as agents
       FROM users u
-      LEFT JOIN api_keys ak ON u.id = ak.user_id
       LEFT JOIN wallets w ON u.user_id = w.user_id
       LEFT JOIN agents a ON w.id = a.wallet_id
-      WHERE u.email = $1 AND ak.active = true
-      GROUP BY u.user_id, u.email, w.organization_id, w.sign_with
+      JOIN api_keys ak ON u.id = ak.user_id
+      WHERE u.user_id = $1 AND ak.active = true
+      GROUP BY u.user_id, u.email, w.organization_id, w.sign_with, w.id
     `;
 
-    const userResult = await pool.query(userQuery, [email]);
+    const userResult = await pool.query(userQuery, [address]);
     const user = userResult.rows[0];
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: 'No user found with the provided email',
+        error: 'No user found with the provided address',
       });
     }
 
@@ -529,152 +535,26 @@ export const GetUserDetails = async (
   }
 };
 
-// to get smart account client for a specific agent
-export const GetSmartAccountClient = async (
-  req: Request,
-  res: Response,
-): Promise<any> => {
-  try {
-    const { apiKey, agentName } = req.body;
-
-    if (!apiKey || !agentName) {
-      return res.status(400).json({
-        success: false,
-        error: 'API key and agent name are required',
-      });
-    }
-
-    const wallet = await WalletModel.findByApiKey(apiKey as string);
-    if (!wallet) {
-      return res.status(404).json({
-        success: false,
-        error: 'No wallet found for the provided API key',
-      });
-    }
-
-    // Find the agent
-    const agent = wallet.agents.find((a: any) => a.name === agentName);
-    if (!agent) {
-      return res.status(404).json({
-        success: false,
-        error: 'No agent found with the provided name',
-      });
-    }
-
-    if (!wallet.sign_with) {
-      return res.status(400).json({
-        success: false,
-        error: 'Wallet has no sign_with value',
-      });
-    }
-
-    const turnkeyServer = new Turnkey({
-      apiBaseUrl: 'https://api.turnkey.com',
-      apiPrivateKey: apiPrivateKey as string,
-      apiPublicKey: apiPublicKey as string,
-      defaultOrganizationId: wallet.organization_id,
-    }).apiClient();
-
-    const turnkeyAccount = await createAccount({
-      client: turnkeyServer,
-      organizationId: wallet.organization_id,
-      signWith: wallet.sign_with,
-    });
-
-    const account = await toSafeSmartAccount({
-      client: publicClient,
-      entryPoint: {
-        address: entryPoint07Address,
-        version: '0.7',
-      },
-      owners: [turnkeyAccount],
-      saltNonce: BigInt(agent.saltnonce),
-      version: '1.4.1',
-      address: agent.address as `0x${string}`,
-    });
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        config: {
-          account: {
-            address: account.address,
-            entryPoint: account.entryPoint,
-            owner: turnkeyAccount.address,
-            saltNonce: agent.saltnonce,
-          },
-          wallet: {
-            organizationId: wallet.organization_id,
-            signWith: wallet.sign_with,
-          },
-        },
-      },
-    });
-  } catch (e: any) {
-    console.error('Error:', e.message);
-    return res.status(400).json({
-      success: false,
-      error: e.message,
-    });
-  }
-};
-
-// to execute transaction with provided smart account client
-export const ExecuteTransactionWithClient = async (
-  req: Request,
-  res: Response,
-): Promise<any> => {
-  try {
-    const { config } = req.body;
-    const smartAccountClient = await createClient(config);
-
-    // Use the client for transaction
-    const args: [string, string, bigint, `0x${string}`] = [
-      'Earnkit',
-      'EKT',
-      BigInt(100000000 * 18),
-      '0x362EEAa2584Ba571F7F853F39460b867d4588bb2' as `0x${string}`,
-    ];
-    const txHash = await smartAccountClient.sendTransaction({
-      to: '0x362EEAa2584Ba571F7F853F39460b867d4588bb2',
-      data: encodeFunctionData({
-        abi: [
-          parseAbiItem(
-            'function createToken(string memory name, string memory symbol, uint256 initialSupply,address _ownerAddress)',
-          ),
-        ],
-        functionName: 'createToken', // Comma added here
-        args,
-      }),
-      value: BigInt(0),
-    });
-
-    res.status(201).json({
-      success: true,
-      data: { txHash },
-    });
-  } catch (e: any) {
-    console.error('Error executing transaction:', e.message);
-    res.status(400).json({
-      success: false,
-      error: e.message,
-    });
-  }
-};
-
 //to get wallet details with agentName and APIkey to be used in the SDK for initializing the smart account client
 export const GetWalletDetails = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    const { apiKey, agentName } = req.query;
-    console.log(apiKey, agentName);
+    const apiKey = getApiKeyFromHeader(req);
+    const { agentName } = req.query;
 
     if (!apiKey) {
       return res.status(400).json({
         success: false,
-        error: 'API key is required',
+        error: 'API key is required in headers',
+      });
+    }
+
+    if (!agentName || typeof agentName !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Agent name is required',
       });
     }
 
@@ -687,30 +567,26 @@ export const GetWalletDetails = async (
       });
     }
 
-    // Base response with wallet details
-    const response = {
-      wallet: {
-        organizationId: wallet.organization_id,
-        sign_with: wallet.sign_with,
-      },
-      agents: wallet.agents || [],
-    };
-
-    // If agentName is provided, validate and include specific agent details
-    if (agentName) {
-      const agent = wallet.agents.find((a: any) => a.name === agentName);
-      if (!agent) {
-        return res.status(404).json({
-          success: false,
-          error: 'No agent found with the provided name',
-        });
-      }
-      response.agents = [agent];
+    // Find the specific agent
+    const agent = wallet.agents.find((a: any) => a.name === agentName);
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        error: 'No agent found with the provided name',
+      });
     }
 
     return res.status(200).json({
       success: true,
-      data: wallet,
+      data: {
+        organizationId: wallet.organization_id,
+        signWith: wallet.sign_with,
+        agent: {
+          name: agent.name,
+          address: agent.address,
+          saltNonce: agent.saltNonce,
+        },
+      },
     });
   } catch (e: any) {
     console.error('Error:', e.message);
@@ -727,20 +603,36 @@ export const GetSdkConfig = async (
 ): Promise<any> => {
   try {
     // Get API key from request
-    const apiKey = req.headers.authorization?.split(' ')[1];
-    
+    const apiKey = getApiKeyFromHeader(req);
+
     if (!apiKey) {
       return res.status(400).json({
         success: false,
         error: 'API key is required',
       });
     }
-    // You might want to validate the API key against your database
-    // and fetch specific configuration for that API key
+
+    // Find wallet and its keys
+    const wallet = await WalletModel.findByApiKey(apiKey);
+    if (!wallet) {
+      return res.status(404).json({
+        success: false,
+        error: 'No wallet found for the provided API key',
+      });
+    }
+
+    // Get keys from database
+    const keys = await WalletModel.findKeysByWalletId(wallet.id);
+    if (!keys?.public_key || !keys?.private_key) {
+      return res.status(400).json({
+        success: false,
+        error: 'No keys found for this wallet',
+      });
+    }
 
     const config: SDKConfig = {
-      turnkeyApiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY!,
-      turnkeyApiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY!,
+      turnkeyApiPrivateKey: keys.private_key,
+      turnkeyApiPublicKey: keys.public_key,
       pimlicoApiKey: process.env.PIMLICO_API_KEY!,
       pimlicoUrl: process.env.PIMLICO_URL!,
     };

@@ -1,23 +1,20 @@
 import express from 'express';
 import {
-  CreateAIAgent,
-  CreateNewAIAgentWallet,
+  CreateAIAgentWallet,
+  AddNewAIAgentWallet,
   ExecuteTransaction,
   GetUserDetails,
-  GetSmartAccountClient,
-  ExecuteTransactionWithClient,
   GetWalletDetails,
+  GetSdkConfig,
 } from '../controllers/private/turnkey.controller';
 import validateApiKey from '../middleware/validateApiKey';
-import { deployToken } from '../controllers/farcaster.controller';
 
 const router = express.Router();
-// router.use(validateApiKey);
-router.get('/user-details', GetUserDetails);
-router.post('/create-ai-agent', CreateAIAgent);
-router.post('/add-new-ai-agent-wallet', CreateNewAIAgentWallet);
+router.use(validateApiKey);
+router.get('/get-user-details', GetUserDetails);
+router.post('/create-ai-agent-wallet', CreateAIAgentWallet);
+router.post('/add-new-ai-agent-wallet', AddNewAIAgentWallet);
 router.post('/execute-transaction', ExecuteTransaction);
-router.get('/smart-account-client', GetSmartAccountClient);
-router.post('/execute-with-client', ExecuteTransactionWithClient);
 router.get('/wallet-details', GetWalletDetails);
+router.get('/get-sdk-config', GetSdkConfig);
 export default router;
