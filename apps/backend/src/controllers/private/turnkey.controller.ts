@@ -579,8 +579,8 @@ export const GetWalletDetails = async (
     return res.status(200).json({
       success: true,
       data: {
-        organizationId: wallet.organization_id,
-        signWith: wallet.sign_with,
+        organization_id: wallet.organization_id,
+        sign_with: wallet.sign_with,
         agent: {
           name: agent.name,
           address: agent.address,
@@ -642,6 +642,126 @@ export const GetSdkConfig = async (
     res.status(500).json({
       error: 'Failed to fetch configuration',
       message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+// Check if user exists by address
+export const CheckUserExists = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  try {
+    const { address } = req.query;
+
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid address is required',
+      });
+    }
+
+    const userQuery = `
+      SELECT 
+        u.user_id,
+        u.email
+      FROM users u
+      WHERE u.user_id = $1
+      LIMIT 1
+    `;
+
+    const userResult = await pool.query(userQuery, [address]);
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: 'User not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      data: {
+        address: user.user_id,
+        email: user.email,
+      },
+    });
+  } catch (e: any) {
+    console.error('Error:', e.message);
+    return res.status(400).json({
+      success: false,
+      error: e.message,
+    });
+  }
+};
+
+// Get all API keys for a user by address
+export const GetUserApiKeys = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  try {
+    const { address } = req.query;
+
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid address is required',
+      });
+    }
+
+    const apiKeysQuery = `
+      SELECT 
+        ak.hashed_key,
+        ak.created_at,
+        ak.expires_at,
+        ak.active,
+        ak.usage_count,
+        ak.max_usage,
+        ak.subscription_type
+      FROM users u
+      JOIN api_keys ak ON u.id = ak.user_id
+      WHERE u.user_id = $1
+      ORDER BY ak.created_at DESC
+    `;
+
+    const apiKeysResult = await pool.query(apiKeysQuery, [address]);
+    const apiKeys = apiKeysResult.rows;
+
+    if (!apiKeys.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          address,
+          apiKeys: [],
+          message: 'No API keys found for this user',
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        address,
+        apiKeys: apiKeys.map((key) => ({
+          hashedKey: key.hashed_key,
+          createdAt: key.created_at,
+          expiresAt: key.expires_at,
+          active: key.active,
+          usageCount: key.usage_count,
+          maxUsage: key.max_usage,
+          subscriptionType: key.subscription_type,
+        })),
+      },
+    });
+  } catch (e: any) {
+    console.error('Error:', e.message);
+    return res.status(400).json({
+      success: false,
+      error: e.message,
     });
   }
 };

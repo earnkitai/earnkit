@@ -1,6 +1,6 @@
-import { Request, Response, NextFunction } from "express";
-import crypto from "crypto";
-import pool from "../config/database";
+import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import pool from '../config/database';
 
 // Interface to type the request user data
 interface User {
@@ -22,18 +22,18 @@ interface ApiKeyRow {
 const validateApiKey = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
-  const apiKey = req.headers["x-api-key"] as string | undefined;
+  const apiKey = req.headers['x-api-key'] as string | undefined;
 
   if (!apiKey) {
-    res.status(401).json({ message: "API key is missing" });
+    res.status(401).json({ message: 'API key is missing' });
     return;
   }
 
   try {
     // Hash the API key
-    const hashedKey = crypto.createHash("sha256").update(apiKey).digest("hex");
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
 
     // Query the database to find the API key
     const result = await pool.query<ApiKeyRow>(
@@ -41,11 +41,11 @@ const validateApiKey = async (
        WHERE hashed_key = $1 
        AND active = TRUE 
        AND expires_at > NOW()`,
-      [hashedKey]
+      [apiKey],
     );
 
     if (result.rows.length === 0) {
-      res.status(403).json({ message: "Invalid or expired API key" });
+      res.status(403).json({ message: 'Invalid or expired API key' });
       return;
     }
 
@@ -53,14 +53,14 @@ const validateApiKey = async (
 
     // Check if the API key has exceeded the usage limit
     if (keyData.usage_count >= keyData.max_usage) {
-      res.status(429).json({ message: "API key usage limit exceeded" });
+      res.status(429).json({ message: 'API key usage limit exceeded' });
       return;
     }
 
     // Increment the usage count
     await pool.query(
       `UPDATE api_keys SET usage_count = usage_count + 1 WHERE id = $1`,
-      [keyData.id]
+      [keyData.id],
     );
 
     // Attach user information to the request object for further processing
@@ -71,8 +71,8 @@ const validateApiKey = async (
 
     next(); // Proceed to the next middleware or controller
   } catch (error) {
-    console.error("API key validation error:", error);
-    res.status(500).json({ message: "Internal Server Error" });
+    console.error('API key validation error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 };
 

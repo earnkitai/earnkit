@@ -1,10 +1,10 @@
-import { Request, Response } from "express";
-import { pool } from "../../db/pool";
-import { generateApiKey, hashApiKey } from "../../utils/cryptoUtils";
+import { Request, Response } from 'express';
+import { pool } from '../../db/pool';
+import { generateApiKey, hashApiKey } from '../../utils/cryptoUtils';
 
 export const registerUser = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { email, address } = req.body;
@@ -12,7 +12,7 @@ export const registerUser = async (
     if (!email || !address) {
       res.status(400).json({
         success: false,
-        error: "Email and address are required",
+        error: 'Email and address are required',
       });
       return;
     }
@@ -34,7 +34,7 @@ export const registerUser = async (
       },
     });
   } catch (error: any) {
-    console.error("Error registering user:", error);
+    console.error('Error registering user:', error);
     res.status(400).json({
       success: false,
       error: error.message,
@@ -49,14 +49,14 @@ export const registerUser = async (
  */
 export const createApiKey = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   const { userId } = req.body;
 
   if (!userId) {
     res.status(400).json({
       success: false,
-      error: "User ID is required",
+      error: 'User ID is required',
     });
     return;
   }
@@ -71,7 +71,7 @@ export const createApiKey = async (
     if (userResult.rows.length === 0) {
       res.status(404).json({
         success: false,
-        error: "User not found",
+        error: 'User not found',
       });
       return;
     }
@@ -86,10 +86,10 @@ export const createApiKey = async (
     `;
 
     const checkResult = await pool.query(checkQuery, [user.id]);
-    if (checkResult.rows[0].key_count > 0) {
+    if (checkResult.rows[0].key_count > 5) {
       res.status(400).json({
         success: false,
-        error: "User already has an active API key",
+        error: 'User already has an active API key',
       });
       return;
     }
@@ -104,22 +104,74 @@ export const createApiKey = async (
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, user_id`,
       [
         user.id,
-        hashedApiKey,
-        "free",
+        apiKey,
+        'free',
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         1000,
         0,
         true,
-      ]
+      ],
     );
 
     res.status(201).json({
-      message: "API key created successfully",
+      message: 'API key created successfully',
       apiKey,
       id: result.rows[0].id,
     });
   } catch (error) {
-    console.error("Error creating API key:", error);
-    res.status(500).json({ message: "Internal Server Error" });
+    console.error('Error creating API key:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+
+// Check if user exists by address
+export const CheckUserExists = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  try {
+    const { address } = req.query;
+
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid address is required',
+      });
+    }
+
+    const userQuery = `
+      SELECT 
+        u.user_id,
+        u.email
+      FROM users u
+      WHERE u.user_id = $1
+      LIMIT 1
+    `;
+
+    const userResult = await pool.query(userQuery, [address]);
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message: 'User not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      data: {
+        address: user.user_id,
+        email: user.email,
+      },
+    });
+  } catch (e: any) {
+    console.error('Error:', e.message);
+    return res.status(400).json({
+      success: false,
+      error: e.message,
+    });
   }
 };

@@ -6,6 +6,7 @@ import {
   GetUserDetails,
   GetWalletDetails,
   GetSdkConfig,
+  CheckUserExists,
 } from '../controllers/private/turnkey.controller';
 import validateApiKey from '../middleware/validateApiKey';
 
@@ -17,4 +18,5 @@ router.post('/add-new-ai-agent-wallet', AddNewAIAgentWallet);
 router.post('/execute-transaction', ExecuteTransaction);
 router.get('/wallet-details', GetWalletDetails);
 router.get('/get-sdk-config', GetSdkConfig);
+router.get('/check-user', CheckUserExists);
 export default router;
