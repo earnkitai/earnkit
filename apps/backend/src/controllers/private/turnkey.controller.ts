@@ -97,11 +97,11 @@ export const CreateAIAgentWallet = async (
       JOIN api_keys ak ON u.id = ak.user_id
       WHERE ak.hashed_key = $1 AND ak.active = true
     `;
-    const hashedApiKey = crypto
-      .createHash('sha256')
-      .update(apiKey)
-      .digest('hex');
-    const userResult = await pool.query(userQuery, [hashedApiKey]);
+    // const hashedApiKey = crypto
+    //   .createHash('sha256')
+    //   .update(apiKey)
+    //   .digest('hex');
+    const userResult = await pool.query(userQuery, [apiKey]);
     const user = userResult.rows[0];
 
     if (!user) {
