@@ -80,7 +80,6 @@ export const CreateAIAgentWallet = async (
 ): Promise<any> => {
   try {
     const apiKey = getApiKeyFromHeader(req);
-
     const { agentName } = req.body;
 
     if (!apiKey || !agentName) {
@@ -90,17 +89,20 @@ export const CreateAIAgentWallet = async (
       });
     }
 
-    // Get user details
+    // Get user details and check if they already have a wallet
     const userQuery = `
-      SELECT u.user_id, u.email
+      SELECT 
+        u.user_id, 
+        u.email,
+        EXISTS (
+          SELECT 1 FROM wallets w 
+          WHERE w.user_id = u.user_id
+        ) as has_wallet
       FROM users u
       JOIN api_keys ak ON u.id = ak.user_id
       WHERE ak.hashed_key = $1 AND ak.active = true
     `;
-    // const hashedApiKey = crypto
-    //   .createHash('sha256')
-    //   .update(apiKey)
-    //   .digest('hex');
+
     const userResult = await pool.query(userQuery, [apiKey]);
     const user = userResult.rows[0];
 
@@ -108,6 +110,15 @@ export const CreateAIAgentWallet = async (
       return res.status(404).json({
         success: false,
         error: 'No user found with the provided API key',
+      });
+    }
+
+    // Check if user already has a wallet
+    if (user.has_wallet) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'User already has an Turnkey Sub-org. Use AddNewAIAgentWallet to create additional agents.',
       });
     }
 
