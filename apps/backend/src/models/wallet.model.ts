@@ -142,8 +142,8 @@ class WalletModel {
       GROUP BY w.id, w.user_id, w.organization_id, w.sign_with
     `;
 
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-    const result = await pool.query(query, [hashedKey]);
+    // const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+    const result = await pool.query(query, [apiKey]);
 
     return result.rows[0] || null;
   }

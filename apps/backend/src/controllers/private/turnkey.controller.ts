@@ -540,6 +540,7 @@ export const GetWalletDetails = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
+  console.log('GetWalletDetails called');
   try {
     const apiKey = getApiKeyFromHeader(req);
     const { agentName } = req.query;
@@ -602,6 +603,7 @@ export const GetSdkConfig = async (
   res: Response,
 ): Promise<any> => {
   try {
+    console.log('GetSdkConfig called');
     // Get API key from request
     const apiKey = getApiKeyFromHeader(req);
 
