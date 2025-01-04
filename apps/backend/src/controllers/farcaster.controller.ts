@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
 import neynarClient from '../utils/neynarClient';
-import mintToken from '../utils/deployToken';
+
 // import { NeynarFrameCreationRequest } from "@neynar/nodejs-sdk";
 import fetch from 'node-fetch';
 import { config } from '../config/config';
@@ -20,13 +20,13 @@ export const deployToken = async (
     const ownerAddress =
       hookData.data.author.verified_addresses.eth_addresses[0] ||
       hookData.data.author.custody_address;
-    console.log("Webhook Event Received:", ownerAddress);
+    console.log('Webhook Event Received:', ownerAddress);
     res.status(201).json({
       success: true,
-      data: "hale luya",
+      data: 'done',
     });
 
-    if (castText && castText.includes("0xshinchain")) {
+    if (castText && castText.includes('0xshinchain')) {
       try {
         // Deploy token call
         // const txHash = await mintToken(ownerAddress);
@@ -35,7 +35,7 @@ export const deployToken = async (
         try {
           // Create a custom frame on the fly
           const frameUrl = await createFrame(authorUsername);
-          console.log("Frame created with URL:", frameUrl);
+          console.log('Frame created with URL:', frameUrl);
 
           try {
             // Send a reply with the custom frame
@@ -49,22 +49,22 @@ export const deployToken = async (
                 },
               ],
             });
-            console.log("Reply Sent:", reply);
+            console.log('Reply Sent:', reply);
           } catch (replyError: any) {
-            console.error("Error sending reply:", replyError.message);
+            console.error('Error sending reply:', replyError.message);
           }
         } catch (frameError: any) {
-          console.error("Error creating frame:", frameError.message);
+          console.error('Error creating frame:', frameError.message);
         }
       } catch (mintError: any) {
-        console.error("Error minting token:", mintError.message);
+        console.error('Error minting token:', mintError.message);
       }
     }
   } catch (e: any) {
     console.error('Error processing webhook:', e.message);
     res.status(400).json({
       success: false,
-      error: 'hale error',
+      error: ' error',
     });
   }
 };

@@ -39,8 +39,7 @@ const validateApiKey = async (
     const result = await pool.query<ApiKeyRow>(
       `SELECT * FROM api_keys 
        WHERE hashed_key = $1 
-       AND active = TRUE 
-       AND expires_at > NOW()`,
+       AND active = TRUE`,
       [apiKey],
     );
 
