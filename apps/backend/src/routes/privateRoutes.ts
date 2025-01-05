@@ -1,22 +1,17 @@
 import express from 'express';
-import {
-  CreateAIAgentWallet,
-  AddNewAIAgentWallet,
-  ExecuteTransaction,
-  GetUserDetails,
-  GetWalletDetails,
-  GetSdkConfig,
-  CheckUserExists,
-} from '../controllers/private/turnkey.controller';
+import walletRoutes from './v1/wallet.routes';
+import configRoutes from './v1/config.routes';
+import userRoutes from './v1/user.routes';
+import transactionRoutes from './v1/transaction.routes';
 import validateApiKey from '../middleware/validateApiKey';
 
 const router = express.Router();
+
 router.use(validateApiKey);
-router.get('/get-user-details', GetUserDetails);
-router.post('/create-ai-agent-wallet', CreateAIAgentWallet);
-router.post('/add-new-ai-agent-wallet', AddNewAIAgentWallet);
-router.post('/execute-transaction', ExecuteTransaction);
-router.get('/wallet-details', GetWalletDetails);
-router.get('/get-sdk-config', GetSdkConfig);
-router.get('/check-user', CheckUserExists);
+
+router.use('/wallet', walletRoutes);
+router.use('/config', configRoutes);
+router.use('/user', userRoutes);
+router.use('/transaction', transactionRoutes);
+
 export default router;

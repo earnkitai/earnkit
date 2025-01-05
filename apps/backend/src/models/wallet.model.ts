@@ -1,83 +1,40 @@
 import pool from '../config/database';
-import crypto from 'crypto';
 
 export interface IAgent {
+  id: number;
   name: string;
-  address: string;
-  saltNonce: bigint;
+  walletAddress: `0x${string}`;
+  saltNonce: string;
+  createdAt: Date;
 }
 
-export interface IWallet {
+export interface ISubOrg {
   id: number;
-  user_id: string;
-  organization_id: string;
-  sign_with: string;
-  public_key?: string;
-  private_key?: string;
+  organizationId: string;
+  ownerWalletAddress: string;
+  publicKey: string;
+  privateKey: string;
   agents: IAgent[];
 }
 
-export interface IKey {
-  id: number;
-  wallet_id: number;
-  public_key: string;
-  private_key: string;
-  created_at: Date;
-}
-
-interface CreateWalletParams {
-  userId: string;
-  organizationId: string;
-  signWith: string;
-}
-
-export const createWallet = async ({
-  userId,
-  organizationId,
-  signWith,
-}: CreateWalletParams) => {
-  const query = `
-    INSERT INTO wallets (user_id, organization_id, sign_with)
-    VALUES ($1, $2, $3)
-    RETURNING *
-  `;
-
-  const result = await pool.query(query, [userId, organizationId, signWith]);
-
-  return result.rows[0];
-};
-
-export const findByApiKey = async (apiKey: string) => {
-  const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-
-  const query = `
-    SELECT w.*
-    FROM wallets w
-    JOIN users u ON w.user_id = u.user_id
-    JOIN api_keys ak ON u.id = ak.user_id
-    WHERE ak.hashed_key = $1 AND ak.active = true
-  `;
-
-  const result = await pool.query(query, [hashedKey]);
-  return result.rows[0];
-};
-
 class WalletModel {
-  static async createWallet({
+  // Create a new sub-organization for a user
+  static async createSubOrg({
     userId,
     organizationId,
-    signWith,
+    ownerWalletAddress,
     publicKey,
     privateKey,
   }: {
-    userId: string;
+    userId: number;
     organizationId: string;
-    signWith: string;
-    publicKey?: string;
-    privateKey?: string;
-  }): Promise<IWallet> {
+    ownerWalletAddress: string;
+    publicKey: string;
+    privateKey: string;
+  }): Promise<ISubOrg> {
     const query = `
-      INSERT INTO wallets (user_id, organization_id, sign_with, public_key, private_key)
+      INSERT INTO sub_organizations 
+        (user_id, organization_id, owner_wallet_address, public_key, private_key)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING *
     `;
@@ -85,7 +42,7 @@ class WalletModel {
     const result = await pool.query(query, [
       userId,
       organizationId,
-      signWith,
+      ownerWalletAddress,
       publicKey,
       privateKey,
     ]);
@@ -96,77 +53,116 @@ class WalletModel {
     };
   }
 
-  static async addAgent(walletId: number, agent: IAgent) {
+  // Add a new AI agent to a sub-organization
+  static async addAgent(
+    subOrgId: number,
+    agent: Omit<IAgent, 'id' | 'createdAt'>,
+  ) {
     const query = `
-      INSERT INTO agents (wallet_id, name, address, salt_nonce)
+      INSERT INTO ai_agents (sub_org_id, name, wallet_address, salt_nonce)
       VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
-    const values = [
-      walletId,
+
+    const result = await pool.query(query, [
+      subOrgId,
       agent.name,
-      agent.address,
-      agent.saltNonce.toString(),
-    ];
-    const result = await pool.query(query, values);
+      agent.walletAddress,
+      agent.saltNonce,
+    ]);
+
     return result.rows[0];
   }
 
-  static async findAgentByNameAndApiKey(apiKey: string, agentName: string) {
+  // Find sub-org and its agents by platform API key
+  static async findByApiKey(apiKey: string): Promise<ISubOrg | null> {
     const query = `
-      SELECT a.*
-      FROM agents a
-      JOIN wallets w ON w.id = a.wallet_id
-      WHERE w.api_key = $1 AND a.name = $2
-    `;
-    const result = await pool.query(query, [apiKey, agentName]);
-    return result.rows[0];
-  }
-
-  static async findByApiKey(apiKey: string): Promise<IWallet | null> {
-    const query = `
-      SELECT w.*, 
-             json_agg(
-               json_build_object(
-                 'id', a.id,
-                 'name', a.name,
-                 'address', a.address,
-                 'saltNonce', a.salt_nonce
-               )
-             ) FILTER (WHERE a.id IS NOT NULL) as agents
-      FROM wallets w
-      LEFT JOIN agents a ON w.id = a.wallet_id
-      JOIN users u ON w.user_id = u.user_id
-      JOIN api_keys ak ON u.id = ak.user_id
-      WHERE ak.hashed_key = $1 AND ak.active = true
-      GROUP BY w.id, w.user_id, w.organization_id, w.sign_with
+      SELECT 
+        so.*,
+        json_agg(
+          CASE WHEN aa.id IS NOT NULL THEN
+            json_build_object(
+              'id', aa.id,
+              'name', aa.name,
+              'walletAddress', aa.wallet_address,
+              'saltNonce', aa.salt_nonce,
+              'createdAt', aa.created_at
+            )
+          ELSE NULL END
+        ) FILTER (WHERE aa.id IS NOT NULL) as agents
+      FROM sub_organizations so
+      JOIN users u ON u.id = so.user_id
+      JOIN platform_api_keys pak ON pak.user_id = u.id
+      LEFT JOIN ai_agents aa ON aa.sub_org_id = so.id
+      WHERE pak.api_key = $1 AND pak.active = true
+      GROUP BY so.id
     `;
 
-    // const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
     const result = await pool.query(query, [apiKey]);
+    if (!result.rows[0]) return null;
 
+    // Transform snake_case to camelCase
+    return {
+      id: result.rows[0].id,
+      organizationId: result.rows[0].organization_id,
+      ownerWalletAddress: result.rows[0].owner_wallet_address,
+      publicKey: result.rows[0].public_key,
+      privateKey: result.rows[0].private_key,
+      agents: result.rows[0].agents || [],
+    };
+  }
+
+  // Find agent by name and API key
+  static async findAgentByNameAndApiKey(
+    apiKey: string,
+    agentName: string,
+  ): Promise<IAgent | null> {
+    const query = `
+      SELECT aa.*
+      FROM ai_agents aa
+      JOIN sub_organizations so ON so.id = aa.sub_org_id
+      JOIN users u ON u.id = so.user_id
+      JOIN platform_api_keys pak ON pak.user_id = u.id
+      WHERE pak.api_key = $1 AND aa.name = $2 AND pak.active = true
+    `;
+
+    const result = await pool.query(query, [apiKey, agentName]);
     return result.rows[0] || null;
   }
 
-  static async createKeys(
-    walletId: number,
-    publicKey: string,
-    privateKey: string,
-  ): Promise<IKey> {
+  // Get sub-org keys by wallet ID
+  static async getSubOrgKeys(subOrgId: number) {
     const query = `
-      INSERT INTO keys (wallet_id, public_key, private_key)
-      VALUES ($1, $2, $3)
-      RETURNING *
+      SELECT public_key, private_key
+      FROM sub_organizations
+      WHERE id = $1
     `;
-    const result = await pool.query(query, [walletId, publicKey, privateKey]);
-    return result.rows[0];
+
+    const result = await pool.query(query, [subOrgId]);
+    return result.rows[0] || null;
   }
 
-  static async findKeysByWalletId(walletId: number): Promise<IKey | null> {
+  // Check if user has a sub-org
+  static async hasSubOrg(userId: number): Promise<boolean> {
     const query = `
-      SELECT * FROM keys WHERE wallet_id = $1
+      SELECT EXISTS(
+        SELECT 1 FROM sub_organizations WHERE user_id = $1
+      )
     `;
-    const result = await pool.query(query, [walletId]);
+
+    const result = await pool.query(query, [userId]);
+    return result.rows[0].exists;
+  }
+
+  // Add this method to the WalletModel class
+  static async findKeysByWalletId(subOrgId: number) {
+    const query = `
+      SELECT public_key, private_key
+      FROM sub_organizations
+      WHERE id = $1
+    `;
+
+    const result = await pool.query(query, [subOrgId]);
     return result.rows[0] || null;
   }
 }
