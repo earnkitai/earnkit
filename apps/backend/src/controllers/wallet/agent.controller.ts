@@ -335,8 +335,8 @@ export const GetWalletDetails = async (
     return res.status(200).json({
       success: true,
       data: {
-        organizationId: subOrg.organizationId,
-        ownerWalletAddress: subOrg.ownerWalletAddress,
+        organization_id: subOrg.organizationId,
+        sign_with: subOrg.ownerWalletAddress,
         agent: {
           name: agent.name,
           address: agent.walletAddress,
