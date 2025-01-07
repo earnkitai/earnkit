@@ -1,35 +1,35 @@
 import { Request, Response } from 'express';
 import 'dotenv/config';
-import { toSafeSmartAccount } from 'permissionless/accounts'; // using permissionless.js for safe accounts
-import { createPublicClient, http } from 'viem';
-import { sepolia, baseSepolia } from 'viem/chains';
+import { toSafeSmartAccount } from 'permissionless/accounts';
+import { Address, createPublicClient, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { Turnkey } from '@turnkey/sdk-server';
 import { createAccount } from '@turnkey/viem';
-
 import { entryPoint07Address } from 'viem/account-abstraction';
 import { createSmartAccountClient } from 'permissionless';
-import { parseAbiItem, encodeFunctionData } from 'viem';
+import { encodeFunctionData } from 'viem';
 import WalletModel from '../../models/wallet.model';
 import { getApiKeyFromHeader } from '../../utils/GetHeaders';
+import tokenABI from '../../utils/tokenABI.json';
+import pool from '../../config/database';
+
+const pimlocoApiKey = process.env.PIMLICO_API_KEY;
+if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
 
 export const publicClient = createPublicClient({
   chain: baseSepolia,
   transport: http('https://sepolia.base.org'),
 });
 
-const pimlocoApiKey = process.env.PIMLICO_API_KEY;
-
-if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
-
-// to execute a transaction
 export const ExecuteTransaction = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
     const apiKey = getApiKeyFromHeader(req);
-    const { agentName, name, symbol, ownerAddress, tokenImage } = req.body;
+    const { agentName } = req.query;
+    const { name, symbol } = req.body;
 
     if (!apiKey || !agentName) {
       return res.status(400).json({
@@ -46,17 +46,8 @@ export const ExecuteTransaction = async (
       });
     }
 
-    // Get keys from database
-    const keys = await WalletModel.findKeysByWalletId(wallet.id);
-    if (!keys?.public_key || !keys?.private_key) {
-      return res.status(400).json({
-        success: false,
-        error: 'No keys found for this wallet',
-      });
-    }
-
     // Find the agent
-    const agent = wallet.agents.find((a: any) => a.name === agentName);
+    const agent = wallet.agents.find((a) => a.name === agentName);
     if (!agent) {
       return res.status(404).json({
         success: false,
@@ -64,17 +55,10 @@ export const ExecuteTransaction = async (
       });
     }
 
-    if (!wallet.ownerWalletAddress) {
-      return res.status(400).json({
-        success: false,
-        error: 'Wallet has no ownerWalletAddress value',
-      });
-    }
-
     const turnkeyServer = new Turnkey({
       apiBaseUrl: 'https://api.turnkey.com',
-      apiPrivateKey: keys.private_key,
-      apiPublicKey: keys.public_key,
+      apiPrivateKey: wallet.privateKey,
+      apiPublicKey: wallet.publicKey,
       defaultOrganizationId: wallet.organizationId,
     }).apiClient();
 
@@ -84,10 +68,8 @@ export const ExecuteTransaction = async (
       signWith: wallet.ownerWalletAddress,
     });
 
-    const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`; // bundler URL
-
+    const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`;
     const pimlicoClient = createPimlicoClient({
-      // pimlico client
       transport: http(pimlicoUrl),
       entryPoint: {
         address: entryPoint07Address,
@@ -102,14 +84,10 @@ export const ExecuteTransaction = async (
         version: '0.7',
       },
       owners: [turnkeyAccount],
-      saltNonce: BigInt(agent.saltNonce), // Use stored salt
+      saltNonce: BigInt(agent.saltNonce),
       version: '1.4.1',
       address: agent.walletAddress as `0x${string}`,
     });
-
-    console.log(
-      `Smart account address: https://sepolia.etherscan.io/address/${account.address}`,
-    );
 
     const smartAccountClient = createSmartAccountClient({
       account,
@@ -120,44 +98,110 @@ export const ExecuteTransaction = async (
         estimateFeesPerGas: async () => {
           return (await pimlicoClient.getUserOperationGasPrice()).fast;
         },
-      }, //remove paymaster and userOperation if you don't want it to be sponsored
+      },
     });
 
-    const args: [string, string, `0x${string}`, `0x${string}`, bigint] = [
+    // Token deployment parameters
+    const totalSupply = BigInt(100000000 * 10 ** 18); // 100M tokens with 18 decimals
+    const initialTick = -230400;
+    const poolFee = 10000; // 1% fee (10000 = 100%)
+
+    // Generate salt for deployment
+    const saltandAddress = await generateSalt(
+      agent.walletAddress as `0x${string}`,
       name,
       symbol,
-      ownerAddress as `0x${string}`,
-      tokenImage as `0x${string}`,
-      BigInt(100000000 * 18),
-    ];
-    const txHash = await smartAccountClient.sendTransaction({
-      to: '0x1302017D2d3aA9Fe213cd7F9fa76d9299722690E',
-      data: encodeFunctionData({
-        abi: [
-          parseAbiItem(
-            'function deployToken(string memory name,string memory symbol,address deployer,string memory image,uint256 totalSupply) public returns (address)',
-          ),
-        ],
-        functionName: 'deployToken',
-        args,
-      }),
-      value: BigInt(0),
-    });
-
-    console.log(
-      `User operation included: https://sepolia.basescan.org/tx/${txHash}`,
+      totalSupply,
     );
 
-    res.status(200).json({
+    const salt = saltandAddress[0];
+    const tokenContractAddress = saltandAddress[1];
+
+    // Deploy token
+    const txHash = await deployToken(
+      smartAccountClient,
+      name,
+      symbol,
+      totalSupply,
+      initialTick,
+      poolFee,
+      agent.walletAddress as `0x${string}`,
+      salt as `0x${string}`,
+    );
+
+    // Store token details
+    const storeTokenQuery = `
+      INSERT INTO deployed_tokens (
+        agent_id,
+        token_address,
+        token_name,
+        token_symbol
+      ) VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `;
+
+    await pool.query(storeTokenQuery, [
+      agent.id,
+      tokenContractAddress,
+      name,
+      symbol,
+    ]);
+
+    return res.status(200).json({
       success: true,
-      data: txHash,
+      data: {
+        transactionHash: txHash,
+        tokenDetails: {
+          name,
+          symbol,
+          totalSupply: totalSupply.toString(),
+          owner: agent.walletAddress,
+          tokenAddress: tokenContractAddress,
+        },
+      },
     });
-    // return new Response("Webhook received!", { status: 200 });
-  } catch (e: any) {
-    console.error('Error processing webhook:', e.message);
-    res.status(400).json({
+  } catch (error: any) {
+    console.error('Error deploying token:', error);
+    return res.status(400).json({
       success: false,
-      error: 'error',
+      error: error.message || 'Failed to deploy token',
     });
   }
+};
+
+const generateSalt = async (
+  deployer: `0x${string}`,
+  name: string,
+  symbol: string,
+  supply: bigint,
+): Promise<`0x${string}`> => {
+  const salt = await publicClient.readContract({
+    address: '0x527d044c74E48420815Cf9328f03B7471440D979',
+    abi: tokenABI,
+    functionName: 'generateSalt',
+    args: [deployer, name, symbol, supply],
+  });
+  return salt as `0x${string}`;
+};
+
+const deployToken = async (
+  smartAccountClient: any,
+  name: string,
+  symbol: string,
+  totalSupply: bigint,
+  initialTick: number,
+  poolFee: number,
+  deployer: `0x${string}`,
+  salt: `0x${string}`,
+): Promise<`0x${string}`> => {
+  const txHash = await smartAccountClient.sendTransaction({
+    to: '0x527d044c74E48420815Cf9328f03B7471440D979',
+    data: encodeFunctionData({
+      abi: tokenABI,
+      functionName: 'deployToken',
+      args: [name, symbol, totalSupply, initialTick, poolFee, salt, deployer],
+    }),
+    value: BigInt(0),
+  });
+  return txHash;
 };

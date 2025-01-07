@@ -323,8 +323,26 @@ export const GetWalletDetails = async (
       });
     }
 
-    // Find the specific agent
-    const agent = subOrg.agents.find((a) => a.name === agentName);
+    const agentQuery = `
+      SELECT 
+        a.*,
+        json_agg(
+          json_build_object(
+            'tokenAddress', dt.token_address,
+            'tokenName', dt.token_name,
+            'tokenSymbol', dt.token_symbol,
+            'createdAt', dt.created_at
+          )
+        ) FILTER (WHERE dt.id IS NOT NULL) as deployed_tokens
+      FROM ai_agents a
+      LEFT JOIN deployed_tokens dt ON dt.agent_id = a.id
+      WHERE a.sub_org_id = $1 AND a.name = $2
+      GROUP BY a.id
+    `;
+
+    const agentResult = await pool.query(agentQuery, [subOrg.id, agentName]);
+    const agent = agentResult.rows[0];
+
     if (!agent) {
       return res.status(404).json({
         success: false,
@@ -339,8 +357,9 @@ export const GetWalletDetails = async (
         sign_with: subOrg.ownerWalletAddress,
         agent: {
           name: agent.name,
-          address: agent.walletAddress,
-          saltNonce: agent.saltNonce,
+          address: agent.wallet_address,
+          saltNonce: agent.salt_nonce,
+          deployedTokens: agent.deployed_tokens || [],
         },
       },
     });
