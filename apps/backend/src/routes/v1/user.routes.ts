@@ -1,9 +1,9 @@
 import express from 'express';
+import { verifyJwt } from '../../middleware/verifyJwt';
 import * as subOrgController from '../../controllers/wallet/subOrg.controller';
 
 const router = express.Router();
 
-// Get all details (user, sub-org, and all agents)
-router.get('/get-user-details', subOrgController.GetUserDetails);
+router.get('/get-user-details', verifyJwt, subOrgController.GetUserDetails);
 
 export default router;

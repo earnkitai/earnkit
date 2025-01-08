@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import UserModel from '../../models/user.model';
 import pool from '../../config/database';
-import { verifySignature } from '../../utils/SignatureUtils';
 
 export const createApiKey = async (
   req: Request,
@@ -90,14 +89,9 @@ export const GetUserApiKeys = async (
   res: Response,
 ): Promise<any> => {
   try {
-    const { address, signature } = req.query;
+    const { address } = req.query;
 
-    if (
-      !address ||
-      typeof address !== 'string' ||
-      !signature ||
-      typeof signature !== 'string'
-    ) {
+    if (!address || typeof address !== 'string') {
       return res.status(400).json({
         success: false,
         error: 'Valid address and signature are required',
@@ -105,13 +99,6 @@ export const GetUserApiKeys = async (
     }
 
     // Verify the signature
-    const isValidSignature = verifySignature(address, signature);
-    if (!isValidSignature) {
-      return res.status(403).json({
-        success: false,
-        error: 'Invalid signature',
-      });
-    }
 
     const apiKeysQuery = `
       SELECT 

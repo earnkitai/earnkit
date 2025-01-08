@@ -1,9 +1,13 @@
 import express from 'express';
+import { verifyJwt } from '../../middleware/verifyJwt';
 import * as transactionController from '../../controllers/wallet/transaction.controller';
 
 const router = express.Router();
 
-// Execute transaction
-router.post('/execute-transaction', transactionController.ExecuteTransaction);
+router.post(
+  '/execute-transaction',
+  verifyJwt,
+  transactionController.ExecuteTransaction,
+);
 
 export default router;

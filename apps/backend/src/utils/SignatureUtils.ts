@@ -6,7 +6,7 @@ export const verifySignature = (
 ): boolean => {
   try {
     // The message that was signed
-    const message = `Verify address: ${address}`;
+    const message = `Sign this message to verify your wallet ownership: ${address}`;
 
     // Recover the address from the signature
     const recoveredAddress = ethers.verifyMessage(message, signature);
