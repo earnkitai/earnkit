@@ -8,18 +8,19 @@ export const createApiKey = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { userId, subscriptionType = 'free' } = req.body;
+    const { subscriptionType = 'free' } = req.body;
+    const userAddress = req.user?.address; // Get address from JWT token
 
-    if (!userId) {
-      res.status(400).json({
+    if (!userAddress) {
+      res.status(401).json({
         success: false,
-        error: 'User ID is required',
+        error: 'Authentication required',
       });
       return;
     }
 
-    // Find user
-    const user = await UserModel.findByAddress(userId);
+    // Find user using verified address from JWT
+    const user = await UserModel.findByAddress(userAddress);
     if (!user) {
       res.status(404).json({
         success: false,
@@ -29,7 +30,7 @@ export const createApiKey = async (
     }
 
     // Check existing API keys count
-    const existingKeys = await UserModel.getApiKeys(userId);
+    const existingKeys = await UserModel.getApiKeys(userAddress);
     if (existingKeys.length >= 5) {
       res.status(400).json({
         success: false,
@@ -89,50 +90,21 @@ export const GetUserApiKeys = async (
   res: Response,
 ): Promise<any> => {
   try {
-    const { address } = req.query;
+    const userAddress = req.user?.address; // Get address from JWT token
 
-    if (!address || typeof address !== 'string') {
-      return res.status(400).json({
+    if (!userAddress) {
+      return res.status(401).json({
         success: false,
-        error: 'Valid address and signature are required',
+        error: 'Authentication required',
       });
     }
 
-    // Verify the signature
-
-    const apiKeysQuery = `
-      SELECT 
-        pak.api_key,
-        pak.created_at,
-        pak.expires_at,
-        pak.active,
-        pak.usage_count,
-        pak.max_usage,
-        pak.subscription_type
-      FROM users u
-      JOIN platform_api_keys pak ON u.id = pak.user_id
-      WHERE u.user_id = $1
-      ORDER BY pak.created_at DESC
-    `;
-
-    const apiKeysResult = await pool.query(apiKeysQuery, [address]);
-    const apiKeys = apiKeysResult.rows;
-
-    if (!apiKeys.length) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          address,
-          apiKeys: [],
-          message: 'No API keys found for this user',
-        },
-      });
-    }
+    const apiKeys = await UserModel.getApiKeys(userAddress);
 
     return res.status(200).json({
       success: true,
       data: {
-        address,
+        address: userAddress,
         apiKeys: apiKeys.map((key) => ({
           apiKey: key.api_key,
           createdAt: key.created_at,

@@ -2,20 +2,20 @@ import pool from '../config/database';
 
 interface IUser {
   id: number;
-  userId: string; // blockchain address
+  user_id: string; // blockchain address
   email: string;
   createdAt: Date;
 }
 
 interface IApiKey {
   id: number;
-  apiKey: string;
-  createdAt: Date;
-  expiresAt: Date;
+  api_key: string;
+  created_at: Date;
+  expires_at: Date;
   active: boolean;
-  usageCount: number;
-  maxUsage: number;
-  subscriptionType: string;
+  usage_count: number;
+  max_usage: number;
+  subscription_type: string;
 }
 
 class UserModel {

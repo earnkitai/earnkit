@@ -11,6 +11,7 @@ import WalletModel, { IAgent } from '../../models/wallet.model';
 import pool from '../../config/database';
 import { generateP256KeyPairHex } from '../../utils/ApiKeyUtils';
 import { getApiKeyFromHeader } from '../../utils/GetHeaders';
+import UserModel from '../../models/user.model';
 
 export const publicClient = createPublicClient({
   chain: baseSepolia,
@@ -42,38 +43,37 @@ export const CreateAIAgentWallet = async (
   res: Response,
 ): Promise<any> => {
   try {
-    const apiKey = getApiKeyFromHeader(req);
+    const userAddress = req.user?.address;
     const { agentName } = req.body;
 
-    if (!apiKey || !agentName) {
+    if (!agentName) {
       return res.status(400).json({
         success: false,
-        error: 'API key in headers and agent name are required',
+        error: 'Agent name is required',
       });
     }
 
     // Get user details and check if they already have a sub-org
     const userQuery = `
-        SELECT 
-          u.id,
-          u.user_id, 
-          u.email,
-          EXISTS (
-            SELECT 1 FROM sub_organizations so 
-            WHERE so.user_id = u.id
-          ) as has_sub_org
-        FROM users u
-        JOIN platform_api_keys pak ON u.id = pak.user_id
-        WHERE pak.api_key = $1 AND pak.active = true
-      `;
+      SELECT 
+        u.id,
+        u.user_id, 
+        u.email,
+        EXISTS (
+          SELECT 1 FROM sub_organizations so 
+          WHERE so.user_id = u.id
+        ) as has_sub_org
+      FROM users u
+      WHERE u.user_id = $1
+    `;
 
-    const userResult = await pool.query(userQuery, [apiKey]);
+    const userResult = await pool.query(userQuery, [userAddress]);
     const user = userResult.rows[0];
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: 'No user found with the provided API key',
+        error: 'User not found',
       });
     }
 
@@ -199,31 +199,22 @@ export const AddNewAIAgentWallet = async (
   res: Response,
 ): Promise<any> => {
   try {
-    const apiKey = getApiKeyFromHeader(req);
+    const userAddress = req.user?.address;
     const { agentName } = req.body;
 
-    if (!apiKey || !agentName) {
+    if (!agentName) {
       return res.status(400).json({
         success: false,
-        error: 'API key in headers and agent name are required',
+        error: 'Agent name is required',
       });
     }
 
-    // Find the base wallet record using apiKey
-    const baseWallet = await WalletModel.findByApiKey(apiKey);
+    // Find the base wallet record using user address
+    const baseWallet = await WalletModel.findByUserAddress(userAddress!);
     if (!baseWallet) {
       return res.status(404).json({
         success: false,
-        error: 'No Dev User found for the provided API key',
-      });
-    }
-
-    console.log('Base wallet found:', baseWallet); // Debug log
-
-    if (!baseWallet.ownerWalletAddress) {
-      return res.status(400).json({
-        success: false,
-        error: 'Wallet has no sign_with value',
+        error: 'No wallet found for this user',
       });
     }
 
@@ -257,8 +248,8 @@ export const AddNewAIAgentWallet = async (
     });
 
     // Check if agent with this name already exists
-    const existingAgent = await WalletModel.findAgentByNameAndApiKey(
-      apiKey,
+    const existingAgent = await WalletModel.findAgentByNameAndUserAddress(
+      userAddress!,
       agentName,
     );
     if (existingAgent) {
@@ -291,41 +282,28 @@ export const AddNewAIAgentWallet = async (
   }
 };
 
-// Get wallet details with agentName and APIkey
-export const GetWalletDetails = async (
+// Get agent details by wallet address
+export const GetAgentByWalletAddress = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    const apiKey = getApiKeyFromHeader(req);
-    const { agentName } = req.query;
+    const userAddress = req.user?.address;
+    const { walletAddress } = req.query;
 
-    if (!apiKey) {
+    if (!walletAddress || typeof walletAddress !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'API key is required in headers',
+        error: 'Wallet address is required',
       });
     }
 
-    if (!agentName || typeof agentName !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Agent name is required',
-      });
-    }
-
-    // Find sub-org and agent by API key
-    const subOrg = await WalletModel.findByApiKey(apiKey);
-    if (!subOrg) {
-      return res.status(404).json({
-        success: false,
-        error: 'No sub-organization found for the provided API key',
-      });
-    }
-
+    // Query to get agent details by wallet address
     const agentQuery = `
       SELECT 
         a.*,
+        so.organization_id,
+        so.owner_wallet_address as sign_with,
         json_agg(
           json_build_object(
             'tokenAddress', dt.token_address,
@@ -335,26 +313,32 @@ export const GetWalletDetails = async (
           )
         ) FILTER (WHERE dt.id IS NOT NULL) as deployed_tokens
       FROM ai_agents a
+      JOIN sub_organizations so ON so.id = a.sub_org_id
+      JOIN users u ON u.id = so.user_id
       LEFT JOIN deployed_tokens dt ON dt.agent_id = a.id
-      WHERE a.sub_org_id = $1 AND a.name = $2
-      GROUP BY a.id
+      WHERE a.wallet_address = $1 
+      AND u.user_id = $2
+      GROUP BY a.id, so.organization_id, so.owner_wallet_address
     `;
 
-    const agentResult = await pool.query(agentQuery, [subOrg.id, agentName]);
+    const agentResult = await pool.query(agentQuery, [
+      walletAddress,
+      userAddress,
+    ]);
     const agent = agentResult.rows[0];
 
     if (!agent) {
       return res.status(404).json({
         success: false,
-        error: 'No agent found with the provided name',
+        error: 'No agent found with the provided wallet address',
       });
     }
 
     return res.status(200).json({
       success: true,
       data: {
-        organization_id: subOrg.organizationId,
-        sign_with: subOrg.ownerWalletAddress,
+        organization_id: agent.organization_id,
+        sign_with: agent.sign_with,
         agent: {
           name: agent.name,
           address: agent.wallet_address,

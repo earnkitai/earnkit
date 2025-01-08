@@ -47,7 +47,7 @@ export const registerUser = async (
     res.status(201).json({
       success: true,
       data: {
-        userId: user.userId,
+        userId: user.user_id,
         email: user.email,
         token, // Include the JWT token in the response
       },
@@ -61,23 +61,14 @@ export const registerUser = async (
   }
 };
 
-export const CheckUserExists = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const loginUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { address } = req.query;
-    const { signature } = req.body;
+    const { address, signature } = req.body;
 
-    if (
-      !address ||
-      typeof address !== 'string' ||
-      !signature ||
-      typeof signature !== 'string'
-    ) {
+    if (!address || !signature) {
       res.status(400).json({
         success: false,
-        error: 'Valid address and signature are required',
+        error: 'Address and signature are required',
       });
       return;
     }
@@ -105,12 +96,13 @@ export const CheckUserExists = async (
 
     // Generate JWT token
     const token = generateToken(address, signature);
+    console.log('token', user);
 
     res.status(200).json({
       success: true,
       exists: true,
       data: {
-        userId: user.userId,
+        userId: user.user_id,
         email: user.email,
         token,
       },

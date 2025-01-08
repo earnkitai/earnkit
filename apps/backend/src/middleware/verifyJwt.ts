@@ -26,7 +26,6 @@ export const verifyJwt = async (
       return;
     }
 
-    // Add decoded address to request
     req.user = { address: decoded.address };
     next();
   } catch (error) {

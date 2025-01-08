@@ -1,8 +1,8 @@
-import { pool } from './pool';
+import pool from '../config/database';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-async function runMigration(migrationFile: string = '001_create_tables.sql') {
+async function runMigration(migrationFile: string) {
   try {
     const sql = readFileSync(
       join(__dirname, 'migrations', migrationFile),
@@ -18,5 +18,5 @@ async function runMigration(migrationFile: string = '001_create_tables.sql') {
 }
 
 // Get migration file from command line argument, default to 001 if not provided
-const migrationFile = process.argv[2] || '001_create_tables.sql';
+const migrationFile = process.argv[2];
 runMigration(migrationFile);

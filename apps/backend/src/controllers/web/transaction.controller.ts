@@ -13,6 +13,7 @@ import WalletModel from '../../models/wallet.model';
 import { getApiKeyFromHeader } from '../../utils/GetHeaders';
 import tokenABI from '../../utils/tokenABI.json';
 import pool from '../../config/database';
+import { privateKeyToAccount } from 'viem/accounts';
 
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
@@ -22,36 +23,38 @@ export const publicClient = createPublicClient({
   transport: http('https://sepolia.base.org'),
 });
 
-export const ExecuteTransaction = async (
+export const DeployAgentToken = async (
   req: Request,
   res: Response,
 ): Promise<any> => {
   try {
-    const apiKey = getApiKeyFromHeader(req);
-    const { agentName } = req.query;
+    const userAddress = req.user?.address;
+    const { agentWalletAddress } = req.query;
     const { name, symbol } = req.body;
 
-    if (!apiKey || !agentName) {
+    if (!agentWalletAddress) {
       return res.status(400).json({
         success: false,
-        error: 'API key in headers and agent name are required',
+        error: 'Agent wallet address is required',
       });
     }
 
-    const wallet = await WalletModel.findByApiKey(apiKey);
+    const wallet = await WalletModel.findByUserAddress(userAddress!);
     if (!wallet) {
       return res.status(404).json({
         success: false,
-        error: 'No wallet found for the provided API key',
+        error: 'No wallet found for this user',
       });
     }
 
-    // Find the agent
-    const agent = wallet.agents.find((a) => a.name === agentName);
+    // Find the agent by wallet address instead of name
+    const agent = wallet.agents.find(
+      (a) => a.walletAddress === agentWalletAddress,
+    );
     if (!agent) {
       return res.status(404).json({
         success: false,
-        error: 'No agent found with the provided name',
+        error: 'No agent found with the provided wallet address',
       });
     }
 
@@ -68,6 +71,9 @@ export const ExecuteTransaction = async (
       signWith: wallet.ownerWalletAddress,
     });
 
+    const privateKey =
+      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f';
+
     const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`;
     const pimlicoClient = createPimlicoClient({
       transport: http(pimlicoUrl),
@@ -83,10 +89,11 @@ export const ExecuteTransaction = async (
         address: entryPoint07Address,
         version: '0.7',
       },
-      owners: [turnkeyAccount],
-      saltNonce: BigInt(agent.saltNonce),
+      owners: [privateKeyToAccount(privateKey)],
+      // owners: [turnkeyAccount],
+      // saltNonce: BigInt(agent.saltNonce), //commented for testing purposes
       version: '1.4.1',
-      address: agent.walletAddress as `0x${string}`,
+      // address: agent.address as `0x${string}`, //commented for testing purposes
     });
 
     const smartAccountClient = createSmartAccountClient({
