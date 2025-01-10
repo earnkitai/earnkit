@@ -79,7 +79,7 @@ export const CreateAIAgentWallet = async (
 
     // Check if user already has a sub-org
     if (user.has_sub_org) {
-      return res.status(400).json({
+      return res.status(200).json({
         success: false,
         error:
           'User already has a Turnkey Sub-org. Use AddNewAIAgentWallet to create additional agents.',
