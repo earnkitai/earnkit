@@ -14,6 +14,9 @@ import { getApiKeyFromHeader } from '../../utils/GetHeaders';
 import tokenABI from '../../utils/tokenABI.json';
 import pool from '../../config/database';
 import { privateKeyToAccount } from 'viem/accounts';
+import LPLocker__factory from '../../utils/LPLockerABI.json';
+import { useReadContract } from 'wagmi';
+import { ethers } from 'ethers';
 
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
@@ -172,6 +175,146 @@ export const DeployAgentToken = async (
     return res.status(400).json({
       success: false,
       error: error.message || 'Failed to deploy token',
+    });
+  }
+};
+
+export const claimFees = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userAddress = req.user?.address;
+    const poolAddress = '0x65A3bbf06F0446a44B5c1625399c429DD7358125';
+    const tokenId = 8277;
+    const { agentWalletAddress } = req.query;
+    // const {poolAddress, tokenId} = req.body  /pool address is locker address
+
+    if (!agentWalletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Agent wallet address is required',
+      });
+    }
+
+    const wallet = await WalletModel.findByUserAddress(userAddress!);
+    if (!wallet) {
+      return res.status(404).json({
+        success: false,
+        error: 'No wallet found for this user',
+      });
+    }
+
+    // console.log('Wallet agents:', wallet.agents); // Debugging: Ensure agents are retrieved
+
+    // Safely find the agent
+    const agent = wallet.agents?.find(
+      (a) => a.walletAddress === agentWalletAddress,
+    );
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        error: 'No agent found with the provided wallet address',
+      });
+    }
+
+    console.log('Agent:', agent); // Debugging: Ensure agent is found
+
+    // Remaining logic...
+    const turnkeyServer = new Turnkey({
+      apiBaseUrl: 'https://api.turnkey.com',
+      apiPrivateKey: wallet.privateKey,
+      apiPublicKey: wallet.publicKey,
+      defaultOrganizationId: wallet.organizationId,
+    }).apiClient();
+
+    const privateKey =
+      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f';
+
+    const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`;
+    const pimlicoClient = createPimlicoClient({
+      transport: http(pimlicoUrl),
+      entryPoint: {
+        address: entryPoint07Address!,
+        version: '0.7',
+      },
+    });
+
+    console.log('agent', agent);
+    const account = await toSafeSmartAccount({
+      client: publicClient,
+      entryPoint: {
+        address: entryPoint07Address,
+        version: '0.7',
+      },
+      saltNonce: BigInt(agent.saltNonce),
+      owners: [privateKeyToAccount(privateKey)],
+      address: agent.walletAddress as `0x${string}`,
+      // owners: [turnkeyAccount],
+      version: '1.4.1',
+    });
+
+    console.log('agent address:', agent.walletAddress, account.address);
+
+    const smartAccountClient = createSmartAccountClient({
+      account,
+      chain: baseSepolia,
+      bundlerTransport: http(pimlicoUrl),
+      paymaster: pimlicoClient,
+      userOperation: {
+        estimateFeesPerGas: async () => {
+          return (await pimlicoClient.getUserOperationGasPrice()).fast;
+        },
+      },
+    });
+
+    const collectFeesAbi = [
+      {
+        inputs: [
+          {
+            internalType: 'address',
+            name: '_recipient',
+            type: 'address',
+          },
+          {
+            internalType: 'uint256',
+            name: '_tokenId',
+            type: 'uint256',
+          },
+        ],
+        name: 'collectFees',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
+    ];
+
+    // const transaction = await smartAccountClient.sendTransaction({
+    //   to: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+    //   value: 0n,
+    //   data: '0x1234',
+    // });
+    const transaction = await smartAccountClient.sendTransaction({
+      to: poolAddress as `0x${string}`,
+      data: encodeFunctionData({
+        abi: collectFeesAbi,
+        functionName: 'collectFees',
+        args: [agentWalletAddress, tokenId],
+      }),
+    });
+
+    console.log('Transaction:', transaction);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        transactionHash: transaction,
+        message: 'Successfully claimed fees',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error claiming fees:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to claim fees',
     });
   }
 };

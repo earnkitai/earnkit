@@ -12,6 +12,7 @@ import pool from '../../config/database';
 import { generateP256KeyPairHex } from '../../utils/ApiKeyUtils';
 import { getApiKeyFromHeader } from '../../utils/GetHeaders';
 import UserModel from '../../models/user.model';
+import { privateKeyToAccount } from 'viem/accounts';
 
 export const publicClient = createPublicClient({
   chain: baseSepolia,
@@ -151,6 +152,8 @@ export const CreateAIAgentWallet = async (
       Math.floor(Math.random() * 1000)
     ).toString();
 
+    const TempprivateKey =
+      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f'; //added to not use turnkey account for testing purposes
     // Create safe account for the agent
     const account = await toSafeSmartAccount({
       client: publicClient,
@@ -159,7 +162,8 @@ export const CreateAIAgentWallet = async (
         version: '0.7',
       },
       saltNonce: BigInt(saltNonce),
-      owners: [turnkeyAccount],
+      owners: [privateKeyToAccount(TempprivateKey)], //testing purposes
+      // owners: [turnkeyAccount],
       version: '1.4.1',
     });
 

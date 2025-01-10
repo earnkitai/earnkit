@@ -24,5 +24,6 @@ router.get(
 router.post('/create-ai-agent-wallet', agentController.CreateAIAgentWallet);
 router.post('/add-new-ai-agent-wallet', agentController.AddNewAIAgentWallet);
 router.post('/deploy-agent-token', transactionController.DeployAgentToken);
+router.post('/claim-agent-fees', transactionController.claimFees);
 
 export default router;
