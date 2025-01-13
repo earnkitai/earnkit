@@ -222,32 +222,36 @@ export const AddNewAIAgentWallet = async (
       });
     }
 
-    const turnkeyServer = new Turnkey({
-      apiBaseUrl: 'https://api.turnkey.com',
-      apiPrivateKey: baseWallet.privateKey,
-      apiPublicKey: baseWallet.publicKey,
-      defaultOrganizationId: baseWallet.organizationId, // Note: using snake_case from DB
-    }).apiClient();
+    // const turnkeyServer = new Turnkey({
+    //   apiBaseUrl: 'https://api.turnkey.com',
+    //   apiPrivateKey: baseWallet.privateKey,
+    //   apiPublicKey: baseWallet.publicKey,
+    //   defaultOrganizationId: baseWallet.organizationId, // Note: using snake_case from DB
+    // }).apiClient();
 
-    const turnkeyAccount = await createAccount({
-      client: turnkeyServer,
-      organizationId: baseWallet.organizationId,
-      signWith: baseWallet.ownerWalletAddress, // Note: using snake_case from DB
-    });
+    // const turnkeyAccount = await createAccount({
+    //   client: turnkeyServer,
+    //   organizationId: baseWallet.organizationId,
+    //   signWith: baseWallet.ownerWalletAddress, // Note: using snake_case from DB
+    // });
 
     // Generate unique salt based on timestamp and random number
     const saltNonce = BigInt(
       Date.now() * 1000 + Math.floor(Math.random() * 1000),
     );
 
+    const TempprivateKey =
+      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f'; //added to not use turnkey account for testing purposes
+    // Create safe account for the agent
     const account = await toSafeSmartAccount({
       client: publicClient,
       entryPoint: {
         address: entryPoint07Address,
         version: '0.7',
       },
-      saltNonce: saltNonce,
-      owners: [turnkeyAccount],
+      saltNonce: BigInt(saltNonce),
+      owners: [privateKeyToAccount(TempprivateKey)], //testing purposes
+      // owners: [turnkeyAccount],
       version: '1.4.1',
     });
 
@@ -313,6 +317,8 @@ export const GetAgentByWalletAddress = async (
             'tokenAddress', dt.token_address,
             'tokenName', dt.token_name,
             'tokenSymbol', dt.token_symbol,
+            'lockerAddress', dt.locker_address,
+            'tokenId', dt.token_id,
             'createdAt', dt.created_at
           )
         ) FILTER (WHERE dt.id IS NOT NULL) as deployed_tokens

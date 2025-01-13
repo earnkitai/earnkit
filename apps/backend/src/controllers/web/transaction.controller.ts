@@ -1,12 +1,16 @@
 import { Request, Response } from 'express';
 import 'dotenv/config';
 import { toSafeSmartAccount } from 'permissionless/accounts';
-import { Address, createPublicClient, http } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { Address, createClient, createPublicClient, http } from 'viem';
+import { baseSepolia, mainnet, sepolia } from 'viem/chains';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { Turnkey } from '@turnkey/sdk-server';
 import { createAccount } from '@turnkey/viem';
-import { entryPoint07Address } from 'viem/account-abstraction';
+import {
+  createBundlerClient,
+  entryPoint07Address,
+} from 'viem/account-abstraction';
+
 import { createSmartAccountClient } from 'permissionless';
 import { encodeFunctionData } from 'viem';
 import WalletModel from '../../models/wallet.model';
@@ -17,6 +21,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import LPLocker__factory from '../../utils/LPLockerABI.json';
 import { useReadContract } from 'wagmi';
 import { ethers } from 'ethers';
+import { useWaitForTransactionReceipt } from 'wagmi';
 
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
@@ -92,13 +97,12 @@ export const DeployAgentToken = async (
         address: entryPoint07Address,
         version: '0.7',
       },
+      saltNonce: BigInt(agent.saltNonce),
       owners: [privateKeyToAccount(privateKey)],
+      address: agent.walletAddress as `0x${string}`,
       // owners: [turnkeyAccount],
-      // saltNonce: BigInt(agent.saltNonce), //commented for testing purposes
       version: '1.4.1',
-      // address: agent.address as `0x${string}`, //commented for testing purposes
     });
-
     const smartAccountClient = createSmartAccountClient({
       account,
       chain: baseSepolia,
@@ -139,23 +143,77 @@ export const DeployAgentToken = async (
       salt as `0x${string}`,
     );
 
-    // Store token details
-    const storeTokenQuery = `
-      INSERT INTO deployed_tokens (
-        agent_id,
-        token_address,
-        token_name,
-        token_symbol
-      ) VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `;
+    const provider = new ethers.JsonRpcProvider('https://sepolia.base.org');
 
-    await pool.query(storeTokenQuery, [
-      agent.id,
-      tokenContractAddress,
-      name,
-      symbol,
-    ]);
+    const contract = new ethers.Contract(
+      '0x527d044c74E48420815Cf9328f03B7471440D979',
+      LPLocker__factory,
+      provider,
+    );
+
+    const receipt = await provider.getTransactionReceipt(txHash);
+    console.log(receipt);
+
+    if (receipt === null) {
+      console.error('Transaction receipt not found.');
+      return;
+    }
+
+    if ('logs' in receipt && Array.isArray(receipt.logs)) {
+      // Parse logs
+      const parsedLogs = (receipt.logs as any[])
+        .map((log) => {
+          try {
+            return contract.interface.parseLog(log);
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean); // Remove null values
+
+      // console.log('Parsed Logs:', parsedLogs);
+      parsedLogs.forEach((log) => {
+        if (log?.name === 'TokenCreated') {
+          const tokenCreatedArgs = log.args;
+
+          const tokenAddress = tokenCreatedArgs[0];
+          const lpNftId = tokenCreatedArgs[1]; // BigInt
+          const deployer = tokenCreatedArgs[2];
+          const name = tokenCreatedArgs[3];
+          const symbol = tokenCreatedArgs[4];
+          const supply = tokenCreatedArgs[5]; // BigInt
+          const lockerAddress = tokenCreatedArgs[6];
+
+          console.log('TokenCreated Event Details:');
+          console.log('Token Address:', tokenAddress);
+          console.log('LP NFT ID:', lpNftId.toString());
+          console.log('Deployer:', deployer);
+          console.log('Name:', name);
+          console.log('Symbol:', symbol);
+          console.log('Supply:', supply.toString());
+          console.log('Locker Address:', lockerAddress);
+          const storeTokenQuery = `
+        INSERT INTO deployed_tokens (
+          agent_id,
+          token_address,
+          token_name,
+          token_symbol,
+          locker_address,
+          token_id
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `;
+          pool.query(storeTokenQuery, [
+            agent.id,
+            tokenContractAddress,
+            name,
+            symbol,
+            lockerAddress,
+            lpNftId.toString(),
+          ]);
+        }
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -182,10 +240,10 @@ export const DeployAgentToken = async (
 export const claimFees = async (req: Request, res: Response): Promise<any> => {
   try {
     const userAddress = req.user?.address;
-    const poolAddress = '0x65A3bbf06F0446a44B5c1625399c429DD7358125';
-    const tokenId = 8277;
+    // const poolAddress = '0xfffc9CF664eFbC1ea2DAdCa1957254668A43bbc3';
+    // const tokenId = 8618;
     const { agentWalletAddress } = req.query;
-    // const {poolAddress, tokenId} = req.body  /pool address is locker address
+    const { lockerAddress, tokenId } = req.body;
 
     if (!agentWalletAddress) {
       return res.status(400).json({
@@ -293,7 +351,7 @@ export const claimFees = async (req: Request, res: Response): Promise<any> => {
     //   data: '0x1234',
     // });
     const transaction = await smartAccountClient.sendTransaction({
-      to: poolAddress as `0x${string}`,
+      to: lockerAddress as `0x${string}`,
       data: encodeFunctionData({
         abi: collectFeesAbi,
         functionName: 'collectFees',
@@ -353,5 +411,6 @@ const deployToken = async (
     }),
     value: BigInt(0),
   });
+
   return txHash;
 };
