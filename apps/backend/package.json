@@ -6,7 +6,11 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "dev": "nodemon --exec tsx src/app.ts",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "echo \"No tests yet\" && exit 0",
+    "migrate": "tsx src/db/migrate.ts",
+    "migrate:users": "tsx src/db/migrate.ts 001_create_users.sql",
+    "migrate:posts": "tsx src/db/migrate.ts 002_create_posts.sql",
+    "migrate:comments": "tsx src/db/migrate.ts 003_create_comments.sql"
   },
   "keywords": [],
   "author": "",
@@ -44,5 +48,9 @@
     "nodemon": "^3.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
   }
 }
