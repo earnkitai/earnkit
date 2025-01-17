@@ -38,6 +38,15 @@ export const registerUser = async (
       return;
     }
 
+    const existingEmail = await UserModel.findByEmail(email);
+    if (existingEmail) {
+      res.status(400).json({
+        success: false,
+        error: 'User already exists with this email',
+      });
+      return;
+    }
+
     // Create new user
     const user = await UserModel.createUser(email, address);
 

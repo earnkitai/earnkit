@@ -42,6 +42,18 @@ class UserModel {
     return result.rows[0] || null;
   }
 
+  // Find user by email
+
+  static async findByEmail(address: string): Promise<IUser | null> {
+    const query = `
+      SELECT * FROM users
+      WHERE email = $1
+    `;
+
+    const result = await pool.query(query, [address]);
+    return result.rows[0] || null;
+  }
+
   // Get all API keys for a user
   static async getApiKeys(address: string): Promise<IApiKey[]> {
     const query = `
