@@ -28,9 +28,9 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "build:railway": "pnpm install --no-frozen-lockfile && pnpm install --filter backend... && pnpm build:backend",
     "migrate:database": "pnpm --filter backend migrate",
-    "migrate:users": "pnpm --filter backend migrate:users",
-    "migrate:posts": "pnpm --filter backend migrate:posts",
-    "migrate:comments": "pnpm --filter backend migrate:comments",
+    "migrate:tables": "pnpm --filter backend migrate:tables",
+    "migrate:deploy_tokens": "pnpm --filter backend migrate:deploy_tokens",
+    "migrate:columns_in_deployed_tokens": "pnpm --filter backend migrate:columns_in_deployed_tokens",
     "preinstall": "node preinstall.js"
   },
   "pnpm": {

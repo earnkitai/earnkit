@@ -8,9 +8,9 @@
     "dev": "nodemon --exec tsx src/app.ts",
     "test": "echo \"No tests yet\" && exit 0",
     "migrate": "tsx src/db/migrate.ts",
-    "migrate:users": "tsx src/db/migrate.ts 001_create_users.sql",
-    "migrate:posts": "tsx src/db/migrate.ts 002_create_posts.sql",
-    "migrate:comments": "tsx src/db/migrate.ts 003_create_comments.sql"
+    "migrate:tables": "tsx src/db/migrate.ts 001_create_tables.sql",
+    "migrate:deploy_tokens": "tsx src/db/migrate.ts 002_add_deployed_tokens.sql",
+    "migrate:columns_in_deployed_tokens": "tsx src/db/migrate.ts 003_add_columns_in_deployed_tokens.sql"
   },
   "keywords": [],
   "author": "",
