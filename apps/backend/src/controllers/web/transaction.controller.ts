@@ -41,7 +41,7 @@ const storeInCoinvise = async (tokenDetails: TokenDetails): Promise<void> => {
     }
 
     await axios.post(
-      'https://api-staging.coinvise.co/token?chain=84532',
+      'https://api-staging.coinvise.co/token?chain=8453',
       {
         name: tokenDetails.name,
         address: tokenDetails.tokenAddress,
@@ -51,14 +51,14 @@ const storeInCoinvise = async (tokenDetails: TokenDetails): Promise<void> => {
         slope: 'null',
         slopeDecimals: 'null',
         type: 'ERC20',
-        description: '',
+        description: 'Deployed by Earnkit AI Agent',
         imageUrl: tokenDetails.imageUrl || '',
         lpLockerAddress: tokenDetails.lpLockerAddress,
       },
       {
         headers: {
           'x-api-key': process.env.COINVISE_API_KEY,
-          'X-Authenticated-User': tokenDetails.ownerAddress,
+          'X-Authenticated-User': '0x97861976283e6901b407D1e217B72c4007D9F64D',
           'Content-Type': 'application/json',
         },
       },
