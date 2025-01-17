@@ -24,6 +24,52 @@ import { ethers } from 'ethers';
 import { useWaitForTransactionReceipt } from 'wagmi';
 import axios from 'axios';
 
+interface TokenDetails {
+  name: string;
+  tokenAddress: string;
+  symbol: string;
+  tokenSupply: string;
+  lpLockerAddress: string;
+  imageUrl?: string;
+  ownerAddress: string;
+}
+
+const storeInCoinvise = async (tokenDetails: TokenDetails): Promise<void> => {
+  try {
+    if (!process.env.COINVISE_API_KEY) {
+      throw new Error('Missing COINVISE_API_KEY environment variable');
+    }
+
+    await axios.post(
+      'https://api-staging.coinvise.co/token?chain=84532',
+      {
+        name: tokenDetails.name,
+        address: tokenDetails.tokenAddress,
+        symbol: tokenDetails.symbol,
+        decimals: 18,
+        tokenSupply: tokenDetails.tokenSupply,
+        slope: 'null',
+        slopeDecimals: 'null',
+        type: 'ERC20',
+        description: '',
+        imageUrl: tokenDetails.imageUrl || '',
+        lpLockerAddress: tokenDetails.lpLockerAddress,
+      },
+      {
+        headers: {
+          'x-api-key': process.env.COINVISE_API_KEY,
+          'X-Authenticated-User': tokenDetails.ownerAddress,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    console.log('Token details stored in Coinvise successfully');
+  } catch (error) {
+    console.error('Error storing token details in Coinvise:', error);
+    throw error;
+  }
+};
+
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
 
@@ -172,47 +218,26 @@ export const DeployAgentToken = async (
         })
         .filter(Boolean); // Remove null values
 
-      // console.log('Parsed Logs:', parsedLogs);
-      parsedLogs.forEach((log) => {
+      // Process logs
+      for (const log of parsedLogs) {
         if (log?.name === 'TokenCreated') {
           const tokenCreatedArgs = log.args;
           const lpNftId = tokenCreatedArgs[1]; // BigInt
           const lockerAddress = tokenCreatedArgs[6];
 
           // Store token details in Coinvise
-          const storeInCoinvise = async () => {
-            try {
-              await axios.post(
-                'https://api-staging.coinvise.co/token?chain=84532',
-                {
-                  name,
-                  address: tokenContractAddress,
-                  symbol,
-                  decimals: 18,
-                  tokenSupply: totalSupply.toString(),
-                  slope: 'null',
-                  slopeDecimals: 'null',
-                  type: 'ERC20',
-                  description: '',
-                  imageUrl: '', // No image URL in deployment
-                  lpLockerAddress: lockerAddress,
-                },
-                {
-                  headers: {
-                    'x-api-key': process.env.COINVISE_API_KEY!,
-                    'X-Authenticated-User': agent.walletAddress,
-                    'Content-Type': 'application/json',
-                  },
-                },
-              );
-              console.log('Token details stored in Coinvise successfully');
-            } catch (error) {
-              console.error('Error storing token details in Coinvise:', error);
-            }
-          };
-
-          // Execute the async function
-          // storeInCoinvise();
+          // try {
+          //   await storeInCoinvise({
+          //     name,
+          //     tokenAddress: tokenContractAddress,
+          //     symbol,
+          //     tokenSupply: totalSupply.toString(),
+          //     lpLockerAddress: lockerAddress,
+          //     ownerAddress: agent.walletAddress,
+          //   });
+          // } catch (error) {
+          //   console.error('Failed to store token in Coinvise:', error);
+          // }
 
           const storeTokenQuery = `
         INSERT INTO deployed_tokens (
@@ -234,7 +259,7 @@ export const DeployAgentToken = async (
             lpNftId.toString(),
           ]);
         }
-      });
+      }
     }
 
     return res.status(200).json({
@@ -452,41 +477,19 @@ export const storeTokenDetails = async (
       ownerAddress,
     } = req.body;
 
-    if (!process.env.COINVISE_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: 'Missing required environment variables',
-      });
-    }
-
-    // Call Coinvise API to store token information
-    const response = await axios.post(
-      'https://api-staging.coinvise.co/token?chain=8453',
-      {
-        name,
-        address: tokenAddress,
-        symbol,
-        decimals: 18,
-        tokenSupply,
-        slope: 'null',
-        slopeDecimals: 'null',
-        type: 'ERC20',
-        description: '',
-        imageUrl: tokenImage,
-        lpLockerAddress,
-      },
-      {
-        headers: {
-          'x-api-key': process.env.COINVISE_API_KEY,
-          'X-Authenticated-User': ownerAddress,
-          'Content-Type': 'application/json',
-        },
-      },
-    );
+    await storeInCoinvise({
+      name,
+      tokenAddress,
+      symbol,
+      tokenSupply,
+      lpLockerAddress,
+      imageUrl: tokenImage,
+      ownerAddress,
+    });
 
     return res.status(200).json({
       success: true,
-      data: response.data,
+      message: 'Token details stored successfully',
     });
   } catch (error: any) {
     console.error('Error storing token details:', error);
