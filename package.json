@@ -26,7 +26,7 @@
     "test:frontend:watch": "turbo run test:watch --filter=frontend",
     "deploy": "turbo run deploy",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "build:railway": "pnpm install --no-frozen-lockfile && pnpm install --filter backend... && pnpm build:backend",
+    "build:railway": "pnpm install && pnpm build:backend",
     "migrate:database": "pnpm --filter backend migrate",
     "migrate:tables": "pnpm --filter backend migrate:tables",
     "migrate:deploy_tokens": "pnpm --filter backend migrate:deploy_tokens",
