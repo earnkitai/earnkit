@@ -22,6 +22,7 @@ import LPLocker__factory from '../../utils/LPLockerABI.json';
 import { useReadContract } from 'wagmi';
 import { ethers } from 'ethers';
 import { useWaitForTransactionReceipt } from 'wagmi';
+import axios from 'axios';
 
 const pimlocoApiKey = process.env.PIMLICO_API_KEY;
 if (!pimlocoApiKey) throw new Error('Missing PIMLICO_API_KEY');
@@ -175,23 +176,44 @@ export const DeployAgentToken = async (
       parsedLogs.forEach((log) => {
         if (log?.name === 'TokenCreated') {
           const tokenCreatedArgs = log.args;
-
-          const tokenAddress = tokenCreatedArgs[0];
           const lpNftId = tokenCreatedArgs[1]; // BigInt
-          const deployer = tokenCreatedArgs[2];
-          const name = tokenCreatedArgs[3];
-          const symbol = tokenCreatedArgs[4];
-          const supply = tokenCreatedArgs[5]; // BigInt
           const lockerAddress = tokenCreatedArgs[6];
 
-          console.log('TokenCreated Event Details:');
-          console.log('Token Address:', tokenAddress);
-          console.log('LP NFT ID:', lpNftId.toString());
-          console.log('Deployer:', deployer);
-          console.log('Name:', name);
-          console.log('Symbol:', symbol);
-          console.log('Supply:', supply.toString());
-          console.log('Locker Address:', lockerAddress);
+          // Store token details in Coinvise
+          const storeInCoinvise = async () => {
+            try {
+              await axios.post(
+                'https://api-staging.coinvise.co/token?chain=84532',
+                {
+                  name,
+                  address: tokenContractAddress,
+                  symbol,
+                  decimals: 18,
+                  tokenSupply: totalSupply.toString(),
+                  slope: 'null',
+                  slopeDecimals: 'null',
+                  type: 'ERC20',
+                  description: '',
+                  imageUrl: '', // No image URL in deployment
+                  lpLockerAddress: lockerAddress,
+                },
+                {
+                  headers: {
+                    'x-api-key': process.env.COINVISE_API_KEY!,
+                    'X-Authenticated-User': agent.walletAddress,
+                    'Content-Type': 'application/json',
+                  },
+                },
+              );
+              console.log('Token details stored in Coinvise successfully');
+            } catch (error) {
+              console.error('Error storing token details in Coinvise:', error);
+            }
+          };
+
+          // Execute the async function
+          // storeInCoinvise();
+
           const storeTokenQuery = `
         INSERT INTO deployed_tokens (
           agent_id,
@@ -413,4 +435,64 @@ const deployToken = async (
   });
 
   return txHash;
+};
+
+export const storeTokenDetails = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  try {
+    const {
+      name,
+      tokenAddress,
+      symbol,
+      tokenSupply,
+      lpLockerAddress,
+      tokenImage,
+      ownerAddress,
+    } = req.body;
+
+    if (!process.env.COINVISE_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Missing required environment variables',
+      });
+    }
+
+    // Call Coinvise API to store token information
+    const response = await axios.post(
+      'https://api-staging.coinvise.co/token?chain=8453',
+      {
+        name,
+        address: tokenAddress,
+        symbol,
+        decimals: 18,
+        tokenSupply,
+        slope: 'null',
+        slopeDecimals: 'null',
+        type: 'ERC20',
+        description: '',
+        imageUrl: tokenImage,
+        lpLockerAddress,
+      },
+      {
+        headers: {
+          'x-api-key': process.env.COINVISE_API_KEY,
+          'X-Authenticated-User': ownerAddress,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: response.data,
+    });
+  } catch (error: any) {
+    console.error('Error storing token details:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to store token details',
+    });
+  }
 };
