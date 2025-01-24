@@ -350,6 +350,7 @@ export const GetAgentByWalletAddress = async (
         organization_id: agent.organization_id,
         sign_with: agent.sign_with,
         agent: {
+          id: agent.id,
           name: agent.name,
           address: agent.wallet_address,
           saltNonce: agent.salt_nonce,

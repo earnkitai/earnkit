@@ -36,7 +36,7 @@ BEGIN
 
     -- AI Agents table (multiple per sub-org)
     CREATE TABLE IF NOT EXISTS ai_agents (
-        id SERIAL PRIMARY KEY,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         sub_org_id INTEGER NOT NULL REFERENCES sub_organizations(id),
         name VARCHAR(255) NOT NULL,
         wallet_address VARCHAR(255) NOT NULL UNIQUE,

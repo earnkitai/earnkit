@@ -4,7 +4,7 @@ BEGIN
     -- Deployed Tokens table
     CREATE TABLE IF NOT EXISTS deployed_tokens (
         id SERIAL PRIMARY KEY,
-        agent_id INTEGER REFERENCES ai_agents(id),
+        agent_id UUID REFERENCES ai_agents(id),
         token_address VARCHAR(42) NOT NULL,
         token_name VARCHAR(100) NOT NULL,
         token_symbol VARCHAR(10) NOT NULL,

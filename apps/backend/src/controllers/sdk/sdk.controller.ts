@@ -40,8 +40,6 @@ export const GetSdkConfig = async (
     const config: SDKConfig = {
       turnkeyApiPrivateKey: keys.private_key,
       turnkeyApiPublicKey: keys.public_key,
-      pimlicoApiKey: process.env.PIMLICO_API_KEY!,
-      pimlicoUrl: process.env.PIMLICO_URL!,
     };
 
     res.json(config);
@@ -118,6 +116,7 @@ export const GetWalletDetails = async (
         organization_id: subOrg.organizationId,
         sign_with: subOrg.ownerWalletAddress,
         agent: {
+          id: agent.id,
           name: agent.name,
           address: agent.wallet_address,
           saltNonce: agent.salt_nonce,

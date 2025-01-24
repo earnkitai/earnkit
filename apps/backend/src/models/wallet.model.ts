@@ -1,7 +1,7 @@
 import pool from '../config/database';
 
 export interface IAgent {
-  id: number;
+  id: string; // UUID
   name: string;
   walletAddress: `0x${string}`;
   saltNonce: string;
@@ -53,25 +53,113 @@ class WalletModel {
     };
   }
 
-  // Add a new AI agent to a sub-organization
+  // Find sub-org by ID
+  static async findById(subOrgId: number): Promise<ISubOrg | null> {
+    const query = `
+      SELECT 
+        so.*,
+        json_agg(
+          CASE WHEN aa.id IS NOT NULL THEN
+            json_build_object(
+              'id', aa.id,
+              'name', aa.name,
+              'walletAddress', aa.wallet_address,
+              'saltNonce', aa.salt_nonce,
+              'createdAt', aa.created_at
+            )
+          ELSE NULL END
+        ) FILTER (WHERE aa.id IS NOT NULL) as agents
+      FROM sub_organizations so
+      LEFT JOIN ai_agents aa ON aa.sub_org_id = so.id
+      WHERE so.id = $1
+      GROUP BY so.id
+    `;
+
+    const result = await pool.query(query, [subOrgId]);
+    if (!result.rows[0]) return null;
+
+    return {
+      id: result.rows[0].id,
+      organizationId: result.rows[0].organization_id,
+      ownerWalletAddress: result.rows[0].owner_wallet_address,
+      publicKey: result.rows[0].public_key,
+      privateKey: result.rows[0].private_key,
+      agents: result.rows[0].agents || [],
+    };
+  }
+
+  // Find sub-org and its agents by user address
+  static async findByUserAddress(userAddress: string): Promise<ISubOrg | null> {
+    const query = `
+      SELECT 
+        so.*,
+        json_agg(
+          CASE WHEN aa.id IS NOT NULL THEN
+            json_build_object(
+              'id', aa.id,
+              'name', aa.name,
+              'walletAddress', aa.wallet_address,
+              'saltNonce', aa.salt_nonce,
+              'createdAt', aa.created_at
+            )
+          ELSE NULL END
+        ) FILTER (WHERE aa.id IS NOT NULL) as agents
+      FROM sub_organizations so
+      JOIN users u ON u.id = so.user_id
+      LEFT JOIN ai_agents aa ON aa.sub_org_id = so.id
+      WHERE u.user_id = $1
+      GROUP BY so.id
+    `;
+
+    const result = await pool.query(query, [userAddress]);
+    if (!result.rows[0]) return null;
+
+    return {
+      id: result.rows[0].id,
+      organizationId: result.rows[0].organization_id,
+      ownerWalletAddress: result.rows[0].owner_wallet_address,
+      publicKey: result.rows[0].public_key,
+      privateKey: result.rows[0].private_key,
+      agents: result.rows[0].agents || [],
+    };
+  }
+
+  // Add a new agent
   static async addAgent(
     subOrgId: number,
-    agent: Omit<IAgent, 'id' | 'createdAt'>,
-  ) {
+    agent: { name: string; walletAddress: string; saltNonce: string },
+  ): Promise<IAgent> {
     const query = `
       INSERT INTO ai_agents (sub_org_id, name, wallet_address, salt_nonce)
       VALUES ($1, $2, $3, $4)
-      RETURNING *
+      RETURNING id, name, wallet_address as "walletAddress", salt_nonce as "saltNonce", created_at as "createdAt"
+    `;
+    const values = [subOrgId, agent.name, agent.walletAddress, agent.saltNonce];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  // Find agent by name and user address
+  static async findAgentByNameAndUserAddress(
+    userAddress: string,
+    agentName: string,
+  ): Promise<IAgent | null> {
+    const query = `
+      SELECT 
+        aa.id,
+        aa.name,
+        aa.wallet_address as "walletAddress",
+        aa.salt_nonce as "saltNonce",
+        aa.created_at as "createdAt"
+      FROM ai_agents aa
+      JOIN sub_organizations so ON so.id = aa.sub_org_id
+      JOIN users u ON u.id = so.user_id
+      WHERE u.user_id = $1 AND aa.name = $2
     `;
 
-    const result = await pool.query(query, [
-      subOrgId,
-      agent.name,
-      agent.walletAddress,
-      agent.saltNonce,
-    ]);
-
-    return result.rows[0];
+    const result = await pool.query(query, [userAddress, agentName]);
+    return result.rows[0] || null;
   }
 
   // Find sub-org and its agents by platform API key
@@ -112,69 +200,17 @@ class WalletModel {
     };
   }
 
-  // Find agent by name and API key
-  static async findAgentByNameAndUserAddress(
-    userAddress: string,
-    agentName: string,
-  ): Promise<IAgent | null> {
-    const query = `
-      SELECT aa.*
-      FROM ai_agents aa
-      JOIN sub_organizations so ON so.id = aa.sub_org_id
-      JOIN users u ON u.id = so.user_id
-      WHERE u.user_id = $1 AND aa.name = $2
-    `;
-
-    const result = await pool.query(query, [userAddress, agentName]);
-    return result.rows[0] || null;
-  }
-
   // Add this method to the WalletModel class
-  static async findKeysByWalletId(subOrgId: number) {
+  static async findKeysByWalletId(
+    subOrgId: number,
+  ): Promise<{ public_key: string; private_key: string } | null> {
     const query = `
       SELECT public_key, private_key
       FROM sub_organizations
       WHERE id = $1
     `;
-
     const result = await pool.query(query, [subOrgId]);
     return result.rows[0] || null;
-  }
-
-  // Find sub-org and its agents by user address
-  static async findByUserAddress(userAddress: string): Promise<ISubOrg | null> {
-    const query = `
-      SELECT 
-        so.*,
-        json_agg(
-          CASE WHEN aa.id IS NOT NULL THEN
-            json_build_object(
-              'id', aa.id,
-              'name', aa.name,
-              'walletAddress', aa.wallet_address,
-              'saltNonce', aa.salt_nonce,
-              'createdAt', aa.created_at
-            )
-          ELSE NULL END
-        ) FILTER (WHERE aa.id IS NOT NULL) as agents
-      FROM sub_organizations so
-      JOIN users u ON u.id = so.user_id
-      LEFT JOIN ai_agents aa ON aa.sub_org_id = so.id
-      WHERE u.user_id = $1
-      GROUP BY so.id
-    `;
-
-    const result = await pool.query(query, [userAddress]);
-    if (!result.rows[0]) return null;
-
-    return {
-      id: result.rows[0].id,
-      organizationId: result.rows[0].organization_id,
-      ownerWalletAddress: result.rows[0].owner_wallet_address,
-      publicKey: result.rows[0].public_key,
-      privateKey: result.rows[0].private_key,
-      agents: result.rows[0].agents || [],
-    };
   }
 }
 

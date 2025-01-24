@@ -25,9 +25,11 @@ export const GetUserDetails = async (
         (
           SELECT json_agg(
             json_build_object(
+              'id', aa.id,
               'name', aa.name,
               'walletAddress', aa.wallet_address,
               'saltNonce', aa.salt_nonce
+
             )
           )
           FROM ai_agents aa
