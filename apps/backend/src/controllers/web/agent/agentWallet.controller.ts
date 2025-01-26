@@ -183,6 +183,7 @@ export const CreateAIAgentWallet = async (
           organizationId: subOrg.organizationId,
         },
         agent: {
+          id: agent.id,
           name: agent.name,
           smartAccountAddress: agent.walletAddress,
         },
@@ -277,6 +278,7 @@ export const AddNewAIAgentWallet = async (
     return res.status(201).json({
       success: true,
       data: {
+        id: agent.id,
         agentName,
         smartAccountAddress: account.address,
       },
