@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import LogsModel from '../../models/logs.model';
+import LogsModel from '../../../models/logs.model';
 
 export const createInteractionLog = async (
   req: Request,

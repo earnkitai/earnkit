@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import UserModel from '../../models/user.model';
-import pool from '../../config/database';
+import UserModel from '../../../models/user.model';
+import pool from '../../../config/database';
 
 export const createApiKey = async (
   req: Request,

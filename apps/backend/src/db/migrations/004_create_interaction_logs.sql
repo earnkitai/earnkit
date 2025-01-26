@@ -2,9 +2,6 @@
 CREATE OR REPLACE FUNCTION up_create_interaction_logs()
 RETURNS void AS $$
 BEGIN
-    -- Create enum for sender type
-    CREATE TYPE sender_type AS ENUM ('user', 'agent', 'farcaster');
-
     -- Create interaction_logs table
     CREATE TABLE IF NOT EXISTS interaction_logs (
         log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12,8 +9,7 @@ BEGIN
         sender_address TEXT NOT NULL,
         content TEXT NOT NULL,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        metadata JSONB,
-        sender sender_type NOT NULL
+        metadata JSONB
     );
 
     -- Create agent_responses table
@@ -49,7 +45,7 @@ BEGIN
     DROP TABLE IF EXISTS agent_responses;
     DROP TABLE IF EXISTS interaction_logs;
 
-    -- Drop enum
+    -- Drop type
     DROP TYPE IF EXISTS sender_type;
 END;
 $$ LANGUAGE plpgsql;

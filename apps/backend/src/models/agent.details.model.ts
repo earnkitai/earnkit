@@ -5,6 +5,10 @@ export interface AgentFarcasterDetails {
   signer_uuid: string;
   fid: number;
   public_key: string;
+  user_name: string;
+  display_name: string;
+  custody_address: string;
+  verified_addresses: string[];
   pfp_url?: string;
 }
 
@@ -17,8 +21,18 @@ class AgentDetailsModel {
   // Farcaster Details Methods
   static async createFarcasterDetails(details: AgentFarcasterDetails) {
     const query = `
-      INSERT INTO agent_farcaster_details (agent_id, signer_uuid, fid, public_key, pfp_url)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO agent_farcaster_details (
+        agent_id, 
+        signer_uuid, 
+        fid, 
+        public_key, 
+        user_name,
+        display_name,
+        custody_address,
+        verified_addresses,
+        pfp_url
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
     const values = [
@@ -26,6 +40,10 @@ class AgentDetailsModel {
       details.signer_uuid,
       details.fid,
       details.public_key,
+      details.user_name,
+      details.display_name,
+      details.custody_address,
+      details.verified_addresses,
       details.pfp_url,
     ];
     const result = await pool.query(query, values);
@@ -41,7 +59,11 @@ class AgentDetailsModel {
       SET signer_uuid = COALESCE($2, signer_uuid),
           fid = COALESCE($3, fid),
           public_key = COALESCE($4, public_key),
-          pfp_url = COALESCE($5, pfp_url),
+          user_name = COALESCE($5, user_name),
+          display_name = COALESCE($6, display_name),
+          custody_address = COALESCE($7, custody_address),
+          verified_addresses = COALESCE($8, verified_addresses),
+          pfp_url = COALESCE($9, pfp_url),
           updated_at = CURRENT_TIMESTAMP
       WHERE agent_id = $1
       RETURNING *
@@ -51,6 +73,10 @@ class AgentDetailsModel {
       details.signer_uuid,
       details.fid,
       details.public_key,
+      details.user_name,
+      details.display_name,
+      details.custody_address,
+      details.verified_addresses,
       details.pfp_url,
     ];
     const result = await pool.query(query, values);

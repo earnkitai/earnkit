@@ -7,11 +7,11 @@ import { Turnkey } from '@turnkey/sdk-server';
 import { DEFAULT_ETHEREUM_ACCOUNTS } from '@turnkey/sdk-server';
 import { createAccount } from '@turnkey/viem';
 import { entryPoint07Address } from 'viem/account-abstraction';
-import WalletModel, { IAgent } from '../../models/wallet.model';
-import pool from '../../config/database';
-import { generateP256KeyPairHex } from '../../utils/ApiKeyUtils';
-import { getApiKeyFromHeader } from '../../utils/GetHeaders';
-import UserModel from '../../models/user.model';
+import WalletModel, { IAgent } from '../../../models/wallet.model';
+import pool from '../../../config/database';
+import { generateP256KeyPairHex } from '../../../utils/ApiKeyUtils';
+import { getApiKeyFromHeader } from '../../../utils/GetHeaders';
+import UserModel from '../../../models/user.model';
 import { privateKeyToAccount } from 'viem/accounts';
 
 export const publicClient = createPublicClient({

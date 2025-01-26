@@ -7,7 +7,6 @@ export interface InteractionLog {
   content: string;
   timestamp: Date;
   metadata?: any;
-  sender: 'user' | 'agent' | 'farcaster';
 }
 
 export interface AgentResponse {
@@ -25,8 +24,8 @@ class LogsModel {
     log: Omit<InteractionLog, 'log_id' | 'timestamp'>,
   ): Promise<InteractionLog> {
     const query = `
-      INSERT INTO interaction_logs (agent_id, sender_address, content, metadata, sender)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO interaction_logs (agent_id, sender_address, content, metadata)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
     const values = [
@@ -34,7 +33,6 @@ class LogsModel {
       log.sender_address,
       log.content,
       log.metadata,
-      log.sender,
     ];
 
     const result = await pool.query(query, values);
@@ -101,18 +99,14 @@ class LogsModel {
       pool.query(responsesQuery, [agentId]),
     ]);
 
-    // Create a map of responses by log_id for easy lookup
-    const responsesByLogId = responsesResult.rows.reduce(
-      (acc, response) => {
-        acc[response.log_id] = response;
-        return acc;
-      },
-      {} as Record<string, AgentResponse>,
-    );
+    const responsesMap: Record<string, AgentResponse> = {};
+    responsesResult.rows.forEach((response) => {
+      responsesMap[response.log_id] = response;
+    });
 
     return {
       logs: logsResult.rows,
-      responses: responsesByLogId,
+      responses: responsesMap,
     };
   }
 }
