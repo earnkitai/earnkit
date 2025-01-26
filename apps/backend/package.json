@@ -10,7 +10,9 @@
     "migrate": "tsx src/db/migrate.ts",
     "migrate:tables": "tsx src/db/migrate.ts 001_create_tables.sql",
     "migrate:deploy_tokens": "tsx src/db/migrate.ts 002_add_deployed_tokens.sql",
-    "migrate:columns_in_deployed_tokens": "tsx src/db/migrate.ts 003_add_columns_in_deployed_tokens.sql"
+    "migrate:columns_in_deployed_tokens": "tsx src/db/migrate.ts 003_add_columns_in_deployed_tokens.sql",
+    "migrate:create_interaction_logs": "tsx src/db/migrate.ts 004_create_interaction_logs.sql",
+    "migrate:create_agent_farcaster_and_config": "tsx src/db/migrate.ts 005_create_agent_farcaster_and_config.sql"
   },
   "keywords": [],
   "author": "",
