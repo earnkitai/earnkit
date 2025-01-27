@@ -7,16 +7,16 @@ import { SocialButton } from "@/components/SocialButton";
 export default function Home() {
   return (
     <>
-      <div className="min-h-screen flex">
+      <div className="min-h-screen flex flex-col lg:flex-row">
         {/* Left Section - 100vh */}
-        <div className="w-1/2 bg-[#2563E4] h-screen p-8 py-20 flex flex-col items-center justify-between rounded-[56px]">
+        <div className="w-full lg:w-1/2 bg-[#2563E4] h-dvh lg:min-h-screen p-4 py-10 lg:py-40 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
           {/* Top Logo */}
-          <div className="w-full flex items-center justify-center text-center object-contain">
+          <div className="w-full flex mb-10 lg:mb-0 items-center justify-center text-center object-contain">
             <Image
               src={"/images/landing/logo.png"}
               height={400}
               width={400}
-              className="mb-10 w-[10rem]"
+              className="mb-10 w-[50%] lg:w-[10rem]"
               alt="EarnKit Logo"
               priority
               quality={100}
@@ -26,14 +26,14 @@ export default function Home() {
           </div>
 
           {/* Main Content */}
-          <div className="max-w-[60%] text-center flex-1 flex flex-col justify-center">
-            <h2 className="text-white font-funnel-display text-6xl font-normal leading-tight mb-8">
+          <div className="max-w-[85%] lg:max-w-[60%] text-center lg:flex-1 flex flex-col justify-center">
+            <h2 className="text-white font-funnel-display text-[3rem] lg:text-[3.5rem] font-normal leading-tight mb-8">
               Create specialized AI agents in minutes
             </h2>
 
           </div>
 
-          <div className="w-full flex items-center justify-center">
+          <div className="w-full flex items-center justify-center mt-14 lg:mt-0">
             <span
               className="flex justify-between items-center gap-2 px-8 py-4   bg-transparent rounded-full border border-2  border-[#F4F4EF] font-funnel-display font-medium text-[18px] leading-[20px] border border-[#F4F4EF] disabled pointer-events-none">
               Only on
@@ -45,9 +45,9 @@ export default function Home() {
         </div>
 
         {/* Right Section - Split into two 50vh sections */}
-        <div className="w-1/2 flex flex-col ">
+        <div className="w-full lg:w-1/2 flex flex-col ">
           {/* Top Half */}
-          <div className="h-[50vh] bg-[#B8CCE0] p-8 flex items-center justify-center rounded-[56px]">
+          <div className="h-[40vh] lg:h-[50vh] bg-[#B8CCE0] p-4 lg:p-8 flex items-center justify-center rounded-[56px]">
             <Button variant="primary"
               icon={<svg width="41" height="40" viewBox="0 0 41 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M20.2925 10.625L23.2375 18.095L30.7075 21.0425L23.2375 23.9875L20.2925 31.4575L17.345 23.9875L9.875 21.0425L17.345 18.095L20.2925 10.625Z" fill="#F4F4EF" />
@@ -59,8 +59,8 @@ export default function Home() {
           </div>
 
           {/* Bottom Half */}
-          <div className="h-[50vh] bg-[#192548] p-8 flex items-center justify-center rounded-[56px]">
-            <div className="flex flex-col gap-14">
+          <div className="h-auto lg:h-[50vh] bg-[#192548] p-4 lg:p-8 flex items-center justify-center rounded-[56px]">
+            <div className="flex flex-col gap-20 my-20">
               <SocialButton
                 variant="primary"
                 icon={<svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -85,8 +85,10 @@ export default function Home() {
       </div>
       <section>
         <div className="w-full bg-[#8154D4] p-4 flex flex-col items-center justify-between rounded-[40px]">
-          <div className="flex items-center justify-center w-full p-2 gap-x-8">
-            <p className="font-funnel-display text-white text-2xl">Check out our first AI agent built on top of EarnKit&apos;s framework</p>
+          <div className="flex flex-col lg:flex-row items-center justify-center w-full p-6 lg:p-2 gap-x-8">
+            <p className="w-[80%] lg:w-auto font-funnel-display text-center text-white text-[22px] lg:text-2xl mb-10 lg:mb-0">
+              Check out our first AI agent built on top of EarnKit&apos;s framework
+            </p>
             <SocialButton
               variant="secondary"
               icon={<svg width="24" height="20" viewBox="0 0 26 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -100,15 +102,15 @@ export default function Home() {
         </div >
 
         {/* Founding Team Section */}
-        <div className="w-full bg-[#B8CCE0] px-16 pb-32 pt-32 rounded-[56px]">
-          <h2 className="text-[#192548] text-5xl font-medium font-funnel-display text-center mb-24">
+        <div className="w-full bg-[#B8CCE0] px-16 pb-32 pt-24 lg:pt-32 rounded-[56px]">
+          <h2 className="text-[#192548] text-5xl font-medium font-funnel-display text-center mb-16 lg:mb-24">
             Founding Team
           </h2>
 
-          <div className="flex justify-center items-start">
+          <div className="flex flex-col lg:flex-row justify-center items-center lg:items-start">
             {/* Founder */}
-            <div className="flex flex-col items-center">
-              <div className="w-64 h-64 flex items-center justify-center mb-6 object-cover">
+            <div className="flex flex-col items-center mb-20 lg:mb-0">
+              <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6 object-cover">
                 <svg width="132" height="131" viewBox="0 0 132 131" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fillRule="evenodd" clipRule="evenodd" d="M105.47 65.4484C105.47 43.6493 87.7985 25.9777 65.9994 25.9777C44.2004 25.9777 26.5287 43.6493 26.5287 65.4484H0.794922C0.794919 29.437 29.988 0.2439 65.9994 0.243896C102.011 0.243893 131.204 29.4369 131.204 65.4484H105.47ZM53.7338 130.217V104.483H28.0131V78.7491H53.7469V104.483H79.4676V130.217H53.7338ZM53.7338 53.0153V78.749H79.4676V53.0153H53.7338ZM79.6441 78.7491V104.483H105.378V78.7491H79.6441Z" fill="white" />
                 </svg>
@@ -118,8 +120,8 @@ export default function Home() {
             </div>
 
             {/* CTO */}
-            <div className="flex flex-col items-center">
-              <div className="w-64 h-64 flex items-center justify-center mb-6 object-cover">
+            <div className="flex flex-col items-center mb-20 lg:mb-0">
+              <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6 object-cover">
                 <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fillRule="evenodd" clipRule="evenodd" d="M89.3702 5.5615C77.6194 0.694123 64.689 -0.579403 52.2144 1.90196C39.7397 4.38333 28.281 10.5081 19.2873 19.5019C10.2935 28.4956 4.16873 39.9543 1.68736 52.429C-0.794002 64.9036 0.479524 77.834 5.3469 89.5849C10.2143 101.336 18.4569 111.379 29.0324 118.446C39.6079 125.512 52.0413 129.284 64.7604 129.284V103.55C57.131 103.55 49.6729 101.288 43.3293 97.0488C36.9857 92.8102 32.0415 86.7856 29.1218 79.737C26.2022 72.6883 25.4383 64.9322 26.9267 57.4494C28.4151 49.9666 32.089 43.0932 37.4838 37.6984C42.8786 32.3036 49.752 28.6297 57.2348 27.1413C64.7176 25.6529 72.4737 26.4168 79.5224 29.3364C86.571 32.2561 92.5956 37.2003 96.8342 43.5439C101.073 49.8875 103.335 57.3456 103.335 64.975H129.069C129.069 52.2559 125.297 39.8225 118.231 29.247C111.165 18.6715 101.121 10.4289 89.3702 5.5615ZM78.3569 104.196V78.4625H104.091V104.196H78.3569ZM104.198 130.052V104.318H129.932V130.052H104.198Z" fill="white" />
                 </svg>
@@ -129,8 +131,8 @@ export default function Home() {
             </div>
 
             {/* Design */}
-            <div className="flex flex-col items-center">
-              <div className="w-64 h-64 flex items-center justify-center mb-6">
+            <div className="flex flex-col items-center mb-20 lg:mb-0">
+              <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6">
                 <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fillRule="evenodd" clipRule="evenodd" d="M64.7786 0.230225C56.3487 0.230225 48.0012 1.89063 40.213 5.11664C32.4247 8.34265 25.3481 13.0711 19.3872 19.032C13.4263 24.9929 8.69787 32.0695 5.47186 39.8577C2.24585 47.646 0.585448 55.9934 0.585449 64.4234L26.3192 64.4234C26.3192 59.3729 27.314 54.3717 29.2468 49.7056C31.1796 45.0395 34.0125 40.7998 37.5837 37.2285C41.155 33.6572 45.3948 30.8243 50.0609 28.8916C54.727 26.9588 59.7281 25.964 64.7786 25.964C69.8292 25.964 74.8303 26.9588 79.4964 28.8916C84.1625 30.8243 88.4022 33.6572 91.9735 37.2285C95.5448 40.7998 98.3777 45.0395 100.31 49.7056C102.243 54.3717 103.238 59.3728 103.238 64.4234H128.972C128.972 55.9934 127.311 47.646 124.085 39.8577C120.859 32.0695 116.131 24.9929 110.17 19.032C104.209 13.0711 97.1326 8.34265 89.3443 5.11664C81.556 1.89063 73.2086 0.230225 64.7786 0.230225ZM64.6512 101.131C69.3528 101.131 74.0085 100.205 78.3523 98.4059C82.6961 96.6067 86.643 93.9695 89.9675 90.6449C93.2921 87.3203 95.9294 83.3734 97.7286 79.0296C99.5279 74.6858 100.454 70.0302 100.454 65.3285H74.7201C74.7201 66.6508 74.4597 67.9601 73.9537 69.1817C73.4477 70.4033 72.706 71.5133 71.771 72.4483C70.836 73.3833 69.726 74.125 68.5044 74.631C67.2828 75.137 65.9734 75.3975 64.6512 75.3975C63.3289 75.3975 62.0195 75.137 60.7979 74.631C59.5763 74.125 58.4663 73.3833 57.5313 72.4483C56.5963 71.5133 55.8546 70.4033 55.3486 69.1817C54.8426 67.9601 54.5822 66.6508 54.5821 65.3285H28.8484C28.8484 70.0302 29.7744 74.6858 31.5737 79.0296C33.3729 83.3734 36.0102 87.3203 39.3348 90.6449C42.6594 93.9695 46.6062 96.6067 50.95 98.4059C55.2938 100.205 59.9495 101.131 64.6512 101.131Z" fill="white" />
                 </svg>
@@ -140,8 +142,8 @@ export default function Home() {
             </div>
 
             {/* Growth */}
-            <div className="flex flex-col items-center">
-              <div className="w-64 h-64 flex items-center justify-center mb-6 object-cover">
+            <div className="flex flex-col items-center mb-20 lg:mb-0">
+              <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6 object-cover">
                 <svg width="132" height="131" viewBox="0 0 132 131" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fillRule="evenodd" clipRule="evenodd" d="M105.47 65.4484C105.47 43.6493 87.7985 25.9777 65.9994 25.9777C44.2004 25.9777 26.5287 43.6493 26.5287 65.4484H0.794922C0.794919 29.437 29.988 0.2439 65.9994 0.243896C102.011 0.243893 131.204 29.4369 131.204 65.4484H105.47ZM53.7338 130.217V104.483H28.0131V78.7491H53.7469V104.483H79.4676V130.217H53.7338ZM53.7338 53.0153V78.749H79.4676V53.0153H53.7338ZM79.6441 78.7491V104.483H105.378V78.7491H79.6441Z" fill="white" />
                 </svg>
@@ -153,12 +155,12 @@ export default function Home() {
         </div>
 
         {/* Investors Section */}
-        <div className="w-full bg-[#192548] px-16 py-32 rounded-[56px] flex flex-col items-center justify-center  ">
+        <div className="w-full bg-[#192548] px-12 lg:px-16 py-32 rounded-[56px] flex flex-col items-center justify-center  ">
           <h2 className="text-white text-5xl font-funnel-display text-center mb-24">
             Our Investors
           </h2>
 
-          <div className="w-4/5 grid grid-cols-5 gap-x-16 gap-y-20">
+          <div className="w-full lg:w-4/5 grid grid-cols-2 lg:grid-cols-5 gap-x-8 lg:gap-x-16 gap-y-20">
             {/* First Row */}
             <div className="flex items-center justify-center w-[100%] h-auto">
               <InvestorsIcons.LAO />

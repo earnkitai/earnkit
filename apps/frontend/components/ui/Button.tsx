@@ -16,7 +16,7 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
 
     const variants = {
         primary: `
-            text-white px-[3.1rem] py-6
+            text-white px-[2.8rem] lg:px-[3.1rem] py-6
             text-[28px] font-semibold leading-[28px]
             primary-btn
         `,
