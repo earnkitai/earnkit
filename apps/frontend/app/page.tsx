@@ -9,7 +9,7 @@ export default function Home() {
     <>
       <div className="min-h-screen flex flex-col lg:flex-row">
         {/* Left Section - 100vh */}
-        <div className="w-full lg:w-1/2 bg-[#2563E4] h-dvh lg:min-h-screen p-4 py-10 lg:py-40 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
+        <div className="w-full lg:w-1/2 bg-[#2563E4] h-dvh lg:min-h-screen p-4 py-10 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
           {/* Top Logo */}
           <div className="w-full flex mb-10 lg:mb-0 items-center justify-center text-center object-contain">
             <Image
