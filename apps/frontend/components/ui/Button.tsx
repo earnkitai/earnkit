@@ -8,17 +8,17 @@ interface ButtonProps {
     iconUrl?: string;
     iconHeight?: number;
     iconWidth?: number;
+    onClick?: () => void;
 }
 
-export function Button({ children, variant = 'primary', className = '', icon, iconUrl, iconHeight, iconWidth }: ButtonProps) {
-    const baseStyles = "px-6 py-2 rounded-full transition-all duration-200 focus:outline-none focus:ring-none inline-flex items-center justify-center font-funnel-display";
+export function Button({ children, variant = 'primary', className = '', icon, iconUrl, iconHeight, iconWidth, onClick }: ButtonProps) {
+    const baseStyles = "px-6 py-2 rounded-full inline-flex items-center justify-center font-funnel-display";
 
     const variants = {
         primary: `
-            bg-[#2563E4] text-white px-10 py-6
-            hover:bg-[#2563E4] hover:[background:linear-gradient(0deg,#2563E4,#2563E4),linear-gradient(0deg,rgba(0,0,0,0.2),rgba(0,0,0,0.2))]
-            active:bg-[#183E81] active:[background:linear-gradient(0deg,#183E81,#183E81),linear-gradient(0deg,rgba(0,0,0,0.4),rgba(0,0,0,0.4))]
-            font-funnel-display text-[28px] font-semibold leading-[28px]
+            text-white px-[3.1rem] py-6
+            text-[28px] font-semibold leading-[28px]
+            primary-btn
         `,
         secondary: `
         bg-[#8154D4] text-white border border-[#F4F4EF] px-8
@@ -39,6 +39,7 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
                 textUnderlinePosition: 'from-font',
                 textDecorationSkipInk: 'none'
             } : undefined}
+            onClick={onClick}
         >
             {iconUrl && (
 

@@ -1,6 +1,8 @@
 import Image from "next/image";
 import { Button } from "../components/ui/Button";
 import Link from "next/link";
+import { InvestorsIcons } from "@/components/TeamIcons";
+import { SocialButton } from "@/components/SocialButton";
 
 export default function Home() {
   return (
@@ -16,6 +18,8 @@ export default function Home() {
               width={400}
               className="mb-10 w-[10rem]"
               alt="EarnKit Logo"
+              priority
+              quality={100}
             />
 
 
@@ -57,20 +61,24 @@ export default function Home() {
           {/* Bottom Half */}
           <div className="h-[50vh] bg-[#192548] p-8 flex items-center justify-center rounded-[56px]">
             <div className="flex flex-col gap-14">
-              <Button variant="primary"
+              <SocialButton
+                variant="primary"
                 icon={<svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M19.9786 2.03265H23.6996L15.5702 11.324L25.1338 23.9674H17.6456L11.7806 16.2993L5.06967 23.9674H1.34638L10.0415 14.0293L0.867188 2.03265H8.54549L13.847 9.04166L19.9786 2.03265ZM18.6726 21.7402H20.7345L7.42512 4.14289H5.21252L18.6726 21.7402Z" fill="#F4F4EF" />
                 </svg>}
+                link="https://x.com/EarnKit_ai"
               >
                 EarnKit_ai
-              </Button>
-              <Button
+              </SocialButton>
+              <SocialButton
                 variant="primary"
                 icon={<svg width="26" height="24" viewBox="0 0 26 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fillRule="evenodd" clipRule="evenodd" d="M8.85231 23.6425H0.606267V22.7412C0.606267 22.3263 0.942589 21.99 1.35743 21.99H1.50764V21.0887C1.50764 20.6738 1.84393 20.3375 2.25877 20.3375V6.96724H1.43254L0.456055 3.66222H4.81266V0.357239H21.1874V3.66222H25.5441L24.5676 6.96724H23.7413V20.3375C24.1562 20.3375 24.4925 20.6738 24.4925 21.0887V21.99H24.6427C25.0575 21.99 25.3938 22.3263 25.3938 22.7412V23.6425H17.1571V22.7412C17.1571 22.3263 17.4934 21.99 17.9082 21.99H18.0584V21.0887C18.0584 20.6824 18.3809 20.3515 18.7838 20.338V12.9764C18.5181 10.0285 16.0171 7.71837 13.0001 7.71837C9.98303 7.71837 7.48197 10.0285 7.2163 12.9764V20.3377C7.6235 20.3465 7.95093 20.6793 7.95093 21.0887V21.5393V21.99H8.10114C8.51599 21.99 8.85231 22.3263 8.85231 22.7412V23.6425Z" fill="#F4F4EF" />
-                </svg>}>
+                </svg>}
+                link="https://warpcast.com/earnkit"
+              >
                 EarnKit
-              </Button>
+              </SocialButton>
             </div>
           </div>
         </div>
@@ -79,14 +87,15 @@ export default function Home() {
         <div className="w-full bg-[#8154D4] p-4 flex flex-col items-center justify-between rounded-[40px]">
           <div className="flex items-center justify-center w-full p-2 gap-x-8">
             <p className="font-funnel-display text-white text-2xl">Check out our first AI agent built on top of EarnKit&apos;s framework</p>
-            <Button
+            <SocialButton
               variant="secondary"
               icon={<svg width="24" height="20" viewBox="0 0 26 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path fillRule="evenodd" clipRule="evenodd" d="M8.85231 23.6425H0.606267V22.7412C0.606267 22.3263 0.942589 21.99 1.35743 21.99H1.50764V21.0887C1.50764 20.6738 1.84393 20.3375 2.25877 20.3375V6.96724H1.43254L0.456055 3.66222H4.81266V0.357239H21.1874V3.66222H25.5441L24.5676 6.96724H23.7413V20.3375C24.1562 20.3375 24.4925 20.6738 24.4925 21.0887V21.99H24.6427C25.0575 21.99 25.3938 22.3263 25.3938 22.7412V23.6425H17.1571V22.7412C17.1571 22.3263 17.4934 21.99 17.9082 21.99H18.0584V21.0887C18.0584 20.6824 18.3809 20.3515 18.7838 20.338V12.9764C18.5181 10.0285 16.0171 7.71837 13.0001 7.71837C9.98303 7.71837 7.48197 10.0285 7.2163 12.9764V20.3377C7.6235 20.3465 7.95093 20.6793 7.95093 21.0887V21.5393V21.99H8.10114C8.51599 21.99 8.85231 22.3263 8.85231 22.7412V23.6425Z" fill="#F4F4EF" />
               </svg>}
+              link="https://warpcast.com/coinvise"
             >
               @coinvise
-            </Button>
+            </SocialButton>
           </div>
         </div >
 
@@ -144,118 +153,50 @@ export default function Home() {
         </div>
 
         {/* Investors Section */}
-        <div className="w-full bg-[#192548] px-16 py-32 rounded-[56px]">
+        <div className="w-full bg-[#192548] px-16 py-32 rounded-[56px] flex flex-col items-center justify-center  ">
           <h2 className="text-white text-5xl font-funnel-display text-center mb-24">
             Our Investors
           </h2>
 
-          <div className="grid grid-cols-5 gap-x-16 gap-y-20">
+          <div className="w-4/5 grid grid-cols-5 gap-x-16 gap-y-20">
             {/* First Row */}
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/THE_LAO.png"
-                alt="The LAO"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.LAO />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/VOLT_CAPITAL.png"
-                alt="Volt Capital"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+
+              <InvestorsIcons.VoltCapital />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/GALAXY_DIGITAL.png"
-                alt="Galaxy"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+
+              <InvestorsIcons.Galaxy />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/IDEO.png"
-                alt="Co Lab"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.Ideo />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/ACAPITAL.png"
-                alt="A Capital"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.Acapital />
             </div>
 
             {/* Second Row */}
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/SCALAR.png"
-                alt="Scalar Capital"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.Scalar />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/gcr-logo-black.png"
-                alt="GCR"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.gcr />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/DEFI_ALLIANCE.png"
-                alt="Defi Alliance"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.defiAlliance />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/BLOCK0.png"
-                alt="Block0"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.block0 />
             </div>
             <div className="flex items-center justify-center w-[100%] h-auto">
-              <Image
-                src="/images/investors/COOPER_TURLEY.png"
-                alt="Cooper Turley"
-                width={0}
-                height={0}
-                sizes="100%"
-                className="w-[80%] h-[50%] object-contain"
-              />
+              <InvestorsIcons.cooperTurnley />
             </div>
           </div>
         </div>
-      </section>
+      </section >
     </>
   );
 }
