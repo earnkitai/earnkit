@@ -144,8 +144,8 @@ export default function Home() {
             {/* Growth */}
             <div className="flex flex-col items-center mb-20 lg:mb-0">
               <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6 object-cover">
-                <svg width="132" height="131" viewBox="0 0 132 131" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path fillRule="evenodd" clipRule="evenodd" d="M105.47 65.4484C105.47 43.6493 87.7985 25.9777 65.9994 25.9777C44.2004 25.9777 26.5287 43.6493 26.5287 65.4484H0.794922C0.794919 29.437 29.988 0.2439 65.9994 0.243896C102.011 0.243893 131.204 29.4369 131.204 65.4484H105.47ZM53.7338 130.217V104.483H28.0131V78.7491H53.7469V104.483H79.4676V130.217H53.7338ZM53.7338 53.0153V78.749H79.4676V53.0153H53.7338ZM79.6441 78.7491V104.483H105.378V78.7491H79.6441Z" fill="white" />
+                <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path fillRule="evenodd" clipRule="evenodd" d="M104.208 65.071C104.208 43.4728 86.6997 25.964 65.1015 25.964C43.5033 25.964 25.9946 43.4727 25.9944 65.0708H51.4987C51.4987 96.3078 29.4102 122.386 0.000488281 128.537V101.843C15.0289 96.3884 25.7648 81.9835 25.7649 65.071H0.260647C0.260644 29.2605 29.2909 0.230228 65.1015 0.230225C100.912 0.230221 129.942 29.2604 129.942 65.071H104.208ZM84.3224 130.142H51.119C67.8953 113.555 78.2899 90.5269 78.2899 65.071H104.024C104.024 89.1455 96.7673 111.525 84.3224 130.142Z" fill="white" />
                 </svg>
               </div>
               <h3 className="text-[#192548] text-2xl font-medium font-funnel-display underline mb-2"><Link href="https://x.com/sidselloe" target="_blank">Sidsel</Link></h3>
