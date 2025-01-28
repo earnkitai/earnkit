@@ -26,7 +26,7 @@ export default function Home() {
 
           {/* Main Content */}
           <div className="max-w-[85%] lg:max-w-[60%] text-center lg:flex-1 flex flex-col justify-center">
-            <h2 className="text-white font-funnel-display text-[3rem] lg:text-[3.5rem] font-normal leading-tight mb-8">
+            <h2 className="text-white font-funnel-display text-[3rem] lg:text-[3.5rem] 2xl:text-[7dvh] font-normal leading-tight mb-8">
               Create specialized AI agents in minutes
             </h2>
 
