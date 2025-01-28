@@ -21,7 +21,7 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
             primary-btn
         `,
         secondary: `
-        bg-[#8154D4] text-white border border-[#F4F4EF] px-8
+        bg-[#8154D4] text-white border border-2 border-[#F4F4EF] px-8
         font-funnel-display text-[24px] font-medium leading-[33.6px] tracking-[0.01em]
         hover:bg-[#8154D4] hover:[background:linear-gradient(0deg,#8154D4,#8154D4),linear-gradient(0deg,rgba(0,0,0,0.2),rgba(0,0,0,0.2))]
         active:bg-[#8154D4] active:[background:linear-gradient(0deg,#8154D4,#8154D4),linear-gradient(0deg,rgba(0,0,0,0.4),rgba(0,0,0,0.4))]

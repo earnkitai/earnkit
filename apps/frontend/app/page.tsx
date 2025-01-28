@@ -34,7 +34,7 @@ export default function Home() {
 
           <div className="w-full flex items-center justify-center mt-14 lg:mt-0">
             <span
-              className="flex justify-between items-center gap-2 px-8 py-4   bg-transparent rounded-full border border-2  border-[#F4F4EF] font-funnel-display font-medium text-[18px] leading-[20px] border border-[#F4F4EF] disabled pointer-events-none">
+              className="flex justify-between items-center gap-2 px-8 py-4   bg-transparent rounded-full font-funnel-display font-medium text-[18px] leading-[20px] border border-2 border-[#F4F4EF] disabled pointer-events-none">
               Only on
               <svg width="76" height="17" viewBox="0 0 76 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path fillRule="evenodd" clipRule="evenodd" d="M20.1878 10.6665C20.1878 16.1894 15.7015 20.6665 10.1673 20.6665C4.91677 20.6665 0.609426 16.6366 0.181641 11.5071H13.4265V9.82592H0.181641C0.609426 4.69643 4.91677 0.666504 10.1673 0.666504C15.7015 0.666504 20.1878 5.14365 20.1878 10.6665ZM57.3376 18.8548C60.8098 18.8548 63.0871 16.984 63.0871 14.1666C63.0871 11.5519 61.3735 10.3122 58.7807 9.88396L56.4809 9.50084C54.7224 9.20781 53.5498 8.44142 53.5498 6.75097C53.5498 5.03796 54.8576 3.73067 57.3376 3.73067C59.7502 3.73067 60.9902 4.94781 61.1254 6.68336H62.8617C62.7264 4.38432 60.9677 2.3332 57.3602 2.3332C53.7978 2.3332 51.8364 4.33923 51.8364 6.8186C51.8364 9.45576 53.6175 10.6729 56.0525 11.0786L58.3749 11.4392C60.3138 11.7773 61.396 12.5662 61.396 14.2341C61.396 16.1951 59.7953 17.4573 57.3602 17.4573C54.8351 17.4573 53.2567 16.2402 53.1215 14.1666H51.408C51.5433 16.8713 53.6175 18.8548 57.3376 18.8548ZM31.7406 18.5392H25.4275V2.67131H31.5151C34.1982 2.67131 36.0695 4.24908 36.0695 6.77352C36.0695 8.59921 35.0323 9.81641 33.364 10.2221V10.2897C35.348 10.6729 36.5654 12.0253 36.5654 14.144C36.5654 16.8713 34.5589 18.5392 31.7406 18.5392ZM31.2896 9.63608C33.2062 9.63608 34.3785 8.59921 34.3785 6.97637V6.75097C34.3785 5.12812 33.2062 4.11383 31.2896 4.11383H27.1185V9.63608H31.2896ZM31.4925 17.0967C33.5895 17.0967 34.8746 15.9472 34.8746 14.189V13.9637C34.8746 12.138 33.5669 11.0335 31.47 11.0335H27.1185V17.0967H31.4925ZM50.2209 18.5392H48.4171L47.0644 14.2341H40.7513L39.3985 18.5392H37.6849L42.8933 2.67131H44.9449L50.2209 18.5392ZM43.998 4.40685H43.8627L41.2022 12.8141H46.636L43.998 4.40685ZM65.6272 18.5392V2.67131H75.8181V4.13637H67.3177V9.591H75.1419V11.0335H67.3177V17.0741H75.8181V18.5392H65.6272Z" fill="#F4F4EF" />
@@ -87,7 +87,7 @@ export default function Home() {
         <div className="w-full bg-[#8154D4] p-4 flex flex-col items-center justify-between rounded-[40px]">
           <div className="flex flex-col lg:flex-row items-center justify-center w-full p-6 lg:p-2 gap-x-8">
             <p className="w-[80%] lg:w-auto font-funnel-display text-center text-white text-[22px] lg:text-2xl mb-10 lg:mb-0">
-              Check out our first AI agent built on top of EarnKit&apos;s framework
+              Introducing our first AI agent built on top of EarnKit&apos;s framework
             </p>
             <SocialButton
               variant="secondary"
@@ -116,7 +116,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-[#192548] text-2xl font-medium font-funnel-display underline mb-2"><Link href="https://x.com/0xjenil" target="_blank">Jenil</Link></h3>
-              <p className="text-[#192548] font-normal  text-xl">Founder</p>
+              <p className="text-[#192548] font-normal font-funnel-display text-xl">Founder</p>
             </div>
 
             {/* CTO */}
@@ -127,7 +127,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-[#192548] text-2xl font-medium font-funnel-display underline mb-2"><Link href="https://x.com/hridambasu" target="_blank">Hridam</Link></h3>
-              <p className="text-[#192548] font-normal  text-xl">CTO</p>
+              <p className="text-[#192548] font-normal font-funnel-display text-xl">CTO</p>
             </div>
 
             {/* Design */}
@@ -138,7 +138,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-[#192548] text-2xl font-medium font-funnel-display underline mb-2"><Link href="https://x.com/ashventure" target="_blank">Ashish</Link></h3>
-              <p className="text-[#192548] font-normal text-xl">Design</p>
+              <p className="text-[#192548] font-normal font-funnel-display text-xl">Design</p>
             </div>
 
             {/* Growth */}
@@ -149,7 +149,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-[#192548] text-2xl font-medium font-funnel-display underline mb-2"><Link href="https://x.com/sidselloe" target="_blank">Sidsel</Link></h3>
-              <p className="text-[#192548] font-normal text-xl">Growth</p>
+              <p className="text-[#192548] font-normal font-funnel-display text-xl">Growth</p>
             </div>
           </div>
         </div>
