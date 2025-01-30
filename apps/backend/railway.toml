@@ -1,12 +1,10 @@
 [build]
 builder = "nixpacks"
 buildCommand = "pnpm build:railway"
+watchPatterns = ["/apps/backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
 startCommand = "pnpm start:backend"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
-[nixpacks]
-nodejs_version = "20"
-pnpm_version = "8"

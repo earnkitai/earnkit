@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+/* @media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+} */
+
+body {
+  color: white;
+  background: #0a0917;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.primary-btn {
+  background-color: #2563e4;
+}
+.primary-btn:active {
+  background-color: #183e81;
+}
+
+.primary-btn:hover {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
+    linear-gradient(90deg, #2563e4, #2563e4);
+}

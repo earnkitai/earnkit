@@ -12,6 +12,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:backend": "turbo run build --filter=backend...",
+    "build:frontend": "turbo run build --filter=frontend...",
     "dev": "turbo run dev --parallel --filter=backend... --filter=frontend...",
     "dev:backend": "turbo run dev --filter=backend",
     "dev:frontend": "turbo run --filter=frontend... dev",
@@ -26,16 +27,21 @@
     "test:frontend:watch": "turbo run test:watch --filter=frontend",
     "deploy": "turbo run deploy",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "build:railway": "pnpm install --no-frozen-lockfile && pnpm install --filter backend... && pnpm build:backend"
+    "build:railway": "pnpm install && pnpm build:backend",
+    "migrate:database": "pnpm --filter backend migrate",
+    "migrate:tables": "pnpm --filter backend migrate:tables",
+    "migrate:deploy_tokens": "pnpm --filter backend migrate:deploy_tokens",
+    "migrate:columns_in_deployed_tokens": "pnpm --filter backend migrate:columns_in_deployed_tokens",
+    "preinstall": "node preinstall.js"
   },
   "pnpm": {
     "overrides": {}
   },
   "engines": {
-    "npm": "please-use-pnpm",
-    "node": ">=20.x",
-    "yarn": "please-use-pnpm",
-    "pnpm": ">=8.3.0"
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0",
+    "npm": "use-pnpm-instead",
+    "yarn": "use-pnpm-instead"
   },
   "packageManager": "pnpm@8.15.9",
   "workspaces": [

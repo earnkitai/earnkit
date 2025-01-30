@@ -23,6 +23,4 @@ export interface IWallet {
 export interface SDKConfig {
   turnkeyApiPrivateKey: string;
   turnkeyApiPublicKey: string;
-  pimlicoApiKey: string;
-  pimlicoUrl: string;
 }
