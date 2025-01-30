@@ -271,10 +271,29 @@ export const AddNewAIAgentWallet = async (
 
     return res.status(201).json({
       success: true,
+      // data: {
+      //   organizationId: baseWallet.organizationId,
+      //   owner: {
+      //     address: baseWallet.ownerWalletAddress,
+      //     organizationId: baseWallet.organizationId,
+      //   },
+      //   agent: {
+      //     id: agent.id,
+      //     name: agentName,
+      //     smartAccountAddress: account.address,
+      //   },
+      // },
       data: {
-        id: agent.id,
-        agentName,
-        smartAccountAddress: account.address,
+        organizationId: baseWallet.organizationId,
+        owner: {
+          address: baseWallet.ownerWalletAddress,
+          organizationId: baseWallet.organizationId,
+        },
+        agent: {
+          id: agent.id,
+          name: agent.name,
+          smartAccountAddress: account.address,
+        },
       },
     });
   } catch (e: any) {
