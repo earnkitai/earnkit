@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Funnel_Display } from "next/font/google";
 import "./globals.css";
+import SchemaOrg from '@/components/SchemaOrg';
 
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
@@ -9,27 +10,47 @@ const funnelDisplay = Funnel_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Earnkit",
-  description: "Create Specialized AI Agents in Minutes",
+  metadataBase: new URL('https://earnkit.com'),
+  title: "EarnKit - Create Specialized AI Agents in Minutes",
+  description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+  keywords: [
+    "AI agents", "artificial intelligence", "custom AI", "AI development",
+    "no-code AI", "AI platform", "business automation", "AI chatbots", "Earnkit",
+    "AI automation tools", "EarnKit AI", "AI solutions for businesses"
+  ],
+  authors: [{ name: "EarnKit Team" }],
+  robots: "index, follow",
+  alternates: {
+    canonical: 'https://earnkit.com',
+  },
+  themeColor: "#000000",
   openGraph: {
-    title: "Earnkit",
-    siteName: "Earnkit",
-    url: "https://www.earnkit.com",
+    title: "EarnKit - Create Specialized AI Agents in Minutes",
+    siteName: "EarnKit",
+    url: "https://earnkit.com",
     type: "website",
     locale: "en_US",
-    description: "Create Specialized AI Agents in Minutes",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
     images: [
-      { url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png" },
+      {
+        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        width: 1200,
+        height: 630,
+        alt: "EarnKit Platform Preview",
+      },
     ],
   },
   twitter: {
     site: "@EarnKit_ai",
     creator: "@EarnKit_ai",
     card: "summary_large_image",
-    title: "Earnkit",
-    description: "Create Specialized AI Agents in Minutes",
+    title: "EarnKit - Create Specialized AI Agents in Minutes",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
     images: [
-      "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+      {
+        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        alt: "EarnKit Platform Preview",
+      },
     ],
   },
 };
@@ -41,9 +62,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${funnelDisplay.variable} antialiased`}
-      >
+      <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <SchemaOrg />
+      </head>
+      <body className={`${funnelDisplay.variable} antialiased`} suppressHydrationWarning>
         {children}
       </body>
     </html>
