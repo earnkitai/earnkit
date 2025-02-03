@@ -67,7 +67,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="icon" href="/favicon-32x32.png" sizes="32x32" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-icon.png" />
         <SchemaOrg />
       </head>
