@@ -67,9 +67,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/favicon-32x32.png" sizes="32x32" />
+        <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-icon.png" />
         <SchemaOrg />
       </head>
       <body className={`${funnelDisplay.variable} antialiased`} suppressHydrationWarning>
