@@ -15,8 +15,12 @@ export const metadata: Metadata = {
   description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
   keywords: [
     "AI agents", "artificial intelligence", "custom AI", "AI development",
-    "no-code AI", "AI platform", "business automation", "AI chatbots", "Earnkit",
-    "AI automation tools", "EarnKit AI", "AI solutions for businesses"
+    "no-code AI", "AI platform", "business automation", "AI chatbots",
+    "Earnkit", "EarnKit AI", "AI automation tools", "AI solutions for businesses",
+    "create AI agent online", "build AI assistant without coding",
+    "best AI automation platform", "AI tools for business growth",
+    "AI for startups", "automate business with AI", "AI chatbot for sales",
+    "how to build AI agent", "AI for e-commerce", "AI for customer support"
   ],
   authors: [{ name: "EarnKit Team" }],
   robots: "index, follow",
@@ -65,7 +69,7 @@ export default function RootLayout({
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <SchemaOrg />
       </head>
       <body className={`${funnelDisplay.variable} antialiased`} suppressHydrationWarning>
