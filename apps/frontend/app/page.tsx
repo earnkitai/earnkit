@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
+// import Link from "next/link";
 import { InvestorsIcons } from "@/components/TeamIcons";
 import { SocialButton } from "@/components/SocialButton";
 
@@ -105,12 +105,12 @@ export default function Home() {
       </section>
 
       {/* Team Section */}
-      <section aria-labelledby="team-heading" className="w-full bg-[#B8CCE0] px-16 pb-32 pt-24 lg:pt-32 rounded-[56px]">
+      {/* <section aria-labelledby="team-heading" className="w-full bg-[#B8CCE0] px-16 pb-32 pt-24 lg:pt-32 rounded-[56px]">
         <h2 id="team-heading" className="text-[#192548] text-5xl font-medium font-funnel-display text-center mb-16 lg:mb-24">
           Founding Team
         </h2>
         <div className="flex flex-col lg:flex-row justify-center items-center lg:items-start gap-x-8">
-          {/* Team members - Each in an article element */}
+
           <article className="team-member flex flex-col items-center mb-20 lg:mb-0">
             <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6">
               <svg width="132" height="131" viewBox="0 0 132 131" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -122,7 +122,7 @@ export default function Home() {
             </h3>
             <p className="text-[#192548] font-normal font-funnel-display text-xl">Founder</p>
           </article>
-          {/* CTO */}
+
           <article className="team-member flex flex-col items-center mb-20 lg:mb-0">
             <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6">
               <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -134,7 +134,7 @@ export default function Home() {
             </h3>
             <p className="text-[#192548] font-normal font-funnel-display text-xl">CTO</p>
           </article>
-          {/* Design */}
+
           <article className="team-member flex flex-col items-center mb-20 lg:mb-0">
             <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6">
               <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -146,7 +146,7 @@ export default function Home() {
             </h3>
             <p className="text-[#192548] font-normal font-funnel-display text-xl">Design</p>
           </article>
-          {/* Growth */}
+
           <article className="team-member flex flex-col items-center mb-20 lg:mb-0">
             <div className="w-48 h-48 lg:w-64 lg:h-64 flex items-center justify-center mb-4 lg:mb-6">
               <svg width="130" height="131" viewBox="0 0 130 131" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -160,7 +160,7 @@ export default function Home() {
           </article>
 
         </div>
-      </section>
+      </section> */}
 
       {/* Investors Section */}
       <section aria-labelledby="investors-heading" className="w-full bg-[#192548] px-12 lg:px-16 py-32 rounded-[56px]">
