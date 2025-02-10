@@ -17,10 +17,15 @@ export const metadata: Metadata = {
     "AI agents", "artificial intelligence", "custom AI", "AI development",
     "no-code AI", "AI platform", "business automation", "AI chatbots",
     "Earnkit", "EarnKit AI", "AI automation tools", "AI solutions for businesses",
-    "create AI agent online", "build AI assistant without coding",
+    "create AI agent", "build AI assistant without coding",
     "best AI automation platform", "AI tools for business growth",
     "AI for startups", "automate business with AI", "AI chatbot for sales",
-    "how to build AI agent", "AI for e-commerce", "AI for customer support"
+    "how to build AI agent", "AI for e-commerce", "AI for customer support", "Earn",
+    "Decentralized AI", "AI Agent Framework", "AI in Web3", "AI-Powered Blockchain",
+    "AI & Blockchain Integration", "AI agent crypto", "Web3 Automation",
+    "Blockchain AI", "Crypto Earning Platform", "Earn Cryptocurrency",
+    "Next-Gen AI Agents", "AI-Driven dApps", "Agentic AI", "EarnKit Web3",
+    "AI agent create free", "EarnKit AI Agent Framework"
   ],
   authors: [{ name: "EarnKit Team" }],
   robots: "index, follow",
