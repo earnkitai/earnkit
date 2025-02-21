@@ -126,9 +126,6 @@ export const DeployAgentToken = async (
       signWith: wallet.ownerWalletAddress,
     });
 
-    const privateKey =
-      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f';
-
     const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`;
     const pimlicoClient = createPimlicoClient({
       transport: http(pimlicoUrl),
@@ -145,9 +142,8 @@ export const DeployAgentToken = async (
         version: '0.7',
       },
       saltNonce: BigInt(agent.saltNonce),
-      owners: [privateKeyToAccount(privateKey)],
       address: agent.walletAddress as `0x${string}`,
-      // owners: [turnkeyAccount],
+      owners: [turnkeyAccount],
       version: '1.4.1',
     });
     const smartAccountClient = createSmartAccountClient({
@@ -226,18 +222,18 @@ export const DeployAgentToken = async (
           const lockerAddress = tokenCreatedArgs[6];
 
           // Store token details in Coinvise
-          // try {
-          //   await storeInCoinvise({
-          //     name,
-          //     tokenAddress: tokenContractAddress,
-          //     symbol,
-          //     tokenSupply: totalSupply.toString(),
-          //     lpLockerAddress: lockerAddress,
-          //     ownerAddress: agent.walletAddress,
-          //   });
-          // } catch (error) {
-          //   console.error('Failed to store token in Coinvise:', error);
-          // }
+          try {
+            await storeInCoinvise({
+              name,
+              tokenAddress: tokenContractAddress,
+              symbol,
+              tokenSupply: totalSupply.toString(),
+              lpLockerAddress: lockerAddress,
+              ownerAddress: agent.walletAddress,
+            });
+          } catch (error) {
+            console.error('Failed to store token in Coinvise:', error);
+          }
 
           const storeTokenQuery = `
         INSERT INTO deployed_tokens (
@@ -331,9 +327,6 @@ export const claimFees = async (req: Request, res: Response): Promise<any> => {
       defaultOrganizationId: wallet.organizationId,
     }).apiClient();
 
-    const privateKey =
-      '0xefbf9ccef244f4e0e89592ada8c9b90a4cbdbadfa965222bdc6b84192a5aa29f';
-
     const pimlicoUrl = `https://api.pimlico.io/v2/84532/rpc?apikey=${pimlocoApiKey}`;
     const pimlicoClient = createPimlicoClient({
       transport: http(pimlicoUrl),
@@ -341,6 +334,12 @@ export const claimFees = async (req: Request, res: Response): Promise<any> => {
         address: entryPoint07Address!,
         version: '0.7',
       },
+    });
+
+    const turnkeyAccount = await createAccount({
+      client: turnkeyServer,
+      organizationId: wallet.organizationId,
+      signWith: wallet.ownerWalletAddress,
     });
 
     console.log('agent', agent);
@@ -351,9 +350,8 @@ export const claimFees = async (req: Request, res: Response): Promise<any> => {
         version: '0.7',
       },
       saltNonce: BigInt(agent.saltNonce),
-      owners: [privateKeyToAccount(privateKey)],
       address: agent.walletAddress as `0x${string}`,
-      // owners: [turnkeyAccount],
+      owners: [turnkeyAccount],
       version: '1.4.1',
     });
 

@@ -4,7 +4,18 @@ import routes from './routes';
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+    optionsSuccessStatus: 204,
+  }),
+);
+
+// Enable pre-flight for all routes
+app.options('*', cors());
+
 app.use(express.json());
 
 // All routes under /api
