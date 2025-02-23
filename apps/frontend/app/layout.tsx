@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
-import { Funnel_Display } from "next/font/google";
+import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
-import SchemaOrg from '@/components/SchemaOrg';
-
+import SchemaOrg from '@/app/components/ui/SchemaOrg';
+import Header from "@/app/components/common/Header";
+import Footer from "@/app/components/common/Footer";
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
+});
+const funnellsans = Funnel_Sans({
+  variable: "--font-funnel-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -32,7 +38,6 @@ export const metadata: Metadata = {
   alternates: {
     canonical: 'https://earnkit.com',
   },
-  themeColor: "#000000",
   openGraph: {
     title: "EarnKit - Create Specialized AI Agents in Minutes",
     siteName: "EarnKit",
@@ -74,10 +79,15 @@ export default function RootLayout({
       <head>
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-icon.png" />
+        <meta name="theme-color" content="#000000" />
         <SchemaOrg />
       </head>
-      <body className={`${funnelDisplay.variable} antialiased`} suppressHydrationWarning>
-        {children}
+      <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`} suppressHydrationWarning>
+        <Header />
+        <main className="flex-grow z-30" >
+          {children}
+        </main>
+        <Footer />
       </body>
     </html>
   );

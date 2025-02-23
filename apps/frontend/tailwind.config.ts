@@ -14,6 +14,7 @@ export default {
       },
       fontFamily: {
         'funnel-display': ['var(--font-funnel-display)', 'sans-serif'],
+        'funnel-sans': ['var(--font-funnel-sans)', 'sans-serif'],
       },
     },
   },

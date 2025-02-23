@@ -2,7 +2,7 @@ import Image from "next/image";
 
 interface ButtonProps {
     children: React.ReactNode;
-    variant?: 'primary' | 'secondary' | 'base';
+    variant?: 'primary' | 'secondary' | 'base' | 'outline';
     className?: string;
     icon?: React.ReactNode;
     iconUrl?: string;
@@ -20,11 +20,12 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
             text-[28px] font-semibold leading-[28px]
             primary-btn
         `,
+        outline: `px-[2.8rem] lg:px-[3.1rem] py-6
+            text-[28px] font-semibold leading-[28px]
+            `,
         secondary: `
-        bg-[#8154D4] text-white border border-2 border-[#F4F4EF] px-8
+        text-white border border-2 border-[#F4F4EF] px-8
         font-funnel-display text-[24px] font-medium leading-[33.6px] tracking-[0.01em]
-        hover:bg-[#8154D4] hover:[background:linear-gradient(0deg,#8154D4,#8154D4),linear-gradient(0deg,rgba(0,0,0,0.2),rgba(0,0,0,0.2))]
-        active:bg-[#8154D4] active:[background:linear-gradient(0deg,#8154D4,#8154D4),linear-gradient(0deg,rgba(0,0,0,0.4),rgba(0,0,0,0.4))]
     `,
         base: "bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white focus:ring-[#2563EB]",
     };

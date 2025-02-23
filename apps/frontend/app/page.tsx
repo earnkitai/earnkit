@@ -1,7 +1,9 @@
-import Image from "next/image";
+// import Image from "next/image";
 // import Link from "next/link";
-import { InvestorsIcons } from "@/components/TeamIcons";
-import { SocialButton } from "@/components/SocialButton";
+import { InvestorsIcons } from "@/app/components/ui/TeamIcons";
+import { SocialButton } from "@/app/components/ui/SocialButton";
+import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
@@ -9,21 +11,21 @@ export default function Home() {
       {/* Hero Section */}
       <section aria-label="Hero" className="flex flex-col lg:flex-row">
         {/* Left Section - Hero Content */}
-        <article className="w-full lg:w-1/2 bg-[#2563E4] min-h-screen lg:min-h-screen p-4 pb-10 pt-6 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
-          <header className="w-full flex mb-10 lg:mb-0 items-center justify-center text-center">
+        <article className="w-full lg:w-1/2 bg-[#2563E4] min-h-[90vh] lg:min-h-[88vh] p-4 pb-10 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
+          <header className="w-full flex md:hidden mb-10 lg:mb-0 items-center justify-center text-center">
             <Image
               src="/images/landing/logo.png"
-              height={400}
-              width={400}
-              className="mb-10 w-[50%] lg:w-[10rem]"
+              height={350}
+              width={350}
+              className="mb-10 w-[35%] lg:w-[10rem]"
               alt="EarnKit Logo"
               priority
               quality={100}
             />
           </header>
 
-          <div className="max-w-[85%] lg:max-w-[60%] text-center lg:flex-1 flex flex-col justify-center">
-            <h1 className="text-white font-funnel-display text-[3rem] lg:text-[3.5rem] 2xl:text-[7dvh] font-normal leading-tight mb-8">
+          <div className="max-w-[85%] lg:max-w-[65%] text-center lg:flex-1 flex flex-col justify-center">
+            <h1 className="text-white font-funnel-display text-[3rem] lg:text-[4rem] 2xl:text-[8dvh] font-normal leading-tight mb-8">
               Create specialized AI agents in minutes
             </h1>
           </div>
@@ -41,40 +43,44 @@ export default function Home() {
         {/* Right Section - CTA Areas */}
         <aside className="w-full lg:w-1/2 flex flex-col">
           {/* Early Access CTA */}
-          <div className="h-[40vh] lg:h-[50vh] bg-[#B8CCE0] p-4 lg:p-8 flex items-center justify-center rounded-[56px]" role="complementary">
+          <div className="h-[50vh] lg:h-[44vh] bg-[#B8CCE0] p-4 lg:p-8 flex items-center justify-center rounded-[56px]" role="complementary">
             <SocialButton
-              variant="primary"
-              icon={<svg width="41" height="40" viewBox="0 0 41 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M20.2925 10.625L23.2375 18.095L30.7075 21.0425L23.2375 23.9875L20.2925 31.4575L17.345 23.9875L9.875 21.0425L17.345 18.095L20.2925 10.625Z" fill="#F4F4EF" />
-                <path d="M20.2925 9.5825C20.7175 9.5825 21.105 9.845 21.26 10.2425L24.04 17.2925L31.09 20.0725C31.284 20.1496 31.4503 20.2832 31.5675 20.4559C31.6847 20.6286 31.7474 20.8325 31.7474 21.0413C31.7474 21.25 31.6847 21.4539 31.5675 21.6266C31.4503 21.7993 31.284 21.9329 31.09 22.01L24.04 24.79L21.26 31.84C21.1829 32.034 21.0493 32.2003 20.8766 32.3175C20.7039 32.4347 20.5 32.4974 20.2913 32.4974C20.0825 32.4974 19.8786 32.4347 19.7059 32.3175C19.5332 32.2003 19.3996 32.034 19.3225 31.84L16.5425 24.79L9.4925 22.01C9.29854 21.9329 9.13219 21.7993 9.01499 21.6266C8.89779 21.4539 8.83514 21.25 8.83514 21.0413C8.83514 20.8325 8.89779 20.6286 9.01499 20.4559C9.13219 20.2832 9.29854 20.1496 9.4925 20.0725L16.5425 17.2925L19.3225 10.2425C19.4001 10.0484 19.5339 9.88196 19.7067 9.76438C19.8795 9.6468 20.0835 9.58347 20.2925 9.5825ZM20.2925 13.465L18.315 18.475C18.2622 18.6077 18.1828 18.7283 18.0818 18.8293C17.9808 18.9303 17.8602 19.0097 17.7275 19.0625L12.715 21.0375L17.7275 23.0175C17.86 23.07 17.9804 23.149 18.0814 23.2496C18.1824 23.3501 18.2619 23.4702 18.315 23.6025L20.29 28.6175L22.27 23.6025C22.3228 23.4705 22.4019 23.3505 22.5025 23.25C22.603 23.1494 22.723 23.0703 22.855 23.0175L27.87 21.04L22.855 19.0625C22.7227 19.0094 22.6026 18.9299 22.5021 18.8289C22.4015 18.7279 22.3225 18.6075 22.27 18.475L20.2925 13.465ZM10.9175 7.5L12.2425 10.34L15.0825 11.665L12.2425 12.9925L10.9175 15.8325L9.5925 12.9925L6.75 11.6675L9.59 10.3425L10.9175 7.5Z" fill="#F4F4EF" />
+              variant="outline"
+              icon={<svg width="41" height="40" viewBox="0 0 41 40" fill="parent" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20.2925 10.625L23.2375 18.095L30.7075 21.0425L23.2375 23.9875L20.2925 31.4575L17.345 23.9875L9.875 21.0425L17.345 18.095L20.2925 10.625Z" fill="currentColor" />
+                <path d="M20.2925 9.5825C20.7175 9.5825 21.105 9.845 21.26 10.2425L24.04 17.2925L31.09 20.0725C31.284 20.1496 31.4503 20.2832 31.5675 20.4559C31.6847 20.6286 31.7474 20.8325 31.7474 21.0413C31.7474 21.25 31.6847 21.4539 31.5675 21.6266C31.4503 21.7993 31.284 21.9329 31.09 22.01L24.04 24.79L21.26 31.84C21.1829 32.034 21.0493 32.2003 20.8766 32.3175C20.7039 32.4347 20.5 32.4974 20.2913 32.4974C20.0825 32.4974 19.8786 32.4347 19.7059 32.3175C19.5332 32.2003 19.3996 32.034 19.3225 31.84L16.5425 24.79L9.4925 22.01C9.29854 21.9329 9.13219 21.7993 9.01499 21.6266C8.89779 21.4539 8.83514 21.25 8.83514 21.0413C8.83514 20.8325 8.89779 20.6286 9.01499 20.4559C9.13219 20.2832 9.29854 20.1496 9.4925 20.0725L16.5425 17.2925L19.3225 10.2425C19.4001 10.0484 19.5339 9.88196 19.7067 9.76438C19.8795 9.6468 20.0835 9.58347 20.2925 9.5825ZM20.2925 13.465L18.315 18.475C18.2622 18.6077 18.1828 18.7283 18.0818 18.8293C17.9808 18.9303 17.8602 19.0097 17.7275 19.0625L12.715 21.0375L17.7275 23.0175C17.86 23.07 17.9804 23.149 18.0814 23.2496C18.1824 23.3501 18.2619 23.4702 18.315 23.6025L20.29 28.6175L22.27 23.6025C22.3228 23.4705 22.4019 23.3505 22.5025 23.25C22.603 23.1494 22.723 23.0703 22.855 23.0175L27.87 21.04L22.855 19.0625C22.7227 19.0094 22.6026 18.9299 22.5021 18.8289C22.4015 18.7279 22.3225 18.6075 22.27 18.475L20.2925 13.465ZM10.9175 7.5L12.2425 10.34L15.0825 11.665L12.2425 12.9925L10.9175 15.8325L9.5925 12.9925L6.75 11.6675L9.59 10.3425L10.9175 7.5Z" fill="currentColor" />
               </svg>}
               link="https://form.typeform.com/to/TaK4Xs1E"
               aria-label="Get Early Access"
+              className="bg-transparent text-[#183E81] hover:text-[#192548] outline outline-2 outline-[#183E81] hover:outline-[#192548] border border-2 border-[#B8CCE0] hover:border-[#183E81] transition-all duration-200 ease-in"
             >
               Early Access
             </SocialButton>
           </div>
 
           {/* Social Links */}
-          <nav className="h-auto lg:h-[50vh] bg-[#192548] p-4 lg:p-8 flex items-center justify-center rounded-[56px]" aria-label="Social media links">
-            <div className="flex flex-col gap-20 my-20">
+          <nav className="h-auto lg:h-[44vh] bg-[#192548] p-4 lg:p-8 flex items-center justify-center rounded-[56px]" aria-label="Social media links">
+            <div className="flex flex-col gap-16 my-16 2xl:my-20 2xl:gap-20 p-2">
               <SocialButton
-                variant="primary"
-                icon={<svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M19.9786 2.03265H23.6996L15.5702 11.324L25.1338 23.9674H17.6456L11.7806 16.2993L5.06967 23.9674H1.34638L10.0415 14.0293L0.867188 2.03265H8.54549L13.847 9.04166L19.9786 2.03265ZM18.6726 21.7402H20.7345L7.42512 4.14289H5.21252L18.6726 21.7402Z" fill="#F4F4EF" />
+                variant="outline"
+                icon={<svg width="26" height="26" viewBox="0 0 26 26" fill="#B8CCE0" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M19.9786 2.03265H23.6996L15.5702 11.324L25.1338 23.9674H17.6456L11.7806 16.2993L5.06967 23.9674H1.34638L10.0415 14.0293L0.867188 2.03265H8.54549L13.847 9.04166L19.9786 2.03265ZM18.6726 21.7402H20.7345L7.42512 4.14289H5.21252L18.6726 21.7402Z" fill="#B8CCE0" />
                 </svg>}
                 link="https://x.com/EarnKit_ai"
                 aria-label="EarnKit_ai"
+                className="bg-transparent text-[#B8CCE0] hover:text-[#B8CCE0] outline outline-2 outline-[#B8CCE0] border border-2 border-[#192548] hover:border-[#B8CCE0] transition-all duration-200 ease-in"
+
               >
                 EarnKit_ai
               </SocialButton>
               <SocialButton
-                variant="primary"
+                variant="outline"
                 icon={<svg width="26" height="24" viewBox="0 0 26 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path fillRule="evenodd" clipRule="evenodd" d="M8.85231 23.6425H0.606267V22.7412C0.606267 22.3263 0.942589 21.99 1.35743 21.99H1.50764V21.0887C1.50764 20.6738 1.84393 20.3375 2.25877 20.3375V6.96724H1.43254L0.456055 3.66222H4.81266V0.357239H21.1874V3.66222H25.5441L24.5676 6.96724H23.7413V20.3375C24.1562 20.3375 24.4925 20.6738 24.4925 21.0887V21.99H24.6427C25.0575 21.99 25.3938 22.3263 25.3938 22.7412V23.6425H17.1571V22.7412C17.1571 22.3263 17.4934 21.99 17.9082 21.99H18.0584V21.0887C18.0584 20.6824 18.3809 20.3515 18.7838 20.338V12.9764C18.5181 10.0285 16.0171 7.71837 13.0001 7.71837C9.98303 7.71837 7.48197 10.0285 7.2163 12.9764V20.3377C7.6235 20.3465 7.95093 20.6793 7.95093 21.0887V21.5393V21.99H8.10114C8.51599 21.99 8.85231 22.3263 8.85231 22.7412V23.6425Z" fill="#F4F4EF" />
+                  <path fillRule="evenodd" clipRule="evenodd" d="M8.85231 23.6425H0.606267V22.7412C0.606267 22.3263 0.942589 21.99 1.35743 21.99H1.50764V21.0887C1.50764 20.6738 1.84393 20.3375 2.25877 20.3375V6.96724H1.43254L0.456055 3.66222H4.81266V0.357239H21.1874V3.66222H25.5441L24.5676 6.96724H23.7413V20.3375C24.1562 20.3375 24.4925 20.6738 24.4925 21.0887V21.99H24.6427C25.0575 21.99 25.3938 22.3263 25.3938 22.7412V23.6425H17.1571V22.7412C17.1571 22.3263 17.4934 21.99 17.9082 21.99H18.0584V21.0887C18.0584 20.6824 18.3809 20.3515 18.7838 20.338V12.9764C18.5181 10.0285 16.0171 7.71837 13.0001 7.71837C9.98303 7.71837 7.48197 10.0285 7.2163 12.9764V20.3377C7.6235 20.3465 7.95093 20.6793 7.95093 21.0887V21.5393V21.99H8.10114C8.51599 21.99 8.85231 22.3263 8.85231 22.7412V23.6425Z" fill="#B8CCE0" />
                 </svg>}
                 link="https://warpcast.com/earnkit"
                 aria-label="EarnKit"
+                className="bg-transparent text-[#B8CCE0] hover:text-[#B8CCE0] outline outline-2 outline-[#B8CCE0] border border-2 border-[#192548] hover:border-[#B8CCE0] transition-all duration-200 ease-in"
               >
                 EarnKit
               </SocialButton>
@@ -88,7 +94,7 @@ export default function Home() {
         <div className="w-full bg-[#8154D4] p-4 flex flex-col items-center justify-between rounded-[40px]">
           <div className="flex flex-col lg:flex-row items-center justify-center w-full p-6 lg:p-2 gap-x-8">
             <h2 id="announcement-heading" className="w-[80%] lg:w-auto font-funnel-display text-center text-white text-[22px] lg:text-2xl mb-10 lg:mb-0">
-              Introducing our first AI agent built on top of EarnKit&apos;s framework
+              Check out our first AI agent built on top of EarnKit&apos;s framework
             </h2>
             <SocialButton
               variant="secondary"
@@ -97,6 +103,7 @@ export default function Home() {
               </svg>}
               link="https://warpcast.com/coinvise"
               aria-label="@coinvise"
+              className="coinvise-btn-warpcast"
             >
               @coinvise
             </SocialButton>
@@ -105,7 +112,7 @@ export default function Home() {
       </section>
 
       {/* Team Section */}
-      {/* <section aria-labelledby="team-heading" className="w-full bg-[#B8CCE0] px-16 pb-32 pt-24 lg:pt-32 rounded-[56px]">
+      <section aria-labelledby="team-heading" className="w-full bg-[#B8CCE0] px-16 pb-32 pt-24 lg:pt-32 rounded-[56px]">
         <h2 id="team-heading" className="text-[#192548] text-5xl font-medium font-funnel-display text-center mb-16 lg:mb-24">
           Founding Team
         </h2>
@@ -160,7 +167,7 @@ export default function Home() {
           </article>
 
         </div>
-      </section> */}
+      </section>
 
       {/* Investors Section */}
       <section aria-labelledby="investors-heading" className="w-full bg-[#192548] px-12 lg:px-16 py-32 rounded-[56px]">
@@ -204,6 +211,8 @@ export default function Home() {
 
         </div>
       </section >
+
+
     </main>
   );
 }
