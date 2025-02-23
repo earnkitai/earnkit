@@ -44,9 +44,15 @@ export default function Header() {
                     </nav>
                 </div>
             </header>
-            <header className="h-screen z-20 fixed flex flex-col md:hidden w-full justify-between items-center h-[12vh] font-funnel-display">
-                <div className="h-[90vh] h-[90dvh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div>
-                <div className="h-[10vh] h-[10dvh] bg-[#0a0917] flex flex-row justify-center items-center w-full">
+            <header className="container2 fixed z-50 bottom-0 flex flex-col md:hidden w-full justify-between items-center font-funnel-display">
+                <div className="min-h-[100px] h-[12vh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div>
+                {/* <div className="absolute bottom-[50px] left-0 w-[100vw] h-full object-contain">
+                    <svg width="391" height="136" viewBox="0 0 391 136" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M390.458 136V0C390.458 30.9279 365.386 56 334.458 56H56.4582C25.5303 56 0.458252 30.928 0.458252 1.70469e-05V136H390.458Z" fill="#0A0917" />
+                    </svg>
+                </div> */}
+
+                <div className="h-[10vh]  h-[10dvh] bg-[#0a0917] flex flex-row justify-center items-center w-full mobile-header-bg">
                     <nav className="flex flex-row justify-start items-center font-funnel-display font-mediumitems-center gap-4 w-full max-w-full overflow-x-auto no-scrollbar">
                         <Link href="https://earnkit.com" className="text-[#B8CCE0] hover:text-white transition-colors mr-4 ml-8" target="_blank">
                             <svg width="29" height="28" viewBox="0 0 29 28" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -74,7 +80,6 @@ export default function Header() {
                             Docs
                         </Link>
                     </nav>
-
                 </div>
             </header>
         </>

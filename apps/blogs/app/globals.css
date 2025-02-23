@@ -86,7 +86,7 @@ body {
   background-blend-mode: multiply;
 }
 .mobile-header-bg {
-  box-shadow: #0a0917 56px 56px 0px 56px;
-
+  /* box-shadow: #0a0917 56px 56px 0px 56px; */
+  box-shadow: 0 56px #0a0917;
   /* box-shadow: 0 4px 10px; */
 }
