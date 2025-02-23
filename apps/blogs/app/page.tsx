@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -21,12 +22,7 @@ interface BlogPost {
   featured: boolean;
 }
 
-interface BlogPageProps {
-  searchParams: { page?: string }
-}
-
-export default async function Blog({ searchParams }: BlogPageProps) {
-  const params = await searchParams;
+export default async function Blog({ params }: any) {
   const notionPosts: BlogPost[] = await getPosts();
   console.log(notionPosts, 'posts');
 
