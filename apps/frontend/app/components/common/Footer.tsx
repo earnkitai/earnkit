@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function Footer() {
     return (
-        <section aria-labelledby="footer-content" className="w-full bg-[#101128] px-14 md:px-16 lg:px-20 py-14 mb-24 md:py-20 rounded-[56px]">
+        <section aria-labelledby="footer-content" className="w-full bg-[#101128] px-14 md:px-16 lg:px-20 py-14 mb-24 md:mb-0 md:py-20 rounded-[56px]">
             <div className="max-w-7xl mx-auto flex flex-col-reverse md:flex-row justify-between">
                 {/* Logo and Tagline */}
                 <div className="mt-24 md:mt-0 mb-8 lg:mb-0 flex flex-col gap-4 items-center justify-end">
@@ -31,7 +31,7 @@ export default function Footer() {
                         <h3 className="text-blue-500 font-semibold mb-4 font-funnel-display text-center md:text-left" >EarnKit</h3>
                         <ul className="space-y-3">
                             <li className="text-center md:text-left"><Link href="https://docs.earnkit.com" className="text-[#B8CCE0] hover:text-white font-funnel-sans" target="_blank">Docs</Link></li>
-                            <li className="text-center md:text-left"><Link href="/" className="text-[#B8CCE0] hover:text-white font-funnel-sans">Blog</Link></li>
+                            <li className="text-center md:text-left"><Link href="https://blog.earnkit.com/" className="text-[#B8CCE0] hover:text-white font-funnel-sans">Blog</Link></li>
                             <li className="text-center md:text-left"><Link href="https://earnkit.com/roadmap" className="text-[#B8CCE0] hover:text-white font-funnel-sans" target="_blank">Roadmap</Link></li>
                             <li className="text-center md:text-left"><Link href="https://earnkit.com/litepaper" className="text-[#B8CCE0] hover:text-white font-funnel-sans" target="_blank">Litepaper</Link></li>
                         </ul>
