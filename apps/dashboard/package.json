@@ -9,13 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@auth/typeorm-adapter": "^2.7.4",
     "next": "15.1.6",
+    "next-auth": "5.0.0-beta.25",
+    "nodemailer": "^6.10.0",
+    "pg": "^8.13.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "resend": "^4.1.2",
+    "typeorm": "^0.3.20"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
+    "@types/nodemailer": "^6.4.17",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
