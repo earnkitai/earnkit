@@ -2,8 +2,10 @@
 
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Suspense } from 'react';
 
-export default function ErrorPage() {
+// Create a client component for the error content
+const ErrorContent = () => {
     const searchParams = useSearchParams();
     const error = searchParams.get("error");
 
@@ -49,12 +51,34 @@ export default function ErrorPage() {
                 </div>
 
                 <Link
-                    href="/login"
+                    href="/signin"
                     className="w-full px-10 py-5 bg-primary font-funnel-sans font-medium text-[1.375rem] text-white rounded-full hover:bg-blue-600 transition-colors text-center"
                 >
                     Back to Login
                 </Link>
             </div>
         </div>
+    );
+};
+
+// Loading component
+const LoadingFallback = () => {
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-white">
+            <div className="w-full max-w-xl p-8 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-8 p-14">
+                <div className="text-center">
+                    <h1 className="text-2xl font-funnel-sans font-bold mb-4">Loading...</h1>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Main page component
+export default function ErrorPage() {
+    return (
+        <Suspense fallback={<LoadingFallback />}>
+            <ErrorContent />
+        </Suspense>
     );
 }
