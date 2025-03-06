@@ -3,12 +3,10 @@
 // import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 
 export default function CreateWallet() {
     const [username, setUsername] = useState("");
     const router = useRouter();
-    const { data: session } = useSession();
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -29,7 +27,6 @@ export default function CreateWallet() {
 
                 {/* User Email Display */}
                 <div className="text-center text-black font-funnel-sans">
-                    Connected as: {session?.user?.email}
                 </div>
 
                 {/* Username Input */}

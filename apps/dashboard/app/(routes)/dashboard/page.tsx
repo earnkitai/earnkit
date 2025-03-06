@@ -1,33 +1,16 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+// import { useSession } from "next-auth/react";
+// import { useRouter } from "next/navigation";
+// import { useEffect } from "react";
 import AgentCard from "@/app/components/dashboard/AgentCard";
 import Header from "@/app/components/dashboard/Header";
 
 export default function Dashboard() {
-    const { data: session, status } = useSession();
-    const router = useRouter();
+    // const { data: session, status } = useSession();
+    // const router = useRouter();
 
-    console.log(session, "session");
-
-    useEffect(() => {
-        if (status === "unauthenticated") {
-            console.log("unauthenticated");
-            router.push("/signin");
-        } else if (status === "authenticated" && !session?.user?.username) {
-            router.push("/setup-username");
-        }
-    }, [status, session, router]);
-
-    if (status === "loading") {
-        return (
-            <div className="flex items-center justify-center h-full">
-                <div className="text-black text-xl">Loading...</div>
-            </div>
-        );
-    }
+    // console.log(session, "session");
 
     return (
         <div className="relative p-10">

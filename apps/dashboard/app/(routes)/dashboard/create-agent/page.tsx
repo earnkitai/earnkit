@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, MessageSquare, Settings, Palette, Zap, Plus, User, Bot, ArrowRight } from "lucide-react";
-import { useSession } from "next-auth/react";
 
 // Step components
 import AgentDetails from "../../../components/dashboard/create-agent/AgentDetails";
@@ -14,7 +13,6 @@ import TokenSection from "../../../components/dashboard/create-agent/TokenSectio
 
 export default function CreateAgentPage() {
     const router = useRouter();
-    const { data: session } = useSession();
     const [activeSection, setActiveSection] = useState<string | null>(null);
     const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
 
@@ -153,7 +151,6 @@ export default function CreateAgentPage() {
                         </h2>
                         <div className="flex items-center gap-2 text-white/80">
                             <User className="w-4 h-4" />
-                            <span>{session?.user?.name || session?.user?.email || 'User'}</span>
                         </div>
                     </div>
                 </div>

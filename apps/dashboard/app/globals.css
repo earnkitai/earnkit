@@ -91,3 +91,9 @@ input:-webkit-autofill,
 input:-internal-autofill-selected {
   background-color: transparent;
 }
+
+#turnkey-default-iframe-element-id {
+  filter: brightness(0.96);
+  width: 100%;
+  height: 100%;
+}

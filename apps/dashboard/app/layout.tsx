@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
-import { Providers } from "./providers";
+import { Providers } from "@/providers";
+// import { Providers } from "@/providers";
 // import Header from "@/app/components/common/Header";
 // import Footer from "@/app/components/common/Footer";
 const funnelDisplay = Funnel_Display({
@@ -76,7 +77,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-icon.png" />

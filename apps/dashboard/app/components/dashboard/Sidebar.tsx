@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+// import { signOut } from "next-auth/react";
 import {
     User,
     Wallet,
@@ -12,21 +12,39 @@ import {
     LogOut,
     Plus
 } from "lucide-react";
+import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from "react";
+import { useUser } from "@/hooks/use-user";
+import { getUsernameByUserId } from "@/actions/user";
+// import { useState } from "react";
 
 export default function DashboardSidebar() {
+    const { user } = useUser();
     const pathname = usePathname();
+    const { logout } = useAuth();
 
     const [username, setUsername] = useState<string>("");
 
-    const { data: session } = useSession();
-    console.log(session, "dashboard sidebar");
-
     useEffect(() => {
-        if (session?.user?.username) {
-            setUsername(session.user.username);
-        }
-    }, [session]);
+        const fetchUsername = async () => {
+            if (user?.userId) {
+                const result = await getUsernameByUserId(user.userId);
+                if (result.success && result.username) {
+                    setUsername(result.username);
+                }
+            }
+        };
+        fetchUsername();
+    }, [user]);
+
+    // const { data: session } = useSession();
+    // console.log(session, "dashboard sidebar");
+
+    // useEffect(() => {
+    //     if (session?.user?.username) {
+    //         setUsername(session.user.username);
+    //     }
+    // }, [session]);
 
     const isActive = (path: string) => {
         return pathname === path;
@@ -40,6 +58,10 @@ export default function DashboardSidebar() {
             }`;
     };
 
+    const handleLogout = () => {
+        logout();
+    };
+
     return (
         <aside className="fixed left-0 top-0 h-screen w-[250px] bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl px-6 py-8">
 
@@ -51,7 +73,7 @@ export default function DashboardSidebar() {
                         className={getLinkStyles("/dashboard/user/profile")}
                     >
                         <User className="w-5 h-5 mr-1" />
-                        <span className="text-md font-medium ">{"@" + username || "@user"}</span>
+                        <span className="text-md font-medium ">{username !== "" ? "@" + username : "user"}</span>
                     </Link>
                     <Link
                         href="/dashboard/wallet"
@@ -100,8 +122,9 @@ export default function DashboardSidebar() {
                     </Link>
 
                     <button
-                        onClick={() => signOut({ callbackUrl: "/signin" })}
+                        // onClick={() => signOut({ callbackUrl: "/signin" })}
                         className={getLinkStyles("/dashboard/logout")}
+                        onClick={handleLogout}
                     >
                         <LogOut className="w-5 h-5 mr-1" />
                         <span className="text-md font-medium">Log out</span>
