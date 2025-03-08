@@ -4,11 +4,7 @@ import { env } from '@/env.mjs';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: env.DATABASE_HOST,
-  port: parseInt(env.DATABASE_PORT),
-  username: env.DATABASE_USER,
-  password: env.DATABASE_PASSWORD,
-  database: env.DATABASE_NAME,
+  url: env.DATABASE_URL,
   synchronize: false, // Set to false in production
   logging: false,
   entities: [User],

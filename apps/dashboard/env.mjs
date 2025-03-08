@@ -21,11 +21,7 @@ export const env = createEnv({
     NEXT_PUBLIC_ORGANIZATION_ID: z.string().min(1),
     NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().min(1),
     COINGECKO_API_KEY: z.string().min(1),
-    DATABASE_HOST: z.string().min(1),
-    DATABASE_PORT: z.string().min(1),
-    DATABASE_USER: z.string().min(1),
-    DATABASE_PASSWORD: z.string().min(1),
-    DATABASE_NAME: z.string().min(1),
+    DATABASE_URL: z.string().min(1),
     NODE_ENV: z
       .enum(['development', 'production', 'test'])
       .default('development'),
@@ -52,11 +48,7 @@ export const env = createEnv({
     TURNKEY_WARCHEST_ORGANIZATION_ID:
       process.env.TURNKEY_WARCHEST_ORGANIZATION_ID,
     WARCHEST_PRIVATE_KEY_ID: process.env.WARCHEST_PRIVATE_KEY_ID,
-    DATABASE_HOST: process.env.DATABASE_HOST,
-    DATABASE_PORT: process.env.DATABASE_PORT,
-    DATABASE_USER: process.env.DATABASE_USER,
-    DATABASE_PASSWORD: process.env.DATABASE_PASSWORD,
-    DATABASE_NAME: process.env.DATABASE_NAME,
+    DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
   },
   extends: [vercel()],
