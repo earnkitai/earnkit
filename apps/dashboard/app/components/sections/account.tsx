@@ -206,7 +206,7 @@ export default function Account() {
               <span className="text-sm font-semibold">
                 <span className="font-semibold text-muted-foreground">~</span>
                 {account.balance
-                  ? Number(formatEther(account.balance)).toFixed(2)
+                  ? Number(formatEther(account.balance.ethBalance)).toFixed(2)
                   : "0"}
                 <span className="ml-0.5 text-xs font-normal text-muted-foreground">
                   ETH

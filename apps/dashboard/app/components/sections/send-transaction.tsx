@@ -7,7 +7,7 @@ import { Button } from "@/app/components/ui/button"
 interface SendTransactionProps {
   transaction: TransactionRequest
   amountUSD: string
-  ethPrice: number
+  basePrice: number
   network: string
   onSend: (transaction: TransactionRequest) => void
   onBack: () => void
@@ -16,7 +16,7 @@ interface SendTransactionProps {
 export default function SendTransaction({
   transaction,
   amountUSD,
-  ethPrice,
+  basePrice,
   network,
   onSend,
   onBack,
@@ -30,7 +30,7 @@ export default function SendTransaction({
       ? transaction.gas * transaction.maxFeePerGas
       : BigInt(0)
 
-  const totalGasFeesUSD = parseFloat(formatEther(totalGasFees)) * ethPrice
+  const totalGasFeesUSD = parseFloat(formatEther(totalGasFees)) * basePrice
   const totalUSD = parseFloat(amountUSD) + totalGasFeesUSD
 
   return (

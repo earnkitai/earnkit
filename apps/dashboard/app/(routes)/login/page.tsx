@@ -5,10 +5,10 @@ import { LoadingButton } from "@/app/components/ui/button.loader";
 import { useAuth } from "@/providers/auth-provider";
 import { Email } from "@/types/turnkey";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+// import { useSearchParams } from "next/navigation";
 // import { providerMap } from "@/auth.config";
 // import { handleEmailSignIn } from "@/actions/signin/sendVerificationRequest";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 // import { useForm } from "react-hook-form";
 import { Toaster } from "@/app/components/ui/sonner";
 import { toast } from "sonner";
@@ -20,10 +20,10 @@ const formSchema = z.object({
 })
 
 function LoginPage() {
-    const { loginWithPasskey, } = useAuth()
+    const { loginWithPasskey } = useAuth()
     const { passkeyClient } = useTurnkey()
     const [loadingAction, setLoadingAction] = useState<string | null>(null)
-    const searchParams = useSearchParams()
+    // const searchParams = useSearchParams()
     const [username, setUsername] = useState("");
 
     // const form = useForm<z.infer<typeof formSchema>>({
@@ -33,12 +33,12 @@ function LoginPage() {
     //   },
     // })
 
-    useEffect(() => {
-        const qsError = searchParams.get("error")
-        if (qsError) {
-            toast.error(qsError)
-        }
-    }, [searchParams])
+    // useEffect(() => {
+    //     const qsError = searchParams.get("error")
+    //     if (qsError) {
+    //         toast.error(qsError)
+    //     }
+    // }, [searchParams])
 
     const handlePasskeyLogin = async (username: string) => {
         if (!passkeyClient) {
@@ -138,6 +138,10 @@ const LoadingFallback = () => {
         </div>
     );
 };
-export default async function page() {
-    return <Suspense fallback={<LoadingFallback />}><LoginPage /></Suspense>
+export default function page() {
+    return (
+        <Suspense fallback={<LoadingFallback />}
+        ><LoginPage />
+        </Suspense>
+    )
 }

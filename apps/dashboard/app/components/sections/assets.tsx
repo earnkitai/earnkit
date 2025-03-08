@@ -20,25 +20,40 @@ import { Icons } from "./icons"
 
 export default function Assets() {
   const { state } = useWallets()
-  const { ethPrice } = useTokenPrice()
+  const { ethPrice, basePrice } = useTokenPrice()
   const { selectedAccount } = state
 
-  // Memoize the balance calculation
-  const amount = useMemo(() => {
-    return selectedAccount?.balance
+  // Memoize the balances calculation
+  const ethAmount = useMemo(() => {
+    return selectedAccount?.balance?.ethBalance
       ? parseFloat(
-        Number(formatEther(selectedAccount?.balance ?? BigInt(0))).toFixed(8)
+        Number(formatEther(selectedAccount.balance.ethBalance)).toFixed(8)
       ).toString()
       : "0"
-  }, [selectedAccount?.balance])
+  }, [selectedAccount?.balance?.ethBalance])
 
-  // Memoize the value calculation
-  const valueInUSD = useMemo(() => {
+  const baseAmount = useMemo(() => {
+    return selectedAccount?.balance?.baseBalance
+      ? parseFloat(
+        Number(formatEther(selectedAccount.balance.baseBalance)).toFixed(8)
+      ).toString()
+      : "0"
+  }, [selectedAccount?.balance?.baseBalance])
+
+  // Memoize the values calculation
+  const ethValueInUSD = useMemo(() => {
     return (
-      Number(formatEther(selectedAccount?.balance ?? BigInt(0))) *
+      Number(formatEther(selectedAccount?.balance?.ethBalance ?? BigInt(0))) *
       (ethPrice || 0)
     ).toFixed(2)
-  }, [selectedAccount?.balance, ethPrice])
+  }, [selectedAccount?.balance?.ethBalance, ethPrice])
+
+  const baseValueInUSD = useMemo(() => {
+    return (
+      Number(formatEther(selectedAccount?.balance?.baseBalance ?? BigInt(0))) *
+      (basePrice || 0)
+    ).toFixed(2)
+  }, [selectedAccount?.balance?.baseBalance, basePrice])
 
   return (
     <Card>
@@ -69,19 +84,46 @@ export default function Assets() {
                 {selectedAccount?.address &&
                   truncateAddress(selectedAccount?.address)}
               </TableCell>
-              <TableCell className="hidden sm:table-cell">{amount}</TableCell>
+              <TableCell className="hidden sm:table-cell">{ethAmount}</TableCell>
               <TableCell className="hidden sm:table-cell">
-                ${valueInUSD}
+                ${ethValueInUSD}
               </TableCell>
               <TableCell className="p-2 sm:hidden">
                 <div className="font-medium">
-                  {amount}
+                  {ethAmount}
                   <span className="ml-1 text-xs text-muted-foreground">
                     ETH
                   </span>
                 </div>
-                <div className=" text-sm text-muted-foreground">
-                  ${valueInUSD}
+                <div className="text-sm text-muted-foreground">
+                  ${ethValueInUSD}
+                </div>
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="p-2 font-medium sm:p-4">
+                <div className="flex items-center space-x-2 text-xs sm:text-sm">
+                  <Icons.base className="h-6 w-6 rounded-full" />
+                  <span>Base (Sepolia)</span>
+                </div>
+              </TableCell>
+              <TableCell className="hidden font-mono text-xs sm:table-cell">
+                {selectedAccount?.address &&
+                  truncateAddress(selectedAccount?.address)}
+              </TableCell>
+              <TableCell className="hidden sm:table-cell">{baseAmount}</TableCell>
+              <TableCell className="hidden sm:table-cell">
+                ${baseValueInUSD}
+              </TableCell>
+              <TableCell className="p-2 sm:hidden">
+                <div className="font-medium">
+                  {baseAmount}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    ETH
+                  </span>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  ${baseValueInUSD}
                 </div>
               </TableCell>
             </TableRow>

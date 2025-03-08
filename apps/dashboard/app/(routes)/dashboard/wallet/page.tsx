@@ -12,11 +12,14 @@ import { useEffect, useState } from "react";
 import { formatEther } from "viem";
 import { toast } from "sonner";
 import TransferDialog from "@/app/components/sections/transfer-dialog";
+import Assets from "@/app/components/sections/assets";
+import Activity from "@/app/components/sections/activity";
+import { Toaster } from "@/app/components/ui/sonner";
 
 export default function WalletPage() {
     const { user } = useUser();
     const [usdAmount, setUsdAmount] = useState<number | undefined>(undefined)
-    const { ethPrice } = useTokenPrice()
+    const { ethPrice, basePrice } = useTokenPrice()
     // const router = useRouter();
     const { state } =
         useWallets()
@@ -38,10 +41,13 @@ export default function WalletPage() {
 
     useEffect(() => {
         if (ethPrice && selectedAccount?.balance !== undefined) {
-            const balanceInEther = formatEther(selectedAccount?.balance)
-            setUsdAmount(Number(balanceInEther) * ethPrice)
+            const balanceInEther = formatEther(selectedAccount?.balance.ethBalance)
+            const balanceInBase = formatEther(selectedAccount?.balance.baseBalance)
+            console.log(basePrice, "basePrice")
+            console.log(balanceInBase, "balanceInBase")
+            setUsdAmount((Number(balanceInEther) * ethPrice) + (Number(balanceInBase) * Number(basePrice)))
         }
-    }, [ethPrice, selectedAccount?.balance])
+    }, [ethPrice, selectedAccount?.balance?.baseBalance, selectedAccount?.balance?.ethBalance, basePrice, selectedAccount?.balance])
 
     return (
         <div className="p-8">
@@ -78,21 +84,24 @@ export default function WalletPage() {
                 </div>
             </div>
 
+
             {/* Assets Section */}
-            <div className="mb-12">
-                <h2 className="text-xl font-semibold mb-4">Assets</h2>
-                <div className="bg-gray-50 rounded-xl p-8 flex items-center justify-center">
-                    <span className="text-gray-500">You don&apos;t have any assets</span>
-                </div>
+            <div className="mt-12">
+                <Assets />
             </div>
 
             {/* Activity Log Section */}
-            <div>
+            <div className="mt-12">
+                <Activity />
+            </div>
+            {/* <div>
                 <h2 className="text-xl font-semibold mb-4">Activity log</h2>
                 <div className="bg-gray-50 rounded-xl p-8 flex items-center justify-center">
                     <span className="text-gray-500">No activity yet</span>
                 </div>
-            </div>
+            </div> */}
+
+            <Toaster />
         </div>
     );
 } 

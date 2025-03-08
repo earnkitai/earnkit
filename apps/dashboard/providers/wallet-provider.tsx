@@ -130,7 +130,10 @@ async function getWalletsWithAccounts(
               ...account,
               address: getAddress(address),
               // Balance is initialized to undefined so that it can be fetched lazily on account selection
-              balance: await getBalance(getAddress(address)),
+              balance: {
+                ethBalance: await getBalance(getAddress(address), "ethereum"),
+                baseBalance: await getBalance(getAddress(address), "base"),
+              },
             })
           }
           return acc
@@ -299,11 +302,29 @@ export function WalletsProvider({ children }: { children: ReactNode }) {
   }
 
   const selectAccount = async (account: Account) => {
-    const balance = await getBalance(account.address)
-    dispatch({
-      type: "SET_SELECTED_ACCOUNT",
-      payload: { ...account, balance },
-    })
+    try {
+      const [ethBalance, baseBalance] = await Promise.all([
+        getBalance(account.address, "ethereum"),
+        getBalance(account.address, "base"),
+      ]);
+
+      dispatch({
+        type: "SET_SELECTED_ACCOUNT",
+        payload: {
+          ...account,
+          balance: {
+            ethBalance,
+            baseBalance,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+      dispatch({
+        type: "SET_ERROR",
+        payload: "Failed to fetch account balances",
+      });
+    }
   }
 
   const value = {

@@ -46,13 +46,14 @@ import {
 import { Label } from "@/app/components/ui/label"
 import { ValueInput } from "@/app/components/sections/value-input"
 import { TurnkeyBrowserClient } from "@turnkey/sdk-browser"
+import { toast } from "sonner"
 
 type TransferAction = "send" | "receive"
 
 export default function TransferDialog() {
   const { state } = useWallets()
   const { selectedAccount } = state
-  const { ethPrice } = useTokenPrice()
+  const { ethPrice, basePrice } = useTokenPrice()
   const { client } = useTurnkey()
   const { addPendingTransaction } = useTransactions()
   const isDesktop = useMediaQuery("(min-width: 564px)")
@@ -115,11 +116,13 @@ export default function TransferDialog() {
   useEffect(() => {
     if (recipientAddress && selectedAccount?.balance && ethAmount) {
       const ethAmountWei = parseEther(ethAmount)
-      const valid = ethAmountWei > 0 && ethAmountWei < selectedAccount.balance
+      const valid = ethAmountWei > 0 && ethAmountWei < selectedAccount.balance.ethBalance
       setIsValid(valid)
     }
   }, [ethAmount, recipientAddress, selectedAccount])
 
+
+  //preview send transaction
   const handlePreviewSendTransaction = async () => {
 
     console.log("previewing send transaction")
@@ -148,7 +151,7 @@ export default function TransferDialog() {
   ) => {
     if (!selectedAccount || !walletClient) return
     try {
-      const publicClient = getPublicClient()
+      const publicClient = getPublicClient("base")
       setIsOpen(false)
       const hash = await walletClient.sendTransaction(transactionRequest)
       addPendingTransaction({
@@ -191,6 +194,13 @@ export default function TransferDialog() {
     setAmountUSD("0")
     setTransactionRequest(null)
     setRecipientAddress("")
+  }
+
+  const handleCopyAddress = () => {
+    if (selectedAccount?.address) {
+      navigator.clipboard.writeText(selectedAccount.address)
+      toast.success("Address copied to clipboard")
+    }
   }
 
   useEffect(() => {
@@ -244,12 +254,12 @@ export default function TransferDialog() {
           </div>
           <div className="flex-grow">
             <div className="font-semibold">Send</div>
-            <div className="text-sm ">Ethereum (Sepolia)</div>
+            <div className="text-sm ">Base (Sepolia)</div>
           </div>
           <div className="text-right">
             <div className="font-semibold">
               {selectedAccount?.balance
-                ? Number(formatEther(selectedAccount?.balance)).toFixed(4)
+                ? Number(formatEther(selectedAccount?.balance.baseBalance)).toFixed(4)
                 : "0"}{" "}
               <span className="text-sm text-muted-foreground">ETH</span>
             </div>
@@ -289,7 +299,7 @@ export default function TransferDialog() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Receive ETH</h2>
-          <p className="text-[#8e8e93]">on Ethereum Sepolia Network</p>
+          <p className="text-[#8e8e93]">on Base Sepolia Network</p>
         </div>
         <Button variant="ghost" className="text-white">
           <ChevronDown className="mr-2" size={20} />
@@ -314,7 +324,7 @@ export default function TransferDialog() {
                 suffix: 6,
               })}
           </div>
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" onClick={handleCopyAddress}>
             <CopyIcon className="h-3 w-3" />
           </Button>
         </div>
@@ -322,7 +332,7 @@ export default function TransferDialog() {
       <Alert className="p-3 pb-2 ">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className="text-xs text-muted-foreground">
-          This address can only receive testnet Ethereum (Sepolia). Sending any
+          This address can only receive testnet Base (Sepolia). Sending any
           other asset to this address will result in loss of funds.
         </AlertDescription>
       </Alert>
@@ -335,8 +345,8 @@ export default function TransferDialog() {
         {currentView === "send" && (
           <Tabs defaultValue={selectedAction} className="w-full">
             <TabsList className="mb-6 grid w-full grid-cols-2 ">
-              <TabsTrigger value="send">Send</TabsTrigger>
-              <TabsTrigger value="receive">Receive</TabsTrigger>
+              <TabsTrigger value="send" className={`border border-gray-200 ${selectedAction === "send" ? "bg-gray-50 border-gray-400" : ""}`}>Send</TabsTrigger>
+              <TabsTrigger value="receive" className={`border border-gray-200 ${selectedAction === "receive" ? "bg-gray-50 border-gray-400" : ""}`}>Receive</TabsTrigger>
             </TabsList>
             <TabsContent value="send">
               <SendTab />
@@ -348,12 +358,12 @@ export default function TransferDialog() {
         )}
         {currentView === "sendTransaction" &&
           transactionRequest &&
-          ethPrice && (
+          basePrice && (
             <SendTransaction
               transaction={transactionRequest}
               amountUSD={amountUSD}
-              ethPrice={ethPrice}
-              network="Ethereum"
+              basePrice={Number(basePrice || 0)}
+              network="Base"
               onSend={handleSendTransaction}
               onBack={handleBackToSendTab}
             />
@@ -375,6 +385,7 @@ export default function TransferDialog() {
             <Button
               onClick={() => setSelectedAction("send")}
               variant="secondary"
+              className="border border-gray-300 hover:border-gray-400 hover:bg-gray-50"
             >
               <ArrowUp className="mr-2 h-4 w-4" />
               Send
@@ -384,6 +395,7 @@ export default function TransferDialog() {
             <Button
               onClick={() => setSelectedAction("receive")}
               variant="secondary"
+              className="border border-gray-300 hover:border-gray-400 hover:bg-gray-50"
             >
               <ArrowDown className="mr-2 h-4 w-4" />
               Receive

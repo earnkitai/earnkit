@@ -45,7 +45,7 @@ export default function WalletCard() {
 
   useEffect(() => {
     if (ethPrice && selectedAccount?.balance !== undefined) {
-      const balanceInEther = formatEther(selectedAccount?.balance)
+      const balanceInEther = formatEther(selectedAccount?.balance.ethBalance)
       setUsdAmount(Number(balanceInEther) * ethPrice)
     }
   }, [ethPrice, selectedAccount?.balance])
@@ -100,7 +100,7 @@ export default function WalletCard() {
         <div className="text-sm text-muted-foreground">
           {selectedAccount?.balance
             ? parseFloat(
-              Number(formatEther(selectedAccount?.balance)).toFixed(8)
+              Number(formatEther(selectedAccount?.balance.ethBalance)).toFixed(8)
             ).toString()
             : "0"}{" "}
           ETH

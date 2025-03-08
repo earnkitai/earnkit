@@ -6,25 +6,37 @@ import { Address, getAddress, parseEther } from 'viem';
 import { env } from '@/env.mjs';
 import type { Transaction } from '@/types/web3';
 
-const settings = {
+const sepoliaSettings = {
   apiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
   network: Network.ETH_SEPOLIA,
-  // https://github.com/alchemyplatform/alchemy-sdk-js/issues/400
   connectionInfoOverrides: {
     skipFetchSetup: true,
   },
 };
 
-const alchemy = new Alchemy(settings);
+const baseSepoliaSettings = {
+  apiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+  network: Network.BASE_SEPOLIA,
+  connectionInfoOverrides: {
+    skipFetchSetup: true,
+  },
+};
 
-export const getBalance = async (address: Address) => {
-  const response = await alchemy.core.getBalance(address, 'latest');
+const sepoliaAlchemy = new Alchemy(sepoliaSettings);
+const baseSepoliaAlchemy = new Alchemy(baseSepoliaSettings);
+
+export const getBalance = async (
+  address: Address,
+  network: 'ethereum' | 'base' = 'ethereum',
+) => {
+  const client = network === 'ethereum' ? sepoliaAlchemy : baseSepoliaAlchemy;
+  const response = await client.core.getBalance(address, 'latest');
   const balanceBigInt = BigInt(response.toString());
   return balanceBigInt;
 };
 
 export const getTokenBalance = async (address: Address) => {
-  const tokenBalances = await alchemy.core.getTokenBalances(address);
+  const tokenBalances = await sepoliaAlchemy.core.getTokenBalances(address);
   return tokenBalances;
 };
 
@@ -33,7 +45,7 @@ export const getTransactions = async (
 ): Promise<Record<string, Transaction[]>> => {
   // Fetch sent and received transactions concurrently
   const [sentResponse, receivedResponse] = await Promise.all([
-    alchemy.core.getAssetTransfers({
+    sepoliaAlchemy.core.getAssetTransfers({
       fromAddress: address,
       excludeZeroValue: false,
       category: [
@@ -43,7 +55,7 @@ export const getTransactions = async (
       ],
       withMetadata: true,
     }),
-    alchemy.core.getAssetTransfers({
+    sepoliaAlchemy.core.getAssetTransfers({
       toAddress: address,
       excludeZeroValue: false,
       category: [
@@ -93,24 +105,37 @@ export const getTransactions = async (
   };
 };
 
-type TokenPriceResponse<T extends string> = {
-  [key in T]: {
-    usd: number;
-  };
+type CoinGeckoResponse = {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number;
+  // ... other fields omitted for brevity
+}[];
+
+export const extractCurrentPrice = async (
+  response: CoinGeckoResponse,
+): Promise<number> => {
+  if (!response || response.length === 0) {
+    return 0;
+  }
+  return response[0]?.current_price || 0;
 };
 
-export const getTokenPrice = async <T extends string>(
-  token: T,
-): Promise<number> => {
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${token}&vs_currencies=usd`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      'x-cg-demo-api-key': env.COINGECKO_API_KEY,
-    },
-  });
-  const data: TokenPriceResponse<T> = await response.json();
+export const getTokenPrice = async (token: string): Promise<number> => {
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${token}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+      },
+    });
 
-  return data[token].usd;
+    const data: CoinGeckoResponse = await response.json();
+    return extractCurrentPrice(data);
+  } catch (error) {
+    console.error('Error fetching token price:', error);
+    return 0;
+  }
 };
