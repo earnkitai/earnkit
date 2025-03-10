@@ -338,3 +338,23 @@ export const getAuthenticator = async (
   });
   return authenticator;
 };
+
+export const setAuthenticator = async (
+  credential: {
+    encodedChallenge: string;
+    attestation: Attestation;
+  },
+  userId: string,
+) => {
+  const authenticatorsResponse = await client?.createAuthenticators({
+    authenticators: [
+      {
+        authenticatorName: 'Passkey',
+        challenge: credential.encodedChallenge,
+        attestation: credential.attestation,
+      },
+    ],
+    userId: userId,
+  });
+  return authenticatorsResponse;
+};

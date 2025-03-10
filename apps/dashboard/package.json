@@ -27,7 +27,7 @@
     "@turnkey/encoding": "^0.4.0",
     "@turnkey/http": "^2.17.2",
     "@turnkey/sdk-browser": "^1.11.1",
-    "@turnkey/sdk-react": "^3.0.5",
+    "@turnkey/sdk-react": "^3.0.6",
     "@turnkey/sdk-server": "^1.7.2",
     "@turnkey/viem": "^0.6.8",
     "@turnkey/wallet-stamper": "^1.0.2",

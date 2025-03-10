@@ -24,7 +24,10 @@ export default function SendTransaction({
   const handleSend = () => {
     onSend(transaction)
   }
-
+  console.log(transaction,
+    amountUSD,
+    basePrice,
+    network,)
   const totalGasFees =
     transaction?.gas && transaction?.maxFeePerGas
       ? transaction.gas * transaction.maxFeePerGas

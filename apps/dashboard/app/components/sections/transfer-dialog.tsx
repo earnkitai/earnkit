@@ -116,7 +116,7 @@ export default function TransferDialog() {
   useEffect(() => {
     if (recipientAddress && selectedAccount?.balance && ethAmount) {
       const ethAmountWei = parseEther(ethAmount)
-      const valid = ethAmountWei > 0 && ethAmountWei < selectedAccount.balance.ethBalance
+      const valid = ethAmountWei > 0 && ethAmountWei < selectedAccount.balance.baseBalance
       setIsValid(valid)
     }
   }, [ethAmount, recipientAddress, selectedAccount])
@@ -139,7 +139,7 @@ export default function TransferDialog() {
       to: getAddress(recipientAddress),
       value: parseEther(ethAmount),
     })
-
+    console.log(transaction, "transaction")
     setTransactionRequest(transaction)
 
     setCurrentView("sendTransaction")
@@ -356,18 +356,29 @@ export default function TransferDialog() {
             </TabsContent>
           </Tabs>
         )}
-        {currentView === "sendTransaction" &&
+        {/* {currentView === "sendTransaction" &&
           transactionRequest &&
           basePrice && (
             <SendTransaction
               transaction={transactionRequest}
               amountUSD={amountUSD}
               basePrice={Number(basePrice || 0)}
-              network="Base"
+              network="base"
               onSend={handleSendTransaction}
               onBack={handleBackToSendTab}
             />
-          )}
+          )} */}
+
+        {currentView === "sendTransaction" && transactionRequest && (
+          <SendTransaction
+            transaction={transactionRequest}
+            amountUSD={amountUSD}
+            basePrice={Number(basePrice || 0)}
+            network="base"
+            onSend={handleSendTransaction}
+            onBack={handleBackToSendTab}
+          />
+        )}
       </CardContent>
     </Card>
   )

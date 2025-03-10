@@ -251,8 +251,8 @@ importers:
         specifier: ^1.11.1
         version: 1.13.0(typescript@5.7.2)(zod@3.24.2)
       '@turnkey/sdk-react':
-        specifier: ^3.0.5
-        version: 3.0.5(@types/react@19.0.10)(prop-types@15.8.1)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(zod@3.24.2)
+        specifier: ^3.0.6
+        version: 3.0.6(@types/react@19.0.10)(prop-types@15.8.1)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(zod@3.24.2)
       '@turnkey/sdk-server':
         specifier: ^1.7.2
         version: 1.7.3(react-dom@19.0.0)(react@19.0.0)
@@ -4239,6 +4239,18 @@ packages:
       - encoding
     dev: false
 
+  /@turnkey/http@2.21.0:
+    resolution: {integrity: sha512-HC7iJa6Y8jIJsnf02uNCLA5NHptrj5ITerxQ014Npft94KpMe1zIxgZtHlL9eF+BGvwr13d0FV4ew2KZ+6JJpg==}
+    engines: {node: '>=16.0.0'}
+    dependencies:
+      '@turnkey/api-key-stamper': 0.4.4
+      '@turnkey/encoding': 0.4.0
+      '@turnkey/webauthn-stamper': 0.5.0
+      cross-fetch: 3.2.0
+    transitivePeerDependencies:
+      - encoding
+    dev: false
+
   /@turnkey/iframe-stamper@2.0.0:
     resolution: {integrity: sha512-14IPfloVCV3ngoxsy3KoEUbEtYYxPU5H6T4WcNzY8Z67A1NJZfipk6pTaN5h3efkUm208G2TvDd63sZOdbyuxQ==}
     engines: {node: '>=18.0.0'}
@@ -4320,8 +4332,31 @@ packages:
       - zod
     dev: false
 
-  /@turnkey/sdk-react@3.0.5(@types/react@19.0.10)(prop-types@15.8.1)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(zod@3.24.2):
-    resolution: {integrity: sha512-lW5LS1HPY7osdKLabOe8JcuX/zyow5MU9ndEuIwKy03hmLJaousLygY8O1bNcWYsCSOte61g+RNjEm/Pl48ksA==}
+  /@turnkey/sdk-browser@1.15.0(typescript@5.7.2)(zod@3.24.2):
+    resolution: {integrity: sha512-oAP/RNr7kSK951nwm4FWnQIUUbGe/ZEjTNWnBBO9jGCVKHkemxys8W4k823PUgKh34iOhTAdF8s9hCKQt5QjIA==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@turnkey/api-key-stamper': 0.4.4
+      '@turnkey/crypto': 2.3.1
+      '@turnkey/encoding': 0.4.0
+      '@turnkey/http': 2.21.0
+      '@turnkey/iframe-stamper': 2.2.0
+      '@turnkey/wallet-stamper': 1.0.3(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/webauthn-stamper': 0.5.0
+      bs58check: 3.0.1
+      buffer: 6.0.3
+      cross-fetch: 3.2.0
+      hpke-js: 1.6.1
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - typescript
+      - utf-8-validate
+      - zod
+    dev: false
+
+  /@turnkey/sdk-react@3.0.6(@types/react@19.0.10)(prop-types@15.8.1)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(zod@3.24.2):
+    resolution: {integrity: sha512-mxaNlTy3FahuFDWSHs11yVTviDpo41NeRFbtqf/5s67sKyxpiH7oPDdbIBtvCMHswFvnvJKTSiHsfjzLtjvW4g==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       '@types/react': ^18.2.75
@@ -4335,8 +4370,8 @@ packages:
       '@noble/hashes': 1.4.0
       '@react-oauth/google': 0.12.1(react-dom@19.0.0)(react@19.0.0)
       '@turnkey/crypto': 2.3.1
-      '@turnkey/sdk-browser': 1.14.0(typescript@5.7.2)(zod@3.24.2)
-      '@turnkey/sdk-server': 2.2.0(react-dom@19.0.0)(react@19.0.0)
+      '@turnkey/sdk-browser': 1.15.0(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/sdk-server': 2.3.0(react-dom@19.0.0)(react@19.0.0)
       '@turnkey/wallet-stamper': 1.0.3(typescript@5.7.2)(zod@3.24.2)
       '@types/react': 19.0.10
       libphonenumber-js: 1.12.5
@@ -4404,6 +4439,27 @@ packages:
     dependencies:
       '@turnkey/api-key-stamper': 0.4.4
       '@turnkey/http': 2.20.0
+      buffer: 6.0.3
+      cross-fetch: 3.2.0
+      next: 15.2.1(react-dom@19.0.0)(react@19.0.0)
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - encoding
+      - react
+      - react-dom
+      - sass
+    dev: false
+
+  /@turnkey/sdk-server@2.3.0(react-dom@19.0.0)(react@19.0.0):
+    resolution: {integrity: sha512-AMmJfxHeXtLgGz3QImmLTexMZN1aaAdFCJE2VSsQ3ZxedUGnOPEVvN09bjCKDUcr2xkmJjHi9pDKNCuH/mf4+g==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@turnkey/api-key-stamper': 0.4.4
+      '@turnkey/http': 2.21.0
       buffer: 6.0.3
       cross-fetch: 3.2.0
       next: 15.2.1(react-dom@19.0.0)(react@19.0.0)

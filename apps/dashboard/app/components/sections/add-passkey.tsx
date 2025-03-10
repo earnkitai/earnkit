@@ -19,7 +19,7 @@ export default function AddPasskey({
 }: {
   onPasskeyAdded: (authenticatorId: string) => void
 }) {
-  const { passkeyClient, client } = useTurnkey()
+  const { passkeyClient, authIframeClient } = useTurnkey()
   const { user } = useUser()
   const [open, setOpen] = useState(false)
   const [passkeyName, setPasskeyName] = useState("")
@@ -42,16 +42,28 @@ export default function AddPasskey({
     })
 
     if (credential) {
-      const authenticatorsResponse = await client?.createAuthenticators({
+      // const authenticatorsResponse = await client?.createAuthenticators({
+      //   authenticators: [
+      //     {
+      //       authenticatorName: passkeyName,
+      //       challenge: credential.encodedChallenge,
+      //       attestation: credential.attestation,
+      //     },
+      //   ],
+      //   userId: `${user?.userId}`,
+      //   organizationId: user?.organization?.organizationId,
+      // })
+      const authenticatorsResponse = await authIframeClient?.createAuthenticators({
+        organizationId: user?.organization?.organizationId as string,
+        userId: `${user?.userId}`,
         authenticators: [
           {
-            authenticatorName: passkeyName,
+            authenticatorName: `Passkey - ${Date.now()}`,
             challenge: credential.encodedChallenge,
             attestation: credential.attestation,
           },
         ],
-        userId: `${user?.userId}`,
-      })
+      });
 
       if (authenticatorsResponse?.activity.id) {
         toast.success("Passkey added!")

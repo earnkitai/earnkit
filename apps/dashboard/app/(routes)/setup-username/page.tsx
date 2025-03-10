@@ -12,42 +12,34 @@ import { useTurnkey } from "@turnkey/sdk-react";
 
 import { User } from "@/types/user";
 import { CheckCircleIcon } from "lucide-react";
+// import { setAuthenticator } from "@/actions/turnkey";
 
 export default function SetupUsername() {
     // const { data: session, status, update } = useSession();
     const [user, setUser] = useState<User | null>(null);
-    const { passkeyClient, turnkey, client } = useTurnkey()
+    const { passkeyClient, turnkey, authIframeClient } = useTurnkey()
     const router = useRouter();
     const [username, setUsername] = useState("");
     const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
     const [isChecking, setIsChecking] = useState(false);
     const [error, setError] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [loading, setLoading] = useState(true);
+    // const [loading, setLoading] = useState(true);
 
     const debouncedUsername = useDebounce(username, 500);
 
     // useEffect(() => {
-    //     if (status === "unauthenticated") {
-    //         router.push("/signin");
-    //     } else if (status === "authenticated" && session?.user?.username) {
-    //         router.push("/dashboard");
+    //     if (turnkey && client) {
+    //         setLoading(false);
     //     }
-    // }, [status, session, router]);
-
-
-    useEffect(() => {
-        if (turnkey && client) {
-            setLoading(false);
-        }
-    }, [turnkey, client]);
+    // }, [turnkey, client]);
 
     useEffect(() => {
         if (turnkey) {
-            console.log(client)
+            console.log(authIframeClient)
             const getUser = async () => {
                 const turnkeyUser = await turnkey?.getCurrentUser();
-                console.log(client)
+                console.log(turnkeyUser)
 
                 if (turnkeyUser) {
                     console.log("User retrieved successfully");
@@ -118,44 +110,58 @@ export default function SetupUsername() {
 
         setIsSubmitting(true);
         try {
-            // First update the username
-            const result = await updateUsername(user.turnkeyUserId, username);
 
-            if (!result.success) {
-                console.log(result.error || "Failed to set username");
-            }
-            toast.success("Username set successfully!");
 
-            if (passkeyClient && client) {
+            if (passkeyClient) {
                 const credential = await passkeyClient?.createUserPasskey({
                     publicKey: {
                         rp: {
                             name: "Earnkit",
                         },
                         user: {
-                            name: username,
-                            displayName: username,
+                            name: `Earnkit-${username}`,
+                            displayName: `Earnkit-${username}`,
                         },
                     },
                 })
                 console.log("turnkeyClient")
                 console.log("credential", credential)
-                console.log("authIframeClient", client)
+                console.log("authIframeClient", authIframeClient)
                 console.log({ turnkeyUserId: user?.turnkeyUserId, turnkeyOrganizationId: user?.turnkeyOrganizationId })
-                if (credential && client && user?.turnkeyUserId) {
+                if (credential && user?.turnkeyUserId && authIframeClient) {
                     console.log("credential", credential)
-                    const authenticatorsResponse = await client?.createAuthenticators({
+                    // const authenticatorsResponse = await client?.createAuthenticators({
+                    //     authenticators: [
+                    //         {
+                    //             authenticatorName: "Passkey",
+                    //             challenge: credential.encodedChallenge,
+                    //             attestation: credential.attestation,
+                    //         },
+                    //     ],
+                    //     userId: `${user?.turnkeyUserId}`,
+                    //     organizationId: user?.turnkeyOrganizationId as string,
+                    // })
+
+                    const authenticatorsResponse = await authIframeClient?.createAuthenticators({
+                        organizationId: user?.turnkeyOrganizationId as string,
+                        userId: `${user?.turnkeyUserId}`,
                         authenticators: [
                             {
-                                authenticatorName: "Passkey",
+                                authenticatorName: `Passkey - ${Date.now()}`,
                                 challenge: credential.encodedChallenge,
                                 attestation: credential.attestation,
                             },
                         ],
-                        userId: `${user?.turnkeyUserId}`,
-                        organizationId: user?.turnkeyOrganizationId as string,
-                    })
+                    });
                     console.log("authenticatorsResponse", authenticatorsResponse)
+
+                    // First update the username
+                    const result = await updateUsername(user.turnkeyUserId, username);
+
+                    if (!result.success) {
+                        console.log(result.error || "Failed to set username");
+                    }
+                    toast.success("Username set successfully!");
 
                     if (authenticatorsResponse?.activity.id) {
                         toast.success("Passkey added!")
@@ -179,13 +185,13 @@ export default function SetupUsername() {
         );
     }
 
-    if (loading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-white">
-                <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
-            </div>
-        );
-    }
+    // if (loading) {
+    //     return (
+    //         <div className="min-h-screen flex items-center justify-center bg-white">
+    //             <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin"></div>
+    //         </div>
+    //     );
+    // }
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-8">
