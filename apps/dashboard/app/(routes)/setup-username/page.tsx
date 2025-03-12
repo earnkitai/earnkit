@@ -110,8 +110,6 @@ export default function SetupUsername() {
 
         setIsSubmitting(true);
         try {
-
-
             if (passkeyClient) {
                 const credential = await passkeyClient?.createUserPasskey({
                     publicKey: {

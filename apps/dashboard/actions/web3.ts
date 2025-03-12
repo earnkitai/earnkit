@@ -131,7 +131,6 @@ export const getTokenPrice = async (token: string): Promise<number> => {
         accept: 'application/json',
       },
     });
-
     const data: CoinGeckoResponse = await response.json();
     return extractCurrentPrice(data);
   } catch (error) {

@@ -53,7 +53,7 @@ type TransferAction = "send" | "receive"
 export default function TransferDialog() {
   const { state } = useWallets()
   const { selectedAccount } = state
-  const { ethPrice, basePrice } = useTokenPrice()
+  const { ethPrice } = useTokenPrice()
   const { client } = useTurnkey()
   const { addPendingTransaction } = useTransactions()
   const isDesktop = useMediaQuery("(min-width: 564px)")
@@ -356,24 +356,11 @@ export default function TransferDialog() {
             </TabsContent>
           </Tabs>
         )}
-        {/* {currentView === "sendTransaction" &&
-          transactionRequest &&
-          basePrice && (
-            <SendTransaction
-              transaction={transactionRequest}
-              amountUSD={amountUSD}
-              basePrice={Number(basePrice || 0)}
-              network="base"
-              onSend={handleSendTransaction}
-              onBack={handleBackToSendTab}
-            />
-          )} */}
-
         {currentView === "sendTransaction" && transactionRequest && (
           <SendTransaction
             transaction={transactionRequest}
             amountUSD={amountUSD}
-            basePrice={Number(basePrice || 0)}
+            ethPrice={Number(ethPrice || 0)}
             network="base"
             onSend={handleSendTransaction}
             onBack={handleBackToSendTab}

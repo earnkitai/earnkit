@@ -19,7 +19,7 @@ import { Toaster } from "@/app/components/ui/sonner";
 export default function WalletPage() {
     const { user } = useUser();
     const [usdAmount, setUsdAmount] = useState<number | undefined>(undefined)
-    const { ethPrice, basePrice } = useTokenPrice()
+    const { ethPrice } = useTokenPrice()
     // const router = useRouter();
     const { state } =
         useWallets()
@@ -43,11 +43,10 @@ export default function WalletPage() {
         if (ethPrice && selectedAccount?.balance !== undefined) {
             const balanceInEther = formatEther(selectedAccount?.balance.ethBalance)
             const balanceInBase = formatEther(selectedAccount?.balance.baseBalance)
-            console.log(basePrice, "basePrice")
             console.log(balanceInBase, "balanceInBase")
-            setUsdAmount((Number(balanceInEther) * ethPrice) + (Number(balanceInBase) * Number(basePrice)))
+            setUsdAmount((Number(balanceInEther) * ethPrice) + (Number(balanceInBase) * ethPrice))
         }
-    }, [ethPrice, selectedAccount?.balance?.baseBalance, selectedAccount?.balance?.ethBalance, basePrice, selectedAccount?.balance])
+    }, [ethPrice, selectedAccount?.balance?.baseBalance, selectedAccount?.balance?.ethBalance, selectedAccount?.balance])
 
     return (
         <div className="p-8">

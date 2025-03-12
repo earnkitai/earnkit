@@ -20,7 +20,7 @@ import { Icons } from "./icons"
 
 export default function Assets() {
   const { state } = useWallets()
-  const { ethPrice, basePrice } = useTokenPrice()
+  const { ethPrice } = useTokenPrice()
   const { selectedAccount } = state
 
   // Memoize the balances calculation
@@ -51,9 +51,9 @@ export default function Assets() {
   const baseValueInUSD = useMemo(() => {
     return (
       Number(formatEther(selectedAccount?.balance?.baseBalance ?? BigInt(0))) *
-      (basePrice || 0)
+      (ethPrice || 0)
     ).toFixed(2)
-  }, [selectedAccount?.balance?.baseBalance, basePrice])
+  }, [selectedAccount?.balance?.baseBalance, ethPrice])
 
   return (
     <Card>

@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
       {
         hostname: 'www.notion.so',
       },
+      {
+        hostname: 'coin-images.coingecko.com',
+      },
     ],
   },
 };
