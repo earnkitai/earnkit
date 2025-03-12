@@ -104,7 +104,7 @@ export default function Assets() {
               <TableCell className="p-2 font-medium sm:p-4">
                 <div className="flex items-center space-x-2 text-xs sm:text-sm">
                   <Icons.base className="h-6 w-6 rounded-full" />
-                  <span>Base (Sepolia)</span>
+                  <span>Base (Mainnet)</span>
                 </div>
               </TableCell>
               <TableCell className="hidden font-mono text-xs sm:table-cell">

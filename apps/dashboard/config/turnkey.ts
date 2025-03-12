@@ -26,5 +26,6 @@ export const turnkeyConfig = {
     rpId: env.NEXT_PUBLIC_RP_ID || 'localhost',
   },
   rpcUrl: `https://eth-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
-  rpcUrlBase: `https://base-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
+  rpcUrlBaseSepolia: `https://base-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
+  rpcUrlBase: `https://base-mainnet.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
 };

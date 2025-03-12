@@ -254,7 +254,7 @@ export default function TransferDialog() {
           </div>
           <div className="flex-grow">
             <div className="font-semibold">Send</div>
-            <div className="text-sm ">Base (Sepolia)</div>
+            <div className="text-sm ">Base (Mainnet)</div>
           </div>
           <div className="text-right">
             <div className="font-semibold">
@@ -299,7 +299,7 @@ export default function TransferDialog() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Receive ETH</h2>
-          <p className="text-[#8e8e93]">on Base Sepolia Network</p>
+          <p className="text-[#8e8e93]">on Base Network</p>
         </div>
         <Button variant="ghost" className="text-white">
           <ChevronDown className="mr-2" size={20} />
@@ -332,7 +332,7 @@ export default function TransferDialog() {
       <Alert className="p-3 pb-2 ">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className="text-xs text-muted-foreground">
-          This address can only receive testnet Base (Sepolia). Sending any
+          This address can only receive funds on Base Mainnet. Sending any
           other asset to this address will result in loss of funds.
         </AlertDescription>
       </Alert>

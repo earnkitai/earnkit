@@ -22,14 +22,27 @@ const baseSepoliaSettings = {
   },
 };
 
+const baseSettings = {
+  apiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+  network: Network.BASE_MAINNET,
+  connectionInfoOverrides: {
+    skipFetchSetup: true,
+  },
+};
 const sepoliaAlchemy = new Alchemy(sepoliaSettings);
 const baseSepoliaAlchemy = new Alchemy(baseSepoliaSettings);
+const baseAlchemy = new Alchemy(baseSettings);
 
 export const getBalance = async (
   address: Address,
-  network: 'ethereum' | 'base' = 'ethereum',
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
 ) => {
-  const client = network === 'ethereum' ? sepoliaAlchemy : baseSepoliaAlchemy;
+  const client =
+    network === 'ethereum'
+      ? sepoliaAlchemy
+      : network === 'baseSepolia'
+        ? baseSepoliaAlchemy
+        : baseAlchemy;
   const response = await client.core.getBalance(address, 'latest');
   const balanceBigInt = BigInt(response.toString());
   return balanceBigInt;

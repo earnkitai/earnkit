@@ -251,6 +251,11 @@ export default function Dashboard() {
         }
     }
 
+    // Add this helper function to check if a response is an error
+    const isErrorResponse = (response: string) => {
+        return response.includes('status code') || response.includes('error') || response.includes('failed');
+    };
+
     return (
         <>
             {showInitialContent ? (
@@ -342,162 +347,239 @@ export default function Dashboard() {
                         <div className="flex-1 h-full overflow-y-auto p-4">
                             {messages.map((message, index) => {
                                 if (message.responseFrom === 'tools' && typeof message.response === 'string') {
-                                    // const toolType = getToolType(message.response);
-
-                                    if (message.tool_name === 'token_analysis') {
-                                        const data: TokenAnalysisResponse = JSON.parse(message.response);
+                                    // First check if it's an error response
+                                    if (isErrorResponse(message.response)) {
                                         return (
                                             <div key={index} className="flex justify-start my-4">
-                                                <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                                                    <div className="flex items-center gap-3 mb-3">
-                                                        {data.image ? (
-                                                            <Image
-                                                                src={data.image}
-                                                                alt={data.name}
-                                                                className="w-8 h-8 rounded-full"
-                                                                width={32}
-                                                                height={32} />
-                                                        ) : (
-                                                            <Icons.ethereum className="w-8 h-8 rounded-full" />
-                                                        )}
-                                                        <div>
-                                                            <h3 className="font-semibold">{data.name}</h3>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-sm text-gray-600">{data.symbol?.toUpperCase()}</span>
-                                                                {data.contract_address !== "empty" && (
-                                                                    <span className="text-xs text-gray-500 font-mono truncate">{data.contract_address}</span>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                                <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
+                                                    <div className="flex items-center gap-2 text-red-600">
+                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <circle cx="12" cy="12" r="10" />
+                                                            <line x1="12" y1="8" x2="12" y2="12" />
+                                                            <line x1="12" y1="16" x2="12" y2="16" />
+                                                        </svg>
+                                                        <span className="font-semibold">Operation Failed</span>
                                                     </div>
-
-                                                    <div className="grid grid-cols-2 gap-6">
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">Current Price</span>
-                                                                <span className="font-semibold">${typeof data.price.current.usd === 'number' ? data.price.current.usd.toFixed(2) : 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">24h High</span>
-                                                                <span className="font-semibold">${typeof data.price.high_24h.usd === 'number' ? data.price.high_24h.usd.toFixed(2) : 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">24h Low</span>
-                                                                <span className="font-semibold">${typeof data.price.low_24h.usd === 'number' ? data.price.low_24h.usd.toFixed(2) : 'N/A'}</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">24h Change</span>
-                                                                <span className={`font-semibold ${typeof data.price.price_change_percentage_24h === 'number' ?
-                                                                    (data.price.price_change_percentage_24h > 0 ? 'text-green-500' : 'text-red-500') : ''}`}>
-                                                                    {typeof data.price.price_change_percentage_24h === 'number' ?
-                                                                        `${data.price.price_change_percentage_24h.toFixed(2)}%` : 'N/A'}
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">Market Cap</span>
-                                                                <span className="font-semibold">${typeof data.market_metrics.market_cap.usd === 'number' ?
-                                                                    data.market_metrics.market_cap.usd.toLocaleString() : 'N/A'}</span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                <span className="text-gray-600 text-sm">24h Volume</span>
-                                                                <span className="font-semibold">${typeof data.market_metrics.volume_24h.usd === 'number' ?
-                                                                    data.market_metrics.volume_24h.usd.toLocaleString() : 'N/A'}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    {data.categories.length > 0 && (
-                                                        <div className="flex flex-wrap gap-2 mt-4">
-                                                            {data.categories.map((category, i) => (
-                                                                <span key={i} className="px-2 py-1 bg-black/4 rounded-full text-xs">
-                                                                    {category}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-
-                                                    <p className="text-sm text-gray-600 mt-4 line-clamp-2">
-                                                        {data.description}
+                                                    <p className="mt-2 text-sm text-red-600">
+                                                        {message.tool_name === 'swap_token' && 'Failed to execute swap. Please try again later.'}
+                                                        {message.tool_name === 'token_analysis' && 'Failed to fetch token information. Please try again later.'}
+                                                        {!message.tool_name && 'Operation failed. Please try again later.'}
                                                     </p>
-
-                                                    <div className="mt-4 flex gap-2">
-                                                        <button className="px-4 py-2 bg-black text-white rounded-lg text-sm font-semibold" disabled>
-                                                            Trade Now
+                                                    <div className="mt-3 flex gap-2">
+                                                        <button
+                                                            onClick={() => {
+                                                                // Remove the last two messages (user input and error) and retry
+                                                                // setMessages(prev => prev.slice(0, -2));
+                                                                // setInputValue(messages[messages.length - 2].response as string);
+                                                                // handleSubmit(new Event('submit') as any);
+                                                            }}
+                                                            className="px-4 py-2 bg-red-100 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-200"
+                                                        >
+                                                            Retry
                                                         </button>
-                                                        <Link href={`https://basescan.org/token/${data.contract_address}`} className="px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold" target="_blank">
-                                                            View Details
-                                                        </Link>
                                                     </div>
                                                 </div>
                                             </div>
                                         );
                                     }
 
-                                    if (message.tool_name === 'swap_token') {
-                                        const data: SwapTokenResponse = JSON.parse(message.response);
-                                        return (
-                                            <div key={index} className="flex justify-start my-4">
-                                                <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                                                    <h3 className="font-semibold mb-4">Swap Details</h3>
-
-                                                    <div className="space-y-4">
-                                                        <div className="bg-black/4 p-3 rounded-lg">
-                                                            <span className="text-sm text-gray-600">From Token</span>
-                                                            <div className="flex justify-between items-center mt-1">
-                                                                <div className="font-mono text-sm">
-                                                                    {data.token0Address}
+                                    // Then proceed with existing tool-specific rendering...
+                                    if (message.tool_name === 'token_analysis') {
+                                        try {
+                                            const data: TokenAnalysisResponse = JSON.parse(message.response);
+                                            return (
+                                                <div key={index} className="flex justify-start my-4">
+                                                    <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
+                                                        <div className="flex items-center gap-3 mb-3">
+                                                            {data.image ? (
+                                                                <Image
+                                                                    src={data.image}
+                                                                    alt={data.name}
+                                                                    className="w-8 h-8 rounded-full"
+                                                                    width={32}
+                                                                    height={32} />
+                                                            ) : (
+                                                                <Icons.ethereum className="w-8 h-8 rounded-full" />
+                                                            )}
+                                                            <div>
+                                                                <h3 className="font-semibold">{data.name}</h3>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-sm text-gray-600">{data.symbol?.toUpperCase()}</span>
+                                                                    {data.contract_address !== "empty" && (
+                                                                        <span className="text-xs text-gray-500 font-mono truncate">{data.contract_address}</span>
+                                                                    )}
                                                                 </div>
-                                                                <div>
-                                                                    <span className="font-semibold">
-                                                                        {(parseInt(data.amountIn) / Math.pow(10, data.inputDecimals)).toFixed(6)}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-6">
+                                                            <div className="space-y-2">
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">Current Price</span>
+                                                                    <span className="font-semibold">${typeof data.price.current.usd === 'number' ? data.price.current.usd.toFixed(2) : 'N/A'}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">24h High</span>
+                                                                    <span className="font-semibold">${typeof data.price.high_24h.usd === 'number' ? data.price.high_24h.usd.toFixed(2) : 'N/A'}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">24h Low</span>
+                                                                    <span className="font-semibold">${typeof data.price.low_24h.usd === 'number' ? data.price.low_24h.usd.toFixed(2) : 'N/A'}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">24h Change</span>
+                                                                    <span className={`font-semibold ${typeof data.price.price_change_percentage_24h === 'number' ?
+                                                                        (data.price.price_change_percentage_24h > 0 ? 'text-green-500' : 'text-red-500') : ''}`}>
+                                                                        {typeof data.price.price_change_percentage_24h === 'number' ?
+                                                                            `${data.price.price_change_percentage_24h.toFixed(2)}%` : 'N/A'}
                                                                     </span>
                                                                 </div>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex justify-center">
-                                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M7 10l5 5 5-5" />
-                                                            </svg>
-                                                        </div>
-
-                                                        <div className="bg-black/4 p-3 rounded-lg">
-                                                            <span className="text-sm text-gray-600">To Token</span>
-                                                            <div className="flex justify-between items-center mt-1">
-                                                                <div className="font-mono text-sm">
-                                                                    {data.token1Address}
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">Market Cap</span>
+                                                                    <span className="font-semibold">${typeof data.market_metrics.market_cap.usd === 'number' ?
+                                                                        data.market_metrics.market_cap.usd.toLocaleString() : 'N/A'}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
+                                                                    <span className="text-gray-600 text-sm">24h Volume</span>
+                                                                    <span className="font-semibold">${typeof data.market_metrics.volume_24h.usd === 'number' ?
+                                                                        data.market_metrics.volume_24h.usd.toLocaleString() : 'N/A'}</span>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                    </div>
 
-                                                    <div className="mt-4 space-y-2 text-sm text-gray-600">
-                                                        <div className="flex justify-between">
-                                                            <span>Fee Tier</span>
-                                                            <span>{(parseInt(data.feeTier) / 10000).toFixed(2)}%</span>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <span>Input Decimals</span>
-                                                            <span>{data.inputDecimals}</span>
-                                                        </div>
-                                                    </div>
+                                                        {data.categories.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2 mt-4">
+                                                                {data.categories.map((category, i) => (
+                                                                    <span key={i} className="px-2 py-1 bg-black/4 rounded-full text-xs">
+                                                                        {category}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
 
-                                                    <div className="mt-4 flex gap-2">
-                                                        <button className="flex-1 px-4 py-2 bg-black text-white rounded-lg font-semibold" onClick={() => handleSwapToken(data)}>
-                                                            Confirm Swap
-                                                        </button>
-                                                        <button className="px-4 py-2 bg-black/4 text-black/80 rounded-lg font-semibold">
-                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M4 4v16h16" />
-                                                                <path d="M4 20l16-16" />
-                                                            </svg>
-                                                        </button>
+                                                        <p className="text-sm text-gray-600 mt-4 line-clamp-2">
+                                                            {data.description}
+                                                        </p>
+
+                                                        <div className="mt-4 flex gap-2">
+                                                            <button className="px-4 py-2 bg-black text-white rounded-lg text-sm font-semibold" disabled>
+                                                                Trade Now
+                                                            </button>
+                                                            <Link href={`https://basescan.org/token/${data.contract_address}`} className="px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold" target="_blank">
+                                                                View Details
+                                                            </Link>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        );
+                                            );
+                                        } catch (error) {
+                                            console.log(error, "error")
+                                            return (
+                                                <div key={index} className="flex justify-start my-4">
+                                                    <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Response Format</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">
+                                                            Failed to process token information. Please try again.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    if (message.tool_name === 'swap_token') {
+                                        try {
+                                            const data: SwapTokenResponse = JSON.parse(message.response);
+                                            return (
+                                                <div key={index} className="flex justify-start my-4">
+                                                    <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
+                                                        <h3 className="font-semibold mb-4">Swap Details</h3>
+
+                                                        <div className="space-y-4">
+                                                            <div className="bg-black/4 p-3 rounded-lg">
+                                                                <span className="text-sm text-gray-600">From Token</span>
+                                                                <div className="flex justify-between items-center mt-1">
+                                                                    <div className="font-mono text-sm">
+                                                                        {data.token0Address}
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="font-semibold">
+                                                                            {(parseInt(data.amountIn) / Math.pow(10, data.inputDecimals)).toFixed(6)}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex justify-center">
+                                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M7 10l5 5 5-5" />
+                                                                </svg>
+                                                            </div>
+
+                                                            <div className="bg-black/4 p-3 rounded-lg">
+                                                                <span className="text-sm text-gray-600">To Token</span>
+                                                                <div className="flex justify-between items-center mt-1">
+                                                                    <div className="font-mono text-sm">
+                                                                        {data.token1Address}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mt-4 space-y-2 text-sm text-gray-600">
+                                                            <div className="flex justify-between">
+                                                                <span>Fee Tier</span>
+                                                                <span>{(parseInt(data.feeTier) / 10000).toFixed(2)}%</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span>Input Decimals</span>
+                                                                <span>{data.inputDecimals}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mt-4 flex gap-2">
+                                                            <button className="flex-1 px-4 py-2 bg-black text-white rounded-lg font-semibold" onClick={() => handleSwapToken(data)}>
+                                                                Confirm Swap
+                                                            </button>
+                                                            <button className="px-4 py-2 bg-black/4 text-black/80 rounded-lg font-semibold">
+                                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M4 4v16h16" />
+                                                                    <path d="M4 20l16-16" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, "error")
+                                            return (
+                                                <div key={index} className="flex justify-start my-4">
+                                                    <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Swap Data</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">
+                                                            Failed to process swap information. Please try again.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
                                     }
                                 }
 
@@ -542,8 +624,8 @@ export default function Dashboard() {
                                     />
                                     <button
                                         type="submit"
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-black/80 rounded-full"
-                                        disabled={isLoading}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-black/80 rounded-full disabled:opacity-50"
+                                        disabled={isLoading || !inputValue.trim()}
                                     >
                                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <path d="M4.2503 11.5713L12 3.82156L19.7498 11.5713" stroke="white" strokeWidth="2.78195" strokeLinecap="round" />

@@ -20,7 +20,7 @@ import {
   WalletClient,
   webSocket,
 } from 'viem';
-import { sepolia, baseSepolia } from 'viem/chains';
+import { sepolia, baseSepolia, base } from 'viem/chains';
 
 import { env } from '@/env.mjs';
 import type { AlchemyMinedTransaction, Transaction } from '@/types/web3';
@@ -31,13 +31,19 @@ const clients = {
     chain: sepolia,
     transport: http(turnkeyConfig.rpcUrl),
   }),
-  base: createPublicClient({
+  baseSepolia: createPublicClient({
     chain: baseSepolia,
+    transport: http(turnkeyConfig.rpcUrlBaseSepolia),
+  }),
+  base: createPublicClient({
+    chain: base,
     transport: http(turnkeyConfig.rpcUrlBase),
   }),
 } as const;
 
-export const getPublicClient = (network: 'ethereum' | 'base' = 'ethereum') => {
+export const getPublicClient = (
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
+) => {
   return clients[network];
 };
 
@@ -105,7 +111,7 @@ const getWebSocketClient = () => {
 
 export const watchPendingTransactions = (
   address: Address,
-  network: 'ethereum' | 'base' = 'ethereum',
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
   callback: (tx: Transaction) => void,
 ) => {
   const webSocketClient = getWebSocketClient();
@@ -135,7 +141,7 @@ export const watchPendingTransactions = (
 
 export const getBalance = async (
   address: Address,
-  network: 'ethereum' | 'base' = 'ethereum',
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
 ) => {
   const publicClient = getPublicClient(network);
   const balance = await publicClient.getBalance({
