@@ -232,7 +232,7 @@ export const getTurnkeyWalletClient = async (
   // Create a wallet client using the newly created account, targeting the Sepolia chain
   const client = createWalletClient({
     account: turnkeyAccount as Account,
-    chain: baseSepolia,
+    chain: base,
     transport: http(turnkeyConfig.rpcUrlBase),
   });
 
@@ -248,7 +248,7 @@ export const getInjectedWalletClient = async () => {
 
     const client = createWalletClient({
       account,
-      chain: baseSepolia,
+      chain: base,
       transport: http(turnkeyConfig.rpcUrlBase),
     });
 

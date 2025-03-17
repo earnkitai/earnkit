@@ -39,7 +39,7 @@
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "earnkit": "^1.0.5",
+    "earnkit": "^1.0.6",
     "ethers": "^6.13.4",
     "langchain": "^0.3.19",
     "lucide-react": "^0.476.0",

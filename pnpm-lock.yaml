@@ -287,8 +287,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       earnkit:
-        specifier: ^1.0.5
-        version: 1.0.5(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.6
+        version: 1.0.6(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       ethers:
         specifier: ^6.13.4
         version: 6.13.5
@@ -919,11 +919,11 @@ packages:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
-  /@earnkit/sdk-ai@1.0.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-iR7P4wq1+hMLxX34JdOtsIXkiCGkqUxffmGAOBd581yJFJh+D/ZP/zKFGb/Jh0Mh9qj1S9DJMOjFbwEm0emiIw==}
+  /@earnkit/sdk-ai@1.0.2(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-/XltDtE/XZhxt99DvsuLO5Ag5wj9Hahs4FvN0nl0JqhFhOIoC9geoD6B7Gx1x7gEWr2P6gE2yzkzT+ORANHnHA==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@langchain/core': 0.3.42
       zod: 3.24.2
     transitivePeerDependencies:
@@ -944,8 +944,8 @@ packages:
       - webauthn-p256
     dev: false
 
-  /@earnkit/sdk-core@1.1.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-tayZ7jVW0J50Cs2ECSLyW6qp/M19KTVUI5l7LtOGq8kmE2m7LWdXHuME+MLcSmlmWSP8xtrtHcwYQEF15S5ENg==}
+  /@earnkit/sdk-core@1.1.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-F/BNFMCd697k0mFgQgvr8SLZbYRrKhvY97YDC6KYb0Ubxf4UsHkc0kUsSerw/wLScHF/Pd8S3HoBtoU1aPrDrg==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
@@ -977,7 +977,7 @@ packages:
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
       axios: 1.7.9
       dotenv: 16.4.7
@@ -7155,12 +7155,12 @@ packages:
       stream-shift: 1.0.3
     dev: false
 
-  /earnkit@1.0.5(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-gbXsWcqiiIRCbRYvOCOciR5Bzfk5/xoDkMqTvI7AtIvMUgS6+D5xWOQmo6KxQliioEx/wEcYBm8Xhy35mCprHg==}
+  /earnkit@1.0.6(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-ANY6KTvaYIAbzcnZdlQKRQr/7s2Nq51D+W/0mIbY+sNhM9InaOXdZyalJ/cLwUTDRp9Rz7DoTkrixDZU9EI0Fw==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-core': 1.1.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-ai': 1.0.2(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.1(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-social': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-wallet': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
       '@langchain/core': 0.3.42
