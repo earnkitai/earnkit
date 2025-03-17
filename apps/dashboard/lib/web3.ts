@@ -49,7 +49,7 @@ export const getPublicClient = (
 
 const settings = {
   apiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
-  network: Network.BASE_SEPOLIA,
+  network: Network.BASE_MAINNET,
 };
 
 const alchemy = new Alchemy(settings);

@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { sepolia } from "viem/chains"
+import { base } from "viem/chains"
 
 import { Button } from "@/app/components/ui/button"
 
@@ -11,7 +11,7 @@ const ViewTransactionButton = ({ hash }: { hash?: string }) => {
       <Link
         target="_blank"
         className="h-5 bg-inherit text-xs"
-        href={`${sepolia.blockExplorers.default.url}/tx/${hash}`}
+        href={`${base.blockExplorers.default.url}/tx/${hash}`}
       >
         View Transaction
       </Link>
