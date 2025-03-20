@@ -12,7 +12,7 @@ const config = createConfig({
     transports: {
         [base.id]: http(),
     },
-    ssr: true,
+    ssr: false,
 });
 
 const queryClient = new QueryClient();

@@ -7,13 +7,37 @@ import { createReactAgent } from '@langchain/langgraph/prebuilt';
 import { EarnkitAgent, EarnkitToolkit } from 'earnkit';
 import { NextResponse } from 'next/server';
 
-const agentInstances = new Map();
+// Map to store agent instances by wallet address
+const agentInstances = new Map<
+  string,
+  {
+    agent: any;
+    config: any;
+    lastActive: number;
+  }
+>();
+
+// Cleanup function to remove inactive agents (optional)
+const cleanupInactiveAgents = () => {
+  const INACTIVE_THRESHOLD = 30 * 60 * 1000; // 30 minutes
+  const now = Date.now();
+
+  for (const [address, instance] of agentInstances.entries()) {
+    if (now - instance.lastActive > INACTIVE_THRESHOLD) {
+      agentInstances.delete(address);
+    }
+  }
+};
 
 async function initializeAgent(userWalletAddress: `0x${string}`) {
-  try {
-    // console.log(config);
-    // console.log(toolConfig, "toolConfig");
+  // Check if agent already exists and is active
+  const existingAgent = agentInstances.get(userWalletAddress);
+  if (existingAgent) {
+    existingAgent.lastActive = Date.now();
+    return existingAgent;
+  }
 
+  try {
     const llm = new ChatAnthropic({
       modelName: 'claude-3-7-sonnet-20250219',
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
@@ -30,7 +54,6 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
       coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
     });
 
-    // const earnkitToolkit = new EarnkitToolkit(earnkitAgent as any);
     const earnkitToolkit = new EarnkitToolkit(earnkitAgent as any);
     const tools = earnkitToolkit.getTools();
 
@@ -58,13 +81,15 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
         "Spidey sense is tingling! Your SPIDY token just swung into existence! Ready to web-sling through the blockchain!"`,
     });
 
-    agentInstances.set(process.env.NEXT_PUBLIC_EARNKIT_AGENT_NAME, {
+    // Store the new agent instance
+    const agentInstance = {
       agent,
-      config: { ...agentConfig },
+      config: agentConfig,
       lastActive: Date.now(),
-    });
+    };
+    agentInstances.set(userWalletAddress, agentInstance);
 
-    return { agent, config: agentConfig };
+    return agentInstance;
   } catch (error) {
     console.error('Failed to initialize agent:', error);
     throw error;
@@ -74,6 +99,13 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
 export async function POST(request: Request) {
   try {
     const { message, userWalletAddress } = await request.json();
+
+    // Run cleanup occasionally (optional)
+    if (Math.random() < 0.1) {
+      // 10% chance to run cleanup
+      cleanupInactiveAgents();
+    }
+
     // Get or initialize agent
     const agentInstance = await initializeAgent(userWalletAddress);
 
@@ -101,6 +133,10 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    // Update last active timestamp
+    agentInstance.lastActive = Date.now();
+
     return NextResponse.json({ response: response });
   } catch (error) {
     console.error('Error processing request:', error);
