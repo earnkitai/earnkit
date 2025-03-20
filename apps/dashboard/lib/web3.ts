@@ -161,8 +161,8 @@ export const getTransactions = async (
       excludeZeroValue: false,
       category: [
         AssetTransfersCategory.ERC20,
-        AssetTransfersCategory.EXTERNAL,
-        AssetTransfersCategory.INTERNAL,
+        // AssetTransfersCategory.EXTERNAL,
+        // AssetTransfersCategory.INTERNAL,
       ],
       withMetadata: true,
     }),
@@ -171,17 +171,20 @@ export const getTransactions = async (
       excludeZeroValue: false,
       category: [
         AssetTransfersCategory.ERC20,
-        AssetTransfersCategory.EXTERNAL,
-        AssetTransfersCategory.INTERNAL,
+        // AssetTransfersCategory.EXTERNAL,
+        // AssetTransfersCategory.INTERNAL,
       ],
       withMetadata: true,
     }),
   ]);
 
+  console.log(sentResponse, 'sentResponse');
+  console.log(receivedResponse, 'receivedResponse');
   // Combine and map the responses
   const transactions = [
     ...sentResponse.transfers.map(
-      ({ blockNum, from, to, hash, value, metadata }) => ({
+      ({ blockNum, from, to, hash, value, metadata, asset }) => ({
+        asset: asset ?? '',
         blockNumber: Number(blockNum),
         from: getAddress(from),
         to: to ? getAddress(to) : null,
@@ -192,7 +195,8 @@ export const getTransactions = async (
       }),
     ),
     ...receivedResponse.transfers.map(
-      ({ blockNum, from, to, hash, value, metadata }) => ({
+      ({ blockNum, from, to, hash, value, metadata, asset }) => ({
+        asset: asset ?? '',
         blockNumber: Number(blockNum),
         from: getAddress(from),
         to: to ? getAddress(to) : null,

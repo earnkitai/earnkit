@@ -13,9 +13,15 @@ function serializeUser(user: User | null) {
     email: user.email,
     turnkeyOrganizationId: user.turnkeyOrganizationId,
     walletAddress: user.walletAddress,
+    recoveryAddress: user.recoveryAddress,
+    recoverySignature: user.recoverySignature,
     isVerified: user.isVerified,
     isActive: user.isActive,
     hasPasskey: user.hasPasskey,
+    farcasterFid: user.farcasterFid,
+    farcasterDisplayName: user.farcasterDisplayName,
+    farcasterCustodyAddress: user.farcasterCustodyAddress,
+    farcasterProfilePictureUrl: user.farcasterProfilePictureUrl,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -108,5 +114,62 @@ export async function getUsernameByUserId(userId: string) {
   } catch (error) {
     console.error('Error fetching username by userId:', error);
     return { success: false, error: 'Failed to fetch username' };
+  }
+}
+
+export async function updateRecoveryAddress(
+  turnkeyUserId: string,
+  recoveryAddress: string,
+  signature: string,
+) {
+  try {
+    await initializeDatabase();
+    const userService = new UserService();
+    const user = await userService.updateUser(turnkeyUserId, {
+      recoveryAddress,
+      recoverySignature: signature,
+    });
+
+    if (!user) {
+      return { success: false, error: 'User not found' };
+    }
+    return { success: true, data: serializeUser(user) };
+  } catch (error) {
+    console.error('Error updating recovery address:', error);
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: 'Failed to update recovery address' };
+  }
+}
+
+export async function updateFarcasterDetails(
+  turnkeyUserId: string,
+  farcasterDetails: {
+    fid: string;
+    displayName: string;
+    custodyAddress: string;
+    profilePictureUrl: string;
+  },
+) {
+  try {
+    await initializeDatabase();
+    const userService = new UserService();
+
+    const result = await userService.updateUser(turnkeyUserId, {
+      farcasterFid: farcasterDetails.fid,
+      farcasterDisplayName: farcasterDetails.displayName,
+      farcasterCustodyAddress: farcasterDetails.custodyAddress,
+      farcasterProfilePictureUrl: farcasterDetails.profilePictureUrl,
+    });
+
+    if (!result) {
+      return { success: false, error: 'User not found' };
+    }
+
+    return { success: true, data: serializeUser(result) };
+  } catch (error) {
+    console.error('Error updating Farcaster details:', error);
+    return { success: false, error: 'Failed to update Farcaster details' };
   }
 }

@@ -9,8 +9,7 @@ import {
     Home,
     FileText,
     Settings,
-    LogOut,
-    Plus
+    LogOut
 } from "lucide-react";
 import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from "react";
@@ -69,11 +68,11 @@ export default function DashboardSidebar() {
             <nav className="flex-1 w-full">
                 <div className="space-y-4">
                     <Link
-                        href="/dashboard/user/profile"
-                        className={getLinkStyles("/dashboard/user/profile")}
+                        href="/dashboard"
+                        className={getLinkStyles("/dashboard")}
                     >
-                        <User className="w-5 h-5 mr-1" />
-                        <span className="text-md font-medium ">{username !== "" ? "@" + username : "user"}</span>
+                        <Home className="w-5 h-5 mr-1 min-w-5" />
+                        <span className="text-md font-medium">Home</span>
                     </Link>
                     <Link
                         href="/dashboard/wallet"
@@ -83,27 +82,28 @@ export default function DashboardSidebar() {
                         <span className="text-md font-medium">Wallet</span>
                     </Link>
 
-                    <Link
-                        href="/dashboard"
-                        className={getLinkStyles("/dashboard")}
-                    >
-                        <Home className="w-5 h-5 mr-1 min-w-5" />
-                        <span className="text-md font-medium">Home</span>
-                    </Link>
 
-                    <Link
+
+                    {/* <Link
                         href="/dashboard/create-agent"
                         className={getLinkStyles("/dashboard/create-agent")}
                     >
                         <Plus className="w-5 h-5 mr-1" />
                         <span className="text-md font-medium">Create Agent</span>
-                    </Link>
+                    </Link> */}
                 </div>
             </nav>
 
             {/* Secondary Navigation */}
             <nav className="w-full">
                 <div className="space-y-6">
+                    <span
+                        // href="/dashboard/user/profile"
+                        className={getLinkStyles("/dashboard/user/profile")}
+                    >
+                        <User className="w-5 h-5 mr-1" />
+                        <span className="text-md font-medium ">{username !== "" ? "@" + username : "user"}</span>
+                    </span>
                     <Link
                         href="https://docs.earnkit.com"
                         target="_blank"

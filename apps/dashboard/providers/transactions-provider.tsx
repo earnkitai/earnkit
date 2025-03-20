@@ -3,13 +3,15 @@
 import React, {
   createContext,
   useContext,
+  useEffect,
   useReducer,
+  useRef,
 } from "react"
 import { useWallets } from "@/providers/wallet-provider"
 import { Address, Hex, TransactionRequest } from "viem"
 
 import { Transaction } from "@/types/web3"
-
+import { getTransactions, watchMinedTransactions } from "@/lib/web3"
 
 type TransactionsState = {
   transactions: { [key: Address]: Transaction[] }
@@ -94,79 +96,64 @@ export const TransactionsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const {
+    selectAccount,
     state: { selectedAccount },
   } = useWallets()
   const [state, dispatch] = useReducer(transactionsReducer, initialState)
+  const unwatchRef = useRef<(() => void) | null>(null)
 
-  // useEffect(() => {
-  //   const fetchTransactions = async () => {
-  //     if (selectedAccount?.address) {
-  //       dispatch({ type: "SET_FETCHING_TRANSACTIONS" })
-  //       try {
-  //         const transactions = await getTransactions(selectedAccount.address)
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (selectedAccount?.address) {
+        dispatch({ type: "SET_FETCHING_TRANSACTIONS" })
+        try {
+          const transactions = await getTransactions(selectedAccount.address)
+          console.log(transactions, 'transactions')
+          dispatch({
+            type: "SET_TRANSACTIONS",
+            payload: {
+              address: selectedAccount.address,
+              transactions,
+            },
+          })
 
-  //         dispatch({
-  //           type: "SET_TRANSACTIONS",
-  //           payload: {
-  //             address: selectedAccount.address,
-  //             transactions,
-  //           },
-  //         })
+          // Unwatch previous listener if exists
+          if (unwatchRef.current) {
+            unwatchRef.current()
+          }
 
-  //         // Unwatch previous listener if exists
-  //         if (unwatchRef.current) {
-  //           unwatchRef.current()
-  //         }
+          // Set up new listener
+          unwatchRef.current = watchMinedTransactions(
+            selectedAccount.address,
+            (tx) => {
+              dispatch({
+                type: "ADD_TRANSACTION",
+                payload: {
+                  address: selectedAccount.address,
+                  transaction: tx,
+                },
+              })
+              selectAccount(selectedAccount)
+            }
+          )
+        } catch (error) {
+          console.error(error)
+          dispatch({
+            type: "SET_ERROR",
+            payload: "Failed to fetch transactions",
+          })
+        }
+      }
+    }
+    fetchTransactions()
 
-  //         // Set up new listener
-  //         unwatchRef.current = watchMinedTransactions(
-  //           selectedAccount.address,
-  //           (tx) => {
-  //             dispatch({
-  //               type: "ADD_TRANSACTION",
-  //               payload: {
-  //                 address: selectedAccount.address,
-  //                 transaction: tx,
-  //               },
-  //             })
-  //             selectAccount(selectedAccount)
-  //           }
-  //         )
-  //       } catch (error: unknown) {
-  //         console.error("Error fetching transactions:", error)
-  //         const alchemyError = error as AlchemyError;
-  //         // Handle specific Alchemy API errors
-  //         if (alchemyError?.code === -32603) {
-  //           dispatch({
-  //             type: "SET_ERROR",
-  //             payload: "Unable to fetch transactions at this time. Please try again later.",
-  //           })
-  //         } else {
-  //           dispatch({
-  //             type: "SET_ERROR",
-  //             payload: "Failed to fetch transactions. Please check your connection and try again.",
-  //           })
-  //         }
-  //         // Set empty transactions array to prevent UI from showing stale data
-  //         dispatch({
-  //           type: "SET_TRANSACTIONS",
-  //           payload: {
-  //             address: selectedAccount.address,
-  //             transactions: [],
-  //           },
-  //         })
-  //       }
-  //     }
-  //   }
-  //   fetchTransactions()
-
-  //   // Cleanup function to unwatch when component unmounts or selectedAccount changes
-  //   return () => {
-  //     if (unwatchRef.current) {
-  //       unwatchRef.current()
-  //     }
-  //   }
-  // }, [selectedAccount?.address])
+    // Cleanup function to unwatch when component unmounts or selectedAccount changes
+    return () => {
+      if (unwatchRef.current) {
+        unwatchRef.current()
+      }
+    }
+  }, [selectedAccount?.address])
 
   const addPendingTransaction = ({
     hash,

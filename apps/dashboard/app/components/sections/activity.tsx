@@ -8,7 +8,7 @@ import { ArrowDownIcon, ArrowUpIcon, LoaderIcon } from "lucide-react"
 import { formatEther } from "viem"
 
 import type { Transaction } from "@/types/web3"
-import { useTokenPrice } from "@/hooks/use-token-price"
+// import { useTokenPrice } from "@/hooks/use-token-price"
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card"
 import { Skeleton } from "@/app/components/ui/skeleton"
 import {
@@ -21,10 +21,11 @@ import {
 } from "@/app/components/ui/table"
 
 import { ScrollArea } from "@/app/components/ui/scroll-area"
+import { base } from "viem/chains"
 
 export default function Activity() {
   const { transactions: allTransactions, loading } = useTransactions()
-  const { ethPrice } = useTokenPrice()
+  // const { ethPrice } = useTokenPrice()
   const { state } = useWallets()
   const { selectedAccount } = state
 
@@ -50,7 +51,7 @@ export default function Activity() {
       <CardContent>
         <ScrollArea className="flex max-h-[450px] w-full flex-col overflow-y-auto rounded-md">
           <Table>
-            <TableHeader className="sticky top-0 bg-card">
+            <TableHeader className="sticky top-0 bg-white">
               <TableRow>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden sm:table-cell">Date</TableHead>
@@ -80,11 +81,11 @@ export default function Activity() {
                   </TableCell>
                 </TableRow>
               ) : transactions.length > 0 ? (
-                transactions.map((transaction) => (
-                  <TableRow key={transaction.hash}>
+                transactions.map((transaction, index) => (
+                  <TableRow key={index}>
                     <TableCell>
                       <Link
-                        href={`https://sepolia.etherscan.io/tx/${transaction.hash}`}
+                        href={`${base.blockExplorers.default.url}/tx/${transaction.hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 capitalize"
@@ -112,7 +113,7 @@ export default function Activity() {
                     <TableCell className="hidden font-mono text-xs sm:table-cell">
                       <Link
                         className="underline underline-offset-4"
-                        href={`https://sepolia.etherscan.io/address/${transaction.from}`}
+                        href={`${base.blockExplorers.default.url}/address/${transaction.from}`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -123,7 +124,7 @@ export default function Activity() {
                     <TableCell className="font-mono text-xs">
                       <Link
                         className="underline underline-offset-4"
-                        href={`https://sepolia.etherscan.io/address/${transaction.to}`}
+                        href={`${base.blockExplorers.default.url}/address/${transaction.to}`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -135,10 +136,10 @@ export default function Activity() {
                       <div className="font-medium">
                         {transaction.value ? formatEther(transaction.value) : 0}{" "}
                         <span className="text-xs text-muted-foreground">
-                          ETH
+                          {transaction.asset ? transaction.asset : 'ETH'}
                         </span>
                       </div>
-                      <div className="text-sm text-muted-foreground">
+                      {/* <div className="text-sm text-muted-foreground">
                         $
                         {transaction.value
                           ? (
@@ -146,7 +147,7 @@ export default function Activity() {
                             (ethPrice ?? 0)
                           ).toFixed(2)
                           : 0}
-                      </div>
+                      </div> */}
                     </TableCell>
                   </TableRow>
                 ))

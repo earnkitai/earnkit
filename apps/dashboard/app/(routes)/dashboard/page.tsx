@@ -13,6 +13,7 @@ import { Toaster } from 'sonner';
 import { Icons } from '@/app/components/sections/icons';
 import Image from 'next/image';
 import Link from 'next/link';
+import { ArrowRightLeft, Rocket, Coins, LineChart } from 'lucide-react';
 
 interface Message {
     responseFrom: string;
@@ -109,6 +110,33 @@ const ERC20_ABI = [
     },
 ] as const;
 
+const suggestions = {
+    Swap: [
+        'Swap ETH for Kaito',
+        'Swap ETH for USDC',
+        'Swap ETH for USDT',
+        'Swap ETH for WBTC',
+    ],
+    Launch: [
+        'Launch new token',
+        'Launch NFT collection',
+        'Launch DAO',
+        'Launch DeFi protocol',
+    ],
+    Earn: [
+        'Earn yield on ETH',
+        'Earn yield on USDC',
+        'Earn yield on WBTC',
+        'Earn yield on LP tokens',
+    ],
+    Analyse: [
+        'Analyse ETH token',
+        'Analyse token price',
+        'Analyse token volume',
+        'Analyse token holders',
+    ],
+};
+
 export default function Dashboard() {
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -119,6 +147,8 @@ export default function Dashboard() {
     const { selectedAccount } = state;
     // const { walletClient } = useTurnkey()
     const { client, authIframeClient } = useTurnkey();
+    const [selectedAction, setSelectedAction] = useState<string | null>(null);
+    const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
 
     // Add ref for the messages container
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -200,20 +230,54 @@ export default function Dashboard() {
         }
     };
 
-    // Helper function to determine tool type from response
-    // const getToolType = (response: string): string => {
-    //     try {
-    //         const data = JSON.parse(response);
+    const handleActionClick = (action: string) => {
+        setSelectedAction(action);
+        setInputValue(action);
+    };
 
-    //         console.log(data, "inside data")
-    //         // Add logic to determine tool type based on response structure
-    //         if (data.tool_name === 'token_analysis') return 'token_analysis';
-    //         if (data.tool_name === 'swap_token') return 'swap_token';
-    //         return 'other';
-    //     } catch {
-    //         return 'other';
-    //     }
-    // };
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setInputValue(value);
+
+        if (!value) {
+            setSelectedAction(null);
+            setFilteredSuggestions([]);
+            return;
+        }
+
+        // Convert input to lowercase for case-insensitive search
+        const searchTerm = value.toLowerCase();
+
+        // Flatten all suggestions into a single array with their categories
+        const allSuggestions = Object.entries(suggestions).flatMap(([category, items]) =>
+            items.map(item => ({ category, item }))
+        );
+
+        // Filter suggestions based on search term
+        const filtered = allSuggestions
+            .filter(({ item }) => item.toLowerCase().includes(searchTerm))
+            .map(({ item }) => item);
+
+        setFilteredSuggestions(filtered);
+
+        // If input matches a main action, set it as selected
+        const mainActions = ['Swap', 'Launch', 'Earn', 'Analyse'];
+        const matchedAction = mainActions.find(action =>
+            action.toLowerCase().startsWith(searchTerm)
+        );
+
+        if (matchedAction) {
+            setSelectedAction(matchedAction);
+        } else {
+            setSelectedAction(null);
+        }
+    };
+
+    const handleSuggestionClick = (suggestion: string) => {
+        setInputValue(suggestion);
+        setSelectedAction(null);
+        setFilteredSuggestions([]);
+    };
 
     const handleSwapToken = async (data: SwapTokenResponse) => {
         console.log(data, 'swap token data');
@@ -378,8 +442,8 @@ export default function Dashboard() {
         <>
             {showInitialContent ? (
                 // Initial content section
-                <div className="max-w-4xl mx-auto p-6 flex flex-col h-screen justify-center items-center font-funnel-sans">
-                    <section>
+                <div className="max-w-4xl w-full mx-auto p-6 flex flex-col h-screen justify-center items-center font-funnel-sans">
+                    <section className="w-full p-10 relative pb-20 overflow-y-visible">
                         <div className="text-center mb-12">
                             <h1 className="text-4xl font-bold mb-2">Do Anything Onchain</h1>
                             <p className="text-gray-600">
@@ -387,15 +451,15 @@ export default function Dashboard() {
                             </p>
                         </div>
 
-                        {/* Chat Interface */}
-                        <div className="bg-black/4 p-4 mb-8 border border-black/10 rounded-xl">
+                        {/* Chat Interface with suggestions */}
+                        <div className="bg-black/4 p-4 mb-8 border border-black/10 rounded-xl ">
                             <div className="flex items-center gap-2  p-3 relative ">
                                 <form onSubmit={handleSubmit} className="w-full">
                                     <div className="relative">
                                         <input
                                             type="text"
                                             value={inputValue}
-                                            onChange={(e) => setInputValue(e.target.value)}
+                                            onChange={handleInputChange}
                                             placeholder="Ask EarnKit"
                                             className="w-full p-4 pr-12 bg-transparent rounded-lg text-xl text-black/80 font-semibold border-none focus:outline-none focus:border-none"
                                             disabled={isLoading}
@@ -430,21 +494,58 @@ export default function Dashboard() {
                                 </form>
                             </div>
 
-                            <div className="flex gap-2 mt-4 p-3">
-                                {['Swap', 'Launch', 'Earn', 'Analyse'].map((action) => (
-                                    <button
-                                        key={action}
-                                        className="px-4 py-1 rounded-full bg-white text-gray-600 hover:bg-gray-100 flex items-center gap-2 border border-black/20"
-                                    >
-                                        <span className="bg-black/10 border min-h-4 min-w-4 h-4 w-4 rounded-full"></span>
-                                        {action}
-                                    </button>
-                                ))}
-                            </div>
+
                         </div>
+                        <div className="flex items-start justify-center absolute top-[80%] bottom-0 left-0 right-0 mx-12 h-[200px] overflow-y-auto">
+                            {!selectedAction && !inputValue && (
+                                <div className="flex gap-2 mt-0 p-3">
+                                    {['Swap', 'Launch', 'Earn', 'Analyse'].map((action) => (
+                                        <button
+                                            key={action}
+                                            onClick={() => handleActionClick(action)}
+                                            className="px-4 py-1 rounded-full bg-white text-gray-600 hover:bg-gray-100 flex items-center gap-2 border border-black/20"
+                                        >
+                                            {action === 'Swap' && <ArrowRightLeft className="w-4 h-4" />}
+                                            {action === 'Launch' && <Rocket className="w-4 h-4" />}
+                                            {action === 'Earn' && <Coins className="w-4 h-4" />}
+                                            {action === 'Analyse' && <LineChart className="w-4 h-4" />}
+                                            {action}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {filteredSuggestions.length > 0 && (
+                                <div className="mt-0 space-y-2 w-full rounded-lg">
+                                    {filteredSuggestions.map((suggestion, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleSuggestionClick(suggestion)}
+                                            className="w-full text-left p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                        >
+                                            {suggestion}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {/* Show category-specific suggestions */}
+                            {selectedAction && !filteredSuggestions.length && suggestions[selectedAction as keyof typeof suggestions] && (
+                                <div className="mt-4 space-y-2 w-full rounded-lg">
+                                    {suggestions[selectedAction as keyof typeof suggestions].map((suggestion, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleSuggestionClick(suggestion)}
+                                            className="w-full text-left p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                        >
+                                            {suggestion}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        {/* Show filtered suggestions */}
 
                         {/* What's Possible Section */}
-                        <div className="mb-8">
+                        {/* <div className="mb-8">
                             <h2 className="text-xl font-semibold mb-1">
                                 What&apos;s Possible
                             </h2>
@@ -481,7 +582,7 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </div> */}
                     </section>
                 </div>
             ) : (
@@ -894,7 +995,7 @@ export default function Dashboard() {
                                     <input
                                         type="text"
                                         value={inputValue}
-                                        onChange={(e) => setInputValue(e.target.value)}
+                                        onChange={handleInputChange}
                                         placeholder="Ask EarnKit"
                                         className="w-full p-4 pr-12 bg-transparent rounded-lg border-none focus:outline-none focus:border-none font-funnel-sans text-black/80 font-semibold"
                                         disabled={isLoading}

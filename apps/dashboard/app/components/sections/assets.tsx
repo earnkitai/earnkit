@@ -24,13 +24,13 @@ export default function Assets() {
   const { selectedAccount } = state
 
   // Memoize the balances calculation
-  const ethAmount = useMemo(() => {
-    return selectedAccount?.balance?.ethBalance
-      ? parseFloat(
-        Number(formatEther(selectedAccount.balance.ethBalance)).toFixed(8)
-      ).toString()
-      : "0"
-  }, [selectedAccount?.balance?.ethBalance])
+  // const ethAmount = useMemo(() => {
+  //   return selectedAccount?.balance?.ethBalance
+  //     ? parseFloat(
+  //       Number(formatEther(selectedAccount.balance.ethBalance)).toFixed(8)
+  //     ).toString()
+  //     : "0"
+  // }, [selectedAccount?.balance?.ethBalance])
 
   const baseAmount = useMemo(() => {
     return selectedAccount?.balance?.baseBalance
@@ -41,12 +41,12 @@ export default function Assets() {
   }, [selectedAccount?.balance?.baseBalance])
 
   // Memoize the values calculation
-  const ethValueInUSD = useMemo(() => {
-    return (
-      Number(formatEther(selectedAccount?.balance?.ethBalance ?? BigInt(0))) *
-      (ethPrice || 0)
-    ).toFixed(2)
-  }, [selectedAccount?.balance?.ethBalance, ethPrice])
+  // const ethValueInUSD = useMemo(() => {
+  //   return (
+  //     Number(formatEther(selectedAccount?.balance?.ethBalance ?? BigInt(0))) *
+  //     (ethPrice || 0)
+  //   ).toFixed(2)
+  // }, [selectedAccount?.balance?.ethBalance, ethPrice])
 
   const baseValueInUSD = useMemo(() => {
     return (
@@ -73,33 +73,6 @@ export default function Assets() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow>
-              <TableCell className="p-2 font-medium sm:p-4">
-                <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                  <Icons.ethereum className="h-6 w-6" />
-                  <span>Ethereum (Sepolia)</span>
-                </div>
-              </TableCell>
-              <TableCell className="hidden font-mono text-xs sm:table-cell">
-                {selectedAccount?.address &&
-                  truncateAddress(selectedAccount?.address)}
-              </TableCell>
-              <TableCell className="hidden sm:table-cell">{ethAmount}</TableCell>
-              <TableCell className="hidden sm:table-cell">
-                ${ethValueInUSD}
-              </TableCell>
-              <TableCell className="p-2 sm:hidden">
-                <div className="font-medium">
-                  {ethAmount}
-                  <span className="ml-1 text-xs text-muted-foreground">
-                    ETH
-                  </span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  ${ethValueInUSD}
-                </div>
-              </TableCell>
-            </TableRow>
             <TableRow>
               <TableCell className="p-2 font-medium sm:p-4">
                 <div className="flex items-center space-x-2 text-xs sm:text-sm">
