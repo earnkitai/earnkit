@@ -15,6 +15,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from "react";
 import { useUser } from "@/hooks/use-user";
 import { getUsernameByUserId } from "@/actions/user";
+import Image from "next/image";
 // import { useState } from "react";
 
 export default function DashboardSidebar() {
@@ -23,6 +24,7 @@ export default function DashboardSidebar() {
     const { logout } = useAuth();
 
     const [username, setUsername] = useState<string>("");
+    const [pfpUrl, setPfpUrl] = useState<string>("");
 
     useEffect(() => {
         const fetchUsername = async () => {
@@ -30,6 +32,7 @@ export default function DashboardSidebar() {
                 const result = await getUsernameByUserId(user.userId);
                 if (result.success && result.username) {
                     setUsername(result.username);
+                    setPfpUrl(result.pfpUrl || "");
                 }
             }
         };
@@ -96,13 +99,24 @@ export default function DashboardSidebar() {
 
             {/* Secondary Navigation */}
             <nav className="w-full">
-                <div className="space-y-6">
+                <div className="space-y-4">
                     <span
                         // href="/dashboard/user/profile"
                         className={getLinkStyles("/dashboard/user/profile")}
                     >
-                        <User className="w-5 h-5 mr-1" />
-                        <span className="text-md font-medium ">{username !== "" ? "@" + username : "user"}</span>
+                        {pfpUrl ? (
+                            <Image
+                                src={pfpUrl}
+                                alt="Profile Picture"
+                                className="w-5 h-5 rounded-full"
+                                width={20}
+                                height={20}
+                            />
+                        ) : (
+                            <User className="w-5 h-5 mr-1" />
+                        )}
+                        <span className="text-md font-medium text-ellipsis overflow-hidden whitespace-nowrap">{username !== "" ? username : "user"}</span>
+
                     </span>
                     <Link
                         href="https://docs.earnkit.com"

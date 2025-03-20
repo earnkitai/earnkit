@@ -13,7 +13,7 @@ import { Toaster } from 'sonner';
 import { Icons } from '@/app/components/sections/icons';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowRightLeft, Rocket, Coins, LineChart } from 'lucide-react';
+import { ArrowRightLeft, Rocket, Coins, LineChart, ExternalLink } from 'lucide-react';
 
 interface Message {
     responseFrom: string;
@@ -23,7 +23,7 @@ interface Message {
     | Array<{
         type: string;
         text?: string;
-        name?: 'swap_token' | 'token_analysis' | string;
+        name?: 'swap_token' | 'token_analysis' | 'get_balance' | string;
     }>
     | string;
 }
@@ -76,11 +76,28 @@ interface TokenAnalysisResponse {
 }
 
 interface SwapTokenResponse {
-    tokenIn: `0x${string}`;
-    tokenOut: `0x${string}`;
-    amountIn: string;
-    inputDecimals: number;
+    tokenIn: Token,
+    tokenOut: Token,
+    amountIn: string,
     feeTier: string;
+    originalAmount: string,
+    amountType: string,
+}
+
+interface Token {
+    address: `0x${string}`;
+    decimals: number;
+    name: string;
+    symbol: string;
+    image: string;
+    currentPrice: number;
+}
+
+interface TokenBalanceResponse {
+    symbol: string;
+    balance: string;
+    decimals: number;
+    tokenAddress: string;
 }
 
 const ROUTER_ABI = [
@@ -211,6 +228,7 @@ export default function Dashboard() {
                 },
                 body: JSON.stringify({
                     message: inputValue,
+                    userWalletAddress: selectedAccount?.address,
                 }),
             });
 
@@ -299,7 +317,7 @@ export default function Dashboard() {
         const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 
         // Check if we're swapping with ETH
-        const isETHSwap = data.tokenIn.toLowerCase() === WETH_ADDRESS.toLowerCase();
+        const isETHSwap = data.tokenIn.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
 
         if (!isETHSwap) {
             console.log('ERC20 token swap');
@@ -308,7 +326,7 @@ export default function Dashboard() {
             const erc20Contract = new ethers.Interface(ERC20_ABI);
 
             const allowanceData = (await publicClient.readContract({
-                address: data.tokenIn,
+                address: data.tokenIn.address,
                 abi: ERC20_ABI,
                 functionName: 'allowance',
                 args: [selectedAccount.address, ROUTER_ADDRESS],
@@ -326,7 +344,7 @@ export default function Dashboard() {
                 console.log(approveData, 'approve data');
 
                 const approveTx = await walletClient.prepareTransactionRequest({
-                    to: data.tokenIn,
+                    to: data.tokenIn.address,
                     data: approveData as `0x${string}`,
                 });
 
@@ -367,8 +385,8 @@ export default function Dashboard() {
 
         // Encode the swap parameters
         const swapParams = {
-            tokenIn: data.tokenIn,
-            tokenOut: data.tokenOut,
+            tokenIn: data.tokenIn.address,
+            tokenOut: data.tokenOut.address,
             fee: parseInt(data.feeTier),
             recipient: selectedAccount?.address as `0x${string}`,
             amountIn: data.amountIn,
@@ -842,82 +860,107 @@ export default function Dashboard() {
                                                         <h3 className="font-semibold mb-4">Swap Details</h3>
 
                                                         <div className="space-y-4">
-                                                            <div className="bg-black/4 p-3 rounded-lg">
-                                                                <span className="text-sm text-gray-600">
-                                                                    From Token
-                                                                </span>
-                                                                <div className="flex justify-between items-center mt-1">
-                                                                    <div className="font-mono text-sm">
-                                                                        {data.tokenIn}
+                                                            {/* From Token Card */}
+                                                            <div className="bg-black/4 p-4 rounded-lg">
+                                                                <span className="text-sm text-gray-600">From</span>
+                                                                <div className="flex items-center justify-between mt-2">
+                                                                    <div className="flex items-center gap-3">
+                                                                        {data.tokenIn.image ? (
+                                                                            <Image
+                                                                                src={data.tokenIn.image}
+                                                                                alt={data.tokenIn.symbol}
+                                                                                className="w-8 h-8 rounded-full"
+                                                                                width={32}
+                                                                                height={32}
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="w-8 h-8 bg-black/10 rounded-full" />
+                                                                        )}
+                                                                        <div>
+                                                                            <div className="font-semibold">{data.tokenIn.name}</div>
+                                                                            <div className="text-sm text-gray-600">{data.tokenIn.symbol}</div>
+                                                                        </div>
                                                                     </div>
-                                                                    <div>
-                                                                        <span className="font-semibold">
-                                                                            {(
-                                                                                parseInt(data.amountIn) /
-                                                                                Math.pow(10, data.inputDecimals)
-                                                                            ).toFixed(6)}
-                                                                        </span>
+                                                                    <div className="text-right">
+                                                                        <div className="font-semibold">
+                                                                            {(parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)).toFixed(6)}
+                                                                        </div>
+                                                                        <div className="text-sm text-gray-600">
+                                                                            ≈ ${((parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)) * data.tokenIn.currentPrice).toFixed(2)}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
 
+                                                            {/* Arrow Icon */}
                                                             <div className="flex justify-center">
-                                                                <svg
-                                                                    width="24"
-                                                                    height="24"
-                                                                    viewBox="0 0 24 24"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth="2"
-                                                                >
-                                                                    <path d="M7 10l5 5 5-5" />
-                                                                </svg>
+                                                                <div className="bg-black/4 p-2 rounded-full">
+                                                                    <svg
+                                                                        width="24"
+                                                                        height="24"
+                                                                        viewBox="0 0 24 24"
+                                                                        fill="none"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth="2"
+                                                                    >
+                                                                        <path d="M7 10l5 5 5-5" />
+                                                                    </svg>
+                                                                </div>
                                                             </div>
 
-                                                            <div className="bg-black/4 p-3 rounded-lg">
-                                                                <span className="text-sm text-gray-600">
-                                                                    To Token
-                                                                </span>
-                                                                <div className="flex justify-between items-center mt-1">
-                                                                    <div className="font-mono text-sm">
-                                                                        {data.tokenOut}
+                                                            {/* To Token Card */}
+                                                            <div className="bg-black/4 p-4 rounded-lg">
+                                                                <span className="text-sm text-gray-600">To</span>
+                                                                <div className="flex items-center justify-between mt-2">
+                                                                    <div className="flex items-center gap-3">
+                                                                        {data.tokenOut.image ? (
+                                                                            <Image
+                                                                                src={data.tokenOut.image}
+                                                                                alt={data.tokenOut.symbol}
+                                                                                className="w-8 h-8 rounded-full"
+                                                                                width={32}
+                                                                                height={32}
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="w-8 h-8 bg-black/10 rounded-full" />
+                                                                        )}
+                                                                        <div>
+                                                                            <div className="font-semibold">{data.tokenOut.name}</div>
+                                                                            <div className="text-sm text-gray-600">{data.tokenOut.symbol}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <div className="text-sm text-gray-600 font-mono">
+                                                                            {data.tokenOut.address.slice(0, 6)}...{data.tokenOut.address.slice(-4)}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-4 space-y-2 text-sm text-gray-600">
+                                                        {/* Swap Details */}
+                                                        <div className="mt-6 space-y-2 text-sm text-gray-600 bg-black/2 p-4 rounded-lg">
                                                             <div className="flex justify-between">
                                                                 <span>Fee Tier</span>
-                                                                <span>
-                                                                    {(parseInt(data.feeTier) / 10000).toFixed(2)}%
-                                                                </span>
+                                                                <span className="font-semibold">{(parseInt(data.feeTier) / 10000).toFixed(2)}%</span>
                                                             </div>
+                                                            {/* <div className="flex justify-between">
+                                                                <span>Amount Type</span>
+                                                                <span className="font-semibold capitalize">{data.amountType}</span>
+                                                            </div> */}
                                                             <div className="flex justify-between">
-                                                                <span>Input Decimals</span>
-                                                                <span>{data.inputDecimals}</span>
+                                                                <span>Original Amount</span>
+                                                                <span className="font-semibold">{data.originalAmount}</span>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-4 flex gap-2">
+                                                        {/* Action Buttons */}
+                                                        <div className="mt-6 flex gap-2">
                                                             <button
-                                                                className="flex-1 px-4 py-2 bg-black text-white rounded-lg font-semibold"
+                                                                className="flex-1 px-4 py-3 bg-black text-white rounded-lg font-semibold hover:bg-black/90 transition-colors"
                                                                 onClick={() => handleSwapToken(data)}
                                                             >
                                                                 Confirm Swap
-                                                            </button>
-                                                            <button className="px-4 py-2 bg-black/4 text-black/80 rounded-lg font-semibold">
-                                                                <svg
-                                                                    width="20"
-                                                                    height="20"
-                                                                    viewBox="0 0 24 24"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth="2"
-                                                                >
-                                                                    <path d="M4 4v16h16" />
-                                                                    <path d="M4 20l16-16" />
-                                                                </svg>
                                                             </button>
                                                         </div>
                                                     </div>
@@ -953,6 +996,102 @@ export default function Dashboard() {
                                                 </div>
                                             );
                                         }
+                                    }
+                                }
+
+                                if (message.tool_name === 'get_balance') {
+                                    try {
+                                        const data: TokenBalanceResponse = JSON.parse(message.response as string);
+                                        return (
+                                            <div key={index} className="flex justify-start my-4">
+                                                <div className="max-w-[70%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <h3 className="font-semibold">Token Balance</h3>
+                                                        <Link
+                                                            href={`https://basescan.org/address/${selectedAccount?.address}/#asset-tokens`}
+                                                            target="_blank"
+                                                            className="text-xs text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
+                                                        >
+                                                            View on Explorer <ExternalLink className="w-4 h-4" />
+                                                        </Link>
+                                                    </div>
+
+                                                    <div className="bg-black/4 p-4 rounded-lg">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 bg-black/10 rounded-full flex items-center justify-center">
+                                                                    <span className="text-lg font-semibold">
+                                                                        {data.symbol.slice(0, 1)}
+                                                                    </span>
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-semibold">{data.symbol}</div>
+                                                                    <div className="text-sm text-gray-600 font-mono">
+                                                                        {data.tokenAddress.slice(0, 6)}...{data.tokenAddress.slice(-4)}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="text-2xl font-bold">
+                                                                    {Number(data.balance).toLocaleString(undefined, {
+                                                                        minimumFractionDigits: 2,
+                                                                        maximumFractionDigits: 6
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mt-4 flex gap-2">
+                                                        <button
+                                                            className="flex-1 px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold hover:bg-black/8 transition-colors"
+                                                            onClick={() => {
+                                                                setInputValue(`Swap ${data.symbol}`);
+                                                            }}
+                                                        >
+                                                            Swap {data.symbol}
+                                                        </button>
+                                                        <button
+                                                            className="flex-1 px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold hover:bg-black/8 transition-colors"
+                                                            onClick={() => {
+                                                                // Set input value to create an analysis command
+                                                                setInputValue(`Analyse ${data.symbol} token`);
+                                                            }}
+                                                        >
+                                                            View Analytics
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    } catch (error) {
+                                        console.log(error, 'error');
+                                        return (
+                                            <div key={index} className="flex justify-start my-4">
+                                                <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
+                                                    <div className="flex items-center gap-2 text-red-600">
+                                                        <svg
+                                                            width="20"
+                                                            height="20"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            strokeWidth="2"
+                                                        >
+                                                            <circle cx="12" cy="12" r="10" />
+                                                            <line x1="12" y1="8" x2="12" y2="12" />
+                                                            <line x1="12" y1="16" x2="12" y2="16" />
+                                                        </svg>
+                                                        <span className="font-semibold">
+                                                            Invalid Balance Data
+                                                        </span>
+                                                    </div>
+                                                    <p className="mt-2 text-sm text-red-600">
+                                                        Failed to process balance information. Please try again.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
                                     }
                                 }
 

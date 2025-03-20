@@ -110,7 +110,11 @@ export async function getUsernameByUserId(userId: string) {
     await initializeDatabase();
     const userService = new UserService();
     const user = await userService.getUserByTurnkeyId(userId);
-    return { success: true, username: user?.username || null };
+    return {
+      success: true,
+      username: user?.farcasterDisplayName || user?.username || null,
+      pfpUrl: user?.farcasterProfilePictureUrl || null,
+    };
   } catch (error) {
     console.error('Error fetching username by userId:', error);
     return { success: false, error: 'Failed to fetch username' };
