@@ -10,10 +10,12 @@ import { ethers } from 'ethers';
 import { showTransactionToast } from '@/lib/toast';
 import { useTransactions } from '@/providers/transactions-provider';
 import { Toaster } from 'sonner';
-import { Icons } from '@/app/components/sections/icons';
-import Image from 'next/image';
-import Link from 'next/link';
-import { ArrowRightLeft, Rocket, Coins, LineChart, ExternalLink } from 'lucide-react';
+import { ArrowRightLeft, Rocket, Coins, LineChart, MessageCircleMore, SquarePen } from 'lucide-react';
+import { TokenAnalysis, TokenSwap, TokenBalance } from '@/app/components/dashboard/tools';
+import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
+import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
+import ChatHistory from './components/ChatHistory';
+import * as Tooltip from '@radix-ui/react-tooltip';
 
 interface Message {
     responseFrom: string;
@@ -28,52 +30,6 @@ interface Message {
     | string;
 }
 
-interface TokenAnalysisResponse {
-    name: string;
-    symbol: string;
-    contract_address: string;
-    decimals: string;
-    categories: string[];
-    description: string;
-    image: string;
-    price: {
-        current: {
-            usd: number | string;
-            eth: number | string;
-        };
-        ath: {
-            usd: number | string;
-            eth: number | string;
-        };
-        atl: {
-            usd: number | string;
-            eth: number | string;
-        };
-        high_24h: {
-            usd: number | string;
-            eth: number | string;
-        };
-        low_24h: {
-            usd: number | string;
-            eth: number | string;
-        };
-        price_change_percentage_24h: number | string;
-    };
-    market_metrics: {
-        market_cap: {
-            usd: number | string;
-            eth: number | string;
-        };
-        fully_diluted_valuation: {
-            usd: number | string;
-            eth: number | string;
-        };
-        volume_24h: {
-            usd: number | string;
-            eth: number | string;
-        };
-    };
-}
 
 interface SwapTokenResponse {
     tokenIn: Token,
@@ -91,13 +47,6 @@ interface Token {
     symbol: string;
     image: string;
     currentPrice: number;
-}
-
-interface TokenBalanceResponse {
-    symbol: string;
-    balance: string;
-    decimals: number;
-    tokenAddress: string;
 }
 
 const ROUTER_ABI = [
@@ -154,21 +103,58 @@ const suggestions = {
     ],
 };
 
+interface MessageResponse {
+    content: string;
+    responseFrom: string;
+    toolName?: string;
+}
+
+// interface Chat {
+//     id: string;
+//     title: string;
+//     createdAt: string;
+//     messages: Array<{
+//         content: string;
+//         responseFrom: string;
+//         toolName?: string;
+//     }>;
+// }
+
 export default function Dashboard() {
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
+    const [currentChatId, setCurrentChatId] = useState<string | null>(null);
     const { addPendingTransaction } = useTransactions();
     const [showInitialContent, setShowInitialContent] = useState(true);
     const { state } = useWallets();
     const { selectedAccount } = state;
-    // const { walletClient } = useTurnkey()
     const { client, authIframeClient } = useTurnkey();
     const [selectedAction, setSelectedAction] = useState<string | null>(null);
     const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
-
+    const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
+    const [userId, setUserId] = useState<string | null>(null);
+    const { turnkey } = useTurnkey();
     // Add ref for the messages container
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+
+    useEffect(() => {
+        if (turnkey) {
+            const fetchUser = async () => {
+                try {
+                    const currentUser = await turnkey.getCurrentUser();
+                    if (currentUser?.userId) {
+                        console.log(currentUser.userId, "current user")
+                        setUserId(currentUser.userId);
+                    }
+                } catch (error) {
+                    console.error("Error fetching user profile:", error);
+                }
+            };
+            fetchUser();
+        }
+    }, [turnkey]);
 
     // Add scroll to bottom function
     const scrollToBottom = () => {
@@ -207,21 +193,86 @@ export default function Dashboard() {
         scrollToBottom();
     }, [messages, isLoading]);
 
+    // Load messages when chat is selected
+    // useEffect(() => {
+    //     const loadMessages = async () => {
+    //         if (!currentChatId) return;
+
+    //         try {
+    //             const response = await fetch('/api/chat');
+    //             const data = await response.json();
+    //             const selectedChat = data.chats.find((chat: Chat) => chat.id === currentChatId);
+    //             if (selectedChat) {
+    //                 setMessages(selectedChat.messages.map((msg: Chat['messages'][0]) => ({
+    //                     responseFrom: msg.responseFrom,
+    //                     tool_name: msg.toolName,
+    //                     response: msg.content,
+    //                 })));
+    //             }
+    //         } catch (error) {
+    //             console.error('Error loading messages:', error);
+    //         }
+    //     };
+
+    //     loadMessages();
+    // }, [currentChatId]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputValue.trim()) return;
+        if (!inputValue.trim() || !userId) return;
 
         setIsLoading(true);
         setShowInitialContent(false);
 
+        // Create new chat if this is the first message
+
+        let newChatId = currentChatId;
+
         // Add user message to chat
-        setMessages((prev) => [
-            ...prev,
-            { responseFrom: 'user', response: inputValue },
-        ]);
+        const userMessage = { responseFrom: 'user', response: inputValue };
+        setMessages((prev) => [...prev, userMessage]);
+
+        if (!currentChatId) {
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        title: inputValue.slice(0, 50) + (inputValue.length > 50 ? '...' : ''),
+                    }),
+                });
+                const data = await response.json();
+                console.log(data, "chat first id")
+                newChatId = data?.chat?.id;
+                setCurrentChatId(data?.chat?.id);
+            } catch (error) {
+                console.error('Error creating new chat:', error);
+                setIsLoading(false);
+                return;
+            }
+        }
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${newChatId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content: inputValue,
+                    responseFrom: 'user',
+                    userId: userId,
+                }),
+            });
+        } catch (error) {
+            console.error('Error storing user message:', error);
+        }
 
         try {
-            const response = await fetch('/api/agents/test', {
+            const response = await fetch('/api/agent/prompt', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -236,10 +287,46 @@ export default function Dashboard() {
             console.log(data, 'ai response');
 
             // Add API responses to chat
-            setMessages((prev) => [
-                ...prev,
-                ...data.response.filter((msg: Message) => msg.response),
-            ]);
+            const newMessages = data.response.filter((msg: Message) => msg.response);
+
+            if (newMessages.length > 0) {
+                setMessages((prev) => [...prev, ...newMessages]);
+
+
+                // Store AI messages in database
+                for (const message of newMessages) {
+                    try {
+                        // Format the content based on the response type
+                        let formattedContent: string;
+                        if (Array.isArray(message.response)) {
+                            // For array responses, join the text fields with newlines
+                            formattedContent = message.response
+                                .map((item: { text?: string }) => item.text || '')
+                                .filter((text: string) => text)
+                                .join('\n');
+                        } else if (typeof message.response === 'string') {
+                            formattedContent = message.response;
+                        } else {
+                            formattedContent = JSON.stringify(message.response);
+                        }
+
+                        await fetch(`/api/chat/${newChatId}/messages`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                content: formattedContent,
+                                responseFrom: message.responseFrom,
+                                toolName: message.tool_name || undefined,
+                                userId: userId,
+                            }),
+                        });
+                    } catch (error) {
+                        console.error('Error storing AI message:', error);
+                    }
+                }
+            }
         } catch (error) {
             console.error('Error:', error);
         } finally {
@@ -263,7 +350,7 @@ export default function Dashboard() {
             return;
         }
 
-        // Convert input to lowercase for case-insensitive search
+        // Convert input to lowercase for case-insensitive search 
         const searchTerm = value.toLowerCase();
 
         // Flatten all suggestions into a single array with their categories
@@ -456,8 +543,87 @@ export default function Dashboard() {
         );
     };
 
+    const handleSelectChat = async (chatId: string) => {
+        if (!userId) return;
+
+        setCurrentChatId(chatId);
+        setIsChatHistoryOpen(false);
+        setMessages([]);
+        setShowInitialContent(false);
+
+        try {
+            const response = await fetch(`/api/chat/${chatId}/messages?userId=${userId}`);
+            const data = await response.json();
+            if (data.messages) {
+                setMessages(data.messages.map((msg: MessageResponse) => ({
+                    responseFrom: msg.responseFrom,
+                    tool_name: msg.toolName,
+                    response: msg.content
+                })));
+            }
+        } catch (error) {
+            console.error('Error loading messages:', error);
+        }
+    };
+
     return (
-        <>
+        <div>
+            <Tooltip.Provider>
+                <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                        <button
+                            onClick={() => setIsChatHistoryOpen(true)}
+                            className="fixed flex items-center gap-2 justify-center font-funnel-sans font-semibold top-4 right-4 p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                            aria-label="Open chat history"
+                        >
+                            <MessageCircleMore className="w-6 h-6" />
+                        </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                        <Tooltip.Content
+                            className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
+                            sideOffset={5}
+                        >
+                            Chat History
+                        </Tooltip.Content>
+                    </Tooltip.Portal>
+                </Tooltip.Root>
+
+                {!showInitialContent && <Tooltip.Root>
+                    <Tooltip.Trigger asChild>
+                        <button
+                            onClick={() => {
+                                setCurrentChatId(null);
+                                setMessages([]);
+                                setInputValue('');
+                                setShowInitialContent(true);
+                            }}
+                            className="fixed flex items-center gap-2 justify-center font-funnel-sans font-semibold top-4 ml-[250px] left-4 p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                            aria-label="Start new chat"
+                        >
+                            <SquarePen className="w-6 h-6" />
+                        </button>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                        <Tooltip.Content
+                            className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
+                            sideOffset={5}
+                        >
+                            New Chat
+                        </Tooltip.Content>
+                    </Tooltip.Portal>
+                </Tooltip.Root>}
+            </Tooltip.Provider>
+
+            {/* Add the chat history component */}
+            <ChatHistory
+                isOpen={isChatHistoryOpen}
+                onClose={() => setIsChatHistoryOpen(false)}
+                onSelectChat={handleSelectChat}
+                currentChatId={currentChatId}
+                userId={userId}
+            />
+
             {showInitialContent ? (
                 // Initial content section
                 <div className="max-w-4xl w-full mx-auto p-6 flex flex-col h-screen justify-center items-center font-funnel-sans">
@@ -607,7 +773,7 @@ export default function Dashboard() {
                 // Chat messages section
                 <section className="relative max-w-3xl mx-auto rounded-lg">
                     <div className="flex flex-col gap-4 justify-between h-screen pt-4">
-                        <div className="flex-1 h-full overflow-y-auto p-4">
+                        <div className="flex-1 h-full overflow-y-auto p-4 pt-10">
                             {messages.map((message, index) => {
                                 if (
                                     message.responseFrom === 'tools' &&
@@ -664,157 +830,11 @@ export default function Dashboard() {
                                     // Then proceed with existing tool-specific rendering...
                                     if (message.tool_name === 'token_analysis') {
                                         try {
-                                            const data: TokenAnalysisResponse = JSON.parse(
-                                                message.response,
-                                            );
+                                            const data: TokenAnalysisResponse = JSON.parse(message.response);
+                                            console.log(data, "token analysis data")
                                             return (
                                                 <div key={index} className="flex justify-start my-4">
-                                                    <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                                                        <div className="flex items-center gap-3 mb-3">
-                                                            {data.image ? (
-                                                                <Image
-                                                                    src={data.image}
-                                                                    alt={data.name}
-                                                                    className="w-8 h-8 rounded-full"
-                                                                    width={32}
-                                                                    height={32}
-                                                                />
-                                                            ) : (
-                                                                <Icons.ethereum className="w-8 h-8 rounded-full" />
-                                                            )}
-                                                            <div>
-                                                                <h3 className="font-semibold">{data.name}</h3>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-sm text-gray-600">
-                                                                        {data.symbol?.toUpperCase()}
-                                                                    </span>
-                                                                    {data.contract_address !== 'empty' && (
-                                                                        <span className="text-xs text-gray-500 font-mono truncate">
-                                                                            {data.contract_address}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="grid grid-cols-2 gap-6">
-                                                            <div className="space-y-2">
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        Current Price
-                                                                    </span>
-                                                                    <span className="font-semibold">
-                                                                        $
-                                                                        {typeof data.price.current.usd === 'number'
-                                                                            ? data.price.current.usd.toFixed(2)
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        24h High
-                                                                    </span>
-                                                                    <span className="font-semibold">
-                                                                        $
-                                                                        {typeof data.price.high_24h.usd === 'number'
-                                                                            ? data.price.high_24h.usd.toFixed(2)
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        24h Low
-                                                                    </span>
-                                                                    <span className="font-semibold">
-                                                                        $
-                                                                        {typeof data.price.low_24h.usd === 'number'
-                                                                            ? data.price.low_24h.usd.toFixed(2)
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="space-y-2">
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        24h Change
-                                                                    </span>
-                                                                    <span
-                                                                        className={`font-semibold ${typeof data.price
-                                                                            .price_change_percentage_24h ===
-                                                                            'number'
-                                                                            ? data.price
-                                                                                .price_change_percentage_24h > 0
-                                                                                ? 'text-green-500'
-                                                                                : 'text-red-500'
-                                                                            : ''
-                                                                            }`}
-                                                                    >
-                                                                        {typeof data.price
-                                                                            .price_change_percentage_24h === 'number'
-                                                                            ? `${data.price.price_change_percentage_24h.toFixed(2)}%`
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        Market Cap
-                                                                    </span>
-                                                                    <span className="font-semibold">
-                                                                        $
-                                                                        {typeof data.market_metrics.market_cap
-                                                                            .usd === 'number'
-                                                                            ? data.market_metrics.market_cap.usd.toLocaleString()
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex justify-between items-center py-2 border-b border-black/10">
-                                                                    <span className="text-gray-600 text-sm">
-                                                                        24h Volume
-                                                                    </span>
-                                                                    <span className="font-semibold">
-                                                                        $
-                                                                        {typeof data.market_metrics.volume_24h
-                                                                            .usd === 'number'
-                                                                            ? data.market_metrics.volume_24h.usd.toLocaleString()
-                                                                            : 'N/A'}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {data.categories.length > 0 && (
-                                                            <div className="flex flex-wrap gap-2 mt-4">
-                                                                {data.categories.map((category, i) => (
-                                                                    <span
-                                                                        key={i}
-                                                                        className="px-2 py-1 bg-black/4 rounded-full text-xs"
-                                                                    >
-                                                                        {category}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-
-                                                        <p className="text-sm text-gray-600 mt-4 line-clamp-2">
-                                                            {data.description}
-                                                        </p>
-
-                                                        <div className="mt-4 flex gap-2">
-                                                            <button
-                                                                className="px-4 py-2 bg-black text-white rounded-lg text-sm font-semibold"
-                                                                disabled
-                                                            >
-                                                                Trade Now
-                                                            </button>
-                                                            <Link
-                                                                href={`https://basescan.org/token/${data.contract_address}`}
-                                                                className="px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold"
-                                                                target="_blank"
-                                                            >
-                                                                View Details
-                                                            </Link>
-                                                        </div>
-                                                    </div>
+                                                    <TokenAnalysis data={data} />
                                                 </div>
                                             );
                                         } catch (error) {
@@ -851,119 +871,10 @@ export default function Dashboard() {
 
                                     if (message.tool_name === 'swap_token') {
                                         try {
-                                            const data: SwapTokenResponse = JSON.parse(
-                                                message.response,
-                                            );
+                                            const data: SwapTokenResponse = JSON.parse(message.response);
                                             return (
                                                 <div key={index} className="flex justify-start my-4">
-                                                    <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                                                        <h3 className="font-semibold mb-4">Swap Details</h3>
-
-                                                        <div className="space-y-4">
-                                                            {/* From Token Card */}
-                                                            <div className="bg-black/4 p-4 rounded-lg">
-                                                                <span className="text-sm text-gray-600">From</span>
-                                                                <div className="flex items-center justify-between mt-2">
-                                                                    <div className="flex items-center gap-3">
-                                                                        {data.tokenIn.image ? (
-                                                                            <Image
-                                                                                src={data.tokenIn.image}
-                                                                                alt={data.tokenIn.symbol}
-                                                                                className="w-8 h-8 rounded-full"
-                                                                                width={32}
-                                                                                height={32}
-                                                                            />
-                                                                        ) : (
-                                                                            <div className="w-8 h-8 bg-black/10 rounded-full" />
-                                                                        )}
-                                                                        <div>
-                                                                            <div className="font-semibold">{data.tokenIn.name}</div>
-                                                                            <div className="text-sm text-gray-600">{data.tokenIn.symbol}</div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-right">
-                                                                        <div className="font-semibold">
-                                                                            {(parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)).toFixed(6)}
-                                                                        </div>
-                                                                        <div className="text-sm text-gray-600">
-                                                                            ≈ ${((parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)) * data.tokenIn.currentPrice).toFixed(2)}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Arrow Icon */}
-                                                            <div className="flex justify-center">
-                                                                <div className="bg-black/4 p-2 rounded-full">
-                                                                    <svg
-                                                                        width="24"
-                                                                        height="24"
-                                                                        viewBox="0 0 24 24"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="2"
-                                                                    >
-                                                                        <path d="M7 10l5 5 5-5" />
-                                                                    </svg>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* To Token Card */}
-                                                            <div className="bg-black/4 p-4 rounded-lg">
-                                                                <span className="text-sm text-gray-600">To</span>
-                                                                <div className="flex items-center justify-between mt-2">
-                                                                    <div className="flex items-center gap-3">
-                                                                        {data.tokenOut.image ? (
-                                                                            <Image
-                                                                                src={data.tokenOut.image}
-                                                                                alt={data.tokenOut.symbol}
-                                                                                className="w-8 h-8 rounded-full"
-                                                                                width={32}
-                                                                                height={32}
-                                                                            />
-                                                                        ) : (
-                                                                            <div className="w-8 h-8 bg-black/10 rounded-full" />
-                                                                        )}
-                                                                        <div>
-                                                                            <div className="font-semibold">{data.tokenOut.name}</div>
-                                                                            <div className="text-sm text-gray-600">{data.tokenOut.symbol}</div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-right">
-                                                                        <div className="text-sm text-gray-600 font-mono">
-                                                                            {data.tokenOut.address.slice(0, 6)}...{data.tokenOut.address.slice(-4)}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Swap Details */}
-                                                        <div className="mt-6 space-y-2 text-sm text-gray-600 bg-black/2 p-4 rounded-lg">
-                                                            <div className="flex justify-between">
-                                                                <span>Fee Tier</span>
-                                                                <span className="font-semibold">{(parseInt(data.feeTier) / 10000).toFixed(2)}%</span>
-                                                            </div>
-                                                            {/* <div className="flex justify-between">
-                                                                <span>Amount Type</span>
-                                                                <span className="font-semibold capitalize">{data.amountType}</span>
-                                                            </div> */}
-                                                            <div className="flex justify-between">
-                                                                <span>Original Amount</span>
-                                                                <span className="font-semibold">{data.originalAmount}</span>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Action Buttons */}
-                                                        <div className="mt-6 flex gap-2">
-                                                            <button
-                                                                className="flex-1 px-4 py-3 bg-black text-white rounded-lg font-semibold hover:bg-black/90 transition-colors"
-                                                                onClick={() => handleSwapToken(data)}
-                                                            >
-                                                                Confirm Swap
-                                                            </button>
-                                                        </div>
-                                                    </div>
+                                                    <TokenSwap data={data} onSwap={handleSwapToken} />
                                                 </div>
                                             );
                                         } catch (error) {
@@ -1001,67 +912,16 @@ export default function Dashboard() {
 
                                 if (message.tool_name === 'get_balance') {
                                     try {
-                                        const data: TokenBalanceResponse = JSON.parse(message.response as string);
+                                        const data: WalletBalanceResponse = JSON.parse(message.response as string);
+                                        console.log(data, "balance data")
                                         return (
                                             <div key={index} className="flex justify-start my-4">
-                                                <div className="max-w-[70%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <h3 className="font-semibold">Token Balance</h3>
-                                                        <Link
-                                                            href={`https://basescan.org/address/${selectedAccount?.address}/#asset-tokens`}
-                                                            target="_blank"
-                                                            className="text-xs text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
-                                                        >
-                                                            View on Explorer <ExternalLink className="w-4 h-4" />
-                                                        </Link>
-                                                    </div>
-
-                                                    <div className="bg-black/4 p-4 rounded-lg">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-10 h-10 bg-black/10 rounded-full flex items-center justify-center">
-                                                                    <span className="text-lg font-semibold">
-                                                                        {data.symbol.slice(0, 1)}
-                                                                    </span>
-                                                                </div>
-                                                                <div>
-                                                                    <div className="font-semibold">{data.symbol}</div>
-                                                                    <div className="text-sm text-gray-600 font-mono">
-                                                                        {data.tokenAddress.slice(0, 6)}...{data.tokenAddress.slice(-4)}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <div className="text-2xl font-bold">
-                                                                    {Number(data.balance).toLocaleString(undefined, {
-                                                                        minimumFractionDigits: 2,
-                                                                        maximumFractionDigits: 6
-                                                                    })}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="mt-4 flex gap-2">
-                                                        <button
-                                                            className="flex-1 px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold hover:bg-black/8 transition-colors"
-                                                            onClick={() => {
-                                                                setInputValue(`Swap ${data.symbol}`);
-                                                            }}
-                                                        >
-                                                            Swap {data.symbol}
-                                                        </button>
-                                                        <button
-                                                            className="flex-1 px-4 py-2 bg-black/4 text-black/80 rounded-lg text-sm font-semibold hover:bg-black/8 transition-colors"
-                                                            onClick={() => {
-                                                                // Set input value to create an analysis command
-                                                                setInputValue(`Analyse ${data.symbol} token`);
-                                                            }}
-                                                        >
-                                                            View Analytics
-                                                        </button>
-                                                    </div>
-                                                </div>
+                                                <TokenBalance
+                                                    data={data}
+                                                    selectedAccount={selectedAccount}
+                                                    onSwap={(symbol) => setInputValue(`Swap ${symbol}`)}
+                                                    onAnalyze={(symbol) => setInputValue(`Analyse ${symbol} token`)}
+                                                />
                                             </div>
                                         );
                                     } catch (error) {
@@ -1173,6 +1033,6 @@ export default function Dashboard() {
             )}
 
             <Toaster />
-        </>
+        </div>
     );
 }

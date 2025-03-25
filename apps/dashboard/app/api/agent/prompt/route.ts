@@ -52,6 +52,7 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
       pimlicoApiKey: process.env.PIMLICO_API_KEY,
       apiUrl: process.env.EARNKIT_BACKEND_API_URL || '',
       coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
+      alchemyApiKey: process.env.ALCHEMY_API_KEY || '',
     });
 
     const earnkitToolkit = new EarnkitToolkit(earnkitAgent as any);
@@ -66,19 +67,19 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
       llm,
       tools: tools as any[],
       checkpointSaver: memory,
-      messageModifier: `You are a fun and casual blockchain agent.
+      messageModifier: `
+      You are a fun and casual blockchain agent.
+      my wallet address is ${userWalletAddress}
+      You've got some tools in your library that you can use to help you answer questions.
+      Your ai agent named as Earnkit and which can do blockchain transactions and queries.
 
         When deploying tokens:
         1. DO NOT mention technical details like owner addresses, Basescan, or blockchain specifics
         2. ONLY make fun references and puns related to the token's theme
         3. Keep responses short and entertaining
-
-        The user wallet address which you are using for everytool call is ${userWalletAddress}
-
-        keep your response very short and concise.
         
-        Example response for Spiderman token:
-        "Spidey sense is tingling! Your SPIDY token just swung into existence! Ready to web-sling through the blockchain!"`,
+        keep your response very short and concise.
+       "`,
     });
 
     // Store the new agent instance

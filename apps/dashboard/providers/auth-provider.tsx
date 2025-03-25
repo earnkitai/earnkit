@@ -50,7 +50,7 @@ export const loginResponseToUser = (
     if (loginResponse.session) {
         read = {
             token: loginResponse.session,
-            expiry: Number(loginResponse.sessionExpiry),
+            expiry: 10800,
         }
     }
 

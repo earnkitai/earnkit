@@ -1,5 +1,7 @@
 import { DataSource } from 'typeorm';
 import { User } from '@/types/user';
+import { Chat } from '@/types/chat';
+import { Message } from '@/types/message';
 import { env } from '@/env.mjs';
 
 export const AppDataSource = new DataSource({
@@ -7,7 +9,7 @@ export const AppDataSource = new DataSource({
   url: env.DATABASE_URL,
   synchronize: false, // Set to false in production
   logging: false,
-  entities: [User],
+  entities: [User, Chat, Message],
   migrations: [],
   subscribers: [],
 });
