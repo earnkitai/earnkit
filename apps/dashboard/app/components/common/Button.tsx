@@ -16,22 +16,24 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
 
     const variants = {
         primary: `
-            text-white px-[2.8rem] lg:px-[3.1rem] py-6
+            text-primary-foreground px-[2.8rem] lg:px-[3.1rem] py-6
             text-[28px] font-semibold leading-[28px]
+            bg-primary hover:bg-primary/90 dark:bg-primary dark:hover:bg-primary/90
             primary-btn
         `,
-        outline: `px-[2.8rem] lg:px-[3.1rem] py-6
+        outline: `
+            px-[2.8rem] lg:px-[3.1rem] py-6
             text-[28px] font-semibold leading-[28px]
-            `,
+            border border-input bg-background hover:bg-accent hover:text-accent-foreground
+            dark:border-input dark:bg-background dark:hover:bg-accent dark:hover:text-accent-foreground
+        `,
         secondary: `
-        text-white border border-2 border-[#F4F4EF] px-8
-        font-funnel-display text-[24px] font-medium leading-[33.6px] tracking-[0.01em]
-    `,
-        base: "bg-[#2563EB] hover:bg-[#1D4ED8] active:bg-[#1E40AF] text-white focus:ring-[#2563EB]",
+            text-primary-foreground border border-2 border-input px-8
+            font-funnel-display text-[24px] font-medium leading-[33.6px] tracking-[0.01em]
+            bg-secondary hover:bg-secondary/80 dark:bg-secondary dark:hover:bg-secondary/80
+        `,
+        base: "bg-primary hover:bg-primary/90 active:bg-primary/80 text-primary-foreground focus:ring-primary dark:bg-primary dark:hover:bg-primary/90 dark:active:bg-primary/80 dark:text-primary-foreground dark:focus:ring-primary",
     };
-
-
-
 
     return (
         <button
@@ -43,7 +45,6 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
             onClick={onClick}
         >
             {iconUrl && (
-
                 <Image
                     src={iconUrl}
                     alt="icon"
@@ -52,7 +53,6 @@ export function Button({ children, variant = 'primary', className = '', icon, ic
                     objectFit="fit"
                     className="mr-2"
                 />
-
             )}
             {icon && <span className="mr-2 flex items-center justify-center w-[40px] h-[40px]">{icon}</span>}
             {children}

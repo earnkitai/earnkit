@@ -40,7 +40,7 @@ export default function SettingsPage() {
     return (
         <div className="min-h-screen bg-background">
             <h1 className="text-2xl font-bold mb-0 p-8 text-foreground">Settings</h1>
-            <div className="bg-card rounded-xl p-8 pt-2 shadow-sm">
+            <div className="bg-card rounded-xl p-8 pt-2 shadow-sm border">
                 <div className="space-y-4">
                     <div>
                         <h2 className="text-sm font-medium text-muted-foreground">Username</h2>
@@ -60,7 +60,7 @@ export default function SettingsPage() {
                     <Passkeys />
                 </div>
             </div>
-            <div className="bg-card rounded-xl p-8 shadow-sm mt-6">
+            <div className="bg-card rounded-xl p-8 shadow-sm mt-6 border">
                 <h2 className="text-xl font-medium mb-4 text-foreground">Recovery Wallet Address</h2>
                 <div className="space-y-4">
                     {userData?.recoveryAddress ? (
@@ -96,7 +96,7 @@ export default function SettingsPage() {
                 </div>
             </div>
             <FarcasterSection userData={userData} setUserData={setUserData} />
-            <div className="bg-card rounded-xl p-8 shadow-sm mt-6">
+            <div className="bg-card rounded-xl p-8 shadow-sm mt-6 border">
                 <h2 className="text-xl font-medium mb-4 text-foreground">Preferences</h2>
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">

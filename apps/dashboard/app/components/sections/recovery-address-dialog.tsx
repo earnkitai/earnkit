@@ -34,7 +34,7 @@ interface RecoveryAddressDialogProps {
     children: React.ReactNode;
 }
 
-type ConnectionStep = 'initial' | 'connecting' | 'signing' | 'completed' | 'error';
+type ConnectionStep = 'initial' | 'connecting' | 'signing' | 'updating' | 'success' | 'error';
 type ErrorType = 'connection' | 'signature' | 'update' | null;
 
 export default function RecoveryAddressDialog({ userData, setUserData, children }: RecoveryAddressDialogProps) {
@@ -107,7 +107,7 @@ export default function RecoveryAddressDialog({ userData, setUserData, children 
                 if (userData?.turnkeyUserId) {
                     const result = await updateRecoveryAddress(userData.turnkeyUserId, address, signature);
                     if (result.success) {
-                        setConnectionStep('completed');
+                        setConnectionStep('success');
                         // Refresh user data
                         setUserData({ ...userData, recoveryAddress: address });
                         setTimeout(() => {
@@ -174,7 +174,11 @@ export default function RecoveryAddressDialog({ userData, setUserData, children 
                     <div className="flex h-6 w-6 items-center justify-center">
                         {connectionStep === 'signing' ? (
                             <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        ) : connectionStep === 'completed' ? (
+                        ) : connectionStep === 'updating' ? (
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                                <Loader2 className="h-3 w-3 text-primary-foreground" />
+                            </div>
+                        ) : connectionStep === 'success' ? (
                             <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
                                 <Check className="h-3 w-3 text-primary-foreground" />
                             </div>
@@ -182,11 +186,12 @@ export default function RecoveryAddressDialog({ userData, setUserData, children 
                     </div>
                     <span className="text-sm text-muted-foreground">
                         {connectionStep === 'signing' ? 'Waiting for signature...' :
-                            connectionStep === 'completed' ? 'Message signed' : ''}
+                            connectionStep === 'updating' ? 'Updating recovery address...' :
+                                connectionStep === 'success' ? 'Recovery address added' : ''}
                     </span>
                 </div>
 
-                {connectionStep === 'completed' && (
+                {connectionStep === 'success' && (
                     <div className="mt-6">
                         <Alert className="bg-primary/10 text-primary border-primary/20">
                             <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
@@ -229,7 +234,7 @@ export default function RecoveryAddressDialog({ userData, setUserData, children 
                         </Alert>
                     )}
 
-                    {connectionStep !== "completed" && (
+                    {connectionStep !== "success" && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between text-sm text-muted-foreground">
                                 <span>Choose your wallet</span>

@@ -16,6 +16,7 @@ import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAna
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
 import ChatHistory from './components/ChatHistory';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import { TransactionStatus } from '@/app/components/ui/transaction-status';
 
 interface Message {
     responseFrom: string;
@@ -129,7 +130,7 @@ export default function Dashboard() {
     const [showInitialContent, setShowInitialContent] = useState(true);
     const { state } = useWallets();
     const { selectedAccount } = state;
-    const { client, authIframeClient } = useTurnkey();
+    const { passkeyClient } = useTurnkey();
     const [selectedAction, setSelectedAction] = useState<string | null>(null);
     const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
     const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
@@ -137,6 +138,17 @@ export default function Dashboard() {
     const { turnkey } = useTurnkey();
     // Add ref for the messages container
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isTransactionStatusOpen, setIsTransactionStatusOpen] = useState(false);
+    const [transactionStatus, setTransactionStatus] = useState<{
+        title: string;
+        description: string;
+        type: "loading" | "success" | "error";
+        hash?: string;
+    }>({
+        title: "",
+        description: "",
+        type: "loading",
+    });
 
 
     useEffect(() => {
@@ -167,26 +179,26 @@ export default function Dashboard() {
 
 
     useEffect(() => {
-        if (authIframeClient) {
-            console.log(authIframeClient, 'authIframeClient');
+        if (passkeyClient) {
+            console.log(passkeyClient, 'passkeyClient');
         }
-    }, [authIframeClient]);
+    }, [passkeyClient]);
 
     useEffect(() => {
         const initializeWalletClient = async () => {
-            if (!selectedAccount || !client) return;
-            if (client) {
-                console.log(client, 'client found');
+            if (!selectedAccount || !passkeyClient) return;
+            if (passkeyClient) {
+                console.log(passkeyClient, 'client found');
             }
             const walletClient = await getTurnkeyWalletClient(
-                client as TurnkeyBrowserClient,
+                passkeyClient as TurnkeyBrowserClient,
                 selectedAccount.address,
             );
             setWalletClient(walletClient);
         };
 
         initializeWalletClient();
-    }, [selectedAccount, client]);
+    }, [selectedAccount, passkeyClient]);
 
     // Scroll to bottom when messages change
     useEffect(() => {
@@ -385,116 +397,165 @@ export default function Dashboard() {
     };
 
     const handleSwapToken = async (data: SwapTokenResponse) => {
-        console.log(data, 'swap token data');
+        setIsTransactionStatusOpen(true);
+        setTransactionStatus({
+            title: 'Swapping token...',
+            description: 'Please wait for transaction to complete',
+            type: 'loading',
+        });
+        try {
+            console.log(data, 'swap token data');
 
-        if (!selectedAccount || !client) {
-            console.log('❌ Missing requirements:', {
-                selectedAccount: !!selectedAccount,
-                client: !!client,
-            });
-            return;
-        }
-
-        const walletClient = await getTurnkeyWalletClient(
-            client as TurnkeyBrowserClient,
-            selectedAccount?.address as `0x${string}`,
-        );
-
-        const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
-        const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-
-        // Check if we're swapping with ETH
-        const isETHSwap = data.tokenIn.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
-
-        if (!isETHSwap) {
-            console.log('ERC20 token swap');
-            // Check allowance first
-            const publicClient = getPublicClient('base');
-            const erc20Contract = new ethers.Interface(ERC20_ABI);
-
-            const allowanceData = (await publicClient.readContract({
-                address: data.tokenIn.address,
-                abi: ERC20_ABI,
-                functionName: 'allowance',
-                args: [selectedAccount.address, ROUTER_ADDRESS],
-            })) as bigint;
-
-            console.log(allowanceData, 'allowance data');
-
-            // If allowance is insufficient, send approve transaction first
-            if (allowanceData < BigInt(data.amountIn)) {
-                const approveData = erc20Contract.encodeFunctionData('approve', [
-                    ROUTER_ADDRESS,
-                    ethers.MaxUint256,
-                ]);
-
-                console.log(approveData, 'approve data');
-
-                const approveTx = await walletClient.prepareTransactionRequest({
-                    to: data.tokenIn.address,
-                    data: approveData as `0x${string}`,
+            if (!selectedAccount || !passkeyClient) {
+                console.log('❌ Missing requirements:', {
+                    selectedAccount: !!selectedAccount,
+                    passkeyClient: !!passkeyClient,
                 });
+                return;
+            }
 
-                console.log(approveTx, 'approve tx');
+            const walletClient = await getTurnkeyWalletClient(
+                passkeyClient as TurnkeyBrowserClient,
+                selectedAccount?.address as `0x${string}`,
+            );
 
-                try {
-                    const hash = await walletClient.sendTransaction(approveTx);
-                    const toastId = showTransactionToast({
-                        hash,
-                        title: 'Approving token...',
-                        description: 'Please wait for approval to complete',
-                        type: 'loading',
+            const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
+            const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
+
+            // Check if we're swapping with ETH
+            const isETHSwap = data.tokenIn.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
+
+            if (!isETHSwap) {
+                console.log('ERC20 token swap');
+                // Check allowance first
+                const publicClient = getPublicClient('base');
+                const erc20Contract = new ethers.Interface(ERC20_ABI);
+
+                const allowanceData = (await publicClient.readContract({
+                    address: data.tokenIn.address,
+                    abi: ERC20_ABI,
+                    functionName: 'allowance',
+                    args: [selectedAccount.address, ROUTER_ADDRESS],
+                })) as bigint;
+
+                console.log(allowanceData, 'allowance data');
+
+                // If allowance is insufficient, send approve transaction first
+                if (allowanceData < BigInt(data.amountIn)) {
+                    const approveData = erc20Contract.encodeFunctionData('approve', [
+                        ROUTER_ADDRESS,
+                        ethers.MaxUint256,
+                    ]);
+
+                    console.log(approveData, 'approve data');
+
+                    const approveTx = await walletClient.prepareTransactionRequest({
+                        to: data.tokenIn.address,
+                        data: approveData as `0x${string}`,
                     });
 
-                    await publicClient.waitForTransactionReceipt({ hash });
+                    console.log(approveTx, 'approve tx');
 
-                    showTransactionToast({
-                        id: toastId,
-                        hash,
-                        title: 'Token approved! 🎉',
-                        description: 'Now proceeding with swap',
-                        type: 'success',
-                    });
-                } catch (error) {
-                    console.error('Error approving token:', error);
-                    showTransactionToast({
-                        title: 'Error approving token',
+                    try {
+                        const hash = await walletClient.sendTransaction(approveTx);
+                        const toastId = showTransactionToast({
+                            hash,
+                            title: 'Approving token...',
+                            description: 'Please wait for approval to complete',
+                            type: 'loading',
+                        });
+                        setTransactionStatus({
+                            title: 'Approving token...',
+                            description: 'Please wait for approval to complete',
+                            type: 'loading',
+                            hash,
+                        });
+                        setIsTransactionStatusOpen(true);
+
+                        await publicClient.waitForTransactionReceipt({ hash });
+
+                        showTransactionToast({
+                            id: toastId,
+                            hash,
+                            title: 'Token approved! 🎉',
+                            description: 'Now proceeding with swap',
+                            type: 'success',
+                        });
+                        setTransactionStatus({
+                            title: 'Token approved! 🎉',
+                            description: 'Now proceeding with swap',
+                            type: 'success',
+                            hash,
+                        });
+                    } catch (error) {
+                        console.error('Error approving token:', error);
+                        showTransactionToast({
+                            title: 'Error approving token',
+                            description: 'Please try again',
+                            type: 'error',
+                        });
+                        setTransactionStatus({
+                            title: 'Error approving token',
+                            description: 'Please try again',
+                            type: 'error',
+                        });
+                        setIsTransactionStatusOpen(true);
+                        return;
+                    }
+                }
+            }
+
+            console.log('swapping token with ETH');
+            const router = new ethers.Interface(ROUTER_ABI);
+
+            // Encode the swap parameters
+            const swapParams = {
+                tokenIn: data.tokenIn.address,
+                tokenOut: data.tokenOut.address,
+                fee: parseInt(data.feeTier),
+                recipient: selectedAccount?.address as `0x${string}`,
+                amountIn: data.amountIn,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0,
+            };
+
+            // Encode the function call
+            const encodedData = router.encodeFunctionData('exactInputSingle', [
+                swapParams,
+            ]);
+
+            console.log(encodedData, 'encoded data');
+
+            // Prepare the transaction request
+            const transaction = await walletClient.prepareTransactionRequest({
+                to: ROUTER_ADDRESS,
+                data: encodedData as `0x${string}`,
+                // Include value if swapping ETH
+                value: isETHSwap ? BigInt(data.amountIn) : BigInt(0),
+            });
+
+            console.log(transaction, 'transaction');
+
+            await handleSendTransaction(transaction);
+        } catch (err) {
+            if (err instanceof Error) {
+                console.log(err.message);
+                if (err.message.includes('insufficient funds')) {
+                    setTransactionStatus({
+                        title: 'Insufficient funds',
                         description: 'Please try again',
                         type: 'error',
                     });
-                    return;
+                } else {
+                    setTransactionStatus({
+                        title: 'Error sending transaction',
+                        description: 'Please try again',
+                        type: 'error',
+                    });
                 }
             }
+
         }
-
-        console.log('swapping token with ETH');
-        const router = new ethers.Interface(ROUTER_ABI);
-
-        // Encode the swap parameters
-        const swapParams = {
-            tokenIn: data.tokenIn.address,
-            tokenOut: data.tokenOut.address,
-            fee: parseInt(data.feeTier),
-            recipient: selectedAccount?.address as `0x${string}`,
-            amountIn: data.amountIn,
-            amountOutMinimum: 0,
-            sqrtPriceLimitX96: 0,
-        };
-
-        // Encode the function call
-        const encodedData = router.encodeFunctionData('exactInputSingle', [
-            swapParams,
-        ]);
-
-        // Prepare the transaction request
-        const transaction = await walletClient.prepareTransactionRequest({
-            to: ROUTER_ADDRESS,
-            data: encodedData as `0x${string}`,
-            // Include value if swapping ETH
-            value: isETHSwap ? BigInt(data.amountIn) : BigInt(0),
-        });
-
-        await handleSendTransaction(transaction);
     };
 
     const handleSendTransaction = async (
@@ -508,15 +569,27 @@ export default function Dashboard() {
                 hash,
                 ...transactionRequest,
             });
+
+            // Show both toast and popup for transaction sent
             const toastId = showTransactionToast({
                 hash,
                 title: 'Sending transaction...',
                 description: 'View your transaction on explorer',
                 type: 'loading',
             });
+
+            setTransactionStatus({
+                title: 'Sending Transaction',
+                description: 'Your transaction is being processed. Please wait...',
+                type: 'loading',
+                hash,
+            });
+
             await publicClient.waitForTransactionReceipt({
                 hash,
             });
+
+            // Show both toast and popup for transaction success
             showTransactionToast({
                 id: toastId,
                 hash,
@@ -524,11 +597,24 @@ export default function Dashboard() {
                 description: `Transaction sent to 0x2626664c2603336E57B271c5C0b26F421741e481`,
                 type: 'success',
             });
+
+            setTransactionStatus({
+                title: 'Transaction Successful! 🎉',
+                description: 'Your transaction has been confirmed on the blockchain.',
+                type: 'success',
+                hash,
+            });
         } catch (error) {
             console.error('Error sending transaction:', error);
             showTransactionToast({
                 title: 'Error sending transaction',
                 description: 'Please try again',
+                type: 'error',
+            });
+
+            setTransactionStatus({
+                title: 'Transaction Failed',
+                description: 'There was an error processing your transaction. Please try again.',
                 type: 'error',
             });
         }
@@ -1031,6 +1117,15 @@ export default function Dashboard() {
                     </div>
                 </section>
             )}
+
+            <TransactionStatus
+                isOpen={isTransactionStatusOpen}
+                onClose={() => setIsTransactionStatusOpen(false)}
+                title={transactionStatus.title}
+                description={transactionStatus.description}
+                type={transactionStatus.type}
+                hash={transactionStatus.hash}
+            />
 
             <Toaster />
         </div>
