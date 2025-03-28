@@ -5,6 +5,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --destructive: #ee4444;
+  --destructive-foreground: #ffffff;
 }
 
 /* add the code bellow */

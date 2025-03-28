@@ -49,6 +49,10 @@ export class ChatService {
     return await this.chatRepository.delete(id);
   }
 
+  async updateChat(id: string, chatData: Partial<Chat>): Promise<Chat | null> {
+    return await this.chatRepository.update(id, chatData);
+  }
+
   async getMessagesByChatId(chatId: string): Promise<Message[]> {
     return await this.messageRepository.findByChatId(chatId);
   }

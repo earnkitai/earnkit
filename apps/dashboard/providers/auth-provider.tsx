@@ -50,7 +50,7 @@ export const loginResponseToUser = (
     if (loginResponse.session) {
         read = {
             token: loginResponse.session,
-            expiry: 10800,
+            expiry: (Number(loginResponse.sessionExpiry) + 10800000),
         }
     }
 
@@ -62,6 +62,7 @@ export const loginResponseToUser = (
             read,
             authClient,
         },
+
     }
 }
 
@@ -212,9 +213,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (subOrgId?.length) {
                 const loginResponse = await passkeyClient?.login()
                 if (loginResponse?.organizationId) {
+
+                    console.log(loginResponse, "loginResponse")
                     dispatch({
                         type: "PASSKEY",
                         payload: loginResponseToUser(loginResponse, AuthClient.Passkey),
+
                     })
                     router.push("/dashboard")
                 }

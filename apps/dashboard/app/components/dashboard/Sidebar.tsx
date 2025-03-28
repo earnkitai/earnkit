@@ -105,6 +105,7 @@ export default function Sidebar() {
 
                         <SidebarChatHistory
                             userId={user?.userId}
+                            isExpanded={isHovered}
                         />
 
                         {/* <Link

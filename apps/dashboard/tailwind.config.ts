@@ -11,7 +11,10 @@ export default {
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
+
         primary: '#007AFF',
+        destructive: '#EE4444',
+        'destructive-foreground': 'var(--destructive-foreground)',
         'black/4': 'rgba(0, 0, 0, 0.04)',
         'black/10': 'rgba(0, 0, 0, 0.1)',
         'black/20': 'rgba(0, 0, 0, 0.2)',
