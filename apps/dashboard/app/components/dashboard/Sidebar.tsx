@@ -17,13 +17,15 @@ import { useUser } from "@/hooks/use-user";
 import { getUsernameByUserId } from "@/actions/user";
 import Image from "next/image";
 import { Icons } from "../sections/icons";
+import SidebarChatHistory from "./SidebarChatHistory";
 // import { useState } from "react";
 
-export default function DashboardSidebar() {
+export default function Sidebar() {
     const { user } = useUser();
     const pathname = usePathname();
     const { logout } = useAuth();
     const [isHovered, setIsHovered] = useState(false);
+    // const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
     const [username, setUsername] = useState<string>("");
     const [pfpUrl, setPfpUrl] = useState<string>("");
@@ -79,7 +81,7 @@ export default function DashboardSidebar() {
 
             {/* Main Sidebar */}
             <aside
-                className={`fixed z-20 left-0 top-0 h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered ? 'translate-x-0 w-[250px]' : '-translate-x-full w-[250px]'
+                className={`fixed z-20 left-0 top-0 h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered ? 'translate-x-0 w-[300px]' : '-translate-x-full w-[300px]'
                     }`}
                 onMouseLeave={() => setIsHovered(false)}
             >
@@ -94,14 +96,16 @@ export default function DashboardSidebar() {
                             <span className="text-md font-medium">Home</span>
                         </Link>
                         <Link
-                            href="/dashboard/wallet"
-                            className={getLinkStyles("/dashboard/wallet")}
+                            href="/wallet"
+                            className={getLinkStyles("/wallet")}
                         >
                             <Wallet className="w-5 h-5" />
                             <span className="text-md font-medium">Wallet</span>
                         </Link>
 
-
+                        <SidebarChatHistory
+                            userId={user?.userId}
+                        />
 
                         {/* <Link
                             href="/dashboard/create-agent"
@@ -118,7 +122,7 @@ export default function DashboardSidebar() {
                     <div className="space-y-4">
                         <span
                             // href="/dashboard/user/profile"
-                            className={getLinkStyles("/dashboard/user/profile")}
+                            className={getLinkStyles("/user/profile")}
                         >
                             {pfpUrl ? (
                                 <Image
@@ -137,15 +141,15 @@ export default function DashboardSidebar() {
                         <Link
                             href="https://docs.earnkit.com"
                             target="_blank"
-                            className={getLinkStyles("/dashboard/docs")}
+                            className={getLinkStyles("/docs")}
                         >
                             <FileText className="w-5 h-5" />
                             <span className="text-md font-medium">Docs</span>
                         </Link>
 
                         <Link
-                            href="/dashboard/settings"
-                            className={getLinkStyles("/dashboard/settings")}
+                            href="/settings"
+                            className={getLinkStyles("/settings")}
                         >
                             <Settings className="w-5 h-5" />
                             <span className="text-md font-medium">Settings</span>
@@ -153,7 +157,7 @@ export default function DashboardSidebar() {
 
                         <button
                             // onClick={() => signOut({ callbackUrl: "/signin" })}
-                            className={getLinkStyles("/dashboard/logout")}
+                            className={getLinkStyles("/logout")}
                             onClick={handleLogout}
                         >
                             <LogOut className="w-5 h-5" />

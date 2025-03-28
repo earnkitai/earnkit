@@ -29,7 +29,10 @@ const cleanupInactiveAgents = () => {
   }
 };
 
-async function initializeAgent(userWalletAddress: `0x${string}`) {
+async function initializeAgent(
+  userWalletAddress: `0x${string}`,
+  chatId: string,
+) {
   // Check if agent already exists and is active
   const existingAgent = agentInstances.get(userWalletAddress);
   if (existingAgent) {
@@ -60,7 +63,7 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
 
     const memory = new MemorySaver();
     const agentConfig = {
-      configurable: { thread_id: 'EarnKit Chatbot Example!' },
+      configurable: { thread_id: chatId },
     };
 
     const agent = createReactAgent({
@@ -94,7 +97,7 @@ async function initializeAgent(userWalletAddress: `0x${string}`) {
 
 export async function POST(request: Request) {
   try {
-    const { message, userWalletAddress } = await request.json();
+    const { message, userWalletAddress, chatId } = await request.json();
 
     // Run cleanup occasionally (optional)
     if (Math.random() < 0.1) {
@@ -103,7 +106,7 @@ export async function POST(request: Request) {
     }
 
     // Get or initialize agent
-    const agentInstance = await initializeAgent(userWalletAddress);
+    const agentInstance = await initializeAgent(userWalletAddress, chatId);
 
     // Get streaming response from agent
     const stream = await agentInstance.agent.stream(
