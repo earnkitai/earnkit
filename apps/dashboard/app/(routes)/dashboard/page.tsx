@@ -656,7 +656,7 @@ export default function Dashboard() {
 
     return (
         <div>
-            <div className="fixed top-4 right-4 flex items-center gap-2 justify-center">
+            <div className="fixed top-4 right-4 flex items-center gap-3 justify-center">
                 <Tooltip.Provider>
                     {!showInitialContent && <Tooltip.Root>
                         <Tooltip.Trigger asChild>
@@ -667,10 +667,10 @@ export default function Dashboard() {
                                     setInputValue('');
                                     setShowInitialContent(true);
                                 }}
-                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold rounded-xl hover:bg-gray-50 transition-colors z-40"
                                 aria-label="Start new chat"
                             >
-                                <SquarePen className="w-6 h-6" />
+                                <SquarePen className="w-6 h-6 text-black opacity-40 hover:opacity-100 transition-opacity" />
                             </button>
                         </Tooltip.Trigger>
                         <Tooltip.Portal>
@@ -687,10 +687,10 @@ export default function Dashboard() {
                         <Tooltip.Trigger asChild>
                             <button
                                 onClick={() => setIsChatHistoryOpen(true)}
-                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold rounded-xl hover:bg-gray-50 transition-colors z-40"
                                 aria-label="Open chat history"
                             >
-                                <MessageCircleMore className="w-6 h-6" />
+                                <MessageCircleMore className="w-6 h-6 text-black opacity-40 hover:opacity-100 transition-opacity" />
                             </button>
                         </Tooltip.Trigger>
                         <Tooltip.Portal>
@@ -719,10 +719,10 @@ export default function Dashboard() {
                 <div className=" w-full mx-auto p-6 flex flex-col h-screen items-center font-funnel-sans">
                     <section className="w-full p-10 relative pb-20 overflow-y-visible">
                         <div className="text-center mb-12 pt-20">
-                            <div className="mb-8 self-center flex justify-center items-center">
-                                <Icons.earnkitLogoBlack className="" />
+                            <div className="mb-10 self-center flex justify-center items-center">
+                                <Icons.earnkitLogoBlack className="w-40" />
                             </div>
-                            <h1 className="text-3xl font-bold mb-2 font-funnel-display">What would you like to swap?</h1>
+                            <h1 className="text-3xl font-bold mb-1 font-funnel-display text-black/80">What would you like to swap?</h1>
                             <p className="text-black/40 font-funnel-sans text-[1rem]">
                                 Ask EarnKit to buy, sell or swap tokens on Base.
                             </p>
@@ -826,7 +826,7 @@ export default function Dashboard() {
                         <div className="flex flex-col gap-2 mt-20">
                             <h2 className="text-center text-xl font-bold mb-6 font-funnel-sans">Alpha&apos;s calling. <span className="text-black/40">Discover what others are swapping.</span></h2>
 
-                            <div className="grid grid-cols-6 gap-4 text-[12px] font-funnel-sans">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 text-[12px] font-funnel-sans">
                                 {/* KAITO Card */}
                                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-black/10 ">
                                     <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
@@ -842,7 +842,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 182%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -866,7 +866,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 150%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -890,7 +890,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 200%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -914,7 +914,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 120%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -938,7 +938,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 135%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -962,7 +962,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black/40">Mkt Cap.</span>
                                             <span className="text-black text-[1rem] font-bold flex items-center gap-1">
                                                 175%
                                                 <ArrowUp className="w-4 h-4 text-green-500" />
@@ -980,10 +980,10 @@ export default function Dashboard() {
                             <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.uniswapIcon className="w-4 h-4" />Uniswap</span>
                             <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.socketIcon className="w-4 h-4" />Socket</span>
                             <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.jupiterIcon className="w-4 h-4" />Jupiter</span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.relayIcon className="w-4 h-4" />Relay</span>
                             <span className="text-black/40 font-funnel-sans text-[0.85rem] text-center flex flex-row wrap-wrap gap-2">
                                 and
                             </span>
-                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.relayIcon className="w-4 h-4" />Relay</span>
                             <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.socketIcon className="w-4 h-4" />Socket</span>
                         </div>
                     </section>
