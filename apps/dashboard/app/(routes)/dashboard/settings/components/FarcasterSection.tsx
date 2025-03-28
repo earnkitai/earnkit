@@ -37,15 +37,27 @@ function FarcasterProfile({ userData, setUserData }: { userData: User | null; se
         isAuthenticated,
         profile: { fid, displayName, custody, pfpUrl },
     } = profile;
+    console.log(profile, "farcaster profile")
+    console.log(pfpUrl)
 
     useEffect(() => {
         if (isAuthenticated && userData?.turnkeyUserId && fid && custody) {
+
+            // replce the pfp url with this one
+            // it should be like this https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/f773871a-2215-4666-5217-cf8162dcb900/anim=false,fit=contain,f=auto,w=100
+            // not like this https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/f773871a-2215-4666-5217-cf8162dcb900/rectcrop3
+            //check if the rectcrop3 is in the pfpUrl
+            let updatedPfpUrl = pfpUrl;
+            if (pfpUrl?.includes("rectcrop3")) {
+                updatedPfpUrl = pfpUrl?.replace("rectcrop3", "anim=false,fit=contain,f=auto,w=100");
+            }
+
             const updateProfile = async () => {
                 const profileData: FarcasterProfileData = {
                     fid: fid.toString(),
                     displayName: displayName || "",
                     custodyAddress: custody as string,
-                    profilePictureUrl: pfpUrl || "",
+                    profilePictureUrl: updatedPfpUrl || "",
                 };
 
                 const result = await updateFarcasterDetails(userData.turnkeyUserId, profileData);
@@ -67,6 +79,7 @@ function FarcasterProfile({ userData, setUserData }: { userData: User | null; se
 
     // If user has existing Farcaster details, show those instead of the auth flow
     if (userData?.farcasterFid) {
+        console.log(userData)
         return (
             <div className="space-y-4">
                 <div>
@@ -129,11 +142,11 @@ function FarcasterProfile({ userData, setUserData }: { userData: User | null; se
 
 export function FarcasterSection({ userData, setUserData }: { userData: User | null; setUserData: (data: User | null) => void }) {
     return (
-        <div className="bg-white rounded-xl p-8 shadow-sm mt-6">
+        <div className="bg-white rounded-xl p-8 shadow-sm mt-6 border">
             <h2 className="text-xl font-medium mb-4">Farcaster Account</h2>
             <AuthKitProvider config={farcasterConfig}>
                 <FarcasterProfile userData={userData} setUserData={setUserData} />
             </AuthKitProvider>
         </div>
     );
-} 
+}

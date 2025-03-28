@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
       {
         hostname: 'imagedelivery.net',
       },
+      {
+        hostname: 'assets.coingecko.com',
+      },
+      {
+        hostname: 'assets.geckoterminal.com',
+      },
     ],
   },
 };

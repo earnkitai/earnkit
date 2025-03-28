@@ -38,9 +38,9 @@ export default function SettingsPage() {
     }, [turnkey]);
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-background pb-20">
             <h1 className="text-2xl font-bold mb-0 p-8 text-foreground">Settings</h1>
-            <div className="bg-card rounded-xl p-8 pt-2 shadow-sm border">
+            <div className="bg-card rounded-xl p-8 pt-6 shadow-sm border">
                 <div className="space-y-4">
                     <div>
                         <h2 className="text-sm font-medium text-muted-foreground">Username</h2>

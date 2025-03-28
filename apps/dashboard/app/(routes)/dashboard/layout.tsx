@@ -10,7 +10,7 @@ export default function DashboardLayout({
     children: ReactNode;
 }) {
     return (
-        <div className="min-h-screen bg-white flex font-funnel-sans">
+        <div className="min-h-screen bg-white flex font-funnel-sans flex-col items-center">
             {/* Sidebar */}
 
             <WalletsProvider>
@@ -18,7 +18,7 @@ export default function DashboardLayout({
                     <DashboardSidebar />
 
                     {/* Main Content */}
-                    <div className="flex-1 ml-[250px]">
+                    <div className="flex-1 w-full max-w-[calc(100vw-350px)]">
                         {children}
                     </div>
                 </TransactionsProvider>

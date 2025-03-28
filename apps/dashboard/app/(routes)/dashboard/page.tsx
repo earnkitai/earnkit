@@ -10,13 +10,14 @@ import { ethers } from 'ethers';
 import { showTransactionToast } from '@/lib/toast';
 import { useTransactions } from '@/providers/transactions-provider';
 import { Toaster } from 'sonner';
-import { ArrowRightLeft, Rocket, Coins, LineChart, MessageCircleMore, SquarePen } from 'lucide-react';
+import { ArrowUp, MessageCircleMore, SquarePen } from 'lucide-react';
 import { TokenAnalysis, TokenSwap, TokenBalance } from '@/app/components/dashboard/tools';
 import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
 import ChatHistory from './components/ChatHistory';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { TransactionStatus } from '@/app/components/ui/transaction-status';
+import { Icons } from '@/app/components/sections/icons';
 
 interface Message {
     responseFrom: string;
@@ -131,8 +132,8 @@ export default function Dashboard() {
     const { state } = useWallets();
     const { selectedAccount } = state;
     const { passkeyClient } = useTurnkey();
-    const [selectedAction, setSelectedAction] = useState<string | null>(null);
-    const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
+    // const [selectedAction, setSelectedAction] = useState<string | null>(null);
+    // const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
     const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
     const { turnkey } = useTurnkey();
@@ -232,7 +233,8 @@ export default function Dashboard() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!inputValue.trim() || !userId) return;
-
+        const inputValueNew = inputValue.trim();
+        setInputValue('');
         setIsLoading(true);
         setShowInitialContent(false);
 
@@ -241,7 +243,7 @@ export default function Dashboard() {
         let newChatId = currentChatId;
 
         // Add user message to chat
-        const userMessage = { responseFrom: 'user', response: inputValue };
+        const userMessage = { responseFrom: 'user', response: inputValueNew };
         setMessages((prev) => [...prev, userMessage]);
 
         if (!currentChatId) {
@@ -253,7 +255,7 @@ export default function Dashboard() {
                     },
                     body: JSON.stringify({
                         userId: userId,
-                        title: inputValue.slice(0, 50) + (inputValue.length > 50 ? '...' : ''),
+                        title: inputValueNew.slice(0, 50) + (inputValueNew.length > 50 ? '...' : ''),
                     }),
                 });
                 const data = await response.json();
@@ -274,7 +276,7 @@ export default function Dashboard() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    content: inputValue,
+                    content: inputValueNew,
                     responseFrom: 'user',
                     userId: userId,
                 }),
@@ -290,7 +292,7 @@ export default function Dashboard() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    message: inputValue,
+                    message: inputValueNew,
                     userWalletAddress: selectedAccount?.address,
                 }),
             });
@@ -343,22 +345,22 @@ export default function Dashboard() {
             console.error('Error:', error);
         } finally {
             setIsLoading(false);
-            setInputValue('');
+
         }
     };
 
-    const handleActionClick = (action: string) => {
-        setSelectedAction(action);
-        setInputValue(action);
-    };
+    // const handleActionClick = (action: string) => {
+    //     setSelectedAction(action);
+    //     setInputValue(action);
+    // };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
         setInputValue(value);
 
         if (!value) {
-            setSelectedAction(null);
-            setFilteredSuggestions([]);
+            // setSelectedAction(null);
+            // setFilteredSuggestions([]);
             return;
         }
 
@@ -374,8 +376,8 @@ export default function Dashboard() {
         const filtered = allSuggestions
             .filter(({ item }) => item.toLowerCase().includes(searchTerm))
             .map(({ item }) => item);
-
-        setFilteredSuggestions(filtered);
+        console.log(filtered, 'filtered');
+        // setFilteredSuggestions(filtered);
 
         // If input matches a main action, set it as selected
         const mainActions = ['Swap', 'Launch', 'Earn', 'Analyse'];
@@ -384,17 +386,17 @@ export default function Dashboard() {
         );
 
         if (matchedAction) {
-            setSelectedAction(matchedAction);
+            // setSelectedAction(matchedAction);
         } else {
-            setSelectedAction(null);
+            // setSelectedAction(null);
         }
     };
 
-    const handleSuggestionClick = (suggestion: string) => {
-        setInputValue(suggestion);
-        setSelectedAction(null);
-        setFilteredSuggestions([]);
-    };
+    // const handleSuggestionClick = (suggestion: string) => {
+    //     setInputValue(suggestion);
+    //     setSelectedAction(null);
+    //     setFilteredSuggestions([]);
+    // };
 
     const handleSwapToken = async (data: SwapTokenResponse) => {
         setIsTransactionStatusOpen(true);
@@ -654,52 +656,54 @@ export default function Dashboard() {
 
     return (
         <div>
-            <Tooltip.Provider>
-                <Tooltip.Root>
-                    <Tooltip.Trigger asChild>
-                        <button
-                            onClick={() => setIsChatHistoryOpen(true)}
-                            className="fixed flex items-center gap-2 justify-center font-funnel-sans font-semibold top-4 right-4 p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
-                            aria-label="Open chat history"
-                        >
-                            <MessageCircleMore className="w-6 h-6" />
-                        </button>
-                    </Tooltip.Trigger>
-                    <Tooltip.Portal>
-                        <Tooltip.Content
-                            className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
-                            sideOffset={5}
-                        >
-                            Chat History
-                        </Tooltip.Content>
-                    </Tooltip.Portal>
-                </Tooltip.Root>
+            <div className="fixed top-4 right-4 flex items-center gap-2 justify-center">
+                <Tooltip.Provider>
+                    {!showInitialContent && <Tooltip.Root>
+                        <Tooltip.Trigger asChild>
+                            <button
+                                onClick={() => {
+                                    setCurrentChatId(null);
+                                    setMessages([]);
+                                    setInputValue('');
+                                    setShowInitialContent(true);
+                                }}
+                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                                aria-label="Start new chat"
+                            >
+                                <SquarePen className="w-6 h-6" />
+                            </button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Portal>
+                            <Tooltip.Content
+                                className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
+                                sideOffset={5}
+                            >
+                                New Chat
+                            </Tooltip.Content>
+                        </Tooltip.Portal>
+                    </Tooltip.Root>}
 
-                {!showInitialContent && <Tooltip.Root>
-                    <Tooltip.Trigger asChild>
-                        <button
-                            onClick={() => {
-                                setCurrentChatId(null);
-                                setMessages([]);
-                                setInputValue('');
-                                setShowInitialContent(true);
-                            }}
-                            className="fixed flex items-center gap-2 justify-center font-funnel-sans font-semibold top-4 ml-[250px] left-4 p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
-                            aria-label="Start new chat"
-                        >
-                            <SquarePen className="w-6 h-6" />
-                        </button>
-                    </Tooltip.Trigger>
-                    <Tooltip.Portal>
-                        <Tooltip.Content
-                            className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
-                            sideOffset={5}
-                        >
-                            New Chat
-                        </Tooltip.Content>
-                    </Tooltip.Portal>
-                </Tooltip.Root>}
-            </Tooltip.Provider>
+                    <Tooltip.Root>
+                        <Tooltip.Trigger asChild>
+                            <button
+                                onClick={() => setIsChatHistoryOpen(true)}
+                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold p-2 bg-white rounded-xl shadow-md hover:bg-gray-50 transition-colors z-40 shadow-black/10 border border-black/10"
+                                aria-label="Open chat history"
+                            >
+                                <MessageCircleMore className="w-6 h-6" />
+                            </button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Portal>
+                            <Tooltip.Content
+                                className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
+                                sideOffset={5}
+                            >
+                                Chat History
+                            </Tooltip.Content>
+                        </Tooltip.Portal>
+                    </Tooltip.Root>
+                </Tooltip.Provider>
+            </div>
 
             {/* Add the chat history component */}
             <ChatHistory
@@ -712,17 +716,20 @@ export default function Dashboard() {
 
             {showInitialContent ? (
                 // Initial content section
-                <div className="max-w-4xl w-full mx-auto p-6 flex flex-col h-screen justify-center items-center font-funnel-sans">
+                <div className=" w-full mx-auto p-6 flex flex-col h-screen items-center font-funnel-sans">
                     <section className="w-full p-10 relative pb-20 overflow-y-visible">
-                        <div className="text-center mb-12">
-                            <h1 className="text-4xl font-bold mb-2">Do Anything Onchain</h1>
-                            <p className="text-gray-600">
-                                Use EarnKit&apos;s AI agent to trade, launch or earn onchain.
+                        <div className="text-center mb-12 pt-20">
+                            <div className="mb-8 self-center flex justify-center items-center">
+                                <Icons.earnkitLogoBlack className="" />
+                            </div>
+                            <h1 className="text-3xl font-bold mb-2 font-funnel-display">What would you like to swap?</h1>
+                            <p className="text-black/40 font-funnel-sans text-[1rem]">
+                                Ask EarnKit to buy, sell or swap tokens on Base.
                             </p>
                         </div>
 
                         {/* Chat Interface with suggestions */}
-                        <div className="bg-black/4 p-4 mb-8 border border-black/10 rounded-xl ">
+                        <div className="bg-black/4 p-2 mb-4 border border-black/10 rounded-3xl max-w-2xl mx-auto">
                             <div className="flex items-center gap-2  p-3 relative ">
                                 <form onSubmit={handleSubmit} className="w-full">
                                     <div className="relative">
@@ -730,14 +737,14 @@ export default function Dashboard() {
                                             type="text"
                                             value={inputValue}
                                             onChange={handleInputChange}
-                                            placeholder="Ask EarnKit"
-                                            className="w-full p-4 pr-12 bg-transparent rounded-lg text-xl text-black/80 font-semibold border-none focus:outline-none focus:border-none"
+                                            placeholder="Swap anything..."
+                                            className="w-full p-4 pr-12 bg-transparent rounded-lg text-xl text-black/80 font-funnel-sans font-semibold border-none focus:outline-none focus:border-none"
                                             disabled={isLoading}
                                         />
                                         <button
                                             type="submit"
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-black/80 rounded-full"
-                                            disabled={isLoading}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-black/80 rounded-full disabled:opacity-50"
+                                            disabled={isLoading || inputValue === ''}
                                         >
                                             <svg
                                                 width="24"
@@ -766,7 +773,9 @@ export default function Dashboard() {
 
 
                         </div>
-                        <div className="flex items-start justify-center absolute top-[80%] bottom-0 left-0 right-0 mx-12 h-[200px] overflow-y-auto">
+
+
+                        {/* <div className="flex items-start justify-center absolute top-[80%] bottom-0 left-0 right-0 mx-12 h-[200px] overflow-y-auto">
                             {!selectedAction && !inputValue && (
                                 <div className="flex gap-2 mt-0 p-3">
                                     {['Swap', 'Launch', 'Earn', 'Analyse'].map((action) => (
@@ -797,7 +806,6 @@ export default function Dashboard() {
                                     ))}
                                 </div>
                             )}
-                            {/* Show category-specific suggestions */}
                             {selectedAction && !filteredSuggestions.length && suggestions[selectedAction as keyof typeof suggestions] && (
                                 <div className="mt-4 space-y-2 w-full rounded-lg">
                                     {suggestions[selectedAction as keyof typeof suggestions].map((suggestion, index) => (
@@ -811,48 +819,173 @@ export default function Dashboard() {
                                     ))}
                                 </div>
                             )}
-                        </div>
-                        {/* Show filtered suggestions */}
+                        </div> */}
 
-                        {/* What's Possible Section */}
-                        {/* <div className="mb-8">
-                            <h2 className="text-xl font-semibold mb-1">
-                                What&apos;s Possible
-                            </h2>
-                            <p className="text-gray-600 mb-4">
-                                Discover what EarnKit can do for you.
-                            </p>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="bg-white p-4 rounded-lg shadow-sm border border-black/10 rounded-lg flex items-center gap-3 ">
-                                    <div className="w-12 h-12 bg-black/10 rounded-full mb-3"></div>
-                                    <div className="flex items-start flex-col gap-2 ">
-                                        <span>300+ Users bought</span>
-                                        <span className="bg-gray-100 px-2 py-1 rounded-full text-sm">
-                                            KAITO
-                                        </span>
+                        {/* last section */}
+                        <div className="flex flex-col gap-2 mt-20">
+                            <h2 className="text-center text-xl font-bold mb-6 font-funnel-sans">Alpha&apos;s calling. <span className="text-black/40">Discover what others are swapping.</span></h2>
+
+                            <div className="grid grid-cols-6 gap-4 text-[12px] font-funnel-sans">
+                                {/* KAITO Card */}
+                                <div className="bg-white p-4 rounded-2xl shadow-sm border border-black/10 ">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">KAITO</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                84%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                182%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="bg-white p-4 rounded-lg shadow-sm border border-black/10 rounded-lg flex items-center gap-3">
-                                    <div className="w-12 h-12 bg-black/10 rounded-full mb-3"></div>
-                                    <div className="flex items-start flex-col gap-2">
-                                        <span>600+ Users claimed</span>
-                                        <span className="bg-gray-100 px-2 py-1 rounded-full text-sm">
-                                            ROLL
-                                        </span>
+
+                                {/* YUKI Card */}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">YUKI</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                76%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                150%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="bg-white p-4 rounded-lg shadow-sm border border-black/10 rounded-lg flex items-center gap-3">
-                                    <div className="w-12 h-12 bg-black/10 rounded-full mb-3"></div>
-                                    <div className="flex items-start flex-col gap-2">
-                                        <span>1k+ User</span>
-                                        <span className="bg-gray-100 px-2 py-1 rounded-full text-sm">
-                                            ETH
-                                        </span>
+
+                                {/* MIKA Card */}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">MIKA</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                90%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                200%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* REN Card */}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">REN</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                15%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                120%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* SORA Card */}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">SORA</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                65%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                135%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* HARU Card */}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
+                                    <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
+                                        <Icons.basetokenImage className="w-4 h-4" />
+                                        <span className="font-bold">HARU</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Swaps</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                92%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-black/40">Mkt Cap</span>
+                                            <span className="text-black text-[1rem] font-bold flex items-center gap-1">
+                                                175%
+                                                <ArrowUp className="w-4 h-4 text-green-500" />
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div> */}
+                        </div>
+
+                        <div className="flex items-center gap-2 font-funnel-sans text-[0.85rem] justify-center mt-10">
+                            <span className="text-black/40  text-[0.85rem] text-center flex flex-row wrap-wrap gap-2">
+                                EarnKit&apos;s trading agent is powered by
+                            </span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.uniswapIcon className="w-4 h-4" />Uniswap</span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.socketIcon className="w-4 h-4" />Socket</span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.jupiterIcon className="w-4 h-4" />Jupiter</span>
+                            <span className="text-black/40 font-funnel-sans text-[0.85rem] text-center flex flex-row wrap-wrap gap-2">
+                                and
+                            </span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.relayIcon className="w-4 h-4" />Relay</span>
+                            <span className="font-medium flex text-black/60 flex-row gap-1 items-center max-w-max"> <Icons.socketIcon className="w-4 h-4" />Socket</span>
+                        </div>
                     </section>
                 </div>
             ) : (

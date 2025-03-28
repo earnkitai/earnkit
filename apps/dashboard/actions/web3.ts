@@ -48,6 +48,41 @@ export const getBalance = async (
   return balanceBigInt;
 };
 
+export const getTokenBalances = async (
+  address: Address,
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'base',
+) => {
+  try {
+    const client =
+      network === 'ethereum'
+        ? sepoliaAlchemy
+        : network === 'baseSepolia'
+          ? baseSepoliaAlchemy
+          : baseAlchemy;
+
+    const balances = await client.core.getTokensForOwner(address);
+    console.log(balances, 'balances');
+    // remove the token with balance 0
+    const filteredBalances = balances.tokens.filter(
+      (token) => token.balance !== '0',
+    );
+    console.log(filteredBalances, 'filtered balances');
+
+    const finalBalances = await Promise.all(
+      filteredBalances.map(async (token) => {
+        const metadata = await getTokenMetadataWithCoingecko(
+          token.contractAddress,
+        );
+        return { ...token, metadata };
+      }),
+    );
+    return finalBalances;
+  } catch (error) {
+    console.error('Error fetching token balances:', error);
+    throw new Error('Failed to fetch token balances');
+  }
+};
+
 export const getTokenBalance = async (address: Address) => {
   const tokenBalances = await sepoliaAlchemy.core.getTokenBalances(address);
   return tokenBalances;
@@ -150,4 +185,35 @@ export const getTokenPrice = async (token: string): Promise<number> => {
     console.error('Error fetching token price:', error);
     return 0;
   }
+};
+
+type TokenMetadata = {
+  imageUrl: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  priceUsd: number;
+};
+
+export const getTokenMetadataWithCoingecko = async (token: string) => {
+  const url = `https://pro-api.coingecko.com/api/v3/onchain/networks/base/tokens/${token}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      'x-cg-pro-api-key': env.COINGECKO_API_KEY,
+    },
+  });
+  const data = await response.json();
+
+  // Extract only the required fields
+  const metadata: TokenMetadata = {
+    imageUrl: data.data?.attributes?.image_url,
+    name: data.data?.attributes?.name,
+    symbol: data.data?.attributes?.symbol,
+    decimals: data.data?.attributes?.decimals,
+    priceUsd: Number(data.data?.attributes?.price_usd),
+  };
+
+  return metadata;
 };

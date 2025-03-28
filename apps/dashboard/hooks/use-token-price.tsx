@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { getTokenPrice } from "@/actions/web3"
+// import { env } from "@/env.mjs"
 
 export const useTokenPrice = () => {
   const [ethPrice, setEthPrice] = useState<number | undefined>(undefined)
