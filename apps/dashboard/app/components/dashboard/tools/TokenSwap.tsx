@@ -1,5 +1,5 @@
 import Image from 'next/image';
-
+import { SwapDetails } from '@/app/(routes)/chat/[id]/page';
 interface Token {
     address: `0x${string}`;
     decimals: number;
@@ -13,17 +13,24 @@ interface SwapTokenResponse {
     tokenIn: Token;
     tokenOut: Token;
     amountIn: string;
-    feeTier: string;
     originalAmount: string;
     amountType: string;
+    swapRoute: SwapDetails
 }
 
 interface TokenSwapProps {
     data: SwapTokenResponse;
     onSwap: (data: SwapTokenResponse) => void;
+    userAddress: string;
 }
 
 export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
+
+
+    // once the data is loaded, want to fetch the details using the api https://swap-data-api-psi.vercel.app/swap-route
+    // pass this data in body 
+    //curl --location 'https://swap-data-api-psi.vercel.app/swap-route' \
+
     return (
         <div className="flex justify-start my-4 w-full">
             <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
@@ -100,8 +107,11 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
                                 </div>
                             </div>
                             <div className="text-right">
-                                <div className="text-sm text-gray-600 font-mono">
-                                    {data.tokenOut.address.slice(0, 6)}...{data.tokenOut.address.slice(-4)}
+                                <div className="font-semibold">
+                                    {parseFloat(data.swapRoute.quote).toFixed(6)}
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                    ≈ ${((parseInt(data.swapRoute.quote) * data.tokenOut.currentPrice).toFixed(2))}
                                 </div>
                             </div>
                         </div>
@@ -111,17 +121,11 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
                 {/* Swap Details */}
                 <div className="mt-6 space-y-2 text-sm text-gray-600 bg-black/2 p-4 rounded-lg">
                     <div className="flex justify-between">
-                        <span>Fee Tier</span>
-                        <span className="font-semibold">{(parseInt(data.feeTier) / 10000).toFixed(2)}%</span>
+                        <span>Gas Estimate (in USD)</span>
+                        <span className="font-semibold">${data.swapRoute.gasCostUSD}</span>
                     </div>
-                    {/* <div className="flex justify-between">
-                                                                <span>Amount Type</span>
-                                                                <span className="font-semibold capitalize">{data.amountType}</span>
-                                                            </div> */}
-                    <div className="flex justify-between">
-                        <span>Original Amount</span>
-                        <span className="font-semibold">{data.originalAmount}</span>
-                    </div>
+
+
                 </div>
 
                 {/* Action Buttons */}

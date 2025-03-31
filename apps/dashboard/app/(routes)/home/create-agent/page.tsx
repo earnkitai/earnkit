@@ -131,7 +131,7 @@ export default function CreateAgentPage() {
                         </div>
 
                         <button
-                            onClick={() => router.push("/dashboard")}
+                            onClick={() => router.push("/home")}
                             className="w-full mt-8 bg-blue-500 flex items-center justify-center gap-2 text-white py-4 rounded-full hover:bg-blue-600 transition-colors"
                         >
                             Create Agent

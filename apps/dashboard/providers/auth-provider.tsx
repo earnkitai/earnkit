@@ -220,7 +220,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         payload: loginResponseToUser(loginResponse, AuthClient.Passkey),
 
                     })
-                    router.push("/dashboard")
+                    router.push("/home")
                 }
             } else {
                 // User either does not have an account with a sub organization
@@ -262,7 +262,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                             )
                         )
 
-                        router.push("/dashboard")
+                        router.push("/home")
                     }
                 }
             }
@@ -293,7 +293,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 })
 
                 if (loginResponse?.organizationId) {
-                    router.push("/dashboard")
+                    router.push("/home")
                 }
             } else {
                 // If the user does not have a suborg id, create a new suborg for the user
@@ -320,7 +320,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         )
                     )
 
-                    router.push("/dashboard")
+                    router.push("/home")
                 }
             }
         } catch (error: any) {
@@ -364,7 +364,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                             SESSION_EXPIRY
                         )
                     if (loginResponse?.organizationId) {
-                        router.push("/dashboard")
+                        router.push("/home")
                     }
                 }
             }

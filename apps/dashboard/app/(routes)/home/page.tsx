@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 // import { useWallets } from '@/providers/wallet-provider';
 import { useTurnkey } from '@turnkey/sdk-react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp } from 'lucide-react';
+// import { ArrowUp } from 'lucide-react';
 import { Icons } from '@/app/components/sections/icons';
 
 export default function Dashboard() {
@@ -126,11 +126,11 @@ export default function Dashboard() {
                 </div>
 
                 {/* last section */}
-                <div className="flex flex-col gap-2 mt-20">
+                {/* <div className="flex flex-col gap-2 mt-20">
                     <h2 className="text-center text-xl font-bold mb-6 font-funnel-sans">Alpha&apos;s calling. <span className="text-black/40">Discover what others are swapping.</span></h2>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 text-[12px] font-funnel-sans">
-                        {/* KAITO Card */}
+
                         <div className="bg-white p-4 rounded-2xl shadow-sm border border-black/10 ">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -154,7 +154,7 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* YUKI Card */}
+
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -178,7 +178,6 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* MIKA Card */}
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -202,7 +201,6 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* REN Card */}
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -226,7 +224,6 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* SORA Card */}
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -250,7 +247,6 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* HARU Card */}
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-black/10">
                             <div className="flex items-center gap-1 mb-4 justify-center border border-black/20 bg-black/4 rounded-full px-2 py-1 max-w-max">
                                 <Icons.basetokenImage className="w-4 h-4" />
@@ -274,7 +270,7 @@ export default function Dashboard() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div> */}
 
                 <div className="flex items-center gap-2 font-funnel-sans text-[0.85rem] justify-center mt-10">
                     <span className="text-black/40  text-[0.85rem] text-center flex flex-row wrap-wrap gap-2">

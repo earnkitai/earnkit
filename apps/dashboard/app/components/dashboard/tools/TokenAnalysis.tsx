@@ -1,7 +1,7 @@
 import Image from 'next/image';
-import Link from 'next/link';
+// import Link from 'next/link';
 import { Icons } from '@/app/components/sections/icons';
-import { ExternalLink, TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 
 export interface TokenAnalysisResponse {
     symbol: string;
@@ -66,8 +66,50 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
             style: 'currency',
             currency: 'USD',
             minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
+            maximumFractionDigits: 6,
         }).format(value);
+    };
+
+    const formatETH = (value: number) => {
+        // Convert scientific notation to decimal with leading zeros
+        if (value < 1) {
+            // Convert to string to handle scientific notation
+            const str = value.toString();
+            if (str.includes('e-')) {
+                // Handle scientific notation
+                const [base, exponent] = str.split('e-');
+                const decimalPlaces = parseInt(exponent);
+                const baseNum = parseFloat(base);
+                const significantDigits = Math.abs(baseNum).toString().replace('.', '');
+                return (
+                    <span className="mr-1">
+                        0.0
+                        <sub className="text-xs">{decimalPlaces - 1}</sub>
+                        {significantDigits}
+                    </span>
+                );
+            }
+            // For small numbers not in scientific notation, count leading zeros
+            const decimalStr = value.toFixed(20);
+            const [, decimals] = decimalStr.split('.');
+            let leadingZeros = 0;
+            for (const char of decimals) {
+                if (char === '0') leadingZeros++;
+                else break;
+            }
+            if (leadingZeros > 1) {
+                return (
+                    <span>
+                        0.0
+                        <sub className="text-xs">{leadingZeros}</sub>
+                        {decimals.slice(leadingZeros)}
+                    </span>
+                );
+            }
+            return value.toFixed(8);
+        }
+        // For numbers >= 1
+        return value.toFixed(4);
     };
 
     // const formatLargeNumber = (value: number) => {
@@ -123,8 +165,8 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
                         {Math.abs(data.market_data.price_change_percentage_24h).toFixed(2)}%
                     </span>
                 </div>
-                <span className="text-sm text-gray-500">
-                    {data.market_data.current_price.eth} ETH
+                <span className="text-sm text-gray-500 flex items-baseline">
+                    {formatETH(data.market_data.current_price.eth)} ETH
                 </span>
             </div>
 
@@ -185,7 +227,7 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
             )}
 
             {/* Action Buttons */}
-            <div className="flex gap-3">
+            {/* <div className="flex gap-3">
                 <button className="flex-1 px-4 py-2 bg-black text-white rounded-lg font-semibold hover:bg-black/90 transition-colors">
                     Trade {data.symbol.toUpperCase()}
                 </button>
@@ -196,7 +238,7 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
                 >
                     View More <ExternalLink className="w-4 h-4" />
                 </Link>
-            </div>
+            </div> */}
         </div>
     );
 } 

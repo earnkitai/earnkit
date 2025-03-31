@@ -42,7 +42,7 @@ function SignInPage() {
       if (!user.username) {
         router.push("/setup-username")
       } else {
-        router.push("/dashboard")
+        router.push("/home")
       }
     }
   }, [user, router])

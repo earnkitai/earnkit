@@ -89,8 +89,8 @@ export default function Sidebar() {
                 <nav className="flex-1 w-full p-6">
                     <div className="space-y-4">
                         <Link
-                            href="/dashboard"
-                            className={getLinkStyles("/dashboard")}
+                            href="/home"
+                            className={getLinkStyles("/home")}
                         >
                             <Home className="w-5 h-5 min-w-5" />
                             <span className="text-md font-medium">Home</span>

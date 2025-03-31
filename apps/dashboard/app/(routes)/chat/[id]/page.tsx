@@ -34,9 +34,11 @@ interface SwapTokenResponse {
     tokenIn: Token,
     tokenOut: Token,
     amountIn: string,
-    feeTier: string;
+    // feeTier: string;
     originalAmount: string,
     amountType: string,
+    swapRoute: SwapDetails
+
 }
 
 interface Token {
@@ -54,9 +56,19 @@ interface MessageResponse {
     toolName?: string;
 }
 
-const ROUTER_ABI = [
-    'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)',
-];
+
+
+export interface SwapDetails {
+    quote: string;
+    methodParameters: {
+        calldata: string;
+        value: string;
+        to: string;
+    };
+    path: string[];
+    gasEstimate: string;
+    gasCostUSD: string;
+}
 
 const ERC20_ABI = [
     {
@@ -267,10 +279,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                 userId: userId,
                             }),
                         });
+
                     } catch (error) {
                         console.error('Error storing AI message:', error);
                     }
                 }
+                console.log(messages, 'messages');
             }
         } catch (error) {
             console.error('Error:', error);
@@ -306,7 +320,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 selectedAccount?.address as `0x${string}`,
             );
 
-            const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
+            // const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
             const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 
             // Check if we're swapping with ETH
@@ -322,7 +336,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     address: data.tokenIn.address,
                     abi: ERC20_ABI,
                     functionName: 'allowance',
-                    args: [selectedAccount.address, ROUTER_ADDRESS],
+                    args: [selectedAccount.address, data.swapRoute.methodParameters.to as `0x${string}`],
                 })) as bigint;
 
                 console.log(allowanceData, 'allowance data');
@@ -330,7 +344,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 // If allowance is insufficient, send approve transaction first
                 if (allowanceData < BigInt(data.amountIn)) {
                     const approveData = erc20Contract.encodeFunctionData('approve', [
-                        ROUTER_ADDRESS,
+                        data.swapRoute.methodParameters.to as `0x${string}`,
                         ethers.MaxUint256,
                     ]);
 
@@ -393,32 +407,33 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             }
 
             console.log('swapping token with ETH');
-            const router = new ethers.Interface(ROUTER_ABI);
+            // const router = new ethers.Interface(ROUTER_ABI);
 
-            // Encode the swap parameters
-            const swapParams = {
-                tokenIn: data.tokenIn.address,
-                tokenOut: data.tokenOut.address,
-                fee: parseInt(data.feeTier),
-                recipient: selectedAccount?.address as `0x${string}`,
-                amountIn: data.amountIn,
-                amountOutMinimum: 0,
-                sqrtPriceLimitX96: 0,
-            };
+            // // Encode the swap parameters
+            // const swapParams = {
+            //     tokenIn: data.tokenIn.address,
+            //     tokenOut: data.tokenOut.address,
+            //     recipient: selectedAccount?.address as `0x${string}`,
+            //     amountIn: data.amountIn,
+            //     amountOutMinimum: 0,
+            //     sqrtPriceLimitX96: 0,
+            // };
 
-            // Encode the function call
-            const encodedData = router.encodeFunctionData('exactInputSingle', [
-                swapParams,
-            ]);
+            // // Encode the function call
+            // const encodedData = router.encodeFunctionData('exactInputSingle', [
+            //     swapParams,
+            // ]);
+
+            const encodedData = data.swapRoute.methodParameters.calldata;
 
             console.log(encodedData, 'encoded data');
 
             // Prepare the transaction request
             const transaction = await walletClient.prepareTransactionRequest({
-                to: ROUTER_ADDRESS,
+                to: data.swapRoute.methodParameters.to as `0x${string}`,
                 data: encodedData as `0x${string}`,
                 // Include value if swapping ETH
-                value: isETHSwap ? BigInt(data.amountIn) : BigInt(0),
+                value: isETHSwap ? BigInt(data.swapRoute.methodParameters.value) : BigInt(0),
             });
 
             console.log(transaction, 'transaction');
@@ -514,6 +529,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             response.includes('failed')
         );
     };
+
+
 
     return (
         <div>
@@ -663,10 +680,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
                                         if (message.tool_name === 'swap_token') {
                                             try {
-                                                const data: SwapTokenResponse = JSON.parse(message.response);
+                                                const data: SwapTokenResponse = JSON.parse(message.response as string);
                                                 return (
                                                     <div key={index} className="flex justify-start my-4">
-                                                        <TokenSwap data={data} onSwap={handleSwapToken} />
+                                                        <TokenSwap
+                                                            data={data}
+                                                            onSwap={handleSwapToken}
+                                                            userAddress={selectedAccount?.address as string}
+                                                        />
                                                     </div>
                                                 );
                                             } catch (error) {

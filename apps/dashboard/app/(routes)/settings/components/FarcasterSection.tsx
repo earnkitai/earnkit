@@ -13,8 +13,8 @@ import Image from "next/image";
 
 const pageUrl =
     process.env.NEXT_PUBLIC_VERCEL_ENV === 'production'
-        ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}/dashboard/settings`
-        : `http://localhost:3000/dashboard/settings`;
+        ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}/settings`
+        : `http://localhost:3000/settings`;
 
 const farcasterConfig = {
     relay: "https://relay.farcaster.xyz",

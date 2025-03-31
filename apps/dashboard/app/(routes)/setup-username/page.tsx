@@ -60,7 +60,7 @@ export default function SetupUsername() {
 
                     if (result.success && result.data?.username) {
                         // User has a username, redirect to dashboard
-                        router.push("/dashboard");
+                        router.push("/home");
                     }
                     // If no username, stay on this page to set it up
                 }
@@ -166,7 +166,7 @@ export default function SetupUsername() {
                     }
                 }
             }
-            router.push("/dashboard");
+            router.push("/home");
         } catch (error) {
             console.error("Error setting up account:", error);
             toast.error("Failed to set up account");
