@@ -160,7 +160,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                         setUserId(currentUser.userId);
                     }
                 } catch (error) {
-                    console.error("Error fetching user profile:", error);
+                    console.log("Error fetching user profile:", error);
                 }
             };
             fetchUser();
@@ -197,7 +197,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     })));
                 }
             } catch (error) {
-                console.error('Error loading messages:', error);
+                console.log('Error loading messages:', error);
             } finally {
                 setIsLoadingMessages(false);
             }
@@ -264,7 +264,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         });
 
         socketRef.current.on('connect_error', (error) => {
-            console.error('Socket connection error details:', {
+            console.log('Socket connection error details:', {
                 message: error.message,
                 name: error.name,
                 stack: error.stack
@@ -274,7 +274,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         });
 
         socketRef.current.on('error', (error) => {
-            console.error('Socket general error:', error);
+            console.log('Socket general error:', error);
             setSocketError(`Socket error: ${error}`);
             setIsLoading(false);
         });
@@ -353,7 +353,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 }),
             });
         } catch (err) {
-            console.error('Error storing AI message:', err);
+            console.log('Error storing AI message:', err);
         }
     };
 
@@ -384,7 +384,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 }),
             });
         } catch (error) {
-            console.error('Error storing user message:', error);
+            console.log('Error storing user message:', error);
         }
 
         // Send message via Socket.IO
@@ -399,12 +399,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 console.log('Sending message via socket:', payload);
                 socketRef.current.emit('message', payload);
             } else {
-                console.error('Socket is not connected');
+                console.log('Socket is not connected');
                 setSocketError('Not connected to server. Please refresh the page.');
                 setIsLoading(false);
             }
         } catch (error) {
-            console.error('Socket send error:', error);
+            console.log('Socket send error:', error);
             setSocketError('Failed to send message. Please try again.');
             setIsLoading(false);
         }
@@ -507,7 +507,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             hash,
                         });
                     } catch (error) {
-                        console.error('Error approving token:', error);
+                        console.log('Error approving token:', error);
                         showTransactionToast({
                             title: 'Error approving token',
                             description: 'Please try again',
@@ -624,7 +624,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 hash,
             });
         } catch (error) {
-            console.error('Error sending transaction:', error);
+            console.log('Error sending transaction:', error);
             showTransactionToast({
                 title: 'Error sending transaction',
                 description: 'Please try again',
