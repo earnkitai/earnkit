@@ -126,7 +126,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     // Socket.IO implementation
     const socketRef = useRef<Socket | null>(null);
     const [socketConnected, setSocketConnected] = useState(false);
-    const [socketError, setSocketError] = useState<string | null>(null);
+    // const [socketError, setSocketError] = useState<string | null>(null);
 
 
 
@@ -250,7 +250,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         socketRef.current.on('connect', () => {
             console.log('Socket connected successfully:', socketRef.current?.id);
             setSocketConnected(true);
-            setSocketError(null);
+            // setSocketError(null);
 
             // Send a test message to verify connection
             socketRef.current?.emit('ping', { timestamp: Date.now() });
@@ -271,13 +271,13 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 name: error.name,
                 stack: error.stack
             });
-            setSocketError(`Connection error: ${error.message}. Retrying...`);
+            console.log(`Connection error: ${error.message}. Retrying...`);
             setIsLoading(false);
         });
 
         socketRef.current.on('error', (error) => {
             console.log('Socket general error:', error);
-            setSocketError(`Socket error: ${error}`);
+            console.log(`Socket error: ${error}`);
             setIsLoading(false);
         });
 
@@ -402,12 +402,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 socketRef.current.emit('message', payload);
             } else {
                 console.log('Socket is not connected');
-                setSocketError('Not connected to server. Please refresh the page.');
+                console.log('Not connected to server. Please refresh the page.');
                 setIsLoading(false);
             }
         } catch (error) {
             console.log('Socket send error:', error);
-            setSocketError('Failed to send message. Please try again.');
+            console.log('Failed to send message. Please try again.');
             setIsLoading(false);
         }
     };
@@ -651,29 +651,29 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     };
 
     // Add this near the top of your render function, before the return statement
-    const renderConnectionStatus = () => {
-        if (socketError) {
-            return (
-                <div className="text-red-500 text-sm mb-2">
-                    {socketError}
-                </div>
-            );
-        }
+    // const renderConnectionStatus = () => {
+    //     if (socketError) {
+    //         return (
+    //             <div className="text-red-500 text-sm mb-2">
+    //                 {socketError}
+    //             </div>
+    //         );
+    //     }
 
-        if (!socketConnected) {
-            return (
-                <div className="text-yellow-500 text-sm mb-2">
-                    Connecting to server...
-                </div>
-            );
-        }
+    //     if (!socketConnected) {
+    //         return (
+    //             <div className="text-yellow-500 text-sm mb-2">
+    //                 Connecting to server...
+    //             </div>
+    //         );
+    //     }
 
-        return (
-            <div className="text-green-500 text-sm mb-2">
-                Connected to server
-            </div>
-        );
-    };
+    //     return (
+    //         <div className="text-green-500 text-sm mb-2">
+    //             Connected to server
+    //         </div>
+    //     );
+    // };
 
     return (
         <div>
@@ -1000,7 +1000,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             <Toaster />
 
             {/* Add this where appropriate in your UI */}
-            {renderConnectionStatus()}
+            {/* {renderConnectionStatus()} */}
         </div>
     );
 } 
