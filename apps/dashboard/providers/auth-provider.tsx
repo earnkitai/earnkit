@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation"
 import {
     createUserSubOrg,
     getSubOrgId,
-    getSubOrgIdByEmail,
+    // getSubOrgIdByEmail,
     getSubOrgIdByPublicKey,
     initEmailAuth,
     oauth,
@@ -29,6 +29,7 @@ import { useTurnkey } from "@turnkey/sdk-react"
 import { WalletType } from "@turnkey/wallet-stamper"
 
 import { Email, User } from "@/types/turnkey"
+import { getUserByEmail } from "@/actions/user"
 
 export const loginResponseToUser = (
     loginResponse: {
@@ -154,6 +155,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initEmailLogin = async (email: Email) => {
         dispatch({ type: "LOADING", payload: true })
         try {
+            console.log(authIframeClient?.iframePublicKey, "authIframeClient TEK")
             const response = await initEmailAuth({
                 email,
                 targetPublicKey: `${authIframeClient?.iframePublicKey}`,
@@ -208,19 +210,71 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const loginWithPasskey = async (email?: Email) => {
         dispatch({ type: "LOADING", payload: true })
         try {
-            const subOrgId = await getSubOrgIdByEmail(email as Email)
+            // const subOrgId = await getSubOrgIdByEmail(email as Email)
+            // const user = await getUserByEmail(email as Email)
 
-            if (subOrgId?.length) {
-                const loginResponse = await passkeyClient?.login()
-                if (loginResponse?.organizationId) {
+            // console.log(user, "user")
+            if (1) {
+                // Get the user's TEK from the database
+                const userResult = await getUserByEmail(email as Email);
+                // Use type assertion to access turnkeyEmbeddedKey
+                // const userTek = userResult.success && userResult.data ? (userResult.data as any).turnkeyEmbeddedKey : null;
 
-                    console.log(loginResponse, "loginResponse")
-                    dispatch({
-                        type: "PASSKEY",
-                        payload: loginResponseToUser(loginResponse, AuthClient.Passkey),
+                if (userResult.data) {
+                    // Create a ReadWrite session using the stored TEK
+                    const tek = authIframeClient?.iframePublicKey || "";
+                    console.log(tek, "tek")
 
-                    })
-                    router.push("/home")
+                    // const authBundle = await passkeyClient?.login();
+                    // console.log(authBundle)
+                    const authBundle = await passkeyClient?.loginWithReadWriteSession(
+                        tek,
+                        "7200",
+                        userResult.data.turnkeyUserId,
+                    );
+                    console.log(authBundle, "authBundle")
+
+                    if (authBundle) {
+                        // Use the auth bundle to login
+                        // Use type assertion to handle the ReadWriteSession type
+                        // const loginResponse = await passkeyClient?.loginWithAuthBundle(authBundle as any, "7200");
+                        console.log("inside the login response")
+                        console.log(authIframeClient)
+                        dispatch({
+                            type: "PASSKEY",
+                            payload: loginResponseToUser(authBundle, AuthClient.Passkey),
+                        })
+                        router.push("/home")
+                        console.log("injected")
+                        const loginResponse = await authIframeClient?.loginWithReadWriteSession(
+                            tek,
+                            "7200"
+                        )
+                        console.log(loginResponse, "loginResponse with auth bundle")
+
+                    } else {
+                        // Fallback to regular login if auth bundle creation fails
+                        // const loginResponse = await passkeyClient?.login()
+                        // if (loginResponse?.organizationId) {
+                        //     console.log(loginResponse, "loginResponse fallback")
+                        //     dispatch({
+                        //         type: "PASSKEY",
+                        //         payload: loginResponseToUser(loginResponse, AuthClient.Passkey),
+                        //     })
+                        //     router.push("/home")
+                        // }
+                    }
+                } else {
+                    // Fallback to regular login if TEK is not found
+                    // const loginResponse = await passkeyClient?.login()
+                    // if (loginResponse?.organizationId) {
+                    //     console.log(loginResponse, "loginResponse fallback")
+                    //     dispatch({
+                    //         type: "PASSKEY",
+                    //         payload: loginResponseToUser(loginResponse, AuthClient.Passkey),
+                    //     })
+                    //     router.push("/home")
+                    // }
                 }
             } else {
                 // User either does not have an account with a sub organization

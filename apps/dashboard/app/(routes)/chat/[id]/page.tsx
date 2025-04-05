@@ -16,6 +16,8 @@ import { TransactionStatus } from '@/app/components/ui/transaction-status';
 // import { useRouter } from 'next/navigation';
 import { getPublicClient, getTurnkeyWalletClient } from '@/lib/web3';
 import { TurnkeyBrowserClient } from '@turnkey/sdk-browser';
+import { io, Socket } from 'socket.io-client';
+import { useUser } from '@/hooks/use-user';
 
 interface Message {
     responseFrom: string;
@@ -103,6 +105,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const { addPendingTransaction } = useTransactions();
     const { state } = useWallets();
     const { selectedAccount } = state;
+    const { user } = useUser()
     const { passkeyClient } = useTurnkey();
     const [userId, setUserId] = useState<string | null>(null);
     const { turnkey } = useTurnkey();
@@ -120,6 +123,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     });
     const [walletClient, setWalletClient] = useState<Awaited<ReturnType<typeof getTurnkeyWalletClient>> | null>(null);
 
+    // Socket.IO implementation
+    const socketRef = useRef<Socket | null>(null);
+    const [socketConnected, setSocketConnected] = useState(false);
+    const [socketError, setSocketError] = useState<string | null>(null);
+
     useEffect(() => {
         const initialMessage = localStorage.getItem(`initialMessage ${resolvedParams.id}`);
         if (initialMessage) {
@@ -136,6 +144,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             handleSubmit();
         }
     }, [userId, messages.length, initialMessage]);
+
+    useEffect(() => {
+        if (user) {
+            console.log(user, "user")
+        }
+    }, [user])
 
     useEffect(() => {
         if (turnkey) {
@@ -199,11 +213,157 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         scrollToBottom();
     }, [messages, isLoading]);
 
+    useEffect(() => {
+        // Only initialize socket connection if userId is available
+        if (!userId) {
+            console.log('Waiting for userId before initializing socket connection');
+            return;
+        }
+
+        // Initialize socket connection
+        const agentBackendUrl = process.env.NEXT_PUBLIC_AGENT_BACKEND_URL || 'http://localhost:3100';
+        console.log('Attempting to connect to agent backend at:', agentBackendUrl);
+
+        // Clean up any existing socket connection
+        if (socketRef.current) {
+            console.log('Cleaning up existing socket connection');
+            socketRef.current.disconnect();
+            socketRef.current = null;
+        }
+
+        // Create new socket connection with more detailed options
+        socketRef.current = io(agentBackendUrl, {
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 10000,
+            transports: ['websocket', 'polling'],
+            path: '/socket.io/',
+            withCredentials: true,
+            autoConnect: true,
+            forceNew: true
+        });
+
+        // Connection events
+        socketRef.current.on('connect', () => {
+            console.log('Socket connected successfully:', socketRef.current?.id);
+            setSocketConnected(true);
+            setSocketError(null);
+
+            // Send a test message to verify connection
+            socketRef.current?.emit('ping', { timestamp: Date.now() });
+        });
+
+        socketRef.current.on('pong', (data) => {
+            console.log('Received pong from server:', data);
+        });
+
+        socketRef.current.on('disconnect', (reason) => {
+            console.log('Socket disconnected. Reason:', reason);
+            setSocketConnected(false);
+        });
+
+        socketRef.current.on('connect_error', (error) => {
+            console.error('Socket connection error details:', {
+                message: error.message,
+                name: error.name,
+                stack: error.stack
+            });
+            setSocketError(`Connection error: ${error.message}. Retrying...`);
+            setIsLoading(false);
+        });
+
+        socketRef.current.on('error', (error) => {
+            console.error('Socket general error:', error);
+            setSocketError(`Socket error: ${error}`);
+            setIsLoading(false);
+        });
+
+        // Message events
+        socketRef.current.on('response', (data) => {
+            console.log('Received response:', data);
+
+            // Handle the new response format
+            if (data.type === 'system' && data.done) {
+                // This is the final message indicating the stream is complete
+                setIsLoading(false);
+                return;
+            }
+
+            setMessages((prev) => [...prev, data]);
+            // Format the response to match the expected format
+            let formattedContent: string;
+            if (Array.isArray(data.response)) {
+                formattedContent = data.response
+                    .map((item: { text?: string }) => item.text || '')
+                    .filter((text: string) => text)
+                    .join('\n');
+            } else if (typeof data.response === 'string') {
+                formattedContent = data.response;
+            } else {
+                formattedContent = JSON.stringify(data.response);
+            }
+            const responseMessage = {
+                responseFrom: data.responseFrom,
+                response: formattedContent,
+                tool_name: data.tool_name,
+            };
+
+
+
+            // Save AI response to database only if userId is available
+            if (userId) {
+                saveAIMessage(responseMessage);
+            } else {
+                console.warn('Received AI response but userId is not available yet');
+            }
+
+        });
+
+        // Cleanup on unmount
+        return () => {
+            if (socketRef.current) {
+                console.log('Disconnecting socket');
+                socketRef.current.disconnect();
+            }
+        };
+    }, [userId]);
+
+    const saveAIMessage = async (message: { response: string; responseFrom: string; tool_name?: string }) => {
+        try {
+            if (!userId) {
+                console.warn('Cannot save AI message: userId is null');
+                return;
+            }
+
+            const content = typeof message.response === 'string'
+                ? message.response
+                : JSON.stringify(message.response);
+
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content,
+                    responseFrom: message.responseFrom,
+                    toolName: message.tool_name || undefined,
+                    userId
+                }),
+            });
+        } catch (err) {
+            console.error('Error storing AI message:', err);
+        }
+    };
+
+
     const handleSubmit = async (e?: React.FormEvent) => {
         if (e) {
             e.preventDefault();
         }
         if (!inputValue.trim() || !userId) return;
+
         const inputValueNew = inputValue.trim();
         setInputValue('');
         setIsLoading(true);
@@ -216,82 +376,40 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         try {
             await fetch(`/api/chat/${resolvedParams.id}/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     content: inputValueNew,
                     responseFrom: 'user',
-                    userId: userId,
+                    userId,
                 }),
             });
         } catch (error) {
             console.error('Error storing user message:', error);
         }
 
+        // Send message via Socket.IO
         try {
-            const response = await fetch('/api/agent/prompt', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: inputValueNew,
-                    userWalletAddress: selectedAccount?.address,
-                    chatId: resolvedParams.id,
-                }),
-            });
+            const payload = {
+                message: inputValueNew,
+                userWalletAddress: selectedAccount?.address,
+                chatId: resolvedParams.id,
+            };
 
-            const data = await response.json();
-            console.log(data, 'ai response');
-
-            // Add API responses to chat
-            const newMessages = data.response.filter((msg: Message) => msg.response);
-
-            if (newMessages.length > 0) {
-                setMessages((prev) => [...prev, ...newMessages]);
-
-                // Store AI messages in database
-                for (const message of newMessages) {
-                    try {
-                        // Format the content based on the response type
-                        let formattedContent: string;
-                        if (Array.isArray(message.response)) {
-                            formattedContent = message.response
-                                .map((item: { text?: string }) => item.text || '')
-                                .filter((text: string) => text)
-                                .join('\n');
-                        } else if (typeof message.response === 'string') {
-                            formattedContent = message.response;
-                        } else {
-                            formattedContent = JSON.stringify(message.response);
-                        }
-
-                        await fetch(`/api/chat/${resolvedParams.id}/messages`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                content: formattedContent,
-                                responseFrom: message.responseFrom,
-                                toolName: message.tool_name || undefined,
-                                userId: userId,
-                            }),
-                        });
-
-                    } catch (error) {
-                        console.error('Error storing AI message:', error);
-                    }
-                }
-                console.log(messages, 'messages');
+            if (socketRef.current?.connected) {
+                console.log('Sending message via socket:', payload);
+                socketRef.current.emit('message', payload);
+            } else {
+                console.error('Socket is not connected');
+                setSocketError('Not connected to server. Please refresh the page.');
+                setIsLoading(false);
             }
         } catch (error) {
-            console.error('Error:', error);
-        } finally {
+            console.error('Socket send error:', error);
+            setSocketError('Failed to send message. Please try again.');
             setIsLoading(false);
         }
     };
+
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.target.value);
@@ -530,7 +648,30 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         );
     };
 
+    // Add this near the top of your render function, before the return statement
+    const renderConnectionStatus = () => {
+        if (socketError) {
+            return (
+                <div className="text-red-500 text-sm mb-2">
+                    {socketError}
+                </div>
+            );
+        }
 
+        if (!socketConnected) {
+            return (
+                <div className="text-yellow-500 text-sm mb-2">
+                    Connecting to server...
+                </div>
+            );
+        }
+
+        return (
+            <div className="text-green-500 text-sm mb-2">
+                Connected to server
+            </div>
+        );
+    };
 
     return (
         <div>
@@ -583,7 +724,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             </div>
                         ) : (
                             <>
-                                {messages.map((message, index) => {
+                                {messages.length > 0 && messages.map((message, index) => {
                                     if (
                                         message.responseFrom === 'tools' &&
                                         typeof message.response === 'string'
@@ -690,8 +831,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                         />
                                                     </div>
                                                 );
-                                            } catch (error) {
-                                                console.log(error, 'error');
+                                            } catch {
+
                                                 return (
                                                     <div key={index} className="flex justify-start my-4">
                                                         <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
@@ -737,8 +878,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                     />
                                                 </div>
                                             );
-                                        } catch (error) {
-                                            console.log(error, 'error');
+                                        } catch {
                                             return (
                                                 <div key={index} className="flex justify-start my-4">
                                                     <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
@@ -856,6 +996,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             />
 
             <Toaster />
+
+            {/* Add this where appropriate in your UI */}
+            {renderConnectionStatus()}
         </div>
     );
 } 

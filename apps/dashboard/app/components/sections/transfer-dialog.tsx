@@ -47,6 +47,8 @@ import { Label } from "@/app/components/ui/label"
 import { ValueInput } from "@/app/components/sections/value-input"
 import { TurnkeyBrowserClient } from "@turnkey/sdk-browser"
 import { toast } from "sonner"
+// import { ethers } from "ethers"
+// import { TurnkeySigner } from "@turnkey/ethers"
 
 type TransferAction = "send" | "receive"
 
@@ -54,7 +56,7 @@ export default function TransferDialog() {
   const { state } = useWallets()
   const { selectedAccount } = state
   const { ethPrice } = useTokenPrice()
-  const { client } = useTurnkey()
+  const { getActiveClient } = useTurnkey()
   const { addPendingTransaction } = useTransactions()
   const isDesktop = useMediaQuery("(min-width: 564px)")
   const isClient = useIsClient()
@@ -85,23 +87,23 @@ export default function TransferDialog() {
   // Ensures that the form is valid before sending
   const [isValid, setIsValid] = useState(false)
 
-  const [walletClient, setWalletClient] = useState<Awaited<
-    ReturnType<typeof getTurnkeyWalletClient>
-  > | null>(null)
+  // const [walletClient, setWalletClient] = useState<Awaited<
+  //   ReturnType<typeof getTurnkeyWalletClient>
+  // > | null>(null)
 
-  useEffect(() => {
-    const initializeWalletClient = async () => {
-      if (!selectedAccount || !client) return
+  // useEffect(() => {
+  //   const initializeWalletClient = async () => {
+  //     if (!selectedAccount || !client) return
+  //     const currentClient = await getActiveClient();
+  //     const walletClient = await getTurnkeyWalletClient(
+  //       currentClient as TurnkeyBrowserClient,
+  //       selectedAccount.address
+  //     )
+  //     setWalletClient(walletClient)
+  //   }
 
-      const walletClient = await getTurnkeyWalletClient(
-        client as TurnkeyBrowserClient,
-        selectedAccount.address
-      )
-      setWalletClient(walletClient)
-    }
-
-    initializeWalletClient()
-  }, [selectedAccount, client])
+  //   initializeWalletClient()
+  // }, [selectedAccount, client])
 
   useEffect(() => {
     const ethAmountParsed = parseFloat(ethAmount || "0")
@@ -127,14 +129,21 @@ export default function TransferDialog() {
 
     console.log("previewing send transaction")
     console.log(selectedAccount)
-
+    const currentClient = await getActiveClient();
+    console.log(currentClient, "currentClient")
+    // const whoami = await currentClient?.getWhoami({
+    //   organizationId: ""
+    // })
+    // console.log(whoami)
     const walletClient = await getTurnkeyWalletClient(
-      client as TurnkeyBrowserClient,
+      currentClient as TurnkeyBrowserClient,
       selectedAccount?.address as `0x${string}`
     )
-    console.log(walletClient)
-    if (!selectedAccount || !walletClient) return
-    // Prepare the transaction request to calculate the gas fees
+
+    console.log(walletClient, "walletClient")
+    if (!selectedAccount || !currentClient) return
+
+
     const transaction = await walletClient.prepareTransactionRequest({
       to: getAddress(recipientAddress),
       value: parseEther(ethAmount),
@@ -149,10 +158,18 @@ export default function TransferDialog() {
   const handleSendTransaction = async (
     transactionRequest: TransactionRequest
   ) => {
-    if (!selectedAccount || !walletClient) return
+    if (!selectedAccount) return
     try {
+      // const currentClient = await getActiveClient();
       const publicClient = getPublicClient("base")
       setIsOpen(false)
+      const currentClient = await getActiveClient();
+      console.log(currentClient, "currentClient")
+
+      const walletClient = await getTurnkeyWalletClient(
+        currentClient as TurnkeyBrowserClient,
+        selectedAccount?.address as `0x${string}`
+      )
       const hash = await walletClient.sendTransaction(transactionRequest)
       addPendingTransaction({
         hash,

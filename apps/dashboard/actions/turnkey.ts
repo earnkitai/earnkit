@@ -18,7 +18,7 @@ import {
 } from '@/types/turnkey';
 import { siteConfig } from '@/config/site';
 import { turnkeyConfig } from '@/config/turnkey';
-import { getUserByEmail, createUser } from './user';
+import { getUserByEmail, createUser, updateUser } from './user';
 // import { getTurnkeyWalletClient } from '@/lib/web3';
 
 // import { getTransactions } from './web3';
@@ -184,12 +184,25 @@ export const initEmailAuth = async ({
       walletAddress: subOrg.wallet?.addresses[0],
       turnkeyUserId: user.userId,
       hasPasskey: false,
+      turnkeyEmbeddedKey: targetPublicKey,
     });
 
     if (!createUserResult.success) {
       console.error(
         'Failed to create user in database:',
         createUserResult.error,
+      );
+    }
+  } else {
+    // Update existing user with the TEK
+    const updateUserResult = await updateUser(userResult.data.turnkeyUserId, {
+      turnkeyEmbeddedKey: targetPublicKey,
+    });
+
+    if (!updateUserResult.success) {
+      console.error(
+        'Failed to update user with TEK in database:',
+        updateUserResult.error,
       );
     }
   }

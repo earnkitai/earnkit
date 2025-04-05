@@ -18,6 +18,7 @@ function serializeUser(user: User | null) {
     isVerified: user.isVerified,
     isActive: user.isActive,
     hasPasskey: user.hasPasskey,
+    turnkeyEmbeddedKey: user.turnkeyEmbeddedKey,
     farcasterFid: user.farcasterFid,
     farcasterDisplayName: user.farcasterDisplayName,
     farcasterCustodyAddress: user.farcasterCustodyAddress,
@@ -51,6 +52,24 @@ export async function createUser(userData: Partial<User>) {
       return { success: false, error: error.message };
     }
     return { success: false, error: 'Failed to create user' };
+  }
+}
+
+export async function updateUser(
+  turnkeyUserId: string,
+  userData: Partial<User>,
+) {
+  try {
+    await initializeDatabase();
+    const userService = new UserService();
+    const user = await userService.updateUser(turnkeyUserId, userData);
+    return { success: true, data: serializeUser(user) };
+  } catch (error) {
+    console.error('Error updating user:', error);
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: 'Failed to update user' };
   }
 }
 

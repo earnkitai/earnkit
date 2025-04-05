@@ -38,6 +38,9 @@ export class User {
   @Column({ name: 'has_passkey', default: false })
   hasPasskey!: boolean;
 
+  @Column({ name: 'turnkey_embedded_key', nullable: true })
+  turnkeyEmbeddedKey?: string;
+
   @Column({ name: 'farcaster_fid', nullable: true })
   farcasterFid?: string;
 

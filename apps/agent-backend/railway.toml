@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm build:agentbackend"
+watchPatterns = ["/apps/agent-backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
+
+[deploy]
+startCommand = "pnpm start:agent_backend"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
