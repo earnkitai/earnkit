@@ -128,6 +128,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const [socketConnected, setSocketConnected] = useState(false);
     const [socketError, setSocketError] = useState<string | null>(null);
 
+
+
     useEffect(() => {
         const initialMessage = localStorage.getItem(`initialMessage ${resolvedParams.id}`);
         if (initialMessage) {
@@ -140,10 +142,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
     // Separate useEffect for handling the initial message submission
     useEffect(() => {
-        if (initialMessage && userId && messages.length === 0) {
+        if (initialMessage && userId && messages.length === 0 && socketConnected) {
             handleSubmit();
         }
-    }, [userId, messages.length, initialMessage]);
+    }, [userId, messages.length, initialMessage, socketConnected]);
 
     useEffect(() => {
         if (user) {
@@ -362,7 +364,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         if (e) {
             e.preventDefault();
         }
-        if (!inputValue.trim() || !userId) return;
+        if (!inputValue.trim() || !userId || !socketConnected) return;
 
         const inputValueNew = inputValue.trim();
         setInputValue('');

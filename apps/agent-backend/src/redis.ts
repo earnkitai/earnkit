@@ -4,9 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Create Redis client
-const redis = new Redis(
-  process.env.REDIS_URL || 'redis://localhost:6379' + '?family=0',
-);
+const redis = new Redis(process.env.REDIS_URL + '?family=0');
 
 // Handle Redis connection events
 redis.on('connect', () => {
