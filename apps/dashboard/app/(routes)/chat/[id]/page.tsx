@@ -722,7 +722,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
             <section className="relative max-w-3xl mx-auto rounded-lg">
                 <div className="flex flex-col gap-4 justify-between h-screen pt-4">
-                    <div className="flex-1 h-full overflow-y-auto p-4 pt-10">
+                    <div className="flex-1 h-full overflow-y-auto p-4 mt-10 md:mt-6">
                         {isLoadingMessages ? (
                             <div className="flex items-center gap-2 text-gray-600 p-4">
                                 <div className="animate-spin h-4 w-4 border-2 border-gray-600 border-t-transparent rounded-full"></div>

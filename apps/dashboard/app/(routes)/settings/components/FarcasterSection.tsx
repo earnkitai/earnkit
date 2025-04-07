@@ -142,8 +142,8 @@ function FarcasterProfile({ userData, setUserData }: { userData: User | null; se
 
 export function FarcasterSection({ userData, setUserData }: { userData: User | null; setUserData: (data: User | null) => void }) {
     return (
-        <div className="bg-white rounded-xl p-8 shadow-sm mt-6 border">
-            <h2 className="text-xl font-medium mb-4">Farcaster Account</h2>
+        <div>
+            <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Farcaster Account</h2>
             <AuthKitProvider config={farcasterConfig}>
                 <FarcasterProfile userData={userData} setUserData={setUserData} />
             </AuthKitProvider>

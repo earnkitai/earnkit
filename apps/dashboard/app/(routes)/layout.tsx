@@ -17,7 +17,7 @@ export default function Layout({
                     <Sidebar />
 
                     {/* Main Content */}
-                    <div className="flex-1 w-full max-w-[calc(100vw-350px)]">
+                    <div className="flex-1 w-full max-w-[800px]">
                         {children}
                     </div>
                 </TransactionsProvider>

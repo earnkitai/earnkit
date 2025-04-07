@@ -32,23 +32,23 @@ export default function WalletPage() {
     }
 
     return (
-        <div className="p-8 pb-20">
+        <div className="p-6 sm:p-8 pb-20 pt-20 md:pb-12 md:pt-10">
             {/* Header with Balance and Actions */}
-            <div className="flex justify-between items-start mb-12">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0 mb-8 sm:mb-12">
                 <div>
-                    <h2 className="text-gray-600 text-sm mb-2">Wallet</h2>
+                    <h1 className="text-xl sm:text-2xl font-bold mb-0 py-4 text-foreground">Wallet</h1>
                     {selectedAccount?.address ? (
                         <div
                             onClick={handleCopyAddress}
-                            className="flex w-min cursor-pointer items-center gap-2"
+                            className="flex w-min cursor-pointer items-center gap-1 sm:gap-2 text-sm sm:text-base"
                         >
                             {truncateAddress(selectedAccount?.address)}
-                            <CopyIcon className="h-3 w-3" />
+                            <CopyIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                         </div>
                     ) : (
-                        <Skeleton className="h-3 w-32  rounded-sm bg-muted-foreground/50" />
+                        <Skeleton className="h-3 w-24 sm:w-32 rounded-sm bg-muted-foreground/50" />
                     )}
-                    <h1 className="text-4xl font-bold">${totalValue.toFixed(2)} <span className="ml-1 text-sm text-muted-foreground">USD</span></h1>
+                    <h1 className="text-2xl sm:text-4xl font-bold mt-1 sm:mt-2">${totalValue.toFixed(2)} <span className="ml-1 text-xs sm:text-sm text-muted-foreground">USD</span></h1>
                 </div>
                 <div className="flex gap-2">
                     <TransferDialog />
@@ -56,12 +56,12 @@ export default function WalletPage() {
             </div>
 
             {/* Assets Section */}
-            <div className="mt-12">
+            <div className="mt-8 sm:mt-12">
                 <Assets onTotalValueChange={setTotalValue} />
             </div>
 
             {/* Activity Log Section */}
-            <div className="mt-12">
+            <div className="mt-8 sm:mt-12">
                 <Activity />
             </div>
 
