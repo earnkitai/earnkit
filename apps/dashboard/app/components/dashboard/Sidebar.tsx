@@ -105,7 +105,7 @@ export default function Sidebar() {
         <div className="relative">
             {/* PanelRight Icon Container */}
             <div
-                className={`fixed z-20 left-0 top-0 h-screen w-[40px] sm:w-[60px] flex items-start justify-center rounded-r-2xl transition-opacity duration-300 ${isHovered || isOpen ? 'opacity-0' : 'opacity-100'}`}
+                className={`fixed z-20 left-0 top-0 h-[100dvh] h-screen w-[40px] sm:w-[60px] flex items-start justify-center rounded-r-2xl transition-opacity duration-300 ${isHovered || isOpen ? 'opacity-0' : 'opacity-100'}`}
                 onMouseEnter={handleMouseEnter}
                 onClick={toggleSidebar}
             >
@@ -122,13 +122,13 @@ export default function Sidebar() {
 
             {/* Main Sidebar */}
             <aside
-                className={`fixed z-20 left-0 top-0 h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered || isOpen ? 'translate-x-0 w-[250px] sm:w-[300px]' : '-translate-x-full w-[250px] sm:w-[300px]'}`}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered || isOpen ? 'translate-x-0 w-[250px] sm:w-[300px]' : '-translate-x-full w-[250px] sm:w-[300px]'}`}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
             >
                 {/* Main Navigation */}
-                <nav className="flex-1 w-full p-4 sm:p-6">
-                    <div className="space-y-2 sm:space-y-4">
+                <nav className="flex w-full p-4 sm:p-6">
+                    <div className="space-y-2 sm:space-y-4 w-full">
                         <Link
                             href="/home"
                             className={getLinkStyles("/home")}
@@ -146,24 +146,25 @@ export default function Sidebar() {
                             <span className="text-sm sm:text-base font-medium">Wallet</span>
                         </Link>
 
-                        <SidebarChatHistory
-                            userId={user?.userId}
-                            isExpanded={isHovered || isOpen}
-                        />
 
-                        {/* <Link
-                            href="/dashboard/create-agent"
-                            className={getLinkStyles("/dashboard/create-agent")}
-                        >
-                            <Plus className="w-5 h-5 mr-1" />
-                            <span className="text-md font-medium">Create Agent</span>
-                        </Link> */}
                     </div>
                 </nav>
-
+                <div className="w-full px-4 sm:px-6">
+                    <span
+                        className="flex items-center gap-2 px-6 py-3 rounded-lg transition-colors w-full text-black/40"
+                    >
+                        <span className="text-sm sm:text-base font-medium text-ellipsis overflow-hidden whitespace-nowrap">Chat History</span>
+                    </span>
+                </div>
+                <div className="flex-1 w-full px-4 sm:px-6 overflow-y-auto">
+                    <SidebarChatHistory
+                        userId={user?.userId}
+                        isExpanded={isHovered || isOpen}
+                    />
+                </div>
                 {/* Secondary Navigation */}
-                <nav className="w-full p-4 sm:p-6">
-                    <div className="space-y-2 sm:space-y-4">
+                <nav className="flex w-full p-4 sm:p-6 ">
+                    <div className="space-y-2 sm:space-y-4 w-full">
                         <span
                             // href="/dashboard/user/profile"
                             className={getLinkStyles("/user/profile")}

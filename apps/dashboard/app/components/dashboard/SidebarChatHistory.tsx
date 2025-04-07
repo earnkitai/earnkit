@@ -154,10 +154,7 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
 
     return (
         <div className="w-full flex flex-col">
-            <span className="flex items-center gap-2 px-6 py-2 rounded-lg transition-colors w-full text-black/40">
-                <span className="text-md font-medium">Chat History</span>
-            </span>
-            <div className="flex-1 overflow-y-scroll max-h-[40vh] rounded-lg py-3">
+            <div className="flex-1 rounded-lg py-3">
                 {chats.length === 0 ? (
                     <div className="text-sm text-gray-500 text-left py-2 px-6">
                         No chat history
