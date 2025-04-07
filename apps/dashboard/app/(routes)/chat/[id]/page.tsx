@@ -106,7 +106,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const { state } = useWallets();
     const { selectedAccount } = state;
     const { user } = useUser()
-    const { passkeyClient } = useTurnkey();
+    const { passkeyClient, getActiveClient } = useTurnkey();
     const [userId, setUserId] = useState<string | null>(null);
     const { turnkey } = useTurnkey();
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -172,9 +172,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     useEffect(() => {
         const initializeWalletClient = async () => {
             if (!selectedAccount || !passkeyClient) return;
+            const currentClient = await getActiveClient();
+            console.log(currentClient, "currentClient")
             const walletClient = await getTurnkeyWalletClient(
-                passkeyClient as TurnkeyBrowserClient,
-                selectedAccount.address,
+                currentClient as TurnkeyBrowserClient,
+                selectedAccount.address as `0x${string}`,
             );
             setWalletClient(walletClient);
         };
@@ -434,17 +436,19 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 });
                 return;
             }
+            const currentClient = await getActiveClient();
+            console.log(currentClient, "currentClient")
 
             const walletClient = await getTurnkeyWalletClient(
-                passkeyClient as TurnkeyBrowserClient,
+                currentClient as TurnkeyBrowserClient,
                 selectedAccount?.address as `0x${string}`,
             );
 
             // const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
-            const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
+            const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
             // Check if we're swapping with ETH
-            const isETHSwap = data.tokenIn.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
+            const isETHSwap = data.tokenIn.address.toLowerCase() === ETH_ADDRESS.toLowerCase();
 
             if (!isETHSwap) {
                 console.log('ERC20 token swap');
