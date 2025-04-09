@@ -42,8 +42,8 @@ importers:
         specifier: ^16.3.1
         version: 16.4.7
       earnkit:
-        specifier: ^1.0.14
-        version: 1.0.14(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.15
+        version: 1.0.15(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       express:
         specifier: ^4.18.2
         version: 4.21.2
@@ -351,8 +351,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       earnkit:
-        specifier: ^1.0.14
-        version: 1.0.14(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.15
+        version: 1.0.15(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       ethers:
         specifier: ^6.13.4
         version: 6.13.5
@@ -983,11 +983,11 @@ packages:
       '@jridgewell/trace-mapping': 0.3.9
     dev: true
 
-  /@earnkit/sdk-ai@1.0.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-gPeCex33AmceOXOpUXMSKdVl4mLnKz8mENtXaa8Fjqf5LEB0Hx8TZ7Mngb0nqlm8KT7YQaJ3X7WfDzEfYK9uRw==}
+  /@earnkit/sdk-ai@1.0.10(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-atGbD8XCnZQM6dmYygqvZuhWf2U0N3CC6ZiH9CVv8+fzndh3iS+DuDH4M8vm260F63bxzniT/xQbSiP/H5KQzg==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.7(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@langchain/core': 0.3.42
       zod: 3.24.2
     transitivePeerDependencies:
@@ -1037,11 +1037,74 @@ packages:
       - webauthn-p256
     dev: false
 
+  /@earnkit/sdk-core@1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-6lPcN4mjUxgHD3CPPVBHyBLTNMSMfRPYq6CmPK/C8pfzgDS550RTvpqKdd7f9mtYsPot76dNCfDbZC3YdpfK4Q==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@anthropic-ai/sdk': 0.33.1
+      '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
+      '@types/node-fetch': 2.6.12
+      axios: 1.7.9
+      ethers: 6.13.5
+      node-fetch: 2.7.0
+      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      zod: 3.24.2
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - bufferutil
+      - debug
+      - encoding
+      - react
+      - react-dom
+      - sass
+      - typescript
+      - utf-8-validate
+      - webauthn-p256
+    dev: false
+
   /@earnkit/sdk-social@1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@earnkit/sdk-core': 1.1.7(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
+      axios: 1.7.9
+      dotenv: 16.4.7
+      serialize-javascript: 6.0.2
+      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      zod: 3.24.2
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@nestjs/microservices'
+      - '@nestjs/platform-express'
+      - '@nestjs/websockets'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - bufferutil
+      - class-transformer
+      - class-validator
+      - debug
+      - encoding
+      - react
+      - react-dom
+      - sass
+      - supports-color
+      - typescript
+      - utf-8-validate
+      - webauthn-p256
+    dev: false
+
+  /@earnkit/sdk-social@1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
       axios: 1.7.9
       dotenv: 16.4.7
@@ -8887,13 +8950,53 @@ packages:
       xtend: 4.0.2
     dev: true
 
-  /earnkit@1.0.14(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-/j+RX04Q59jdhUIvk8wjyD+oWhgKA0c/fOqWWnRq4U7x7dsQcn0GTEZU8LInGc7ZBRDFyaMQPnFptr9g1UUfDg==}
+  /earnkit@1.0.15(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-cfqZnD+ZWkO2shBqezXULxiaexP/ut6dyWOBSJ+rAuvTj0IGmSCns3JgzFMgvmWR58p/Stl1yKizHapLgb6grA==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-core': 1.1.7(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-ai': 1.0.10(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-social': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
+      '@langchain/core': 0.3.42
+      '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/sdk-server': 1.7.3(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
+      '@turnkey/viem': 0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.22.1)(zod@3.24.2)
+      axios: 1.7.9
+      ethers: 6.13.5
+      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      zod: 3.24.2
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@nestjs/microservices'
+      - '@nestjs/platform-express'
+      - '@nestjs/websockets'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - bufferutil
+      - class-transformer
+      - class-validator
+      - debug
+      - encoding
+      - openai
+      - react
+      - react-dom
+      - sass
+      - supports-color
+      - typescript
+      - utf-8-validate
+      - webauthn-p256
+    dev: false
+
+  /earnkit@1.0.15(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-cfqZnD+ZWkO2shBqezXULxiaexP/ut6dyWOBSJ+rAuvTj0IGmSCns3JgzFMgvmWR58p/Stl1yKizHapLgb6grA==}
+    dependencies:
+      '@anthropic-ai/sdk': 0.33.1
+      '@earnkit/sdk-ai': 1.0.10(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-social': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
       '@langchain/core': 0.3.42
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)

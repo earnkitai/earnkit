@@ -8,23 +8,25 @@ export const useUser = () => {
   const { turnkey } = useTurnkey()
   const router = useRouter()
   const [user, setUser] = useState<User | undefined>(undefined)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
 
   useEffect(() => {
     const fetchUser = async () => {
-      if (turnkey) {
+      try {
         // Try and get the current user
-        const currentUser = await turnkey.getCurrentUser()
+        const currentUser = await turnkey?.getCurrentUser()
 
         console.log(currentUser, "currentUser")
 
         // If the user is not found, we assume the user is not logged in
         if (!currentUser) {
           router.push("/")
+          setIsLoading(false)
           return
         }
 
         // Use our read-only session to get the user's email
-        const client = await turnkey.currentUserSession()
+        const client = await turnkey?.currentUserSession()
 
         let userData: User = currentUser
 
@@ -41,10 +43,16 @@ export const useUser = () => {
           email: user?.userEmail as Email,
         }
         setUser(userData)
+      } catch (error) {
+        console.error("Error fetching user:", error)
+      } finally {
+        setIsLoading(false)
       }
     }
-    fetchUser()
+    if (turnkey) {
+      fetchUser()
+    }
   }, [turnkey, router])
 
-  return { user }
+  return { user, isLoading }
 }

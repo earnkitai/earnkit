@@ -2,7 +2,7 @@
 
 import { MoreVertical, Loader2, Pencil, Trash } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -19,6 +19,7 @@ import {
 } from '@/app/components/ui/dialog';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
+import { useChat } from '@/providers/chat-provider';
 
 interface Chat {
     id: string;
@@ -45,6 +46,7 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
     const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isRenaming, setIsRenaming] = useState(false);
+    const { needToFetchChats, setNeedToFetchChats } = useChat();
 
     useEffect(() => {
         if (!isExpanded) {
@@ -52,13 +54,7 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
         }
     }, [isExpanded]);
 
-    useEffect(() => {
-        if (userId) {
-            fetchChats();
-        }
-    }, [userId]);
-
-    const fetchChats = async () => {
+    const fetchChats = useCallback(async () => {
         if (!userId) return;
 
         try {
@@ -68,7 +64,17 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
         } catch (error) {
             console.error('Error fetching chats:', error);
         }
-    };
+    }, [userId]);
+
+    useEffect(() => {
+        if (userId) {
+            fetchChats();
+        }
+        if (needToFetchChats) {
+            fetchChats();
+            setNeedToFetchChats(false);
+        }
+    }, [userId, needToFetchChats, fetchChats, setNeedToFetchChats]);
 
     const handleDelete = async () => {
         if (!selectedChat) return;
@@ -151,7 +157,6 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
 
     const groupedChats = groupChatsByTime(chats);
 
-
     return (
         <div className="w-full flex flex-col">
             <div className="flex-1 rounded-lg py-3">
@@ -183,7 +188,6 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
                                                         setOpenDropdownId(null);
                                                     }
                                                 }}
-
                                             >
                                                 <DropdownMenuTrigger asChild>
                                                     <Button
@@ -226,7 +230,6 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
                                                             setIsDeleteDialogOpen(true);
                                                             setOpenDropdownId(null);
                                                         }}
-
                                                     >
                                                         <Trash className="h-4 w-4 mr-2" /> Delete
                                                     </DropdownMenuItem>

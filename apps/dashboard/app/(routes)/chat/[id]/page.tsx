@@ -18,6 +18,7 @@ import { getPublicClient, getTurnkeyWalletClient } from '@/lib/web3';
 import { TurnkeyBrowserClient } from '@turnkey/sdk-browser';
 import { io, Socket } from 'socket.io-client';
 import { useUser } from '@/hooks/use-user';
+import { useChat } from '@/providers/chat-provider';
 
 interface Message {
     responseFrom: string;
@@ -122,6 +123,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         type: "loading",
     });
     const [walletClient, setWalletClient] = useState<Awaited<ReturnType<typeof getTurnkeyWalletClient>> | null>(null);
+    const { setNeedToFetchChats } = useChat();
 
     // Socket.IO implementation
     const socketRef = useRef<Socket | null>(null);
@@ -144,6 +146,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     useEffect(() => {
         if (initialMessage && userId && messages.length === 0 && socketConnected) {
             handleSubmit();
+            setNeedToFetchChats(true);
+            // Fetch chats
         }
     }, [userId, messages.length, initialMessage, socketConnected]);
 
@@ -387,6 +391,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     userId,
                 }),
             });
+
+            // Set needToFetchChats to true to trigger a refresh of the chat list
+
         } catch (error) {
             console.log('Error storing user message:', error);
         }
