@@ -11,6 +11,9 @@ import { Toaster } from 'sonner';
 import { TokenAnalysis, TokenSwap, TokenBalance } from '@/app/components/dashboard/tools';
 import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+// import { Components } from 'react-markdown';
 // import * as Tooltip from '@radix-ui/react-tooltip';
 import { TransactionStatus } from '@/app/components/ui/transaction-status';
 // import { useRouter } from 'next/navigation';
@@ -937,7 +940,19 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                     ? message.response.map((item, i) => (
                                                         <div key={i}>{item.text}</div>
                                                     ))
-                                                    : message.response}
+                                                    : typeof message.response === 'string' && message.responseFrom !== 'user' ? (
+                                                        <ReactMarkdown
+                                                            remarkPlugins={[remarkGfm]}
+                                                            components={{
+                                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                                div: ({ children }) => <div className="prose prose-sm max-w-none">{children}</div>,
+                                                                pre: ({ children }) => <pre className="bg-black/4 p-4 rounded-lg">{children}</pre>,
+                                                                code: ({ children }) => <code className="text-pink-600 bg-black/4 rounded px-1">{children}</code>
+                                                            }}
+                                                        >
+                                                            {message.response}
+                                                        </ReactMarkdown>
+                                                    ) : message.response}
                                             </div>
                                         </div>
                                     );

@@ -105,7 +105,7 @@ export default function Sidebar() {
         <div className="relative">
             {/* PanelRight Icon Container */}
             <div
-                className={`fixed z-20 left-0 top-0 h-screen h-[100dvh] w-[40px] sm:w-[60px] flex items-start justify-center rounded-r-2xl transition-opacity duration-300 ${isHovered || isOpen ? 'opacity-0' : 'opacity-100'}`}
+                className={`fixed z-20 left-0 top-0 h-[100dvh] md:h-screen w-[40px] sm:w-[60px] flex items-start justify-center rounded-r-2xl transition-opacity duration-300 ${isHovered || isOpen ? 'opacity-0' : 'opacity-100'}`}
                 onMouseEnter={handleMouseEnter}
                 onClick={toggleSidebar}
             >
@@ -122,7 +122,7 @@ export default function Sidebar() {
 
             {/* Main Sidebar */}
             <aside
-                className={`fixed z-30 left-0 top-0 h-screen h-[100dvh] bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered || isOpen ? 'translate-x-0 w-[250px] sm:w-[300px]' : '-translate-x-full w-[250px] sm:w-[300px]'}`}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] md:h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered || isOpen ? 'translate-x-0 w-[250px] sm:w-[300px]' : '-translate-x-full w-[250px] sm:w-[300px]'}`}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
             >
