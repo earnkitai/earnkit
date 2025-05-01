@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
 import { prisma } from '@/lib/prisma';
@@ -74,7 +75,7 @@ export async function getChat(id: string) {
       hasAcceptedTerms: prismaChat.user.hasAcceptedTerms,
       isGuest: prismaChat.user.isGuest,
     },
-    messages: prismaChat.messages.map((msg) => ({
+    messages: prismaChat.messages.map((msg: any) => ({
       id: msg.id,
       chatId: msg.chatId,
       responseFrom: msg.responseFrom,
