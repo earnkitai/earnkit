@@ -35,7 +35,7 @@ export async function createChat(chatData: Partial<Chat>) {
       hasAcceptedTerms: prismaChat.user.hasAcceptedTerms,
       isGuest: prismaChat.user.isGuest,
     },
-    messages: prismaChat.messages.map((msg) => ({
+    messages: prismaChat.messages.map((msg: any) => ({
       id: msg.id,
       chatId: msg.chatId,
       responseFrom: msg.responseFrom,
@@ -117,7 +117,7 @@ export async function getChatsByUserId(userId: string) {
       hasAcceptedTerms: prismaChat.user.hasAcceptedTerms,
       isGuest: prismaChat.user.isGuest,
     },
-    messages: prismaChat.messages.map((msg) => ({
+    messages: prismaChat.messages.map((msg: any) => ({
       id: msg.id,
       chatId: msg.chatId,
       responseFrom: msg.responseFrom,
@@ -159,7 +159,7 @@ export async function updateChat(id: string, chatData: Partial<Chat>) {
       hasAcceptedTerms: prismaChat.user.hasAcceptedTerms,
       isGuest: prismaChat.user.isGuest,
     },
-    messages: prismaChat.messages.map((msg) => ({
+    messages: prismaChat.messages.map((msg: any) => ({
       id: msg.id,
       chatId: msg.chatId,
       responseFrom: msg.responseFrom,
