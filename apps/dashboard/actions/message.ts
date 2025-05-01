@@ -3,7 +3,6 @@
 
 import { prisma } from '@/lib/prisma';
 import { Message } from '@/types/message';
-import { Prisma } from '@prisma/client';
 
 export async function createMessage(messageData: Partial<Message>) {
   const prismaMessage = await prisma.message.create({
@@ -12,7 +11,7 @@ export async function createMessage(messageData: Partial<Message>) {
       content: messageData.content!,
       responseFrom: messageData.responseFrom!,
       toolName: messageData.toolName,
-      metadata: messageData.metadata as Prisma.InputJsonValue,
+      metadata: messageData.metadata as any,
     },
     include: {
       chat: {
