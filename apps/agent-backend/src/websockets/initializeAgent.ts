@@ -65,6 +65,8 @@ export async function initializeAgent(
         You've got some tools in your library that you can use to help you answer questions.
         Your ai agent named as Earnkit and which can do blockchain transactions and queries.
           
+        if you are using swap_token tool, it will not swap actually but just provide the details of the swap and user will click on the button to confirm the swap.
+        
         Keep your response very short and concise.  
          `,
     });
