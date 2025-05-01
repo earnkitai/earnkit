@@ -1,48 +1,54 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 // import { signOut } from "next-auth/react";
 import {
     User,
-    Wallet,
-    Home,
-    FileText,
     Settings,
-    LogOut
+    LogOut,
 } from "lucide-react";
-import { useAuth } from "@/providers/auth-provider";
+// import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from "react";
-import { useUser } from "@/hooks/use-user";
-import { getUsernameByUserId } from "@/actions/user";
-import Image from "next/image";
+import { findUserById } from "@/actions/user";
+// import Image from "next/image";
 import { Icons } from "../sections/icons";
 import SidebarChatHistory from "./SidebarChatHistory";
+import { usePrivy } from "@privy-io/react-auth";
 // import { useState } from "react";
 
 export default function Sidebar() {
-    const { user } = useUser();
+    // const { user } = useUser();
     const pathname = usePathname();
-    const { logout } = useAuth();
+    const router = useRouter();
+    const { ready, authenticated, user: privyUser, logout } = usePrivy();
     const [isHovered, setIsHovered] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
     const [username, setUsername] = useState<string>("");
-    const [pfpUrl, setPfpUrl] = useState<string>("");
+    // const [pfpUrl, setPfpUrl] = useState<string>("");
+    const [userId, setUserId] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchUsername = async () => {
-            if (user?.userId) {
-                const result = await getUsernameByUserId(user.userId);
-                if (result.success && result.username) {
-                    setUsername(result.username);
-                    setPfpUrl(result.pfpUrl || "");
+        if (ready && authenticated && privyUser) {
+            console.log(privyUser, 'privyUser');
+            const userId = privyUser?.id.split(':').pop() || privyUser?.id;
+            console.log(userId, 'userId');
+            setUserId(userId);
+            const fetchUsername = async () => {
+                if (userId) {
+                    const result = await findUserById(userId);
+                    if (result && result.username) {
+                        setUsername(result.username);
+                        console.log(result, 'result');
+                    }
                 }
-            }
-        };
-        fetchUsername();
-    }, [user]);
+            };
+            fetchUsername();
+        }
+    }, [ready, authenticated, privyUser]);
 
     // Check if device is mobile
     useEffect(() => {
@@ -86,32 +92,154 @@ export default function Sidebar() {
     };
 
     const getLinkStyles = (path: string) => {
-        return `flex items-center gap-2 px-6 py-3 rounded-lg transition-colors w-full
+        return `flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full group font-normal font-funnel-sans
             ${isActive(path)
-                ? "text-black hover:bg-gray-100"
-                : "text-black/40 hover:text-black hover:bg-gray-100"
+                ? "text-black font-semibold [&>svg]:bg-black/40 [&>svg]:text-white [&>svg>path]:opacity-100"
+                : "text-black/40 hover:text-black hover:font-semibold"
             }`;
     };
 
     // Handle logout and close sidebar on mobile
     const handleLogoutClick = () => {
+        console.log("logging out");
         logout();
+        console.log("logged out");
+        router.push("/");
         if (isMobile) {
             setIsOpen(false);
         }
     };
 
+    const handleProfileClick = () => {
+        setIsProfileMenuOpen(!isProfileMenuOpen);
+    };
+
+    // Close profile menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (!target.closest('.profile-menu')) {
+                setIsProfileMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
     return (
         <div className="relative">
             {/* PanelRight Icon Container */}
-            <div
-                className={`fixed z-20 left-0 top-0 h-[100dvh] md:h-screen w-[40px] sm:w-[60px] flex items-start justify-center rounded-r-2xl transition-opacity duration-300 ${isHovered || isOpen ? 'opacity-0' : 'opacity-100'}`}
+            {/* Main Sidebar */}
+            <aside
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen bg-black/4 flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isHovered || isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#ededed]' : 'w-[70px] sm:w-[70px] p-4'}`}
                 onMouseEnter={handleMouseEnter}
-                onClick={toggleSidebar}
+                onMouseLeave={handleMouseLeave}
+                onClick={() => isMobile && toggleSidebar()}
             >
-                <Icons.sidebarOpen className="w-5 h-5 sm:w-6 sm:h-6 mt-4" />
-            </div>
+                <div className="flex flex-col w-full justify-between items-start space-y-6">
+                    {isHovered || isOpen ? <Icons.sidebarOpen /> : <Icons.sidebarOpenIcon />}
+                    {isHovered || isOpen ? <Icons.earnkitLogoSidebar /> :
+                        <Icons.sidebarEarnkitSmallLogo />}
+                </div>
+                {/* Main Navigation */}
+                <nav className="flex w-full py-2 sm:py-3 mt-4">
+                    <div className="w-full">
+                        <Link
+                            href="/home"
+                            className={getLinkStyles("/home")}
+                            onClick={() => isMobile && setIsOpen(false)}
+                        >
+                            <Icons.sidebarPlusIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-[10px] group-hover:bg-black/40 group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>New Chat</span>
 
+                        </Link>
+                        <Link
+                            href="/wallet"
+                            className={getLinkStyles("/wallet")}
+                            onClick={() => isMobile && setIsOpen(false)}
+                        >
+                            <Icons.sidebarWalletIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>Wallet</span>
+                        </Link>
+                        <span
+                            className="flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full text-black/40"
+                        >
+                            <Icons.sidebarChatIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white font-normal group-hover:font-semibold" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>History</span>
+                        </span>
+                    </div>
+                </nav>
+                <div className="flex-1 w-full overflow-y-auto">
+                    {<SidebarChatHistory
+                        userId={userId}
+                        isExpanded={isHovered || isOpen}
+                    />}
+                </div>
+                {/* Secondary Navigation */}
+                <nav className="flex w-full ">
+                    <div className="w-full">
+                        <Link
+                            href="https://docs.earnkit.com"
+                            target="_blank"
+                            className={getLinkStyles("/docs")}
+                            onClick={() => isMobile && setIsOpen(false)}
+                        >
+                            <Icons.sidebarDocIcon className="w-4 h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
+                        </Link>
+                        <div className="relative profile-menu">
+
+                            {isProfileMenuOpen && (
+                                <div className="absolute -top-28 left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
+                                    <Link
+                                        href="/settings"
+                                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 w-full group font-normal font-funnel-sans"
+                                        onClick={() => {
+                                            if (isMobile) setIsOpen(false);
+                                            setIsProfileMenuOpen(false);
+                                        }}
+                                    >
+                                        <Settings className="w-7 h-7 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:text-white" />
+                                        <span className="group-hover:font-semibold">Settings</span>
+                                    </Link>
+                                    <button
+                                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 w-full group font-normal font-funnel-sans"
+                                        onClick={() => {
+                                            handleLogoutClick();
+                                            setIsProfileMenuOpen(false);
+                                        }}
+                                    >
+                                        <LogOut className="w-7 h-7 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:text-white" />
+                                        <span className="group-hover:font-semibold">Log out</span>
+                                    </button>
+                                </div>
+                            )}
+                            <div
+                                className={getLinkStyles("/user/profile") + " relative cursor-pointer"}
+                                onClick={handleProfileClick}
+                            >
+                                {/* {false ? (
+                                    <Image
+                                        src={"pfpUrl"}
+                                        alt="Profile Picture"
+                                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full"
+                                        width={20}
+                                        height={20}
+                                    />
+                                ) : ( */}
+                                <User className="w-4 h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                                {/* )} */}
+                                <span className={`absolute left-10 text-sm sm:text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>{username !== "" ? username : "user"}</span>
+                            </div>
+
+
+                        </div>
+                    </div>
+                </nav>
+            </aside>
             {/* Overlay for mobile */}
             {(isOpen || isHovered) && (
                 <div
@@ -119,100 +247,6 @@ export default function Sidebar() {
                     onClick={handleOverlayClick}
                 />
             )}
-
-            {/* Main Sidebar */}
-            <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] md:h-screen bg-[#F8F8F8] flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform shadow-2xl ${isHovered || isOpen ? 'translate-x-0 w-[250px] sm:w-[300px]' : '-translate-x-full w-[250px] sm:w-[300px]'}`}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-            >
-                {/* Main Navigation */}
-                <nav className="flex w-full p-4 sm:p-6">
-                    <div className="space-y-2 sm:space-y-4 w-full">
-                        <Link
-                            href="/home"
-                            className={getLinkStyles("/home")}
-                            onClick={() => isMobile && setIsOpen(false)}
-                        >
-                            <Home className="w-4 h-4 sm:w-5 sm:h-5 min-w-4 sm:min-w-5" />
-                            <span className="text-sm sm:text-base font-medium">Home</span>
-                        </Link>
-                        <Link
-                            href="/wallet"
-                            className={getLinkStyles("/wallet")}
-                            onClick={() => isMobile && setIsOpen(false)}
-                        >
-                            <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
-                            <span className="text-sm sm:text-base font-medium">Wallet</span>
-                        </Link>
-
-
-                    </div>
-                </nav>
-                <div className="w-full px-4 sm:px-6">
-                    <span
-                        className="flex items-center gap-2 px-6 py-3 rounded-lg transition-colors w-full text-black/40"
-                    >
-                        <span className="text-sm sm:text-base font-medium text-ellipsis overflow-hidden whitespace-nowrap">Chat History</span>
-                    </span>
-                </div>
-                <div className="flex-1 w-full px-4 sm:px-6 overflow-y-auto">
-                    <SidebarChatHistory
-                        userId={user?.userId}
-                        isExpanded={isHovered || isOpen}
-                    />
-                </div>
-                {/* Secondary Navigation */}
-                <nav className="flex w-full p-4 sm:p-6 ">
-                    <div className="space-y-2 sm:space-y-4 w-full">
-                        <span
-                            // href="/dashboard/user/profile"
-                            className={getLinkStyles("/user/profile")}
-                        >
-                            {pfpUrl ? (
-                                <Image
-                                    src={pfpUrl}
-                                    alt="Profile Picture"
-                                    className="w-4 h-4 sm:w-5 sm:h-5 rounded-full"
-                                    width={20}
-                                    height={20}
-                                />
-                            ) : (
-                                <User className="w-4 h-4 sm:w-5 sm:h-5" />
-                            )}
-                            <span className="text-sm sm:text-base font-medium text-ellipsis overflow-hidden whitespace-nowrap">{username !== "" ? username : "user"}</span>
-
-                        </span>
-                        <Link
-                            href="https://docs.earnkit.com"
-                            target="_blank"
-                            className={getLinkStyles("/docs")}
-                            onClick={() => isMobile && setIsOpen(false)}
-                        >
-                            <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
-                            <span className="text-sm sm:text-base font-medium">Docs</span>
-                        </Link>
-
-                        <Link
-                            href="/settings"
-                            className={getLinkStyles("/settings")}
-                            onClick={() => isMobile && setIsOpen(false)}
-                        >
-                            <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
-                            <span className="text-sm sm:text-base font-medium">Settings</span>
-                        </Link>
-
-                        <button
-                            // onClick={() => signOut({ callbackUrl: "/signin" })}
-                            className={getLinkStyles("/logout")}
-                            onClick={handleLogoutClick}
-                        >
-                            <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-                            <span className="text-sm sm:text-base font-medium">Log out</span>
-                        </button>
-                    </div>
-                </nav>
-            </aside>
-        </div>
+        </div >
     );
 } 

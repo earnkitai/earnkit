@@ -2,17 +2,6 @@ import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  // async redirects() {
-  //   return [
-  //     // Basic redirect
-  //     {
-  //       source: '/',
-  //       destination: '/dashboard',
-  //       permanent: true,
-  //     },
-  //   ];
-  // },
   webpack: (config) => {
     config.resolve.fallback = { fs: false, net: false, tls: false };
     config.externals.push('pino-pretty', 'lokijs', 'encoding');
@@ -37,6 +26,36 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // async headers() {
+  //   return [
+  //     {
+  //       source: '/:path*',
+  //       headers: [
+  //         {
+  //           key: 'Content-Security-Policy-Report-Only',
+  //           value: `
+  //             default-src 'self';
+  //             script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com;
+  //             style-src 'self' unsafe-inline;
+  //             img-src 'self' data: blob: https://*.privy.io https://*.walletconnect.com https://*.walletconnect.org;
+  //             font-src 'self';
+  //             object-src 'none';
+  //             base-uri 'self';
+  //             form-action 'self';
+  //             frame-ancestors 'none';
+  //             child-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org;
+  //             frame-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com;
+  //             connect-src 'self' https://auth.privy.io wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org https://*.rpc.privy.systems https://api.coingecko.com https://*.walletconnect.com https://*.walletconnect.org https://*.sentry.io;
+  //             worker-src 'self';
+  //             manifest-src 'self'
+  //           `
+  //             .replace(/\s+/g, ' ')
+  //             .trim(),
+  //         },
+  //       ],
+  //     },
+  //   ];
+  // },
 };
 
 export default withSentryConfig(nextConfig, {

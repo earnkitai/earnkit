@@ -3,8 +3,7 @@ import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import { Providers } from "@/providers";
-import { ThemeProvider } from "./providers/theme-provider";
-import { ChatProvider } from '@/providers/chat-provider';
+
 // import { Providers } from "@/providers";
 // import Header from "@/app/components/common/Header";
 // import Footer from "@/app/components/common/Footer";
@@ -87,17 +86,13 @@ export default function RootLayout({
         <SchemaOrg />
       </head>
       <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`} suppressHydrationWarning>
-        <ThemeProvider defaultTheme="light" storageKey="earnkit-theme">
-          <Providers>
-            <ChatProvider>
-              {/* <Header />
+        <Providers>
+          {/* <Header />
               <main className="flex-grow z-30" > */}
-              {children}
-              {/* </main>
+          {children}
+          {/* </main>
               <Footer /> */}
-            </ChatProvider>
-          </Providers>
-        </ThemeProvider>
+        </Providers>
       </body>
     </html>
   );

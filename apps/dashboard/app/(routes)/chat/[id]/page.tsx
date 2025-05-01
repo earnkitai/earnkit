@@ -1,13 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, use } from 'react';
-import { useWallets } from '@/providers/wallet-provider';
-import { useTurnkey } from '@turnkey/sdk-react';
-import { TransactionRequest } from 'viem';
+import { Account } from 'viem';
 import { ethers } from 'ethers';
 import { showTransactionToast } from '@/lib/toast';
-import { useTransactions } from '@/providers/transactions-provider';
-import { Toaster } from 'sonner';
+import { Toaster } from '@/app/components/ui/sonner';
 import { TokenAnalysis, TokenSwap, TokenBalance } from '@/app/components/dashboard/tools';
 import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
@@ -15,13 +12,16 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 // import { Components } from 'react-markdown';
 // import * as Tooltip from '@radix-ui/react-tooltip';
-import { TransactionStatus } from '@/app/components/ui/transaction-status';
+// import { TransactionStatus } from '@/app/components/ui/transaction-status';
 // import { useRouter } from 'next/navigation';
-import { getPublicClient, getTurnkeyWalletClient } from '@/lib/web3';
-import { TurnkeyBrowserClient } from '@turnkey/sdk-browser';
+import { getPublicClient } from '@/lib/web3';
 import { io, Socket } from 'socket.io-client';
 import { useUser } from '@/hooks/use-user';
 import { useChat } from '@/providers/chat-provider';
+import { usePrivy } from '@privy-io/react-auth';
+import { Icons } from '@/app/components/sections/icons';
+import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
+import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
 
 interface Message {
     responseFrom: string;
@@ -76,6 +76,20 @@ export interface SwapDetails {
     gasCostUSD: string;
 }
 
+export type SwapProgressState = 'initial' | 'approving' | 'approved' | 'swapping' | 'completed' | 'error' | '';
+
+
+export interface SwapTokenConfirmationResponse {
+    tokenIn: Token;
+    tokenOut: Token;
+    amountIn: string;
+    tokenInDecimals: number;
+    tokenOutDecimals: number;
+    amountOut: string;
+    approvalHash: string;
+    swapHash: string;
+}
+
 const ERC20_ABI = [
     {
         name: 'allowance',
@@ -106,27 +120,44 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
-    const { addPendingTransaction } = useTransactions();
-    const { state } = useWallets();
-    const { selectedAccount } = state;
-    const { user } = useUser()
-    const { passkeyClient, getActiveClient } = useTurnkey();
-    const [userId, setUserId] = useState<string | null>(null);
-    const { turnkey } = useTurnkey();
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const [isTransactionStatusOpen, setIsTransactionStatusOpen] = useState(false);
-    const [transactionStatus, setTransactionStatus] = useState<{
-        title: string;
-        description: string;
-        type: "loading" | "success" | "error";
-        hash?: string;
-    }>({
-        title: "",
-        description: "",
-        type: "loading",
+    // const { addPendingTransaction } = useTransactions();
+    const [showSwapConfirmation, setShowSwapConfirmation] = useState<boolean>(false);
+    const [showSwapConfirmationData, setShowSwapConfirmationData] = useState<SwapTokenConfirmationResponse | null>(null);
+    const [swapProgressState, setSwapProgressState] = useState<SwapProgressState>('');
+    const [swapProgressData, setSwapProgressData] = useState<SwapProgressProps>({
+        tokenInSymbol: '',
+        tokenInAmount: '',
+        tokenInImage: '',
+        tokenOutSymbol: '',
+        tokenOutAmount: '',
+        tokenOutImage: '',
+        tokenInDecimals: 18,
+        gasFee: '',
+        state: swapProgressState,
     });
-    const [walletClient, setWalletClient] = useState<Awaited<ReturnType<typeof getTurnkeyWalletClient>> | null>(null);
+
+    // const { state } = useWallets();
+    // const { selectedAccount } = state;
+    const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+    const { user } = useUser()
+    // const { passkeyClient, getActiveClient } = useTurnkey();
+    const [userId, setUserId] = useState<string | null>(null);
+    const { ready, authenticated, user: privyUser, sendTransaction } = usePrivy();
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    // const [isTransactionStatusOpen, setIsTransactionStatusOpen] = useState(false);
+    // const [transactionStatus, setTransactionStatus] = useState<{
+    //     title: string;
+    //     description: string;
+    //     type: "loading" | "success" | "error";
+    //     hash?: string;
+    // }>({
+    //     title: "",
+    //     description: "",
+    //     type: "loading",
+    // });
+    // const [walletClient, setWalletClient] = useState<Awaited<ReturnType<typeof getTurnkeyWalletClient>> | null>(null);
     const { setNeedToFetchChats } = useChat();
+    const [showActivity, setShowActivity] = useState(false);
 
     // Socket.IO implementation
     const socketRef = useRef<Socket | null>(null);
@@ -161,35 +192,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     }, [user])
 
     useEffect(() => {
-        if (turnkey) {
-            const fetchUser = async () => {
-                try {
-                    const currentUser = await turnkey.getCurrentUser();
-                    if (currentUser?.userId) {
-                        setUserId(currentUser.userId);
-                    }
-                } catch (error) {
-                    console.log("Error fetching user profile:", error);
-                }
-            };
-            fetchUser();
+        if (ready && authenticated && privyUser?.id) {
+            const userId = privyUser?.id.split(':').pop() || privyUser?.id;
+            setUserId(userId);
+            setSelectedAccount(privyUser.wallet as unknown as Account);
         }
-    }, [turnkey]);
-
-    useEffect(() => {
-        const initializeWalletClient = async () => {
-            if (!selectedAccount || !passkeyClient) return;
-            const currentClient = await getActiveClient();
-            console.log(currentClient, "currentClient")
-            const walletClient = await getTurnkeyWalletClient(
-                currentClient as TurnkeyBrowserClient,
-                selectedAccount.address as `0x${string}`,
-            );
-            setWalletClient(walletClient);
-        };
-
-        initializeWalletClient();
-    }, [selectedAccount, passkeyClient]);
+    }, [ready, authenticated, privyUser]);
 
     useEffect(() => {
         const loadMessages = async () => {
@@ -424,45 +432,76 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         }
     };
 
+    const handleSwapConfirmationMsgStore = async (inputValueNew: string) => {
+        // Add user message to chat
+        const userMessage = { responseFrom: 'user', response: inputValueNew };
+        setMessages((prev) => [...prev, userMessage]);
+
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: inputValueNew,
+                    responseFrom: 'user',
+                    userId,
+                }),
+            });
+            // Set needToFetchChats to true to trigger a refresh of the chat list
+        } catch (error) {
+            console.log('Error storing user message:', error);
+        }
+    }
+
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.target.value);
     };
 
     const handleSwapToken = async (data: SwapTokenResponse) => {
-        setIsTransactionStatusOpen(true);
-        setTransactionStatus({
-            title: 'Swapping token...',
-            description: 'Please wait for transaction to complete',
-            type: 'loading',
-        });
-        try {
-            console.log(data, 'swap token data');
+        // Show confirmation UI immediately
 
-            if (!selectedAccount || !passkeyClient) {
+        setShowSwapConfirmationData({
+            tokenIn: data.tokenIn,
+            tokenOut: data.tokenOut,
+            amountIn: data.amountIn,
+            amountOut: data.swapRoute.quote,
+            tokenInDecimals: data.tokenIn.decimals,
+            tokenOutDecimals: data.tokenOut.decimals,
+            approvalHash: '',
+            swapHash: '',
+        });
+        // to show the swap confirmation UI
+        setShowSwapConfirmation(true);
+        setShowActivity(true);
+        await handleSwapConfirmationMsgStore("confirm");
+        setSwapProgressData({
+            tokenInSymbol: data.tokenIn.symbol,
+            tokenInAmount: data.amountIn,
+            tokenInImage: data.tokenIn.image,
+            tokenOutSymbol: data.tokenOut.symbol,
+            tokenOutAmount: data.swapRoute.quote,
+            tokenOutImage: data.tokenOut.image,
+            tokenInDecimals: data.tokenIn.decimals,
+            gasFee: data.swapRoute.gasCostUSD,
+            state: swapProgressState,
+        });
+
+        setSwapProgressState('initial');
+        try {
+            if (!selectedAccount) {
                 console.log('❌ Missing requirements:', {
                     selectedAccount: !!selectedAccount,
-                    passkeyClient: !!passkeyClient,
                 });
                 return;
             }
-            const currentClient = await getActiveClient();
-            console.log(currentClient, "currentClient")
 
-            const walletClient = await getTurnkeyWalletClient(
-                currentClient as TurnkeyBrowserClient,
-                selectedAccount?.address as `0x${string}`,
-            );
-
-            // const ROUTER_ADDRESS = '0x2626664c2603336E57B271c5C0b26F421741e481';
             const ETH_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-
-            // Check if we're swapping with ETH
             const isETHSwap = data.tokenIn.address.toLowerCase() === ETH_ADDRESS.toLowerCase();
+            let approvalHash = '';
 
             if (!isETHSwap) {
-                console.log('ERC20 token swap');
-                // Check allowance first
                 const publicClient = getPublicClient('base');
                 const erc20Contract = new ethers.Interface(ERC20_ABI);
 
@@ -470,44 +509,34 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     address: data.tokenIn.address,
                     abi: ERC20_ABI,
                     functionName: 'allowance',
-                    args: [selectedAccount.address, data.swapRoute.methodParameters.to as `0x${string}`],
+                    args: [selectedAccount?.address as `0x${string}`, data.swapRoute.methodParameters.to as `0x${string}`],
                 })) as bigint;
 
-                console.log(allowanceData, 'allowance data');
-
-                // If allowance is insufficient, send approve transaction first
                 if (allowanceData < BigInt(data.amountIn)) {
+                    setSwapProgressState('approving');
                     const approveData = erc20Contract.encodeFunctionData('approve', [
                         data.swapRoute.methodParameters.to as `0x${string}`,
-                        ethers.MaxUint256,
+                        BigInt(data.amountIn), // we can also use ethers.MaxUint256
                     ]);
 
-                    console.log(approveData, 'approve data');
-
-                    const approveTx = await walletClient.prepareTransactionRequest({
+                    const transactionRequest = {
                         to: data.tokenIn.address,
                         data: approveData as `0x${string}`,
-                    });
-
-                    console.log(approveTx, 'approve tx');
+                    };
 
                     try {
-                        const hash = await walletClient.sendTransaction(approveTx);
+                        const { hash } = await sendTransaction(transactionRequest);
+                        approvalHash = hash;
+
                         const toastId = showTransactionToast({
                             hash,
                             title: 'Approving token...',
                             description: 'Please wait for approval to complete',
                             type: 'loading',
                         });
-                        setTransactionStatus({
-                            title: 'Approving token...',
-                            description: 'Please wait for approval to complete',
-                            type: 'loading',
-                            hash,
-                        });
-                        setIsTransactionStatusOpen(true);
 
                         await publicClient.waitForTransactionReceipt({ hash });
+                        setSwapProgressState('approved');
 
                         showTransactionToast({
                             id: toastId,
@@ -516,12 +545,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             description: 'Now proceeding with swap',
                             type: 'success',
                         });
-                        setTransactionStatus({
-                            title: 'Token approved! 🎉',
-                            description: 'Now proceeding with swap',
-                            type: 'success',
-                            hash,
-                        });
                     } catch (error) {
                         console.log('Error approving token:', error);
                         showTransactionToast({
@@ -529,61 +552,103 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             description: 'Please try again',
                             type: 'error',
                         });
-                        setTransactionStatus({
-                            title: 'Error approving token',
-                            description: 'Please try again',
-                            type: 'error',
-                        });
-                        setIsTransactionStatusOpen(true);
+                        setSwapProgressState('error');
                         return;
                     }
                 }
             }
 
-            console.log('swapping token with ETH');
-            // const router = new ethers.Interface(ROUTER_ABI);
-
-            // // Encode the swap parameters
-            // const swapParams = {
-            //     tokenIn: data.tokenIn.address,
-            //     tokenOut: data.tokenOut.address,
-            //     recipient: selectedAccount?.address as `0x${string}`,
-            //     amountIn: data.amountIn,
-            //     amountOutMinimum: 0,
-            //     sqrtPriceLimitX96: 0,
-            // };
-
-            // // Encode the function call
-            // const encodedData = router.encodeFunctionData('exactInputSingle', [
-            //     swapParams,
-            // ]);
-
+            setSwapProgressState('swapping');
             const encodedData = data.swapRoute.methodParameters.calldata;
-
-            console.log(encodedData, 'encoded data');
-
-            // Prepare the transaction request
-            const transaction = await walletClient.prepareTransactionRequest({
+            const transactionRequest2 = {
                 to: data.swapRoute.methodParameters.to as `0x${string}`,
                 data: encodedData as `0x${string}`,
-                // Include value if swapping ETH
                 value: isETHSwap ? BigInt(data.swapRoute.methodParameters.value) : BigInt(0),
-            });
+            };
 
-            console.log(transaction, 'transaction');
+            try {
+                const { hash } = await sendTransaction(transactionRequest2);
+                setShowSwapConfirmationData({
+                    tokenIn: data.tokenIn,
+                    tokenOut: data.tokenOut,
+                    amountIn: data.amountIn,
+                    amountOut: data.swapRoute.quote,
+                    tokenInDecimals: data.tokenIn.decimals,
+                    tokenOutDecimals: data.tokenOut.decimals,
+                    approvalHash,
+                    swapHash: hash,
+                });
 
-            await handleSendTransaction(transaction);
+                const finalConfirmationData = {
+                    tokenIn: data.tokenIn,
+                    tokenOut: data.tokenOut,
+                    amountIn: data.amountIn,
+                    amountOut: data.swapRoute.quote,
+                    tokenInDecimals: data.tokenIn.decimals,
+                    tokenOutDecimals: data.tokenOut.decimals,
+                    approvalHash,
+                    swapHash: hash,
+                };
+                const finalConfirmationDataString = JSON.stringify(finalConfirmationData);
+                // Store final confirmation in database
+                await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: finalConfirmationDataString,
+                        responseFrom: 'tools',
+                        toolName: 'swap_token_confirmation',
+                        userId,
+                    }),
+                });
+
+                setShowSwapConfirmation(false);
+                const userMessage = { responseFrom: 'tools', response: finalConfirmationDataString, tool_name: 'swap_token_confirmation' };
+                setMessages((prev) => [...prev, userMessage]);
+
+
+                const publicClient = getPublicClient('base');
+                const toastId = showTransactionToast({
+                    hash,
+                    title: 'Swapping tokens...',
+                    description: 'Please wait for the swap to complete',
+                    type: 'loading',
+                });
+
+                await publicClient.waitForTransactionReceipt({ hash });
+                setSwapProgressState('completed');
+
+                showTransactionToast({
+                    id: toastId,
+                    hash,
+                    title: 'Swap successful! 🎉',
+                    description: 'Your tokens have been swapped',
+                    type: 'success',
+                });
+                setShowSwapConfirmation(false);
+                setShowActivity(false);
+
+            } catch (error) {
+                console.log('Error executing swap:', error);
+                showTransactionToast({
+                    title: 'Error executing swap',
+                    description: 'Please try again',
+                    type: 'error',
+                });
+                setSwapProgressState('error');
+            }
         } catch (err) {
+            setSwapProgressState('error');
             if (err instanceof Error) {
                 console.log(err.message);
                 if (err.message.includes('insufficient funds')) {
-                    setTransactionStatus({
+                    showTransactionToast({
                         title: 'Insufficient funds',
                         description: 'Please try again',
                         type: 'error',
                     });
                 } else {
-                    setTransactionStatus({
+                    showTransactionToast({
                         title: 'Error sending transaction',
                         description: 'Please try again',
                         type: 'error',
@@ -593,76 +658,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         }
     };
 
-    const handleSendTransaction = async (
-        transactionRequest: TransactionRequest,
-    ) => {
-        if (!selectedAccount || !walletClient) return;
-        try {
-            const publicClient = getPublicClient('base');
-            const hash = await walletClient.sendTransaction(transactionRequest);
-            addPendingTransaction({
-                hash,
-                ...transactionRequest,
-            });
-
-            // Show both toast and popup for transaction sent
-            const toastId = showTransactionToast({
-                hash,
-                title: 'Sending transaction...',
-                description: 'View your transaction on explorer',
-                type: 'loading',
-            });
-
-            setTransactionStatus({
-                title: 'Sending Transaction',
-                description: 'Your transaction is being processed. Please wait...',
-                type: 'loading',
-                hash,
-            });
-
-            await publicClient.waitForTransactionReceipt({
-                hash,
-            });
-
-            // Show both toast and popup for transaction success
-            showTransactionToast({
-                id: toastId,
-                hash,
-                title: 'Transaction sent! 🎉',
-                description: `Transaction sent to 0x2626664c2603336E57B271c5C0b26F421741e481`,
-                type: 'success',
-            });
-
-            setTransactionStatus({
-                title: 'Transaction Successful! 🎉',
-                description: 'Your transaction has been confirmed on the blockchain.',
-                type: 'success',
-                hash,
-            });
-        } catch (error) {
-            console.log('Error sending transaction:', error);
-            showTransactionToast({
-                title: 'Error sending transaction',
-                description: 'Please try again',
-                type: 'error',
-            });
-
-            setTransactionStatus({
-                title: 'Transaction Failed',
-                description: 'There was an error processing your transaction. Please try again.',
-                type: 'error',
-            });
-        }
-    };
-
     // Add this helper function to check if a response is an error
-    const isErrorResponse = (response: string) => {
-        return (
-            response.includes('status code') ||
-            response.includes('error') ||
-            response.includes('failed')
-        );
-    };
+    // const isErrorResponse = (response: string) => {
+    //     return (
+    //         response.includes('status code') ||
+    //         response.includes('error') ||
+    //         response.includes('failed')
+    //     );
+    // };
 
     // Add this near the top of your render function, before the return statement
     // const renderConnectionStatus = () => {
@@ -690,48 +693,21 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     // };
 
     return (
-        <div>
-            {/* <div className="fixed top-4 right-4 flex items-center gap-3 justify-center">
-                <Tooltip.Provider>
-                    <Tooltip.Root>
-                        <Tooltip.Trigger asChild>
-                            <button
-                                onClick={() => router.push('/dashboard')}
-                                className="flex items-center gap-2 justify-center font-funnel-sans font-semibold rounded-xl hover:bg-gray-50 transition-colors z-40"
-                                aria-label="Back to dashboard"
-                            >
-                                <svg
-                                    width="24"
-                                    height="24"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    className="w-6 h-6 text-black opacity-40 hover:opacity-100 transition-opacity"
-                                >
-                                    <path
-                                        d="M19 12H5M5 12L12 19M5 12L12 5"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    />
-                                </svg>
-                            </button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Portal>
-                            <Tooltip.Content
-                                className="bg-gray-900 text-white px-2 py-1 rounded text-sm"
-                                sideOffset={5}
-                            >
-                                Back to Dashboard
-                            </Tooltip.Content>
-                        </Tooltip.Portal>
-                    </Tooltip.Root>
-                </Tooltip.Provider>
-            </div> */}
+        <div className="flex h-screen font-funnel-sans ml-[80px] relative">
+            {/* Activity Toggle Button */}
+            <button
+                onClick={() => setShowActivity(!showActivity)}
+                className="absolute top-4 right-4 p-2 rounded-lg transition-colors z-50 group"
+            >
+                <div className="flex items-center gap-1">
+                    {!showActivity && <span className="text-sm font-normal font-funnel-sans text-black/40 group-hover:text-black">Activity</span>}
+                    {showActivity ? <Icons.splitCloseIcon className="w-4 h-4 text-black/60 opacity-40 group-hover:opacity-100" /> : <Icons.splitOpenIcon className="w-4 h-4 text-black/60 opacity-40 group-hover:opacity-100" />}
+                </div>
+            </button>
 
-            <section className="relative max-w-3xl mx-auto rounded-lg">
-                <div className="flex flex-col gap-4 justify-between h-screen pt-4">
+            {/* Left side - Chat Interface */}
+            <section className={`${showActivity ? 'w-1/2 border-r border-black/10' : 'w-full max-w-4xl mx-auto'} relative ease-in-out transition-all duration-500`}>
+                <div className="flex flex-col gap-4 justify-between h-screen">
                     <div className="flex-1 h-full overflow-y-auto p-4 mt-10 md:mt-6">
                         {isLoadingMessages ? (
                             <div className="flex items-center gap-2 text-gray-600 p-4">
@@ -741,151 +717,100 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                         ) : (
                             <>
                                 {messages.length > 0 && messages.map((message, index) => {
-                                    if (
-                                        message.responseFrom === 'tools' &&
-                                        typeof message.response === 'string'
-                                    ) {
-                                        // First check if it's an error response
-                                        if (isErrorResponse(message.response)) {
-                                            return (
-                                                <div key={index} className="flex justify-start my-4">
-                                                    <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
-                                                        <div className="flex items-center gap-2 text-red-600">
-                                                            <svg
-                                                                width="20"
-                                                                height="20"
-                                                                viewBox="0 0 24 24"
-                                                                fill="none"
-                                                                stroke="currentColor"
-                                                                strokeWidth="2"
+                                    if (message.responseFrom === 'user') {
+                                        // Render user messages in chat only
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="flex justify-end my-2"
+                                            >
+                                                <div className="max-w-[80%] p-4 rounded-full font-funnel-sans bg-black/4 text-black/80 ml-auto font-semibold">
+                                                    {Array.isArray(message.response)
+                                                        ? message.response.map((item, i) => (
+                                                            <div key={i}>{item.text}</div>
+                                                        ))
+                                                        : typeof message.response === 'string' && message.responseFrom !== 'user' ? (
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkGfm]}
+                                                                components={{
+                                                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                                    div: ({ children }) => <div className="prose prose-sm max-w-none">{children}</div>,
+                                                                    pre: ({ children }) => <pre className="bg-black/4 p-4 rounded-lg">{children}</pre>,
+                                                                    code: ({ children }) => <code className="text-pink-600 bg-black/4 rounded px-1">{children}</code>
+                                                                }}
                                                             >
+                                                                {message.response}
+                                                            </ReactMarkdown>
+                                                        ) : message.response}
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    if (message.responseFrom === 'agent' || (message.responseFrom !== 'tools' && !message.tool_name)) {
+                                        // Render agent messages in chat only
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="flex justify-start my-2"
+                                            >
+                                                <div className="max-w-[80%] p-2 font-funnel-sans text-black/80 font-normal">
+                                                    {Array.isArray(message.response)
+                                                        ? message.response.map((item, i) => (
+                                                            <div key={i}>{item.text}</div>
+                                                        ))
+                                                        : typeof message.response === 'string' && message.responseFrom !== 'user' ? (
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkGfm]}
+                                                                components={{
+                                                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                                    div: ({ children }) => <div className="prose prose-sm max-w-none">{children}</div>,
+                                                                    pre: ({ children }) => <pre className="bg-black/4 p-4 rounded-lg">{children}</pre>,
+                                                                    code: ({ children }) => <code className="text-pink-600 bg-black/4 rounded px-1">{children}</code>
+                                                                }}
+                                                            >
+                                                                {message.response}
+                                                            </ReactMarkdown>
+                                                        ) : message.response}
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    // Render tool responses
+                                    if (message.tool_name === 'token_analysis') {
+                                        try {
+                                            const data: TokenAnalysisResponse = JSON.parse(message.response as string);
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <TokenAnalysis data={data} />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                 <circle cx="12" cy="12" r="10" />
                                                                 <line x1="12" y1="8" x2="12" y2="12" />
                                                                 <line x1="12" y1="16" x2="12" y2="16" />
                                                             </svg>
-                                                            <span className="font-semibold">
-                                                                Operation Failed
-                                                            </span>
+                                                            <span className="font-semibold">Invalid Response Format</span>
                                                         </div>
-                                                        <p className="mt-2 text-sm text-red-600">
-                                                            {message.tool_name === 'swap_token' &&
-                                                                'Failed to execute swap. Please try again later.'}
-                                                            {message.tool_name === 'token_analysis' &&
-                                                                'Failed to fetch token information. Please try again later.'}
-                                                            {!message.tool_name &&
-                                                                'Operation failed. Please try again later.'}
-                                                        </p>
-                                                        <div className="mt-3 flex gap-2">
-                                                            <button
-                                                                onClick={() => {
-                                                                    // Remove the last two messages (user input and error) and retry
-                                                                    // setMessages(prev => prev.slice(0, -2));
-                                                                    // setInputValue(messages[messages.length - 2].response as string);
-                                                                    // handleSubmit(new Event('submit') as any);
-                                                                }}
-                                                                className="px-4 py-2 bg-red-100 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-200"
-                                                            >
-                                                                Retry
-                                                            </button>
-                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process token information. Please try again.</p>
                                                     </div>
                                                 </div>
                                             );
-                                        }
-
-                                        // Then proceed with existing tool-specific rendering...
-                                        if (message.tool_name === 'token_analysis') {
-                                            try {
-                                                const data: TokenAnalysisResponse = JSON.parse(message.response);
-                                                console.log(data, "token analysis data")
-                                                return (
-                                                    <div key={index} className="flex justify-start my-4">
-                                                        <TokenAnalysis data={data} />
-                                                    </div>
-                                                );
-                                            } catch (error) {
-                                                console.log(error, 'error');
-                                                return (
-                                                    <div key={index} className="flex justify-start my-4">
-                                                        <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
-                                                            <div className="flex items-center gap-2 text-red-600">
-                                                                <svg
-                                                                    width="20"
-                                                                    height="20"
-                                                                    viewBox="0 0 24 24"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth="2"
-                                                                >
-                                                                    <circle cx="12" cy="12" r="10" />
-                                                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                                                    <line x1="12" y1="16" x2="12" y2="16" />
-                                                                </svg>
-                                                                <span className="font-semibold">
-                                                                    Invalid Response Format
-                                                                </span>
-                                                            </div>
-                                                            <p className="mt-2 text-sm text-red-600">
-                                                                Failed to process token information. Please try
-                                                                again.
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
-                                        }
-
-                                        if (message.tool_name === 'swap_token') {
-                                            try {
-                                                const data: SwapTokenResponse = JSON.parse(message.response as string);
-                                                return (
-                                                    <div key={index} className="flex justify-start my-4">
-                                                        <TokenSwap
-                                                            data={data}
-                                                            onSwap={handleSwapToken}
-                                                            userAddress={selectedAccount?.address as string}
-                                                        />
-                                                    </div>
-                                                );
-                                            } catch {
-
-                                                return (
-                                                    <div key={index} className="flex justify-start my-4">
-                                                        <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
-                                                            <div className="flex items-center gap-2 text-red-600">
-                                                                <svg
-                                                                    width="20"
-                                                                    height="20"
-                                                                    viewBox="0 0 24 24"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    strokeWidth="2"
-                                                                >
-                                                                    <circle cx="12" cy="12" r="10" />
-                                                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                                                    <line x1="12" y1="16" x2="12" y2="16" />
-                                                                </svg>
-                                                                <span className="font-semibold">
-                                                                    Invalid Swap Data
-                                                                </span>
-                                                            </div>
-                                                            <p className="mt-2 text-sm text-red-600">
-                                                                Failed to process swap information. Please try
-                                                                again.
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
                                         }
                                     }
 
                                     if (message.tool_name === 'get_balance') {
                                         try {
                                             const data: WalletBalanceResponse = JSON.parse(message.response as string);
-                                            console.log(data, "balance data")
                                             return (
-                                                <div key={index} className="flex justify-start my-4">
+                                                <div key={index} className="mb-6">
                                                     <TokenBalance
                                                         data={data}
                                                         selectedAccount={selectedAccount}
@@ -896,67 +821,80 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             );
                                         } catch {
                                             return (
-                                                <div key={index} className="flex justify-start my-4">
-                                                    <div className="max-w-[80%] bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 font-funnel-sans">
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
                                                         <div className="flex items-center gap-2 text-red-600">
-                                                            <svg
-                                                                width="20"
-                                                                height="20"
-                                                                viewBox="0 0 24 24"
-                                                                fill="none"
-                                                                stroke="currentColor"
-                                                                strokeWidth="2"
-                                                            >
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                 <circle cx="12" cy="12" r="10" />
                                                                 <line x1="12" y1="8" x2="12" y2="12" />
                                                                 <line x1="12" y1="16" x2="12" y2="16" />
                                                             </svg>
-                                                            <span className="font-semibold">
-                                                                Invalid Balance Data
-                                                            </span>
+                                                            <span className="font-semibold">Invalid Balance Data</span>
                                                         </div>
-                                                        <p className="mt-2 text-sm text-red-600">
-                                                            Failed to process balance information. Please try again.
-                                                        </p>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process balance information. Please try again.</p>
                                                     </div>
                                                 </div>
                                             );
                                         }
                                     }
 
-                                    // Regular message rendering
-                                    return (
-                                        <div
-                                            key={index}
-                                            className={`flex my-2 ${message.responseFrom === 'user' ? 'justify-end' : 'justify-start'}`}
-                                        >
-                                            <div
-                                                className={`max-w-[80%] p-4 rounded-lg font-funnel-sans ${message.responseFrom === 'user'
-                                                    ? 'bg-black/4 text-black/80 ml-auto font-semibold'
-                                                    : 'bg-transparent text-gray-800'
-                                                    }`}
-                                            >
-                                                {Array.isArray(message.response)
-                                                    ? message.response.map((item, i) => (
-                                                        <div key={i}>{item.text}</div>
-                                                    ))
-                                                    : typeof message.response === 'string' && message.responseFrom !== 'user' ? (
-                                                        <ReactMarkdown
-                                                            remarkPlugins={[remarkGfm]}
-                                                            components={{
-                                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                                div: ({ children }) => <div className="prose prose-sm max-w-none">{children}</div>,
-                                                                pre: ({ children }) => <pre className="bg-black/4 p-4 rounded-lg">{children}</pre>,
-                                                                code: ({ children }) => <code className="text-pink-600 bg-black/4 rounded px-1">{children}</code>
-                                                            }}
-                                                        >
-                                                            {message.response}
-                                                        </ReactMarkdown>
-                                                    ) : message.response}
-                                            </div>
-                                        </div>
-                                    );
+                                    if (message.tool_name === 'swap_token') {
+                                        try {
+                                            const data: SwapTokenResponse = JSON.parse(message.response as string);
+                                            console.log(data, 'data');
+                                            return (
+                                                <div key={index} className="mb-2">
+                                                    <TokenSwap data={data} onSwap={handleSwapToken} userAddress={selectedAccount?.address as `0x${string}`} />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-2">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 max-w-max">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Swap Data</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process swap information. Please try again.</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    if (message.tool_name === 'swap_token_confirmation') {
+                                        try {
+                                            const data: SwapTokenConfirmationResponse = JSON.parse(message.response as string);
+                                            console.log(data, 'data');
+                                            return (
+                                                <div key={index} className="mb-2">
+                                                    <TokenSwapConfirmation
+                                                        data={data}
+                                                        userAddress={selectedAccount?.address as `0x${string}`}
+                                                        state={swapProgressState}
+                                                    />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                        }
+                                    }
+
+
+
+
                                 })}
+
+                                {showSwapConfirmation &&
+                                    <div className="mb-2">
+                                        <TokenSwapConfirmation data={showSwapConfirmationData as SwapTokenConfirmationResponse} state={swapProgressState} userAddress={selectedAccount?.address as `0x${string}`} />
+                                    </div>
+                                }
                                 {isLoading && (
                                     <div className="flex items-center gap-2 text-gray-600 p-4">
                                         <div className="animate-spin h-4 w-4 border-2 border-gray-600 border-t-transparent rounded-full"></div>
@@ -968,10 +906,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                         <div ref={messagesEndRef} />
                     </div>
 
-                    <div className="w-full mx-auto self-end">
+                    <div className="w-[80%] mx-auto self-end">
                         <form
                             onSubmit={handleSubmit}
-                            className="bg-black/4 rounded-xl p-4 border border-black/10"
+                            className="bg-transparent rounded-full p-1 border-2 border-black/10 mb-2"
                         >
                             <div className="relative">
                                 <input
@@ -1010,23 +948,54 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                 </button>
                             </div>
                         </form>
+                        <div className="w-full text-center text-xs text-black/40 font-funnel-sans my-1">
+                            <span>Earny can make mistakes. Check important info.</span>
+                        </div>
                     </div>
+                </div>
+            </section >
+
+            {/* Right side - Tool UI */}
+
+            <section className={`${showActivity ? 'w-1/2 h-screen overflow-y-auto bg-gray-50 p-6 translate-x-0' : 'translate-x-full w-0 opacity-0 overflow-hidden'} transition-all duration-500 flex justify-center items-center flex-col relative`
+            }>
+                <div className="flex items-center gap-2 mb-6 absolute top-4 left-4">
+                    <Icons.earnyLogoBlack className="w-10 h-10 text-black/40" />
+                    <span className="text-sm font-semibold font-funnel-sans text-black/40">Activity</span>
+                </div>
+
+                <div className="w-full flex justify-center items-center">
+                    {showActivity ?
+                        <SwapProgress
+                            tokenInSymbol={swapProgressData.tokenInSymbol}
+                            tokenInImage={swapProgressData.tokenInImage}
+                            tokenInAmount={swapProgressData.tokenInAmount}
+                            tokenInDecimals={swapProgressData.tokenInDecimals}
+                            tokenOutSymbol={swapProgressData.tokenOutSymbol}
+                            tokenOutImage={swapProgressData.tokenOutImage}
+                            tokenOutAmount={swapProgressData.tokenOutAmount}
+                            gasFee={swapProgressData.gasFee}
+                            state={swapProgressState}
+                        /> :
+                        <div className="w-[80%] text-center font-funnel-sans text-black/40">
+                            <p>No Activity yet</p>
+                        </div>
+                    }
+
                 </div>
             </section>
 
-            <TransactionStatus
+
+            {/* <TransactionStatus
                 isOpen={isTransactionStatusOpen}
                 onClose={() => setIsTransactionStatusOpen(false)}
                 title={transactionStatus.title}
                 description={transactionStatus.description}
                 type={transactionStatus.type}
                 hash={transactionStatus.hash}
-            />
+            /> */}
 
-            <Toaster />
-
-            {/* Add this where appropriate in your UI */}
-            {/* {renderConnectionStatus()} */}
-        </div>
+            < Toaster />
+        </div >
     );
 } 

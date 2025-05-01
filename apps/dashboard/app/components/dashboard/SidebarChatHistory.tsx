@@ -1,14 +1,14 @@
 'use client';
 
-import { MoreVertical, Loader2, Pencil, Trash } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/app/components/ui/dropdown-menu';
+// import {
+//     DropdownMenu,
+//     DropdownMenuContent,
+//     DropdownMenuItem,
+//     DropdownMenuTrigger,
+// } from '@/app/components/ui/dropdown-menu';
 import {
     Dialog,
     DialogContent,
@@ -37,29 +37,31 @@ interface SidebarChatHistoryProps {
     isExpanded?: boolean;
 }
 
-export default function SidebarChatHistory({ userId, isExpanded = true }: SidebarChatHistoryProps) {
+export default function SidebarChatHistory({ userId, isExpanded = false }: SidebarChatHistoryProps) {
     const [chats, setChats] = useState<Chat[]>([]);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
     const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
     const [newTitle, setNewTitle] = useState('');
-    const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+    // const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isRenaming, setIsRenaming] = useState(false);
     const { needToFetchChats, setNeedToFetchChats } = useChat();
 
-    useEffect(() => {
-        if (!isExpanded) {
-            setOpenDropdownId(null);
-        }
-    }, [isExpanded]);
+    // useEffect(() => {
+    //     if (!isExpanded) {
+    //         setOpenDropdownId(null);
+    //     }
+    // }, [isExpanded]);
 
     const fetchChats = useCallback(async () => {
+        console.log(userId, 'userId');
         if (!userId) return;
 
         try {
             const response = await fetch(`/api/chat?userId=${userId}`);
             const data = await response.json();
+            console.log(data, 'chats list');
             setChats(data.chats);
         } catch (error) {
             console.error('Error fetching chats:', error);
@@ -158,27 +160,30 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
     const groupedChats = groupChatsByTime(chats);
 
     return (
-        <div className="w-full flex flex-col">
-            <div className="flex-1 rounded-lg py-3">
-                {chats.length === 0 ? (
-                    <div className="text-sm text-gray-500 text-left py-2 px-6">
-                        No chat history
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        {Object.entries(groupedChats).map(([group, groupChats]) => (
-                            <div key={group} className="space-y-2">
-                                <h3 className="text-xs font-medium text-black/40 px-6 pb-2">{group}</h3>
-                                <div className="space-y-1 max-w-full pb-4">
-                                    {groupChats.map((chat) => (
-                                        <div key={chat.id} className="group flex items-center px-4 py-1">
-                                            <Link
-                                                href={`/chat/${chat.id}`}
-                                                className="flex-1 truncate overflow-hidden py-1 px-2 rounded-lg text-[0.975rem] text-medium capitalize transition-colors text-black/40 hover:text-black hover:bg-gray-100"
-                                            >
-                                                {chat.title}
-                                            </Link>
-                                            <DropdownMenu
+        <>
+            {isExpanded &&
+                <div className="w-full flex flex-col" >
+                    <div className="flex-1 rounded-lg py-3">
+                        {chats.length === 0 ? (
+                            <div className="text-sm text-gray-500 text-left py-2 px-6">
+                                No chat history
+                            </div>
+                        ) : (
+                            <div>
+                                {Object.entries(groupedChats).map(([group, groupChats]) => (
+                                    <div key={group}>
+                                        {/* <h3 className="text-xs font-medium text-black/40 px-6 pb-2">{group}</h3> */}
+                                        <div className="max-w-full">
+                                            {groupChats.map((chat) => (
+                                                <div key={chat.id} className="group flex items-center py-1 group">
+                                                    <div className="w-3 h-3 rounded-full bg-black/40 group-hover:bg-black/80"></div>
+                                                    <Link
+                                                        href={`/chat/${chat.id}`}
+                                                        className="flex-1 truncate overflow-hidden px-2 rounded-lg text-sm text-medium capitalize transition-colors text-black/40 group-hover:text-black/80"
+                                                    >
+                                                        {chat.title}
+                                                    </Link>
+                                                    {/* <DropdownMenu
                                                 modal={false}
                                                 open={openDropdownId === chat.id}
                                                 onOpenChange={(open) => {
@@ -234,91 +239,92 @@ export default function SidebarChatHistory({ userId, isExpanded = true }: Sideba
                                                         <Trash className="h-4 w-4 mr-2" /> Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
-                                            </DropdownMenu>
+                                            </DropdownMenu> */}
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
+                        )}
                     </div>
-                )}
-            </div>
 
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-                <DialogContent className="font-funnel-sans">
-                    <DialogHeader className="mb-8">
-                        <DialogTitle className="text-lg font-medium">Delete chat?</DialogTitle>
-                        <DialogDescription className="text-sm mt-6">
-                            This will delete &quot;{selectedChat?.title}&quot; and all associated memories.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setIsDeleteDialogOpen(false)}
-                            disabled={isDeleting}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            onClick={handleDelete}
-                            disabled={isDeleting}
-                        >
-                            {isDeleting ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Deleting...
-                                </>
-                            ) : (
-                                'Delete'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    {/* Delete Confirmation Dialog */}
+                    <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                        <DialogContent className="font-funnel-sans">
+                            <DialogHeader className="mb-8">
+                                <DialogTitle className="text-lg font-medium">Delete chat?</DialogTitle>
+                                <DialogDescription className="text-sm mt-6">
+                                    This will delete &quot;{selectedChat?.title}&quot; and all associated memories.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setIsDeleteDialogOpen(false)}
+                                    disabled={isDeleting}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    onClick={handleDelete}
+                                    disabled={isDeleting}
+                                >
+                                    {isDeleting ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Deleting...
+                                        </>
+                                    ) : (
+                                        'Delete'
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
 
-            {/* Rename Dialog */}
-            <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
-                <DialogContent className="font-funnel-sans">
-                    <DialogHeader>
-                        <DialogTitle>Rename chat</DialogTitle>
-                    </DialogHeader>
-                    <Input
-                        value={newTitle}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        placeholder="Enter new title"
-                        disabled={isRenaming}
-                    />
-                    <DialogFooter className="font-funnel-sans">
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setIsRenameDialogOpen(false);
-                                setNewTitle('');
-                            }}
-                            disabled={isRenaming}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant={'dark'}
-                            onClick={handleRename}
-                            disabled={!newTitle.trim() || isRenaming}
-                        >
-                            {isRenaming ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Renaming...
-                                </>
-                            ) : (
-                                'Save'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div>
+                    {/* Rename Dialog */}
+                    <Dialog open={isRenameDialogOpen} onOpenChange={setIsRenameDialogOpen}>
+                        <DialogContent className="font-funnel-sans">
+                            <DialogHeader>
+                                <DialogTitle>Rename chat</DialogTitle>
+                            </DialogHeader>
+                            <Input
+                                value={newTitle}
+                                onChange={(e) => setNewTitle(e.target.value)}
+                                placeholder="Enter new title"
+                                disabled={isRenaming}
+                            />
+                            <DialogFooter className="font-funnel-sans">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setIsRenameDialogOpen(false);
+                                        setNewTitle('');
+                                    }}
+                                    disabled={isRenaming}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant={'dark'}
+                                    onClick={handleRename}
+                                    disabled={!newTitle.trim() || isRenaming}
+                                >
+                                    {isRenaming ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Renaming...
+                                        </>
+                                    ) : (
+                                        'Save'
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </div>}
+        </>
     );
 } 

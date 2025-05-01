@@ -1,33 +1,22 @@
-import { DataSource } from 'typeorm';
-import { User } from '@/types/user';
-import { Chat } from '@/types/chat';
-import { Message } from '@/types/message';
-import { env } from '@/env.mjs';
+import { PrismaClient } from '@prisma/client';
 
-// Add explicit entity names to prevent minification issues
-Object.defineProperty(User, 'name', { value: 'User' });
-Object.defineProperty(Chat, 'name', { value: 'Chat' });
-Object.defineProperty(Message, 'name', { value: 'Message' });
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
+}
 
-export const AppDataSource = new DataSource({
-  type: 'postgres',
-  url: env.DATABASE_URL,
-  synchronize: false, // Set to false in production
-  logging: false,
-  // Use explicit table names in entities array
-  entities: [User, Chat, Message],
-  migrations: [],
-  subscribers: [],
-});
+export const prisma = global.prisma || new PrismaClient();
+
+if (process.env.NODE_ENV !== 'production') {
+  global.prisma = prisma;
+}
 
 export const initializeDatabase = async () => {
   try {
-    if (!AppDataSource.isInitialized) {
-      await AppDataSource.initialize();
-      console.log('Data Source has been initialized!');
-    }
+    await prisma.$connect();
+    console.log('Database connection has been established successfully.');
   } catch (error) {
-    console.error('Error during Data Source initialization:', error);
+    console.error('Error during database connection:', error);
     throw error;
   }
 };

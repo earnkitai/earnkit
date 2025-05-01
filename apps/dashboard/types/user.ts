@@ -1,61 +1,180 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export type ChainType = 'ethereum' | 'solana';
+export type WalletClientType = 'privy' | string;
+export type RecoveryMethod = 'privy' | string;
+export type SmartWalletType = string;
+export type ConnectorType = string;
+export type AuthenticatorName = string;
+export type ProviderAppMetadata = Record<string, any>;
 
-@Entity({ name: 'users' })
-export class User {
-  @PrimaryColumn({ name: 'turnkey_user_id' })
-  turnkeyUserId!: string;
+interface LinkedAccountBase {
+  type: string;
+}
 
-  @Column({ unique: true })
-  username!: string;
+export interface WalletAccount extends LinkedAccountBase {
+  type: 'wallet';
+  id: string | null;
+  address: string;
+  chainType: ChainType;
+  walletClientType: WalletClientType;
+  connectorType: ConnectorType;
+  recoveryMethod: RecoveryMethod;
+  imported: boolean;
+  delegated: boolean;
+  walletIndex: number | null;
+}
 
-  @Column({ unique: true })
-  email!: string;
+export interface SmartWalletAccount extends LinkedAccountBase {
+  type: 'smart_wallet';
+  address: string;
+  smartWalletType: SmartWalletType;
+}
 
-  @Column({ name: 'turnkey_organization_id' })
-  turnkeyOrganizationId!: string;
+export interface EmailAccount extends LinkedAccountBase {
+  type: 'email';
+  address: string;
+}
 
-  @Column({ name: 'wallet_address' })
-  walletAddress!: string;
+export interface PhoneAccount extends LinkedAccountBase {
+  type: 'phone';
+  number: string;
+}
 
-  @Column({ name: 'recovery_address', nullable: true })
-  recoveryAddress?: string;
+export interface GoogleAccount extends LinkedAccountBase {
+  type: 'google_oauth';
+  subject: string;
+  email: string;
+  name: string | null;
+}
 
-  @Column({ name: 'recovery_signature', nullable: true })
-  recoverySignature?: string;
+export interface TwitterAccount extends LinkedAccountBase {
+  type: 'twitter_oauth';
+  subject: string;
+  username: string | null;
+  name: string | null;
+  profilePictureUrl: string | null;
+}
 
-  @Column({ name: 'is_verified', default: false })
-  isVerified!: boolean;
+export interface DiscordAccount extends LinkedAccountBase {
+  type: 'discord_oauth';
+  subject: string;
+  username: string | null;
+  email: string | null;
+}
 
-  @Column({ name: 'is_active', default: false })
-  isActive!: boolean;
+export interface GithubAccount extends LinkedAccountBase {
+  type: 'github_oauth';
+  subject: string;
+  username: string | null;
+  name: string | null;
+  email: string | null;
+}
 
-  @Column({ name: 'has_passkey', default: false })
-  hasPasskey!: boolean;
+export interface SpotifyAccount extends LinkedAccountBase {
+  type: 'spotify_oauth';
+  subject: string;
+  email: string | null;
+  name: string | null;
+}
 
-  @Column({ name: 'turnkey_embedded_key', nullable: true })
-  turnkeyEmbeddedKey?: string;
+export interface InstagramAccount extends LinkedAccountBase {
+  type: 'instagram_oauth';
+  subject: string;
+  username: string | null;
+}
 
-  @Column({ name: 'farcaster_fid', nullable: true })
-  farcasterFid?: string;
+export interface TiktokAccount extends LinkedAccountBase {
+  type: 'tiktok_oauth';
+  subject: string;
+  username: string | null;
+  name: string | null;
+}
 
-  @Column({ name: 'farcaster_display_name', nullable: true })
-  farcasterDisplayName?: string;
+export interface LinkedInAccount extends LinkedAccountBase {
+  type: 'linkedin_oauth';
+  subject: string;
+  name: string | null;
+  email: string | null;
+  vanityName: string | null;
+}
 
-  @Column({ name: 'farcaster_custody_address', nullable: true })
-  farcasterCustodyAddress?: string;
+export interface AppleAccount extends LinkedAccountBase {
+  type: 'apple_oauth';
+  subject: string;
+  email: string;
+}
 
-  @Column({ name: 'farcaster_profile_url', nullable: true })
-  farcasterProfilePictureUrl?: string;
+export interface CustomJwtAccount extends LinkedAccountBase {
+  type: 'custom_auth';
+  customUserId: string;
+}
 
-  @CreateDateColumn({ name: 'created_at' })
-  createdAt!: Date;
+export interface FarcasterAccount extends LinkedAccountBase {
+  type: 'farcaster';
+  fid: number | null;
+  ownerAddress: string;
+  username: string | null;
+  displayName: string | null;
+  bio: string | null;
+  pfp: string | null;
+  url: string | null;
+  signerPublicKey: string | null;
+}
 
-  @UpdateDateColumn({ name: 'updated_at' })
-  updatedAt!: Date;
+export interface PasskeyAccount extends LinkedAccountBase {
+  type: 'passkey';
+  credentialId: string;
+  enrolledInMfa: boolean;
+  authenticatorName: AuthenticatorName;
+  createdWithDevice: string;
+  createdWithOs: string;
+  createdWithBrowser: string;
+}
+
+export interface TelegramAccount extends LinkedAccountBase {
+  type: 'telegram';
+  telegramUserId: string;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
+  photoUrl: string | null;
+}
+
+export interface CrossAppAccount extends LinkedAccountBase {
+  type: 'cross_app';
+  embeddedWallets: { address: string }[];
+  smartWallets: { address: string }[];
+  providerApp: ProviderAppMetadata;
+  subject: string;
+}
+
+export type LinkedAccount =
+  | WalletAccount
+  | SmartWalletAccount
+  | EmailAccount
+  | PhoneAccount
+  | GoogleAccount
+  | TwitterAccount
+  | DiscordAccount
+  | GithubAccount
+  | SpotifyAccount
+  | InstagramAccount
+  | TiktokAccount
+  | LinkedInAccount
+  | AppleAccount
+  | CustomJwtAccount
+  | FarcasterAccount
+  | PasskeyAccount
+  | TelegramAccount
+  | CrossAppAccount;
+
+export interface User {
+  id: string;
+  username?: string | null;
+  email?: string | null;
+  createdAt: string;
+  linkedAccounts?: LinkedAccount[];
+  mfaMethods: string[];
+  hasAcceptedTerms: boolean;
+  isGuest: boolean;
 }

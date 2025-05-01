@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useTransactions } from "@/providers/transactions-provider"
-import { useWallets } from "@/providers/wallet-provider"
 import { ArrowDownIcon, ArrowUpIcon, LoaderIcon } from "lucide-react"
-import { formatEther } from "viem"
+import { Account, formatEther } from "viem"
 
 import type { Transaction } from "@/types/web3"
 // import { useTokenPrice } from "@/hooks/use-token-price"
@@ -22,14 +21,21 @@ import {
 
 import { ScrollArea } from "@/app/components/ui/scroll-area"
 import { base } from "viem/chains"
+import { usePrivy } from "@privy-io/react-auth"
 
 export default function Activity() {
   const { transactions: allTransactions, loading } = useTransactions()
   // const { ethPrice } = useTokenPrice()
-  const { state } = useWallets()
-  const { selectedAccount } = state
+  const { ready, authenticated, user: privyUser } = usePrivy()
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([])
+
+  useEffect(() => {
+    if (ready && authenticated) {
+      setSelectedAccount(privyUser?.wallet as unknown as Account)
+    }
+  }, [ready, authenticated, privyUser])
 
   useEffect(() => {
     const fetchTransactions = async () => {

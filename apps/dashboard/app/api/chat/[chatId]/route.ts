@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ChatService } from '@/lib/services/chat.service';
 import { initializeDatabase } from '@/lib/db';
+import { deleteChat, getChat, updateChat } from '@/actions/chat';
 
-const chatService = new ChatService();
+// const chatService = new ChatService();
 
 type Params = Promise<{ chatId: string }>;
 
@@ -13,7 +13,7 @@ export async function DELETE(
   try {
     await initializeDatabase();
     const params = await segmentData.params;
-    const deleted = await chatService.deleteChat(params.chatId);
+    const deleted = await deleteChat(params.chatId);
 
     if (!deleted) {
       return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
@@ -38,12 +38,12 @@ export async function PATCH(
     const params = await segmentData.params;
     const { title } = await request.json();
 
-    const chat = await chatService.getChatById(params.chatId);
+    const chat = await getChat(params.chatId);
     if (!chat) {
       return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
     }
 
-    const updatedChat = await chatService.updateChat(params.chatId, { title });
+    const updatedChat = await updateChat(params.chatId, { title });
     if (!updatedChat) {
       return NextResponse.json(
         { error: 'Failed to update chat' },

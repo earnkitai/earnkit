@@ -1,103 +1,187 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Passkeys } from "@/app/components/sections/passkeys";
-import { getUserByTurnkeyId } from "@/actions/user";
-import { useTurnkey } from "@turnkey/sdk-react";
-import { User } from "@/types/user";
-import { Button } from "@/app/components/ui/button";
+// import { Passkeys } from "@/app/components/sections/passkeys";
+// import { getUserByTurnkeyId } from "@/actions/user";
+// import { useTurnkey } from "@turnkey/sdk-react";
+// import { Button } from "@/app/components/ui/button";
 import { toast } from "sonner";
-import { truncateAddress } from "@/lib/utils";
-import { FarcasterSection } from "./components/FarcasterSection";
-import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
-import { useTheme } from "@/app/providers/theme-provider";
+// import { truncateAddress } from "@/lib/utils";
+// import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
+import { useTheme } from "@/providers/theme-provider";
+import { usePrivy } from "@privy-io/react-auth";
+import { useSessionSigners } from "@privy-io/react-auth";
+import { RevokeAccessButton } from "@/app/(routes)/settings/components/RevokeAccessButton";
+import { EmbeddedWalletSection } from "@/app/(routes)/settings/components/EmbeddedWalletSection";
+import { ExternalWalletSection } from "@/app/(routes)/settings/components/ExternalWalletSection";
+import { PasskeySection } from "@/app/(routes)/settings/components/PasskeySection";
+import { FarcasterPrivy } from "@/app/(routes)/settings/components/FarcasterPrivy";
+import { findUsernameByUserId, updateUser } from "@/actions/user";
 
 export default function SettingsPage() {
     const [notifications, setNotifications] = useState(true);
+    const { ready, authenticated, user } = usePrivy();
     const { theme, setTheme } = useTheme();
-    const { turnkey } = useTurnkey()
-    const [userData, setUserData] = useState<User | null>(null);
+    const { addSessionSigners } = useSessionSigners();
+    // const { turnkey } = useTurnkey()
+    const [isDelegated, setIsDelegated] = useState(false);
+    const [username, setUsername] = useState<string | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [newUsername, setNewUsername] = useState("");
 
     useEffect(() => {
-        if (turnkey) {
-            const fetchUser = async () => {
+        if (ready && authenticated && user?.id) {
+            const userId = user.id.split(':').pop() || user.id;
+            const fetchUsername = async () => {
                 try {
-                    const currentUser = await turnkey.getCurrentUser();
-                    if (currentUser?.userId) {
-                        const result = await getUserByTurnkeyId(currentUser.userId);
-                        if (result.success && result.data) {
-                            console.log(result.data, "user data")
-                            setUserData(result.data);
-                        }
-                    }
+                    const fetchedUsername = await findUsernameByUserId(userId);
+                    setUsername(fetchedUsername || null);
                 } catch (error) {
-                    console.error("Error fetching user profile:", error);
+                    console.error("Error fetching username:", error);
                 }
             };
-            fetchUser();
+            fetchUsername();
         }
-    }, [turnkey]);
+    }, [ready, authenticated, user]);
+
+    const handleUsernameUpdate = async () => {
+        if (!user?.id || !newUsername.trim()) return;
+
+        try {
+            const userId = user.id.split(':').pop() || user.id;
+            await updateUser(userId, { username: newUsername.trim() });
+            setUsername(newUsername.trim());
+            setIsEditing(false);
+            toast.success("Username updated successfully");
+        } catch (error) {
+            console.error("Error updating username:", error);
+            toast.error("Failed to update username");
+        }
+    };
+
+    useEffect(() => {
+        if (ready && authenticated) {
+            if (user) {
+                console.log(user, 'user')
+                setIsDelegated(user.wallet?.delegated || false);
+            }
+        }
+    }, [ready, authenticated, user]);
+
+    const handleDelegateAccess = async () => {
+        console.log(user)
+        console.log(user?.wallet?.address, 'user?.wallet?.address')
+        console.log(process.env.NEXT_PUBLIC_AUTHORIZATION_ID, 'process.env.NEXT_PUBLIC_AUTHORIZATION_ID')
+        try {
+            const delegateAccess = await addSessionSigners({
+                address: user?.wallet?.address as `0x${string}`,
+                signers: []
+            });
+            console.log(delegateAccess, 'delegateAccess');
+            setIsDelegated(true);
+            toast.success("Access delegated successfully");
+        } catch (error) {
+            console.error(error, 'error');
+            toast.error("Failed to delegate access");
+        }
+    }
+
+
 
     return (
-        <div className="min-h-screen bg-background pb-12 sm:pb-20 pt-20 sm:pt-10">
+        <section className="min-h-screen bg-background pb-12 sm:pb-20 pt-20 sm:pt-10 max-w-4xl mx-auto font-funnel-sans">
             <h1 className="text-xl sm:text-2xl font-bold mb-0 p-4 sm:p-8 text-foreground">Settings</h1>
             <div className="bg-card rounded-xl p-4 sm:p-8 pt-4 sm:pt-6 shadow-sm border mx-4 sm:mx-8">
                 <div className="space-y-3 sm:space-y-4">
                     <div>
                         <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Username</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground">{userData?.username || 'Not set'}</p>
+                        {isEditing ? (
+                            <div className="flex items-center gap-2 mt-1">
+                                <input
+                                    type="text"
+                                    value={newUsername}
+                                    onChange={(e) => setNewUsername(e.target.value)}
+                                    className="text-base sm:text-lg text-foreground bg-transparent border-b border-foreground/20 focus:outline-none focus:border-foreground"
+                                    placeholder="Enter new username"
+                                />
+                                <button
+                                    onClick={handleUsernameUpdate}
+                                    className="bg-transparent border border-foreground/20 px-2 py-1 rounded-md text-xs sm:text-sm text-primary hover:bg-black/4"
+                                >
+                                    Save
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsEditing(false);
+                                        setNewUsername("");
+                                    }}
+                                    className="bg-transparent border border-foreground/20 px-2 py-1 rounded-md text-xs sm:text-sm text-muted-foreground hover:bg-black/4"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className="text-base sm:text-lg text-foreground">{username || 'Not set'}</p>
+                                <button
+                                    onClick={() => {
+                                        setIsEditing(true);
+                                        setNewUsername(username || "");
+                                    }}
+                                    className="text-xs sm:text-sm text-primary hover:underline"
+                                >
+                                    Edit
+                                </button>
+                            </div>
+                        )}
                     </div>
                     <div>
                         <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Email</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground">{userData?.email || 'Not set'}</p>
+                        <p className="mt-1 text-base sm:text-lg text-foreground">{user?.email?.address || 'Not set'}</p>
                     </div>
                     <div>
                         <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Wallet Address</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground text-wrap break-all">{userData?.walletAddress || 'Not set'}</p>
+                        <p className="mt-1 text-base sm:text-lg text-foreground text-wrap break-all">{user?.wallet?.address || 'Not set'}</p>
                     </div>
                 </div>
+            </div>
 
-                <div className="mt-4 sm:mt-6">
-                    <Passkeys />
-                </div>
-            </div>
             <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Recovery Wallet Address</h2>
-                <div className="space-y-3 sm:space-y-4">
-                    {userData?.recoveryAddress ? (
-                        <div className="space-y-3 sm:space-y-4">
-                            <div>
-                                <h3 className="text-xs sm:text-sm font-medium text-muted-foreground">Current Recovery Address</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <p className="text-base sm:text-lg text-foreground">{truncateAddress(userData.recoveryAddress)}</p>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(userData.recoveryAddress!);
-                                            toast.success("Address copied to clipboard");
-                                        }}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 sm:w-5 sm:h-5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>
-                                    </Button>
-                                </div>
-                            </div>
-                            <RecoveryAddressDialog userData={userData} setUserData={setUserData}>
-                                <Button className="text-xs sm:text-sm hover:border-primary" variant="outline" size="sm">Update Recovery Address</Button>
-                            </RecoveryAddressDialog>
-                        </div>
-                    ) : (
-                        <div className="space-y-3 sm:space-y-4">
-                            <p className="text-xs sm:text-sm text-muted-foreground">No recovery address set. Connect your wallet to add one.</p>
-                            <RecoveryAddressDialog userData={userData} setUserData={setUserData}>
-                                <Button className="text-xs sm:text-sm hover:border-primary" variant="outline" size="sm">Add Recovery Address</Button>
-                            </RecoveryAddressDialog>
-                        </div>
-                    )}
-                </div>
+                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Delegate Access</h2>
+                {isDelegated ? (
+                    <RevokeAccessButton />
+                ) : (
+                    <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">Delegate access to enable additional features</p>
+                        <button
+                            className="bg-transparent text-black border border-black/40 px-4 py-2 rounded-md hover:bg-black/4"
+                            onClick={handleDelegateAccess}
+                        >
+                            Delegate Access
+                        </button>
+                    </div>
+                )}
             </div>
+
             <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <FarcasterSection userData={userData} setUserData={setUserData} />
+                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Embedded Wallet</h2>
+                <EmbeddedWalletSection />
             </div>
+
+            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
+                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">External Wallet</h2>
+                <ExternalWalletSection />
+            </div>
+
+            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
+                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Passkey</h2>
+                <PasskeySection />
+            </div>
+
+            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
+                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Farcaster</h2>
+                <FarcasterPrivy />
+            </div>
+
             <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
                 <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Preferences</h2>
                 <div className="space-y-4 sm:space-y-6">
@@ -134,6 +218,6 @@ export default function SettingsPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </section>
     );
 } 

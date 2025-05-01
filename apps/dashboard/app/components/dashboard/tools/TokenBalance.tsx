@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { ExternalLink, TrendingUp, TrendingDown } from 'lucide-react';
-import { Account } from '@/types/turnkey';
 import { Icons } from '../../sections/icons';
+import { Account } from 'viem';
 
 export interface Token {
     token: string;
@@ -23,11 +23,11 @@ export interface WalletBalanceResponse {
 interface TokenBalanceProps {
     data: WalletBalanceResponse;
     selectedAccount: Account | null;
-    onSwap: (symbol: string) => void;
-    onAnalyze: (symbol: string) => void;
+    onSwap?: (symbol: string) => void;
+    onAnalyze?: (symbol: string) => void;
 }
 
-export default function TokenBalance({ data, onSwap, onAnalyze }: TokenBalanceProps) {
+export default function TokenBalance({ data }: TokenBalanceProps) {
     const formatBalance = (balance: string) => {
         return Number(balance).toLocaleString(undefined, {
             minimumFractionDigits: 2,
@@ -45,125 +45,79 @@ export default function TokenBalance({ data, onSwap, onAnalyze }: TokenBalancePr
         }).format(Number(value));
     };
 
-    return (
-        <div className="max-w-[600px] w-full bg-white rounded-xl shadow-sm border border-black/10 p-6 font-funnel-sans">
-            {/* Wallet Header */}
-            {data && <>
-                <div className="flex items-center justify-between mb-6">
-                    <div>
-                        <h2 className="text-xl font-bold">Wallet Balance</h2>
-                        <p className="text-sm text-gray-500 font-mono">
-                            {data.wallet_address?.slice(0, 6)}...{data.wallet_address?.slice(-4)}
-                        </p>
-                    </div>
-                    <Link
-                        href={`https://basescan.org/address/${data?.wallet_address ? data?.wallet_address : ""}#assets`}
-                        target="_blank"
-                        className="text-sm text-gray-600 hover:text-gray-900 transition-colors flex items-center gap-1"
-                    >
-                        View on Explorer <ExternalLink className="w-4 h-4" />
-                    </Link>
-                </div>
+    const truncateAddress = (address: string) => {
+        return address.slice(0, 6) + '...' + address.slice(-4);
+    };
 
-                {/* Tokens List */}
-                <div className="space-y-4">
-                    {data?.tokens?.map((token, index) => (
-                        <div
-                            key={index}
-                            className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                        >
-                            <div className="flex items-center justify-between">
-                                {/* Token Info */}
-                                <div className="flex items-center gap-3">
+    return (
+        <div className="space-y-4">
+            {/* Wallet Header */}
+            <div className="flex items-center gap-2">
+                <span className="font-normal">Wallet Address:</span>
+                <Link
+                    href={`https://basescan.org/address/${data?.wallet_address ? data?.wallet_address : ""}#assets`}
+                    target="_blank"
+                    className="text-blue-500 flex items-center gap-1 bg-transparent border-2 border-black/20 rounded-full px-2 py-1 hover:bg-black/4 transition-colors hover:border-black/40"
+                >
+                    <span className="text-xs text-gray-500 font-mono">
+                        {truncateAddress(data.wallet_address)}
+                    </span>
+                    <ExternalLink className="w-3 h-3" />
+                </Link>
+            </div>
+
+            {/* Tokens List */}
+            <div className="space-y-2">
+                {data?.tokens?.map((token, index) => (
+                    <div key={index} className="space-y-1">
+                        {/* Token Info */}
+                        <div className="flex items-center gap-2">
+                            <span className="font-medium">{formatBalance(token.balance)}</span>
+                            <div className="flex items-center gap-2">
+                                <Link
+                                    href={`https://basescan.org/address/${token.contract_address ? token.contract_address : ""}`}
+                                    target="_blank"
+                                    className="text-sm text-blue-500 font-medium flex items-center gap-1 bg-transparent border-2 border-black/20 rounded-full px-1.5 py-0.5 hover:bg-black/4 transition-colors hover:border-black/40"
+                                >
                                     {token.image ? (
                                         <Image
                                             src={token.image}
                                             alt={token.symbol}
-                                            width={40}
-                                            height={40}
+                                            width={16}
+                                            height={16}
                                             className="rounded-full"
                                         />
                                     ) : (
-                                        <Icons.ethereum className="w-10 h-10" />
-                                        // <div className="w-10 h-10 bg-black/10 rounded-full flex items-center justify-center">
-                                        //     <span className="text-lg font-semibold">
-                                        //         {token.symbol.slice(0, 1)}
-                                        //     </span>
-                                        // </div>
+                                        <Icons.ethereum className="w-4 h-4" />
                                     )}
-                                    <div>
-                                        <div className="font-semibold flex items-center gap-2">
-                                            {token.symbol}
-                                            {token.price_change_24h !== undefined && (
-                                                <span className={`text-xs flex items-center gap-1 ${token.price_change_24h >= 0
-                                                    ? 'text-green-500'
-                                                    : 'text-red-500'
-                                                    }`}>
-                                                    {token.price_change_24h >= 0
-                                                        ? <TrendingUp className="w-3 h-3" />
-                                                        : <TrendingDown className="w-3 h-3" />}
-                                                    {Math.abs(token.price_change_24h).toFixed(2)}%
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-sm text-gray-600">
-                                            {token.contract_address ? (
-                                                <span className="font-mono">
-                                                    {token.contract_address.slice(0, 6)}...{token.contract_address.slice(-4)}
-                                                </span>
-                                            ) : (
-                                                ""
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Balance Info */}
-                                <div className="text-right">
-                                    <div className="font-bold">
-                                        {formatBalance(token.balance)} {token.symbol}
-                                    </div>
-                                    {token.value_usd && (
-                                        <div className="text-sm text-gray-600">
-                                            {formatUSD(token.value_usd)}
-                                            {token.price_usd && (
-                                                <span className="text-xs ml-1">
-                                                    @ {formatUSD(token.price_usd)}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
+                                    <span className="text-gray-600">{token.symbol}</span>
+                                </Link>
                             </div>
-
-                            {/* Action Buttons */}
-                            <div className="mt-3 flex gap-2">
-                                <button
-                                    className="flex-1 px-3 py-1.5 bg-black/4 text-black/80 rounded-lg text-sm font-medium hover:bg-black/8 transition-colors"
-                                    onClick={() => onSwap(token.symbol)}
-                                >
-                                    Swap
-                                </button>
-                                <button
-                                    className="flex-1 px-3 py-1.5 bg-black/4 text-black/80 rounded-lg text-sm font-medium hover:bg-black/8 transition-colors"
-                                    onClick={() => onAnalyze(token.symbol)}
-                                >
-                                    Analytics
-                                </button>
-                            </div>
+                            {token.value_usd && token.price_usd && (
+                                <span className="text-gray-600">({formatUSD(token.value_usd)} <span className="text-xs text-gray-400">at {formatUSD(token.price_usd)}/{token.symbol})</span></span>
+                            )}
+                            {token.price_change_24h !== undefined && (
+                                <span className={`flex items-center gap-1 ${token.price_change_24h >= 0
+                                    ? 'text-green-500'
+                                    : 'text-red-500'
+                                    }`}>
+                                    {token.price_change_24h >= 0
+                                        ? <TrendingUp className="w-3 h-3" />
+                                        : <TrendingDown className="w-3 h-3" />}
+                                    {Math.abs(token.price_change_24h).toFixed(2)}%
+                                </span>
+                            )}
                         </div>
-                    ))}
-                </div>
+                    </div>
+                ))}
 
                 {/* Empty State */}
-                {
-                    data?.tokens?.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                            <p>No tokens found in this wallet</p>
-                        </div>
-                    )
-                }
-            </>}
-        </div >
+                {data?.tokens?.length === 0 && (
+                    <div className="text-gray-500">
+                        No tokens found in this wallet
+                    </div>
+                )}
+            </div>
+        </div>
     );
 } 

@@ -1,5 +1,7 @@
 import Image from 'next/image';
 import { SwapDetails } from '@/app/(routes)/chat/[id]/page';
+import Link from 'next/link';
+
 interface Token {
     address: `0x${string}`;
     decimals: number;
@@ -25,116 +27,104 @@ interface TokenSwapProps {
 }
 
 export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
+    const formatTokenAmount = (amount: string, decimals: number) => {
+        return (parseInt(amount) / Math.pow(10, decimals)).toFixed(4);
+    };
+
+    const TokenBadge = ({ token }: { token: Token }) => (
+        <Link href={`https://basescan.org/token/${token.address}`} target="_blank"
+            className="text-blue-500 flex items-center gap-1 font-funnel-sans text-sm bg-transparent border-2 border-black/20 rounded-full px-1 py-0 hover:bg-black/4 transition-colors hover:border-black/40"
+        >
+            {token.image && (
+                <Image
+                    src={token.image}
+                    alt={token.symbol}
+                    width={16}
+                    height={16}
+                    className="rounded-full"
+                />
+            )}
+            <span>{token.symbol?.toUpperCase()}</span>
+        </Link>
+    );
 
 
-    // once the data is loaded, want to fetch the details using the api https://swap-data-api-psi.vercel.app/swap-route
-    // pass this data in body 
-    //curl --location 'https://swap-data-api-psi.vercel.app/swap-route' \
+    const StepCircle = ({ number }: { number: string }) => (
+        <div className="w-7 h-7 mr-2 rounded-full bg-white border-2 border-black/20 flex items-center justify-center text-sm text-gray-500 shrink-0 relative z-[20]">
+            {number}
+        </div>
+    );
 
     return (
-        <div className="flex justify-start my-4 w-full">
-            <div className="max-w-[80%] w-full bg-white rounded-lg shadow-sm border border-black/10 p-4 font-funnel-sans">
-                <h3 className="font-semibold mb-4">Swap Details</h3>
+        <div className="space-y-4 max-w-[80%] font-funnel-sans text-black/80 font-normal">
 
-                <div className="space-y-4">
-                    {/* From Token Card */}
-                    <div className="bg-black/4 p-4 rounded-lg">
-                        <span className="text-sm text-gray-600">From</span>
-                        <div className="flex items-center justify-between mt-2">
-                            <div className="flex items-center gap-3">
-                                {data.tokenIn.image ? (
-                                    <Image
-                                        src={data.tokenIn.image}
-                                        alt={data.tokenIn.symbol}
-                                        className="w-8 h-8 rounded-full"
-                                        width={32}
-                                        height={32}
-                                    />
-                                ) : (
-                                    <div className="w-8 h-8 bg-black/10 rounded-full" />
-                                )}
-                                <div>
-                                    <div className="font-semibold">{data.tokenIn.name}</div>
-                                    <div className="text-sm text-gray-600">{data.tokenIn.symbol}</div>
+            <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-normal font-funnel-sans">Swapping</span>
+                    <span className="font-medium">{formatTokenAmount(data.amountIn, data.tokenIn.decimals)}</span>
+                    <TokenBadge token={data.tokenIn} />
+                    <span className="font-normal font-funnel-sans">for</span>
+                    <span className="font-medium">{parseFloat(data.swapRoute.quote).toFixed(2)}</span>
+                    <TokenBadge token={data.tokenOut} />
+                    <span className="font-normal font-funnel-sans">at</span>
+                    <span className="font-medium">{(data.tokenIn.currentPrice / data.tokenOut.currentPrice).toFixed(4)}</span>
+                    <TokenBadge token={data.tokenOut} />
+                    <span className="font-normal font-funnel-sans">per</span>
+                    <TokenBadge token={data.tokenIn} />
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="font-normal">Network fee will be:</span>
+                    <span className="font-medium">${data.swapRoute.gasCostUSD}</span>
+                </div>
+            </div>
+
+
+            <div className="font-funnel-sans text-black/80 font-normal">
+                <h3 className="font-normal mb-2">Here&apos;s what will happen:</h3>
+                <div className="border border-black/10 rounded-xl p-6">
+                    <div className="relative">
+                        <div className="absolute z-10 left-[13px] top-[28px] bottom-[4px] w-[2px] bg-gray-200"></div>
+                        <div className="space-y-4">
+                            <div className="flex items-start gap-2 text-black/40">
+                                <div className="flex items-center gap-1 ">
+                                    <StepCircle number="00" />
+                                    <span className="font-funnel-sans font-medium ">Approve</span>
+                                    <TokenBadge token={data.tokenIn} />
+                                    <span className="font-funnel-sans font-medium ">for swapping</span>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <div className="font-semibold">
-                                    {(parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)).toFixed(6)}
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                    ≈ ${((parseInt(data.amountIn) / Math.pow(10, data.tokenIn.decimals)) * data.tokenIn.currentPrice).toFixed(2)}
+                            <div className="flex items-start gap-2 text-black/40">
+                                <div className=" flex items-center gap-1 ">
+                                    <StepCircle number="00" />
+                                    <span className="font-funnel-sans font-medium">Execute the swap</span>
                                 </div>
                             </div>
-                        </div>
-                    </div>
+                            <div className="flex items-start gap-2 text-black/40">
 
-                    {/* Arrow Icon */}
-                    <div className="flex justify-center">
-                        <div className="bg-black/4 p-2 rounded-full">
-                            <svg
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                            >
-                                <path d="M7 10l5 5 5-5" />
-                            </svg>
-                        </div>
-                    </div>
-
-                    {/* To Token Card */}
-                    <div className="bg-black/4 p-4 rounded-lg">
-                        <span className="text-sm text-gray-600">To</span>
-                        <div className="flex items-center justify-between mt-2">
-                            <div className="flex items-center gap-3">
-                                {data.tokenOut.image ? (
-                                    <Image
-                                        src={data.tokenOut.image}
-                                        alt={data.tokenOut.symbol}
-                                        className="w-8 h-8 rounded-full"
-                                        width={32}
-                                        height={32}
-                                    />
-                                ) : (
-                                    <div className="w-8 h-8 bg-black/10 rounded-full" />
-                                )}
-                                <div>
-                                    <div className="font-semibold">{data.tokenOut.name}</div>
-                                    <div className="text-sm text-gray-600">{data.tokenOut.symbol}</div>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="font-semibold">
-                                    {parseFloat(data.swapRoute.quote).toFixed(6)}
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                    ≈ ${((parseInt(data.swapRoute.quote) * data.tokenOut.currentPrice).toFixed(2))}
+                                <div className="pt-1 flex items-center gap-1">
+                                    <StepCircle number="00" />
+                                    <span className="font-funnel-sans font-medium">Update the wallet balance</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                {/* Swap Details */}
-                <div className="mt-6 space-y-2 text-sm text-gray-600 bg-black/2 p-4 rounded-lg">
-                    <div className="flex justify-between">
-                        <span>Gas Estimate (in USD)</span>
-                        <span className="font-semibold">${data.swapRoute.gasCostUSD}</span>
-                    </div>
-
-
-                </div>
-
-                {/* Action Buttons */}
-                <div className="mt-6 flex gap-2">
+            <div className="space-y-2 mt-4">
+                <p className="font-normal">Ready to proceed?</p>
+                <div className="flex gap-2 mt-4">
                     <button
-                        className="flex-1 px-4 py-3 bg-black text-white rounded-lg font-semibold hover:bg-black/90 transition-colors"
                         onClick={() => onSwap(data)}
+                        className="px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
                     >
-                        Confirm Swap
+                        Confirm
+                    </button>
+                    <button
+                        className="px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                    >
+                        Deny
                     </button>
                 </div>
             </div>

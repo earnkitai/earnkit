@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { ChatService } from '@/lib/services/chat.service';
 import { initializeDatabase } from '@/lib/db';
+import { getChat } from '@/actions/chat';
+import { createMessage, getMessagesByChatId } from '@/actions/message';
 
-const chatService = new ChatService();
+// const chatService = new ChatService();
 
 type Params = Promise<{ chatId: string }>;
 
@@ -20,7 +21,7 @@ export async function POST(request: Request, context: { params: Params }) {
     }
 
     // Verify that the chat belongs to the user
-    const chat = await chatService.getChatById(chatId);
+    const chat = await getChat(chatId);
     if (!chat || chat.userId !== userId) {
       return NextResponse.json(
         { error: 'Chat not found or unauthorized' },
@@ -28,7 +29,8 @@ export async function POST(request: Request, context: { params: Params }) {
       );
     }
 
-    const message = await chatService.addMessage(chatId, {
+    const message = await createMessage({
+      chatId,
       content,
       responseFrom,
       toolName: toolName || undefined,
@@ -59,7 +61,7 @@ export async function GET(request: Request, context: { params: Params }) {
     }
 
     // Verify that the chat belongs to the user
-    const chat = await chatService.getChatById(chatId);
+    const chat = await getChat(chatId);
     if (!chat || chat.userId !== userId) {
       return NextResponse.json(
         { error: 'Chat not found or unauthorized' },
@@ -67,7 +69,7 @@ export async function GET(request: Request, context: { params: Params }) {
       );
     }
 
-    const messages = await chatService.getMessagesByChatId(chatId);
+    const messages = await getMessagesByChatId(chatId);
     return NextResponse.json({ messages });
   } catch (error) {
     console.error('Error fetching messages:', error);

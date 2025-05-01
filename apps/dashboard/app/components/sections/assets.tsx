@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { useWallets } from "@/providers/wallet-provider"
+// import { useWallets } from "@/providers/wallet-provider"
 import { formatEther } from "viem"
 import { useTokenPrice } from "@/hooks/use-token-price"
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card"
@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/app/components/ui/table"
-import { getTokenBalances } from "@/actions/web3"
+import { getBalance, getTokenBalances } from "@/actions/web3"
 import Image from "next/image"
 import { Icons } from "./icons"
 
@@ -36,20 +36,20 @@ interface TokenBalance {
 
 interface AssetsProps {
   onTotalValueChange?: (value: number) => void;
+  walletAddress: `0x${string}`;
 }
 
-export default function Assets({ onTotalValueChange }: AssetsProps) {
-  const { state } = useWallets()
+export default function Assets({ onTotalValueChange, walletAddress }: AssetsProps) {
   const { ethPrice } = useTokenPrice()
-  const { selectedAccount } = state
   const [tokens, setTokens] = useState<TokenBalance[]>([])
+  const [ethBalance, setEthBalance] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const previousAddressRef = useRef<string | undefined>(null)
   const fetchTimeoutRef = useRef<NodeJS.Timeout>(null)
 
   const fetchTokens = useCallback(async (address: string) => {
-    if (!selectedAccount?.address) {
+    if (!walletAddress) {
       return
     }
     if (previousAddressRef.current === address && tokens.length > 0) {
@@ -59,7 +59,12 @@ export default function Assets({ onTotalValueChange }: AssetsProps) {
     setIsLoading(true)
     setError(null)
     try {
-      const tokenData = await getTokenBalances(selectedAccount?.address, "base")
+      const ethBalance = await getBalance(walletAddress, "base")
+      const ethBalanceFormatted = ethBalance
+        ? parseFloat(Number(formatEther(ethBalance)).toFixed(8))
+        : 0
+      setEthBalance(ethBalanceFormatted)
+      const tokenData = await getTokenBalances(walletAddress, "base")
       // Filter out any tokens with null balance or error
       console.log(tokenData, 'token data');
       const validTokens = tokenData.filter(token =>
@@ -74,10 +79,10 @@ export default function Assets({ onTotalValueChange }: AssetsProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [tokens.length, selectedAccount?.address])
+  }, [tokens.length, walletAddress])
 
   useEffect(() => {
-    if (!selectedAccount?.address) {
+    if (!walletAddress) {
       setTokens([])
       previousAddressRef.current = undefined
       return
@@ -88,7 +93,7 @@ export default function Assets({ onTotalValueChange }: AssetsProps) {
     }
 
     fetchTimeoutRef.current = setTimeout(() => {
-      fetchTokens(selectedAccount.address!)
+      fetchTokens(walletAddress)
     }, 500)
 
     return () => {
@@ -96,22 +101,19 @@ export default function Assets({ onTotalValueChange }: AssetsProps) {
         clearTimeout(fetchTimeoutRef.current)
       }
     }
-  }, [selectedAccount?.address, fetchTokens])
+  }, [walletAddress, fetchTokens])
 
   const formatTokenAmount = (balance: string, decimals: number) => {
     const amount = BigInt(balance)
     return (Number(amount) / Math.pow(10, decimals)).toFixed(2)
   }
 
-  const ethBalance = selectedAccount?.balance?.baseBalance
-    ? parseFloat(Number(formatEther(selectedAccount.balance.baseBalance)).toFixed(8))
-    : 0
 
-  const ethValueInUSD = ethPrice ? (ethBalance * ethPrice).toFixed(2) : 'N/A'
+  const ethValueInUSD = ethPrice && ethBalance ? (ethBalance * ethPrice).toFixed(2) : '0'
 
   useEffect(() => {
     // Calculate total value including ETH and tokens
-    const ethValue = ethPrice ? ethBalance * ethPrice : 0;
+    const ethValue = ethPrice && ethBalance ? ethBalance * ethPrice : 0;
     const tokenValues = tokens.reduce((sum, token) => {
       const amount = Number(token.balance);
       if (token.metadata.priceUsd && token.balance !== '0') {
@@ -167,14 +169,14 @@ export default function Assets({ onTotalValueChange }: AssetsProps) {
                         ETH
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
-                        {ethBalance.toFixed(4)}
+                        {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         ${ethValueInUSD}
                       </TableCell>
                       <TableCell className="p-2 sm:hidden">
                         <div className="font-medium">
-                          {ethBalance.toFixed(4)}
+                          {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
                           <span className="ml-1 text-xs text-muted-foreground">
                             ETH
                           </span>

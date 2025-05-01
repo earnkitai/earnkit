@@ -6,12 +6,14 @@ import React, {
   useEffect,
   useReducer,
   useRef,
+  useState,
 } from "react"
-import { useWallets } from "@/providers/wallet-provider"
+import { Account } from "viem"
 import { Address, Hex, TransactionRequest } from "viem"
 
 import { Transaction } from "@/types/web3"
 import { getTransactions, watchMinedTransactions } from "@/lib/web3"
+import { usePrivy } from "@privy-io/react-auth"
 
 type TransactionsState = {
   transactions: { [key: Address]: Transaction[] }
@@ -95,12 +97,16 @@ function transactionsReducer(
 export const TransactionsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const {
-    selectAccount,
-    state: { selectedAccount },
-  } = useWallets()
+  const { ready, authenticated, user: privyUser } = usePrivy()
   const [state, dispatch] = useReducer(transactionsReducer, initialState)
   const unwatchRef = useRef<(() => void) | null>(null)
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
+
+  useEffect(() => {
+    if (ready && authenticated) {
+      setSelectedAccount(privyUser?.wallet as unknown as Account)
+    }
+  }, [ready, authenticated, privyUser])
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -133,7 +139,7 @@ export const TransactionsProvider: React.FC<{ children: React.ReactNode }> = ({
                   transaction: tx,
                 },
               })
-              selectAccount(selectedAccount)
+              // selectAccount(selectedAccount)
             }
           )
         } catch (error) {

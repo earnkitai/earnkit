@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { UserService } from '@/lib/services/user.service';
 import { initializeDatabase } from '@/lib/db';
+import { deleteUser, findUserById, updateUser } from '@/actions/user';
 
-const userService = new UserService();
+// const userService = new UserService();
 
 type Params = Promise<{ id: string }>;
 
@@ -13,7 +13,7 @@ export async function GET(
   try {
     await initializeDatabase();
     const params = await segmentData.params;
-    const user = await userService.getUserByTurnkeyId(params.id);
+    const user = await findUserById(params.id);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -37,7 +37,7 @@ export async function PUT(
     await initializeDatabase();
     const params = await segmentData.params;
     const userData = await request.json();
-    const user = await userService.updateUser(params.id, userData);
+    const user = await updateUser(params.id, userData);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -63,7 +63,7 @@ export async function DELETE(
   try {
     await initializeDatabase();
     const params = await segmentData.params;
-    const deleted = await userService.deleteUser(params.id);
+    const deleted = await deleteUser(params.id);
 
     if (!deleted) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });

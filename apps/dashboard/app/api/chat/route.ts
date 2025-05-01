@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { ChatService } from '@/lib/services/chat.service';
 import { initializeDatabase } from '@/lib/db';
+import { createChat, getChatsByUserId } from '@/actions/chat';
 
-const chatService = new ChatService();
+// const chatService = new ChatService();
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     }
 
     // Create a new chat
-    const chat = await chatService.createChat(userId, title);
+    const chat = await createChat({ userId, title });
 
     return NextResponse.json({ chat });
   } catch (error) {
@@ -35,6 +35,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
 
+    console.log(userId, 'userId');
+
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID is required' },
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
     }
 
     // Get all chats for the user
-    const chats = await chatService.getChatsByUserId(userId);
+    const chats = await getChatsByUserId(userId);
 
     return NextResponse.json({ chats });
   } catch (error) {

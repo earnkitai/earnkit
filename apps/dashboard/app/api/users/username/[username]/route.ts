@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { UserService } from '@/lib/services/user.service';
 import { initializeDatabase } from '@/lib/db';
+import { findUserByUsername } from '@/actions/user';
 
-const userService = new UserService();
+// const userService = new UserService();
+
 type Params = Promise<{ username: string }>;
 
 export async function GET(
@@ -12,7 +13,7 @@ export async function GET(
   try {
     await initializeDatabase();
     const params = await segmentData.params;
-    const user = await userService.getUserByUsername(params.username);
+    const user = await findUserByUsername(params.username);
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
