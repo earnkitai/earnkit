@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
 import { prisma } from '@/lib/prisma';
@@ -67,7 +68,7 @@ export async function getMessagesByChatId(chatId: string) {
     },
   });
 
-  return messages.map((msg) => ({
+  return messages.map((msg: any) => ({
     id: msg.id,
     chatId: msg.chatId,
     responseFrom: msg.responseFrom,

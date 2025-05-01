@@ -101,7 +101,7 @@ export async function getChatsByUserId(userId: string) {
     },
   });
 
-  return prismaChats.map((prismaChat) => ({
+  return prismaChats.map((prismaChat: any) => ({
     id: prismaChat.id,
     userId: prismaChat.userId,
     title: prismaChat.title,
