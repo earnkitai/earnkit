@@ -22,7 +22,7 @@ export default function Sidebar() {
     const pathname = usePathname();
     const router = useRouter();
     const { ready, authenticated, user: privyUser, logout } = usePrivy();
-    const [isHovered, setIsHovered] = useState(false);
+    // const [isHovered, setIsHovered] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -70,17 +70,17 @@ export default function Sidebar() {
     };
 
     // Handle mouse events for desktop only
-    const handleMouseEnter = () => {
-        if (!isMobile) {
-            setIsHovered(true);
-        }
-    };
+    // const handleMouseEnter = () => {
+    //     if (!isMobile) {
+    //         setIsHovered(true);
+    //     }
+    // };
 
-    const handleMouseLeave = () => {
-        if (!isMobile) {
-            setIsHovered(false);
-        }
-    };
+    // const handleMouseLeave = () => {
+    //     if (!isMobile) {
+    //         setIsHovered(false);
+    //     }
+    // };
 
     // Close sidebar when clicking outside
     const handleOverlayClick = () => {
@@ -133,15 +133,18 @@ export default function Sidebar() {
         <div className="relative">
             {/* PanelRight Icon Container */}
             {/* Main Sidebar */}
+            <div className="fixed top-4 left-4 bg-[#f0f0f0] rounded-lg md:hidden z-100">
+                <div className="flex flex-col justify-start items-start space-y-6">
+                    {isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />}
+                </div>
+            </div>
+
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen bg-black/4 flex flex-col justify-between items-center rounded-r-2xl transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isHovered || isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#ededed]' : 'w-[70px] sm:w-[70px] p-4'}`}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onClick={() => isMobile && toggleSidebar()}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-between items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#ededed]' : 'w-[70px] sm:w-[70px] p-4'} ${isMobile && !isOpen ? 'hidden' : 'block'} ${isMobile ? 'bg-[#f0f0f0]' : 'bg-black/4'}`}
             >
                 <div className="flex flex-col w-full justify-between items-start space-y-6">
-                    {isHovered || isOpen ? <Icons.sidebarOpen /> : <Icons.sidebarOpenIcon />}
-                    {isHovered || isOpen ? <Icons.earnkitLogoSidebar /> :
+                    {!isMobile && (isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />)}
+                    {isOpen ? <Icons.earnkitLogoSidebar /> :
                         <Icons.sidebarEarnkitSmallLogo />}
                 </div>
                 {/* Main Navigation */}
@@ -150,32 +153,36 @@ export default function Sidebar() {
                         <Link
                             href="/home"
                             className={getLinkStyles("/home")}
-                            onClick={() => isMobile && setIsOpen(false)}
+                            onClick={() => {
+                                if (isMobile) setIsOpen(false);
+                            }}
                         >
-                            <Icons.sidebarPlusIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-[10px] group-hover:bg-black/40 group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>New Chat</span>
+                            <Icons.sidebarPlusIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-[10px] group-hover:bg-black/40 group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>New Chat</span>
 
                         </Link>
                         <Link
                             href="/wallet"
                             className={getLinkStyles("/wallet")}
-                            onClick={() => isMobile && setIsOpen(false)}
+                            onClick={() => {
+                                if (isMobile) setIsOpen(false);
+                            }}
                         >
-                            <Icons.sidebarWalletIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>Wallet</span>
+                            <Icons.sidebarWalletIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Wallet</span>
                         </Link>
                         <span
                             className="flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full text-black/40"
                         >
-                            <Icons.sidebarChatIcon className="w-4 h-4 min-w-4 min-h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white font-normal group-hover:font-semibold" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>History</span>
+                            <Icons.sidebarChatIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white font-normal group-hover:font-semibold" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>History</span>
                         </span>
                     </div>
                 </nav>
-                <div className="flex-1 w-full overflow-y-auto">
+                <div className="flex-1 w-full overflow-y-auto" onClick={() => toggleSidebar()}>
                     {<SidebarChatHistory
                         userId={userId}
-                        isExpanded={isHovered || isOpen}
+                        isExpanded={isOpen}
                     />}
                 </div>
                 {/* Secondary Navigation */}
@@ -187,8 +194,8 @@ export default function Sidebar() {
                             className={getLinkStyles("/docs")}
                             onClick={() => isMobile && setIsOpen(false)}
                         >
-                            <Icons.sidebarDocIcon className="w-4 h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
+                            <Icons.sidebarDocIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
                         </Link>
                         <div className="relative profile-menu">
 
@@ -230,9 +237,9 @@ export default function Sidebar() {
                                         height={20}
                                     />
                                 ) : ( */}
-                                <User className="w-4 h-4 sm:w-8 sm:h-8 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
                                 {/* )} */}
-                                <span className={`absolute left-10 text-sm sm:text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300 ${isHovered || isOpen ? 'opacity-100' : 'opacity-0'}`}>{username !== "" ? username : "user"}</span>
+                                <span className={`absolute left-10 text-sm sm:text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>{username !== "" ? username : "user"}</span>
                             </div>
 
 
@@ -240,10 +247,11 @@ export default function Sidebar() {
                     </div>
                 </nav>
             </aside>
+
             {/* Overlay for mobile */}
-            {(isOpen || isHovered) && (
+            {(isOpen) && (
                 <div
-                    className="fixed inset-0 bg-black/20 z-10 sm:hidden"
+                    className="fixed inset-0 bg-transparent z-10 sm:hidden"
                     onClick={handleOverlayClick}
                 />
             )}

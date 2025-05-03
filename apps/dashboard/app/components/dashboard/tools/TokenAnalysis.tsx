@@ -70,7 +70,7 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
     const contractAddress = data.detail_platforms && Object.values(data.detail_platforms)[0]?.contract_address || "";
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 px-2">
             <div className="flex items-center gap-2">
                 <span className="font-normal">Here is the analysis of</span>
                 {/* // create capsule with token image and symbol */}

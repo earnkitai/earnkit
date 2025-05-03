@@ -48,6 +48,7 @@ export function handleSocketConnection(socket: Socket) {
 
       // Stream agent response
       console.log('Starting agent stream');
+      console.log(message, 'message');
       const stream = await agentInstance.agent.stream(
         {
           messages: [new HumanMessage(message)],

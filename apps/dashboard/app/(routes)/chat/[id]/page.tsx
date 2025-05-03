@@ -626,7 +626,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     type: 'success',
                 });
                 setShowSwapConfirmation(false);
-                setShowActivity(false);
+                // setShowActivity(false);
 
             } catch (error) {
                 console.log('Error executing swap:', error);
@@ -693,11 +693,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     // };
 
     return (
-        <div className="flex h-screen font-funnel-sans ml-[80px] relative">
+        <div className="flex h-screen font-funnel-sans md:ml-[80px] relative mt-10 md:mt-0">
             {/* Activity Toggle Button */}
             <button
                 onClick={() => setShowActivity(!showActivity)}
-                className="absolute top-4 right-4 p-2 rounded-lg transition-colors z-50 group"
+                className="hidden md:block absolute top-4 right-4 p-2 rounded-lg transition-colors z-50 group"
             >
                 <div className="flex items-center gap-1">
                     {!showActivity && <span className="text-sm font-normal font-funnel-sans text-black/40 group-hover:text-black">Activity</span>}
@@ -844,7 +844,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             console.log(data, 'data');
                                             return (
                                                 <div key={index} className="mb-2">
-                                                    <TokenSwap data={data} onSwap={handleSwapToken} userAddress={selectedAccount?.address as `0x${string}`} />
+                                                    <TokenSwap data={data} onSwap={handleSwapToken} onDeny={() => handleSwapConfirmationMsgStore('Deny')} userAddress={selectedAccount?.address as `0x${string}`} />
                                                 </div>
                                             );
                                         } catch (error) {
@@ -957,7 +957,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
             {/* Right side - Tool UI */}
 
-            <section className={`${showActivity ? 'w-1/2 h-screen overflow-y-auto bg-gray-50 p-6 translate-x-0' : 'translate-x-full w-0 opacity-0 overflow-hidden'} transition-all duration-500 flex justify-center items-center flex-col relative`
+            <section className={`${showActivity ? 'hidden md:flex w-1/2 h-screen overflow-y-auto bg-gray-50 p-6 translate-x-0' : 'translate-x-full w-0 opacity-0 overflow-hidden'} transition-all duration-500 flex justify-center items-center flex-col relative`
             }>
                 <div className="flex items-center gap-2 mb-6 absolute top-4 left-4">
                     <Icons.earnyLogoBlack className="w-10 h-10 text-black/40" />

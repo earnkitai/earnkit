@@ -82,27 +82,27 @@ export default function Dashboard() {
 
     return (
         <section className="w-full mx-auto p-4 sm:p-6 flex flex-col min-h-screen bg-black/4">
-            <div className='mx-auto flex flex-col w-[calc(100%-400px)]'>
+            <div className='mx-auto flex flex-col md:w-[calc(100%-250px)] md:max-w-[1100px] sm:w-[calc(100%-80px)]'>
                 {/* Logo Section */}
-                <div className="text-center mb-8">
+                <div className="text-center mb-4">
                     <div className="mb-6 flex justify-center items-center">
-                        <Icons.earnyLogoBlack className="w-28 sm:w-32" />
+                        <Icons.earnyLogoBlack className="w-24 sm:w-32" />
                     </div>
                 </div>
 
                 {/* Search Bar */}
-                <div className="max-w-2xl mx-auto w-full mb-16">
+                <div className="max-w-xl mx-auto w-full mb-16">
                     <form onSubmit={handleSubmit} className="relative">
                         <input
                             type="text"
                             value={inputValue}
                             onChange={handleInputChange}
                             placeholder="Ask Earny"
-                            className="w-full p-3 sm:p-4 pr-10 sm:pr-12 bg-transparent text-lg sm:text-xl text-black/80 font-funnel-sans font-semibold border border-transparent outline outline-black/40 rounded-full focus:outline-none focus:border focus:border-2 focus:border-black/80"
+                            className="w-full p-2 sm:p-3 sm:px-4 pr-10 sm:pr-10 bg-transparent text-md sm:text-xl text-black/80 font-funnel-sans font-semibold border-2 border-transparent outline outline-black/10 rounded-full focus:outline-transparent focus:border focus:border-2 focus:border-black/80"
                         />
                         <button
                             type="submit"
-                            className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 bg-black/80 rounded-full disabled:opacity-50"
+                            className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 bg-black disabled:bg-black/20 rounded-full disabled:opacity-50"
                             disabled={isLoading || inputValue === ''}
                         >
                             <svg
@@ -131,26 +131,26 @@ export default function Dashboard() {
                 </div>
 
                 {/* Title Section */}
-                <div className="text-center mb-12">
-                    <h2 className="text-3xl font-bold mb-4">Your Earning Assistant +</h2>
-                    <p className="text-gray-600">I identify and execute the most rewarding DeFi workflows.</p>
+                <div className="text-center mb-8">
+                    <h2 className="text-2xl font-bold mb-2 text-black/80">Your Earning Assistant +</h2>
+                    <p className="text-black/40 text-lg">I identify and execute the most rewarding DeFi workflows.</p>
                 </div>
 
                 {/* Features Grid */}
                 <div className="mx-auto w-full">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {/* Trader on Zora */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
-                            <div className="flex gap-4 p-6">
-                                <div className="flex items-start mb-4">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                            <div className="flex gap-5 p-6">
+                                <div className="flex items-start">
                                     <Icons.zoraIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2 ">Trader on Zora</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny finds the best token and trades on behalf of you.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0 ">Trader on Zora</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny finds the best token and trades on behalf of you.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.zoraSmallIcon />
                                 <Icons.swapIcon />
@@ -159,17 +159,17 @@ export default function Dashboard() {
                         </div>
 
                         {/* Trader on Clanker */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
-                            <div className="flex gap-4 p-6">
-                                <div className="flex items-start mb-4">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                            <div className="flex gap-5 p-6">
+                                <div className="flex items-start">
                                     <Icons.clankerIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2">Trader on Clanker</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny finds the best token and trades on behalf of you.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0">Trader on Clanker</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny finds the best token and trades on behalf of you.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.farcasterSmallIcon />
                                 <Icons.swapIcon />
@@ -178,17 +178,17 @@ export default function Dashboard() {
                         </div>
 
                         {/* Token Creator */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
-                            <div className="flex gap-4 p-6">
-                                <div className="flex items-start mb-4">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                            <div className="flex gap-5 p-6">
+                                <div className="flex items-start">
                                     <Icons.tokenCreatorIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2">Token Creator</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny creates tokens, airdrops and posts on Farcaster.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0">Token Creator</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny creates tokens, airdrops and posts on Farcaster.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.farcasterSmallIcon />
                                 <Icons.airDropSmallIcon />
@@ -197,17 +197,17 @@ export default function Dashboard() {
                         </div>
 
                         {/* Yield Farmer */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
                             <div className="flex gap-4 p-6">
                                 <div className="flex items-start mb-4">
                                     <Icons.yieldIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2">Yield Farmer</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny finds the highest yields across protocols and stakes your assets for you.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0">Yield Farmer</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny finds the highest yields across protocols and stakes your assets for you.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.renzoIcon />
                                 <Icons.liquidIcon />
@@ -216,17 +216,17 @@ export default function Dashboard() {
                         </div>
 
                         {/* LP Optimizer */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
-                            <div className="flex gap-4 p-6">
-                                <div className="flex items-start mb-4">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                            <div className="flex gap-5 p-6">
+                                <div className="flex items-start">
                                     <Icons.yieldIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2">LP Optimizer</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny provides liquidity where rewards are best, auto-rebalances positions when needed.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0">LP Optimizer</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny provides liquidity where rewards are best, auto-rebalances positions when needed.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.renzoIcon />
                                 <Icons.liquidIcon />
@@ -235,17 +235,17 @@ export default function Dashboard() {
                         </div>
 
                         {/* Airdrop Hunter */}
-                        <div className="bg-white rounded-3xl cursor-pointer border border-black/20 outline outline-transparent outline-4 hover:outline-black hover:border-transparent transition-all duration-300 ease-in-out">
-                            <div className="flex gap-4 p-6">
-                                <div className="flex items-start mb-4">
+                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                            <div className="flex gap-5 p-6">
+                                <div className="flex items-start">
                                     <Icons.yieldIcon />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-funnel-sans font-semibold mb-2">Airdrop Hunter</h3>
-                                    <span className="text-gray-600 mb-4 text-sm font-funnel-sans font-normal">Earny scouts potential airdrops and completes the tasks needed to qualify and auto-claims for you.</span>
+                                    <h3 className="text-xl text-black font-funnel-sans font-semibold mb-0">Airdrop Hunter</h3>
+                                    <span className="text-black/40 mb-2 text-sm font-funnel-sans font-normal">Earny scouts potential airdrops and completes the tasks needed to qualify and auto-claims for you.</span>
                                 </div>
                             </div>
-                            <Separator className='w-full border-b' />
+                            <Separator className='w-full border-b border-black/20' />
                             <div className="flex gap-3 items-center justify-center p-4">
                                 <Icons.renzoIcon />
                                 <Icons.liquidIcon />

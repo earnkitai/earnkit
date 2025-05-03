@@ -27,6 +27,10 @@ export default {
         'black/80': 'rgba(0, 0, 0, 0.8)',
         'black/90': 'rgba(0, 0, 0, 0.9)',
         'black/100': 'rgba(0, 0, 0, 1)',
+        'secondary-green': 'rgba(52, 199, 89, 1)',
+        'secondary-red': 'rgba(255, 59, 48, 1)',
+        'secondary-blue': 'rgba(0, 122, 255, 1)',
+        'uniswap-pink': '#FF007A',
       },
       fontFamily: {
         'funnel-display': ['var(--font-funnel-display)', 'sans-serif'],

@@ -24,23 +24,24 @@ interface TokenSwapProps {
     data: SwapTokenResponse;
     onSwap: (data: SwapTokenResponse) => void;
     userAddress: string;
+    onDeny: () => void;
 }
 
-export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
+export default function TokenSwap({ data, onSwap, onDeny }: TokenSwapProps) {
     const formatTokenAmount = (amount: string, decimals: number) => {
         return (parseInt(amount) / Math.pow(10, decimals)).toFixed(4);
     };
 
     const TokenBadge = ({ token }: { token: Token }) => (
         <Link href={`https://basescan.org/token/${token.address}`} target="_blank"
-            className="text-blue-500 flex items-center gap-1 font-funnel-sans text-sm bg-transparent border-2 border-black/20 rounded-full px-1 py-0 hover:bg-black/4 transition-colors hover:border-black/40"
+            className="text-blue-500 flex items-center gap-1 font-funnel-sans text-sm bg-transparent border border-black/20 rounded-full px-1.5 py-0.5 hover:bg-black/4 transition-colors hover:border-black/40"
         >
             {token.image && (
                 <Image
                     src={token.image}
                     alt={token.symbol}
-                    width={16}
-                    height={16}
+                    width={12}
+                    height={12}
                     className="rounded-full"
                 />
             )}
@@ -56,7 +57,7 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
     );
 
     return (
-        <div className="space-y-4 max-w-[80%] font-funnel-sans text-black/80 font-normal">
+        <div className="px-2 space-y-4 max-w-[80%] font-funnel-sans text-black/80 font-normal">
 
             <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -64,10 +65,10 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
                     <span className="font-medium">{formatTokenAmount(data.amountIn, data.tokenIn.decimals)}</span>
                     <TokenBadge token={data.tokenIn} />
                     <span className="font-normal font-funnel-sans">for</span>
-                    <span className="font-medium">{parseFloat(data.swapRoute.quote).toFixed(2)}</span>
+                    <span className="font-medium">{parseFloat(data.swapRoute.quote).toFixed(5)}</span>
                     <TokenBadge token={data.tokenOut} />
                     <span className="font-normal font-funnel-sans">at</span>
-                    <span className="font-medium">{(data.tokenIn.currentPrice / data.tokenOut.currentPrice).toFixed(4)}</span>
+                    <span className="font-medium">{(data.tokenIn.currentPrice / data.tokenOut.currentPrice).toFixed(5)}</span>
                     <TokenBadge token={data.tokenOut} />
                     <span className="font-normal font-funnel-sans">per</span>
                     <TokenBadge token={data.tokenIn} />
@@ -88,7 +89,7 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
                         <div className="space-y-4">
                             <div className="flex items-start gap-2 text-black/40">
                                 <div className="flex items-center gap-1 ">
-                                    <StepCircle number="00" />
+                                    <StepCircle number="1" />
                                     <span className="font-funnel-sans font-medium ">Approve</span>
                                     <TokenBadge token={data.tokenIn} />
                                     <span className="font-funnel-sans font-medium ">for swapping</span>
@@ -96,14 +97,14 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
                             </div>
                             <div className="flex items-start gap-2 text-black/40">
                                 <div className=" flex items-center gap-1 ">
-                                    <StepCircle number="00" />
+                                    <StepCircle number="2" />
                                     <span className="font-funnel-sans font-medium">Execute the swap</span>
                                 </div>
                             </div>
                             <div className="flex items-start gap-2 text-black/40">
 
                                 <div className="pt-1 flex items-center gap-1">
-                                    <StepCircle number="00" />
+                                    <StepCircle number="3" />
                                     <span className="font-funnel-sans font-medium">Update the wallet balance</span>
                                 </div>
                             </div>
@@ -113,16 +114,17 @@ export default function TokenSwap({ data, onSwap }: TokenSwapProps) {
             </div>
 
             <div className="space-y-2 mt-4">
-                <p className="font-normal">Ready to proceed?</p>
-                <div className="flex gap-2 mt-4">
+                <p className="font-normal mb-4">Ready to proceed?</p>
+                <div className="flex gap-4">
                     <button
                         onClick={() => onSwap(data)}
-                        className="px-4 py-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors"
+                        className="px-4 py-2 bg-secondary-green text-white rounded-full hover:bg-green-600 transition-colors"
                     >
                         Confirm
                     </button>
                     <button
-                        className="px-4 py-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                        className="px-4 py-2 bg-secondary-red text-white rounded-full hover:bg-red-600 transition-colors"
+                        onClick={onDeny}
                     >
                         Deny
                     </button>
