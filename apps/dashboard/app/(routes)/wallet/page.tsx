@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 // import TransferDialog from "@/app/components/sections/transfer-dialog";
 import Assets from "@/app/components/sections/assets";
-// import Activity from "@/app/components/sections/activity";
+import Activity from "@/app/components/sections/activity";
 import { Toaster } from "@/app/components/ui/sonner";
 import { Button } from "@/app/components/ui/button";
 import { SendTransactionModal } from '@/components/modals/send-transaction-modal';
@@ -100,7 +100,7 @@ export default function WalletPage() {
 
             {/* Activity Log Section */}
             <div className="mt-8 sm:mt-12">
-                {/* <Activity /> */}
+                <Activity />
             </div>
 
             <SendTransactionModal

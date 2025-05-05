@@ -75,7 +75,7 @@ export default function TokenSwapConfirmation({ data, state }: TokenSwapProps) {
                     transition-all duration-300 ease-in-out`}
             >
                 {showSpinner ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <div className="w-[50%] h-[50%] m-1 p-[2px] aspect-square rounded-full bg-white custom-mask animate-spin"></div>
                 ) : showCheck ? (
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
                         <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />

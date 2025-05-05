@@ -140,7 +140,7 @@ export default function Sidebar() {
             </div>
 
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-between items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#ededed]' : 'w-[70px] sm:w-[70px] p-4'} ${isMobile && !isOpen ? 'hidden' : 'block'} ${isMobile ? 'bg-[#f0f0f0]' : 'bg-black/4'}`}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-between items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#fbfbfb]' : 'w-[70px] sm:w-[70px] p-4 bg-black/4'} ${isMobile && !isOpen ? 'hidden' : 'block'} ${isMobile ? 'bg-[#f0f0f0]' : ''}`}
             >
                 <div className="flex flex-col w-full justify-between items-start space-y-6">
                     {!isMobile && (isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />)}

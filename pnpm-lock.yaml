@@ -42,8 +42,8 @@ importers:
         specifier: ^16.3.1
         version: 16.4.7
       earnkit:
-        specifier: ^1.0.15
-        version: 1.0.15(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.16
+        version: 1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       express:
         specifier: ^4.18.2
         version: 4.21.2
@@ -77,7 +77,7 @@ importers:
     dependencies:
       '@neynar/nodejs-sdk':
         specifier: ^2.5.0
-        version: 2.7.0(typescript@5.7.2)(zod@3.24.2)
+        version: 2.7.0(typescript@5.7.2)
       '@turnkey/sdk-server':
         specifier: ^1.7.1
         version: 1.7.1
@@ -320,6 +320,9 @@ importers:
       '@types/jsonwebtoken':
         specifier: ^9.0.7
         version: 9.0.7
+      '@zoralabs/coins-sdk':
+        specifier: ^0.1.0
+        version: 0.1.0(abitype@1.0.8)(viem@2.22.1)
       alchemy-sdk:
         specifier: ^3.4.1
         version: 3.5.3
@@ -333,8 +336,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       earnkit:
-        specifier: ^1.0.15
-        version: 1.0.15(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.16
+        version: 1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       ethers:
         specifier: ^6.13.4
         version: 6.13.5
@@ -934,11 +937,11 @@ packages:
       '@jridgewell/trace-mapping': 0.3.9
     dev: true
 
-  /@earnkit/sdk-ai@1.0.10(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-atGbD8XCnZQM6dmYygqvZuhWf2U0N3CC6ZiH9CVv8+fzndh3iS+DuDH4M8vm260F63bxzniT/xQbSiP/H5KQzg==}
+  /@earnkit/sdk-ai@1.0.11(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-LM+adUE/5DwgWfMx7aFJm13FqlgQEqj/yR0iJzetvHe2PoVVX3/djB4a/YnMnmMlVyuw+sGxVVggRM8goFaDFA==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@langchain/core': 0.3.42
       zod: 3.24.2
     transitivePeerDependencies:
@@ -959,8 +962,8 @@ packages:
       - webauthn-p256
     dev: false
 
-  /@earnkit/sdk-core@1.1.7(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-GRcw70cx5MGI0i+F8nuBZRxZ4eWUlSaC3AefiNgFqJ023fOh4s7t0hD6A5M7YeQFie1hC7nf7ur0iJBPcn2BVQ==}
+  /@earnkit/sdk-core@1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-F9l8BEMxnqs1hKsg+q6ge2RFdK1ObGwgkMXj9ahlyAbbNS0t5xNzbvQaghJFgOEbGjcEdeEUOc9YFLE8VQ0K4w==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
@@ -969,36 +972,7 @@ packages:
       axios: 1.7.9
       ethers: 6.13.5
       node-fetch: 2.7.0(encoding@0.1.13)
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
-      zod: 3.24.2
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - bufferutil
-      - debug
-      - encoding
-      - react
-      - react-dom
-      - sass
-      - typescript
-      - utf-8-validate
-      - webauthn-p256
-    dev: false
-
-  /@earnkit/sdk-core@1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-6lPcN4mjUxgHD3CPPVBHyBLTNMSMfRPYq6CmPK/C8pfzgDS550RTvpqKdd7f9mtYsPot76dNCfDbZC3YdpfK4Q==}
-    engines: {node: '>=18.0.0'}
-    dependencies:
-      '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
-      '@types/node-fetch': 2.6.12
-      axios: 1.7.9
-      ethers: 6.13.5
-      node-fetch: 2.7.0(encoding@0.1.13)
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
       - '@babel/core'
@@ -1021,12 +995,12 @@ packages:
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.7(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
       axios: 1.7.9
       dotenv: 16.4.7
       serialize-javascript: 6.0.2
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
       - '@babel/core'
@@ -1849,6 +1823,10 @@ packages:
       react: '>= 16 || ^19.0.0-rc'
     dependencies:
       react: 19.0.0
+    dev: false
+
+  /@hey-api/client-fetch@0.8.4:
+    resolution: {integrity: sha512-SWtUjVEFIUdiJGR2NiuF0njsSrSdTe7WHWkp3BLH3DEl2bRhiflOnBo29NSDdrY90hjtTQiTQkBxUgGOF29Xzg==}
     dev: false
 
   /@hookform/resolvers@3.10.0(react-hook-form@7.54.2):
@@ -3212,13 +3190,35 @@ packages:
     dev: false
     optional: true
 
-  /@neynar/nodejs-sdk@2.7.0(typescript@5.7.2)(zod@3.24.2):
+  /@neynar/nodejs-sdk@2.7.0(typescript@5.7.2):
     resolution: {integrity: sha512-V2pfo11sZNRPPu/Wbsakw81SEZYZNNJeStw2brgROXNmDg7eb5e83ftXOqHNRh6v3HvDmrYjlF++PDFu94M7YA==}
     engines: {node: '>=19.9.0'}
     dependencies:
       '@openapitools/openapi-generator-cli': 2.15.3
       semver: 7.6.3
       viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+    transitivePeerDependencies:
+      - '@nestjs/microservices'
+      - '@nestjs/platform-express'
+      - '@nestjs/websockets'
+      - bufferutil
+      - class-transformer
+      - class-validator
+      - debug
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+      - zod
+    dev: false
+
+  /@neynar/nodejs-sdk@2.7.0(typescript@5.7.2)(zod@3.24.2):
+    resolution: {integrity: sha512-V2pfo11sZNRPPu/Wbsakw81SEZYZNNJeStw2brgROXNmDg7eb5e83ftXOqHNRh6v3HvDmrYjlF++PDFu94M7YA==}
+    engines: {node: '>=19.9.0'}
+    dependencies:
+      '@openapitools/openapi-generator-cli': 2.15.3
+      semver: 7.6.3
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
     transitivePeerDependencies:
       - '@nestjs/microservices'
       - '@nestjs/platform-express'
@@ -3845,6 +3845,18 @@ packages:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.0)
+    dev: false
+
+  /@openzeppelin/contracts-upgradeable@5.3.0(@openzeppelin/contracts@5.3.0):
+    resolution: {integrity: sha512-yVzSSyTMWO6rapGI5tuqkcLpcGGXA0UA1vScyV5EhE5yw8By3Ewex9rDUw8lfVw0iTkvR/egjfcW5vpk03lqZg==}
+    peerDependencies:
+      '@openzeppelin/contracts': 5.3.0
+    dependencies:
+      '@openzeppelin/contracts': 5.3.0
+    dev: false
+
+  /@openzeppelin/contracts@5.3.0:
+    resolution: {integrity: sha512-zj/KGoW7zxWUE8qOI++rUM18v+VeLTTzKs/DJFkSzHpQFPD/jKKF0TrMxBfGLl3kpdELCNccvB3zmofSzm4nlA==}
     dev: false
 
   /@panva/hkdf@1.2.1:
@@ -6344,7 +6356,7 @@ packages:
       '@turnkey/http': 2.20.0
       buffer: 6.0.3
       cross-fetch: 3.2.0(encoding@0.1.13)
-      next: 15.2.1(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
+      next: 15.2.4(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
     transitivePeerDependencies:
       - '@babel/core'
       - '@opentelemetry/api'
@@ -6369,6 +6381,34 @@ packages:
       '@turnkey/sdk-server': 2.2.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
       cross-fetch: 4.1.0
       viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+    transitivePeerDependencies:
+      - '@babel/core'
+      - '@opentelemetry/api'
+      - '@playwright/test'
+      - babel-plugin-macros
+      - babel-plugin-react-compiler
+      - bufferutil
+      - encoding
+      - react
+      - react-dom
+      - sass
+      - typescript
+      - utf-8-validate
+      - zod
+    dev: false
+
+  /@turnkey/viem@0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.27.2)(zod@3.24.2):
+    resolution: {integrity: sha512-KDFKL5L/OSyAPNL4McbGdkAO0MxF+gMoOUoJTB4p2ItdOsos7tMxhWtuhfMUzAWsx+R4q5E/gsL6QZ8D90GV9A==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      viem: ^1.16.6 || ^2.1.1
+    dependencies:
+      '@turnkey/api-key-stamper': 0.4.4
+      '@turnkey/http': 2.20.0
+      '@turnkey/sdk-browser': 1.14.0(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/sdk-server': 2.2.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
+      cross-fetch: 4.1.0
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
     transitivePeerDependencies:
       - '@babel/core'
       - '@opentelemetry/api'
@@ -8000,6 +8040,25 @@ packages:
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
     dev: false
 
+  /@zoralabs/coins-sdk@0.1.0(abitype@1.0.8)(viem@2.22.1):
+    resolution: {integrity: sha512-4o6OZrjE4jf/FVAcRjWC0acrjiY+YVD1gB8oxLoFt3GzGn1+uiTtOF/u64oSkzzE9OP0UWkpzvouurrYFw3Bkw==}
+    peerDependencies:
+      abitype: ^1.0.8
+      viem: ^2.21.55
+    dependencies:
+      '@hey-api/client-fetch': 0.8.4
+      '@zoralabs/coins': 0.7.1
+      abitype: 1.0.8(typescript@5.7.2)(zod@3.24.2)
+      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+    dev: false
+
+  /@zoralabs/coins@0.7.1:
+    resolution: {integrity: sha512-CGW8FHhr0WPkm6AT2Zyzyh6NnP728FAYtsqz6Z8JVmy365R1fw92oNLt4KGEBLeortSbPJDCwQjEaVZXz04gzw==}
+    dependencies:
+      '@openzeppelin/contracts': 5.3.0
+      '@openzeppelin/contracts-upgradeable': 5.3.0(@openzeppelin/contracts@5.3.0)
+    dev: false
+
   /abbrev@3.0.0:
     resolution: {integrity: sha512-+/kfrslGQ7TNV2ecmQwMJj/B65g5KVq1/L3SGVZ3tCYGqlzFuFCGBZJtMP99wH3NpEUyAjn0zPdPUg0D+DwrOA==}
     engines: {node: ^18.17.0 || >=20.5.0}
@@ -9611,21 +9670,21 @@ packages:
       xtend: 4.0.2
     dev: true
 
-  /earnkit@1.0.15(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-cfqZnD+ZWkO2shBqezXULxiaexP/ut6dyWOBSJ+rAuvTj0IGmSCns3JgzFMgvmWR58p/Stl1yKizHapLgb6grA==}
+  /earnkit@1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-WdVfEfnWhHLY1cuCbd76fAlsQFqdHdPf/Esz3a5vlphCQIjOvPlMr5/o0V3KNkdYTGwBuTx6ViohMhJwPZoIMA==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.10(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-core': 1.1.8(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-ai': 1.0.11(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-social': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
       '@langchain/core': 0.3.42
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
       '@turnkey/sdk-server': 1.7.3(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-      '@turnkey/viem': 0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.22.1)(zod@3.24.2)
+      '@turnkey/viem': 0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.27.2)(zod@3.24.2)
       axios: 1.7.9
       ethers: 6.13.5
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
       - '@babel/core'

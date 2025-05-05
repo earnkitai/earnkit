@@ -14,14 +14,14 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @unique // This will be the privyId
-  username            String?   @unique
-  email               String?   @unique
-  createdAt           DateTime  @default(now()) @map("created_at")
-  hasAcceptedTerms    Boolean   @default(false) @map("has_accepted_terms")
-  isGuest             Boolean   @default(false) @map("is_guest")
-  mfaMethods          String[]  @default([]) @map("mfa_methods")
-  
+  id               String   @id @unique // This will be the privyId
+  username         String?  @unique
+  email            String?  @unique
+  createdAt        DateTime @default(now()) @map("created_at")
+  hasAcceptedTerms Boolean  @default(false) @map("has_accepted_terms")
+  isGuest          Boolean  @default(false) @map("is_guest")
+  mfaMethods       String[] @default([]) @map("mfa_methods")
+
   // Linked Accounts - will be empty arrays if no accounts are linked
   walletAccounts      WalletAccount[]
   smartWalletAccounts SmartWalletAccount[]
@@ -43,232 +43,235 @@ model User {
   crossAppAccounts    CrossAppAccount[]
 
   // Chats
-  chats               Chat[]
+  chats Chat[]
+
+  // Orders
+  orders Order[]
 
   @@map("users")
 }
 
 // Linked Account Models
 model WalletAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("wallet")
-  address         String
-  chainType       String    @map("chain_type")
-  walletClientType String   @map("wallet_client_type")
-  connectorType   String    @map("connector_type")
-  recoveryMethod  String    @map("recovery_method")
-  imported        Boolean   @default(false)
-  delegated       Boolean   @default(false)
-  walletIndex     Int?      @map("wallet_index")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String  @id @default(uuid())
+  userId           String  @map("user_id")
+  type             String  @default("wallet")
+  address          String
+  chainType        String  @map("chain_type")
+  walletClientType String  @map("wallet_client_type")
+  connectorType    String  @map("connector_type")
+  recoveryMethod   String  @map("recovery_method")
+  imported         Boolean @default(false)
+  delegated        Boolean @default(false)
+  walletIndex      Int?    @map("wallet_index")
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("wallet_accounts")
 }
 
 model SmartWalletAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("smart_wallet")
+  id              String @id @default(uuid())
+  userId          String @map("user_id")
+  type            String @default("smart_wallet")
   address         String
-  smartWalletType String    @map("smart_wallet_type")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  smartWalletType String @map("smart_wallet_type")
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("smart_wallet_accounts")
 }
 
 model EmailAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("email")
-  address         String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  type    String @default("email")
+  address String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("email_accounts")
 }
 
 model PhoneAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("phone")
-  number          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  type   String @default("phone")
+  number String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("phone_accounts")
 }
 
 model GoogleAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("google_oauth")
-  subject         String
-  email           String
-  name            String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String  @id @default(uuid())
+  userId  String  @map("user_id")
+  type    String  @default("google_oauth")
+  subject String
+  email   String
+  name    String?
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("google_accounts")
 }
 
 model TwitterAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("twitter_oauth")
-  subject         String
-  username        String?
-  name            String?
+  id                String  @id @default(uuid())
+  userId            String  @map("user_id")
+  type              String  @default("twitter_oauth")
+  subject           String
+  username          String?
+  name              String?
   profilePictureUrl String? @map("profile_picture_url")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("twitter_accounts")
 }
 
 model DiscordAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("discord_oauth")
-  subject         String
-  username        String?
-  email           String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("discord_oauth")
+  subject  String
+  username String?
+  email    String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("discord_accounts")
 }
 
 model GithubAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("github_oauth")
-  subject         String
-  username        String?
-  name            String?
-  email           String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("github_oauth")
+  subject  String
+  username String?
+  name     String?
+  email    String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("github_accounts")
 }
 
 model SpotifyAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("spotify_oauth")
-  subject         String
-  email           String?
-  name            String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String  @id @default(uuid())
+  userId  String  @map("user_id")
+  type    String  @default("spotify_oauth")
+  subject String
+  email   String?
+  name    String?
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("spotify_accounts")
 }
 
 model InstagramAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("instagram_oauth")
-  subject         String
-  username        String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("instagram_oauth")
+  subject  String
+  username String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("instagram_accounts")
 }
 
 model TiktokAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("tiktok_oauth")
-  subject         String
-  username        String?
-  name            String?
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("tiktok_oauth")
+  subject  String
+  username String?
+  name     String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("tiktok_accounts")
 }
 
 model LinkedInAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("linkedin_oauth")
-  subject         String
-  name            String?
-  email           String?
-  vanityName      String?   @map("vanity_name")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  type       String  @default("linkedin_oauth")
+  subject    String
+  name       String?
+  email      String?
+  vanityName String? @map("vanity_name")
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("linkedin_accounts")
 }
 
 model AppleAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("apple_oauth")
-  subject         String
-  email           String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  type    String @default("apple_oauth")
+  subject String
+  email   String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("apple_accounts")
 }
 
 model CustomJwtAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("custom_auth")
-  customUserId    String    @map("custom_user_id")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String @id @default(uuid())
+  userId       String @map("user_id")
+  type         String @default("custom_auth")
+  customUserId String @map("custom_user_id")
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("custom_jwt_accounts")
 }
 
 model FarcasterAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("farcaster")
+  id              String  @id @default(uuid())
+  userId          String  @map("user_id")
+  type            String  @default("farcaster")
   fid             Int?
-  ownerAddress    String    @map("owner_address")
+  ownerAddress    String  @map("owner_address")
   username        String?
-  displayName     String?   @map("display_name")
+  displayName     String? @map("display_name")
   bio             String?
   pfp             String?
   url             String?
-  signerPublicKey String?   @map("signer_public_key")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signerPublicKey String? @map("signer_public_key")
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("farcaster_accounts")
 }
 
 model PasskeyAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("passkey")
-  credentialId    String    @map("credential_id")
-  enrolledInMfa   Boolean   @default(false) @map("enrolled_in_mfa")
-  authenticatorName String  @map("authenticator_name")
-  createdWithDevice String  @map("created_with_device")
-  createdWithOs    String   @map("created_with_os")
-  createdWithBrowser String @map("created_with_browser")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String  @id @default(uuid())
+  userId             String  @map("user_id")
+  type               String  @default("passkey")
+  credentialId       String  @map("credential_id")
+  enrolledInMfa      Boolean @default(false) @map("enrolled_in_mfa")
+  authenticatorName  String  @map("authenticator_name")
+  createdWithDevice  String  @map("created_with_device")
+  createdWithOs      String  @map("created_with_os")
+  createdWithBrowser String  @map("created_with_browser")
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("passkey_accounts")
 }
 
 model TelegramAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("telegram")
-  telegramUserId  String    @map("telegram_user_id")
-  firstName       String?   @map("first_name")
-  lastName        String?   @map("last_name")
-  username        String?
-  photoUrl        String?   @map("photo_url")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  type           String  @default("telegram")
+  telegramUserId String  @map("telegram_user_id")
+  firstName      String? @map("first_name")
+  lastName       String? @map("last_name")
+  username       String?
+  photoUrl       String? @map("photo_url")
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("telegram_accounts")
 }
 
 model CrossAppAccount {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  type            String    @default("cross_app")
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  type            String           @default("cross_app")
   subject         String
-  providerApp     Json      @map("provider_app")
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerApp     Json             @map("provider_app")
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   embeddedWallets EmbeddedWallet[]
   smartWallets    SmartWallet[]
 
@@ -276,19 +279,19 @@ model CrossAppAccount {
 }
 
 model EmbeddedWallet {
-  id              String    @id @default(uuid())
-  crossAppAccountId String  @map("cross_app_account_id")
-  address         String
-  crossAppAccount CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
+  id                String          @id @default(uuid())
+  crossAppAccountId String          @map("cross_app_account_id")
+  address           String
+  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
 
   @@map("embedded_wallets")
 }
 
 model SmartWallet {
-  id              String    @id @default(uuid())
-  crossAppAccountId String  @map("cross_app_account_id")
-  address         String
-  crossAppAccount CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
+  id                String          @id @default(uuid())
+  crossAppAccountId String          @map("cross_app_account_id")
+  address           String
+  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
 
   @@map("smart_wallets")
 }
@@ -307,15 +310,59 @@ model Chat {
 }
 
 model Message {
-  id          String    @id @default(uuid())
-  chatId      String    @map("chat_id")
+  id           String   @id @default(uuid())
+  chatId       String   @map("chat_id")
   responseFrom String   @map("response_from")
-  toolName    String?   @map("tool_name")
-  content     String
-  metadata    Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  chat        Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  toolName     String?  @map("tool_name")
+  content      String
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  chat         Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   @@map("messages")
+}
+
+model Order {
+  id              String         @id @default(cuid())
+  userId          String         @map("user_id")
+  userAddress     String         @map("user_address")
+  tokenAddress    String         @map("token_address")
+  tokenSymbol     String         @map("token_symbol")
+  amount          Float
+  priceAtCreation Float          @map("price_at_creation")
+  targetPrice     Float?         @map("target_price")
+  targetChange    Float?         @map("target_change")
+  direction       OrderDirection
+  status          OrderStatus    @default(PENDING)
+  orderType       OrderType      @default(LIMIT)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  executedAt      DateTime?      @map("executed_at")
+  executedPrice   Float?         @map("executed_price")
+  aiInitiated     Boolean        @default(false) @map("ai_initiated")
+  notes           String?        @db.Text
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, userAddress])
+  @@index([tokenAddress, direction, status])
+  @@index([status, createdAt])
+  @@index([aiInitiated, status])
+  @@map("orders")
+}
+
+enum OrderDirection {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  PENDING
+  EXECUTED
+  CANCELLED
+  FAILED
+}
+
+enum OrderType {
+  LIMIT
+  DIRECT
 }

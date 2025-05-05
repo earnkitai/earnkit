@@ -232,12 +232,19 @@ function SignUpPage() {
   };
 
   const handleLoginWithPasskey = () => {
+    setLoadingAction("passkey")
     loginWithPasskey().then(() => {
       console.log("Logged in");
       router.push("/home");
     }).catch((error) => {
-      console.error("Login failed", error);
-    });
+      if (error instanceof Error) {
+        toast.error(error.message || "Login failed");
+      } else {
+        toast.error("Login failed");
+      }
+    }).finally(() => {
+      setLoadingAction(null)
+    })
   }
 
   // Show loading state while checking authentication
@@ -332,7 +339,6 @@ function SignUpPage() {
             type="email"
             id="email"
             name="email"
-            required
             placeholder="email@example.com"
             onChange={(e) => setEmail(e.target.value)}
             className="w-full bg-transparent outline-none font-funnel-sans text-base sm:text-[1.375rem] ml-2 sm:ml-4 text-black"
@@ -350,7 +356,16 @@ function SignUpPage() {
           Submit
         </LoadingButton>
 
-        <p className="text-center text-black/[40%] font-funnel-sans text-xs sm:text-sm"> <button onClick={handleLoginWithPasskey}>I have a passkey</button></p>
+        <p className="text-center text-black/[40%] font-funnel-sans text-xs sm:text-sm">
+          <LoadingButton
+            type="button"
+            onClick={handleLoginWithPasskey}
+            className="text-black/[40%] hover:text-black bg-transparent hover:bg-transparent text-sm hover:underline "
+            loading={loadingAction === "passkey"}
+          >
+            I have a passkey
+          </LoadingButton>
+        </p>
       </form>
       <Toaster />
     </div >

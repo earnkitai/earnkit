@@ -5,7 +5,7 @@ import { Account } from 'viem';
 import { ethers } from 'ethers';
 import { showTransactionToast } from '@/lib/toast';
 import { Toaster } from '@/app/components/ui/sonner';
-import { TokenAnalysis, TokenSwap, TokenBalance } from '@/app/components/dashboard/tools';
+import { TokenAnalysis, TokenSwap, TokenBalance, TokenInvest } from '@/app/components/dashboard/tools';
 import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
 import ReactMarkdown from 'react-markdown';
@@ -22,6 +22,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { Icons } from '@/app/components/sections/icons';
 import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
 import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
+import { TokenInvestResponse } from '@/app/components/dashboard/tools/Token_Invest';
+import Link from 'next/link';
 
 interface Message {
     responseFrom: string;
@@ -431,6 +433,35 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             setIsLoading(false);
         }
     };
+
+
+    const handleInvestmentCompleteDataStore = async (result: `0x${string}`) => {
+        console.log("Transaction hash:", result);
+        // console.log("Trade details:", result.trade);
+        const inputValueNew = result;
+
+        const userMessage = { responseFrom: 'tools', tool_name: 'after_invest_token', response: JSON.stringify(inputValueNew) };
+        setMessages((prev) => [...prev, userMessage]);
+
+        // Store user message in database
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: inputValueNew,
+                    responseFrom: 'tools',
+                    toolName: 'after_invest_token',
+                    userId,
+                }),
+            });
+            // Set needToFetchChats to true to trigger a refresh of the chat list
+        } catch (error) {
+            console.log('Error storing user message:', error);
+        }
+
+    }
 
     const handleSwapConfirmationMsgStore = async (inputValueNew: string) => {
         // Add user message to chat
@@ -883,6 +914,55 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                         } catch (error) {
                                             console.log(error, 'error');
                                         }
+                                    }
+
+                                    if (message.tool_name === 'invest_token') {
+                                        try {
+                                            const data: TokenInvestResponse = JSON.parse(message.response as string);
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <TokenInvest data={data} onComplete={handleInvestmentCompleteDataStore} userAddress={selectedAccount?.address as `0x${string}`} onDeny={() => handleSwapConfirmationMsgStore('Deny')} />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Response Format</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process token information. Please try again.</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    if (message.tool_name === 'after_invest_token') {
+                                        const hash: `0x${string}` = message.response as `0x${string}`;
+                                        return (
+                                            <div key={index} className="mb-6 max-w-[80%] w-max">
+                                                <div className="bg-green-50 rounded-lg shadow-sm border border-green-100 p-4 flex flex-col gap-2 items-center ">
+                                                    <p className="text-green-600">Investment successful! 🎉</p>
+                                                    {hash && (
+                                                        <Link
+                                                            href={`https://basescan.org/tx/${hash}`}
+                                                            target="_blank"
+                                                            className="text-secondary-blue text-sm font-semibold flex items-center gap-1 font-funnel-sans bg-transparent border border-black/20 rounded-full px-3 py-0.5"
+                                                        >
+                                                            View on Explorer
+                                                            <Icons.arrowUpBlueIcon />
+                                                        </Link>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
                                     }
 
 

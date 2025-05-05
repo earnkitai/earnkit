@@ -44,10 +44,13 @@ export default function Dashboard() {
         }
     }, [privyReady, authenticated, privyUser]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent, initialMessage?: string) => {
+        console.log("handleSubmit")
         e.preventDefault();
-        if (!inputValue.trim() || !userId) return;
-        const inputValueNew = inputValue.trim();
+        if (!initialMessage?.trim() && !inputValue.trim() || !userId) return;
+
+        const inputValueNew = initialMessage ? initialMessage.trim() : inputValue.trim();
+        console.log("inputValueNew", initialMessage)
         setInputValue('');
         setIsLoading(true);
 
@@ -78,6 +81,12 @@ export default function Dashboard() {
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setInputValue(e.target.value);
+    };
+
+    const handleOnClickZora = () => {
+        // call handleSubmit
+        const event = new Event('submit') as unknown as React.FormEvent;
+        handleSubmit(event, "Start trading on Zora");
     };
 
     return (
@@ -140,7 +149,10 @@ export default function Dashboard() {
                 <div className="mx-auto w-full">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {/* Trader on Zora */}
-                        <div className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out">
+                        <div
+                            className="bg-white rounded-3xl flex flex-col justify-between cursor-pointer outline outline-2 outline-black/20 border-4 border-transparent hover:outline-transparent hover:border-black transition-all duration-300 ease-in-out"
+                            onClick={handleOnClickZora}
+                        >
                             <div className="flex gap-5 p-6">
                                 <div className="flex items-start">
                                     <Icons.zoraIcon />

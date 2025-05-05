@@ -4,6 +4,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from '@sentry/nextjs';
+console.log(process.env.NODE_ENV, 'sentry env');
 
 if (process.env.NODE_ENV === 'production') {
   Sentry.init({

@@ -56,6 +56,7 @@ async function initializeAgent(
       apiUrl: process.env.EARNKIT_BACKEND_API_URL || '',
       coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
       alchemyApiKey: process.env.ALCHEMY_API_KEY || '',
+      limitOrdersApiKey: process.env.LIMIT_ORDERS_API_KEY || '',
     });
 
     const earnkitToolkit = new EarnkitToolkit(earnkitAgent as any);
