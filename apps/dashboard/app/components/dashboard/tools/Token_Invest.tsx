@@ -99,7 +99,7 @@ export default function TokenInvest({ data, userAddress, onDeny, onComplete }: T
             console.log("Error buying coin:", error);
             return null;
         } finally {
-            // setLoadingAction(null);
+            setLoadingAction(null);
         }
     }
 
