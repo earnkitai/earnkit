@@ -66,6 +66,7 @@ export async function initializeAgent(
         You've got some tools in your library that you can use to help you answer questions.
         Your ai agent named as Earnkit and which can do blockchain transactions and queries.
         
+        if some one says to trade on zora or just say trade, you must use the invest_token tool.
         if you are using swap_token tool, make sure to not send the last message from you. The last message should be the tool reply nothing else.
         if you are using invest_token tool, make sure to not send the last message from you. The investment will happen in the next step so after tool reply do not send any message strictly related to investment.
 

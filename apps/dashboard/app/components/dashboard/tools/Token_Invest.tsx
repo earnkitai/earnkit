@@ -5,6 +5,7 @@ import { tradeCoin } from '@zoralabs/coins-sdk';
 import { base } from 'viem/chains';
 import { useState } from 'react';
 import { useWallets } from '@privy-io/react-auth';
+import { LoadingButton } from '../../ui/button.loader';
 
 interface Token {
     name: string;
@@ -50,6 +51,7 @@ export interface TokenInvestProps {
 
 export default function TokenInvest({ data, userAddress, onDeny, onComplete }: TokenInvestProps) {
     const [selectedToken, setSelectedToken] = useState<Address | null>(null);
+    const [loadingAction, setLoadingAction] = useState<string | null>(null);
     const { wallets } = useWallets();
     const wallet = wallets[0];
     // Sort tokens by confidence score and take top 2
@@ -64,6 +66,8 @@ export default function TokenInvest({ data, userAddress, onDeny, onComplete }: T
         coinContractAddress: Address,
         orderSize: number,
     ) => {
+        console.log("buyCoin", coinContractAddress, orderSize);
+        setLoadingAction("buy");
         const provider = wallet ? await wallet.getEthereumProvider() : null;
         if (!provider) {
             console.error("No provider found");
@@ -94,6 +98,8 @@ export default function TokenInvest({ data, userAddress, onDeny, onComplete }: T
         } catch (error) {
             console.log("Error buying coin:", error);
             return null;
+        } finally {
+            // setLoadingAction(null);
         }
     }
 
@@ -158,12 +164,15 @@ export default function TokenInvest({ data, userAddress, onDeny, onComplete }: T
                 <div className="space-y-2 mt-4">
                     <p className="font-normal mb-4">Ready to proceed?</p>
                     <div className="flex gap-4">
-                        <button
+                        <LoadingButton
                             onClick={() => buyCoin(selectedToken!, data.metadata.investmentAmount)}
-                            className="px-4 py-2 bg-secondary-green text-white rounded-full hover:bg-green-600 transition-colors"
+                            className="flex items-center justify-center gap-2 px-4 py-2 bg-secondary-green hover:bg-green-600 font-funnel-sans text-white rounded-full transition-colors"
+                            loading={loadingAction === "buy"}
                         >
                             Confirm
-                        </button>
+                        </LoadingButton>
+
+
                         <button
                             className="px-4 py-2 bg-secondary-red text-white rounded-full hover:bg-red-600 transition-colors"
                             onClick={onDeny}

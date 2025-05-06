@@ -10,7 +10,7 @@ interface LoadingButtonProps extends ButtonProps {
 const LoadingButton = React.forwardRef<HTMLButtonElement, LoadingButtonProps>(
   ({ loading, children, ...props }, ref) => {
     return (
-      <Button {...props} ref={ref}>
+      <Button {...props} ref={ref} onClick={props.onClick}>
         {loading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
         {children}
       </Button>
