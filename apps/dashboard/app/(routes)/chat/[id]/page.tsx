@@ -945,7 +945,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                     }
 
                                     if (message.tool_name === 'after_invest_token') {
-                                        const hash: `0x${string}` = message.response as `0x${string}`;
+                                        const hash: `0x${string}` = JSON.parse(message.response as `0x${string}`);
                                         return (
                                             <div key={index} className="mb-6 max-w-[80%] w-max">
                                                 <div className="bg-green-50 rounded-lg shadow-sm border border-green-100 p-4 flex flex-col gap-2 items-center ">
