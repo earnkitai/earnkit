@@ -71,7 +71,7 @@ export default function TokenSwapConfirmation({ data, state }: TokenSwapProps) {
         return (
             <div
                 className={`w-[26px] h-[26px] rounded-full flex items-center justify-center relative z-10 
-                    ${showCheck || showSpinner ? 'bg-secondary-green' : 'bg-transparent border border-secondary-green'}
+                    ${showCheck || showSpinner ? 'bg-secondary-green' : 'bg-white border border-secondary-green'}
                     transition-all duration-300 ease-in-out`}
             >
                 {showSpinner ? (

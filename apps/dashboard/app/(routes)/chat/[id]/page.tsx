@@ -700,7 +700,26 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 setShowSwapConfirmation(false);
                 const userMessage = { responseFrom: 'tools', response: finalConfirmationDataString, tool_name: 'swap_token_confirmation' };
                 setMessages((prev) => [...prev, userMessage]);
+                // Send message via Socket.IO
+                try {
+                    const payload = {
+                        message: "check my updated wallet balance",
+                        userWalletAddress: selectedAccount?.address,
+                        chatId: resolvedParams.id,
+                    };
 
+                    if (socketRef.current?.connected) {
+                        console.log('Sending message via socket:', payload);
+                        socketRef.current.emit('message', payload);
+                    } else {
+                        console.log('Socket is not connected');
+                        console.log('Not connected to server. Please refresh the page.');
+                    }
+                } catch (error) {
+                    console.log('Socket send error:', error);
+                    console.log('Failed to send message. Please try again.');
+                    setIsLoading(false);
+                }
 
                 const publicClient = getPublicClient('base');
                 const toastId = showTransactionToast({
@@ -734,6 +753,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             }
         } catch (err) {
             setSwapProgressState('error');
+            setShowActivity(false);
             if (err instanceof Error) {
                 console.log(err.message);
                 if (err.message.includes('insufficient funds')) {
@@ -750,6 +770,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     });
                 }
             }
+        } finally {
+            setShowActivity(false);
         }
     };
 
