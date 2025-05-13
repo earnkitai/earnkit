@@ -70,7 +70,7 @@ export default function TokenBalance({ data }: TokenBalanceProps) {
             <div className="space-y-2">
                 {data?.tokens?.map((token, index) => {
                     // check if token.balance is greater than 0.000001 then show the token
-                    if (Number(token.balance) > 0.000001) {
+                    if (Number(token.balance) * Number(token.price_usd) > 0.009) {
                         return (
                             <div key={index} className="space-y-1">
                                 {/* Token Info */}
@@ -93,7 +93,7 @@ export default function TokenBalance({ data }: TokenBalanceProps) {
                                                     className="rounded-full"
                                                 />
                                             ) : (
-                                                <Icons.ethereum className="w-4 h-4" />
+                                                <Icons.basetokenImage className="w-4 h-4" />
                                             )}
                                             <span className="text-gray-600">{token.symbol}</span>
                                         </Link>

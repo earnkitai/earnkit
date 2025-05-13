@@ -73,6 +73,8 @@ export interface TradeResult {
     tokenInDetails?: TokenMetadata;
 }
 
+export type TokenInvestState = '' | 'researching' | 'researched' | 'executing' | 'executed' | 'recordkeeping' | 'completed' | 'exerror' | 'recorderror' | 'researcherror';
+
 export interface TokenInvestProps {
     data: TokenInvestResponse;
     userAddress: `0x${string}`;
@@ -80,9 +82,6 @@ export interface TokenInvestProps {
     updateMessage: (messageId: string, content: string) => void;
     messageId?: string;
 }
-
-type TokenInvestState = '' | 'researching' | 'researched' | 'executing' | 'executed' | 'recordkeeping' | 'completed' | 'exerror' | 'recorderror' | 'researcherror';
-
 
 export default function TokenInvest({ data, userAddress, onDeny, messageId, updateMessage }: TokenInvestProps) {
     const [selectedToken, setSelectedToken] = useState<Address | null>(null);
@@ -100,7 +99,6 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
 
     useEffect(() => {
         if (data && data.recommendations.length > 0) {
-
             if (data.selectedToken) {
                 setSelectedToken(data.selectedToken as Address);
                 setState(['researching', 'researched', 'executing', 'executed', 'recordkeeping', 'completed']);
@@ -117,11 +115,18 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 .slice(0, 2);
             setTopTokens([...topTokens]);
 
+            // Update the message with the current state
+            if (messageId) {
+                updateMessage(messageId, JSON.stringify({
+                    ...data,
+                    state: state
+                }));
+            }
         }
         return () => {
             setState(['researching']);
         }
-    }, [data]);
+    }, [data, state, messageId, updateMessage]);
 
 
     // fetch the token details using getTokenMetadataWithCoingecko by passing the token address

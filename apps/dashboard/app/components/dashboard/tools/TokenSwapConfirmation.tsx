@@ -89,7 +89,7 @@ export default function TokenSwapConfirmation({ data, state }: TokenSwapProps) {
 
     return (
         <>
-            <div className="mx-4 w-[80%] rounded-xl overflow-hidden font-funnel-sans border border-black/10">
+            <div className="mx-2 w-[80%] rounded-xl overflow-hidden font-funnel-sans border border-black/10">
                 {/* Header */}
                 <div className="p-6 bg-black/4 font-funnel-sans text-black/80 text-lg border-b border-black/10">
                     <div className="flex items-center gap-2">
@@ -175,7 +175,7 @@ export default function TokenSwapConfirmation({ data, state }: TokenSwapProps) {
             </div>
             {
                 (state === 'completed' || stateFromData === 'completed') && (
-                    <div className="p-4 text-black/80">
+                    <div className="p-2 text-black/80">
                         <div className="font-funnel-sans">Transaction successful!</div>
                     </div>
                 )

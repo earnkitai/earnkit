@@ -42,8 +42,8 @@ importers:
         specifier: ^16.3.1
         version: 16.4.7
       earnkit:
-        specifier: ^1.0.16
-        version: 1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.18
+        version: 1.0.18(typescript@5.7.2)(webauthn-p256@0.0.10)
       express:
         specifier: ^4.18.2
         version: 4.21.2
@@ -336,8 +336,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       earnkit:
-        specifier: ^1.0.16
-        version: 1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+        specifier: ^1.0.18
+        version: 1.0.18(typescript@5.7.2)(webauthn-p256@0.0.10)
       ethers:
         specifier: ^6.13.4
         version: 6.13.5
@@ -937,65 +937,52 @@ packages:
       '@jridgewell/trace-mapping': 0.3.9
     dev: true
 
-  /@earnkit/sdk-ai@1.0.11(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-LM+adUE/5DwgWfMx7aFJm13FqlgQEqj/yR0iJzetvHe2PoVVX3/djB4a/YnMnmMlVyuw+sGxVVggRM8goFaDFA==}
+  /@earnkit/sdk-ai@1.0.13(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-o2+ZTuUNIHpzDaUyShi06d8j5mo86BllfxD6Rh4ZGaKKOB+ofBDb/KWbGNsjzv54qiE9Enr8hsMexj2thtiMzw==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.11(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@langchain/core': 0.3.42
       zod: 3.24.2
     transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
       - debug
       - encoding
       - openai
-      - react
-      - react-dom
-      - sass
+      - supports-color
       - typescript
       - utf-8-validate
       - webauthn-p256
     dev: false
 
-  /@earnkit/sdk-core@1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-F9l8BEMxnqs1hKsg+q6ge2RFdK1ObGwgkMXj9ahlyAbbNS0t5xNzbvQaghJFgOEbGjcEdeEUOc9YFLE8VQ0K4w==}
+  /@earnkit/sdk-core@1.1.11(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-fHZDtUTPTb9rkiTgxmVvWLs3tQ6P8umCP0LIeu1ArFt0Mr9b1WO286ddATQTUo7c1OjLhknn8hs+kX+qwhTBvA==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
+      '@earnkit/sdk-wallet': 1.0.0(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
       '@types/node-fetch': 2.6.12
+      alchemy-sdk: 3.5.8
       axios: 1.7.9
       ethers: 6.13.5
       node-fetch: 2.7.0(encoding@0.1.13)
       viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
       - debug
       - encoding
-      - react
-      - react-dom
-      - sass
+      - supports-color
       - typescript
       - utf-8-validate
       - webauthn-p256
     dev: false
 
-  /@earnkit/sdk-social@1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
+  /@earnkit/sdk-social@1.0.0(typescript@5.7.2)(webauthn-p256@0.0.10):
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.11(typescript@5.7.2)(webauthn-p256@0.0.10)
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
       axios: 1.7.9
       dotenv: 16.4.7
@@ -1003,48 +990,32 @@ packages:
       viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
-      - '@babel/core'
       - '@nestjs/microservices'
       - '@nestjs/platform-express'
       - '@nestjs/websockets'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
       - class-transformer
       - class-validator
       - debug
       - encoding
-      - react
-      - react-dom
-      - sass
       - supports-color
       - typescript
       - utf-8-validate
       - webauthn-p256
     dev: false
 
-  /@earnkit/sdk-wallet@1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2):
+  /@earnkit/sdk-wallet@1.0.0(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2):
     resolution: {integrity: sha512-XiEtfSMbEH4U+YUium5hzu2zaNjhpVI4mE11MqY/v3KQd0MFm98uE9lUW3qv+FNNRkeHhqufyBkIOJQbd/As0g==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@turnkey/sdk-server': 1.7.3(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-      '@turnkey/viem': 0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.22.1)(zod@3.24.2)
+      '@turnkey/sdk-server': 1.7.1
+      '@turnkey/viem': 0.6.7(viem@2.27.2)(zod@3.24.2)
       dotenv: 16.4.7
-      permissionless: 0.2.24(viem@2.22.1)(webauthn-p256@0.0.10)
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      permissionless: 0.2.24(viem@2.27.2)(webauthn-p256@0.0.10)
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
     transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
       - encoding
-      - react
-      - react-dom
-      - sass
       - typescript
       - utf-8-validate
       - webauthn-p256
@@ -2958,10 +2929,6 @@ packages:
     resolution: {integrity: sha512-JmY0qvnPuS2NCWOz2bbby3Pe0VzdAQ7XpEB6uLIHmtXNfAsAO0KLQLkuAoc42Bxbo3/jMC3dcn9cdf+piCcG2Q==}
     dev: false
 
-  /@next/env@15.2.4:
-    resolution: {integrity: sha512-+SFtMgoiYP3WoSswuNmxJOCwi06TdWE733D+WPjpXIe4LXGULwEaofiiAy6kbS0+XjM5xF5n3lKuBwN2SnqD9g==}
-    dev: false
-
   /@next/eslint-plugin-next@15.1.6:
     resolution: {integrity: sha512-+slMxhTgILUntZDGNgsKEYHUvpn72WP1YTlkmEhS51vnVd7S9jEEy0n9YAMcI21vUG4akTw9voWH02lrClt/yw==}
     dependencies:
@@ -2992,15 +2959,6 @@ packages:
     dev: false
     optional: true
 
-  /@next/swc-darwin-arm64@15.2.4:
-    resolution: {integrity: sha512-1AnMfs655ipJEDC/FHkSr0r3lXBgpqKo4K1kiwfUf3iE68rDFXZ1TtHdMvf7D0hMItgDZ7Vuq3JgNMbt/+3bYw==}
-    engines: {node: '>= 10'}
-    cpu: [arm64]
-    os: [darwin]
-    requiresBuild: true
-    dev: false
-    optional: true
-
   /@next/swc-darwin-x64@15.1.6:
     resolution: {integrity: sha512-x1jGpbHbZoZ69nRuogGL2MYPLqohlhnT9OCU6E6QFewwup+z+M6r8oU47BTeJcWsF2sdBahp5cKiAcDbwwK/lg==}
     engines: {node: '>= 10'}
@@ -3012,15 +2970,6 @@ packages:
 
   /@next/swc-darwin-x64@15.2.1:
     resolution: {integrity: sha512-E/w8ervu4fcG5SkLhvn1NE/2POuDCDEy5gFbfhmnYXkyONZR68qbUlJlZwuN82o7BrBVAw+tkR8nTIjGiMW1jQ==}
-    engines: {node: '>= 10'}
-    cpu: [x64]
-    os: [darwin]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@next/swc-darwin-x64@15.2.4:
-    resolution: {integrity: sha512-3qK2zb5EwCwxnO2HeO+TRqCubeI/NgCe+kL5dTJlPldV/uwCnUgC7VbEzgmxbfrkbjehL4H9BPztWOEtsoMwew==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [darwin]
@@ -3046,15 +2995,6 @@ packages:
     dev: false
     optional: true
 
-  /@next/swc-linux-arm64-gnu@15.2.4:
-    resolution: {integrity: sha512-HFN6GKUcrTWvem8AZN7tT95zPb0GUGv9v0d0iyuTb303vbXkkbHDp/DxufB04jNVD+IN9yHy7y/6Mqq0h0YVaQ==}
-    engines: {node: '>= 10'}
-    cpu: [arm64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
-    optional: true
-
   /@next/swc-linux-arm64-musl@15.1.6:
     resolution: {integrity: sha512-+n3u//bfsrIaZch4cgOJ3tXCTbSxz0s6brJtU3SzLOvkJlPQMJ+eHVRi6qM2kKKKLuMY+tcau8XD9CJ1OjeSQQ==}
     engines: {node: '>= 10'}
@@ -3066,15 +3006,6 @@ packages:
 
   /@next/swc-linux-arm64-musl@15.2.1:
     resolution: {integrity: sha512-3v0pF/adKZkBWfUffmB/ROa+QcNTrnmYG4/SS+r52HPwAK479XcWoES2I+7F7lcbqc7mTeVXrIvb4h6rR/iDKg==}
-    engines: {node: '>= 10'}
-    cpu: [arm64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@next/swc-linux-arm64-musl@15.2.4:
-    resolution: {integrity: sha512-Oioa0SORWLwi35/kVB8aCk5Uq+5/ZIumMK1kJV+jSdazFm2NzPDztsefzdmzzpx5oGCJ6FkUC7vkaUseNTStNA==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
@@ -3100,15 +3031,6 @@ packages:
     dev: false
     optional: true
 
-  /@next/swc-linux-x64-gnu@15.2.4:
-    resolution: {integrity: sha512-yb5WTRaHdkgOqFOZiu6rHV1fAEK0flVpaIN2HB6kxHVSy/dIajWbThS7qON3W9/SNOH2JWkVCyulgGYekMePuw==}
-    engines: {node: '>= 10'}
-    cpu: [x64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
-    optional: true
-
   /@next/swc-linux-x64-musl@15.1.6:
     resolution: {integrity: sha512-L4druWmdFSZIIRhF+G60API5sFB7suTbDRhYWSjiw0RbE+15igQvE2g2+S973pMGvwN3guw7cJUjA/TmbPWTHQ==}
     engines: {node: '>= 10'}
@@ -3120,15 +3042,6 @@ packages:
 
   /@next/swc-linux-x64-musl@15.2.1:
     resolution: {integrity: sha512-QHsMLAyAIu6/fWjHmkN/F78EFPKmhQlyX5C8pRIS2RwVA7z+t9cTb0IaYWC3EHLOTjsU7MNQW+n2xGXr11QPpg==}
-    engines: {node: '>= 10'}
-    cpu: [x64]
-    os: [linux]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@next/swc-linux-x64-musl@15.2.4:
-    resolution: {integrity: sha512-Dcdv/ix6srhkM25fgXiyOieFUkz+fOYkHlydWCtB0xMST6X9XYI3yPDKBZt1xuhOytONsIFJFB08xXYsxUwJLw==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
@@ -3154,15 +3067,6 @@ packages:
     dev: false
     optional: true
 
-  /@next/swc-win32-arm64-msvc@15.2.4:
-    resolution: {integrity: sha512-dW0i7eukvDxtIhCYkMrZNQfNicPDExt2jPb9AZPpL7cfyUo7QSNl1DjsHjmmKp6qNAqUESyT8YFl/Aw91cNJJg==}
-    engines: {node: '>= 10'}
-    cpu: [arm64]
-    os: [win32]
-    requiresBuild: true
-    dev: false
-    optional: true
-
   /@next/swc-win32-x64-msvc@15.1.6:
     resolution: {integrity: sha512-6xomMuu54FAFxttYr5PJbEfu96godcxBTRk1OhAvJq0/EnmFU/Ybiax30Snis4vdWZ9LGpf7Roy5fSs7v/5ROQ==}
     engines: {node: '>= 10'}
@@ -3174,15 +3078,6 @@ packages:
 
   /@next/swc-win32-x64-msvc@15.2.1:
     resolution: {integrity: sha512-YjqXCl8QGhVlMR8uBftWk0iTmvtntr41PhG1kvzGp0sUP/5ehTM+cwx25hKE54J0CRnHYjSGjSH3gkHEaHIN9g==}
-    engines: {node: '>= 10'}
-    cpu: [x64]
-    os: [win32]
-    requiresBuild: true
-    dev: false
-    optional: true
-
-  /@next/swc-win32-x64-msvc@15.2.4:
-    resolution: {integrity: sha512-SbnWkJmkS7Xl3kre8SdMF6F/XDh1DTFEhp0jRTj/uB8iPKoU2bb2NDfcu+iifv1+mxQEd1g2vvSxcZbXSKyWiQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
@@ -6182,29 +6077,8 @@ packages:
       sha256-uint8array: 0.10.7
     dev: false
 
-  /@turnkey/api-key-stamper@0.4.4:
-    resolution: {integrity: sha512-KXvf2yV3OkSrZYEnHSgOwy2XS7Q4+XNwRkgRhDNsiYvgz8KNGLbqXg0/aAlkTIUT7NYODZ3iaGMml0DtyzGeDQ==}
-    engines: {node: '>=18.0.0'}
-    dependencies:
-      '@noble/curves': 1.7.0
-      '@turnkey/encoding': 0.4.0
-      sha256-uint8array: 0.10.7
-    dev: false
-
   /@turnkey/crypto@2.3.0:
     resolution: {integrity: sha512-RdsSn9nKzr2Ik8TssvQ6qwPuUzUfbV+G0u3XYTaGxAHS8ifWtgvwkiWRLRqy0Y89xh7GaU+OmFjwCO9qwBoWfQ==}
-    engines: {node: '>=18.0.0'}
-    dependencies:
-      '@noble/ciphers': 0.5.3
-      '@noble/curves': 1.4.0
-      '@noble/hashes': 1.4.0
-      '@turnkey/encoding': 0.4.0
-      bs58: 5.0.0
-      bs58check: 3.0.1
-    dev: false
-
-  /@turnkey/crypto@2.3.1:
-    resolution: {integrity: sha512-fHKCw0inuThEKIpZnC8pvz16egZHf08wES0LdSkM9XrGDcI7p0eqF7nAHgfAMW/0qNVZD8AKW+g/5O97HBwZ4w==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@noble/ciphers': 0.5.3
@@ -6232,37 +6106,8 @@ packages:
       - encoding
     dev: false
 
-  /@turnkey/http@2.17.3:
-    resolution: {integrity: sha512-awyemf+sn7GQGJDVSVsTwlFmgA+cYrvrdaphH9+KBzRxrXi9fFjUircopQFCYaqwEPJQVpDs0evT2zLSqA16Xw==}
-    engines: {node: '>=16.0.0'}
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/encoding': 0.4.0
-      '@turnkey/webauthn-stamper': 0.5.0
-      cross-fetch: 3.2.0(encoding@0.1.13)
-    transitivePeerDependencies:
-      - encoding
-    dev: false
-
-  /@turnkey/http@2.20.0:
-    resolution: {integrity: sha512-j8/1lcw88qImiQKMIp65AQ0MaQH53ixPHuKgiI1UxR9NUsGJPmn2lpjxT1HN4tsDhDlafsIQHRrFu6aZ4DB7Ig==}
-    engines: {node: '>=16.0.0'}
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/encoding': 0.4.0
-      '@turnkey/webauthn-stamper': 0.5.0
-      cross-fetch: 3.2.0(encoding@0.1.13)
-    transitivePeerDependencies:
-      - encoding
-    dev: false
-
   /@turnkey/iframe-stamper@2.0.0:
     resolution: {integrity: sha512-14IPfloVCV3ngoxsy3KoEUbEtYYxPU5H6T4WcNzY8Z67A1NJZfipk6pTaN5h3efkUm208G2TvDd63sZOdbyuxQ==}
-    engines: {node: '>=18.0.0'}
-    dev: false
-
-  /@turnkey/iframe-stamper@2.2.0:
-    resolution: {integrity: sha512-UWr7PWtlkA9oEt701zDHOW7OBDRp4BJS9rFe9Jymyz7x1VnCrKDzVOQ03TZavXBkdPZImtmHwPREqbsUEfkQYQ==}
     engines: {node: '>=18.0.0'}
     dev: false
 
@@ -6290,20 +6135,21 @@ packages:
       - zod
     dev: false
 
-  /@turnkey/sdk-browser@1.14.0(typescript@5.7.2)(zod@3.24.2):
-    resolution: {integrity: sha512-xEB62X4rgDFcMEkBPbsV4IoujdQTpafAj4l0+jiUhFJuplX98oiHMzuFbTR9QPjSGqFUmyAv7CBgELbqoelqHw==}
+  /@turnkey/sdk-browser@1.11.0(typescript@5.7.2)(zod@3.24.2):
+    resolution: {integrity: sha512-oMuo9Lj0UZnwD6Pen53g62QeEy+Ax70KZc2XX/Ui4kpFWmF1QsagWaLKTKXk8ZP3c1LURqKA17Kv+L3mUo2DhA==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/crypto': 2.3.1
+      '@turnkey/api-key-stamper': 0.4.3
+      '@turnkey/crypto': 2.3.0
       '@turnkey/encoding': 0.4.0
-      '@turnkey/http': 2.20.0
-      '@turnkey/iframe-stamper': 2.2.0
-      '@turnkey/wallet-stamper': 1.0.3(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/http': 2.17.1
+      '@turnkey/iframe-stamper': 2.0.0
+      '@turnkey/wallet-stamper': 1.0.2(typescript@5.7.2)(zod@3.24.2)
       '@turnkey/webauthn-stamper': 0.5.0
       bs58check: 3.0.1
       buffer: 6.0.3
       cross-fetch: 3.2.0(encoding@0.1.13)
+      elliptic: 6.6.1
       hpke-js: 1.6.1
     transitivePeerDependencies:
       - bufferutil
@@ -6326,105 +6172,6 @@ packages:
       - encoding
     dev: false
 
-  /@turnkey/sdk-server@1.7.3(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0):
-    resolution: {integrity: sha512-QnaVAS7IqFrMxCRkqwQs6n4ZLOJRmzJpewB+5l7vwaczdecnnSy1biT0gcM5CGgKQSl2satYKVVft5QqAMgW8A==}
-    engines: {node: '>=18.0.0'}
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/http': 2.17.3
-      buffer: 6.0.3
-      cross-fetch: 3.2.0(encoding@0.1.13)
-      elliptic: 6.6.1
-      next: 15.2.4(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - encoding
-      - react
-      - react-dom
-      - sass
-    dev: false
-
-  /@turnkey/sdk-server@2.2.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0):
-    resolution: {integrity: sha512-HxI24CdL2MMTrSFXIz3eFnJQth2lSpfCRUFl9YVxmOTkqNyQ9M141AeE92AbsM02q9ooYOubqC6BEGD2SXEzzw==}
-    engines: {node: '>=18.0.0'}
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/http': 2.20.0
-      buffer: 6.0.3
-      cross-fetch: 3.2.0(encoding@0.1.13)
-      next: 15.2.4(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - encoding
-      - react
-      - react-dom
-      - sass
-    dev: false
-
-  /@turnkey/viem@0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.22.1)(zod@3.24.2):
-    resolution: {integrity: sha512-KDFKL5L/OSyAPNL4McbGdkAO0MxF+gMoOUoJTB4p2ItdOsos7tMxhWtuhfMUzAWsx+R4q5E/gsL6QZ8D90GV9A==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      viem: ^1.16.6 || ^2.1.1
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/http': 2.20.0
-      '@turnkey/sdk-browser': 1.14.0(typescript@5.7.2)(zod@3.24.2)
-      '@turnkey/sdk-server': 2.2.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-      cross-fetch: 4.1.0
-      viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - bufferutil
-      - encoding
-      - react
-      - react-dom
-      - sass
-      - typescript
-      - utf-8-validate
-      - zod
-    dev: false
-
-  /@turnkey/viem@0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.27.2)(zod@3.24.2):
-    resolution: {integrity: sha512-KDFKL5L/OSyAPNL4McbGdkAO0MxF+gMoOUoJTB4p2ItdOsos7tMxhWtuhfMUzAWsx+R4q5E/gsL6QZ8D90GV9A==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      viem: ^1.16.6 || ^2.1.1
-    dependencies:
-      '@turnkey/api-key-stamper': 0.4.4
-      '@turnkey/http': 2.20.0
-      '@turnkey/sdk-browser': 1.14.0(typescript@5.7.2)(zod@3.24.2)
-      '@turnkey/sdk-server': 2.2.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-      cross-fetch: 4.1.0
-      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
-    transitivePeerDependencies:
-      - '@babel/core'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
-      - bufferutil
-      - encoding
-      - react
-      - react-dom
-      - sass
-      - typescript
-      - utf-8-validate
-      - zod
-    dev: false
-
   /@turnkey/viem@0.6.7(viem@2.22.1):
     resolution: {integrity: sha512-w+CuPYa/S1PchcpAuMK2ZmDQ1/DVyjcEm3SKbBegBqLssK9scRf5lLNhQ2XR68WibxW8jGBDjLNlV8w4TGcXAQ==}
     engines: {node: '>=18.0.0'}
@@ -6438,6 +6185,26 @@ packages:
       cross-fetch: 4.1.0
       typescript: 5.7.2
       viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - encoding
+      - utf-8-validate
+      - zod
+    dev: false
+
+  /@turnkey/viem@0.6.7(viem@2.27.2)(zod@3.24.2):
+    resolution: {integrity: sha512-w+CuPYa/S1PchcpAuMK2ZmDQ1/DVyjcEm3SKbBegBqLssK9scRf5lLNhQ2XR68WibxW8jGBDjLNlV8w4TGcXAQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      viem: ^1.16.6 || ^2.1.1
+    dependencies:
+      '@turnkey/api-key-stamper': 0.4.3
+      '@turnkey/http': 2.17.1
+      '@turnkey/sdk-browser': 1.11.0(typescript@5.7.2)(zod@3.24.2)
+      '@turnkey/sdk-server': 1.7.1
+      cross-fetch: 4.1.0
+      typescript: 5.7.2
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
     transitivePeerDependencies:
       - bufferutil
       - encoding
@@ -6459,10 +6226,10 @@ packages:
       - zod
     dev: false
 
-  /@turnkey/wallet-stamper@1.0.3(typescript@5.7.2)(zod@3.24.2):
-    resolution: {integrity: sha512-8DMuVPo/u8oIzQ9Snsa24ZQO3nXVMfpd8VnlPLfZiW2jjZHPFyBGCJOYSArfp+W2xoudpYVu//JElBAVxk/u/g==}
+  /@turnkey/wallet-stamper@1.0.2(typescript@5.7.2)(zod@3.24.2):
+    resolution: {integrity: sha512-C4Lup8yN90Qn3HUTCZ0RiRwIWT1y9oqV5wqXmYaBPlaV52DC0N3LJl20Nh3vZu9Had79Rnz/OBm+ZWDAHi5SCg==}
     dependencies:
-      '@turnkey/crypto': 2.3.1
+      '@turnkey/crypto': 2.3.0
       '@turnkey/encoding': 0.4.0
     optionalDependencies:
       viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
@@ -8242,6 +8009,32 @@ packages:
       - utf-8-validate
     dev: false
 
+  /alchemy-sdk@3.5.8:
+    resolution: {integrity: sha512-X3DtTgrD4Th/RuTkyxwZ/PzL/0Y2Y4gWJv4RelNbPFdnFn4v7F2QXABmXSuYxH2fkofZzGDR8HEklLyyk3bYGQ==}
+    dependencies:
+      '@ethersproject/abi': 5.8.0
+      '@ethersproject/abstract-provider': 5.8.0
+      '@ethersproject/bignumber': 5.8.0
+      '@ethersproject/bytes': 5.8.0
+      '@ethersproject/contracts': 5.8.0
+      '@ethersproject/hash': 5.8.0
+      '@ethersproject/networks': 5.8.0
+      '@ethersproject/providers': 5.8.0
+      '@ethersproject/units': 5.8.0
+      '@ethersproject/wallet': 5.8.0
+      '@ethersproject/web': 5.8.0
+      '@solana/web3.js': 1.98.0
+      axios: 1.7.9
+      sturdy-websocket: 0.2.1
+      websocket: 1.0.35
+    transitivePeerDependencies:
+      - bufferutil
+      - debug
+      - encoding
+      - supports-color
+      - utf-8-validate
+    dev: false
+
   /ansi-escapes@4.3.2:
     resolution: {integrity: sha512-gKXj5ALrKWQLsYG9jlTRmR/xKluxHV+Z9QEwNIgCfM1/uwPMCuzVVnh5mwTd+OuBZcwSIMbqssNWRm1lE51QaQ==}
     engines: {node: '>=8'}
@@ -9670,40 +9463,32 @@ packages:
       xtend: 4.0.2
     dev: true
 
-  /earnkit@1.0.16(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10):
-    resolution: {integrity: sha512-WdVfEfnWhHLY1cuCbd76fAlsQFqdHdPf/Esz3a5vlphCQIjOvPlMr5/o0V3KNkdYTGwBuTx6ViohMhJwPZoIMA==}
+  /earnkit@1.0.18(typescript@5.7.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-kEHq2Zyh8XUPKh1+mfffzGe8SCxvRMOblRgi/bVTZyWa1tdzc3mMxUyyqcDnTyq5pJd44I/geKnoaFwV2oXhrA==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.11(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-core': 1.1.9(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-social': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)
-      '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
+      '@earnkit/sdk-ai': 1.0.13(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-core': 1.1.11(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-social': 1.0.0(typescript@5.7.2)(webauthn-p256@0.0.10)
+      '@earnkit/sdk-wallet': 1.0.0(typescript@5.7.2)(webauthn-p256@0.0.10)(zod@3.24.2)
       '@langchain/core': 0.3.42
       '@neynar/nodejs-sdk': 2.7.0(typescript@5.7.2)(zod@3.24.2)
-      '@turnkey/sdk-server': 1.7.3(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)
-      '@turnkey/viem': 0.6.13(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.7.2)(viem@2.27.2)(zod@3.24.2)
+      '@turnkey/sdk-server': 1.7.1
+      '@turnkey/viem': 0.6.7(viem@2.27.2)(zod@3.24.2)
       axios: 1.7.9
       ethers: 6.13.5
       viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       zod: 3.24.2
     transitivePeerDependencies:
-      - '@babel/core'
       - '@nestjs/microservices'
       - '@nestjs/platform-express'
       - '@nestjs/websockets'
-      - '@opentelemetry/api'
-      - '@playwright/test'
-      - babel-plugin-macros
-      - babel-plugin-react-compiler
       - bufferutil
       - class-transformer
       - class-validator
       - debug
       - encoding
       - openai
-      - react
-      - react-dom
-      - sass
       - supports-color
       - typescript
       - utf-8-validate
@@ -14194,52 +13979,6 @@ packages:
       - babel-plugin-macros
     dev: false
 
-  /next@15.2.4(@babel/core@7.26.0)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0):
-    resolution: {integrity: sha512-VwL+LAaPSxEkd3lU2xWbgEOtrM8oedmyhBqaVNmgKB+GvZlCy9rgaEc+y2on0wv+l0oSFqLtYD6dcC1eAedUaQ==}
-    engines: {node: ^18.18.0 || ^19.8.0 || >= 20.0.0}
-    hasBin: true
-    peerDependencies:
-      '@opentelemetry/api': ^1.1.0
-      '@playwright/test': ^1.41.2
-      babel-plugin-react-compiler: '*'
-      react: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
-      react-dom: ^18.2.0 || 19.0.0-rc-de68d2f4-20241204 || ^19.0.0
-      sass: ^1.3.0
-    peerDependenciesMeta:
-      '@opentelemetry/api':
-        optional: true
-      '@playwright/test':
-        optional: true
-      babel-plugin-react-compiler:
-        optional: true
-      sass:
-        optional: true
-    dependencies:
-      '@next/env': 15.2.4
-      '@opentelemetry/api': 1.9.0
-      '@swc/counter': 0.1.3
-      '@swc/helpers': 0.5.15
-      busboy: 1.6.0
-      caniuse-lite: 1.0.30001690
-      postcss: 8.4.31
-      react: 19.0.0
-      react-dom: 19.0.0(react@19.0.0)
-      styled-jsx: 5.1.6(@babel/core@7.26.0)(react@19.0.0)
-    optionalDependencies:
-      '@next/swc-darwin-arm64': 15.2.4
-      '@next/swc-darwin-x64': 15.2.4
-      '@next/swc-linux-arm64-gnu': 15.2.4
-      '@next/swc-linux-arm64-musl': 15.2.4
-      '@next/swc-linux-x64-gnu': 15.2.4
-      '@next/swc-linux-x64-musl': 15.2.4
-      '@next/swc-win32-arm64-msvc': 15.2.4
-      '@next/swc-win32-x64-msvc': 15.2.4
-      sharp: 0.33.5
-    transitivePeerDependencies:
-      - '@babel/core'
-      - babel-plugin-macros
-    dev: false
-
   /node-abi@3.74.0:
     resolution: {integrity: sha512-c5XK0MjkGBrQPGYG24GBADZud0NCbznxNx0ZkS+ebUTrmV1qTDxPxSL8zEAPURXSbLRWVexxmP4986BziahL5w==}
     engines: {node: '>=10'}
@@ -14894,6 +14633,16 @@ packages:
       webauthn-p256: 0.0.10
     dependencies:
       viem: 2.22.1(typescript@5.7.2)(zod@3.24.2)
+      webauthn-p256: 0.0.10
+    dev: false
+
+  /permissionless@0.2.24(viem@2.27.2)(webauthn-p256@0.0.10):
+    resolution: {integrity: sha512-46B/2zuvuEifIMRMLRJEH60LvxduPhEGnX6jzei9f7AoJEL3TEWQorPxOLwx3XUASU2c+ssTNSFigNmVGRkGCw==}
+    peerDependencies:
+      viem: ^2.21.54
+      webauthn-p256: 0.0.10
+    dependencies:
+      viem: 2.27.2(typescript@5.7.2)(zod@3.24.2)
       webauthn-p256: 0.0.10
     dev: false
 

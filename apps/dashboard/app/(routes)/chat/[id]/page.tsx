@@ -22,7 +22,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import { Icons } from '@/app/components/sections/icons';
 import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
 import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
-import { TokenInvestResponse } from '@/app/components/dashboard/tools/Token_Invest';
+import { TokenInvestResponse, TokenInvestState } from '@/app/components/dashboard/tools/Token_Invest';
+import { TokenInvestProgress } from '@/app/components/dashboard/tools/TokenInvestProgress';
 
 interface Message {
     responseFrom: string;
@@ -36,6 +37,7 @@ interface Message {
     }>
     | string;
     messageId?: string;
+    state?: TokenInvestState[];
 }
 
 interface SwapTokenResponse {
@@ -772,6 +774,18 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             }
         } finally {
             setShowActivity(false);
+            setSwapProgressData({
+                tokenInSymbol: '',
+                tokenInAmount: '',
+                tokenInImage: '',
+                tokenOutSymbol: '',
+                tokenOutAmount: '',
+                tokenOutImage: '',
+                tokenInDecimals: 18,
+                gasFee: '',
+                state: '',
+            });
+            setSwapProgressState('');
         }
     };
 
@@ -1132,7 +1146,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 </div>
 
                 <div className="w-full flex justify-center items-center">
-                    {showActivity ?
+                    {showActivity && swapProgressData && swapProgressState ?
                         <SwapProgress
                             tokenInSymbol={swapProgressData.tokenInSymbol}
                             tokenInImage={swapProgressData.tokenInImage}
@@ -1144,10 +1158,15 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             gasFee={swapProgressData.gasFee}
                             state={swapProgressState}
                         /> :
-                        <div className="w-[80%] text-center font-funnel-sans text-black/40">
-                            <p>No Activity yet</p>
-                        </div>
+                        messages.find(msg => msg.tool_name === 'invest_token') ? (
+                            <TokenInvestProgress state={messages.find(msg => msg.tool_name === 'invest_token')?.state || ['researching']} />
+                        ) : (
+                            <div className="w-[80%] text-center font-funnel-sans text-black/40">
+                                <p>No Activity yet</p>
+                            </div>
+                        )
                     }
+
 
                 </div>
             </section>
