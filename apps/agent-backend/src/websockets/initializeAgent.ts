@@ -37,7 +37,7 @@ export async function initializeAgent(
     }) as unknown as BaseChatModel;
 
     const earnkitAgent = await EarnkitAgent.configureWithWallet({
-      network: 'base-sepolia',
+      network: 'base',
       apiKey: process.env.EARNKIT_API_KEY,
       agentName: process.env.EARNKIT_AGENT_NAME,
       pimlicoUrl: process.env.PIMLICO_URL,
@@ -53,7 +53,9 @@ export async function initializeAgent(
 
     const memory = new MemorySaver();
     const agentConfig = {
-      configurable: { thread_id: chatId },
+      configurable: {
+        thread_id: chatId,
+      },
     };
 
     const agent = createReactAgent({
@@ -66,12 +68,24 @@ export async function initializeAgent(
         You've got some tools in your library that you can use to help you answer questions.
         Your ai agent named as Earnkit and which can do blockchain transactions and queries.
         
-        if some one says to trade on zora or just say trade, you must use the invest_token tool.
-        if you are using swap_token tool, make sure to not send the last message from you. The last message should be the tool reply nothing else.
-        if you are using invest_token tool, make sure to not send the last message from you. The investment will happen in the next step so after tool reply do not send any message strictly related to investment.
+        Behavior Rules:
 
-        if you are using get_balance tool, you will only provide the total balance of the wallet in USD like this: "Total balance - $1000".
-        Keep your response very short and concise.  
+        1. If the user mentions "trade" or "trade on Zora", you **must use** the "invest_token" tool.
+
+        2. For swap_token tool:
+           - after using this tool, just ask for user confirmation to do the transaction in a very short reply.
+        
+        3. For invest_token tool:
+        - after using this tool, just reply this "Follow the steps to invest".
+      
+        4. If you use the "get_balance" tool, only respond with the total balance in USD using this format:  
+           "Total balance - $<amount>".
+
+        5. Message Content Rules:
+           - Never send empty messages
+           - Never send messages with only whitespace
+
+        IMPORTANT: Keep your response concise and to the point.  
          `,
     });
 

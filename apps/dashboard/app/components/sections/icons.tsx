@@ -551,7 +551,38 @@ const icons = {
     <svg {...props} width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path fillRule="evenodd" clipRule="evenodd" d="M0.944947 6.66045L0.5 7.06297L1.38989 7.86801L1.83484 7.46549L7.19552 2.61596L7.19552 5.63915V6.20731H8.45597V5.63915L8.45597 1.4757L8.49996 1.4359L8.45597 1.3961V1.26381L8.45597 0.695638L7.82574 0.695638L7.68168 0.695638L7.61007 0.630859L7.53846 0.695638L2.97252 0.695639L2.34229 0.695638L2.34229 1.83198L2.97252 1.83198L6.28235 1.83198L0.944947 6.66045Z" fill="#007AFF" />
     </svg>
-  )
+  ),
+  blueSearchIcon: (props: IconProps) => (
+
+    <svg {...props} width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15.8975 15.8984L20.4336 20.4345" stroke="#007AFF" strokeWidth="2" />
+      <circle cx="10.866" cy="10.866" r="7.29957" stroke="#007AFF" strokeWidth="2" />
+    </svg>
+  ),
+  orangeTickIcon: (props: IconProps) => (
+    <svg {...props} width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 3.2832C16.8147 3.2832 20.7178 7.18628 20.7178 12.001C20.7178 16.8157 16.8147 20.7187 12 20.7188" stroke="#FF9500" strokeWidth="2" />
+      <path d="M12 3.2832C7.18531 3.2832 3.28223 7.18628 3.28223 12.001C3.28223 16.8157 7.18531 20.7187 12 20.7188" stroke="#FF9500" strokeWidth="2" strokeDasharray="2 2" />
+      <path d="M8.58447 12.0497L10.8269 14.2921L15.4159 9.70312" stroke="#FF9500" strokeWidth="2" />
+    </svg>
+
+  ),
+  purpleStackIcon: (props: IconProps) => (
+    <svg {...props} width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.7383 7.1454C20.7383 9.29113 16.8255 11.0291 12 11.0291C7.17453 11.0291 3.26172 9.29113 3.26172 7.1454M20.7383 7.1454C20.7383 4.99967 16.8255 3.26172 12 3.26172C7.17453 3.26172 3.26172 4.99967 3.26172 7.1454M20.7383 7.1454V12M3.26172 7.1454V12M20.7383 12C20.7383 14.1457 16.8255 15.8837 12 15.8837C7.17453 15.8837 3.26172 14.1457 3.26172 12M20.7383 12V16.8546C20.7383 19.0003 16.8255 20.7383 12 20.7383C7.17453 20.7383 3.26172 19.0003 3.26172 16.8546V12" stroke="#AF52DE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>),
+  arrowUpRedIcon: (props: IconProps) => (
+    <svg {...props} width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2.83353 7.58594L8.00002 2.41945L13.1665 7.58594" stroke="#FF3B30" strokeWidth="2" strokeLinecap="square" />
+      <path d="M8.00073 3.02578L8.00073 13.582" stroke="#FF3B30" strokeWidth="2" strokeLinecap="square" />
+    </svg>
+
+  ),
+  arrowDownGreenIcon: (props: IconProps) => (
+    <svg {...props} width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2.83353 8.41406L8.00002 13.5805L13.1665 8.41406" stroke="#34C759" strokeWidth="2" strokeLinecap="square" />
+      <path d="M8.00073 12.9742L8.00073 2.41797" stroke="#34C759" strokeWidth="2" strokeLinecap="square" />
+    </svg>)
 
 }
 export const Icons: IconsType = icons

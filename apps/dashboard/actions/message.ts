@@ -101,3 +101,53 @@ export async function deleteMessagesByChatId(chatId: string) {
   await prisma.message.deleteMany({ where: { chatId } });
   return true;
 }
+
+export async function updateMessage(
+  messageId: string,
+  messageData: Partial<Message>,
+) {
+  const prismaMessage = await prisma.message.update({
+    where: { id: messageId },
+    data: {
+      content: messageData.content,
+      metadata: messageData.metadata as any,
+    },
+    include: {
+      chat: {
+        include: {
+          user: true,
+          messages: true,
+        },
+      },
+    },
+  });
+
+  return {
+    id: prismaMessage.id,
+    chatId: prismaMessage.chatId,
+    responseFrom: prismaMessage.responseFrom,
+    toolName: prismaMessage.toolName,
+    content: prismaMessage.content,
+    metadata: prismaMessage.metadata as object | null,
+    createdAt: prismaMessage.createdAt,
+    updatedAt: prismaMessage.updatedAt,
+    chat: {
+      id: prismaMessage.chat.id,
+      userId: prismaMessage.chat.userId,
+      title: prismaMessage.chat.title,
+      isActive: prismaMessage.chat.isActive,
+      createdAt: prismaMessage.chat.createdAt,
+      updatedAt: prismaMessage.chat.updatedAt,
+      user: {
+        id: prismaMessage.chat.user.id,
+        username: prismaMessage.chat.user.username,
+        email: prismaMessage.chat.user.email,
+        createdAt: prismaMessage.chat.user.createdAt.toISOString(),
+        mfaMethods: prismaMessage.chat.user.mfaMethods,
+        hasAcceptedTerms: prismaMessage.chat.user.hasAcceptedTerms,
+        isGuest: prismaMessage.chat.user.isGuest,
+      },
+      messages: [],
+    },
+  };
+}

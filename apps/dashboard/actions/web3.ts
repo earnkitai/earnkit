@@ -187,7 +187,7 @@ export const getTokenPrice = async (token: string): Promise<number> => {
   }
 };
 
-type TokenMetadata = {
+export type TokenMetadata = {
   imageUrl: string;
   name: string;
   symbol: string;

@@ -23,7 +23,6 @@ import { Icons } from '@/app/components/sections/icons';
 import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
 import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
 import { TokenInvestResponse } from '@/app/components/dashboard/tools/Token_Invest';
-import Link from 'next/link';
 
 interface Message {
     responseFrom: string;
@@ -36,6 +35,7 @@ interface Message {
         name?: 'swap_token' | 'token_analysis' | 'get_balance' | string;
     }>
     | string;
+    messageId?: string;
 }
 
 interface SwapTokenResponse {
@@ -185,7 +185,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             setNeedToFetchChats(true);
             // Fetch chats
         }
-    }, [userId, messages.length, initialMessage, socketConnected]);
+    }, [userId, messages.length, initialMessage, socketConnected, setNeedToFetchChats]);
 
     useEffect(() => {
         if (user) {
@@ -272,7 +272,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             // setSocketError(null);
 
             // Send a test message to verify connection
-            socketRef.current?.emit('ping', { timestamp: Date.now() });
+            // socketRef.current?.emit('ping', { timestamp: Date.now() });
         });
 
         socketRef.current.on('pong', (data) => {
@@ -292,12 +292,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             });
             console.log(`Connection error: ${error.message}. Retrying...`);
             setIsLoading(false);
+            setSocketConnected(false);
         });
 
         socketRef.current.on('error', (error) => {
             console.log('Socket general error:', error);
             console.log(`Socket error: ${error}`);
             setIsLoading(false);
+            setSocketConnected(false);
         });
 
         // Message events
@@ -311,7 +313,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 return;
             }
 
-            setMessages((prev) => [...prev, data]);
             // Format the response to match the expected format
             let formattedContent: string;
             if (Array.isArray(data.response)) {
@@ -330,15 +331,22 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 tool_name: data.tool_name,
             };
 
-
-
             // Save AI response to database only if userId is available
             if (userId) {
-                saveAIMessage(responseMessage);
+                saveAIMessage(responseMessage).then((savedMessage) => {
+                    if (savedMessage) {
+                        // Store the message ID in the message object for all messages
+                        const messageWithId = { ...data, messageId: savedMessage.id };
+                        setMessages((prev) => [...prev, messageWithId]);
+                    } else {
+                        // Fallback to adding message without ID if save failed
+                        setMessages((prev) => [...prev, data]);
+                    }
+                });
             } else {
                 console.warn('Received AI response but userId is not available yet');
+                setMessages((prev) => [...prev, data]);
             }
-
         });
 
         // Cleanup on unmount
@@ -354,14 +362,21 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         try {
             if (!userId) {
                 console.warn('Cannot save AI message: userId is null');
-                return;
+                return null;
+            }
+            console.log("save message called")
+
+            // Skip empty or whitespace-only content
+            if (!message.response || (typeof message.response === 'string' && message.response.trim().length === 0) || (Array.isArray(message.response) && message.response.length === 0)) {
+                console.warn('Skipping empty AI message');
+                return null;
             }
 
             const content = typeof message.response === 'string'
                 ? message.response
                 : JSON.stringify(message.response);
 
-            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+            const response = await fetch(`/api/chat/${resolvedParams.id}/messages`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -373,17 +388,53 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     userId
                 }),
             });
+
+            const data = await response.json();
+            console.log("save message ended", data.message)
+            return data.message;
         } catch (err) {
             console.log('Error storing AI message:', err);
+            return null;
         }
     };
 
+    const updateMessage = async (messageId: string, content: string, metadata?: object) => {
+        try {
+            if (!userId) {
+                console.warn('Cannot update message: userId is null');
+                return null;
+            }
+
+            const response = await fetch(`/api/chat/${resolvedParams.id}/messages/${messageId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content,
+                    userId,
+                    metadata,
+                }),
+            });
+
+            const data = await response.json();
+            return data.message;
+        } catch (err) {
+            console.log('Error updating message:', err);
+            return null;
+        }
+    };
 
     const handleSubmit = async (e?: React.FormEvent) => {
         if (e) {
             e.preventDefault();
         }
-        if (!inputValue.trim() || !userId || !socketConnected) return;
+
+        // Validate input before proceeding
+        if (!inputValue || !inputValue.trim() || !userId || !socketConnected) {
+            console.warn('Cannot submit: invalid input or missing requirements');
+            return;
+        }
 
         const inputValueNew = inputValue.trim();
         setInputValue('');
@@ -404,9 +455,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     userId,
                 }),
             });
-
-            // Set needToFetchChats to true to trigger a refresh of the chat list
-
         } catch (error) {
             console.log('Error storing user message:', error);
         }
@@ -435,33 +483,49 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     };
 
 
-    const handleInvestmentCompleteDataStore = async (result: `0x${string}`) => {
-        console.log("Transaction hash:", result);
-        // console.log("Trade details:", result.trade);
-        const inputValueNew = result;
 
-        const userMessage = { responseFrom: 'tools', tool_name: 'after_invest_token', response: JSON.stringify(inputValueNew) };
-        setMessages((prev) => [...prev, userMessage]);
+    // const handleInvestmentCompleteDataStore = async (result: `0x${string}`) => {
+    //     console.log("Transaction hash:", result);
+    //     const inputValueNew = result;
 
-        // Store user message in database
-        // Store user message in database
-        try {
-            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: inputValueNew,
-                    responseFrom: 'tools',
-                    toolName: 'after_invest_token',
-                    userId,
-                }),
-            });
-            // Set needToFetchChats to true to trigger a refresh of the chat list
-        } catch (error) {
-            console.log('Error storing user message:', error);
-        }
+    //     // Find the invest_token message in the messages array
+    //     const investMessage = messages.find(msg => msg.tool_name === 'invest_token');
+    //     if (investMessage && 'messageId' in investMessage) {
+    //         // Update the message with the transaction hash
+    //         const updatedMessage = await updateMessage(
+    //             investMessage.messageId as string,
+    //             JSON.stringify(inputValueNew),
+    //             { transactionHash: result }
+    //         );
 
-    }
+    //         if (updatedMessage) {
+    //             // Update the message in the UI
+    //             setMessages((prev) => prev.map((msg) =>
+    //                 msg === investMessage ? { ...msg, response: inputValueNew } : msg
+    //             ));
+    //         }
+    //     } else {
+    //         // Fallback to creating a new message if we can't find the original
+    //         const userMessage = { responseFrom: 'tools', tool_name: 'after_invest_token', response: JSON.stringify(inputValueNew) };
+    //         setMessages((prev) => [...prev, userMessage]);
+
+    //         try {
+    //             await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+    //                 method: 'POST',
+    //                 headers: { 'Content-Type': 'application/json' },
+    //                 body: JSON.stringify({
+    //                     content: inputValueNew,
+    //                     responseFrom: 'tools',
+    //                     toolName: 'after_invest_token',
+    //                     userId,
+    //                 }),
+    //             });
+    //         } catch (error) {
+    //             console.log('Error storing user message:', error);
+    //         }
+    //     }
+    // };
+
 
     const handleSwapConfirmationMsgStore = async (inputValueNew: string) => {
         // Add user message to chat
@@ -918,10 +982,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
                                     if (message.tool_name === 'invest_token') {
                                         try {
+                                            console.log(message, 'message.response');
                                             const data: TokenInvestResponse = JSON.parse(message.response as string);
                                             return (
                                                 <div key={index} className="mb-6">
-                                                    <TokenInvest data={data} onComplete={handleInvestmentCompleteDataStore} userAddress={selectedAccount?.address as `0x${string}`} onDeny={() => handleSwapConfirmationMsgStore('Deny')} />
+                                                    <TokenInvest data={data} updateMessage={updateMessage} messageId={message.messageId} userAddress={selectedAccount?.address as `0x${string}`} onDeny={() => handleSwapConfirmationMsgStore('Deny')} />
                                                 </div>
                                             );
                                         } catch (error) {
@@ -944,26 +1009,26 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                         }
                                     }
 
-                                    if (message.tool_name === 'after_invest_token') {
-                                        const hash: `0x${string}` = JSON.parse(message.response as `0x${string}`);
-                                        return (
-                                            <div key={index} className="mb-6 max-w-[80%] w-max">
-                                                <div className="bg-green-50 rounded-lg shadow-sm border border-green-100 p-4 flex flex-col gap-2 items-center ">
-                                                    <p className="text-green-600">Investment successful! 🎉</p>
-                                                    {hash && (
-                                                        <Link
-                                                            href={`https://basescan.org/tx/${hash}`}
-                                                            target="_blank"
-                                                            className="text-secondary-blue text-sm font-semibold flex items-center gap-1 font-funnel-sans bg-transparent border border-black/20 rounded-full px-3 py-0.5"
-                                                        >
-                                                            View on Explorer
-                                                            <Icons.arrowUpBlueIcon />
-                                                        </Link>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )
-                                    }
+                                    // if (message.tool_name === 'after_invest_token') {
+                                    //     const hash: `0x${string}` = JSON.parse(message.response as `0x${string}`);
+                                    //     return (
+                                    //         <div key={index} className="mb-6 max-w-[80%] w-max">
+                                    //             <div className="bg-green-50 rounded-lg shadow-sm border border-green-100 p-4 flex flex-col gap-2 items-center ">
+                                    //                 <p className="text-green-600">Investment successful! 🎉</p>
+                                    //                 {hash && (
+                                    //                     <Link
+                                    //                         href={`https://basescan.org/tx/${hash}`}
+                                    //                         target="_blank"
+                                    //                         className="text-secondary-blue text-sm font-semibold flex items-center gap-1 font-funnel-sans bg-transparent border border-black/20 rounded-full px-3 py-0.5"
+                                    //                     >
+                                    //                         View on Explorer
+                                    //                         <Icons.arrowUpBlueIcon />
+                                    //                     </Link>
+                                    //                 )}
+                                    //             </div>
+                                    //         </div>
+                                    //     )
+                                    // }
 
 
 

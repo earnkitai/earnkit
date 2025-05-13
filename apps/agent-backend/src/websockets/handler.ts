@@ -43,12 +43,28 @@ export function handleSocketConnection(socket: Socket) {
 
       // Initialize agent
       console.log('Initializing agent for chat:', chatId);
+
       const agentInstance = await initializeAgent(userWalletAddress, chatId);
       console.log('Agent initialized successfully');
 
       // Stream agent response
       console.log('Starting agent stream');
-      console.log(message, 'message');
+      console.log('Message being sent to agent:', {
+        message,
+        type: typeof message,
+        length: typeof message === 'string' ? message.length : 'N/A',
+      });
+
+      // Ensure message is not empty before sending
+      if (
+        !message ||
+        (typeof message === 'string' && message.trim().length === 0)
+      ) {
+        console.error('Empty message detected, skipping agent stream');
+        socket.emit('error', { message: 'Empty message detected' });
+        return;
+      }
+
       const stream = await agentInstance.agent.stream(
         {
           messages: [new HumanMessage(message)],
@@ -64,6 +80,17 @@ export function handleSocketConnection(socket: Socket) {
 
         if ('agent' in chunk) {
           const content = chunk.agent.messages[0].content;
+          console.log('Agent chunk received:', {
+            content,
+            type: typeof content,
+            isArray: Array.isArray(content),
+            length:
+              typeof content === 'string'
+                ? content.length
+                : Array.isArray(content)
+                  ? content.length
+                  : 'N/A',
+          });
           console.log(
             'Agent response:',
             typeof content === 'string'
@@ -72,31 +99,41 @@ export function handleSocketConnection(socket: Socket) {
           );
 
           // Format response to match API route format
-          const formattedResponse = {
-            responseFrom: 'agent',
-            response: content,
-          };
+          console.log('content checking.....');
+          console.log(content, 'content');
 
-          // Add to responses array
-          responses.push(formattedResponse);
+          // if content is array then it should not be empty but if it is string then it should not be empty
+          if (
+            (typeof content === 'string' && content.length > 0) ||
+            (Array.isArray(content) && content.length > 0)
+          ) {
+            console.log('content is not empty', content);
+            const formattedResponse = {
+              responseFrom: 'agent',
+              response: content,
+            };
 
-          // Emit to client
-          socket.emit('response', formattedResponse);
+            // Add to responses array
+            responses.push(formattedResponse);
 
-          // Store agent response in Redis
-          try {
-            const redis = getRedisClient();
-            const messageKey = `chat:${chatId}:messages`;
-            await redis.lpush(
-              messageKey,
-              JSON.stringify({
-                content,
-                responseFrom: 'agent',
-                timestamp: Date.now(),
-              }),
-            );
-          } catch (redisError) {
-            console.error('Redis error storing agent response:', redisError);
+            // Emit to client
+            socket.emit('response', formattedResponse);
+
+            // Store agent response in Redis
+            try {
+              const redis = getRedisClient();
+              const messageKey = `chat:${chatId}:messages`;
+              await redis.lpush(
+                messageKey,
+                JSON.stringify({
+                  content,
+                  responseFrom: 'agent',
+                  timestamp: Date.now(),
+                }),
+              );
+            } catch (redisError) {
+              console.error('Redis error storing agent response:', redisError);
+            }
           }
         }
 
@@ -111,34 +148,43 @@ export function handleSocketConnection(socket: Socket) {
               : JSON.stringify(content).substring(0, 50) + '...',
           );
 
-          // Format response to match API route format
-          const formattedResponse = {
-            responseFrom: 'tools',
-            response: content,
-            tool_name: toolName,
-          };
+          console.log('content checking in tools.....');
+          console.log(content, 'content in tools');
 
-          // Add to responses array
-          responses.push(formattedResponse);
+          if (
+            (typeof content === 'string' && content.length > 0) ||
+            (Array.isArray(content) && content.length > 0)
+          ) {
+            console.log('content is not empty in tools', content);
+            // Format response to match API route format
+            const formattedResponse = {
+              responseFrom: 'tools',
+              response: content,
+              tool_name: toolName,
+            };
 
-          // Emit to client
-          socket.emit('response', formattedResponse);
+            // Add to responses array
+            responses.push(formattedResponse);
 
-          // Store tool response in Redis
-          try {
-            const redis = getRedisClient();
-            const messageKey = `chat:${chatId}:messages`;
-            await redis.lpush(
-              messageKey,
-              JSON.stringify({
-                content,
-                responseFrom: 'tools',
-                toolName,
-                timestamp: Date.now(),
-              }),
-            );
-          } catch (redisError) {
-            console.error('Redis error storing tool response:', redisError);
+            // Emit to client
+            socket.emit('response', formattedResponse);
+
+            // Store tool response in Redis
+            try {
+              const redis = getRedisClient();
+              const messageKey = `chat:${chatId}:messages`;
+              await redis.lpush(
+                messageKey,
+                JSON.stringify({
+                  content,
+                  responseFrom: 'tools',
+                  toolName,
+                  timestamp: Date.now(),
+                }),
+              );
+            } catch (redisError) {
+              console.error('Redis error storing tool response:', redisError);
+            }
           }
         }
       }
