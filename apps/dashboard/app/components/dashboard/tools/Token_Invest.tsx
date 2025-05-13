@@ -176,6 +176,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 setTokenInDetails(tokenIn);
                 setTokenOutDetails(tokenOut);
 
+
                 const serializedTrade = {
                     amountFee: tradeData.amountFee.toString(),
                     amountSold: tradeData.amountSold.toString(),
@@ -203,6 +204,12 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                     tradeDetails: serializedTradeDetails
                 }));
                 setTxHash(result.hash);
+                setTradeDetails({
+                    hash: result.hash,
+                    trade: tradeData,
+                    tokenInDetails: tokenIn,
+                    tokenOutDetails: tokenOut
+                });
             }
 
 
