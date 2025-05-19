@@ -22,6 +22,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ chat });
   } catch (error) {
     console.error('Error creating chat:', error);
+    if (error instanceof Error && error.message === 'User not found') {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
     return NextResponse.json(
       { error: 'Failed to create chat' },
       { status: 500 },

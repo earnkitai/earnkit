@@ -5,6 +5,15 @@ import { prisma } from '@/lib/prisma';
 import { Chat } from '@/types/chat';
 
 export async function createChat(chatData: Partial<Chat>) {
+  // First check if the user exists
+  const user = await prisma.user.findUnique({
+    where: { id: chatData.userId! },
+  });
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
   const prismaChat = await prisma.chat.create({
     data: {
       userId: chatData.userId!,

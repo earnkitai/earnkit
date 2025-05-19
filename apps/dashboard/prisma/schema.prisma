@@ -46,7 +46,8 @@ model User {
   chats Chat[]
 
   // Orders
-  orders Order[]
+  limitOrders  LimitOrder[]
+  orderHistory OrderHistory[]
 
   @@map("users")
 }
@@ -323,7 +324,8 @@ model Message {
   @@map("messages")
 }
 
-model Order {
+// Active Limit Orders Table
+model LimitOrder {
   id              String         @id @default(cuid())
   userId          String         @map("user_id")
   userAddress     String         @map("user_address")
@@ -334,32 +336,55 @@ model Order {
   targetPrice     Float?         @map("target_price")
   targetChange    Float?         @map("target_change")
   direction       OrderDirection
-  status          OrderStatus    @default(PENDING)
   orderType       OrderType      @default(LIMIT)
   createdAt       DateTime       @default(now()) @map("created_at")
-  executedAt      DateTime?      @map("executed_at")
-  executedPrice   Float?         @map("executed_price")
   aiInitiated     Boolean        @default(false) @map("ai_initiated")
   notes           String?        @db.Text
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, userAddress])
-  @@index([tokenAddress, direction, status])
-  @@index([status, createdAt])
-  @@index([aiInitiated, status])
-  @@map("orders")
+  // 🔍 Indexes
+  @@index([userId])
+  @@index([userAddress])
+  @@index([tokenAddress, direction])
+  @@index([direction, priceAtCreation])
+  @@index([createdAt])
+  @@index([aiInitiated, direction])
+  @@map("limit_orders")
+}
+
+// Historical Executed Orders Table
+model OrderHistory {
+  id              String         @id @default(cuid())
+  userId          String         @map("user_id")
+  userAddress     String         @map("user_address")
+  tokenAddress    String         @map("token_address")
+  tokenSymbol     String         @map("token_symbol")
+  amount          Float
+  priceAtCreation Float          @map("price_at_creation")
+  targetPrice     Float?         @map("target_price")
+  targetChange    Float?         @map("target_change")
+  direction       OrderDirection
+  orderType       OrderType
+  createdAt       DateTime       @map("created_at")
+  executedAt      DateTime       @map("executed_at")
+  executedPrice   Float          @map("executed_price")
+  aiInitiated     Boolean        @default(false) @map("ai_initiated")
+  notes           String?        @db.Text
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 🔍 Indexes
+  @@index([userId, createdAt])
+  @@index([userAddress])
+  @@index([tokenAddress, direction])
+  @@index([executedAt])
+  @@index([orderType, executedAt])
+  @@index([aiInitiated])
+  @@map("order_history")
 }
 
 enum OrderDirection {
   BUY
   SELL
-}
-
-enum OrderStatus {
-  PENDING
-  EXECUTED
-  CANCELLED
-  FAILED
 }
 
 enum OrderType {
