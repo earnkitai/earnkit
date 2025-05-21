@@ -96,6 +96,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const [targetPrice, setTargetPrice] = useState<number>(0);
     const [targetPercentage, setTargetPercentage] = useState<number>(0);
     const [userId, setUserId] = useState<string | null>(null);
+    const [currentTokenOutPrice, setCurrentTokenOutPrice] = useState<number>(0);
+    const [initialTokenOutPrice, setInitialTokenOutPrice] = useState<number>(0);
     const { wallets } = useWallets();
 
     const { ready, authenticated, user: privyUser } = usePrivy();
@@ -118,6 +120,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 setTradeDetails(data.tradeDetails as TradeResult);
                 setTokenInDetails(data.tradeDetails?.tokenInDetails as TokenMetadata);
                 setTokenOutDetails(data.tradeDetails?.tokenOutDetails as TokenMetadata);
+
+
             } else {
                 setState(['researching', 'researched']);
             }
@@ -137,6 +141,23 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
         }
     }, [data, messageId, updateMessage]);
 
+    useEffect(() => {
+        if (tokenOutDetails) {
+            setInitialTokenOutPrice(tokenOutDetails.priceUsd || 0);
+            const fetchCurrentTokenOut = async () => {
+                if (selectedToken) {
+                    const currentTokenOut = await fetchTokenDetails(selectedToken as Address);
+                    setCurrentTokenOutPrice(currentTokenOut.priceUsd || 0);
+                }
+            };
+            fetchCurrentTokenOut();
+
+            // Set up interval to fetch price updates every 30 seconds
+            const intervalId = setInterval(fetchCurrentTokenOut, 30000);
+
+            return () => clearInterval(intervalId);
+        }
+    }, [tokenOutDetails, selectedToken]);
 
     // fetch the token details using getTokenMetadataWithCoingecko by passing the token address
     const fetchTokenDetails = async (tokenAddress: Address) => {
@@ -495,6 +516,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             {txHash && tradeDetails?.trade && tokenInDetails && tokenOutDetails && (
                 <div className="space-y-2 mt-6">
                     <div className="flex flex-col gap-4 mt-2">
+
                         {/* Send Row */}
                         <div className="flex items-center gap-2">
                             <div className='flex items-center gap-2 min-w-[30%]'>
@@ -577,6 +599,52 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                             </div>
                         </div>
                     </div>
+
+                    {/* P&L Status */}
+                    <div className="rounded-lg px-0 py-4 mt-6">
+                        <p className="font-normal mb-2">Current P&L Status</p>
+                        <div className="flex items-center justify-start">
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-0.5 bg-transparent rounded-full px-2 py-0.5 border border-black/20 text-sm font-medium">
+                                    {tokenOutDetails.symbol === 'ETH' ?
+                                        <Icons.ethereum className="w-4 h-4" /> :
+                                        <>
+                                            <Image src={tokenOutDetails.imageUrl} width={16} height={16} alt={tokenOutDetails.symbol} />
+                                        </>
+                                    }{tokenOutDetails.symbol}
+                                </div>
+                                <span className="text-black/80 font-medium">
+                                    ${(() => {
+                                        const tokenAmount = 'coinsPurchased' in tradeDetails.trade
+                                            ? Number(tradeDetails.trade.coinsPurchased) / (10 ** tokenOutDetails.decimals)
+                                            : Number(tradeDetails.trade.amountPurchased) / (10 ** tokenOutDetails.decimals);
+                                        const currentValue = tokenAmount * currentTokenOutPrice;
+                                        return currentValue.toFixed(2);
+                                    })()}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1 ml-3">
+                                {(() => {
+                                    const percentageChange = ((currentTokenOutPrice - initialTokenOutPrice) / initialTokenOutPrice) * 100;
+                                    const isPositive = percentageChange >= 0;
+
+                                    return (
+                                        <>
+                                            {/* {isPositive ? (
+                                                    <Icons.arrowUpRedIcon className="w-4 h-4" />
+                                                ) : (
+                                                    <Icons.arrowDownGreenIcon className="w-4 h-4" />
+                                                )} */}
+                                            <span className={`font-medium ${isPositive ? 'text-secondary-green' : 'text-secondary-red'}`}>
+                                                {isPositive ? '+' : ''}{percentageChange.toFixed(2)}%
+                                            </span>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             )}
 
