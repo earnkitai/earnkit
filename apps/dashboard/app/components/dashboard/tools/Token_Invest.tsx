@@ -4,13 +4,14 @@ import { Address, Hex, createWalletClient, custom, parseEther } from 'viem';
 import { tradeCoin } from '@zoralabs/coins-sdk';
 import { base } from 'viem/chains';
 import { useEffect, useState } from 'react';
-import { useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { LoadingButton } from '../../ui/button.loader';
 import { Icons } from '../../sections/icons';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getTokenMetadataWithCoingecko, TokenMetadata } from '@/actions/web3';
+import { createLimitOrder } from '@/actions/order';
 
 interface Token {
     name: string;
@@ -92,10 +93,21 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const [state, setState] = useState<TokenInvestState[]>(['researching']);
     const [topTokens, setTopTokens] = useState<Token[]>([]);
     const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
+    const [targetPrice, setTargetPrice] = useState<number>(0);
+    const [targetPercentage, setTargetPercentage] = useState<number>(0);
+    const [userId, setUserId] = useState<string | null>(null);
     const { wallets } = useWallets();
+
+    const { ready, authenticated, user: privyUser } = usePrivy();
     const wallet = wallets[0];
     // Sort tokens by confidence score and take top 2
 
+    useEffect(() => {
+        if (ready && authenticated && privyUser?.id) {
+            const userId = privyUser?.id.split(':').pop() || privyUser?.id;
+            setUserId(userId);
+        }
+    }, [ready, authenticated, privyUser]);
 
     useEffect(() => {
         if (data && data.recommendations.length > 0) {
@@ -119,14 +131,11 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             if (messageId) {
                 updateMessage(messageId, JSON.stringify({
                     ...data,
-                    state: state
+                    // state: state
                 }));
             }
         }
-        return () => {
-            setState(['researching']);
-        }
-    }, [data, state, messageId, updateMessage]);
+    }, [data, messageId, updateMessage]);
 
 
     // fetch the token details using getTokenMetadataWithCoingecko by passing the token address
@@ -143,12 +152,19 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
         coinContractAddress: Address,
         orderSize: number,
     ) => {
+        if (!userId) {
+            console.error("No user ID found");
+            toast.error("Please connect your wallet first");
+            return;
+        }
+
         setState([...state, 'executing']);
         console.log("buyCoin", coinContractAddress, orderSize);
         setLoadingAction("buy");
         const provider = wallet ? await wallet.getEthereumProvider() : null;
         if (!provider) {
             console.error("No provider found");
+            toast.error("Please connect your wallet first");
             return;
         }
         const walletClient = createWalletClient({
@@ -162,14 +178,14 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 direction: "buy" as const,
                 target: coinContractAddress as Address,
                 args: {
-                    recipient: userAddress as Address, // Where to receive the purchased coins
-                    orderSize: parseEther(orderSize.toString()), // Amount of ETH to spend
-                    minAmountOut: BigInt(0), // Minimum amount of coins to receive (0 = no minimum)
+                    recipient: userAddress as Address,
+                    orderSize: parseEther(orderSize.toString()),
+                    minAmountOut: BigInt(0),
                 }
             };
             const result = await tradeCoin(buyParams, walletClient, publicClient);
 
-            if (await result.receipt) {
+            if (await result.receipt && userId) {
                 setState([...state, 'executing', 'executed', 'recordkeeping']);
                 data.selectedToken = selectedToken as `0x${string}`;
                 console.log(result.trade, 'result.trade')
@@ -181,7 +197,6 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 setTokenInDetails(tokenIn);
                 setTokenOutDetails(tokenOut);
 
-
                 const serializedTrade = {
                     amountFee: tradeData.amountFee.toString(),
                     amountSold: tradeData.amountSold.toString(),
@@ -191,7 +206,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                     recipient: tradeData.recipient,
                     tradeReferrer: tradeData.tradeReferrer,
                 }
-                // Create a serialized version of the trade details
+
                 const serializedTradeDetails = {
                     hash: result.hash,
                     trade: serializedTrade,
@@ -215,8 +230,27 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                     tokenInDetails: tokenIn,
                     tokenOutDetails: tokenOut
                 });
-            }
 
+                try {
+                    // Store order details in database
+                    await createLimitOrder({
+                        userId: userId,
+                        userAddress: userAddress,
+                        tokenAddress: selectedToken as string,
+                        tokenSymbol: tokenOut.symbol,
+                        amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
+                        priceAtCreation: tokenOut.priceUsd || 0,
+                        targetPrice: targetPrice,
+                        targetChange: targetPercentage,
+                        direction: 'BUY',
+                        aiInitiated: true,
+                        notes: `${messageId}`,
+                    });
+                } catch (error) {
+                    console.error("Error creating limit order:", error);
+                    toast.error("Failed to save order details");
+                }
+            }
 
             setState([...state, 'executing', 'executed']);
             return result;
@@ -228,7 +262,6 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             setLoadingAction(null);
             setState([...state, 'executing', 'executed', 'recordkeeping', 'completed']);
         }
-
     }
 
 
@@ -394,8 +427,38 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             </> : <></>}
 
             {selectedToken && !txHash && (
-                <div className="space-y-2 mt-4">
-                    <p className="font-normal mb-4">Ready to proceed?</p>
+                <div className="space-y-4 mt-4">
+                    <div className="space-y-2">
+                        <p className="font-normal">Set your target price</p>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="number"
+                                value={targetPrice || ''}
+                                onChange={(e) => {
+                                    if (e.target.value === '') {
+                                        setTargetPrice(0);
+                                        setTargetPercentage(0);
+                                        return;
+                                    }
+                                    const price = parseFloat(e.target.value);
+                                    setTargetPrice(price);
+                                    if (tokenOutDetails?.priceUsd) {
+                                        const percentage = ((price - tokenOutDetails.priceUsd) / tokenOutDetails.priceUsd) * 100;
+                                        setTargetPercentage(percentage);
+                                    }
+                                }}
+                                placeholder="Enter target price"
+                                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-gray-500">USD</span>
+                        </div>
+                        {/* {targetPercentage !== 0 && (
+                            <p className={`text-sm ${targetPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                Target: {targetPercentage > 0 ? '+' : ''}{targetPercentage.toFixed(2)}%
+                            </p>
+                        )} */}
+                    </div>
+                    <p className="font-normal">Ready to proceed?</p>
                     <div className="flex gap-4">
                         <LoadingButton
                             onClick={() => buyCoin(selectedToken!, data.metadata.investmentAmount)}
@@ -404,7 +467,6 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         >
                             Confirm
                         </LoadingButton>
-
 
                         <button
                             className="px-4 py-2 bg-secondary-red text-white rounded-full hover:bg-red-600 transition-colors"
