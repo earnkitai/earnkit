@@ -567,9 +567,9 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                                 <span className="text-secondary-green font-semibold ml-1">
                                     {(() => {
                                         if ('coinsPurchased' in tradeDetails.trade) {
-                                            return `+${Number(tradeDetails.trade.coinsPurchased).toLocaleString()}`;
+                                            return `+${(Number(tradeDetails.trade.coinsPurchased) / 10 ** tokenOutDetails.decimals).toFixed(5)}`;
                                         } else if ('amountPurchased' in tradeDetails.trade) {
-                                            return `+${Number(tradeDetails.trade.amountPurchased).toLocaleString()}`;
+                                            return `+${(Number(tradeDetails.trade.amountPurchased) / 10 ** tokenOutDetails.decimals).toFixed(5)}`;
                                         }
                                         return '';
                                     })()}
