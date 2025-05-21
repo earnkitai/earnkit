@@ -93,8 +93,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const [state, setState] = useState<TokenInvestState[]>(['researching']);
     const [topTokens, setTopTokens] = useState<Token[]>([]);
     const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
-    const [targetPrice, setTargetPrice] = useState<number>(0);
-    const [targetPercentage, setTargetPercentage] = useState<number>(0);
+    const [targetPrice, setTargetPrice] = useState<number | null>(null);
+    // const [targetPercentage, setTargetPercentage] = useState<number>(0);
     const [userId, setUserId] = useState<string | null>(null);
     const [currentTokenOutPrice, setCurrentTokenOutPrice] = useState<number>(0);
     const [initialTokenOutPrice, setInitialTokenOutPrice] = useState<number>(0);
@@ -142,8 +142,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     }, [data, messageId, updateMessage]);
 
     useEffect(() => {
-        if (tokenOutDetails) {
-            setInitialTokenOutPrice(tokenOutDetails.priceUsd || 0);
+        if (selectedToken) {
+            setInitialTokenOutPrice(tokenOutDetails?.priceUsd || 0);
             const fetchCurrentTokenOut = async () => {
                 if (selectedToken) {
                     const currentTokenOut = await fetchTokenDetails(selectedToken as Address);
@@ -157,7 +157,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
 
             return () => clearInterval(intervalId);
         }
-    }, [tokenOutDetails, selectedToken]);
+    }, [selectedToken]);
 
     // fetch the token details using getTokenMetadataWithCoingecko by passing the token address
     const fetchTokenDetails = async (tokenAddress: Address) => {
@@ -261,8 +261,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         tokenSymbol: tokenOut.symbol,
                         amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
                         priceAtCreation: tokenOut.priceUsd || 0,
-                        targetPrice: targetPrice,
-                        targetChange: targetPercentage,
+                        targetPrice: targetPrice || 0,
+                        targetChange: 0,
                         direction: 'BUY',
                         aiInitiated: true,
                         notes: `${messageId}`,
@@ -340,6 +340,20 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             </div>
         );
     };
+
+    const handleTargetPriceChange = (value: string) => {
+        // Handle empty input
+        // Allow only numbers and decimals (regex allows "", "0", "0.005", "1000.3", etc.)
+        if (value === '') {
+            setTargetPrice(0);
+            return;
+        }
+        if (/^\d*\.?\d*$/.test(value)) {
+            setTargetPrice(parseFloat(value));
+        }
+    };
+
+
 
     return (
         <div className="space-y-4 px-2 max-w-[80%]" >
@@ -450,26 +464,25 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             {selectedToken && !txHash && (
                 <div className="space-y-4 mt-4">
                     <div className="space-y-2">
-                        <p className="font-normal">Set your target price</p>
+                        <p className="font-normal text-gray-500">Token Price</p>
+                        <div className="flex items-center gap-2">
+                            <span className="text-md">${currentTokenOutPrice ? currentTokenOutPrice.toFixed(5) : '0.00'}</span>
+                        </div>
+                        {/* {targetPercentage !== 0 && (
+                            <p className={`text-sm ${targetPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                Target: {targetPercentage > 0 ? '+' : ''}{targetPercentage.toFixed(2)}%
+                            </p>
+                        )} */}
+                    </div>
+                    <div className="space-y-2">
+                        <p className="font-normal text-gray-500">Set your target price</p>
                         <div className="flex items-center gap-2">
                             <input
                                 type="number"
-                                value={targetPrice || ''}
-                                onChange={(e) => {
-                                    if (e.target.value === '') {
-                                        setTargetPrice(0);
-                                        setTargetPercentage(0);
-                                        return;
-                                    }
-                                    const price = parseFloat(e.target.value);
-                                    setTargetPrice(price);
-                                    if (tokenOutDetails?.priceUsd) {
-                                        const percentage = ((price - tokenOutDetails.priceUsd) / tokenOutDetails.priceUsd) * 100;
-                                        setTargetPercentage(percentage);
-                                    }
-                                }}
+                                value={targetPrice ? targetPrice : 0}
+                                onChange={(e) => handleTargetPriceChange(e.target.value)}
                                 placeholder="Enter target price"
-                                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-1/2"
                             />
                             <span className="text-sm text-gray-500">USD</span>
                         </div>
