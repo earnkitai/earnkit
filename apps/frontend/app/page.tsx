@@ -26,7 +26,7 @@ export default function Home() {
           </article>
         </section>
 
-        <section className="w-full h-[100vh] md:min-h-[800px] flex items-center justify-center ">
+        <section className="w-full h-[100vh] md:min-h-[800px] flex items-center justify-center mt-10">
           <aside className="w-full h-full md:w-1/2 relative rounded-[56px] overflow-hidden flex flex-col items-center justify-center bg-color9 gap-[40px]"
           >
             <div
@@ -77,7 +77,7 @@ export default function Home() {
 
         <section className="w-full min-h-[600px] flex items-center justify-center mt-10 relative">
           {/* create a container with full height of the right side section and add a background image to it */}
-          <aside className="absolute top-0 left-0 w-[35%] h-full rounded-[56px] overflow-hidden">
+          <aside className="absolute top-0 left-0 w-[35%] h-full rounded-[56px] overflow-hidden bg-color5">
             <ParallaxBuildingImage />
           </aside>
 

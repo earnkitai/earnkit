@@ -1,24 +1,4 @@
 import Image from "next/image";
-
-const features = [
-    {
-        image: "/images/landing/wallet.png",
-        text: "Trustless smart wallets, powered by ERC-4337",
-    },
-    {
-        image: "/images/landing/agnostic.png",
-        text: "Strategy primitives that compose across protocols",
-    },
-    {
-        image: "/images/landing/minutes.png",
-        text: "Semantic memory for evolving logic",
-    },
-    {
-        image: "/images/landing/flashIcon.png",
-        text: "Orchestration that turns intent into action",
-    },
-];
-
 export default function CarouselFeatures() {
     return (
         <section className="w-full flex flex-col items-center justify-center py-10">
@@ -27,19 +7,48 @@ export default function CarouselFeatures() {
                     className="flex gap-6 md:gap-10 overflow-x-scroll no-scrollbar scroll-smooth pl-20"
                     style={{ scrollSnapType: "x mandatory" }}
                 >
-                    {features.map((feature, idx) => (
-                        <div
-                            key={idx}
-                            className="w-[80vw] sm:w-[340px] md:min-w-[35%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
-                        >
-                            <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-2 relative">
-                                <Image src={feature.image} alt="feature icon" fill className="object-contain" />
-                            </div>
-                            <p className="w-[75%] text-left text-color11 font-funnel-sans text-2xl font-normal leading-[1.4]">
-                                {feature.text}
-                            </p>
+
+                    <div
+                        className="w-[80vw] sm:w-[340px] md:min-w-[35%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                    >
+                        <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-2 relative">
+                            <Image src="/images/landing/WALLET.png" alt="feature icon" fill className="object-contain" />
                         </div>
-                    ))}
+                        <p className="w-[75%] text-left text-color11 font-funnel-sans text-2xl font-normal leading-[1.4]">
+                            Trustless smart wallets, powered by ERC-4337
+                        </p>
+                    </div>
+                    <div
+                        className="w-[80vw] sm:w-[340px] md:min-w-[35%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                    >
+                        <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-2 relative">
+                            <Image src="/images/landing/AGNOSTIC.png" alt="feature icon" fill className="object-contain" />
+                        </div>
+                        <p className="w-[75%] text-left text-color11 font-funnel-sans text-2xl font-normal leading-[1.4]">
+                            Strategy primitives that compose across protocols
+                        </p>
+                    </div>
+                    <div
+                        className="w-[80vw] sm:w-[340px] md:min-w-[35%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                    >
+                        <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-2 relative">
+                            <Image src="/images/landing/MINUTES.png" alt="feature icon" fill className="object-contain" />
+                        </div>
+                        <p className="w-[75%] text-left text-color11 font-funnel-sans text-2xl font-normal leading-[1.4]">
+                            Semantic memory for evolving logic
+                        </p>
+                    </div>
+                    <div
+                        className="w-[80vw] sm:w-[340px] md:min-w-[35%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                    >
+                        <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-2 relative">
+                            <Image src="/images/landing/flashIcon.png" alt="feature icon" fill className="object-contain" />
+                        </div>
+                        <p className="w-[75%] text-left text-color11 font-funnel-sans text-2xl font-normal leading-[1.4]">
+                            Orchestration that turns intent into action
+                        </p>
+                    </div>
+
                 </div>
             </div>
         </section>
