@@ -638,7 +638,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                             </div>
                             <div className="flex items-center gap-1 ml-3">
                                 {(() => {
-                                    const percentageChange = ((currentTokenOutPrice - initialTokenOutPrice) / initialTokenOutPrice) * 100;
+                                    const percentageChange = initialTokenOutPrice > 0 ? ((currentTokenOutPrice - initialTokenOutPrice) / initialTokenOutPrice) * 100 : 0;
                                     const isPositive = percentageChange >= 0;
 
                                     return (
