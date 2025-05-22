@@ -106,3 +106,23 @@ body {
 .global-text-shadow {
   text-shadow: 0 0 5px rgba(230, 88, 0, 1);
 }
+.marquee {
+  animation: marquee 32s linear infinite;
+}
+.marquee:hover {
+  animation-play-state: paused;
+}
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 768px) {
+  .body {
+    background-color: #0a0917;
+  }
+}

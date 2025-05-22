@@ -3,8 +3,8 @@ import { InvestorsIcons } from "../ui/TeamIcons";
 
 export default function Footer() {
     return (
-        <>
-            <section aria-labelledby="footer-content" className="w-full rounded-[56px] mt-10">
+        <footer className="w-full hidden md:block">
+            <section aria-labelledby="footer-content" className="w-full rounded-[56px] mt-10 hidden md:block">
                 <div className="mx-auto flex flex-col-reverse md:flex-row justify-between">
                     {/* Logo and Tagline */}
                     <div className="mt-24 md:mt-0 mb-8 lg:mb-0 flex-1 flex flex-col gap-4 items-start justify-end bg-color1 pl-24 py-10 pt-32 rounded-[56px]">
@@ -44,7 +44,7 @@ export default function Footer() {
 
             </section>
             {/* Investors Section */}
-            <section aria-labelledby="investors-heading" className="w-full px-0 py-10">
+            <section aria-labelledby="investors-heading" className="w-full px-0 py-10 hidden md:block">
                 <div className="relative w-full overflow-hidden">
                     <div className="marquee flex items-center gap-16 whitespace-nowrap">
                         {/* First row of logos */}
@@ -152,21 +152,6 @@ export default function Footer() {
                     </div>
                 </div>
             </section>
-
-            <style>
-                {`
-                .marquee {
-                    animation: marquee 32s linear infinite;
-                }
-                .marquee:hover {
-                    animation-play-state: paused;
-                }
-                @keyframes marquee {
-                    0% { transform: translateX(0); }
-                    100% { transform: translateX(-50%); }
-                }
-            `}
-            </style>
-        </>
+        </footer>
     );
 }

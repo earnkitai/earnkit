@@ -40,7 +40,7 @@ export default function Header() {
                     </nav>
                 </Link>
             </header>
-            <header className="container2 fixed bottom-0 flex flex-col md:hidden w-full justify-between items-center font-funnel-display">
+            <header className="container2 fixed bottom-0 flex flex-col hidden w-full justify-between items-center font-funnel-display">
                 <div className="min-h-[100px] h-[12vh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div>
                 {/* <div className="absolute bottom-[50px] left-0 w-[100vw] h-full object-contain">
                     <svg width="391" height="136" viewBox="0 0 391 136" fill="none" xmlns="http://www.w3.org/2000/svg">
