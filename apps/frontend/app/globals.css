@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
+  --background: rgba(29, 38, 63, 1);
   --foreground: #171717;
 }
 
@@ -33,9 +33,15 @@
   }
 } */
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
   color: white;
-  background: #0a0917;
+  background: #1d263f;
   font-family: Arial, Helvetica, sans-serif;
 }
 .primary-btn {
@@ -52,6 +58,9 @@ body {
 .logoSVG {
   width: 124px;
   height: 23px;
+}
+.logoSVG svg path {
+  color: #579dff;
 }
 .logoSVG:hover svg path {
   fill: #ffffff;
@@ -92,4 +101,8 @@ body {
   /* box-shadow: #0a0917 56px 56px 0px 56px; */
   box-shadow: 0 56px #0a0917;
   /* box-shadow: 0 4px 10px; */
+}
+
+.global-text-shadow {
+  text-shadow: 0 0 5px rgba(230, 88, 0, 1);
 }

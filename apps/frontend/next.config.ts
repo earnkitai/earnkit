@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
       {
         hostname: 'www.notion.so',
       },
+      {
+        hostname: '*.cloudinary.com',
+      },
     ],
   },
 };
