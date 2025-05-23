@@ -21,12 +21,12 @@ export default function Home() {
         {/* Hero Section */}
         <section aria-label="Hero" className="relative flex flex-col lg:flex-row overflow-hidden rounded-[15rem]">
           <BackgroundVideoLandingPage />
-          <article className="w-full h-[100vh] md:min-h-[800px] p-4 pb-10 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
+          <article className="w-full h-[calc(100vh-12vh)] p-4 pb-10 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
             <AnimatedHeroText />
           </article>
         </section>
 
-        <section className="w-full h-[100vh] md:min-h-[800px] flex items-center justify-center mt-10">
+        <section className="w-full h-screen flex items-center justify-center mt-10">
           <aside className="w-full h-full md:w-1/2 relative rounded-[56px] overflow-hidden flex flex-col items-center justify-center bg-color9 gap-[40px]"
           >
             <div
