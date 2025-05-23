@@ -4,11 +4,13 @@ import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from "@/app/components/common/Header";
 import Footer from "@/app/components/common/Footer";
+
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
 });
+
 const funnellsans = Funnel_Sans({
   variable: "--font-funnel-sans",
   subsets: ["latin"],
@@ -17,8 +19,8 @@ const funnellsans = Funnel_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
-  title: "EarnKit - Create Specialized AI Agents in Minutes",
-  description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+  title: "EarnKit | The Agent Matrix",
+  description: "Build and deploy custom AI agents effortlessly with EarnKit's framework.",
   keywords: [
     "AI agents", "artificial intelligence", "custom AI", "AI development",
     "no-code AI", "AI platform", "business automation", "AI chatbots",
@@ -39,15 +41,15 @@ export const metadata: Metadata = {
     canonical: 'https://earnkit.com',
   },
   openGraph: {
-    title: "EarnKit - Create Specialized AI Agents in Minutes",
+    title: "EarnKit | The Agent Matrix",
     siteName: "EarnKit",
     url: "https://earnkit.com",
     type: "website",
     locale: "en_US",
-    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit's framework.",
     images: [
       {
-        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        url: "https://res.cloudinary.com/coinvise/image/upload/v1747986022/Earnkit_Platform_Meta_Image.png",
         width: 1200,
         height: 630,
         alt: "EarnKit Platform Preview",
@@ -58,11 +60,11 @@ export const metadata: Metadata = {
     site: "@EarnKit_ai",
     creator: "@EarnKit_ai",
     card: "summary_large_image",
-    title: "EarnKit - Create Specialized AI Agents in Minutes",
-    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+    title: "EarnKit | The Agent Matrix",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit's framework.",
     images: [
       {
-        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        url: "https://res.cloudinary.com/coinvise/image/upload/v1747986022/Earnkit_Platform_Meta_Image.png",
         alt: "EarnKit Platform Preview",
       },
     ],
