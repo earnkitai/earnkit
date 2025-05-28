@@ -89,7 +89,7 @@ export default function QuarterlyRolloutSection() {
     return (
         <section className="w-full min-h-[700px] flex flex-col md:flex-row items-stretch justify-center bg-transparent rounded-[56px] overflow-hidden mt-10">
             {/* Left Side */}
-            <aside className="h-[calc(100dvh-10vh)] md:h-full w-full md:w-1/2 bg-color5 flex flex-col justify-center items-center relative p-6 md:p-6 overflow-hidden rounded-[56px]">
+            <aside className="h-[calc(var(--vh,1vh)*100-10vh)] md:h-full w-full md:w-1/2 bg-color5 flex flex-col justify-center items-center relative p-6 md:p-6 overflow-hidden rounded-[56px]">
                 {/* Animated background circles */}
 
                 <div
@@ -158,7 +158,7 @@ export default function QuarterlyRolloutSection() {
 
             </aside>
             {/* Right Side */}
-            <aside className="w-full h-[calc(100dvh-10vh)] md:h-auto md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 md:p-28">
+            <aside className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:h-auto md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 md:p-28">
                 <div className="flex-1 flex flex-col justify-start">
                     <h2 className="text-color8 font-funnel-display text-4xl md:text-[3.2rem] font-semibold mb-8 leading-tight">
                         We&apos;re Not<br />Going Public.<br />We&apos;re Going <br />Deep.

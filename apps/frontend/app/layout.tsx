@@ -3,6 +3,7 @@ import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from "@/app/components/common/Header";
+import ViewportHeightSetter from "./components/common/ViewportHeightSetter";
 
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
@@ -84,6 +85,7 @@ export default function RootLayout({
         <SchemaOrg />
       </head>
       <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`} suppressHydrationWarning>
+        <ViewportHeightSetter />
         <Header />
         <main className="flex-grow z-30" >
           {children}

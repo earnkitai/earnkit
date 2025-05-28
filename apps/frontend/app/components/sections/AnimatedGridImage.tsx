@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 
 export default function AnimatedGridImage() {
     return (
-        <aside className="w-full h-[calc(100dvh-10vh)] md:min-h-screen md:w-1/2 relative rounded-[56px] overflow-hidden bg-black flex items-center justify-center">
+        <aside className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:min-h-screen md:w-1/2 relative rounded-[56px] overflow-hidden bg-black flex items-center justify-center">
             <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 whileInView={{ scale: 1, opacity: 1 }}

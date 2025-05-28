@@ -22,7 +22,7 @@ export default function BackgroundVideoLandingPage() {
             loop
             muted
             playsInline
-            className="absolute top-0 md:-top-[25%] left-0 w-full md:w-[150%] h-[100dvh] md:h-[150%] object-cover -z-10 "
+            className="absolute top-0 md:-top-[25%] left-0 w-full md:w-[150%] h-[calc(var(--vh,1vh)*100)] md:h-[150%] object-cover -z-10 "
             poster="/images/landing/hero_video_poster.png"
         >
             <source
