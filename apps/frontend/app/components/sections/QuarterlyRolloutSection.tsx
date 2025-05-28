@@ -125,7 +125,7 @@ export default function QuarterlyRolloutSection() {
                             exit="exit"
                             className="self-start ml-10 md:ml-20 w-[95%] md:w-[70%] flex-1 md:min-h-[350px] flex flex-col justify-end mb-8 md:mb-20 mt-10"
                         >
-                            <h2 className="w-[80%] text-color8 font-funnel-sans text-3xl md:text-[2rem] md:text-[2.5rem] font-medium mb-6 leading-tight">
+                            <h2 className="w-[80%] text-color8 font-funnel-sans text-3xl md:text-[2.5rem] 2xl:text-[3.5rem] font-medium mb-6 leading-tight">
                                 {quarters[selected].heading}
                             </h2>
                             <p className="w-[80%] text-color7 font-funnel-sans text-lg md:text-xl my-2">
@@ -158,7 +158,7 @@ export default function QuarterlyRolloutSection() {
 
             </aside>
             {/* Right Side */}
-            <aside className="w-full h-[calc(100dvh-10vh)] md:h-full md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 md:p-28">
+            <aside className="w-full h-[calc(100dvh-10vh)] md:h-auto md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 md:p-28">
                 <div className="flex-1 flex flex-col justify-start">
                     <h2 className="text-color8 font-funnel-display text-4xl md:text-[3.2rem] font-semibold mb-8 leading-tight">
                         We&apos;re Not<br />Going Public.<br />We&apos;re Going <br />Deep.

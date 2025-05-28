@@ -106,7 +106,7 @@ body {
   text-shadow: 0 0 30px rgba(255, 98, 0, 1);
 }
 .marquee {
-  animation: marquee 10s linear infinite;
+  animation: marquee 32s linear infinite;
 }
 .marquee:hover {
   animation-play-state: paused;
@@ -116,7 +116,7 @@ body {
     transform: translateX(0);
   }
   100% {
-    transform: translateX(-250%);
+    transform: translateX(-50%);
   }
 }
 
