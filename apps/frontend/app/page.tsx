@@ -24,13 +24,13 @@ export default function Home() {
           {/* Hero Section */}
           <section aria-label="Hero" className=" relative flex flex-col lg:flex-row overflow-hidden rounded-[56px] md:rounded-[15rem]">
             <BackgroundVideoLandingPage />
-            <article className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:h-[calc(var(--vh,1vh)*100-12vh)] p-4 pb-10 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
+            <article className="w-full h-[90vh] md:h-[calc(var(--vh,1vh)*100-12vh)] p-4 pb-10 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center justify-center rounded-[56px]">
               <AnimatedHeroText />
             </article>
           </section>
 
           <section className="w-full md:h-screen flex flex-col md:flex-row items-center justify-center mt-10">
-            <aside className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:h-full md:w-1/2 relative rounded-[56px] overflow-hidden flex flex-col items-center justify-center bg-color9 gap-[40px]"
+            <aside className="w-full h-[90vh] md:h-full md:w-1/2 relative rounded-[56px] overflow-hidden flex flex-col items-center justify-center bg-color9 gap-[40px]"
             >
               <div
                 className="absolute top-0 left-0 w-full h-full bg-[url('/images/landing/grid.png')] bg-repeat mix-blend-luminosity opacity-30 bg-grid"
@@ -55,7 +55,7 @@ export default function Home() {
           {/* Carousel Section */}
           <CarouselFeatures />
 
-          <section className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:h-[530px] md:min-h-[530px] flex flex-col items-start justify-center rounded-[56px] md:rounded-[15rem] relative overflow-hidden px-12 md:px-[10rem] ">
+          <section className="w-full h-[90vh] md:h-[530px] md:min-h-[530px] flex flex-col items-start justify-center rounded-[56px] md:rounded-[15rem] relative overflow-hidden px-12 md:px-[10rem] ">
 
             <div className="absolute top-0 left-0 md:-left-[38%] w-[100%] md:w-[140%] h-[100%]">
               <Image
@@ -80,11 +80,11 @@ export default function Home() {
 
           <section className="w-full md:min-h-[600px] flex flex-col md:flex-row items-center justify-center mt-10 relative">
             {/* create a container with full height of the right side section and add a background image to it */}
-            <aside className="absolute top-0 left-0 w-full md:w-[35%] h-[calc(var(--vh,1vh)*100-10vh)] md:h-full rounded-[56px] overflow-hidden bg-color5">
+            <aside className="absolute top-0 left-0 w-full md:w-[35%] h-[90vh] md:h-full rounded-[56px] overflow-hidden bg-color5">
               <ParallaxBuildingImage />
             </aside>
 
-            <aside className="ml-0 mt-[calc(var(--vh,1vh)*100-10vh)] md:mt-0 md:ml-[35%] w-full md:w-[65%] bg-color3 rounded-[56px] flex flex-col items-start justify-center gap-10 p-12 md:p-24">
+            <aside className="ml-0 mt-[90vh] md:mt-0 md:ml-[35%] w-full md:w-[65%] bg-color3 rounded-[56px] flex flex-col items-start justify-center gap-10 p-12 md:p-24">
               <div className="w-[90%] md:w-full text-color8 font-funnel-display text-4xl md:text-5xl font-semibold text-left leading-[1.2]">
                 <h2>
                   Not for everyone.
@@ -100,7 +100,7 @@ export default function Home() {
 
           </section>
 
-          <section className="w-full min-h-[calc(var(--vh,1vh)*100-10vh)] md:min-h-[900px] bg-color13 mt-10 flex flex-col items-center justify-center py-20 px-4 md:px-0 rounded-[56px] relative overflow-hidden">
+          <section className="w-full min-h-[90vh] md:min-h-[900px] bg-color13 mt-10 flex flex-col items-center justify-center py-20 px-4 md:px-0 rounded-[56px] relative overflow-hidden">
             <aside className="w-full max-w-7xl py-8 px-14">
               <div className="flex w-full flex-col items-start justify-center z-10 ">
                 <div className="mb-6">
@@ -138,7 +138,7 @@ export default function Home() {
 
           <section className="w-full min-h-[700px] flex flex-col md:flex-row items-stretch justify-center bg-transparent rounded-[56px] overflow-hidden mt-10">
             {/* Left Side */}
-            <aside className="w-full h-[calc(var(--vh,1vh)*100-10vh)] md:h-full md:w-[40%] bg-color5 flex flex-col justify-center items-center rounded-[56px] p-10 md:p-20">
+            <aside className="w-full h-[90vh] md:h-full md:w-[40%] bg-color5 flex flex-col justify-center items-center rounded-[56px] p-10 md:p-20">
               <div className="md:py-10 flex flex-col justify-center items-center">
                 <h2 className="w-[90%] md:max-w-[70%] text-color8 font-funnel-display text-3xl md:text-5xl font-semibold mb-8 leading-tight">
                   Your Strategy.<br />
