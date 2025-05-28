@@ -14,13 +14,13 @@ export default function ParallaxOctoImage() {
     const y = useTransform(scrollYProgress, [0, 1], ["0%", "10%"]);
 
     return (
-        <div ref={containerRef} className="absolute -top-[10%] -left-[10%] w-[130%] h-[130%] bg-color4 overflow-hidden">
+        <div ref={containerRef} className="absolute -top-[10%] -left-[25%] w-[130%] h-[130%] bg-color4 overflow-hidden">
             <motion.div
                 style={{ y }}
                 className="w-full h-full"
             >
                 <Image
-                    src="/images/landing/octo.png"
+                    src="/images/landing/FINAL.jpg"
                     alt="Octopus background"
                     fill
                     className="object-cover mix-blend-hard-light"

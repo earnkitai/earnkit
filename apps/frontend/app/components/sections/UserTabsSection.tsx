@@ -77,7 +77,7 @@ export default function UserTabsSection() {
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
-                        className={`text-2xl font-semibold px-2 transition-colors duration-200 ${activeTab === tab
+                        className={`text-xl md:text-2xl font-semibold px-2 transition-colors duration-200 ${activeTab === tab
                             ? "text-color8"
                             : "text-color1 hover:text-color6"
                             }`}
@@ -94,7 +94,7 @@ export default function UserTabsSection() {
                         className="rounded-[28px] border border-[3px] border-color6 bg-transparent p-8 flex flex-col items-start gap-6 min-h-[180px] transition-all duration-300 ease-in-out"
                     >
                         <div className="mb-2">{item.icon}</div>
-                        <p className="max-w-[90%] text-white text-xl font-funnel-sans font-normal leading-snug transition-all duration-300 ease-in-out">
+                        <p className="max-w-[90%] text-white text-lg md:text-xl font-funnel-sans font-normal leading-snug transition-all duration-300 ease-in-out">
                             {item.text}
                         </p>
                     </div>

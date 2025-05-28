@@ -52,7 +52,8 @@ body {
 }
 
 .primary-btn:hover {
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
     linear-gradient(90deg, #2563e4, #2563e4);
 }
 .logoSVG {
@@ -69,7 +70,8 @@ body {
   background: transparent;
 }
 .coinvise-btn-warpcast:hover {
-  background: linear-gradient(0deg, #8154d4, #8154d4),
+  background:
+    linear-gradient(0deg, #8154d4, #8154d4),
     linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
   background-blend-mode: multiply;
 }
@@ -89,25 +91,22 @@ body {
 }
 
 .blog-home-link:hover {
-  background: linear-gradient(
-      0deg,
-      var(--Color-2, #2563e4),
-      var(--Color-2, #2563e4)
-    ),
+  background:
+    linear-gradient(0deg, var(--Color-2, #2563e4), var(--Color-2, #2563e4)),
     linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
   background-blend-mode: multiply;
 }
 .mobile-header-bg {
   /* box-shadow: #0a0917 56px 56px 0px 56px; */
-  box-shadow: 0 56px #0a0917;
+  box-shadow: 0 60px #0a0917;
   /* box-shadow: 0 4px 10px; */
 }
 
 .global-text-shadow {
-  text-shadow: 0 0 5px rgba(230, 88, 0, 1);
+  text-shadow: 0 0 30px rgba(255, 98, 0, 1);
 }
 .marquee {
-  animation: marquee 32s linear infinite;
+  animation: marquee 10s linear infinite;
 }
 .marquee:hover {
   animation-play-state: paused;
@@ -117,7 +116,7 @@ body {
     transform: translateX(0);
   }
   100% {
-    transform: translateX(-50%);
+    transform: translateX(-250%);
   }
 }
 

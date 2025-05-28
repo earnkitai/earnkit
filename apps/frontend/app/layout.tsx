@@ -3,7 +3,6 @@ import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from "@/app/components/common/Header";
-import Footer from "@/app/components/common/Footer";
 
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
@@ -14,7 +13,7 @@ const funnelDisplay = Funnel_Display({
 const funnellsans = Funnel_Sans({
   variable: "--font-funnel-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -89,7 +88,6 @@ export default function RootLayout({
         <main className="flex-grow z-30" >
           {children}
         </main>
-        <Footer />
       </body>
     </html>
   );

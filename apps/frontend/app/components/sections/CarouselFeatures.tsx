@@ -9,7 +9,7 @@ export default function CarouselFeatures() {
                 >
 
                     <div
-                        className="w-[80vw] sm:w-[340px] md:min-w-[33%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                        className="min-w-[350px] md:min-w-[33%] h-full min-h-[250px] md:h-[30%] rounded-[36px] bg-color12 flex flex-row md:flex-col items-center md:items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
                     >
                         <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-4 relative">
                             <Image src="/images/landing/WALLET.png" alt="feature icon" fill className="object-contain" quality={100} />
@@ -19,7 +19,7 @@ export default function CarouselFeatures() {
                         </p>
                     </div>
                     <div
-                        className="w-[80vw] sm:w-[340px] md:min-w-[33%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                        className="min-w-[350px] md:min-w-[33%] h-full min-h-[250px] md:h-[30%] rounded-[36px] bg-color12 flex flex-row md:flex-col items-center md:items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
                     >
                         <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-4 relative">
                             <Image src="/images/landing/AGNOSTIC.png" alt="feature icon" fill className="object-contain" quality={100} />
@@ -29,7 +29,7 @@ export default function CarouselFeatures() {
                         </p>
                     </div>
                     <div
-                        className="w-[80vw] sm:w-[340px] md:min-w-[33%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                        className="min-w-[350px] md:min-w-[33%] h-full min-h-[250px] md:h-[30%] rounded-[36px] bg-color12 flex flex-row md:flex-col items-center md:items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
                     >
                         <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-4 relative">
                             <Image src="/images/landing/MINUTES.png" alt="feature icon" fill className="object-contain" quality={100} />
@@ -39,7 +39,7 @@ export default function CarouselFeatures() {
                         </p>
                     </div>
                     <div
-                        className="w-[80vw] sm:w-[340px] md:min-w-[33%] h-full min-h-[220px] md:h-[30%] rounded-[36px] bg-color12 flex flex-col items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
+                        className="min-w-[350px] md:min-w-[33%] h-full min-h-[250px] md:h-[30%] rounded-[36px] bg-color12 flex flex-row md:flex-col items-center md:items-start justify-center p-8 md:p-10 gap-6 shadow-lg"
                     >
                         <div className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center mb-4 relative">
                             <Image src="/images/landing/flashIcon.png" alt="feature icon" fill className="object-contain" quality={100} />

@@ -40,7 +40,7 @@ export default function AnimatedHeroText() {
                 className="max-w-[70%] lg:max-w-[30%] text-center flex flex-col justify-center mt-6"
                 style={{ willChange: "transform, opacity" }}
             >
-                <p className="text-color7 font-funnel-sans text-xl lg:text-[1.2rem] 2xl:text-[1.5dvh] font-normal leading-[1.4]">
+                <p className="text-color8 font-funnel-sans text-xl lg:text-[1.2rem] 2xl:text-[1.5dvh] font-medium leading-[1.4]">
                     Build autonomous onchain agents that move capital—staking, bridging, voting—without interfaces or human approvals.
                 </p>
             </motion.div>

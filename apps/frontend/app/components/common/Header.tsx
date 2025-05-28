@@ -14,7 +14,7 @@ export default function Header() {
                     </Link>
 
                     {/* Desktop Navigation */}
-                    <nav className="w-full flex flex-row justify-start items-center text-xl 2xl:text-[1.2rem]  font-funnel-sans">
+                    <nav className="w-full flex flex-row justify-start items-center text-xl 2xl:text-[1.2rem]  font-funnel-sans font-medium">
                         <Link href="https://docs.earnkit.com" className="text-color6 ml-6 mr-6 hover:text-white transition-colors" target="_blank">
                             Docs
                         </Link>
@@ -32,7 +32,7 @@ export default function Header() {
                         </Link>
                     </nav>
                 </div>
-                <Link href="https://staging.app.earnkit.com" target="_blank" className="min-w-[20%] min-h-full flex items-center justify-center bg-color6 rounded-[56px] hover:bg-color7">
+                <Link href="https://staging.app.earnkit.com" target="_blank" className="min-w-[20%] min-h-full flex font-funnel-sans font-medium items-center justify-center bg-color6 rounded-[56px] hover:bg-color7">
                     <nav className="text-xl 2xl:text-[1.2rem]">
                         <span className="min-h-full text-color3">
                             Early Access
@@ -40,39 +40,33 @@ export default function Header() {
                     </nav>
                 </Link>
             </header>
-            <header className="container2 fixed bottom-0 flex flex-col hidden w-full justify-between items-center font-funnel-display">
+            <header className="container2 fixed bottom-0 flex flex-col w-full md:hidden justify-between items-center font-funnel-display z-50">
                 <div className="min-h-[100px] h-[12vh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div>
-                {/* <div className="absolute bottom-[50px] left-0 w-[100vw] h-full object-contain">
-                    <svg width="391" height="136" viewBox="0 0 391 136" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path fill-rule="evenodd" clip-rule="evenodd" d="M390.458 136V0C390.458 30.9279 365.386 56 334.458 56H56.4582C25.5303 56 0.458252 30.928 0.458252 1.70469e-05V136H390.458Z" fill="#0A0917" />
-                    </svg>
-                </div> */}
-
                 <div className="h-[10vh] z-30 h-[10dvh] bg-[#0a0917] flex flex-row justify-center items-center w-full mobile-header-bg">
                     <nav className="flex flex-row justify-start items-center font-funnel-display font-mediumitems-center gap-4 w-full max-w-full overflow-x-auto no-scrollbar">
-                        <Link href="/" className="text-[#B8CCE0] hover:text-white transition-colors mr-4 ml-8" target="_blank">
+                        <Link href="/" className="text-color2 hover:text-white transition-colors mr-4 ml-8" target="_blank">
                             <svg width="29" height="28" viewBox="0 0 29 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.5258 6.97539C10.6587 6.97539 7.52377 10.1103 7.52377 13.9774H0.548389C0.548389 6.25789 6.80628 0 14.5258 0C22.2453 0 28.5032 6.25789 28.5032 13.9774H21.5278C21.5278 10.1103 18.3929 6.97539 14.5258 6.97539Z" fill="#2563E4" />
-                                <path d="M7.54423 13.9775C7.54423 17.8695 4.38911 21.0246 0.49707 21.0246V28C8.24151 28 14.5196 21.7219 14.5196 13.9775H7.54423Z" fill="#2563E4" />
-                                <path d="M28.495 20.965C24.6358 20.965 21.5074 17.8366 21.5074 13.9774H14.532C14.532 21.689 20.7834 27.9404 28.495 27.9404V20.965Z" fill="#2563E4" />
+                                <path d="M14.5258 6.97539C10.6587 6.97539 7.52377 10.1103 7.52377 13.9774H0.548389C0.548389 6.25789 6.80628 0 14.5258 0C22.2453 0 28.5032 6.25789 28.5032 13.9774H21.5278C21.5278 10.1103 18.3929 6.97539 14.5258 6.97539Z" fill="currentColor" />
+                                <path d="M7.54423 13.9775C7.54423 17.8695 4.38911 21.0246 0.49707 21.0246V28C8.24151 28 14.5196 21.7219 14.5196 13.9775H7.54423Z" fill="currentColor" />
+                                <path d="M28.495 20.965C24.6358 20.965 21.5074 17.8366 21.5074 13.9774H14.532C14.532 21.689 20.7834 27.9404 28.495 27.9404V20.965Z" fill="currentColor" />
                             </svg>
                         </Link>
-                        <Link href="https://app.earnkit.com/signup" className="text-[#B8CCE0] hover:text-white transition-colors mr-4 flex-shrink-0 bg-[#2563E4] rounded-full px-3 py-1 flex items-center justify-center" target="_blank">
-                            Sign up
+                        <Link href="#" className="text-color7 hover:text-white transition-colors mr-4 flex-shrink-0 bg-color2 rounded-full px-4 py-1 flex items-center justify-center" target="_blank">
+                            Early Access
                         </Link>
-                        <Link href="https://app.earnkit.com/login" className="text-[#2563E4] hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
+                        <Link href="https://app.earnkit.com/login" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Login
                         </Link>
-                        <Link href="https://blog.earnkit.com" className="text-[#2563E4] hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
+                        <Link href="https://blog.earnkit.com" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Blog
                         </Link>
-                        <Link href="/litepaper" className="text-[#2563E4] hover:text-white transition-colors mr-4 flex-shrink-0">
+                        <Link href="/litepaper" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0">
                             Litepaper
                         </Link>
-                        <Link href="/roadmap" className="text-[#2563E4] hover:text-white transition-colors mr-4 flex-shrink-0">
+                        <Link href="/roadmap" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0">
                             Roadmap
                         </Link>
-                        <Link href="https://docs.earnkit.com" className="text-[#2563E4] hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
+                        <Link href="https://docs.earnkit.com" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Docs
                         </Link>
                     </nav>
