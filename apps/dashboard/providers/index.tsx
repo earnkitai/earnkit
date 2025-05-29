@@ -38,7 +38,8 @@ export const Providers: React.FC<{ children: React.ReactNode }> = ({
                             },
                             appearance: {
                                 theme: 'light',
-                                walletList: ['metamask', "detected_ethereum_wallets", "detected_solana_wallets"],
+                                walletChainType: 'ethereum-and-solana',
+                                walletList: ['metamask', 'phantom', 'rainbow', "detected_ethereum_wallets", "detected_solana_wallets"],
                             },
                             supportedChains: [base],
                             loginMethods: ["email", "passkey"],

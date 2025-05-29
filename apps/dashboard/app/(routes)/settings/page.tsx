@@ -8,25 +8,30 @@ import { toast } from "sonner";
 // import { truncateAddress } from "@/lib/utils";
 // import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
 import { useTheme } from "@/providers/theme-provider";
-import { usePrivy } from "@privy-io/react-auth";
-import { useSessionSigners } from "@privy-io/react-auth";
+import { useActiveWallet, useDelegatedActions, usePrivy, useWallets, WalletWithMetadata } from "@privy-io/react-auth";
+// import { useSessionSigners } from "@privy-io/react-auth";
 import { RevokeAccessButton } from "@/app/(routes)/settings/components/RevokeAccessButton";
 import { EmbeddedWalletSection } from "@/app/(routes)/settings/components/EmbeddedWalletSection";
-import { ExternalWalletSection } from "@/app/(routes)/settings/components/ExternalWalletSection";
 import { PasskeySection } from "@/app/(routes)/settings/components/PasskeySection";
 import { FarcasterPrivy } from "@/app/(routes)/settings/components/FarcasterPrivy";
 import { findUsernameByUserId, updateUser } from "@/actions/user";
+import { WalletsSection } from "@/app/(routes)/settings/components/WalletsSection";
 
 export default function SettingsPage() {
     const [notifications, setNotifications] = useState(true);
     const { ready, authenticated, user } = usePrivy();
     const { theme, setTheme } = useTheme();
-    const { addSessionSigners } = useSessionSigners();
+    // const { addSessionSigners } = useSessionSigners();
+
+    const { delegateWallet } = useDelegatedActions();
+
     // const { turnkey } = useTurnkey()
     const [isDelegated, setIsDelegated] = useState(false);
     const [username, setUsername] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [newUsername, setNewUsername] = useState("");
+    const { wallets, ready: walletsReady } = useWallets();
+    const { wallet: activeWallet } = useActiveWallet()
 
     useEffect(() => {
         if (ready && authenticated && user?.id) {
@@ -70,15 +75,31 @@ export default function SettingsPage() {
     const handleDelegateAccess = async () => {
         console.log(user)
         console.log(user?.wallet?.address, 'user?.wallet?.address')
-        console.log(process.env.NEXT_PUBLIC_AUTHORIZATION_ID, 'process.env.NEXT_PUBLIC_AUTHORIZATION_ID')
         try {
-            const delegateAccess = await addSessionSigners({
-                address: user?.wallet?.address as `0x${string}`,
-                signers: []
-            });
-            console.log(delegateAccess, 'delegateAccess');
-            setIsDelegated(true);
-            toast.success("Access delegated successfully");
+
+            // Find the embedded wallet to delegate from the array of the user's wallets
+            const walletToDelegate = wallets.find((wallet) => wallet.walletClientType === 'privy');
+
+            // Check if the wallet to delegate by inspecting the user's linked accounts
+            const isAlreadyDelegated = !!user?.linkedAccounts.find(
+                (account): account is WalletWithMetadata => account.type === 'wallet' && account.delegated,
+            );
+
+            if (!walletToDelegate || !walletsReady || isAlreadyDelegated) return;
+            try {
+                const delegateAccess = await delegateWallet({
+                    address: walletToDelegate.address,
+                    chainType: 'ethereum'
+                });
+                console.log(delegateAccess, 'delegateAccess');
+                setIsDelegated(true);
+                toast.success("Access delegated successfully");
+            }
+            catch (error) {
+                console.log("error delegating wallet", error)
+                toast.error("Failed to delegate access");
+            }
+
         } catch (error) {
             console.error(error, 'error');
             toast.error("Failed to delegate access");
@@ -140,7 +161,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                         <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Wallet Address</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground text-wrap break-all">{user?.wallet?.address || 'Not set'}</p>
+                        <p className="mt-1 text-base sm:text-lg text-foreground text-wrap break-all">{activeWallet ? activeWallet.address : user?.wallet?.address || 'Not set'}</p>
                     </div>
                 </div>
             </div>
@@ -168,11 +189,6 @@ export default function SettingsPage() {
             </div>
 
             <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">External Wallet</h2>
-                <ExternalWalletSection />
-            </div>
-
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
                 <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Passkey</h2>
                 <PasskeySection />
             </div>
@@ -181,6 +197,8 @@ export default function SettingsPage() {
                 <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Farcaster</h2>
                 <FarcasterPrivy />
             </div>
+
+            <WalletsSection />
 
             <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
                 <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Preferences</h2>

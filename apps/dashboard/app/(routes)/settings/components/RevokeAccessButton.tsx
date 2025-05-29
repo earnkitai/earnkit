@@ -1,11 +1,12 @@
 "use client";
 
-import { usePrivy, useSessionSigners, type WalletWithMetadata } from '@privy-io/react-auth';
+import { useHeadlessDelegatedActions, usePrivy, type WalletWithMetadata } from '@privy-io/react-auth';
 import { toast } from "sonner";
 
 export function RevokeAccessButton() {
     const { user } = usePrivy();
-    const { removeSessionSigners } = useSessionSigners();
+    // const { removeSessionSigners } = useSessionSigners();
+    const { revokeWallets } = useHeadlessDelegatedActions();
 
     const hasDelegatedWallets =
         user?.linkedAccounts?.filter(
@@ -15,9 +16,10 @@ export function RevokeAccessButton() {
     const onRevoke = async () => {
         if (!hasDelegatedWallets) return;
         try {
-            await removeSessionSigners({
-                address: user?.wallet?.address as `0x${string}`
-            });
+            // await removeSessionSigners({
+            //     address: user?.wallet?.address as `0x${string}`
+            // });
+            await revokeWallets()
             toast.success("Access revoked successfully");
         } catch (error) {
             console.error(error);

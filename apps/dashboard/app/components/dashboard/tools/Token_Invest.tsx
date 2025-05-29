@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getTokenMetadataWithCoingecko, TokenMetadata } from '@/actions/web3';
-import { createLimitOrder } from '@/actions/order';
+import { createLimitOrder, createOrderHistory } from '@/actions/order';
 
 interface Token {
     name: string;
@@ -184,7 +184,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
         setLoadingAction("buy");
         const provider = wallet ? await wallet.getEthereumProvider() : null;
         if (!provider) {
-            console.error("No provider found");
+            console.log("No provider found");
             toast.error("Please connect your wallet first");
             return;
         }
@@ -251,12 +251,34 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                     tokenInDetails: tokenIn,
                     tokenOutDetails: tokenOut
                 });
+                if (targetPrice && targetPrice > 0) {
+                    try {
+                        // Store order details in database
+
+                        await createLimitOrder({
+                            userId: userId,
+                            userAddress: userAddress,
+                            tokenAddress: selectedToken as string,
+                            tokenSymbol: tokenOut.symbol,
+                            amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
+                            priceAtCreation: tokenOut.priceUsd || 0,
+                            targetPrice: targetPrice || 0,
+                            targetChange: 0,
+                            direction: 'BUY',
+                            orderType: 'LIMIT',
+                            aiInitiated: true,
+                            notes: `${messageId}`,
+                        });
+                    } catch (error) {
+                        console.log("Error creating limit order:", error);
+                        toast.error("Failed to save order details");
+                    }
+                }
 
                 try {
-                    // Store order details in database
-                    await createLimitOrder({
+                    await createOrderHistory({
                         userId: userId,
-                        userAddress: userAddress,
+                        userAddress: userAddress as `0x${string}`,
                         tokenAddress: selectedToken as string,
                         tokenSymbol: tokenOut.symbol,
                         amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
@@ -264,11 +286,15 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         targetPrice: targetPrice || 0,
                         targetChange: 0,
                         direction: 'BUY',
+                        orderType: 'LIMIT',
+                        executedAt: new Date(),
+                        executedPrice: tokenOut.priceUsd || 0,
                         aiInitiated: true,
                         notes: `${messageId}`,
                     });
+
                 } catch (error) {
-                    console.error("Error creating limit order:", error);
+                    console.log("Error creating order history:", error);
                     toast.error("Failed to save order details");
                 }
             }

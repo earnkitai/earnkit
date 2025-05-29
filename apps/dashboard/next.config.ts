@@ -5,7 +5,6 @@ const nextConfig: NextConfig = {
   webpack: (config) => {
     config.resolve.fallback = { fs: false, net: false, tls: false };
     config.externals.push('pino-pretty', 'lokijs', 'encoding');
-    config.cache = false;
     return config;
   },
   images: {

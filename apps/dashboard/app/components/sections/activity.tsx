@@ -21,21 +21,22 @@ import {
 
 import { ScrollArea } from "@/app/components/ui/scroll-area"
 import { base } from "viem/chains"
-import { usePrivy } from "@privy-io/react-auth"
+import { useActiveWallet, usePrivy } from "@privy-io/react-auth"
 
 export default function Activity() {
   const { transactions: allTransactions, loading } = useTransactions()
   // const { ethPrice } = useTokenPrice()
   const { ready, authenticated, user: privyUser } = usePrivy()
+  const { wallet: activeWallet } = useActiveWallet()
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([])
 
   useEffect(() => {
-    if (ready && authenticated) {
-      setSelectedAccount(privyUser?.wallet as unknown as Account)
+    if (ready && authenticated && privyUser) {
+      setSelectedAccount(activeWallet ? activeWallet as unknown as Account : privyUser?.wallet as unknown as Account)
     }
-  }, [ready, authenticated, privyUser])
+  }, [ready, authenticated, privyUser, activeWallet])
 
   useEffect(() => {
     const fetchTransactions = async () => {

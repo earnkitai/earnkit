@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@/app/components/ui/skeleton";
 import { truncateAddress } from "@/lib/utils";
-import { useFundWallet, usePrivy, useWallets } from "@privy-io/react-auth";
+import { useActiveWallet, useFundWallet, usePrivy, useWallets } from "@privy-io/react-auth";
 import { ArrowDown, ArrowUp, CopyIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ export default function WalletPage() {
     const { ready: privyReady, authenticated, user: privyUser } = usePrivy();
     const [totalValue, setTotalValue] = useState<number>(0);
     const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
+    const { wallet: activeWallet } = useActiveWallet()
     // const { state } = useWallets();  
     const { fundWallet } = useFundWallet();
     const { ready: privyWalletReady, wallets } = useWallets();
@@ -32,12 +33,12 @@ export default function WalletPage() {
     }, [privyReady, privyUser, authenticated]);
 
     useEffect(() => {
-        if (privyWalletReady && wallets.length > 0) {
+        if (privyWalletReady && wallets.length > 0 && activeWallet) {
             console.log("Wallets ready");
             console.log(wallets)
-            setWalletAddress(wallets[0].address as `0x${string}`)
+            setWalletAddress(activeWallet.address ? activeWallet.address as `0x${string}` : wallets[0].address as `0x${string}`)
         }
-    }, [privyWalletReady, wallets]);
+    }, [privyWalletReady, wallets, activeWallet]);
 
     const handleCopyAddress = () => {
         if (privyWalletReady && wallets.length > 0) {
