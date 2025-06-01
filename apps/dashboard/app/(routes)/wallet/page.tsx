@@ -19,7 +19,7 @@ export default function WalletPage() {
     const { ready: privyReady, authenticated, user: privyUser } = usePrivy();
     const [totalValue, setTotalValue] = useState<number>(0);
     const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
-    const { wallet: activeWallet } = useActiveWallet()
+    const { wallet: activeWallet, setActiveWallet } = useActiveWallet()
     // const { state } = useWallets();  
     const { fundWallet } = useFundWallet();
     const { ready: privyWalletReady, wallets } = useWallets();
@@ -33,10 +33,14 @@ export default function WalletPage() {
     }, [privyReady, privyUser, authenticated]);
 
     useEffect(() => {
-        if (privyWalletReady && wallets.length > 0 && activeWallet) {
+        if (privyWalletReady && wallets.length > 0) {
             console.log("Wallets ready");
             console.log(wallets)
-            setWalletAddress(activeWallet.address ? activeWallet.address as `0x${string}` : wallets[0].address as `0x${string}`)
+
+            setWalletAddress(activeWallet ? activeWallet.address as `0x${string}` : wallets[0].address as `0x${string}`)
+            if (!activeWallet) {
+                setActiveWallet(wallets[0]);
+            }
         }
     }, [privyWalletReady, wallets, activeWallet]);
 

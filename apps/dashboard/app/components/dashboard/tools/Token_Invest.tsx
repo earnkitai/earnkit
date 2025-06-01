@@ -4,7 +4,7 @@ import { Address, Hex, createWalletClient, custom, parseEther } from 'viem';
 import { tradeCoin } from '@zoralabs/coins-sdk';
 import { base } from 'viem/chains';
 import { useEffect, useState } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, useActiveWallet } from '@privy-io/react-auth';
 import { LoadingButton } from '../../ui/button.loader';
 import { Icons } from '../../sections/icons';
 import { toast } from 'sonner';
@@ -94,14 +94,15 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const [topTokens, setTopTokens] = useState<Token[]>([]);
     const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
     const [targetPrice, setTargetPrice] = useState<number | null>(null);
-    // const [targetPercentage, setTargetPercentage] = useState<number>(0);
+    const [targetPercentage, setTargetPercentage] = useState<number>(0);
     const [userId, setUserId] = useState<string | null>(null);
     const [currentTokenOutPrice, setCurrentTokenOutPrice] = useState<number>(0);
     const [initialTokenOutPrice, setInitialTokenOutPrice] = useState<number>(0);
     const { wallets } = useWallets();
-
+    const { wallet: activeWallet } = useActiveWallet();
     const { ready, authenticated, user: privyUser } = usePrivy();
-    const wallet = wallets[0];
+    // find wallet from wallets array that has the same address as activeWallet
+    const wallet = wallets.find((wallet) => wallet.address === activeWallet?.address) || wallets[0];
     // Sort tokens by confidence score and take top 2
 
     useEffect(() => {
@@ -254,17 +255,18 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 if (targetPrice && targetPrice > 0) {
                     try {
                         // Store order details in database
-
+                        // need to add token decimals
                         await createLimitOrder({
                             userId: userId,
                             userAddress: userAddress,
                             tokenAddress: selectedToken as string,
                             tokenSymbol: tokenOut.symbol,
-                            amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
-                            priceAtCreation: tokenOut.priceUsd || 0,
-                            targetPrice: targetPrice || 0,
-                            targetChange: 0,
-                            direction: 'BUY',
+                            tokenDecimal: tokenOut.decimals || 18,
+                            amount: tradeData.coinsPurchased.toString(),
+                            priceAtCreation: tokenOut.priceUsd.toString() || "0",
+                            targetPrice: targetPrice.toString() || "0",
+                            targetChange: targetPercentage || 0,
+                            direction: 'SELL',
                             orderType: 'LIMIT',
                             aiInitiated: true,
                             notes: `${messageId}`,
@@ -281,14 +283,15 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         userAddress: userAddress as `0x${string}`,
                         tokenAddress: selectedToken as string,
                         tokenSymbol: tokenOut.symbol,
-                        amount: Number(tradeData.coinsPurchased) / (10 ** tokenOut.decimals),
-                        priceAtCreation: tokenOut.priceUsd || 0,
-                        targetPrice: targetPrice || 0,
-                        targetChange: 0,
+                        tokenDecimal: tokenOut.decimals || 18,
+                        amount: tradeData.coinsPurchased.toString(),
+                        priceAtCreation: tokenOut.priceUsd.toString() || "0",
+                        targetPrice: targetPrice?.toString() || "0",
+                        targetChange: targetPercentage || 0,
                         direction: 'BUY',
-                        orderType: 'LIMIT',
+                        orderType: 'DIRECT',
                         executedAt: new Date(),
-                        executedPrice: tokenOut.priceUsd || 0,
+                        executedPrice: tokenOut.priceUsd.toString() || "0",
                         aiInitiated: true,
                         notes: `${messageId}`,
                     });
@@ -367,16 +370,10 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
         );
     };
 
-    const handleTargetPriceChange = (value: string) => {
-        // Handle empty input
-        // Allow only numbers and decimals (regex allows "", "0", "0.005", "1000.3", etc.)
-        if (value === '') {
-            setTargetPrice(0);
-            return;
-        }
-        if (/^\d*\.?\d*$/.test(value)) {
-            setTargetPrice(parseFloat(value));
-        }
+    const handleTargetPriceChange = (value: number) => {
+        const targetPrice = value / 100 * currentTokenOutPrice;
+        console.log(targetPrice + currentTokenOutPrice, 'targetPrice');
+        setTargetPrice(targetPrice + currentTokenOutPrice);
     };
 
 
@@ -444,7 +441,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
 
             </div>
             {!txHash && state.length > 0 && state.includes('researched') && topTokens.length > 0 ? <>
-                {/* <p className='text-black/80 font-funnel-sans font-normal'>Select a token to invest in</p> */}
+                <p className='text-black/80 font-funnel-sans font-normal'>Select a token to invest in</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {topTokens.map((token) => (
                         <div
@@ -457,10 +454,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         >
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center space-x-2">
-                                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
-                                        <span className="text-sm font-medium text-gray-600">
-                                            {token.symbol.charAt(0)}
-                                        </span>
+                                    <div className="w-6 h-6 rounded-full flex items-center justify-center">
+                                        <Icons.basetokenImage className="" />
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-medium text-gray-900">{token.name}</h3>
@@ -501,16 +496,56 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         )} */}
                     </div>
                     <div className="space-y-2">
-                        <p className="font-normal text-gray-500">Set your target price</p>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="number"
-                                value={targetPrice ? targetPrice : 0}
-                                onChange={(e) => handleTargetPriceChange(e.target.value)}
-                                placeholder="Enter target price"
-                                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-1/2"
-                            />
-                            <span className="text-sm text-gray-500">USD</span>
+                        <p className="font-normal text-gray-500">Set your target</p>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => {
+                                    handleTargetPriceChange(5);
+                                    setTargetPercentage(5);
+                                }}
+                                className={`flex items-center gap-2 px-2 py-1 rounded-full border transition-all ${targetPercentage === 5
+                                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                                    : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                    }`}
+                            >
+                                <Icons.arrowDownGreenIcon className='w-3 h-3 rotate-180' />5%
+                            </button>
+                            <button
+                                onClick={() => {
+                                    handleTargetPriceChange(10);
+                                    setTargetPercentage(10);
+                                }}
+                                className={`flex items-center gap-2 px-2 py-1 rounded-full border transition-all ${targetPercentage === 10
+                                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                                    : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                    }`}
+                            >
+                                <Icons.arrowDownGreenIcon className='w-3 h-3 rotate-180' />10%
+                            </button>
+                            <button
+                                onClick={() => {
+                                    handleTargetPriceChange(20);
+                                    setTargetPercentage(20);
+                                }}
+                                className={`flex items-center gap-2 px-2 py-1 rounded-full border transition-all ${targetPercentage === 20
+                                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                                    : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                    }`}
+                            >
+                                <Icons.arrowDownGreenIcon className='w-3 h-3 rotate-180' />20%
+                            </button>
+                            <button
+                                onClick={() => {
+                                    handleTargetPriceChange(50);
+                                    setTargetPercentage(50);
+                                }}
+                                className={`flex items-center gap-2 px-2 py-1 rounded-full border transition-all ${targetPercentage === 50
+                                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                                    : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                    }`}
+                            >
+                                <Icons.arrowDownGreenIcon className='w-3 h-3 rotate-180' />50%
+                            </button>
                         </div>
                         {/* {targetPercentage !== 0 && (
                             <p className={`text-sm ${targetPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -579,7 +614,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                                             ETH
                                         </> :
                                         <>
-                                            <Image src={tokenInDetails.imageUrl} width={16} height={16} alt={tokenInDetails.symbol} />
+                                            {tokenInDetails.imageUrl ? <Image src={tokenInDetails.imageUrl} width={16} height={16} alt={tokenInDetails.symbol} /> : <Icons.basetokenImage className="w-4 h-4" />}
                                             {tokenInDetails.symbol}
                                         </>
                                     }
@@ -619,7 +654,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                                     {tokenOutDetails.symbol === 'ETH' ?
                                         <Icons.ethereum className="w-4 h-4" /> :
                                         <>
-                                            <Image src={tokenOutDetails.imageUrl} width={16} height={16} alt={tokenOutDetails.symbol} />
+                                            {tokenOutDetails.imageUrl ? <Image src={tokenOutDetails.imageUrl} width={16} height={16} alt={tokenOutDetails.symbol} /> : <Icons.basetokenImage className="w-4 h-4" />}
 
                                         </>
                                     }{tokenOutDetails.symbol}
@@ -648,7 +683,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                                     {tokenOutDetails.symbol === 'ETH' ?
                                         <Icons.ethereum className="w-4 h-4" /> :
                                         <>
-                                            <Image src={tokenOutDetails.imageUrl} width={16} height={16} alt={tokenOutDetails.symbol} />
+                                            {tokenOutDetails.imageUrl ? <Image src={tokenOutDetails.imageUrl} width={16} height={16} alt={tokenOutDetails.symbol} /> : <Icons.basetokenImage className="w-4 h-4" />}
                                         </>
                                     }{tokenOutDetails.symbol}
                                 </div>

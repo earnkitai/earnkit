@@ -1,0 +1,12 @@
+-- AlterTable
+ALTER TABLE "limit_orders" ADD COLUMN     "tokenDecimal" INTEGER NOT NULL DEFAULT 18,
+ALTER COLUMN "amount" SET DATA TYPE TEXT,
+ALTER COLUMN "price_at_creation" SET DATA TYPE TEXT,
+ALTER COLUMN "target_price" SET DATA TYPE TEXT;
+
+-- AlterTable
+ALTER TABLE "order_history" ADD COLUMN     "tokenDecimal" INTEGER NOT NULL DEFAULT 18,
+ALTER COLUMN "amount" SET DATA TYPE TEXT,
+ALTER COLUMN "price_at_creation" SET DATA TYPE TEXT,
+ALTER COLUMN "target_price" SET DATA TYPE TEXT,
+ALTER COLUMN "executed_price" SET DATA TYPE TEXT;

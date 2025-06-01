@@ -8,9 +8,10 @@ export type CreateLimitOrderInput = {
   userAddress: string;
   tokenAddress: string;
   tokenSymbol: string;
-  amount: number;
-  priceAtCreation: number;
-  targetPrice?: number;
+  tokenDecimal: number;
+  amount: string;
+  priceAtCreation: string;
+  targetPrice?: string;
   targetChange?: number;
   direction: OrderDirection;
   orderType?: OrderType;
@@ -20,7 +21,7 @@ export type CreateLimitOrderInput = {
 
 export type CreateOrderHistoryInput = CreateLimitOrderInput & {
   executedAt: Date;
-  executedPrice: number;
+  executedPrice: string;
 };
 
 export async function createLimitOrder(data: CreateLimitOrderInput) {
@@ -30,6 +31,7 @@ export async function createLimitOrder(data: CreateLimitOrderInput) {
       userAddress: data.userAddress,
       tokenAddress: data.tokenAddress,
       tokenSymbol: data.tokenSymbol,
+      tokenDecimal: data.tokenDecimal,
       amount: data.amount,
       priceAtCreation: data.priceAtCreation,
       targetPrice: data.targetPrice,
@@ -73,6 +75,7 @@ export async function createOrderHistory(data: CreateOrderHistoryInput) {
       userAddress: data.userAddress,
       tokenAddress: data.tokenAddress,
       tokenSymbol: data.tokenSymbol,
+      tokenDecimal: data.tokenDecimal,
       amount: data.amount,
       priceAtCreation: data.priceAtCreation,
       targetPrice: data.targetPrice,

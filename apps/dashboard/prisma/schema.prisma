@@ -331,9 +331,10 @@ model LimitOrder {
   userAddress     String         @map("user_address")
   tokenAddress    String         @map("token_address")
   tokenSymbol     String         @map("token_symbol")
-  amount          Float
-  priceAtCreation Float          @map("price_at_creation")
-  targetPrice     Float?         @map("target_price")
+  tokenDecimal    Int            @default(18)
+  amount          String
+  priceAtCreation String         @map("price_at_creation")
+  targetPrice     String?        @map("target_price")
   targetChange    Float?         @map("target_change")
   direction       OrderDirection
   orderType       OrderType      @default(LIMIT)
@@ -359,15 +360,16 @@ model OrderHistory {
   userAddress     String         @map("user_address")
   tokenAddress    String         @map("token_address")
   tokenSymbol     String         @map("token_symbol")
-  amount          Float
-  priceAtCreation Float          @map("price_at_creation")
-  targetPrice     Float?         @map("target_price")
+  tokenDecimal    Int            @default(18)
+  amount          String
+  priceAtCreation String         @map("price_at_creation")
+  targetPrice     String?        @map("target_price")
   targetChange    Float?         @map("target_change")
   direction       OrderDirection
   orderType       OrderType
   createdAt       DateTime       @map("created_at")
   executedAt      DateTime       @map("executed_at")
-  executedPrice   Float          @map("executed_price")
+  executedPrice   String         @map("executed_price")
   aiInitiated     Boolean        @default(false) @map("ai_initiated")
   notes           String?        @db.Text
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)

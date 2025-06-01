@@ -18,12 +18,14 @@ import { getPublicClient } from '@/lib/web3';
 import { io, Socket } from 'socket.io-client';
 import { useUser } from '@/hooks/use-user';
 import { useChat } from '@/providers/chat-provider';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, Wallet } from '@privy-io/react-auth';
 import { Icons } from '@/app/components/sections/icons';
 import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
 import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
 import { TokenInvestResponse, TokenInvestState } from '@/app/components/dashboard/tools/Token_Invest';
 import { TokenInvestProgress } from '@/app/components/dashboard/tools/TokenInvestProgress';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import Image from 'next/image';
 
 interface Message {
     responseFrom: string;
@@ -143,6 +145,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     // const { state } = useWallets();
     // const { selectedAccount } = state;
     const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+    const [wallets, setWallets] = useState<Wallet[]>([]);
+    const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
     const { user } = useUser()
     // const { passkeyClient, getActiveClient } = useTurnkey();
     const [userId, setUserId] = useState<string | null>(null);
@@ -168,7 +172,19 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const [socketConnected, setSocketConnected] = useState(false);
     // const [socketError, setSocketError] = useState<string | null>(null);
 
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+    const adjustTextareaHeight = () => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+        }
+    };
+
+    useEffect(() => {
+        adjustTextareaHeight();
+    }, [inputValue]);
 
     useEffect(() => {
         const initialMessage = localStorage.getItem(`initialMessage ${resolvedParams.id}`);
@@ -200,6 +216,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             const userId = privyUser?.id.split(':').pop() || privyUser?.id;
             setUserId(userId);
             setSelectedAccount(privyUser.wallet as unknown as Account);
+            const wallets = privyUser?.linkedAccounts?.filter((acc) => acc.type === "wallet") as Wallet[];
+            console.log(wallets, 'walletssssssssss');
+            if (wallets.length > 0) {
+                setSelectedWallet(wallets[0]);
+            }
+            setWallets(wallets);
         }
     }, [ready, authenticated, privyUser]);
 
@@ -323,10 +345,17 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     .filter((text: string) => text)
                     .join('\n');
             } else if (typeof data.response === 'string') {
+                if (data.response.includes("Follow the steps to invest.")) {
+                    return;
+                }
                 formattedContent = data.response;
             } else {
                 formattedContent = JSON.stringify(data.response);
             }
+            console.log(formattedContent, "formattedContenttttttt")
+
+
+
             const responseMessage = {
                 responseFrom: data.responseFrom,
                 response: formattedContent,
@@ -358,7 +387,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 socketRef.current.disconnect();
             }
         };
-    }, [userId]);
+    }, [userId, selectedAccount]);
 
     const saveAIMessage = async (message: { response: string; responseFrom: string; tool_name?: string }) => {
         try {
@@ -551,8 +580,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         }
     }
 
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInputValue(e.target.value);
     };
 
@@ -823,6 +851,32 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     //     );
     // };
 
+
+    const walletTypeLabel = (wallet: Wallet) => {
+        if (wallet.connectorType === 'embedded' || wallet.connectorType === 'privy') return 'Privy Wallet';
+        return (wallet.walletClientType || wallet.connectorType || "").toLowerCase() || 'Wallet';
+    };
+
+    const walletIcon = (wallet: Wallet) => {
+        if (wallet.connectorType === 'embedded') return <Icons.ethereum className="w-6 h-6" />;
+        const iconName = (wallet.walletClientType || wallet.connectorType || "").toLowerCase();
+        // Only allow certain names (add more as needed)
+        const knownIcons = ["metamask", "phantom", "rainbow", "coinbase", "walletconnect"];
+        if (knownIcons.includes(iconName)) {
+            return (
+                <Image
+                    src={`/images/wallet-icons/${iconName}.svg`}
+                    alt={iconName + " icon"}
+                    width={24}
+                    height={24}
+                    className="rounded-full"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+            );
+        }
+        return <Icons.sidebarWalletIcon className="w-6 h-6" />;
+    };
+
     return (
         <div className="flex h-screen font-funnel-sans md:ml-[80px] relative mt-10 md:mt-0">
             {/* Activity Toggle Button */}
@@ -839,6 +893,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             {/* Left side - Chat Interface */}
             <section className={`${showActivity ? 'w-1/2 border-r border-black/10' : 'w-full max-w-4xl mx-auto'} relative ease-in-out transition-all duration-500`}>
                 <div className="flex flex-col gap-4 justify-between h-screen">
+
                     <div className="flex-1 h-full overflow-y-auto p-4 mt-10 md:mt-6">
                         {isLoadingMessages ? (
                             <div className="flex items-center gap-2 text-gray-600 p-4">
@@ -847,6 +902,25 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             </div>
                         ) : (
                             <>
+                                {messages.length > 0 && (<div
+                                    className="flex justify-start my-2"
+                                >
+                                    <div className="max-w-[80%] p-2 font-funnel-sans text-black/80 font-normal">
+                                        <span className="mr-1">👋</span> Hey there! I&apos;m Earny, an autonomous onchain agent.
+                                        <div className="my-2">
+                                            I can help you with:
+
+                                            <ul className="list-disc list-inside mt-1">
+                                                <li>Check your token balances</li>
+                                                <li>Analyze crypto tokens for market details</li>
+                                                <li>Swap between different tokens</li>
+                                                <li>Send ETH or tokens to other wallets</li>
+                                                <li>Set up automated investments with custom risk levels</li>
+                                            </ul>
+                                        </div>
+                                        I&apos;m designed to simplify complex blockchain interactions while maintaining the security and precision required for digital asset management. How may I assist with your blockchain requirements today?
+                                    </div>
+                                </div>)}
                                 {messages.length > 0 && messages.map((message, index) => {
                                     if (message.responseFrom === 'user') {
                                         // Render user messages in chat only
@@ -864,7 +938,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                             <ReactMarkdown
                                                                 remarkPlugins={[remarkGfm]}
                                                                 components={{
-                                                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                                                     div: ({ children }) => <div className="prose prose-sm max-w-none">{children}</div>,
                                                                     pre: ({ children }) => <pre className="bg-black/4 p-4 rounded-lg">{children}</pre>,
                                                                     code: ({ children }) => <code className="text-pink-600 bg-black/4 rounded px-1">{children}</code>
@@ -1090,25 +1163,72 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     <div className="w-[80%] mx-auto self-end">
                         <form
                             onSubmit={handleSubmit}
-                            className="bg-transparent rounded-full p-1 border-2 border-black/10 mb-2"
+                            className="bg-transparent rounded-3xl p-1 border-2 border-black/10 mb-2"
                         >
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={inputValue}
-                                    onChange={handleInputChange}
-                                    placeholder="Ask EarnKit"
-                                    className="w-full p-4 pr-12 bg-transparent rounded-lg border-none focus:outline-none focus:border-none font-funnel-sans text-black/80 font-semibold"
-                                    disabled={isLoading}
-                                />
+                            <textarea
+                                ref={textareaRef}
+                                value={inputValue}
+                                onChange={handleInputChange}
+                                placeholder="Ask EarnKit"
+                                className="w-full max-w-full max-h-[100px] overflow-y-auto resize-none p-2 px-4 bg-transparent rounded-lg border-none focus:outline-none focus:border-none font-funnel-sans text-black/80 font-semibold max-h-[100px]"
+                                disabled={isLoading}
+                                rows={1}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSubmit();
+                                    }
+                                }}
+                            />
+                            <div className="flex items-center justify-between border-none bg-transparent px-2 py-1">
+                                <DropdownMenu.Root>
+                                    <DropdownMenu.Trigger asChild>
+                                        <button
+                                            type="button"
+                                            className="flex items-center gap-1 px-2 py-1 rounded-full border border-black/10 bg-white shadow-sm hover:shadow-md transition-all min-w-[120px]"
+                                        >
+                                            {selectedWallet ? (
+                                                <>
+                                                    {walletIcon(selectedWallet)}
+                                                    <span className="font-funnel-sans font-medium text-xs  text-black/80">{selectedWallet.address?.slice(0, 6)}...{selectedWallet.address?.slice(-4)}</span>
+                                                </>
+                                            ) : (
+                                                <span className="font-funnel-sans font-medium text-xs  text-black/80">connecting...</span>
+                                            )}
+                                            <svg className="w-4 h-4 ml-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                        </button>
+                                    </DropdownMenu.Trigger>
+                                    <DropdownMenu.Content sideOffset={8} align="start" className="mt-2 w-[320px] bg-white rounded-xl shadow-lg border border-black/10 z-50">
+                                        <div className="p-2 text-xs text-gray-700 font-semibold border-b">Select account to use for executing transactions</div>
+                                        {wallets.length > 0 && wallets.map((wallet) => (
+                                            <DropdownMenu.Item
+                                                key={wallet.address}
+                                                className={`flex items-center w-full px-4 py-3 gap-3 hover:bg-gray-50 transition-all cursor-pointer ${selectedWallet?.address === wallet.address ? 'bg-gray-100' : ''}`}
+                                                onSelect={() => {
+                                                    setSelectedWallet(wallet);
+                                                    setSelectedAccount(wallet as unknown as Account);
+                                                }}
+                                            >
+                                                {walletIcon(wallet)}
+                                                <div className="flex flex-col flex-1 text-left">
+                                                    <span className="font-mono text-sm text-black/90">{wallet.address?.slice(0, 6)}...{wallet.address?.slice(-4)}</span>
+                                                    <span className="text-xs text-gray-500">{walletTypeLabel(wallet)}</span>
+                                                </div>
+                                                {selectedWallet?.address === wallet.address && (
+                                                    <svg className="w-5 h-5 text-blue-500 ml-2" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                                )}
+                                            </DropdownMenu.Item>
+                                        ))}
+                                    </DropdownMenu.Content>
+                                </DropdownMenu.Root>
                                 <button
                                     type="submit"
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-black/80 rounded-full disabled:opacity-50"
+                                    className="p-2 bg-black/80 rounded-full disabled:opacity-50"
                                     disabled={isLoading || !inputValue.trim()}
                                 >
                                     <svg
-                                        width="24"
-                                        height="24"
+                                        width="12"
+                                        height="12"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         xmlns="http://www.w3.org/2000/svg"

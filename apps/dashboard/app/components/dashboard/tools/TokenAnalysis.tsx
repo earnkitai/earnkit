@@ -1,6 +1,7 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { Icons } from '../../sections/icons';
 export interface TokenAnalysisResponse {
     symbol: string;
     name: string;
@@ -76,7 +77,7 @@ export default function TokenAnalysis({ data }: TokenAnalysisProps) {
                 {/* // create capsule with token image and symbol */}
                 <Link href={`https://www.coingecko.com/en/coins/${contractAddress}`} target="_blank"
                     className="text-sm flex items-center gap-2 font-medium bg-transparent border-2 border-black/20 rounded-full px-1.5 py-0.5 hover:bg-black/4 transition-colors hover:border-black/40">
-                    <Image src={data.image.small} alt={data.symbol} width={16} height={16} className="rounded-full" />
+                    {data.image.small ? <Image src={data.image.small} alt={data.symbol} width={16} height={16} className="rounded-full" /> : <Icons.basetokenImage className="w-4 h-4" />}
                     <span className="text-gray-600">{data.symbol.toUpperCase()}</span>
                 </Link>
             </div>
