@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 // import { truncateAddress } from "@/lib/utils";
 // import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
-import { useTheme } from "@/providers/theme-provider";
+// import { useTheme } from "@/providers/theme-provider";
 import { useActiveWallet, useDelegatedActions, usePrivy, useWallets, WalletWithMetadata } from "@privy-io/react-auth";
 // import { useSessionSigners } from "@privy-io/react-auth";
 import { RevokeAccessButton } from "@/app/(routes)/settings/components/RevokeAccessButton";
@@ -18,9 +18,9 @@ import { findUsernameByUserId, updateUser } from "@/actions/user";
 import { WalletsSection } from "@/app/(routes)/settings/components/WalletsSection";
 
 export default function SettingsPage() {
-    const [notifications, setNotifications] = useState(true);
+    // const [notifications, setNotifications] = useState(true);
     const { ready, authenticated, user } = usePrivy();
-    const { theme, setTheme } = useTheme();
+    // const { theme, setTheme } = useTheme();
     // const { addSessionSigners } = useSessionSigners();
 
     const { delegateWallet } = useDelegatedActions();
@@ -200,7 +200,7 @@ export default function SettingsPage() {
 
             <WalletsSection />
 
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
+            {/* <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
                 <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Preferences</h2>
                 <div className="space-y-4 sm:space-y-6">
                     <div className="flex items-center justify-between">
@@ -235,7 +235,7 @@ export default function SettingsPage() {
                         </label>
                     </div>
                 </div>
-            </div>
+            </div> */}
         </section>
     );
 } 

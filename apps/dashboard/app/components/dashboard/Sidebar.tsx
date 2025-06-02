@@ -102,12 +102,18 @@ export default function Sidebar() {
     // Handle logout and close sidebar on mobile
     const handleLogoutClick = () => {
         console.log("logging out");
-        logout();
-        console.log("logged out");
-        router.push("/");
-        if (isMobile) {
-            setIsOpen(false);
-        }
+        logout().then(() => {
+            console.log("logged out");
+            router.push("/");
+            if (isMobile) {
+                setIsOpen(false);
+            }
+        });
+        // console.log("logged out");
+        // router.push("/");
+        // if (isMobile) {
+        //     setIsOpen(false);
+        // }
     };
 
     const handleProfileClick = () => {

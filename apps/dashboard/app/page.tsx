@@ -13,7 +13,7 @@ import { Suspense, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/app/components/ui/sonner";
 import { z } from "zod";
-import { useLoginWithEmail, useLoginWithPasskey, usePrivy } from "@privy-io/react-auth";
+import { ConnectedWallet, useActiveWallet, useLoginWithEmail, useLoginWithPasskey, usePrivy } from "@privy-io/react-auth";
 import { createUser } from '@/actions/user';
 
 const formSchema = z.object({
@@ -21,7 +21,7 @@ const formSchema = z.object({
 })
 
 // Add this new component before SignUpPage
-const OTPInput = ({ onComplete }: { onComplete: (code: string) => void }) => {
+const OTPInput = ({ onComplete, verificationStatus }: { onComplete: (code: string) => void, verificationStatus: "idle" | "verifying" | "success" | "error" }) => {
   const [otp, setOtp] = useState<string[]>(new Array(6).fill(""));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -80,7 +80,7 @@ const OTPInput = ({ onComplete }: { onComplete: (code: string) => void }) => {
   };
 
   return (
-    <div className="flex gap-2 sm:gap-4 justify-center font-funnel-sans">
+    <div className="flex gap-2 sm:gap-4 justify-center font-funnel-sans transition-all duration-300 ease-in-out" role="group" aria-label="Verification code input">
       {otp.map((digit, idx) => (
         <input
           key={idx}
@@ -91,8 +91,10 @@ const OTPInput = ({ onComplete }: { onComplete: (code: string) => void }) => {
           value={digit}
           onChange={(e) => handleChange(e.target, idx)}
           onKeyDown={(e) => handleKeyDown(e, idx)}
-          className="w-12 h-12 sm:w-16 sm:h-16 text-center text-2xl border-2 rounded-xl focus:border-primary focus:outline-none bg-white"
+          className={`w-12 h-12 sm:w-16 sm:h-16 text-center text-2xl border-2 rounded-xl focus:border-primary focus:outline-none bg-white transition-all duration-300 ease-in-out ${verificationStatus === "verifying" ? "border-primary animate-pulse" : verificationStatus === "success" ? "border-secondary-green" : verificationStatus === "error" ? "border-secondary-red" : ""}`}
           autoComplete="one-time-code"
+          aria-label={`Verification code digit ${idx + 1}`}
+          aria-invalid={verificationStatus === "error"}
         />
       ))}
     </div>
@@ -102,6 +104,7 @@ const OTPInput = ({ onComplete }: { onComplete: (code: string) => void }) => {
 function SignUpPage() {
   // const { user, isLoading } = useUser()
   const { ready, authenticated, createWallet } = usePrivy();
+  const { setActiveWallet } = useActiveWallet();
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(true);
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const searchParams = useSearchParams()
@@ -113,6 +116,12 @@ function SignUpPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<"idle" | "verifying" | "success" | "error">("idle");
   const { loginWithPasskey } = useLoginWithPasskey();
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
 
   const {
     sendCode: sendCodeEmail,
@@ -142,12 +151,16 @@ function SignUpPage() {
             mfaMethods: [],
           });
 
-          await createWallet({ createAdditional: false }).then(() => {
+          await createWallet({ createAdditional: false }).then((wallet) => {
+            setActiveWallet(wallet as unknown as ConnectedWallet)
             toast.success("Wallet created successfully");
             router.push("/home");
           }).catch((error) => {
-            console.error("Wallet creation error:", error);
+            console.log("Wallet creation error:", error);
             toast.error("Failed to create wallet");
+            // Don't redirect on wallet creation failure
+            setVerificationStatus("error");
+            setErrorMessage("Account created but wallet creation failed. Please try again later.");
           });
         } else {
           console.log("user already exists")
@@ -155,13 +168,17 @@ function SignUpPage() {
           router.push("/home");
         }
       } catch (error) {
-        console.error("Error during signup:", error);
+        console.log("Error during signup:", error);
         toast.error("Failed to complete signup");
+        setVerificationStatus("error");
+        setErrorMessage("Failed to complete signup. Please try again.");
       }
     },
     onError: (error) => {
-      console.log(error);
+      console.log("Login error:", error);
       toast.error("Failed to login with email");
+      setVerificationStatus("error");
+      setErrorMessage("Failed to login. Please try again.");
     },
   });
 
@@ -187,22 +204,47 @@ function SignUpPage() {
     }
   }, [email])
 
+  const validateEmail = (email: string) => {
+    setIsValidating(true);
+    const result = formSchema.safeParse({ email });
+    setEmailError(result.success ? null : result.error.errors[0].message);
+    setIsValidating(false);
+    return result.success;
+  };
+
   const handleEmailLogin = async (email: z.infer<typeof formSchema>['email']) => {
-    setLoadingAction("email")
-    await sendCodeEmail({
-      email: email,
-    })
-    setLoadingAction(null)
-  }
+    try {
+      setErrorMessage(null);
+      setLoadingAction("email");
+      await sendCodeEmail({
+        email: email,
+      });
+      setResendCountdown(60); // Start 60 second countdown
+      const timer = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      setLoadingAction(null);
+    } catch (error) {
+      console.log(error);
+      setErrorMessage("Failed to send verification code. Please try again.");
+      setLoadingAction(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateEmail(email)) {
+      return;
+    }
+    setErrorMessage(null)
     try {
-      const result = formSchema.safeParse({ email });
-      if (!result.success) {
-        toast.error(result.error.errors[0].message);
-        return;
-      }
+      setIsTransitioning(true);
       setLoadingAction("email");
       await sendCodeEmail({ email: email });
       setVerificationEmail(email);
@@ -212,6 +254,8 @@ function SignUpPage() {
       console.error(error);
       toast.error("Failed to process email login");
       setLoadingAction(null);
+    } finally {
+      setIsTransitioning(false);
     }
   };
 
@@ -219,12 +263,14 @@ function SignUpPage() {
     try {
       setIsVerifying(true);
       setVerificationStatus("verifying");
+      setErrorMessage(null);
       await loginWithCodeEmail({ code });
       setVerificationStatus("success");
       toast.success("OTP verified successfully");
     } catch (error) {
-      console.error(error);
+      console.log(error);
       setVerificationStatus("error");
+      setErrorMessage("Invalid verification code. Please try again.");
       toast.error("Invalid verification code");
     } finally {
       setIsVerifying(false);
@@ -232,20 +278,39 @@ function SignUpPage() {
   };
 
   const handleLoginWithPasskey = () => {
-    setLoadingAction("passkey")
+    setLoadingAction("passkey");
+    setErrorMessage(null);
     loginWithPasskey().then(() => {
       console.log("Logged in");
       router.push("/home");
     }).catch((error) => {
       if (error instanceof Error) {
+        setErrorMessage(error.message || "Login failed. Please try again.");
         toast.error(error.message || "Login failed");
       } else {
+        setErrorMessage("Login failed. Please try again.");
         toast.error("Login failed");
       }
     }).finally(() => {
-      setLoadingAction(null)
-    })
-  }
+      setLoadingAction(null);
+    });
+  };
+
+  const handleResendCode = async () => {
+    if (resendCountdown > 0) return;
+
+    try {
+      setIsResending(true);
+      setErrorMessage(null);
+      await handleEmailLogin(verificationEmail);
+      toast.success("Verification code resent successfully");
+    } catch (error) {
+      console.log(error);
+      setErrorMessage("Failed to resend code. Please try again.");
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   // Show loading state while checking authentication
   if (isUserLoggedIn) {
@@ -269,8 +334,8 @@ function SignUpPage() {
 
   if (showVerification) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-4 sm:gap-8 px-4 sm:px-0">
-        <div className="w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col items-center justify-center gap-6 sm:gap-8">
+      <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-4 sm:gap-4 px-4 sm:px-0 font-funnel-sans">
+        <div className="w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col items-center justify-center gap-4 sm:gap-6">
           {/* Back button */}
           <button
             onClick={() => setShowVerification(false)}
@@ -282,36 +347,40 @@ function SignUpPage() {
           </button>
 
           {/* Logo */}
-          <div className="flex justify-center mb-2">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 4H4C2.9 4 2.01 4.9 2.01 6L2 18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4ZM20 8L12 13L4 8V6L12 11L20 6V8Z" fill="#6366F1" />
-            </svg>
+          <div className="flex justify-center mb-2 text-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" aria-hidden="true" data-slot="icon" color="var(--privy-color-accent)" height="48px" width="48px"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"></path></svg>
           </div>
 
           <h2 className="text-2xl font-bold text-center">Enter confirmation code</h2>
-          <p className="text-center text-black/[60%] text-sm">
-            Please check {verificationEmail} for an email from privy.io and enter your code below.
+          <p className="text-center text-black/[60%] text-sm w-[60%]">
+            Please check <strong>{verificationEmail}</strong> for an email from privy.io and enter your code below.
           </p>
 
-          <OTPInput onComplete={handleVerificationComplete} />
+          <OTPInput onComplete={handleVerificationComplete} verificationStatus={verificationStatus} />
+
+          {errorMessage && (
+            <p className="text-red-500 text-sm text-center mt-2" role="alert">{errorMessage}</p>
+          )}
 
           {isVerifying && (
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              <p className="text-center text-black/[60%] text-sm">
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="text-center text-black/[60%] text-sm">
                 {verificationStatus === "verifying" && "Verifying OTP..."}
-                {verificationStatus === "success" && "OTP verified successfully! Creating wallet..."}
-                {verificationStatus === "error" && "Verification failed. Please try again."}
-              </p>
+                {verificationStatus === "success" && "Success! Creating wallet..."}
+                {verificationStatus === "error" && "Issue verifying code"}
+              </span>
             </div>
           )}
 
           <button
-            onClick={() => handleEmailLogin(verificationEmail)}
-            className="text-primary text-sm hover:underline"
-            disabled={isVerifying}
+            onClick={handleResendCode}
+            className={`text-primary text-sm hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${isResending ? 'opacity-50' : ''}`}
+            disabled={isVerifying || isResending || resendCountdown > 0}
           >
-            Didn&apos;t get an email? Resend code
+            {resendCountdown > 0 && verificationStatus === "idle"
+              ? `Resend code in ${resendCountdown}s`
+              : "Didn't get an email? Resend code"}
           </button>
         </div>
       </div>
@@ -319,11 +388,14 @@ function SignUpPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-4 sm:gap-8 px-4 sm:px-0">
-      <h1 className="text-xl sm:text-3xl font-bold font-funnel-sans text-center">Login or Sign up</h1>
+    <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-1 sm:gap-4 px-4 sm:px-0">
+      <h1 className="text-lg sm:text-2xl font-bold font-funnel-sans text-center text-black/40 transition-all duration-300 ease-in-out">Login or Sign up</h1>
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-6 sm:gap-8">
+        className={`w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-6 sm:gap-8 transition-all duration-300 ease-in-out ${isTransitioning ? 'opacity-50' : ''}`}
+        aria-label="Login or sign up form"
+        noValidate
+      >
         {/* Logo */}
         <div className="flex justify-center mb-2 sm:mb-4">
           <svg width="100" height="60" className="sm:w-[136.5px] sm:h-[80px]" viewBox="0 0 138 80" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -331,44 +403,58 @@ function SignUpPage() {
           </svg>
         </div>
 
-
         {/* Email Input */}
-        <div className="bg-black/[10%] rounded-full flex gap-2 sm:gap-4 px-4 sm:px-10 py-3 sm:py-5">
-          <label htmlFor="email" className="text-base sm:text-[1.375rem] font-funnel-sans text-black/[40%] flex items-center justify-center">Email</label>
-          <input
-            type="email"
-            id="email"
-            name="email"
-            placeholder="email@example.com"
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-transparent outline-none font-funnel-sans text-base sm:text-[1.375rem] ml-2 sm:ml-4 text-black"
-          />
+        <div className="flex flex-col gap-2">
+          <div className="bg-black/[10%] rounded-full flex gap-2 sm:gap-4 px-4 sm:px-10 py-3 sm:py-5">
+            <label htmlFor="email" className="text-base sm:text-[1.375rem] font-funnel-sans text-black/[40%] flex items-center justify-center">Email</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              placeholder="email@example.com"
+              onChange={(e) => setEmail(e.target.value)}
+              className={`w-full bg-transparent outline-none font-funnel-sans text-base sm:text-[1.375rem] ml-2 sm:ml-4 text-black focus:outline-none focus:ring-0 focus:bg-none ${emailError ? 'border-red-500' : ''}`}
+              aria-invalid={!!emailError}
+              aria-describedby={emailError ? "email-error" : undefined}
+              required
+            />
+          </div>
+          {emailError && (
+            <p id="email-error" className="text-red-500 text-sm ml-4" role="alert">{emailError}</p>
+          )}
         </div>
 
-        {message && <p className="text-center text-black/[40%] font-funnel-sans text-xs sm:text-sm">{message}</p>}
-        {/* Submit Button */}
-        <LoadingButton
-          type="submit"
-          className="flex items-center justify-center gap-2 w-full px-6 sm:px-10 py-3 sm:py-5 bg-primary font-funnel-sans font-medium text-base sm:text-[1.375rem] text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-70 h-auto"
-          disabled={!email}
-          loading={loadingAction === "email"}
-        >
-          Submit
-        </LoadingButton>
+        {errorMessage && (
+          <p className="text-red-500 text-sm text-center" role="alert">{errorMessage}</p>
+        )}
+
+        <div>
+          {message && <p className="text-center text-black/[30%] font-funnel-sans text-xs sm:text-sm mb-2 transition-all duration-300 ease-in-out">{message}</p>}
+          <LoadingButton
+            type="submit"
+            className="flex items-center justify-center gap-2 w-full px-6 sm:px-10 py-3 sm:py-5 bg-primary font-funnel-sans font-medium text-base sm:text-[1.375rem] text-white rounded-full hover:bg-blue-600 transition-all duration-300 ease-in-out disabled:opacity-70 h-auto"
+            disabled={!email || isValidating}
+            loading={loadingAction === "email"}
+            aria-label="Submit email for verification"
+          >
+            Submit
+          </LoadingButton>
+        </div>
 
         <p className="text-center text-black/[40%] font-funnel-sans text-xs sm:text-sm">
           <LoadingButton
             type="button"
             onClick={handleLoginWithPasskey}
-            className="text-black/[40%] hover:text-black bg-transparent hover:bg-transparent text-sm hover:underline "
+            className="text-primary bg-transparent hover:bg-transparent text-sm"
             loading={loadingAction === "passkey"}
+            aria-label="Login with passkey"
           >
             I have a passkey
           </LoadingButton>
         </p>
       </form>
       <Toaster />
-    </div >
+    </div>
   );
 }
 // Loading component

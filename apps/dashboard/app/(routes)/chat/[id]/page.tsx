@@ -147,7 +147,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
     const [wallets, setWallets] = useState<Wallet[]>([]);
     const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
-    const { setActiveWallet } = useActiveWallet();
+    const { wallet: activeWallet, setActiveWallet } = useActiveWallet();
     const { user } = useUser()
     // const { passkeyClient, getActiveClient } = useTurnkey();
     const [userId, setUserId] = useState<string | null>(null);
@@ -219,14 +219,23 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             setUserId(userId);
             setSelectedAccount(privyUser.wallet as unknown as Account);
             const wallets = privyUser?.linkedAccounts?.filter((acc) => acc.type === "wallet") as Wallet[];
-            if (wallets.length > 0) {
-                setSelectedWallet(wallets[0]);
-
-                const wallet = privyWallets.find((wallet) => wallet.address === wallets[0].address);
+            if (activeWallet) {
+                const wallet = wallets.find((wallet) => wallet.address === activeWallet.address);
                 if (wallet) {
-                    setActiveWallet(wallet);
+                    setSelectedWallet(wallet);
+                    setSelectedAccount(wallet as unknown as Account);
+                }
+            } else {
+                if (wallets.length > 0) {
+                    setSelectedWallet(wallets[0]);
+                    setSelectedAccount(wallets[0] as unknown as Account);
+                    const wallet = privyWallets.find((wallet) => wallet.address === wallets[0].address);
+                    if (wallet) {
+                        setActiveWallet(wallet);
+                    }
                 }
             }
+
             setWallets(wallets);
         }
     }, [ready, authenticated, privyUser]);
@@ -883,21 +892,20 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         return <Icons.sidebarWalletIcon className="w-6 h-6" />;
     };
 
-    const
-        handleWalletChange = (walletAddress: string) => {
-            const wallet = privyWallets.find((wallet) => wallet.address === walletAddress);
-            if (wallet) {
-                setSelectedAccount(wallet as unknown as Account);
-                setActiveWallet(wallet);
-                setSelectedWallet(wallet as unknown as Wallet);
-            }
-        };
+    const handleWalletChange = (walletAddress: string) => {
+        const wallet = privyWallets.find((wallet) => wallet.address === walletAddress);
+        if (wallet) {
+            setSelectedAccount(wallet as unknown as Account);
+            setActiveWallet(wallet);
+            setSelectedWallet(wallet as unknown as Wallet);
+        }
+    };
 
     return (
         <div className="flex h-screen font-funnel-sans md:ml-[80px] relative mt-10 md:mt-0">
             {/* Activity Toggle Button */}
             <button
-                onClick={() => setShowActivity(!showActivity)}
+                // onClick={() => setShowActivity(!showActivity)}
                 className="hidden md:block absolute top-4 right-4 p-2 rounded-lg transition-colors z-50 group"
             >
                 <div className="flex items-center gap-1">

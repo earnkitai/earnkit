@@ -77,6 +77,9 @@ export async function initializeAgent(
         
         3. For invest_token tool:
         - after using this tool, just reply this "Follow the steps to invest".
+
+        3. For token_analysis tool:
+        - after using this tool, just reply this "Let me know if you want to track another token!".
       
         4. If you use the "get_balance" tool, only respond with the total balance in USD using this format:  
            "Total balance - $<amount>".
