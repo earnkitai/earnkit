@@ -184,6 +184,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
         console.log("buyCoin", coinContractAddress, orderSize);
         setLoadingAction("buy");
         const provider = wallet ? await wallet.getEthereumProvider() : null;
+        console.log(provider, 'provider inside the buy coin')
+        console.log(wallet, 'wallet inside the buy coin')
         if (!provider) {
             console.log("No provider found");
             toast.error("Please connect your wallet first");
@@ -194,6 +196,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             chain: base,
             transport: custom(provider),
         });
+        console.log(walletClient, 'walletClient inside the buy coin')
         try {
             // have selected token details
             const buyParams = {

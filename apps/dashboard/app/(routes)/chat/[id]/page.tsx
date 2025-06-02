@@ -18,7 +18,7 @@ import { getPublicClient } from '@/lib/web3';
 import { io, Socket } from 'socket.io-client';
 import { useUser } from '@/hooks/use-user';
 import { useChat } from '@/providers/chat-provider';
-import { usePrivy, Wallet } from '@privy-io/react-auth';
+import { useActiveWallet, usePrivy, useWallets, Wallet } from '@privy-io/react-auth';
 import { Icons } from '@/app/components/sections/icons';
 import { SwapProgress, SwapProgressProps } from '@/app/components/ui/swap-progress';
 import TokenSwapConfirmation from '@/app/components/dashboard/tools/TokenSwapConfirmation';
@@ -147,10 +147,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
     const [wallets, setWallets] = useState<Wallet[]>([]);
     const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
+    const { setActiveWallet } = useActiveWallet();
     const { user } = useUser()
     // const { passkeyClient, getActiveClient } = useTurnkey();
     const [userId, setUserId] = useState<string | null>(null);
     const { ready, authenticated, user: privyUser, sendTransaction } = usePrivy();
+    const { wallets: privyWallets } = useWallets();
     const messagesEndRef = useRef<HTMLDivElement>(null);
     // const [isTransactionStatusOpen, setIsTransactionStatusOpen] = useState(false);
     // const [transactionStatus, setTransactionStatus] = useState<{
@@ -217,9 +219,13 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             setUserId(userId);
             setSelectedAccount(privyUser.wallet as unknown as Account);
             const wallets = privyUser?.linkedAccounts?.filter((acc) => acc.type === "wallet") as Wallet[];
-            console.log(wallets, 'walletssssssssss');
             if (wallets.length > 0) {
                 setSelectedWallet(wallets[0]);
+
+                const wallet = privyWallets.find((wallet) => wallet.address === wallets[0].address);
+                if (wallet) {
+                    setActiveWallet(wallet);
+                }
             }
             setWallets(wallets);
         }
@@ -877,6 +883,16 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         return <Icons.sidebarWalletIcon className="w-6 h-6" />;
     };
 
+    const
+        handleWalletChange = (walletAddress: string) => {
+            const wallet = privyWallets.find((wallet) => wallet.address === walletAddress);
+            if (wallet) {
+                setSelectedAccount(wallet as unknown as Account);
+                setActiveWallet(wallet);
+                setSelectedWallet(wallet as unknown as Wallet);
+            }
+        };
+
     return (
         <div className="flex h-screen font-funnel-sans md:ml-[80px] relative mt-10 md:mt-0">
             {/* Activity Toggle Button */}
@@ -1205,8 +1221,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                 key={wallet.address}
                                                 className={`flex items-center w-full px-4 py-3 gap-3 hover:bg-gray-50 transition-all cursor-pointer ${selectedWallet?.address === wallet.address ? 'bg-gray-100' : ''}`}
                                                 onSelect={() => {
-                                                    setSelectedWallet(wallet);
-                                                    setSelectedAccount(wallet as unknown as Account);
+
+                                                    handleWalletChange(wallet.address)
+
                                                 }}
                                             >
                                                 {walletIcon(wallet)}
