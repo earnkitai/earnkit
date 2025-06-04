@@ -123,7 +123,7 @@ export default function Dashboard() {
     };
 
     const walletIcon = (wallet: ConnectedWallet | ConnectedSolanaWallet) => {
-        if (wallet.connectorType === 'embedded') return <Icons.ethereum className="w-4 h-4" />;
+        if (wallet.connectorType === 'embedded') return <Icons.sidebarWalletIcon className="w-4 h-4" />;
         const iconName = (wallet.walletClientType || wallet.connectorType || "").toLowerCase();
         // Only allow certain names (add more as needed)
         const knownIcons = ["metamask", "phantom", "rainbow", "coinbase", "walletconnect"];
@@ -203,7 +203,7 @@ export default function Dashboard() {
                         <textarea
                             value={inputValue}
                             onChange={handleInputChange}
-                            placeholder="Ask EarnKit"
+                            placeholder="Ask Earny"
                             className="w-full max-w-full overflow-y-auto resize-none p-2 px-4 bg-transparent rounded-lg border-none focus:outline-none focus:border-none font-funnel-sans text-black/80 font-medium max-h-[150px] h-[60px]"
                             disabled={isLoading}
                             rows={1}

@@ -85,13 +85,16 @@ export default function TokenBalance({ data }: TokenBalanceProps) {
                                             className="text-sm text-blue-500 font-medium flex items-center gap-1 bg-transparent border-2 border-black/20 rounded-full px-1.5 py-0.5 hover:bg-black/4 transition-colors hover:border-black/40"
                                         >
                                             {token.image ? (
-                                                <Image
-                                                    src={token.image}
-                                                    alt={token.symbol}
-                                                    width={16}
-                                                    height={16}
-                                                    className="rounded-full"
-                                                />
+                                                <div className="relative flex items-center justify-center rounded-full border">
+                                                    <Image
+                                                        src={token.image}
+                                                        alt={token.symbol}
+                                                        width={16}
+                                                        height={16}
+                                                        className="rounded-full"
+                                                    />
+                                                    <Icons.baseIcon className="w-2 h-2 absolute -bottom-0.5 -right-0.5" />
+                                                </div>
                                             ) : (
                                                 <Icons.basetokenImage className="w-4 h-4" />
                                             )}
@@ -99,7 +102,7 @@ export default function TokenBalance({ data }: TokenBalanceProps) {
                                         </Link>
                                     </div>
                                     {token.value_usd && token.price_usd && (
-                                        <span className="text-gray-600">({formatUSD(token.value_usd)} <span className="text-xs text-gray-400">at {formatUSD(token.price_usd)}/{token.symbol})</span></span>
+                                        <span className="text-gray-400 text-xs">(Price: {formatUSD(token.price_usd)})</span>
                                     )}
                                     {token.price_change_24h !== undefined && (
                                         <span className={`flex items-center gap-1 ${token.price_change_24h >= 0

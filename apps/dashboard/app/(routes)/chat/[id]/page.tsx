@@ -873,7 +873,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     };
 
     const walletIcon = (wallet: Wallet) => {
-        if (wallet.connectorType === 'embedded') return <Icons.ethereum className="w-6 h-6" />;
+        if (wallet.connectorType === 'embedded') return <Icons.sidebarWalletIcon className="w-4 h-4" />;
         const iconName = (wallet.walletClientType || wallet.connectorType || "").toLowerCase();
         // Only allow certain names (add more as needed)
         const knownIcons = ["metamask", "phantom", "rainbow", "coinbase", "walletconnect"];
@@ -1193,7 +1193,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                 ref={textareaRef}
                                 value={inputValue}
                                 onChange={handleInputChange}
-                                placeholder="Ask EarnKit"
+                                placeholder="Ask Earny"
                                 className="w-full max-w-full max-h-[100px] overflow-y-auto resize-none p-2 px-4 bg-transparent rounded-lg border-none focus:outline-none focus:border-none font-funnel-sans text-black/80 font-semibold max-h-[100px]"
                                 disabled={isLoading}
                                 rows={1}

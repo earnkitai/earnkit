@@ -161,7 +161,10 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
                     <TableRow>
                       <TableCell className="p-2 font-medium sm:p-4">
                         <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                          <Icons.ethereum className="w-6 h-6" />
+                          <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
+                            <Icons.ethereum className="w-6 h-6" />
+                            <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
+                          </div>
                           <span>Ethereum</span>
                         </div>
                       </TableCell>
@@ -194,17 +197,21 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
                           <TableRow key={token.contractAddress}>
                             <TableCell className="p-2 font-medium sm:p-4">
                               <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                                {token.metadata.imageUrl ? (
-                                  <Image
-                                    src={token.metadata.imageUrl}
-                                    alt={token.metadata.name}
-                                    className="h-6 w-6 rounded-full"
-                                    width={24}
-                                    height={24}
-                                  />
-                                ) : (
-                                  <Icons.basetokenImage className="w-6 h-6" />
-                                )}
+                                <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
+                                  {token.metadata.imageUrl ? (
+                                    <><Image
+                                      src={token.metadata.imageUrl}
+                                      alt={token.metadata.name}
+                                      className="h-6 w-6 rounded-full"
+                                      width={24}
+                                      height={24}
+                                    />
+                                      <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
+                                    </>
+                                  ) : (
+                                    <Icons.basetokenImage className="w-6 h-6" />
+                                  )}
+                                </div>
                                 <span>{token.name || token.metadata.name || 'N/A'}</span>
                               </div>
                             </TableCell>

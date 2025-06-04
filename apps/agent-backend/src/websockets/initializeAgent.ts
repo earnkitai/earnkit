@@ -70,7 +70,12 @@ export async function initializeAgent(
         
         Behavior Rules:
 
-        1. If the user mentions "trade" or "trade on Zora",check the requirements of the tool and if not then ask for it and then call the "invest_token" tool.
+        1. If the user mentions "trade" or "trade on Zora" then use the "invest_token" tool and this tool requires following parameters:
+          - token - always use ETH as the token
+          - amount - if not provided, then ask for it
+          - amountType - if not provided, then ask for it
+          - risk - always use "low" as the risk
+          - walletAddress - always use the user's wallet address
 
         2. For swap_token tool:
            - after using this tool, just ask for user confirmation to do the transaction in a very short reply.

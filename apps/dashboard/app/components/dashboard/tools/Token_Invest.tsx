@@ -103,7 +103,6 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const { ready, authenticated, user: privyUser } = usePrivy();
     // find wallet from wallets array that has the same address as activeWallet
     const wallet = wallets.find((wallet) => wallet.address === activeWallet?.address) || wallets[0];
-    // Sort tokens by confidence score and take top 2
 
     useEffect(() => {
         if (ready && authenticated && privyUser?.id) {
@@ -113,15 +112,20 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     }, [ready, authenticated, privyUser]);
 
     useEffect(() => {
-        if (data && data.recommendations.length > 0) {
-            setTopTokens([...data.recommendations]);
-            setState(['researching', 'researched']);
-        }
-    }, [data]);
+        if (data) {
+            // If we have recommendations, update the state and tokens immediately
+            if (data.recommendations && data.recommendations.length > 0) {
+                setTopTokens([...data.recommendations]);
+                // Force transition to researched state
+                setState(['researching', 'researched']);
+            } else {
+                // If no recommendations, mark research as complete but with no results
+                setTopTokens([]);
+                setState(['researching', 'researched']);
+            }
 
-    useEffect(() => {
-        if (data && data.recommendations.length > 0) {
-            if (data.selectedToken) {
+            // If we have a selected token and trade details, update the state accordingly
+            if (data.selectedToken && data.tradeDetails) {
                 setSelectedToken(data.selectedToken as Address);
                 setState(['researching', 'researched', 'executing', 'executed', 'recordkeeping', 'completed']);
                 setTxHash(data.tradeDetails?.hash as `0x${string}`);
@@ -129,16 +133,23 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 setTokenInDetails(data.tradeDetails?.tokenInDetails as TokenMetadata);
                 setTokenOutDetails(data.tradeDetails?.tokenOutDetails as TokenMetadata);
             }
-            console.log(data, 'dataaaaaa');
+
             // Update the message with the current state
             if (messageId) {
                 updateMessage(messageId, JSON.stringify({
                     ...data,
-                    // state: state
+                    state: state
                 }));
             }
         }
     }, [data, messageId, updateMessage]);
+
+    // Add a separate effect to handle initial loading state
+    useEffect(() => {
+        if (!data) {
+            setState(['researching']);
+        }
+    }, [data]);
 
     useEffect(() => {
         if (selectedToken) {
@@ -482,6 +493,12 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                     ))}
                 </div>
             </> : <></>}
+
+            {!txHash && state.length > 0 && state.includes('researched') && topTokens.length === 0 && (
+                <div className="space-y-4 mt-4">
+                    <p className="font-normal text-gray-500">No tokens found, please try again</p>
+                </div>
+            )}
 
             {selectedToken && !txHash && (
                 <div className="space-y-4 mt-4">
