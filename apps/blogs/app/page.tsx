@@ -53,12 +53,14 @@ export default async function Blog({ params }: any) {
           <div>
             <Link href={`/${featuredPost.slug}`} className="group">
               <div className="flex flex-col md:flex-row gap-16 items-center">
-                <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-blue-100 flex-1 w-full md:min-w-[55%]">
+                <div className="relative aspect-[16/9] rounded-2xl overflow-hidden bg-blue-100 flex-1 w-full md:min-w-[55%]">
                   <Image
                     src={featuredPost.coverImage}
                     alt={featuredPost.title}
                     fill
                     className="object-cover"
+                    placeholder="blur"
+                    blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjYjhjY2UwIi8+"
                   />
                 </div>
                 <div>
@@ -90,13 +92,15 @@ export default async function Blog({ params }: any) {
           {/* Blog Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-14 ">
             {currentPosts.map((post) => (
-              <Link key={post.id} href={`/${post.slug}`} className="group border border-transparent hover:scale-[1.02] hover:border-black/[40%] rounded-2xl transition-all" >
-                <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-blue-100 mb-4">
+              <Link key={post.id} href={`/${post.slug}`} className="group border border-transparent hover:scale-[1.02] rounded-2xl transition-all" >
+                <div className="relative aspect-[16/9] rounded-2xl overflow-hidden bg-blue-100 mb-4">
                   <Image
                     src={post.coverImage}
                     alt={post.title}
                     fill
                     className="object-cover"
+                    placeholder="blur"
+                    blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjYjhjY2UwIi8+"
                   />
                 </div>
                 <div className='flex flex-col pt-3 px-4 gap-4'>
@@ -104,7 +108,7 @@ export default async function Blog({ params }: any) {
                     {post.title}
                   </h2>
                   <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                    <div className="flex gap-3">
+                    {post.tags.length > 0 && <div className="flex gap-3">
                       {post.tags.map((tag) => (
                         <span
                           key={tag}
@@ -113,7 +117,7 @@ export default async function Blog({ params }: any) {
                           {tag}
                         </span>
                       ))}
-                    </div>
+                    </div>}
                     <span className='font-funnel-sans font-normal text-[0.85rem] text-black/[40%]'>{formatDate(post.date)}</span>
                   </div>
                 </div>

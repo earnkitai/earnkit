@@ -58,12 +58,26 @@ export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({ block })
         return (
             <li className="mb-2 text-[1rem] md:text-[1.125rem]">
                 <NotionText text={block.bulleted_list_item.rich_text} />
+                {(block as any).children && (block as any).children.length > 0 && (
+                    <ul className="ml-4 mt-2 list-inside">
+                        {(block as any).children.map((child: any) => (
+                            <RenderBlock key={child.id} block={child} />
+                        ))}
+                    </ul>
+                )}
             </li>
         )
     case "numbered_list_item": {
         return (
             <li className="mb-2 text-[1rem] md:text-[1.125rem]">
                 <NotionText text={block.numbered_list_item.rich_text} />
+                {(block as any).children && (block as any).children.length > 0 && (
+                    <ul className="ml-4 mt-2 list-inside">
+                        {(block as any).children.map((child: any) => (
+                            <RenderBlock key={child.id} block={child} />
+                        ))}
+                    </ul>
+                )}
             </li>
         )
     }

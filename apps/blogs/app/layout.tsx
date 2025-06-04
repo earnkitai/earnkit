@@ -4,6 +4,7 @@ import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from "@/app/components/common/Header";
 import Footer from "@/app/components/common/Footer";
+import NextTopLoader from 'nextjs-toploader';
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
   subsets: ["latin"],
@@ -83,6 +84,7 @@ export default function RootLayout({
         <SchemaOrg />
       </head>
       <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased`} suppressHydrationWarning>
+        <NextTopLoader color="#2563e4" height={3} showSpinner={true} />
         <Header />
         <main className="flex-grow">
           {children}

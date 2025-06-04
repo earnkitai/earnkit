@@ -19,40 +19,33 @@ export default async function BlogPost({ params }: { params: Promise<{ slug: str
 
     const blocks = await getPageBlocks(post.id);
 
-
     // Group list items together
-    const groupedBlocks = blocks.reduce((acc: any[], block: any) => {
-        const prevBlock = acc[acc.length - 1];
-
-        if (
-            (block.type === "bulleted_list_item" &&
-                prevBlock?.type === "bulleted_list") ||
-            (block.type === "numbered_list_item" &&
-                prevBlock?.type === "numbered_list")
-        ) {
-            prevBlock.items.push(block);
-            return acc;
+    const groupedBlocks = [];
+    let currentList = null;
+    for (const block of blocks) {
+        if (block.type === "bulleted_list_item" || block.type === "numbered_list_item") {
+            if (
+                currentList &&
+                ((block.type === "bulleted_list_item" && currentList.type === "bulleted_list") ||
+                    (block.type === "numbered_list_item" && currentList.type === "numbered_list"))
+            ) {
+                currentList.items.push(block);
+            } else {
+                if (currentList) groupedBlocks.push(currentList);
+                currentList = {
+                    type: block.type === "bulleted_list_item" ? "bulleted_list" : "numbered_list",
+                    items: [block],
+                };
+            }
+        } else {
+            if (currentList) {
+                groupedBlocks.push(currentList);
+                currentList = null;
+            }
+            groupedBlocks.push(block);
         }
-
-        if (block.type === "bulleted_list_item") {
-            acc.push({
-                type: "bulleted_list",
-                items: [block],
-            });
-            return acc;
-        }
-
-        if (block.type === "numbered_list_item") {
-            acc.push({
-                type: "numbered_list",
-                items: [block],
-            });
-            return acc;
-        }
-
-        acc.push(block);
-        return acc;
-    }, []);
+    }
+    if (currentList) groupedBlocks.push(currentList);
 
     return (
         <main className="min-h-screen bg-white rounded-[56px] overflow-hidden pb-12 md:py-20" >
@@ -69,14 +62,16 @@ export default async function BlogPost({ params }: { params: Promise<{ slug: str
                     <span className="max-w-max text-ellipsis overflow-hidden whitespace-nowrap text-[1.125rem]">{post.properties["Title"]?.type === "title" && post.properties["Title"].title[0]?.plain_text}</span>
                 </div>
             </div>
-            <article className="container max-w-3xl mx-auto px-0 md:px-4 py-4 md:py-8 flex flex-col items-center justify-center ">
+            <article className="container max-w-4xl mx-auto px-0 md:px-4 py-4 md:py-8 flex flex-col items-center justify-center ">
                 <Image
                     src={post.cover?.type === "external" ? post.cover.external.url : post.cover?.file?.url || ""}
                     alt={"earnkit blog image"}
                     width={750}
                     height={405}
                     quality={85}
-                    className="object-cover aspect-[16/10] rounded-none md:rounded-2xl"
+                    className="object-cover aspect-[16/9] rounded-none md:rounded-2xl bg-blue-100"
+                    placeholder="blur"
+                    blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjYjhjY2UwIi8+"
                 />
                 <div className="p-10 pb-4 md:p-12 flex flex-col gap-6 items-center justify-center w-full md:w-[90%]">
                     <h1 className="text-3xl md:text-4xl font-bold font-funnel-display text-black">
@@ -101,13 +96,11 @@ export default async function BlogPost({ params }: { params: Promise<{ slug: str
                         </div>
                     </div>
 
-
-
                     <div className="prose w-full py-4">
                         {groupedBlocks.map((block: any) => {
                             if (block.type === "bulleted_list") {
                                 return (
-                                    <ul key={block.items[0].id} className="mb-4">
+                                    <ul key={block.items[0].id} className="mb-4 list-disc ml-3 list-inside font-funnel-sans">
                                         {block.items.map((item: any) => (
                                             // <Block key={item.id} block={item} />
                                             <RenderBlock key={item.id} block={item} />
@@ -118,7 +111,7 @@ export default async function BlogPost({ params }: { params: Promise<{ slug: str
 
                             if (block.type === "numbered_list") {
                                 return (
-                                    <ol key={block.items[0].id} className="mb-4">
+                                    <ol key={block.items[0].id} className="mb-4 list-decimal ml-3 list-inside font-funnel-sans">
                                         {block.items.map((item: any) => (
                                             <RenderBlock key={item.id} block={item} />
                                         ))}

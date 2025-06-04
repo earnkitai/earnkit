@@ -168,26 +168,32 @@ export const getPostBySlug = cache(
 );
 
 export async function getPageBlocks(pageId: string) {
-  const blocks: any[] = [];
-  let cursor = undefined;
+  async function fetchBlocksWithChildren(blockId: string): Promise<any[]> {
+    const blocks: any[] = [];
+    let cursor = undefined;
 
-  try {
-    // Keep fetching blocks until there are no more
     while (true) {
       const { results, next_cursor } = await notion.blocks.children.list({
-        block_id: pageId,
-        page_size: 100, // Max number of blocks to fetch per request
+        block_id: blockId,
+        page_size: 100,
         start_cursor: cursor,
       });
 
-      blocks.push(...results);
+      for (const block of results) {
+        if ((block as any).has_children) {
+          (block as any).children = await fetchBlocksWithChildren(block.id);
+        }
+        blocks.push(block);
+      }
 
-      // If there's no next_cursor, we've reached the end
       if (!next_cursor) break;
       cursor = next_cursor;
     }
-
     return blocks;
+  }
+
+  try {
+    return await fetchBlocksWithChildren(pageId);
   } catch (error) {
     console.error('Error fetching Notion blocks:', error);
     throw error;
