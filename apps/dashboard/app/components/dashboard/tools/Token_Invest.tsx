@@ -114,6 +114,13 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
 
     useEffect(() => {
         if (data && data.recommendations.length > 0) {
+            setTopTokens([...data.recommendations]);
+            setState(['researching', 'researched']);
+        }
+    }, [data]);
+
+    useEffect(() => {
+        if (data && data.recommendations.length > 0) {
             if (data.selectedToken) {
                 setSelectedToken(data.selectedToken as Address);
                 setState(['researching', 'researched', 'executing', 'executed', 'recordkeeping', 'completed']);
@@ -121,17 +128,8 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 setTradeDetails(data.tradeDetails as TradeResult);
                 setTokenInDetails(data.tradeDetails?.tokenInDetails as TokenMetadata);
                 setTokenOutDetails(data.tradeDetails?.tokenOutDetails as TokenMetadata);
-
-
-            } else {
-                setState(['researching', 'researched']);
             }
             console.log(data, 'dataaaaaa');
-            const topTokens = [...data.recommendations]
-                .sort((a, b) => b.confidenceScore - a.confidenceScore)
-                .slice(0, 2);
-            setTopTokens([...topTokens]);
-
             // Update the message with the current state
             if (messageId) {
                 updateMessage(messageId, JSON.stringify({

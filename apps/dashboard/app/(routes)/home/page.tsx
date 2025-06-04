@@ -154,7 +154,7 @@ export default function Dashboard() {
             <div className='mx-auto flex flex-col md:w-[calc(100%-250px)] md:max-w-[1100px] sm:w-[calc(100%-80px)]'>
                 {/* Logo Section */}
                 <div className="text-center mb-4">
-                    <div className="mb-6 flex justify-center items-center">
+                    <div className="mb-2 flex justify-center items-center">
                         <Icons.earnyLogoBlack className="w-24 sm:w-32" />
                     </div>
                 </div>
@@ -323,8 +323,9 @@ export default function Dashboard() {
                 {/* Pills Section */}
                 <div className="flex flex-wrap gap-3 justify-center mb-8">
                     {[
-                        { label: 'Trading on Zora' },
+                        { label: 'Trade on Zora' },
                         { label: 'Analyse a Token' }
+
                     ].map((pill) => (
                         <button
                             key={pill.label}
