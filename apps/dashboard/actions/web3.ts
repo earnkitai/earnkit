@@ -35,17 +35,29 @@ const baseAlchemy = new Alchemy(baseSettings);
 
 export const getBalance = async (
   address: Address,
-  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
+  network: 'ethereum' | 'base' | 'baseSepolia' = 'base',
 ) => {
   const client =
-    network === 'ethereum'
-      ? sepoliaAlchemy
+    network === 'base'
+      ? baseAlchemy
       : network === 'baseSepolia'
         ? baseSepoliaAlchemy
-        : baseAlchemy;
-  const response = await client.core.getBalance(address, 'latest');
-  const balanceBigInt = BigInt(response.toString());
-  return balanceBigInt;
+        : sepoliaAlchemy;
+  try {
+    const response = await client.core.getBalance(address, 'latest');
+    const balanceBigInt = BigInt(response.toString());
+    return balanceBigInt;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message?.includes('Network error')) {
+        // For UI: throw a clear error
+        throw new Error(
+          'Network error: Unable to fetch balance. Please check your connection or try again later.',
+        );
+      }
+      console.error('Error fetching balance:', error);
+    }
+  }
 };
 
 export const getTokenBalances = async (
@@ -61,96 +73,145 @@ export const getTokenBalances = async (
           : baseAlchemy;
 
     const balances = await client.core.getTokensForOwner(address);
-    console.log(balances, 'balances');
     // remove the token with balance 0
     const filteredBalances = balances.tokens.filter(
       (token) => token.balance !== '0',
     );
-    console.log(filteredBalances, 'filtered balances');
 
     const finalBalances = await Promise.all(
       filteredBalances.map(async (token) => {
-        const metadata = await getTokenMetadataWithCoingecko(
-          token.contractAddress,
-        );
-        return { ...token, metadata };
+        try {
+          const metadata = await getTokenMetadataWithCoingecko(
+            token.contractAddress,
+          );
+          return { ...token, metadata };
+        } catch (metaError) {
+          console.error('Error fetching token metadata:', metaError);
+          // Return token with minimal metadata if fetch fails
+          return {
+            ...token,
+            metadata: {
+              imageUrl: '',
+              name: '',
+              symbol: '',
+              decimals: 18,
+              priceUsd: 0,
+            },
+          };
+        }
       }),
     );
     return finalBalances;
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message?.includes('Network error')) {
+        throw new Error(
+          'Network error: Unable to fetch token balances. Please check your connection or try again later.',
+        );
+      }
+    }
     console.error('Error fetching token balances:', error);
-    throw new Error('Failed to fetch token balances');
   }
 };
 
 export const getTokenBalance = async (address: Address) => {
-  const tokenBalances = await sepoliaAlchemy.core.getTokenBalances(address);
-  return tokenBalances;
+  try {
+    const tokenBalances = await sepoliaAlchemy.core.getTokenBalances(address);
+    return tokenBalances;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message?.includes('Network error')) {
+        throw new Error(
+          'Network error: Unable to fetch token balance. Please check your connection or try again later.',
+        );
+      }
+      console.error('Error fetching token balance:', error);
+      throw new Error('Failed to fetch token balance');
+    } else {
+      console.error('Error fetching token balance:', error);
+      throw new Error('Failed to fetch token balance');
+    }
+  }
 };
 
 export const getTransactions = async (
   address: Address,
 ): Promise<Record<string, Transaction[]>> => {
-  // Fetch sent and received transactions concurrently
-  const [sentResponse, receivedResponse] = await Promise.all([
-    sepoliaAlchemy.core.getAssetTransfers({
-      fromAddress: address,
-      excludeZeroValue: false,
-      category: [
-        AssetTransfersCategory.ERC20,
-        AssetTransfersCategory.EXTERNAL,
-        AssetTransfersCategory.INTERNAL,
-      ],
-      withMetadata: true,
-    }),
-    sepoliaAlchemy.core.getAssetTransfers({
-      toAddress: address,
-      excludeZeroValue: false,
-      category: [
-        AssetTransfersCategory.ERC20,
-        AssetTransfersCategory.EXTERNAL,
-        AssetTransfersCategory.INTERNAL,
-      ],
-      withMetadata: true,
-    }),
-  ]);
-
-  // Map the responses
-  const sentTransactions = [
-    ...sentResponse.transfers.map(
-      ({ blockNum, from, to, hash, value, metadata }) => ({
-        blockNumber: Number(blockNum),
-        from: getAddress(from),
-        to: to ? getAddress(to) : null,
-        hash,
-        value: value ? parseEther(value.toString()) : null,
-        status: 'sent' as const,
-        timestamp: metadata.blockTimestamp,
+  try {
+    // Fetch sent and received transactions concurrently
+    const [sentResponse, receivedResponse] = await Promise.all([
+      sepoliaAlchemy.core.getAssetTransfers({
+        fromAddress: address,
+        excludeZeroValue: false,
+        category: [
+          AssetTransfersCategory.ERC20,
+          AssetTransfersCategory.EXTERNAL,
+          AssetTransfersCategory.INTERNAL,
+        ],
+        withMetadata: true,
       }),
-    ),
-  ];
-  const receivedTransactions = [
-    ...receivedResponse.transfers.map(
-      ({ blockNum, from, to, hash, value, metadata }) => ({
-        blockNumber: Number(blockNum),
-        from: getAddress(from),
-        to: to ? getAddress(to) : null,
-        hash,
-        value: value ? parseEther(value.toString()) : null,
-        status: 'received' as const,
-        timestamp: metadata.blockTimestamp,
+      sepoliaAlchemy.core.getAssetTransfers({
+        toAddress: address,
+        excludeZeroValue: false,
+        category: [
+          AssetTransfersCategory.ERC20,
+          AssetTransfersCategory.EXTERNAL,
+          AssetTransfersCategory.INTERNAL,
+        ],
+        withMetadata: true,
       }),
-    ),
-  ];
+    ]);
 
-  // Sort transactions by block number in descending order
-  sentTransactions.sort((a, b) => b.blockNumber - a.blockNumber);
-  receivedTransactions.sort((a, b) => b.blockNumber - a.blockNumber);
+    // Map the responses
+    const sentTransactions = [
+      ...sentResponse.transfers.map(
+        ({ blockNum, from, to, hash, value, metadata }) => ({
+          blockNumber: Number(blockNum),
+          from: getAddress(from),
+          to: to ? getAddress(to) : null,
+          hash,
+          value: value ? parseEther(value.toString()) : null,
+          status: 'sent' as const,
+          timestamp: metadata.blockTimestamp,
+        }),
+      ),
+    ];
+    const receivedTransactions = [
+      ...receivedResponse.transfers.map(
+        ({ blockNum, from, to, hash, value, metadata }) => ({
+          blockNumber: Number(blockNum),
+          from: getAddress(from),
+          to: to ? getAddress(to) : null,
+          hash,
+          value: value ? parseEther(value.toString()) : null,
+          status: 'received' as const,
+          timestamp: metadata.blockTimestamp,
+        }),
+      ),
+    ];
 
-  return {
-    sentTransactions,
-    receivedTransactions,
-  };
+    // Sort transactions by block number in descending order
+    sentTransactions.sort((a, b) => b.blockNumber - a.blockNumber);
+    receivedTransactions.sort((a, b) => b.blockNumber - a.blockNumber);
+
+    return {
+      sentTransactions,
+      receivedTransactions,
+    };
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message?.includes('Network error')) {
+        throw new Error(
+          'Network error: Unable to fetch transactions. Please check your connection or try again later.',
+        );
+      }
+      console.error('Error:', error);
+      throw error;
+    } else {
+      console.error('Error fetching transactions:', error);
+      throw new Error('Failed to fetch transactions');
+    }
+  }
 };
 
 type CoinGeckoResponse = {

@@ -327,8 +327,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.1(abitype@1.0.8)(viem@2.30.0)
       alchemy-sdk:
-        specifier: ^3.4.1
-        version: 3.5.9(typescript@5.8.3)
+        specifier: ^3.6.0
+        version: 3.6.0(typescript@5.8.3)
       axios:
         specifier: ^1.7.9
         version: 1.9.0
@@ -1003,7 +1003,7 @@ packages:
       '@anthropic-ai/sdk': 0.33.1
       '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)(zod@3.25.20)
       '@types/node-fetch': 2.6.12
-      alchemy-sdk: 3.5.9(typescript@5.8.3)
+      alchemy-sdk: 3.6.0(typescript@5.8.3)
       axios: 1.9.0
       ethers: 6.14.1
       node-fetch: 2.7.0(encoding@0.1.13)
@@ -9604,6 +9604,33 @@ packages:
       - utf-8-validate
     dev: false
 
+  /alchemy-sdk@3.6.0(typescript@5.8.3):
+    resolution: {integrity: sha512-vXLEuLoxeAw7REgXA3tOYrXxQfVwQNsDSC1DV5RJhQlvV0hq/Bh9wvv2/nZZgUWglz3IJmmMQrVNZcSCkCyuLg==}
+    dependencies:
+      '@ethersproject/abi': 5.8.0
+      '@ethersproject/abstract-provider': 5.8.0
+      '@ethersproject/bignumber': 5.8.0
+      '@ethersproject/bytes': 5.8.0
+      '@ethersproject/contracts': 5.8.0
+      '@ethersproject/hash': 5.8.0
+      '@ethersproject/networks': 5.8.0
+      '@ethersproject/providers': 5.8.0
+      '@ethersproject/units': 5.8.0
+      '@ethersproject/wallet': 5.8.0
+      '@ethersproject/web': 5.8.0
+      '@solana/web3.js': 1.98.2(typescript@5.8.3)
+      axios: 1.9.0
+      sturdy-websocket: 0.2.1
+      websocket: 1.0.35
+    transitivePeerDependencies:
+      - bufferutil
+      - debug
+      - encoding
+      - supports-color
+      - typescript
+      - utf-8-validate
+    dev: false
+
   /ansi-escapes@4.3.2:
     resolution: {integrity: sha512-gKXj5ALrKWQLsYG9jlTRmR/xKluxHV+Z9QEwNIgCfM1/uwPMCuzVVnh5mwTd+OuBZcwSIMbqssNWRm1lE51QaQ==}
     engines: {node: '>=8'}
@@ -10812,6 +10839,7 @@ packages:
 
   /defaults@1.0.4:
     resolution: {integrity: sha512-eFuaLoy/Rxalv2kr+lqMlUnrDWV+3j4pljOIJgLIhI058IQfWJ7vXhyEIHu+HtC738klGALYxOKDO0bQP3tg8A==}
+    requiresBuild: true
     dependencies:
       clone: 1.0.4
     dev: false

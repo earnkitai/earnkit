@@ -19,7 +19,7 @@ export default function WalletPage() {
     const { ready: privyReady, authenticated, user: privyUser } = usePrivy();
     const [totalValue, setTotalValue] = useState<number>(0);
     const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
-    const { wallet: activeWallet, setActiveWallet } = useActiveWallet()
+    const { wallet: activeWallet } = useActiveWallet()
     // const { state } = useWallets();  
     const { fundWallet } = useFundWallet();
     const { ready: privyWalletReady, wallets } = useWallets();
@@ -28,18 +28,18 @@ export default function WalletPage() {
 
     useEffect(() => {
         if (privyReady && authenticated) {
-            console.log(privyUser, "privy user details")
+            // console.log(privyUser, "privy user details")
         }
     }, [privyReady, privyUser, authenticated]);
 
     useEffect(() => {
         if (privyWalletReady && wallets.length > 0) {
-            console.log("Wallets ready");
-            console.log(wallets)
-
-            setWalletAddress(activeWallet ? activeWallet.address as `0x${string}` : wallets[0].address as `0x${string}`)
-            if (!activeWallet) {
-                setActiveWallet(wallets[0]);
+            // console.log("Wallets ready");
+            // console.log(wallets)
+            if (activeWallet) {
+                setWalletAddress(activeWallet.address as `0x${string}`)
+            } else {
+                setWalletAddress(wallets[0].address as `0x${string}`)
             }
         }
     }, [privyWalletReady, wallets, activeWallet]);
@@ -108,10 +108,10 @@ export default function WalletPage() {
                 <Activity />
             </div>
 
-            <SendTransactionModal
+            {isSendModalOpen && <SendTransactionModal
                 isOpen={isSendModalOpen}
                 onClose={() => setIsSendModalOpen(false)}
-            />
+            />}
 
             <Toaster />
         </section>

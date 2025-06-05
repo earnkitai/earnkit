@@ -23,6 +23,10 @@ import type { AlchemyMinedTransaction, Transaction } from '@/types/web3';
 import { turnkeyConfig } from '@/config/privy';
 
 const clients = {
+  base: createPublicClient({
+    chain: base,
+    transport: http(turnkeyConfig.rpcUrlBase),
+  }),
   ethereum: createPublicClient({
     chain: sepolia,
     transport: http(turnkeyConfig.rpcUrl),
@@ -31,14 +35,10 @@ const clients = {
     chain: baseSepolia,
     transport: http(turnkeyConfig.rpcUrlBaseSepolia),
   }),
-  base: createPublicClient({
-    chain: base,
-    transport: http(turnkeyConfig.rpcUrlBase),
-  }),
 } as const;
 
 export const getPublicClient = (
-  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
+  network: 'base' | 'ethereum' | 'baseSepolia' = 'base',
 ) => {
   return clients[network];
 };
@@ -174,8 +174,8 @@ export const getTransactions = async (
     }),
   ]);
 
-  console.log(sentResponse, 'sentResponse');
-  console.log(receivedResponse, 'receivedResponse');
+  // console.log(sentResponse, 'sentResponse');
+  // console.log(receivedResponse, 'receivedResponse');
   // Combine and map the responses
   const transactions = [
     ...sentResponse.transfers.map(

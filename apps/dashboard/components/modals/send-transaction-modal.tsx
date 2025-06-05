@@ -28,10 +28,8 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
     const activeWallet = ready && wallets[0] || null;
 
     useEffect(() => {
-        if (ready) {
-            console.log(wallets, 'activeWallet')
-        }
-    }, [wallets, ready])
+        console.log("inside the send transaction modal")
+    }, [])
 
     const { sendTransaction } = usePrivy();
     // const { sendTransaction } = useSendTransaction();
@@ -47,7 +45,7 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
     }, [amount, ethPrice]);
 
     useEffect(() => {
-        console.log(activeWallet);
+        // console.log(activeWallet);
         const fetchBalance = async () => {
             if (activeWallet) {
                 const balance = await getBalance(
@@ -60,7 +58,7 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
                     ? parseFloat(Number(formatEther(balance)).toFixed(8))
                     : 0
                 setBalance(ethBalanceFormatted.toString());
-                console.log(balance);
+                // console.log(balance);
             }
         }
         fetchBalance();
@@ -72,7 +70,7 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
             return;
         }
 
-        console.log(activeWallet, 'activeWallet')
+        // console.log(activeWallet, 'activeWallet')
 
         try {
             setIsLoading(true);
@@ -123,7 +121,7 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
 
             const { hash } = await sendTransaction(transactionRequest);
             toast.success(`Transaction sent successfully! ${hash}`);
-            console.log(hash, 'transactionHash')
+            // console.log(hash, 'transactionHash')
 
             // const txHash = await sendTransactionWithoutApproval(
             //     activeWallet.id,

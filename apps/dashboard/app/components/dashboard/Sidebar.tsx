@@ -33,16 +33,16 @@ export default function Sidebar() {
 
     useEffect(() => {
         if (ready && authenticated && privyUser) {
-            console.log(privyUser, 'privyUser');
+            // console.log(privyUser, 'privyUser');
             const userId = privyUser?.id.split(':').pop() || privyUser?.id;
-            console.log(userId, 'userId');
+            // console.log(userId, 'userId');
             setUserId(userId);
             const fetchUsername = async () => {
                 if (userId) {
                     const result = await findUserById(userId);
                     if (result && result.username) {
                         setUsername(result.username);
-                        console.log(result, 'result');
+                        // console.log(result, 'result');
                     }
                 }
             };

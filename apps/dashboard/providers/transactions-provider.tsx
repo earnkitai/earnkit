@@ -114,7 +114,7 @@ export const TransactionsProvider: React.FC<{ children: React.ReactNode }> = ({
         dispatch({ type: "SET_FETCHING_TRANSACTIONS" })
         try {
           const transactions = await getTransactions(selectedAccount.address)
-          console.log(transactions, 'transactions')
+          // console.log(transactions, 'transactions')
           dispatch({
             type: "SET_TRANSACTIONS",
             payload: {

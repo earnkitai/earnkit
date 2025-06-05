@@ -39,7 +39,7 @@ export const Providers: React.FC<{ children: React.ReactNode }> = ({
                             appearance: {
                                 theme: 'light',
                                 walletChainType: 'ethereum-only',
-                                walletList: ['metamask', 'phantom', 'rainbow', "detected_ethereum_wallets"],
+                                walletList: ['metamask', 'rainbow', "detected_ethereum_wallets"],
                             },
                             supportedChains: [base],
                             loginMethods: ["email", "passkey"],

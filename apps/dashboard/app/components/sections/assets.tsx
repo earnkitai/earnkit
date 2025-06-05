@@ -16,6 +16,9 @@ import {
 import { getBalance, getTokenBalances } from "@/actions/web3"
 import Image from "next/image"
 import { Icons } from "./icons"
+import { Skeleton } from "@/app/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/app/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 
 interface TokenBalance {
   contractAddress: string;
@@ -48,6 +51,13 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
   const previousAddressRef = useRef<string | undefined>(null)
   const fetchTimeoutRef = useRef<NodeJS.Timeout>(null)
 
+  useEffect(() => { console.log(ethPrice, "ethPrice") }, [ethPrice])
+
+  const formatTokenAmount = (balance: string, decimals: number) => {
+    const amount = BigInt(balance)
+    return (Number(amount) / Math.pow(10, decimals)).toFixed(2)
+  }
+
   const fetchTokens = useCallback(async (address: string) => {
     if (!walletAddress) {
       return
@@ -59,18 +69,22 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
     setIsLoading(true)
     setError(null)
     try {
-      const ethBalance = await getBalance(walletAddress, "base")
+      const [ethBalance, tokenData] = await Promise.all([
+        getBalance(walletAddress, "base"),
+        getTokenBalances(walletAddress, "base")
+      ])
+
       const ethBalanceFormatted = ethBalance
         ? parseFloat(Number(formatEther(ethBalance)).toFixed(8))
         : 0
       setEthBalance(ethBalanceFormatted)
-      const tokenData = await getTokenBalances(walletAddress, "base")
-      // Filter out any tokens with null balance or error
-      console.log(tokenData, 'token data');
-      const validTokens = tokenData.filter(token =>
+
+      const validTokens = tokenData?.filter(token =>
         token.balance !== null &&
-        !token.error
+        !token.error &&
+        (Number(token.balance) * (token.metadata?.priceUsd || 0)) > 0.009
       ) as TokenBalance[]
+
       setTokens(validTokens)
       previousAddressRef.current = address
     } catch (error) {
@@ -103,27 +117,53 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
     }
   }, [walletAddress, fetchTokens])
 
-  const formatTokenAmount = (balance: string, decimals: number) => {
-    const amount = BigInt(balance)
-    return (Number(amount) / Math.pow(10, decimals)).toFixed(2)
-  }
-
-
-  const ethValueInUSD = ethPrice && ethBalance ? (ethBalance * ethPrice).toFixed(2) : '0'
+  const ethValueInUSD = useCallback(() => {
+    return ethPrice && ethBalance ? (ethBalance * ethPrice).toFixed(2) : '0'
+  }, [ethPrice, ethBalance])
 
   useEffect(() => {
-    // Calculate total value including ETH and tokens
-    const ethValue = ethPrice && ethBalance ? ethBalance * ethPrice : 0;
+    const ethValue = ethPrice && ethBalance ? ethBalance * ethPrice : 0
     const tokenValues = tokens.reduce((sum, token) => {
-      const amount = Number(token.balance);
-      if (token.metadata.priceUsd && token.balance !== '0' && (Number(token.balance) * token.metadata.priceUsd) > 0.05) {
-        return sum + (amount * token.metadata.priceUsd);
+      const amount = Number(token.balance)
+      if (token.metadata.priceUsd && token.balance !== '0' && (amount * token.metadata.priceUsd) > 0.05) {
+        return sum + (amount * token.metadata.priceUsd)
       }
-      return sum;
-    }, 0);
-    const totalValue = ethValue + tokenValues;
-    onTotalValueChange?.(totalValue);
-  }, [tokens, ethBalance, ethPrice, onTotalValueChange]);
+      return sum
+    }, 0)
+    const totalValue = ethValue + tokenValues
+    onTotalValueChange?.(totalValue)
+  }, [tokens, ethBalance, ethPrice, onTotalValueChange])
+
+  const renderLoadingState = () => (
+    <TableRow>
+      <TableCell colSpan={4} className="p-2">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-full bg-gray-100" />
+          <Skeleton className="h-8 w-full bg-gray-100" />
+          <Skeleton className="h-8 w-full bg-gray-100" />
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+
+  const renderErrorState = () => (
+    <TableRow>
+      <TableCell colSpan={4} className="p-4">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </TableCell>
+    </TableRow>
+  )
+
+  const renderEmptyState = () => (
+    <TableRow>
+      <TableCell colSpan={4} className="p-4 text-center text-muted-foreground">
+        No tokens found in this wallet
+      </TableCell>
+    </TableRow>
+  )
 
   return (
     <Card>
@@ -143,109 +183,98 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center">
-                      Loading assets...
-                    </TableCell>
-                  </TableRow>
-                ) : error ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-red-500">
-                      {error}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <>
-                    {/* ETH Balance Row */}
-                    <TableRow>
-                      <TableCell className="p-2 font-medium sm:p-4">
-                        <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                          <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
-                            <Icons.ethereum className="w-6 h-6" />
-                            <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
-                          </div>
-                          <span>Ethereum</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden font-mono text-xs sm:table-cell">
-                        ETH
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        {ethValueInUSD}
-                      </TableCell>
-                      <TableCell className="p-2 sm:hidden">
-                        <div className="font-medium">
-                          {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ETH
-                          </span>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          ${ethValueInUSD}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-
-                    {/* Other Tokens */}
-                    {tokens.map((token) => {
-                      if ((Number(token.balance) * token.metadata.priceUsd) > 0.009) {
-                        return (
-                          <TableRow key={token.contractAddress}>
+                {isLoading ? renderLoadingState() :
+                  error ? renderErrorState() :
+                    tokens.length === 0 ? renderEmptyState() :
+                      (
+                        <>
+                          {/* ETH Balance Row */}
+                          <TableRow>
                             <TableCell className="p-2 font-medium sm:p-4">
                               <div className="flex items-center space-x-2 text-xs sm:text-sm">
                                 <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
-                                  {token.metadata.imageUrl ? (
-                                    <><Image
-                                      src={token.metadata.imageUrl}
-                                      alt={token.metadata.name}
-                                      className="h-6 w-6 rounded-full"
-                                      width={24}
-                                      height={24}
-                                    />
-                                      <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
-                                    </>
-                                  ) : (
-                                    <Icons.basetokenImage className="w-6 h-6" />
-                                  )}
+                                  <Icons.ethereum className="w-6 h-6" />
+                                  <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
                                 </div>
-                                <span>{token.name || token.metadata.name || 'N/A'}</span>
+                                <span>Ethereum</span>
                               </div>
                             </TableCell>
                             <TableCell className="hidden font-mono text-xs sm:table-cell">
-                              {token.symbol
-                                ? (token.symbol.length > 20 ? token.symbol.slice(0, 20) + "..." : token.symbol)
-                                : token.metadata?.symbol
-                                  ? (token.metadata.symbol.length > 20 ? token.metadata.symbol.slice(0, 20) + "..." : token.metadata.symbol)
-                                  : 'N/A'}
+                              ETH
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
-                              {formatTokenAmount(token.rawBalance, token.decimals)}
+                              {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
-                              {token.metadata.priceUsd && token.balance !== '0'
-                                ? (Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)
-                                : '-'}
+                              ${ethValueInUSD()}
                             </TableCell>
                             <TableCell className="p-2 sm:hidden">
                               <div className="font-medium">
-                                {formatTokenAmount(token.rawBalance, token.metadata.decimals)}
+                                {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
                                 <span className="ml-1 text-xs text-muted-foreground">
-                                  {token.metadata.symbol}
+                                  ETH
                                 </span>
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                ${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)}
+                                ${ethValueInUSD()}
                               </div>
                             </TableCell>
-                          </TableRow>)
-                      }
-                    })}
-                  </>
-                )}
+                          </TableRow>
+
+                          {/* Other Tokens */}
+                          {tokens.map((token) => (
+                            <TableRow key={token.contractAddress}>
+                              <TableCell className="p-2 font-medium sm:p-4">
+                                <div className="flex items-center space-x-2 text-xs sm:text-sm">
+                                  <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
+                                    {token.metadata.imageUrl ? (
+                                      <>
+                                        <Image
+                                          src={token.metadata.imageUrl}
+                                          alt={token.metadata.name}
+                                          className="h-6 w-6 rounded-full"
+                                          width={24}
+                                          height={24}
+                                        />
+                                        <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
+                                      </>
+                                    ) : (
+                                      <Icons.basetokenImage className="w-6 h-6" />
+                                    )}
+                                  </div>
+                                  <span>{token.name || token.metadata.name || 'N/A'}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="hidden font-mono text-xs sm:table-cell">
+                                {token.symbol
+                                  ? (token.symbol.length > 20 ? token.symbol.slice(0, 20) + "..." : token.symbol)
+                                  : token.metadata?.symbol
+                                    ? (token.metadata.symbol.length > 20 ? token.metadata.symbol.slice(0, 20) + "..." : token.metadata.symbol)
+                                    : 'N/A'}
+                              </TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                                {formatTokenAmount(token.rawBalance, token.decimals)}
+                              </TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                                {token.metadata.priceUsd && token.balance !== '0'
+                                  ? `$${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)}`
+                                  : '-'}
+                              </TableCell>
+                              <TableCell className="p-2 sm:hidden">
+                                <div className="font-medium">
+                                  {formatTokenAmount(token.rawBalance, token.metadata.decimals)}
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    {token.metadata.symbol}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  ${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )}
               </TableBody>
             </Table>
           </div>

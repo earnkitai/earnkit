@@ -55,13 +55,13 @@ export default function SidebarChatHistory({ userId, isExpanded = false }: Sideb
     // }, [isExpanded]);
 
     const fetchChats = useCallback(async () => {
-        console.log(userId, 'userId');
+        // console.log(userId, 'userId');
         if (!userId) return;
 
         try {
             const response = await fetch(`/api/chat?userId=${userId}`);
             const data = await response.json();
-            console.log(data, 'chats list');
+            // console.log(data, 'chats list');
             setChats(data.chats);
         } catch (error) {
             console.error('Error fetching chats:', error);
