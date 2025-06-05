@@ -55,26 +55,25 @@ export default function Home() {
           {/* Carousel Section */}
           <CarouselFeatures />
 
-          <section className="w-full h-[90vh] md:h-[530px] md:min-h-[530px] flex flex-col items-start justify-center rounded-[56px] md:rounded-[15rem] relative overflow-hidden px-12 md:px-[10rem] ">
+          <section className="w-full h-[90vh] md:h-[530px] md:min-h-[530px] bg-color15 flex flex-col-reverse md:flex-row items-center justify-center md:justify-between rounded-[56px] md:rounded-[15rem] px-6 md:px-[10rem] ">
 
-            <div className="absolute top-0 left-0 md:-left-[38%] w-[100%] md:w-[140%] h-[100%]">
+            <div className="md:max-w-max w-full max-w-[80%] py-10 md:py-0">
+              <h2 className="text-color10 global-text-shadow font-funnel-display text-[2.2rem] md:text-5xl font-semibold text-left leading-[1.2]">
+                You design the strategy.
+
+              </h2>
+              <h2 className="text-color10 global-text-shadow font-funnel-display text-[2.2rem] md:text-5xl font-semibold text-left leading-[1.2]">
+                Your agent runs it.
+              </h2>
+            </div>
+
+            <div className="w-[80%] md:w-[60%] lg:max-w-[450px] h-[50%] md:h-[90%] relative">
               <Image
-                src="/images/landing/section4.png"
+                src="/images/landing/section04.png"
                 alt="grid image"
                 fill
                 className="" />
 
-            </div>
-
-
-            <div className="max-w-max z-20">
-              <h2 className="text-color10 global-text-shadow font-funnel-display text-3xl md:text-5xl font-semibold text-left leading-[1.2]">
-                You design the strategy.
-
-              </h2>
-              <h2 className="text-color10 global-text-shadow font-funnel-display text-3xl md:text-5xl font-semibold text-left leading-[1.2]">
-                Your agent runs it.
-              </h2>
             </div>
           </section>
 

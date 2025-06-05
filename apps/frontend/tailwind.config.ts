@@ -26,6 +26,7 @@ export default {
         color12: 'rgba(33, 8, 0, 1)',
         color13: 'rgba(86, 42, 167, 1)',
         color14: 'rgba(246, 249, 254, 1)',
+        color15: 'rgba(30, 9, 0, 1)',
         black10: 'rgba(0, 0, 0, 0.1)',
         black20: 'rgba(0, 0, 0, 0.2)',
         black30: 'rgba(0, 0, 0, 0.3)',
