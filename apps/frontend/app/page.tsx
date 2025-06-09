@@ -155,7 +155,7 @@ export default function Home() {
                 </div>
                 <div className="pt-10 md:pt-40">
                   <Link
-                    href="#"
+                    href="https://form.typeform.com/to/TaK4Xs1E"
                     target="_blank"
                     className="inline-flex items-center w-full justify-center gap-2 px-6 md:px-10 py-4 md:py-6 outline outline-2 outline-color7 border border-transparent rounded-full text-color7 text-xl md:text-2xl font-funnel-sans font-medium group transition hover:border-color8 hover:outline-color8 hover:text-color8"
                   >
