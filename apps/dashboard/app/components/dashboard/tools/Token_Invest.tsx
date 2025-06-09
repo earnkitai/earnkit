@@ -12,6 +12,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getTokenMetadataWithCoingecko, TokenMetadata } from '@/actions/web3';
 import { createLimitOrder, createOrderHistory } from '@/actions/order';
+import { RotateCcw } from 'lucide-react';
 
 interface Token {
     name: string;
@@ -82,9 +83,10 @@ export interface TokenInvestProps {
     onDeny: () => void;
     updateMessage: (messageId: string, content: string) => void;
     messageId?: string;
+    handleRetry: () => void;
 }
 
-export default function TokenInvest({ data, userAddress, onDeny, messageId, updateMessage }: TokenInvestProps) {
+export default function TokenInvest({ data, userAddress, onDeny, messageId, updateMessage, handleRetry }: TokenInvestProps) {
     const [selectedToken, setSelectedToken] = useState<Address | null>(null);
     const [loadingAction, setLoadingAction] = useState<string | null>(null);
     const [tradeDetails, setTradeDetails] = useState<TradeResult | null>(null);
@@ -143,6 +145,12 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             }
         }
     }, [data, messageId, updateMessage]);
+
+    useEffect(() => {
+        if (messageId) {
+            console.log("messageId", messageId)
+        }
+    }, [messageId]);
 
     // Add a separate effect to handle initial loading state
     useEffect(() => {
@@ -497,6 +505,13 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
             {!txHash && state.length > 0 && state.includes('researched') && topTokens.length === 0 && (
                 <div className="space-y-4 mt-4">
                     <p className="font-normal text-gray-500">No tokens found, please try again</p>
+                    <button
+                        className="px-2 py-1 text-sm flex items-center gap-1 border border-black/40 text-black/40 hover:text-black/80 hover:border-black/80 rounded-full transition-colors"
+                        onClick={handleRetry}
+                    >
+                        <RotateCcw className="w-4 h-4" />
+                        Retry
+                    </button>
                 </div>
             )}
 

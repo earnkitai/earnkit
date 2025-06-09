@@ -245,7 +245,8 @@ export default function Sidebar() {
                                 ) : ( */}
                                 <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
                                 {/* )} */}
-                                <span className={`absolute left-10 text-sm sm:text-base max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300  ${isOpen ? 'opacity-100' : 'opacity-0'}`}>{username !== "" ? username : "user"}</span>
+                                <span className={`absolute left-10 text-sm sm:text-base max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300  ${isOpen ? 'opacity-100' : 'opacity-0 hidden'}`}>{username !== "" ? username : "user"}</span>
+                                {isOpen && <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0" />}
                             </div>
 
 

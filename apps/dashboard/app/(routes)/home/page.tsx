@@ -18,7 +18,7 @@ import { ArrowUpRight } from 'lucide-react';
 export default function Dashboard() {
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [riskLevel, setRiskLevel] = useState<'Low Risk' | 'High Risk'>('Low Risk');
+    // const [riskLevel, setRiskLevel] = useState<'Low Risk' | 'High Risk'>('Low Risk');
     // const { state } = useWallets();
     // const { selectedAccount } = state;
     const { ready: privyReady, authenticated, user: privyUser } = usePrivy();
@@ -56,21 +56,21 @@ export default function Dashboard() {
         }
     }, [privyReady, authenticated, privyUser]);
 
-    useEffect(() => {
-        // Load risk level from localStorage on component mount
-        const savedRiskLevel = localStorage.getItem('riskLevel') as 'Low Risk' | 'High Risk';
-        if (savedRiskLevel) {
-            setRiskLevel(savedRiskLevel);
-        } else {
-            // Set default to Low Risk if not set
-            localStorage.setItem('riskLevel', 'Low Risk');
-        }
-    }, []);
+    // useEffect(() => {
+    //     // Load risk level from localStorage on component mount
+    //     const savedRiskLevel = localStorage.getItem('riskLevel') as 'Low Risk' | 'High Risk';
+    //     if (savedRiskLevel) {
+    //         setRiskLevel(savedRiskLevel);
+    //     } else {
+    //         // Set default to Low Risk if not set
+    //         localStorage.setItem('riskLevel', 'Low Risk');
+    //     }
+    // }, []);
 
-    const handleRiskLevelChange = (level: 'Low Risk' | 'High Risk') => {
-        setRiskLevel(level);
-        localStorage.setItem('riskLevel', level);
-    };
+    // const handleRiskLevelChange = (level: 'Low Risk' | 'High Risk') => {
+    //     setRiskLevel(level);
+    //     localStorage.setItem('riskLevel', level);
+    // };
 
     const handleSubmit = async (e: React.FormEvent, initialMessage?: string) => {
         console.log("handleSubmit")
@@ -118,7 +118,7 @@ export default function Dashboard() {
     // };
 
     const walletTypeLabel = (wallet: ConnectedWallet | ConnectedSolanaWallet) => {
-        if (wallet.connectorType === 'embedded' || wallet.connectorType === 'privy') return 'Privy Wallet';
+        if (wallet.connectorType === 'embedded' || wallet.connectorType === 'privy') return 'Earny Wallet';
         return (wallet.walletClientType || wallet.connectorType || "").toLowerCase() || 'Wallet';
     };
 
@@ -260,7 +260,7 @@ export default function Dashboard() {
                                 </DropdownMenu.Root>
 
                                 {/* create another dropdown for risk level and have options like low and high risk*/}
-                                <DropdownMenu.Root>
+                                {/* <DropdownMenu.Root>
                                     <DropdownMenu.Trigger asChild>
                                         <button type="button" className="flex items-center gap-1 px-2 py-1 rounded-full border border-black/10 bg-white hover:bg-black/4 transition-all">
                                             <span className="font-funnel-sans font-medium text-xs text-black/80">{riskLevel}</span>
@@ -288,7 +288,7 @@ export default function Dashboard() {
                                             )}
                                         </DropdownMenu.Item>
                                     </DropdownMenu.Content>
-                                </DropdownMenu.Root>
+                                </DropdownMenu.Root> */}
                             </div>
                             <button
                                 type="submit"

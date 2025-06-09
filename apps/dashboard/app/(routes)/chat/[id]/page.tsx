@@ -5,7 +5,7 @@ import { Account } from 'viem';
 import { ethers } from 'ethers';
 import { showTransactionToast } from '@/lib/toast';
 import { Toaster } from '@/app/components/ui/sonner';
-import { TokenAnalysis, TokenSwap, TokenBalance, TokenInvest } from '@/app/components/dashboard/tools';
+import { TokenAnalysis, TokenSwap, TokenBalance, TokenInvest, SendToken } from '@/app/components/dashboard/tools';
 import { TokenAnalysisResponse } from '@/app/components/dashboard/tools/TokenAnalysis';
 import { WalletBalanceResponse } from '@/app/components/dashboard/tools/TokenBalance';
 import ReactMarkdown from 'react-markdown';
@@ -66,6 +66,7 @@ interface MessageResponse {
     content: string;
     responseFrom: string;
     toolName?: string;
+    id?: string;
 }
 
 
@@ -94,6 +95,23 @@ export interface SwapTokenConfirmationResponse {
     amountOut: string;
     approvalHash: string;
     swapHash: string;
+}
+
+interface SendTokenResponse {
+    token: {
+        address: `0x${string}`;
+        decimals: number;
+        name: string;
+        symbol: string;
+        image: string;
+        currentPrice: number;
+    };
+    amount: string;
+    originalAmount: string;
+    amountType: string;
+    recipient: `0x${string}`;
+    sender: `0x${string}`;
+    isNativeToken: boolean;
 }
 
 const ERC20_ABI = [
@@ -250,10 +268,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 const response = await fetch(`/api/chat/${resolvedParams.id}/messages?userId=${userId}`);
                 const data = await response.json();
                 if (data.messages) {
+                    console.log(data.messages, "data.messages")
                     setMessages(data.messages.map((msg: MessageResponse) => ({
                         responseFrom: msg.responseFrom,
                         tool_name: msg.toolName,
-                        response: msg.content
+                        response: msg.content,
+                        messageId: msg.id
                     })));
                 }
             } catch (error) {
@@ -490,23 +510,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         const userMessage = { responseFrom: 'user', response: inputValueNew };
         setMessages((prev) => [...prev, userMessage]);
 
-        // Store user message in database
         try {
-            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: inputValueNew,
-                    responseFrom: 'user',
-                    userId,
-                }),
-            });
-        } catch (error) {
-            console.log('Error storing user message:', error);
-        }
-
-        // Send message via Socket.IO
-        try {
+            // Send message via Socket.IO
             const payload = {
                 message: inputValueNew,
                 userWalletAddress: selectedAccount?.address,
@@ -526,52 +531,71 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             console.log('Failed to send message. Please try again.');
             setIsLoading(false);
         }
+
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: inputValueNew,
+                    responseFrom: 'user',
+                    userId,
+                }),
+            });
+        } catch (error) {
+            console.log('Error storing user message:', error);
+        }
     };
 
 
+    const handleRetry = async (messageId: string) => {
+        console.log("handleRetry called", messageId)
 
-    // const handleInvestmentCompleteDataStore = async (result: `0x${string}`) => {
-    //     console.log("Transaction hash:", result);
-    //     const inputValueNew = result;
+        // fetch the index of this messageId from the messages array
+        const messageIndex = messages.findIndex(msg => msg.messageId === messageId)
+        console.log("messageIndex", messageIndex)
 
-    //     // Find the invest_token message in the messages array
-    //     const investMessage = messages.find(msg => msg.tool_name === 'invest_token');
-    //     if (investMessage && 'messageId' in investMessage) {
-    //         // Update the message with the transaction hash
-    //         const updatedMessage = await updateMessage(
-    //             investMessage.messageId as string,
-    //             JSON.stringify(inputValueNew),
-    //             { transactionHash: result }
-    //         );
+        // trim the messages array to the messageIndex
+        const trimmedMessages = messages.slice(0, messageIndex)
+        console.log("trimmedMessages", trimmedMessages)
 
-    //         if (updatedMessage) {
-    //             // Update the message in the UI
-    //             setMessages((prev) => prev.map((msg) =>
-    //                 msg === investMessage ? { ...msg, response: inputValueNew } : msg
-    //             ));
-    //         }
-    //     } else {
-    //         // Fallback to creating a new message if we can't find the original
-    //         const userMessage = { responseFrom: 'tools', tool_name: 'after_invest_token', response: JSON.stringify(inputValueNew) };
-    //         setMessages((prev) => [...prev, userMessage]);
+        // find the last user message in the trimmedMessages array
+        const lastUserMessage = trimmedMessages.findLast(msg => msg.responseFrom === 'user')
+        console.log("lastUserMessage", lastUserMessage)
 
-    //         try {
-    //             await fetch(`/api/chat/${resolvedParams.id}/messages`, {
-    //                 method: 'POST',
-    //                 headers: { 'Content-Type': 'application/json' },
-    //                 body: JSON.stringify({
-    //                     content: inputValueNew,
-    //                     responseFrom: 'tools',
-    //                     toolName: 'after_invest_token',
-    //                     userId,
-    //                 }),
-    //             });
-    //         } catch (error) {
-    //             console.log('Error storing user message:', error);
-    //         }
-    //     }
-    // };
+        const inputValueNew = lastUserMessage?.response as string;
 
+        // Add user message to chat
+        const userMessage = { responseFrom: 'user', response: inputValueNew };
+        setMessages((prev) => [...prev, userMessage]);
+
+        // send the previous user message to the server
+        const payload = {
+            message: inputValueNew,
+            userWalletAddress: selectedAccount?.address,
+            chatId: resolvedParams.id,
+        };
+        console.log('Sending message via socket:', payload);
+        socketRef.current?.emit('message', payload);
+
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: inputValueNew,
+                    responseFrom: 'user',
+                    userId,
+                }),
+            });
+            // Set needToFetchChats to true to trigger a refresh of the chat list
+        } catch (error) {
+            console.log('Error storing user message:', error);
+        }
+
+    }
 
     const handleSwapConfirmationMsgStore = async (inputValueNew: string) => {
         // Add user message to chat
@@ -868,7 +892,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
 
     const walletTypeLabel = (wallet: Wallet) => {
-        if (wallet.connectorType === 'embedded' || wallet.connectorType === 'privy') return 'Privy Wallet';
+        if (wallet.connectorType === 'embedded' || wallet.connectorType === 'privy') return 'Earny Wallet';
         return (wallet.walletClientType || wallet.connectorType || "").toLowerCase() || 'Wallet';
     };
 
@@ -1119,7 +1143,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             const data: TokenInvestResponse = JSON.parse(message.response as string);
                                             return (
                                                 <div key={index} className="mb-6">
-                                                    <TokenInvest data={data} updateMessage={updateMessage} messageId={message.messageId} userAddress={selectedAccount?.address as `0x${string}`} onDeny={() => handleSwapConfirmationMsgStore('Deny')} />
+                                                    <TokenInvest
+                                                        data={data}
+                                                        updateMessage={updateMessage}
+                                                        messageId={message.messageId}
+                                                        userAddress={selectedAccount?.address as `0x${string}`}
+                                                        onDeny={() => handleSwapConfirmationMsgStore('Deny')}
+                                                        handleRetry={() => handleRetry(message.messageId || "")}
+                                                    />
                                                 </div>
                                             );
                                         } catch (error) {
@@ -1136,6 +1167,40 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                             <span className="font-semibold">Invalid Response Format</span>
                                                         </div>
                                                         <p className="mt-2 text-sm text-red-600">Failed to process token information. Please try again.</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    if (message.tool_name === 'send_token') {
+                                        try {
+                                            const data: SendTokenResponse = JSON.parse(message.response as string);
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <SendToken
+                                                        data={data}
+                                                        userAddress={selectedAccount?.address as `0x${string}`}
+                                                        onDeny={() => handleSwapConfirmationMsgStore('Deny')}
+                                                        updateMessage={updateMessage}
+                                                        messageId={message.messageId}
+                                                    />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Send Token Data</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process send token information. Please try again.</p>
                                                     </div>
                                                 </div>
                                             );

@@ -5,7 +5,7 @@ import { LoadingButton } from "@/app/components/ui/button.loader";
 // import { useUser } from "@/hooks/use-user";
 // import { useAuth } from "@/providers/auth-provider";
 // import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 // import { providerMap } from "@/auth.config";
 // import { handleEmailSignIn } from "@/actions/signin/sendVerificationRequest";
 import { Suspense, useEffect, useState, useRef } from "react";
@@ -13,8 +13,10 @@ import { Suspense, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/app/components/ui/sonner";
 import { z } from "zod";
-import { ConnectedWallet, useActiveWallet, useLoginWithEmail, useLoginWithPasskey, usePrivy } from "@privy-io/react-auth";
-import { createUser } from '@/actions/user';
+import { Captcha, useLoginWithEmail, useLoginWithPasskey, usePrivy } from "@privy-io/react-auth";
+import { createUser, findUserById } from '@/actions/user';
+import { Icons } from "./components/sections/icons";
+import OrSeparator from "./components/sections/or-separator";
 
 const formSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -103,25 +105,41 @@ const OTPInput = ({ onComplete, verificationStatus }: { onComplete: (code: strin
 
 function SignUpPage() {
   // const { user, isLoading } = useUser()
-  const { ready, authenticated, createWallet } = usePrivy();
-  const { setActiveWallet } = useActiveWallet();
+  const { ready, authenticated } = usePrivy();
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(true);
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
-  const searchParams = useSearchParams()
+  // const searchParams = useSearchParams()
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState<string | null>("We will send you a verification code to your email.")
+  // const [message, setMessage] = useState<string | null>("We will send you a verification code to your email.")
   const [showVerification, setShowVerification] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<"idle" | "verifying" | "success" | "error">("idle");
   const { loginWithPasskey } = useLoginWithPasskey();
-  const [emailError, setEmailError] = useState<string | null>(null);
+  // const [emailError, setEmailError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isResending, setIsResending] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
+
+  useEffect(() => {
+    // Get stored username from local storage
+    const accountsHistory = localStorage.getItem('default:accounts_history');
+    if (accountsHistory) {
+      try {
+        const parsed = JSON.parse(accountsHistory);
+        const usernames = parsed.value || [];
+        if (usernames.length > 0) {
+          router.push("/welcome-back");
+        }
+      } catch (e) {
+        console.error('Error parsing accounts history:', e);
+      }
+    }
+  }, [router])
+
 
   const {
     sendCode: sendCodeEmail,
@@ -138,34 +156,48 @@ function SignUpPage() {
       try {
         if (ready && isNewUser) {
           console.log(user, "db user details")
-          const username = user.email?.address.toString()?.split('@')[0] || '';
+          // const username = user.email?.address.toString()?.split('@')[0] || '';
           const userId = user.id.split(':').pop() || user.id;
 
           // Create user in database using server action
           await createUser({
             id: userId,
             email: user.email?.address.toString() || null,
-            username: username,
+            username: "",
             hasAcceptedTerms: true,
             isGuest: false,
             mfaMethods: [],
           });
 
-          await createWallet({ createAdditional: false }).then((wallet) => {
-            setActiveWallet(wallet as unknown as ConnectedWallet)
-            toast.success("Wallet created successfully");
-            router.push("/home");
-          }).catch((error) => {
-            console.log("Wallet creation error:", error);
-            toast.error("Failed to create wallet");
-            // Don't redirect on wallet creation failure
-            setVerificationStatus("error");
-            setErrorMessage("Account created but wallet creation failed. Please try again later.");
-          });
-        } else {
-          console.log("user already exists")
-          console.log(user, "db user details")
-          router.push("/home");
+          // Redirect to passkey setup page
+          router.push("/sign-up/passkeys");
+        } else if (ready && !isNewUser) {
+
+          // user is there on the privy db
+          const userId = user.id.split(':').pop() || user.id;
+          const existingUser = await findUserById(userId);
+
+          if (existingUser) {
+
+            if (existingUser.username) {
+              // Case 4: User exists and has username - redirect to home
+              router.push("/home");
+            } else {
+              // Case 3: User exists but no username - stay on page to set username
+              router.push("/sign-up/passkeys");
+            }
+          } else {
+            // Case 1 & 2: User doesn't exist in database - create user
+            await createUser({
+              id: userId,
+              email: user.email?.address.toString() || null,
+              username: "",
+              hasAcceptedTerms: true,
+              isGuest: false,
+              mfaMethods: [],
+            });
+            router.push("/sign-up/passkeys");
+          }
         }
       } catch (error) {
         console.log("Error during signup:", error);
@@ -191,23 +223,25 @@ function SignUpPage() {
     }
   }, [router, authenticated, ready])
 
-  useEffect(() => {
-    const qsError = searchParams.get("error")
-    if (qsError) {
-      toast.error(qsError)
-    }
-  }, [searchParams])
+  // useEffect(() => {
+  //   const qsError = searchParams.get("error")
+  //   if (qsError) {
+  //     toast.error(qsError)
+  //   }
+  // }, [searchParams])
 
-  useEffect(() => {
-    if (email) {
-      setMessage("We will send you a verification code to your email.")
-    }
-  }, [email])
+  // useEffect(() => {
+  //   if (email) {
+  // setMessage("We will send you a verification code to your email.")
+  //   }
+  // }, [email])
 
   const validateEmail = (email: string) => {
     setIsValidating(true);
     const result = formSchema.safeParse({ email });
-    setEmailError(result.success ? null : result.error.errors[0].message);
+    if (!result.success) {
+      toast.error(result.error.errors[0].message);
+    }
     setIsValidating(false);
     return result.success;
   };
@@ -389,10 +423,10 @@ function SignUpPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-1 sm:gap-4 px-4 sm:px-0">
-      <h1 className="text-lg sm:text-2xl font-bold font-funnel-sans text-center text-black/40 transition-all duration-300 ease-in-out">Login or Sign up</h1>
+      <h1 className="text-lg sm:text-2xl font-bold font-funnel-sans text-center text-black/40 transition-all duration-300 ease-in-out">Welcome</h1>
       <form
         onSubmit={handleSubmit}
-        className={`w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-6 sm:gap-8 transition-all duration-300 ease-in-out ${isTransitioning ? 'opacity-50' : ''}`}
+        className={`w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-4 sm:gap-8 transition-all duration-300 ease-in-out ${isTransitioning ? 'opacity-50' : ''}`}
         aria-label="Login or sign up form"
         noValidate
       >
@@ -404,32 +438,20 @@ function SignUpPage() {
         </div>
 
         {/* Email Input */}
-        <div className="flex flex-col gap-2">
-          <div className="bg-black/[10%] rounded-full flex gap-2 sm:gap-4 px-4 sm:px-10 py-3 sm:py-5">
-            <label htmlFor="email" className="text-base sm:text-[1.375rem] font-funnel-sans text-black/[40%] flex items-center justify-center">Email</label>
-            <input
-              type="email"
-              id="email"
-              name="email"
-              placeholder="email@example.com"
-              onChange={(e) => setEmail(e.target.value)}
-              className={`w-full bg-transparent outline-none font-funnel-sans text-base sm:text-[1.375rem] ml-2 sm:ml-4 text-black focus:outline-none focus:ring-0 focus:bg-none ${emailError ? 'border-red-500' : ''}`}
-              aria-invalid={!!emailError}
-              aria-describedby={emailError ? "email-error" : undefined}
-              required
-            />
-          </div>
-          {emailError && (
-            <p id="email-error" className="text-red-500 text-sm ml-4" role="alert">{emailError}</p>
-          )}
+
+        <div className="bg-black/[10%] rounded-full flex gap-2 sm:gap-4 px-4 sm:px-10 py-3 sm:py-5">
+          <label htmlFor="email" className="text-base sm:text-[1.375rem] font-funnel-sans text-black/[40%] flex items-center justify-center">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="email@example.com"
+            onChange={(e) => setEmail(e.target.value)}
+            className={`w-full bg-transparent outline-none font-funnel-sans text-base sm:text-[1.375rem] ml-2 sm:ml-4 text-black focus:outline-none focus:ring-0 focus:bg-none`}
+            required
+          />
         </div>
-
-        {errorMessage && (
-          <p className="text-red-500 text-sm text-center" role="alert">{errorMessage}</p>
-        )}
-
         <div>
-          {message && <p className="text-center text-black/[30%] font-funnel-sans text-xs sm:text-sm mb-2 transition-all duration-300 ease-in-out">{message}</p>}
           <LoadingButton
             type="submit"
             className="flex items-center justify-center gap-2 w-full px-6 sm:px-10 py-3 sm:py-5 bg-primary font-funnel-sans font-medium text-base sm:text-[1.375rem] text-white rounded-full hover:bg-blue-600 transition-all duration-300 ease-in-out disabled:opacity-70 h-auto"
@@ -437,22 +459,23 @@ function SignUpPage() {
             loading={loadingAction === "email"}
             aria-label="Submit email for verification"
           >
-            Submit
+            Create account
           </LoadingButton>
         </div>
 
-        <p className="text-center text-black/[40%] font-funnel-sans text-xs sm:text-sm">
-          <LoadingButton
-            type="button"
-            onClick={handleLoginWithPasskey}
-            className="text-primary bg-transparent hover:bg-transparent text-sm"
-            loading={loadingAction === "passkey"}
-            aria-label="Login with passkey"
-          >
-            I have a passkey
-          </LoadingButton>
-        </p>
+        <OrSeparator />
+        <LoadingButton
+          type="button"
+          onClick={handleLoginWithPasskey}
+          className="flex items-center justify-center gap-2 w-full px-6 sm:px-10 py-3 sm:py-5 bg-primary font-funnel-sans font-medium text-base sm:text-[1.375rem] text-white rounded-full hover:bg-blue-600 transition-all duration-300 ease-in-out disabled:opacity-70 h-auto"
+          loading={loadingAction === "passkey"}
+          aria-label="Login with passkey"
+        >
+          <Icons.passkeyIcon className="w-6 h-6" /> Log in with Passkey
+        </LoadingButton>
+
       </form>
+      <Captcha />
       <Toaster />
     </div>
   );
