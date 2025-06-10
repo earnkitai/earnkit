@@ -19,8 +19,14 @@ export function WalletsSection() {
 
     const handleSetActive = (address: string) => {
         const selectedWallet = privyWallets.find((wallet) => wallet.address === address);
+        console.log(privyWallets, "privyWallets")
+        console.log(selectedWallet, "selectedWallet")
+        console.log(wallets, "wallets")
         if (selectedWallet) {
+
             setActiveWalletPrivy(selectedWallet);
+        } else {
+
         }
         // TODO: Add logic to persist active wallet if needed
     };
@@ -52,10 +58,10 @@ export function WalletsSection() {
             </h2>
             <p className="text-sm text-muted-foreground mb-4">Connect and link wallets to your account.</p>
             <div className="space-y-3">
-                {wallets.length === 0 && (
+                {privyWallets.length === 0 && (
                     <div className="text-muted-foreground text-sm">No wallets linked.</div>
                 )}
-                {wallets.map((wallet) => {
+                {privyWallets.map((wallet) => {
                     const isEmbedded = wallet.connectorType === "embedded";
                     const isActive = activeWallet?.address === wallet.address;
 

@@ -5,11 +5,11 @@ import { Icons } from '@/app/components/sections/icons';
 import Image from 'next/image';
 import Link from 'next/link';
 import { CopyIcon } from 'lucide-react';
-import { useSendTransaction } from '@privy-io/react-auth';
+import { useSendTransaction, useWallets } from '@privy-io/react-auth';
 import { truncateAddress } from '@/lib/utils';
 import { toast } from 'sonner';
 import { LoadingButton } from '../../ui/button.loader';
-import { encodeFunctionData, erc20Abi } from 'viem';
+import { encodeFunctionData, erc20Abi, formatUnits } from 'viem';
 
 interface Token {
     address: `0x${string}`;
@@ -33,16 +33,17 @@ interface SendTokenResponse {
 
 interface SendTokenProps {
     data: SendTokenResponse;
-    userAddress: `0x${string}`;
+    userAddress?: `0x${string}`;
     onDeny: () => void;
     updateMessage: (messageId: string, content: string, metadata?: object) => Promise<{ id: string } | null>;
     messageId?: string;
 }
 
-export default function SendToken({ data, userAddress, onDeny, updateMessage, messageId }: SendTokenProps) {
+export default function SendToken({ data, onDeny, updateMessage, messageId }: SendTokenProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [transactionHash, setTransactionHash] = useState<`0x${string}` | null>(null);
     const { sendTransaction } = useSendTransaction();
+    const { wallets } = useWallets();
     useEffect(() => {
         if (data) {
             console.log(data, "data")
@@ -55,42 +56,61 @@ export default function SendToken({ data, userAddress, onDeny, updateMessage, me
     const handleSend = async () => {
         setIsLoading(true);
         try {
+            const wallet = wallets.find((wallet) => wallet.walletClientType === "privy");
+            if (!wallet) {
+                toast.error("Please use only Earny Wallet");
+                return;
+            }
             const publicClient = getPublicClient('base');
             console.log(data, "data")
             console.log({
                 to: data.recipient,
                 value: BigInt(data.amount),
             })
-            console.log(userAddress, "userAddress")
+            console.log(wallet.address, "userAddress")
+            let txHash: `0x${string}` | null = null;
 
-            const recipientAddress = data.recipient;
+            if (data.isNativeToken) {
+                // native token
+                const { hash } = await sendTransaction({
+                    from: wallet.address,
+                    to: data.recipient,
+                    value: BigInt(data.amount),
+                    chainId: 8453, // Base's chainId
+                });
+                txHash = hash;
+            } else {
+                // any ERC20 token
+                const recipientAddress = data.recipient;
 
-            const encodedData = encodeFunctionData({
-                abi: erc20Abi,
-                functionName: 'transfer',
-                args: [recipientAddress, BigInt(data.amount)]
-            });
+                const encodedData = encodeFunctionData({
+                    abi: erc20Abi,
+                    functionName: 'transfer',
+                    args: [recipientAddress, BigInt(data.amount)]
+                });
 
-            const { hash } = await sendTransaction({
-                to: data.token.address,
-                data: encodedData, // from the previous step
-                chainId: 8453, // Base's chainId
-            }, {
-                address: userAddress
-            });
+                const { hash } = await sendTransaction({
+                    from: wallet.address,
+                    to: data.token.address,
+                    data: encodedData,
+                    chainId: 8453, // Base's chainId
+                });
+                txHash = hash;
 
-            setTransactionHash(hash);
+            }
+
+            setTransactionHash(txHash);
             const toastId = showTransactionToast({
-                hash,
+                hash: txHash,
                 title: 'Sending ETH...',
                 description: 'Please wait for the transaction to complete',
                 type: 'loading',
             });
 
-            await publicClient.waitForTransactionReceipt({ hash });
+            await publicClient.waitForTransactionReceipt({ hash: txHash });
             showTransactionToast({
                 id: toastId,
-                hash,
+                hash: txHash,
                 title: 'ETH sent successfully! 🎉',
                 description: 'Your ETH has been transferred',
                 type: 'success',
@@ -100,12 +120,12 @@ export default function SendToken({ data, userAddress, onDeny, updateMessage, me
             if (messageId) {
                 await updateMessage(messageId, JSON.stringify({
                     ...data,
-                    transactionHash: hash
-                }), { transactionHash: hash });
+                    transactionHash: txHash
+                }), { transactionHash: txHash });
             }
 
         } catch (error) {
-            console.error('Error sending token:', error);
+            console.log('Error sending token:', error);
             showTransactionToast({
                 title: 'Error sending token',
                 description: 'Please try again',
@@ -142,9 +162,9 @@ export default function SendToken({ data, userAddress, onDeny, updateMessage, me
                         <p className="text-sm text-black/40">{data.token.symbol}</p>
                     </div>
                     <div className="text-right">
-                        <p className="font-medium text-black/80">{data.originalAmount}</p>
+                        <p className="font-medium text-black/80">{formatUnits(BigInt(data.amount), data.token.decimals)}</p>
                         <p className="text-sm text-black/40">
-                            ${(parseFloat(data.originalAmount) * data.token.currentPrice).toFixed(2)}
+                            ${data.amountType === "dollarWorth" ? data.originalAmount : (parseFloat(formatUnits(BigInt(data.amount), data.token.decimals)) * data.token.currentPrice).toFixed(5)}
                         </p>
                     </div>
                 </div>

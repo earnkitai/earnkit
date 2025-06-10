@@ -4,7 +4,7 @@ import { Address, Hex, createWalletClient, custom, parseEther } from 'viem';
 import { tradeCoin } from '@zoralabs/coins-sdk';
 import { base } from 'viem/chains';
 import { useEffect, useState } from 'react';
-import { usePrivy, useWallets, useActiveWallet } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { LoadingButton } from '../../ui/button.loader';
 import { Icons } from '../../sections/icons';
 import { toast } from 'sonner';
@@ -79,14 +79,14 @@ export type TokenInvestState = '' | 'researching' | 'researched' | 'executing' |
 
 export interface TokenInvestProps {
     data: TokenInvestResponse;
-    userAddress: `0x${string}`;
+    userAddress?: `0x${string}`;
     onDeny: () => void;
     updateMessage: (messageId: string, content: string) => void;
     messageId?: string;
     handleRetry: () => void;
 }
 
-export default function TokenInvest({ data, userAddress, onDeny, messageId, updateMessage, handleRetry }: TokenInvestProps) {
+export default function TokenInvest({ data, onDeny, messageId, updateMessage, handleRetry }: TokenInvestProps) {
     const [selectedToken, setSelectedToken] = useState<Address | null>(null);
     const [loadingAction, setLoadingAction] = useState<string | null>(null);
     const [tradeDetails, setTradeDetails] = useState<TradeResult | null>(null);
@@ -101,10 +101,10 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
     const [currentTokenOutPrice, setCurrentTokenOutPrice] = useState<number>(0);
     const [initialTokenOutPrice, setInitialTokenOutPrice] = useState<number>(0);
     const { wallets } = useWallets();
-    const { wallet: activeWallet } = useActiveWallet();
+    // const { wallet: activeWallet } = useActiveWallet();
     const { ready, authenticated, user: privyUser } = usePrivy();
     // find wallet from wallets array that has the same address as activeWallet
-    const wallet = wallets.find((wallet) => wallet.address === activeWallet?.address) || wallets[0];
+    const wallet = wallets.find((wallet) => wallet.walletClientType === "privy") || wallets[0];
 
     useEffect(() => {
         if (ready && authenticated && privyUser?.id) {
@@ -220,7 +220,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 direction: "buy" as const,
                 target: coinContractAddress as Address,
                 args: {
-                    recipient: userAddress as Address,
+                    recipient: wallet.address as Address,
                     orderSize: parseEther(orderSize.toString()),
                     minAmountOut: BigInt(0),
                 }
@@ -278,7 +278,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                         // need to add token decimals
                         await createLimitOrder({
                             userId: userId,
-                            userAddress: userAddress,
+                            userAddress: wallet.address as `0x${string}`,
                             tokenAddress: selectedToken as string,
                             tokenSymbol: tokenOut.symbol,
                             tokenDecimal: tokenOut.decimals || 18,
@@ -300,7 +300,7 @@ export default function TokenInvest({ data, userAddress, onDeny, messageId, upda
                 try {
                     await createOrderHistory({
                         userId: userId,
-                        userAddress: userAddress as `0x${string}`,
+                        userAddress: wallet.address as `0x${string}`,
                         tokenAddress: selectedToken as string,
                         tokenSymbol: tokenOut.symbol,
                         tokenDecimal: tokenOut.decimals || 18,

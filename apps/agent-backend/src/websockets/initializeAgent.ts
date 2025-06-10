@@ -72,8 +72,8 @@ export async function initializeAgent(
 
         1. If the user mentions "trade" or "trade on Zora" then use the "invest_token" tool and this tool requires following parameters:
           - token - always use ETH as the token
-          - amount - if not provided, then ask for it
-          - amountType - if not provided, then ask for it
+          - amount - if not provided, *must ask for it*
+          - amountType - if not provided, *must ask for it*
           - risk - always use "low" as the risk
           - walletAddress - always use the user's wallet address
 
