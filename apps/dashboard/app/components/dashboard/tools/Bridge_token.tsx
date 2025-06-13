@@ -122,8 +122,8 @@ export interface BridgeTokenProps {
     fromChain: string;
     toChain: string;
     userAddress: string;
-    updateMessage: (messageId: string, content: string, metadata?: object) => Promise<{ id: string } | null>;
-    messageId?: string;
+    // updateMessage: (messageId: string, content: string, metadata?: object) => Promise<{ id: string } | null>;
+    // messageId?: string;
 }
 
 function getChainIdByName(chainName: string): number | undefined {
@@ -156,8 +156,6 @@ export default function BridgeToken({
     fromChain,
     toChain,
     userAddress,
-    updateMessage,
-    messageId,
 }: BridgeTokenProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [quoteData, setQuoteData] = useState<QuoteResponse | null>(null);

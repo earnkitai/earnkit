@@ -1263,8 +1263,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                         fromChain={data.fromChain}
                                                         toChain={data.toChain}
                                                         userAddress={selectedAccount?.address as `0x${string}`}
-                                                        updateMessage={updateMessage}
-                                                        messageId={message.messageId}
                                                     />
                                                 </div>
                                             );
