@@ -79,8 +79,9 @@ export async function initializeAgent(
 
         2. For swap_token tool:
            - after using this tool, just ask for user confirmation to do the transaction in a very short reply.
-        
+
         3. For invest_token tool:
+        - if the amount is not provided, then reply this "How much amount would you like to invest?"
         - after using this tool, just reply this "Follow the steps to invest".
 
         3. For token_analysis tool:

@@ -321,11 +321,11 @@ export default function Dashboard() {
                 </div>
 
                 {/* Pills Section */}
-                <div className="flex flex-wrap gap-3 justify-center mb-8">
+                <div className="flex flex-wrap gap-3 justify-center mb-8 max-w-xl mx-auto">
                     {[
                         { label: 'Trade on Zora' },
-                        { label: 'Analyse a Token' }
-
+                        { label: 'Analyse a Token' },
+                        { label: 'Send a token' },
                     ].map((pill) => (
                         <button
                             key={pill.label}

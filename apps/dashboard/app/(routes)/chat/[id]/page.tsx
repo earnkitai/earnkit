@@ -26,6 +26,7 @@ import { TokenInvestResponse, TokenInvestState } from '@/app/components/dashboar
 import { TokenInvestProgress } from '@/app/components/dashboard/tools/TokenInvestProgress';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import Image from 'next/image';
+import BridgeToken, { BridgeTokenProps } from '@/app/components/dashboard/tools/Bridge_token';
 
 interface Message {
     responseFrom: string;
@@ -40,6 +41,7 @@ interface Message {
     | string;
     messageId?: string;
     state?: TokenInvestState[];
+    metadata?: string;
 }
 
 interface SwapTokenResponse {
@@ -619,6 +621,41 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         }
     }
 
+
+    const handleInvestAmountSelection = async (option: string) => {
+        setIsLoading(true);
+        // update the message with the option
+        // if (messageId) {
+        //     await updateMessage(messageId, JSON.stringify({ data, metadata: option }));
+        // }
+
+        const userMessage = { responseFrom: 'user', response: option };
+        setMessages((prev) => [...prev, userMessage]);
+
+        // send this message to the server
+        const payload = {
+            message: option,
+            userWalletAddress: selectedAccount?.address,
+            chatId: resolvedParams.id,
+        };
+        socketRef.current?.emit('message', payload);
+        // Store user message in database
+        try {
+            await fetch(`/api/chat/${resolvedParams.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: option,
+                    responseFrom: 'user',
+                    userId,
+                }),
+            });
+            // Set needToFetchChats to true to trigger a refresh of the chat list
+        } catch (error) {
+            console.log('Error storing user message:', error);
+        }
+    }
+
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInputValue(e.target.value);
     };
@@ -977,7 +1014,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                 key={index}
                                                 className="flex justify-end my-2"
                                             >
-                                                <div className="max-w-[80%] p-4 rounded-full font-funnel-sans bg-black/4 text-black/80 ml-auto font-semibold">
+                                                <div className="max-w-[80%] p-4 rounded-full font-funnel-sans bg-black/4 text-black/80 ml-auto font-medium">
                                                     {Array.isArray(message.response)
                                                         ? message.response.map((item, i) => (
                                                             <div key={i}>{item.text}</div>
@@ -998,9 +1035,46 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             </div>
                                         );
                                     }
-
-                                    if (message.responseFrom === 'agent' || (message.responseFrom !== 'tools' && !message.tool_name)) {
+                                    if (message.responseFrom === 'agent' && typeof message.response === 'string' && (message.response).includes("How much amount would you like to invest?")) {
                                         // Render agent messages in chat only
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="flex justify-start my-2"
+                                            >
+                                                <div className="max-w-[80%] p-2 font-funnel-sans text-black/80 font-normal">
+                                                    {message.response}
+                                                    <div className="flex items-center gap-3 mt-4">
+                                                        <button
+                                                            onClick={() => {
+                                                                handleInvestAmountSelection("$0.50 worth of ETH")
+                                                            }}
+                                                            className={`flex items-center text-sm gap-2 px-2 py-1 rounded-full border transition-all ${message.metadata === "$0.50 worth of ETH"
+                                                                ? "border-blue-500 bg-blue-50 shadow-sm"
+                                                                : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                                                }`}
+                                                            disabled={message.metadata === "$0.50 worth of ETH"}
+                                                        >
+                                                            $0.50 worth of ETH
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                handleInvestAmountSelection("$1 worth of ETH")
+                                                            }}
+                                                            className={`flex items-center text-sm gap-2 px-2 py-1 rounded-full border transition-all ${message.metadata === "$1 worth of ETH"
+                                                                ? "border-blue-500 bg-blue-50 shadow-sm"
+                                                                : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                                                }`}
+                                                        >
+                                                            $1 worth of ETH
+                                                        </button>
+                                                    </div>
+
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    if (message.responseFrom === 'agent' || (message.responseFrom !== 'tools' && !message.tool_name)) {
                                         return (
                                             <div
                                                 key={index}
@@ -1023,11 +1097,13 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                             >
                                                                 {message.response}
                                                             </ReactMarkdown>
+
                                                         ) : message.response}
                                                 </div>
                                             </div>
-                                        );
+                                        )
                                     }
+
 
                                     // Render tool responses
                                     if (message.tool_name === 'token_analysis') {
@@ -1173,6 +1249,45 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                         }
                                     }
 
+                                    if (message.tool_name === 'bridge_token') {
+                                        try {
+                                            console.log(message, 'message.response');
+                                            const data: BridgeTokenProps = JSON.parse(message.response as string);
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <BridgeToken
+                                                        tokenFrom={data.tokenFrom}
+                                                        tokenFromDecimals={data.tokenFromDecimals}
+                                                        tokenTo={data.tokenTo}
+                                                        amount={data.amount}
+                                                        fromChain={data.fromChain}
+                                                        toChain={data.toChain}
+                                                        userAddress={selectedAccount?.address as `0x${string}`}
+                                                        updateMessage={updateMessage}
+                                                        messageId={message.messageId}
+                                                    />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Response Format</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process token information. Please try again.</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
                                     if (message.tool_name === 'send_token') {
                                         try {
                                             const data: SendTokenResponse = JSON.parse(message.response as string);
@@ -1191,7 +1306,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             console.log(error, 'error');
                                             return (
                                                 <div key={index} className="mb-6">
-                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4 max-w-max">
                                                         <div className="flex items-center gap-2 text-red-600">
                                                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                                 <circle cx="12" cy="12" r="10" />
@@ -1245,7 +1360,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                     </div>
                                 )}
                             </>
-                        )}
+                        )
+                        }
                         <div ref={messagesEndRef} />
                     </div>
 
@@ -1379,7 +1495,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
 
                 </div>
-            </section>
+            </section >
 
 
             {/* <TransactionStatus

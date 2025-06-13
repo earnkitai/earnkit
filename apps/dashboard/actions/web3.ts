@@ -278,3 +278,29 @@ export const getTokenMetadataWithCoingecko = async (token: string) => {
 
   return metadata;
 };
+
+export const getTokenMetadataBasedOnChain = async (
+  token: string,
+  network: string,
+) => {
+  const url = `https://pro-api.coingecko.com/api/v3/onchain/networks/${network === 'ethereum' ? 'eth' : network}/tokens/${token}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      'x-cg-pro-api-key': env.COINGECKO_API_KEY,
+    },
+  });
+  const data = await response.json();
+
+  // Extract only the required fields
+  const metadata: TokenMetadata = {
+    imageUrl: data.data?.attributes?.image_url,
+    name: data.data?.attributes?.name,
+    symbol: data.data?.attributes?.symbol,
+    decimals: data.data?.attributes?.decimals,
+    priceUsd: Number(data.data?.attributes?.price_usd),
+  };
+
+  return metadata;
+};

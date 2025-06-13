@@ -423,7 +423,7 @@ function SignUpPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white flex-col gap-1 sm:gap-4 px-4 sm:px-0">
-      <h1 className="text-lg sm:text-2xl font-bold font-funnel-sans text-center text-black/40 transition-all duration-300 ease-in-out">Welcome</h1>
+      {/* <h1 className="text-lg sm:text-2xl font-bold font-funnel-sans text-center text-black/40 transition-all duration-300 ease-in-out">Welcome</h1> */}
       <form
         onSubmit={handleSubmit}
         className={`w-full max-w-xl p-6 sm:p-12 bg-black/[4%] rounded-3xl shadow-sm flex flex-col gap-4 sm:gap-8 transition-all duration-300 ease-in-out ${isTransitioning ? 'opacity-50' : ''}`}

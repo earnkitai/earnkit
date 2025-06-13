@@ -228,3 +228,20 @@ export const getInjectedWalletClient = async () => {
 
   return injectedClient;
 };
+
+export const chainIdMap: Record<string, number> = {
+  ethereum: 1,
+  polygon: 137,
+  optimism: 10,
+  arbitrum: 42161,
+  base: 8453,
+  bnb: 56,
+  avalanche: 43114,
+  fantom: 250,
+  gnosis: 100,
+  celo: 42220,
+  sepolia: 11155111,
+  goerli: 5,
+  polygon_mumbai: 80001,
+  base_sepolia: 84532,
+};

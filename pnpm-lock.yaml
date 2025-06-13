@@ -42,8 +42,8 @@ importers:
         specifier: ^16.3.1
         version: 16.5.0
       earnkit:
-        specifier: ^1.0.18
-        version: 1.0.18(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+        specifier: ^1.0.19
+        version: 1.0.19(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       express:
         specifier: ^4.18.2
         version: 4.21.2
@@ -311,6 +311,9 @@ importers:
       '@react-oauth/google':
         specifier: ^0.12.1
         version: 0.12.2(react-dom@19.0.0)(react@19.0.0)
+      '@reservoir0x/relay-sdk':
+        specifier: ^2.1.1
+        version: 2.1.1(viem@2.30.0)
       '@sentry/nextjs':
         specifier: ^9.10.1
         version: 9.22.0(@opentelemetry/context-async-hooks@2.0.1)(@opentelemetry/core@2.0.1)(@opentelemetry/instrumentation@0.200.0)(@opentelemetry/sdk-trace-base@2.0.1)(next@15.3.2)(react@19.0.0)(webpack@5.99.9)
@@ -339,8 +342,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       earnkit:
-        specifier: ^1.0.18
-        version: 1.0.18(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+        specifier: ^1.0.19
+        version: 1.0.19(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       ethers:
         specifier: ^6.13.4
         version: 6.14.1
@@ -944,11 +947,11 @@ packages:
       '@jridgewell/trace-mapping': 0.3.9
     dev: true
 
-  /@earnkit/sdk-ai@1.0.13(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-o2+ZTuUNIHpzDaUyShi06d8j5mo86BllfxD6Rh4ZGaKKOB+ofBDb/KWbGNsjzv54qiE9Enr8hsMexj2thtiMzw==}
+  /@earnkit/sdk-ai@1.0.14(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-UsFh4Bg5Y1YYL5FP2KNABW0eEfGdDgv2BDvWqHTt/PYqrEVFcem/r0gtgFOfl33y4p9kZy7nsPl9kBYhuiddGg==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.11(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@langchain/core': 0.3.57
       zod: 3.25.20
     transitivePeerDependencies:
@@ -970,11 +973,11 @@ packages:
       - utf-8-validate
     dev: false
 
-  /@earnkit/sdk-ai@1.0.13(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-o2+ZTuUNIHpzDaUyShi06d8j5mo86BllfxD6Rh4ZGaKKOB+ofBDb/KWbGNsjzv54qiE9Enr8hsMexj2thtiMzw==}
+  /@earnkit/sdk-ai@1.0.14(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-UsFh4Bg5Y1YYL5FP2KNABW0eEfGdDgv2BDvWqHTt/PYqrEVFcem/r0gtgFOfl33y4p9kZy7nsPl9kBYhuiddGg==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.11(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@langchain/core': 0.3.57
       zod: 3.25.20
     transitivePeerDependencies:
@@ -996,8 +999,8 @@ packages:
       - utf-8-validate
     dev: false
 
-  /@earnkit/sdk-core@1.1.11(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-fHZDtUTPTb9rkiTgxmVvWLs3tQ6P8umCP0LIeu1ArFt0Mr9b1WO286ddATQTUo7c1OjLhknn8hs+kX+qwhTBvA==}
+  /@earnkit/sdk-core@1.1.12(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-webXm1bqztmtUXcKlOxMDyEad2evuwYcz60NdLvoA9BKmE+sJYSZQO0QlzCxdFbxbp1aDx8GZA00bkwKDncUcQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
@@ -1027,14 +1030,14 @@ packages:
       - utf-8-validate
     dev: false
 
-  /@earnkit/sdk-core@1.1.11(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-fHZDtUTPTb9rkiTgxmVvWLs3tQ6P8umCP0LIeu1ArFt0Mr9b1WO286ddATQTUo7c1OjLhknn8hs+kX+qwhTBvA==}
+  /@earnkit/sdk-core@1.1.12(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-webXm1bqztmtUXcKlOxMDyEad2evuwYcz60NdLvoA9BKmE+sJYSZQO0QlzCxdFbxbp1aDx8GZA00bkwKDncUcQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
       '@earnkit/sdk-wallet': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)(zod@3.25.20)
       '@types/node-fetch': 2.6.12
-      alchemy-sdk: 3.5.9(typescript@5.8.3)
+      alchemy-sdk: 3.6.0(typescript@5.8.3)
       axios: 1.9.0
       ethers: 6.14.1
       node-fetch: 2.7.0(encoding@0.1.13)
@@ -1062,7 +1065,7 @@ packages:
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.11(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@neynar/nodejs-sdk': 2.44.0(typescript@5.8.3)(zod@3.25.20)
       axios: 1.9.0
       dotenv: 16.5.0
@@ -1096,7 +1099,7 @@ packages:
     resolution: {integrity: sha512-QL1DH4hGy8PJhFKH/s7rUFZx7FzQq+aizsc9IpsSka/1DBnvsPS6TK+LHvS9rv9h8c5crkt4fcoCiARp9DL5NQ==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      '@earnkit/sdk-core': 1.1.11(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@neynar/nodejs-sdk': 2.44.0(typescript@5.8.3)(zod@3.25.20)
       axios: 1.9.0
       dotenv: 16.5.0
@@ -6081,6 +6084,17 @@ packages:
       - zod
     dev: false
 
+  /@reservoir0x/relay-sdk@2.1.1(viem@2.30.0):
+    resolution: {integrity: sha512-3rRi3kwjnJJPb2weAIl4g+r+Y5cP3kQFSUFkuiK/gr/g/iqMg66M1MkAps8Aaf5q5nCRcY0ctVHU9wlN+sY5EA==}
+    peerDependencies:
+      viem: ~2.23.4
+    dependencies:
+      axios: 1.9.0
+      viem: 2.30.0(typescript@5.8.3)(zod@3.25.20)
+    transitivePeerDependencies:
+      - debug
+    dev: false
+
   /@rollup/plugin-commonjs@28.0.1(rollup@4.35.0):
     resolution: {integrity: sha512-+tNWdlWKbpB3WgBN7ijjYkq9X5uhjmcvyjEght4NmH5fAU++zfQzAJ6wumLS+dNcvwEZhKx2Z+skY8m7v0wGSA==}
     engines: {node: '>=16.0.0 || 14 >= 14.17'}
@@ -9577,33 +9591,6 @@ packages:
       require-from-string: 2.0.2
     dev: false
 
-  /alchemy-sdk@3.5.9(typescript@5.8.3):
-    resolution: {integrity: sha512-5uX5p1Q7+aQvdBqyyaIU8iHnZE1k+NsKTMcu9DpzntCUd0NaPOEkmsJMkkbfqhE0h24V2VTDBi3hAVF5x8vj+w==}
-    dependencies:
-      '@ethersproject/abi': 5.8.0
-      '@ethersproject/abstract-provider': 5.8.0
-      '@ethersproject/bignumber': 5.8.0
-      '@ethersproject/bytes': 5.8.0
-      '@ethersproject/contracts': 5.8.0
-      '@ethersproject/hash': 5.8.0
-      '@ethersproject/networks': 5.8.0
-      '@ethersproject/providers': 5.8.0
-      '@ethersproject/units': 5.8.0
-      '@ethersproject/wallet': 5.8.0
-      '@ethersproject/web': 5.8.0
-      '@solana/web3.js': 1.98.2(typescript@5.8.3)
-      axios: 1.9.0
-      sturdy-websocket: 0.2.1
-      websocket: 1.0.35
-    transitivePeerDependencies:
-      - bufferutil
-      - debug
-      - encoding
-      - supports-color
-      - typescript
-      - utf-8-validate
-    dev: false
-
   /alchemy-sdk@3.6.0(typescript@5.8.3):
     resolution: {integrity: sha512-vXLEuLoxeAw7REgXA3tOYrXxQfVwQNsDSC1DV5RJhQlvV0hq/Bh9wvv2/nZZgUWglz3IJmmMQrVNZcSCkCyuLg==}
     dependencies:
@@ -11032,12 +11019,12 @@ packages:
       xtend: 4.0.2
     dev: true
 
-  /earnkit@1.0.18(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-kEHq2Zyh8XUPKh1+mfffzGe8SCxvRMOblRgi/bVTZyWa1tdzc3mMxUyyqcDnTyq5pJd44I/geKnoaFwV2oXhrA==}
+  /earnkit@1.0.19(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-Bxjot9OoQgpvyzT4nynygVI4IW6CDbHhQhGaoXJhrNRGb/FGA+4K6gybopb/GvksbtSIXNwklC3yvXTqvsmCtA==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.13(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
-      '@earnkit/sdk-core': 1.1.11(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-ai': 1.0.14(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@earnkit/sdk-social': 1.0.0(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@earnkit/sdk-wallet': 1.0.0(@babel/core@7.27.1)(@opentelemetry/api@1.9.0)(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)(zod@3.25.20)
       '@langchain/core': 0.3.57
@@ -11072,12 +11059,12 @@ packages:
       - utf-8-validate
     dev: false
 
-  /earnkit@1.0.18(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
-    resolution: {integrity: sha512-kEHq2Zyh8XUPKh1+mfffzGe8SCxvRMOblRgi/bVTZyWa1tdzc3mMxUyyqcDnTyq5pJd44I/geKnoaFwV2oXhrA==}
+  /earnkit@1.0.19(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3):
+    resolution: {integrity: sha512-Bxjot9OoQgpvyzT4nynygVI4IW6CDbHhQhGaoXJhrNRGb/FGA+4K6gybopb/GvksbtSIXNwklC3yvXTqvsmCtA==}
     dependencies:
       '@anthropic-ai/sdk': 0.33.1
-      '@earnkit/sdk-ai': 1.0.13(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
-      '@earnkit/sdk-core': 1.1.11(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-ai': 1.0.14(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
+      '@earnkit/sdk-core': 1.1.12(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@earnkit/sdk-social': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)
       '@earnkit/sdk-wallet': 1.0.0(react-dom@19.0.0)(react@19.0.0)(typescript@5.8.3)(zod@3.25.20)
       '@langchain/core': 0.3.57

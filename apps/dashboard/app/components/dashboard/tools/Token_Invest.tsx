@@ -96,7 +96,7 @@ export default function TokenInvest({ data, onDeny, messageId, updateMessage, ha
     const [topTokens, setTopTokens] = useState<Token[]>([]);
     const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
     const [targetPrice, setTargetPrice] = useState<number | null>(null);
-    const [targetPercentage, setTargetPercentage] = useState<number>(0);
+    const [targetPercentage, setTargetPercentage] = useState<number>(10);
     const [userId, setUserId] = useState<string | null>(null);
     const [currentTokenOutPrice, setCurrentTokenOutPrice] = useState<number>(0);
     const [initialTokenOutPrice, setInitialTokenOutPrice] = useState<number>(0);
