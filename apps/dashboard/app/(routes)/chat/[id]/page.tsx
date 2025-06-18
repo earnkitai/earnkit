@@ -117,7 +117,7 @@ interface SendTokenResponse {
     isNativeToken: boolean;
 }
 
-export const ERC20_ABI = [
+const ERC20_ABI = [
     {
         name: 'allowance',
         type: 'function',
@@ -1001,7 +1001,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                                 <li>Analyze crypto tokens for market details</li>
                                                 <li>Swap between different tokens</li>
                                                 <li>Send ETH or tokens to other wallets</li>
-                                                <li>Set up automated investments with custom risk levels</li>
+                                                <li>Set up automated investments in Zora and Clanker</li>
                                             </ul>
                                         </div>
                                         I&apos;m designed to simplify complex blockchain interactions while maintaining the security and precision required for digital asset management. How may I assist with your blockchain requirements today?

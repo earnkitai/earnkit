@@ -13,8 +13,30 @@ import { getTokenMetadataWithCoingecko, TokenMetadata } from '@/actions/web3';
 import { createLimitOrder, createOrderHistory } from '@/actions/order';
 import { ExternalLink, RotateCcw } from 'lucide-react';
 import { ethers } from 'ethers';
-import { ERC20_ABI } from '@/app/(routes)/chat/[id]/page';
 import { showTransactionToast } from '@/lib/toast';
+
+const ERC20_ABI = [
+    {
+        name: 'allowance',
+        type: 'function',
+        stateMutability: 'view',
+        inputs: [
+            { name: 'owner', type: 'address' },
+            { name: 'spender', type: 'address' },
+        ],
+        outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+        name: 'approve',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'spender', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+        ],
+        outputs: [{ name: '', type: 'bool' }],
+    },
+] as const;
 
 interface Token {
     id: string;
