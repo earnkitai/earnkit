@@ -27,6 +27,7 @@ import { TokenInvestProgress } from '@/app/components/dashboard/tools/TokenInves
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import Image from 'next/image';
 import BridgeToken, { BridgeTokenProps } from '@/app/components/dashboard/tools/Bridge_token';
+import InvestInClankerToken, { InvestInClankerTokenResponse } from '@/app/components/dashboard/tools/Invest_In_Clanker_tokens';
 
 interface Message {
     responseFrom: string;
@@ -116,7 +117,7 @@ interface SendTokenResponse {
     isNativeToken: boolean;
 }
 
-const ERC20_ABI = [
+export const ERC20_ABI = [
     {
         name: 'allowance',
         type: 'function',
@@ -1074,6 +1075,45 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             </div>
                                         );
                                     }
+                                    if (message.responseFrom === 'agent' && typeof message.response === 'string' && (message.response).includes("Which memecoin would you like to trade?")) {
+                                        // Render agent messages in chat only
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="flex justify-start my-2"
+                                            >
+                                                <div className="max-w-[80%] p-2 font-funnel-sans text-black/80 font-normal">
+                                                    {message.response}
+                                                    <div className="flex items-center gap-3 mt-4">
+                                                        <button
+                                                            onClick={() => {
+                                                                handleInvestAmountSelection("Zora")
+                                                            }}
+                                                            className={`flex items-center text-sm gap-2 px-2 py-1 rounded-full border transition-all ${message.metadata === "Zora"
+                                                                ? "border-blue-500 bg-blue-50 shadow-sm"
+                                                                : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                                                }`}
+                                                            disabled={message.metadata === "Zora"}
+                                                        >
+                                                            Zora
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                handleInvestAmountSelection("Clanker")
+                                                            }}
+                                                            className={`flex items-center text-sm gap-2 px-2 py-1 rounded-full border transition-all ${message.metadata === "Clanker"
+                                                                ? "border-blue-500 bg-blue-50 shadow-sm"
+                                                                : "border-gray-200 hover:border-blue-500 text-gray-700"
+                                                                }`}
+                                                        >
+                                                            Clanker
+                                                        </button>
+                                                    </div>
+
+                                                </div>
+                                            </div>
+                                        );
+                                    }
                                     if (message.responseFrom === 'agent' || (message.responseFrom !== 'tools' && !message.tool_name)) {
                                         return (
                                             <div
@@ -1220,6 +1260,42 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                                             return (
                                                 <div key={index} className="mb-6">
                                                     <TokenInvest
+                                                        data={data}
+                                                        updateMessage={updateMessage}
+                                                        messageId={message.messageId}
+                                                        userAddress={selectedAccount?.address as `0x${string}`}
+                                                        onDeny={() => handleSwapConfirmationMsgStore('Deny')}
+                                                        handleRetry={() => handleRetry(message.messageId || "")}
+                                                    />
+                                                </div>
+                                            );
+                                        } catch (error) {
+                                            console.log(error, 'error');
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <div className="bg-red-50 rounded-lg shadow-sm border border-red-100 p-4">
+                                                        <div className="flex items-center gap-2 text-red-600">
+                                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="8" x2="12" y2="12" />
+                                                                <line x1="12" y1="16" x2="12" y2="16" />
+                                                            </svg>
+                                                            <span className="font-semibold">Invalid Response Format</span>
+                                                        </div>
+                                                        <p className="mt-2 text-sm text-red-600">Failed to process token information. Please try again.</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    }
+
+                                    if (message.tool_name === 'invest_in_clanker_token') {
+                                        try {
+                                            console.log(message, 'message.response');
+                                            const data: InvestInClankerTokenResponse = JSON.parse(message.response as string);
+                                            return (
+                                                <div key={index} className="mb-6">
+                                                    <InvestInClankerToken
                                                         data={data}
                                                         updateMessage={updateMessage}
                                                         messageId={message.messageId}

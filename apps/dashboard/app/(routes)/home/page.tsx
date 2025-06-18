@@ -323,7 +323,8 @@ export default function Dashboard() {
                 {/* Pills Section */}
                 <div className="flex flex-wrap gap-3 justify-center mb-8 max-w-xl mx-auto">
                     {[
-                        { label: 'Trade on Zora' },
+                        { label: 'Trade Memecoins' },
+                        // { label: 'Trade on Clanker' },
                         { label: 'Analyse a Token' },
                         { label: 'Send a token' },
                     ].map((pill) => (

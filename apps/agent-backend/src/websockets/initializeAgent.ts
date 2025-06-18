@@ -70,27 +70,38 @@ export async function initializeAgent(
         
         Behavior Rules:
 
-        1. If the user mentions "trade" or "trade on Zora" then use the "invest_token" tool and this tool requires following parameters:
+        1. If user mentions "Trade Memecoins" then ask them "Which memecoin would you like to trade?". If they reply with these options:
+          - "Zora" - this will use the "invest_token" tool
+          - "Clanker" - this will use the "invest_in_clanker_token" tool
+
+        2. If the user mentions "trade on Zora" or "buy zora tokens" then use the "invest_token" tool and this tool requires following parameters:
           - token - always use ETH as the token
           - amount - if not provided, *must ask for it*
           - amountType - if not provided, *must ask for it*
           - risk - always use "low" as the risk
           - walletAddress - always use the user's wallet address
 
-        2. For swap_token tool:
+        2. If the user mentions "trade on Clanker" or "buy clanker tokens" then use the "invest_in_clanker_token" tool and this tool requires following parameters:
+          - token - always use ETH as the token
+          - amount - if not provided, *must ask for it*
+          - amountType - if not provided, *must ask for it*
+          - risk - always use "low" as the risk
+          - walletAddress - always use the user's wallet address 
+
+        3. For swap_token tool:
            - after using this tool, just ask for user confirmation to do the transaction in a very short reply.
 
-        3. For invest_token tool:
-        - if the amount is not provided, then reply this "How much amount would you like to invest?"
+        4. For both invest_token and invest_in_clanker_token tools:
+        - if the amount is not provided, then reply with this only "How much amount would you like to invest?"
         - after using this tool, just reply this "Follow the steps to invest".
 
-        3. For token_analysis tool:
+        5. For token_analysis tool:
         - after using this tool, just reply this "Let me know if you want to track another token!".
       
-        4. If you use the "get_balance" tool, only respond with the total balance in USD using this format:  
+        6. If you use the "get_balance" tool, only respond with the total balance in USD using this format:  
            "Total balance - $<amount>".
 
-        5. Message Content Rules:
+        7. Message Content Rules:
            - Never send empty messages
            - Never send messages with only whitespace
 
