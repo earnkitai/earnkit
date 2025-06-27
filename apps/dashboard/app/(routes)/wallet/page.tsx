@@ -44,6 +44,7 @@ export default function WalletPage() {
     const { wallet: activeWallet } = useActiveWallet()
     // const { state } = useWallets();  
     const { fundWallet } = useFundWallet();
+
     const { ready: privyWalletReady, wallets } = useWallets();
     const [isSendModalOpen, setIsSendModalOpen] = useState(false);
     const { ethPrice } = useTokenPrice();
@@ -119,14 +120,14 @@ export default function WalletPage() {
             {/* Blue Header Card */}
             <div className="max-h-[360px] h-[360px] rounded-[56px] bg-color2 text-white px-[40px] mb-8 shadow-lg relative overflow-hidden flex items-start justify-between">
                 <div className="flex flex-col items-start justify-between gap-6">
-                    <div className="flex flex-col gap-[56px] mt-[56px] justify-center">
+                    <div className="flex flex-col gap-[50px] mt-[35px] justify-center">
                         <div className="text-[32px] font-medium font-funnel-display text-color8 mb-2">Wallet Balance <span className="flex items-center gap-2 text-white/40 text-sm font-funnel-sans">{truncateAddress(walletAddress ?? "")} <Copy className="w-4 h-4" onClick={() => handleCopyAddress(walletAddress ?? "")} /></span></div>
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex flex-col items-start gap-4">
                                 <span className="text-4xl md:text-[72px] font-bold font-funnel-display text-white">${totalValue.toFixed(2)}</span>
                                 <div className="flex items-center gap-3 mt-2">
-                                    <span className="text-base font-medium text-secondary-green text-[20px]">+${(totalValue * 0.2).toFixed(2)}</span>
-                                    <span className="text-[19px] font-medium text-white/40 font-funnel-sans flex items-center gap-3">
+                                    {/* <span className="text-base font-medium text-secondary-green text-[20px]">+${(totalValue * 0.2).toFixed(2)}</span> */}
+                                    {/* <span className="text-[19px] font-medium text-white/40 font-funnel-sans flex items-center gap-3">
                                         00.00%
                                         <svg width="11" height="8" viewBox="0 0 11 8" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <path d="M5.57022 0L10.189 8H0.951416L5.57022 0Z" fill="#30D158" />
@@ -135,7 +136,7 @@ export default function WalletPage() {
                                             <path d="M4.80777 8L9.42657 1.90735e-06H0.188965L4.80777 8Z" fill="#FF453A" />
                                         </svg>
                                         (24h)
-                                    </span>
+                                    </span> */}
                                 </div>
                             </div>
                             <Button
@@ -153,9 +154,15 @@ export default function WalletPage() {
 
                     </div>
                     <div className="flex gap-[36px] my-[20px]">
-                        <span className="text-white/40 font-funnel-sans">GAIN/LOSS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.12).toFixed(2)}</span></span>
-                        <span className="text-white/40 font-funnel-sans">INFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.5).toFixed(2)}</span></span>
-                        <span className="text-white/40 font-funnel-sans">OUTFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.05).toFixed(2)}</span></span>
+                        <button
+                            className="text-white/40 font-funnel-sans border border-white/40 rounded-full px-4 py-2 uppercase hover:text-white/80"
+                            onClick={() => setIsSendModalOpen(true)}
+                        >
+                            Send
+                        </button>
+                        {/* <span className="text-white/40 font-funnel-sans">GAIN/LOSS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.12).toFixed(2)}</span></span> */}
+                        {/* <span className="text-white/40 font-funnel-sans">INFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.5).toFixed(2)}</span></span> */}
+                        {/* <span className="text-white/40 font-funnel-sans">OUTFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.05).toFixed(2)}</span></span> */}
                     </div>
                 </div>
                 {/* Decorative dots/graphics can be added here if desired */}

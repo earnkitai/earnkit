@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 // import { Passkeys } from "@/app/components/sections/passkeys";
 // import { getUserByTurnkeyId } from "@/actions/user";
 // import { useTurnkey } from "@turnkey/sdk-react";
-// import { Button } from "@/app/components/ui/button";
 import { toast } from "sonner";
 // import { truncateAddress } from "@/lib/utils";
 // import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
@@ -16,6 +15,9 @@ import { PasskeySection } from "@/app/(routes)/settings/components/PasskeySectio
 import { FarcasterPrivy } from "@/app/(routes)/settings/components/FarcasterPrivy";
 import { findUsernameByUserId, updateUser } from "@/actions/user";
 import { WalletsSection } from "@/app/(routes)/settings/components/WalletsSection";
+import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
+import { User, Shield, Wallet, Key, Users } from "lucide-react";
 
 export default function SettingsPage() {
     // const [notifications, setNotifications] = useState(true);
@@ -109,133 +111,181 @@ export default function SettingsPage() {
 
 
     return (
-        <section className="min-h-screen bg-background pb-12 sm:pb-20 pt-20 sm:pt-10 max-w-4xl mx-auto font-funnel-sans">
-            <h1 className="text-xl sm:text-2xl font-bold mb-0 p-4 sm:p-8 text-foreground">Settings</h1>
-            <div className="bg-card rounded-xl p-4 sm:p-8 pt-4 sm:pt-6 shadow-sm border mx-4 sm:mx-8">
-                <div className="space-y-3 sm:space-y-4">
-                    <div>
-                        <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Username</h2>
-                        {isEditing ? (
-                            <div className="flex items-center gap-2 mt-1">
-                                <input
-                                    type="text"
-                                    value={newUsername}
-                                    onChange={(e) => setNewUsername(e.target.value)}
-                                    className="text-base sm:text-lg text-foreground bg-transparent border-b border-foreground/20 focus:outline-none focus:border-foreground"
-                                    placeholder="Enter new username"
-                                />
-                                <button
-                                    onClick={handleUsernameUpdate}
-                                    className="bg-transparent border border-foreground/20 px-2 py-1 rounded-md text-xs sm:text-sm text-primary hover:bg-black/4"
-                                >
-                                    Save
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setIsEditing(false);
-                                        setNewUsername("");
-                                    }}
-                                    className="bg-transparent border border-foreground/20 px-2 py-1 rounded-md text-xs sm:text-sm text-muted-foreground hover:bg-black/4"
-                                >
-                                    Cancel
-                                </button>
+        <section className="w-full mx-auto text-white min-h-screen bg-base">
+            <div className="mx-auto">
+                {/* Header Section */}
+                {/* <div className="mb-12">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div>
+                            <h1 className="text-3xl sm:text-3xl font-bold font-funnel-display text-white">Settings</h1>
+                            <p className="text-white/60 font-funnel-sans text-lg mt-1">Manage your account preferences and security</p>
+                        </div>
+                    </div>
+                </div> */}
+
+                {/* Grid Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-8 md:grid-rows-6 gap-6 min-h-[80vh]">
+                    {/* Profile Information Card - Large */}
+                    <div className="md:col-start-1 md:col-end-5 md:row-start-1 md:row-end-4 bg-black border border-white/10 rounded-[56px] p-8 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-color2/10 rounded-full -translate-y-16 translate-x-16"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-8">
+                                <div className="w-10 h-10 bg-color2 rounded-full flex items-center justify-center">
+                                    <User className="w-5 h-5 text-white" />
+                                </div>
+                                <h2 className="text-2xl font-bold font-funnel-display text-white">Profile Information</h2>
                             </div>
-                        ) : (
-                            <div className="flex items-center gap-2 mt-1">
-                                <p className="text-base sm:text-lg text-foreground">{username || 'Not set'}</p>
-                                <button
-                                    onClick={() => {
-                                        setIsEditing(true);
-                                        setNewUsername(username || "");
-                                    }}
-                                    className="text-xs sm:text-sm text-primary hover:underline"
-                                >
-                                    Edit
-                                </button>
+                            <div className="space-y-8">
+                                <div>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Username</label>
+                                    {isEditing ? (
+                                        <div className="flex items-center gap-4">
+                                            <Input
+                                                type="text"
+                                                value={newUsername}
+                                                onChange={(e) => setNewUsername(e.target.value)}
+                                                className="flex-1 bg-white/5 border-white/20 text-white placeholder:text-white/40 rounded-full px-6 py-4 h-14 focus:border-color6 focus:ring-color6/20 text-lg"
+                                                placeholder="Enter new username"
+                                            />
+                                            <Button
+                                                onClick={handleUsernameUpdate}
+                                                className="bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold rounded-full px-8 py-4 h-14 transition-all duration-200 hover:scale-105 shadow-lg"
+                                            >
+                                                Save
+                                            </Button>
+                                            <Button
+                                                onClick={() => {
+                                                    setIsEditing(false);
+                                                    setNewUsername("");
+                                                }}
+                                                variant="outline"
+                                                className="border-white/20 bg-transparent text-white/80 hover:bg-white/5 rounded-full px-8 py-4 h-14 transition-all duration-200 hover:scale-105"
+                                            >
+                                                Cancel
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex-1 bg-white/5 rounded-full px-6 py-4 border border-white/10">
+                                                <p className="text-white font-medium text-lg">{username || 'Not set'}</p>
+                                            </div>
+                                            <Button
+                                                onClick={() => {
+                                                    setIsEditing(true);
+                                                    setNewUsername(username || "");
+                                                }}
+                                                variant="outline"
+                                                className="border-white/20 bg-transparent text-white/80 hover:bg-white/5 rounded-full px-8 py-4 h-14 transition-all duration-200 hover:scale-105"
+                                            >
+                                                Edit
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Email</label>
+                                    <div className="bg-white/5 rounded-full px-6 py-4 border border-white/10">
+                                        <p className="text-white font-medium text-lg">{user?.email?.address || 'Not set'}</p>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Wallet Address</label>
+                                    <div className="bg-white/5 rounded-full px-6 py-4 border border-white/10">
+                                        <p className="text-white font-medium font-mono text-sm break-all">
+                                            {activeWallet ? activeWallet.address : user?.wallet?.address || 'Not set'}
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
-                        )}
+                        </div>
                     </div>
-                    <div>
-                        <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Email</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground">{user?.email?.address || 'Not set'}</p>
+
+                    {/* Delegate Access Card - Medium */}
+                    <div className="md:col-start-5 md:col-end-9 md:row-start-1 md:row-end-3 bg-color2 rounded-[56px] p-8 flex flex-col justify-center relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -translate-y-12 translate-x-12"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                                    <Shield className="w-5 h-5 min-w-5 min-h-5 text-white" />
+                                </div>
+                                <h2 className="text-2xl font-bold font-funnel-display text-white">Delegate Access</h2>
+                            </div>
+                            {isDelegated ? (
+                                <RevokeAccessButton />
+                            ) : (
+                                <div className="space-y-6">
+                                    <p className="text-white/90 font-funnel-sans text-lg leading-relaxed">Delegate access to enable additional features and enhanced functionality</p>
+                                    <Button
+                                        onClick={handleDelegateAccess}
+                                        className="bg-white text-color3 font-funnel-display font-semibold rounded-full px-10 py-5 h-16 transition-all duration-200 hover:scale-105 hover:bg-gray-200 shadow-lg text-lg"
+                                    >
+                                        Delegate Access
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <div>
-                        <h2 className="text-xs sm:text-sm font-medium text-muted-foreground">Wallet Address</h2>
-                        <p className="mt-1 text-base sm:text-lg text-foreground text-wrap break-all">{activeWallet ? activeWallet.address : user?.wallet?.address || 'Not set'}</p>
+
+                    {/* Embedded Wallet Card - Medium */}
+                    <div className="md:col-start-5 md:col-end-9 md:row-start-3 md:row-end-5 bg-black border border-white/10 rounded-[56px] p-8 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-color6/10 rounded-full -translate-y-10 translate-x-10"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 bg-color6 rounded-full flex items-center justify-center">
+                                    <Wallet className="w-5 h-5 text-white" />
+                                </div>
+                                <h2 className="text-2xl font-bold font-funnel-display text-white">Embedded Wallet</h2>
+                            </div>
+                            <EmbeddedWalletSection />
+                        </div>
                     </div>
+                    {/* Wallets Section - Large */}
+                    <div className="md:col-start-1 md:col-end-5 md:row-start-4 md:row-end-7 bg-black border border-white/10 rounded-[56px] p-8 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-color13/10 rounded-full -translate-y-12 translate-x-12"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 bg-color13 rounded-full flex items-center justify-center">
+                                    <Users className="w-5 h-5 text-white" />
+                                </div>
+                                <h2 className="text-2xl font-bold font-funnel-display text-white">Connected Wallets</h2>
+                            </div>
+                            <WalletsSection />
+                        </div>
+                    </div>
+
+                    {/* Passkey Card - Small */}
+                    <div className="md:col-start-5 md:col-end-7 md:row-start-5 md:row-end-7 bg-color13 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -translate-y-8 translate-x-8"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                                    <Key className="w-4 h-4 text-white" />
+                                </div>
+                                <h2 className="text-xl font-bold font-funnel-display text-white">Passkey</h2>
+                            </div>
+                            <PasskeySection />
+                        </div>
+                    </div>
+
+                    {/* Farcaster Card - Small */}
+                    <div className="md:col-start-7 md:col-end-9 md:row-start-5 md:row-end-7 bg-black border border-white/10 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-color2/10 rounded-full -translate-y-8 translate-x-8"></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center">
+                                    <Users className="w-4 h-4 text-white" />
+                                </div>
+                                <h2 className="text-xl font-bold font-funnel-display text-white">Farcaster</h2>
+                            </div>
+                            <FarcasterPrivy />
+                        </div>
+                    </div>
+
+
                 </div>
             </div>
-
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Delegate Access</h2>
-                {isDelegated ? (
-                    <RevokeAccessButton />
-                ) : (
-                    <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">Delegate access to enable additional features</p>
-                        <button
-                            className="bg-transparent text-black border border-black/40 px-4 py-2 rounded-md hover:bg-black/4"
-                            onClick={handleDelegateAccess}
-                        >
-                            Delegate Access
-                        </button>
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Embedded Wallet</h2>
-                <EmbeddedWalletSection />
-            </div>
-
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Passkey</h2>
-                <PasskeySection />
-            </div>
-
-            <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Farcaster</h2>
-                <FarcasterPrivy />
-            </div>
-
-            <WalletsSection />
-
-            {/* <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-                <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground">Preferences</h2>
-                <div className="space-y-4 sm:space-y-6">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-base sm:text-lg font-medium text-foreground">Notifications</h3>
-                            <p className="text-xs sm:text-sm text-muted-foreground">Receive email notifications</p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={notifications}
-                                onChange={() => setNotifications(!notifications)}
-                            />
-                            <div className="w-9 h-5 sm:w-11 sm:h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-ring rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                        </label>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-base sm:text-lg font-medium text-foreground">Dark Mode</h3>
-                            <p className="text-xs sm:text-sm text-muted-foreground">Switch between light and dark themes</p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={theme === "dark"}
-                                onChange={() => setTheme(theme === "dark" ? "light" : "dark")}
-                            />
-                            <div className="w-9 h-5 sm:w-11 sm:h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-ring rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                        </label>
-                    </div>
-                </div>
-            </div> */}
         </section>
     );
 } 

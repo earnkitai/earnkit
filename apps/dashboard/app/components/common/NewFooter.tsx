@@ -20,7 +20,7 @@ export default function NewFooter() {
 
 
             {/* Right: Powered by Earnkit */}
-            <div className="flex gap-14 items-end">
+            <div className="flex gap-14 items-center">
                 {/* Center: Social links */}
                 <div className="flex space-x-8 text-white/40 font-funnel-sans mb-4 md:mb-0">
                     <Link href="https://x.com/EarnKit_ai" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Twitter/X</Link>

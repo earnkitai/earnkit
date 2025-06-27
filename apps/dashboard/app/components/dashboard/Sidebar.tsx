@@ -250,27 +250,31 @@ export default function Sidebar() {
                         <div className="relative profile-menu">
 
                             {isProfileMenuOpen && (
-                                <div className="absolute -top-28 left-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50">
+                                <div className="absolute -top-40 left-0 mt-2 w-56 bg-black border border-white/10 rounded-[24px] shadow-xl py-3 z-50">
                                     <Link
                                         href="/settings"
-                                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 w-full group font-normal font-funnel-sans"
+                                        className="flex items-center gap-3 px-4 py-3 text-sm text-white/80 w-full group font-funnel-sans hover:bg-white/5 transition-colors"
                                         onClick={() => {
                                             if (isMobile) setIsOpen(false);
                                             setIsProfileMenuOpen(false);
                                         }}
                                     >
-                                        <Settings className="w-7 h-7 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:text-white" />
-                                        <span className="group-hover:font-semibold">Settings</span>
+                                        <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center group-hover:bg-color3 transition-colors">
+                                            <Settings className="w-4 h-4 text-white" />
+                                        </div>
+                                        <span className="group-hover:text-white transition-colors font-medium">Settings</span>
                                     </Link>
                                     <button
-                                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 w-full group font-normal font-funnel-sans"
+                                        className="flex items-center gap-3 px-4 py-3 text-sm text-white/80 w-full group font-funnel-sans hover:bg-white/5 transition-colors"
                                         onClick={() => {
                                             handleLogoutClick();
                                             setIsProfileMenuOpen(false);
                                         }}
                                     >
-                                        <LogOut className="w-7 h-7 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:text-white" />
-                                        <span className="group-hover:font-semibold">Log out</span>
+                                        <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center group-hover:bg-color3 transition-colors">
+                                            <LogOut className="w-4 h-4 text-white" />
+                                        </div>
+                                        <span className="group-hover:text-white transition-colors font-medium">Log out</span>
                                     </button>
                                 </div>
                             )}

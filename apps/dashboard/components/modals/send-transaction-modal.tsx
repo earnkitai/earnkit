@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { getBalance } from '@/actions/web3';
 import { useTokenPrice } from '@/hooks/use-token-price';
 import { base } from 'viem/chains';
-
+// import { X } from 'lucide-react';
 
 interface SendTransactionModalProps {
     isOpen: boolean;
@@ -32,7 +32,6 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
     }, [])
 
     const { sendTransaction } = usePrivy();
-    // const { sendTransaction } = useSendTransaction();
 
     // Update USD value when ETH amount changes
     useEffect(() => {
@@ -45,7 +44,6 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
     }, [amount, ethPrice]);
 
     useEffect(() => {
-        // console.log(activeWallet);
         const fetchBalance = async () => {
             if (activeWallet) {
                 const balance = await getBalance(
@@ -53,12 +51,10 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
                     "base"
                 );
 
-
                 const ethBalanceFormatted = balance
                     ? parseFloat(Number(formatEther(balance)).toFixed(8))
                     : 0
                 setBalance(ethBalanceFormatted.toString());
-                // console.log(balance);
             }
         }
         fetchBalance();
@@ -69,8 +65,6 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
             toast.error('Please fill in all fields');
             return;
         }
-
-        // console.log(activeWallet, 'activeWallet')
 
         try {
             setIsLoading(true);
@@ -84,52 +78,14 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
             // Convert ETH to Wei
             const valueInWei = parseEther(amount);
 
-            // const provider = await activeWallet.getEthereumProvider();
-
             const transactionRequest = {
                 to: recipient,
                 chainId: base.id,
                 value: valueInWei.toString()
             };
-            // const transactionHash = await provider.request({
-            //     method: 'eth_sendTransaction',
-            //     params: [transactionRequest]
-            // });
-            // console.log(transactionHash);
-
-            // const uiOptions = {
-            //     title: 'You are voting for foobar project'
-            // };
-
-            // const { signature } = await signMessage({ message: 'I hereby vote for foobar' }, { uiOptions });
-
-            // console.log(signature);
-            // const txHash = await signTransaction({
-            //     to: recipient,
-            //     value: valueInWei.toString(),
-            // });
-            // Send transaction
-
-
-
-            // const txHash = await sendTransaction({
-            //     to: recipient,
-            //     value: valueInWei.toString(),
-            // });
-            // console.log('Transaction hash:', txHash);
-
 
             const { hash } = await sendTransaction(transactionRequest);
             toast.success(`Transaction sent successfully! ${hash}`);
-            // console.log(hash, 'transactionHash')
-
-            // const txHash = await sendTransactionWithoutApproval(
-            //     activeWallet.id,
-            //     recipient as `0x${string}`,
-            //     amount
-            // );
-            // console.log('Transaction hash:', txHash);
-
 
             toast.success('Transaction sent successfully!');
             onClose();
@@ -138,29 +94,45 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
             console.error('Transaction failed:', error);
             toast.error('Transaction failed. Please try again.');
         } finally {
-            // setIsLoading(false);
+            setIsLoading(false);
         }
     };
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                    <DialogTitle className="text-2xl font-bold">Send ETH</DialogTitle>
+            <DialogContent className="sm:max-w-[500px] bg-black border border-white/10 rounded-[56px] p-0 overflow-hidden">
+                <DialogHeader className="bg-color2 p-8 pb-6">
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="text-3xl font-bold font-funnel-display text-white">
+                            Send ETH
+                        </DialogTitle>
+                        {/* <button
+                            onClick={onClose}
+                            className="text-white/60 hover:text-white transition-colors"
+                        >
+                            <X className="w-6 h-6" />
+                        </button> */}
+                    </div>
                 </DialogHeader>
-                <div className="grid gap-6 py-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="recipient">Recipient Address</Label>
+
+                <div className="p-8 pt-6 space-y-6">
+                    <div className="space-y-3">
+                        <Label htmlFor="recipient" className="text-white/80 font-funnel-sans text-sm font-medium">
+                            Recipient Address
+                        </Label>
                         <Input
                             id="recipient"
                             placeholder="0x..."
                             value={recipient}
                             onChange={(e) => setRecipient(e.target.value)}
-                            className="font-mono"
+                            className="font-mono bg-white/5 border-white/20 text-white placeholder:text-white/40 rounded-full px-4 py-3 h-12 focus:border-color6 focus:ring-color6/20"
                         />
                     </div>
-                    <div className="grid gap-2">
-                        <Label htmlFor="amount">Amount</Label>
+
+                    <div className="space-y-3">
+                        <Label htmlFor="amount" className="text-white/80 font-funnel-sans text-sm font-medium">
+                            Amount
+                        </Label>
                         <div className="relative">
                             <Input
                                 id="amount"
@@ -168,29 +140,31 @@ export function SendTransactionModal({ isOpen, onClose }: SendTransactionModalPr
                                 placeholder="0.0"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
-                                className="pr-12"
+                                className="pr-16 bg-white/5 border-white/20 text-white placeholder:text-white/40 rounded-full px-4 py-3 h-12 focus:border-color6 focus:ring-color6/20"
                                 step="0.0001"
                                 min="0"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 font-funnel-sans text-sm">
                                 ETH
                             </span>
                         </div>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-white/40 font-funnel-sans">
                             ≈ ${usdValue} USD
                         </p>
                     </div>
 
                     {activeWallet && (
-                        <div className="text-sm text-gray-500">
-                            Balance: {balance} ETH
+                        <div className="bg-white/5 rounded-full px-4 py-3 border border-white/10">
+                            <p className="text-sm text-white/60 font-funnel-sans">
+                                Balance: <span className="text-white font-medium">{balance} ETH</span>
+                            </p>
                         </div>
                     )}
 
                     <Button
                         onClick={handleSendTransaction}
                         disabled={isLoading || !amount || !recipient}
-                        className="w-full"
+                        className="w-full bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold text-lg rounded-full py-4 h-14 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isLoading ? 'Sending...' : 'Send ETH'}
                     </Button>

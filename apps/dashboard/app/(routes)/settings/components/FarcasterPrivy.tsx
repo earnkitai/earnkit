@@ -18,9 +18,9 @@ export function FarcasterPrivy() {
     };
 
     return (
-        <div className="space-y-4 font-funnel-sans">
+        <div className="space-y-4 font-funnel-sans ">
             <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/40">
                     Link your Farcaster account to enable social features.
                 </p>
                 <button

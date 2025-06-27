@@ -148,20 +148,20 @@ export default function Dashboard() {
                             ${isPortfolioHidden ? '00.00' : balanceLoading ? '...' : usdValue.toFixed(2)}
                         </h2>
                         <div className={`flex items-center gap-4 text-lg mt-2 font-funnel-sans ${isPortfolioHidden ? 'blur-md' : ''}`}>
-                            <span className="text-secondary-green font-medium">
+                            {/* <span className="text-secondary-green font-medium">
                                 {balanceLoading ? (
                                     <div className="animate-pulse w-20 h-6 bg-secondary-green/20 rounded"></div>
                                 ) : (
                                     `+$${isPortfolioHidden ? '00.00' : (usdValue * 0.1).toFixed(2)}`
                                 )}
-                            </span>
-                            <span className="flex items-center gap-1 text-white/40">
+                            </span> */}
+                            {/* <span className="flex items-center gap-1 text-white/40">
                                 {isPortfolioHidden ? '00.00' : balanceLoading ? '...' : '10.5'}%
                                 <svg width="23" height="20" viewBox="0 0 23 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M11.3558 0.564941L22.4123 19.7153H0.299316L11.3558 0.564941Z" fill="#30D158" />
                                 </svg>
                             </span>
-                            <span className="text-white/40 font-funnel-sans font-medium">(24h)</span>
+                            <span className="text-white/40 font-funnel-sans font-medium">(24h)</span> */}
                         </div>
                     </div>
                     <button
@@ -290,7 +290,7 @@ export default function Dashboard() {
                 {/* Staking APR - div8 */}
                 <div className="md:col-start-5 md:col-end-7 md:row-start-7 md:row-end-9 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center gap-2">
                     <p className="text-white/40 font-funnel-sans font-semibold mb-2">Staking APR</p>
-                    <p className="text-secondary-green text-4xl font-funnel-sans font-semibold mb-4 leading-none">12.52%</p>
+                    <p className="text-secondary-green text-4xl font-funnel-sans font-semibold mb-4 leading-none">6.60%</p>
                     <div className="flex items-center gap-2">
                         {/* Placeholder for icons */}
                         <Icons.stakingAPRIcon1 className='w-8 h-8' />

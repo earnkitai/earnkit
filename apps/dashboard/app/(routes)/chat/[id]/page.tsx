@@ -81,6 +81,30 @@ interface Token {
     image: string;
     currentPrice: number;
 }
+interface ZoraToken {
+    address: `0x${string}`;
+    confidenceScore: number;
+    marketCap: string;
+    name: string;
+    previewImage: {
+        small: string;
+        medium: string;
+        blurhash: string;
+    };
+    sources: string[];
+    symbol: string;
+    uniqueHolders: number;
+    volume24h: string;
+}
+
+interface ZoraTokenRecommendationResponse {
+    metadata: {
+        count: number;
+        riskLevel: string;
+        investmentAmount: number;
+    }
+    recommendations: ZoraToken[];
+}
 
 interface ClankerToken {
     id: string;
@@ -415,7 +439,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
             // 1. Fetch Zora tokens
             dispatchActivity({ type: 'set_step', stepIndex: 0, status: 'inprogress' });
-            const zoraTokens = await fetchTokenRecommendations(data.amount, data.returnPercentage);
+            const zoraTokens: ZoraTokenRecommendationResponse = await fetchTokenRecommendations(data.amount, data.returnPercentage);
             console.log("Zora tokens:", zoraTokens);
             dispatchActivity({ type: 'set_step', stepIndex: 0, status: 'confirmed' });
 
@@ -435,7 +459,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             dispatchActivity({ type: 'set_step', stepIndex: 2, status: 'inprogress' });
 
             // buying the zora token
-            const trade1 = await buyZoraCoin(zoraTokens.recommendations[0].address, Number(parseFloat(ethValue) / 2), targetPrice, targetPercentage);
+
+            // take the token with higher marketcap
+            const zoraTokenWithHigherMarketCap = zoraTokens.recommendations.sort((a, b) => parseFloat(b.marketCap) - parseFloat(a.marketCap))[0];
+            const trade1 = await buyZoraCoin(zoraTokenWithHigherMarketCap.address, Number(parseFloat(ethValue) / 2), targetPrice, targetPercentage);
             console.log(trade1, 'trade1')
             // buying the clanker token
             const trade2 = await buyClankerCoin(clankerTokens.tokens[0].attributes.address as Address, Number(parseFloat(ethValue) / 2), clankerTokens.tokens[0], targetPrice, targetPercentage);
@@ -841,9 +868,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     };
 
     useEffect(() => {
-        const earnyMessage = createEarnyGridMessage();
-        setMessages([earnyMessage]);
-    }, []);
+        if (socketConnected) {
+            const earnyMessage = createEarnyGridMessage();
+            setMessages([earnyMessage]);
+        }
+    }, [socketConnected]);
 
     useEffect(() => {
         adjustTextareaHeight();

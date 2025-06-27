@@ -5,15 +5,15 @@ import { Icons } from "@/app/components/sections/icons";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, CheckCircle, ExternalLink } from "lucide-react";
 import Image from "next/image";
+import { Button } from "@/app/components/ui/button";
 
 export function WalletsSection() {
     const { user, linkWallet, unlinkWallet } = usePrivy();
     const { wallets: privyWallets, ready } = useWallets();
     const [hovered, setHovered] = useState<string | null>(null);
     const { wallet: activeWallet, setActiveWallet: setActiveWalletPrivy } = useActiveWallet();
-    // const [activeWallet, setActiveWallet] = useState<string | null>(user?.wallet?.address || null);
 
     const wallets = user?.linkedAccounts?.filter((acc) => acc.type === "wallet") || [];
 
@@ -23,12 +23,9 @@ export function WalletsSection() {
         console.log(selectedWallet, "selectedWallet")
         console.log(wallets, "wallets")
         if (selectedWallet) {
-
             setActiveWalletPrivy(selectedWallet);
-        } else {
-
+            toast.success("Wallet set as active");
         }
-        // TODO: Add logic to persist active wallet if needed
     };
 
     useEffect(() => {
@@ -49,105 +46,135 @@ export function WalletsSection() {
         }
     };
 
-
-
     return (
-        <div className="bg-card rounded-xl p-4 sm:p-8 shadow-sm mt-4 sm:mt-6 border mx-4 sm:mx-8">
-            <h2 className="text-lg sm:text-xl font-medium mb-3 sm:mb-4 text-foreground flex items-center gap-2">
-                Wallets
-            </h2>
-            <p className="text-sm text-muted-foreground mb-4">Connect and link wallets to your account.</p>
-            <div className="space-y-3">
-                {privyWallets.length === 0 && (
-                    <div className="text-muted-foreground text-sm">No wallets linked.</div>
-                )}
-                {privyWallets.map((wallet) => {
-                    const isEmbedded = wallet.connectorType === "embedded";
-                    const isActive = activeWallet?.address === wallet.address;
-
-                    // Determine wallet icon
-                    let walletIcon = null;
-                    let iconName = null;
-                    if (!isEmbedded) {
-                        // Try walletClientType or connectorType for icon name
-                        iconName = (wallet.walletClientType || wallet.connectorType || "").toLowerCase();
-                        // Only allow certain names (add more as needed)
-                        const knownIcons = ["metamask", "phantom", "rainbow", "coinbase", "walletconnect"];
-                        if (knownIcons.includes(iconName)) {
-                            walletIcon = (
-                                <Image
-                                    src={`/images/wallet-icons/${iconName}.svg`}
-                                    alt={iconName + " icon"}
-                                    width={24}
-                                    height={24}
-                                    className="rounded-full"
-                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                />
-                            );
-                        }
-                    }
-
-                    return (
-                        <div
-                            key={wallet.address}
-                            className={clsx(
-                                "max-w-[320px] flex items-center gap-3 border rounded-md px-3 py-2 transition-all",
-                                isActive ? "border-primary bg-primary/5" : "border-black/20 bg-transparent",
-                                "relative group"
-                            )}
-                            onMouseEnter={() => setHovered(wallet.address)}
-                            onMouseLeave={() => setHovered(null)}
-                        >
-                            <span className="w-7 h-7 flex items-center justify-center">
-                                {isEmbedded ? (
-                                    <Icons.ethereum className="w-6 h-6" />
-                                ) : (
-                                    walletIcon || <Icons.sidebarWalletIcon className="w-6 h-6" />
-                                )}
-                            </span>
-                            <span className="font-mono text-base text-foreground">
-                                {wallet.address.slice(0, 6)}...{wallet.address.slice(-3)}
-                            </span>
-                            {isActive && (
-                                <span className="ml-auto px-2 py-0.5 rounded bg-gradient-to-r from-pink-400 to-indigo-400 text-xs text-white font-semibold">Active</span>
-                            )}
-                            {!isActive && hovered === wallet.address && (
-                                <button
-                                    className="ml-auto px-2 py-0.5 rounded border border-primary text-primary text-xs font-semibold hover:bg-primary/10 transition"
-                                    onClick={() => handleSetActive(wallet.address)}
-                                >
-                                    Set Active
-                                </button>
-                            )}
-                            {/* Unlink icon for external wallets */}
-                            {!isEmbedded && (
-                                <button
-                                    className="ml-auto p-1 rounded hover:bg-destructive/10 text-destructive transition relative group/unlink"
-                                    title="Unlink Wallet"
-                                    onClick={() => {
-                                        unlinkWallet(wallet.address);
-                                        toast.success("Wallet unlinked");
-                                    }}
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                    <span className="absolute left-1/2 -translate-x-1/2 top-full mt-1 text-xs bg-black text-white rounded px-2 py-0.5 opacity-0 group-hover/unlink:opacity-100 pointer-events-none z-10">Unlink Wallet</span>
-                                </button>
-                            )}
+        <div className="space-y-6">
+            <div className="space-y-4">
+                {privyWallets.length === 0 ? (
+                    <div className="text-center py-8">
+                        <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <ExternalLink className="w-8 h-8 text-white/40" />
                         </div>
-                    );
-                })}
+                        <p className="text-white/60 font-funnel-sans text-lg mb-4">No wallets connected yet</p>
+                        <p className="text-white/40 font-funnel-sans text-sm mb-6">Connect your first wallet to get started</p>
+                        <Button
+                            onClick={handleConnectWallet}
+                            className="bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold rounded-full px-8 py-4 h-14 transition-all duration-200 hover:scale-105 shadow-lg"
+                        >
+                            <Plus className="w-5 h-5 mr-2" />
+                            Connect Wallet
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {privyWallets.map((wallet) => {
+                            const isEmbedded = wallet.connectorType === "embedded";
+                            const isActive = activeWallet?.address === wallet.address;
+
+                            // Determine wallet icon
+                            let walletIcon = null;
+                            let iconName = null;
+                            if (!isEmbedded) {
+                                iconName = (wallet.walletClientType || wallet.connectorType || "").toLowerCase();
+                                const knownIcons = ["metamask", "phantom", "rainbow", "coinbase", "walletconnect"];
+                                if (knownIcons.includes(iconName)) {
+                                    walletIcon = (
+                                        <Image
+                                            src={`/images/wallet-icons/${iconName}.svg`}
+                                            alt={iconName + " icon"}
+                                            width={32}
+                                            height={32}
+                                            className="rounded-full"
+                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                        />
+                                    );
+                                }
+                            }
+
+                            return (
+                                <div
+                                    key={wallet.address}
+                                    className={clsx(
+                                        "group relative bg-white/5 border rounded-full px-6 py-4 transition-all duration-200 hover:bg-white/10",
+                                        isActive
+                                            ? "border-color6 bg-color6/10"
+                                            : "border-white/10 hover:border-white/20"
+                                    )}
+                                    onMouseEnter={() => setHovered(wallet.address)}
+                                    onMouseLeave={() => setHovered(null)}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className={clsx(
+                                                "w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200",
+                                                isActive ? "bg-color6" : "bg-white/10 group-hover:bg-white/20"
+                                            )}>
+                                                {isEmbedded ? (
+                                                    <Icons.ethereum className="w-6 h-6 text-white" />
+                                                ) : (
+                                                    walletIcon || <Icons.sidebarWalletIcon className="w-6 h-6 text-white" />
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="font-mono text-white font-medium text-lg">
+                                                    {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
+                                                </span>
+                                                <span className="text-white/60 font-funnel-sans text-sm">
+                                                    {isEmbedded ? "Embedded Wallet" : "External Wallet"}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {isActive && (
+                                                <div className="flex items-center gap-2 px-3 py-1 bg-color6/20 rounded-full">
+                                                    <CheckCircle className="w-4 h-4 text-color6" />
+                                                    <span className="text-color6 font-funnel-sans text-sm font-medium">Active</span>
+                                                </div>
+                                            )}
+
+                                            {!isActive && hovered === wallet.address && (
+                                                <Button
+                                                    onClick={() => handleSetActive(wallet.address)}
+                                                    className="bg-color2 hover:bg-color3 text-white font-funnel-sans font-medium rounded-full px-4 py-2 h-8 transition-all duration-200 hover:scale-105 text-sm"
+                                                >
+                                                    Set Active
+                                                </Button>
+                                            )}
+
+                                            {!isEmbedded && (
+                                                <Button
+                                                    variant="outline"
+                                                    className="border-white/20 text-white/60 hover:text-white hover:bg-white/5 rounded-full p-2 h-8 w-8 transition-all duration-200 hover:scale-105"
+                                                    title="Unlink Wallet"
+                                                    onClick={() => {
+                                                        unlinkWallet(wallet.address);
+                                                        toast.success("Wallet unlinked");
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
-            <div className="mt-4">
-                <button
-                    className="bg-transparent text-black border border-black/40 px-4 py-2 rounded-md hover:bg-black/4 flex items-center gap-2"
-                    onClick={handleConnectWallet}
-                >
-                    <Plus className="w-4 h-4" />
-                    Link a Wallet
-                </button>
-
-            </div>
+            {privyWallets.length > 0 && (
+                <div className="pt-4 border-t border-white/10">
+                    <Button
+                        onClick={handleConnectWallet}
+                        variant="outline"
+                        className="border-white/20  bg-transparent text-white/80 hover:bg-white/5 rounded-full px-6 py-3 h-12 transition-all duration-200 hover:scale-105 w-full"
+                    >
+                        <Plus className="w-5 h-5 mr-2" />
+                        Connect Another Wallet
+                    </Button>
+                </div>
+            )}
         </div>
     );
 } 

@@ -19,11 +19,11 @@ export function PasskeySection() {
     return (
         <div className="space-y-4 font-funnel-sans">
             <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/40">
                     Link a passkey for secure and convenient authentication.
                 </p>
                 <button
-                    className="bg-transparent text-black border border-black/40 px-4 py-2 rounded-md hover:bg-black/4 flex items-center gap-2"
+                    className="bg-transparent text-white border border-white/40 px-4 py-2 rounded-md hover:bg-black/4 flex items-center gap-2"
                     onClick={handleLinkPasskey}
                 >
                     <Key className="w-4 h-4" />
