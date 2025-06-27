@@ -2,21 +2,35 @@
 
 import { Icons } from '@/app/components/sections/icons';
 import { truncateAddress } from '@/lib/utils';
-import { ConnectedWallet, useWallets } from '@privy-io/react-auth';
+import { ConnectedWallet, usePrivy, useWallets } from '@privy-io/react-auth';
 import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTokenData } from '@/hooks/use-token-data';
 import { TokenDisplay } from '@/components/dashboard/TokenDisplay';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBalance } from '@/providers/balance-provider';
+import { v4 as uuidv4 } from 'uuid';
+import { useRouter } from 'next/navigation';
 
 export default function Dashboard() {
     const { wallets: privyWallets } = useWallets();
+    const { ready, authenticated, user: privyUser } = usePrivy();
     const [activeWallet, setActiveWallet] = useState<ConnectedWallet | null>(null);
     const [isPortfolioHidden, setIsPortfolioHidden] = useState(false);
     const { tokens, loading, error } = useTokenData();
     const [currentTokenIndex, setCurrentTokenIndex] = useState(0);
     const { usdValue, isLoading: balanceLoading } = useBalance();
+    const [userId, setUserId] = useState<string | null>(null);
+    const router = useRouter();
+
+    useEffect(() => {
+        if (ready && authenticated && privyUser) {
+            // console.log(privyUser, 'privyUser');
+            const userId = privyUser?.id.split(':').pop() || privyUser?.id;
+            // console.log(userId, 'userId');
+            setUserId(userId);
+        }
+    }, [ready, authenticated, privyUser]);
 
     useEffect(() => {
         if (privyWallets.length > 0) {
@@ -38,6 +52,38 @@ export default function Dashboard() {
             return () => clearInterval(interval);
         }
     }, [tokens.length]);
+
+
+    const handleNewChat = async () => {
+
+        if (!userId) return;
+
+        const clientGeneratedId = uuidv4();
+
+        // // Store the initial message locally using the generated ID
+        // localStorage.setItem(`initialMessage ${clientGeneratedId}`, inputValueNew);
+
+        // Redirect immediately
+        router.push(`/chat/${clientGeneratedId}`);
+
+        try {
+            // Fire and forget (background) DB creation
+            await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    chatId: clientGeneratedId, // important: pass the UUID to backend
+                    title: "New Chat",
+                }),
+            });
+        } catch (error) {
+            console.error('Error creating new chat:', error);
+            // Optional: show a toast or handle background error
+        }
+    };
 
     return (
         <section className="w-full mx-auto text-white">
@@ -117,8 +163,11 @@ export default function Dashboard() {
                             <span className="text-white/40 font-funnel-sans font-medium">(24h)</span>
                         </div>
                     </div>
-                    <button className="bg-white text-color3 font-semibold font-funnel-sans py-6 px-16 rounded-full max-w-max mt-6 text-lg hover:bg-gray-200 transition-colors">
-                        Add Funds
+                    <button
+                        className="bg-white text-color3 font-semibold font-funnel-sans py-6 px-16 rounded-full max-w-max mt-6 text-lg hover:bg-gray-200 transition-colors"
+                        onClick={() => handleNewChat()}
+                    >
+                        Start Earning
                     </button>
                 </div>
 
