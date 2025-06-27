@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useBalance } from '@/providers/balance-provider';
 import { v4 as uuidv4 } from 'uuid';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function Dashboard() {
     const { wallets: privyWallets } = useWallets();
@@ -114,10 +115,10 @@ export default function Dashboard() {
                 {/* EarnKit Wallet - div2 */}
                 <div className="md:col-start-5 md:col-end-7 md:row-start-1 md:row-end-3 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center">
                     <p className="text-xl font-medium font-funnel-display text-white/80">EarnKit Wallet</p>
-                    <div className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors">
+                    <Link href="/wallet" className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors">
                         <Icons.newSidebarWalletMenuIcon className="w-5 h-5 text-[#2E70EA]" />
                         <span className="font-mono">{truncateAddress(activeWallet?.address || '', { prefix: 5, suffix: 4 })}</span>
-                    </div>
+                    </Link>
                 </div>
 
                 {/* Try Earny on - div3 */}

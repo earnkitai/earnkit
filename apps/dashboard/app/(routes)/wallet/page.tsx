@@ -14,6 +14,9 @@ import Image from "next/image";
 import { getBalance, getTokenBalances } from "@/actions/web3";
 import { useTokenPrice } from "@/hooks/use-token-price";
 import { formatEther } from "viem";
+import { truncateAddress } from "@/lib/utils";
+import { Copy } from "lucide-react";
+import { toast } from "sonner";
 
 // Add TokenBalance type from assets.tsx
 interface TokenBalance {
@@ -106,13 +109,18 @@ export default function WalletPage() {
         await fundWallet(walletAddress!);
     }
 
+    const handleCopyAddress = (address: string) => {
+        navigator.clipboard.writeText(address);
+        toast.success("Address copied to clipboard");
+    }
+
     return (
         <section className="mx-auto">
             {/* Blue Header Card */}
             <div className="max-h-[360px] h-[360px] rounded-[56px] bg-color2 text-white px-[40px] mb-8 shadow-lg relative overflow-hidden flex items-start justify-between">
                 <div className="flex flex-col items-start justify-between gap-6">
                     <div className="flex flex-col gap-[56px] mt-[56px] justify-center">
-                        <div className="text-[32px] font-medium font-funnel-display text-color8 mb-2">Wallet Balance</div>
+                        <div className="text-[32px] font-medium font-funnel-display text-color8 mb-2">Wallet Balance <span className="flex items-center gap-2 text-white/40 text-sm font-funnel-sans">{truncateAddress(walletAddress ?? "")} <Copy className="w-4 h-4" onClick={() => handleCopyAddress(walletAddress ?? "")} /></span></div>
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex flex-col items-start gap-4">
                                 <span className="text-4xl md:text-[72px] font-bold font-funnel-display text-white">${totalValue.toFixed(2)}</span>
