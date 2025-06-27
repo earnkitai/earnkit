@@ -304,3 +304,9 @@ export const getTokenMetadataBasedOnChain = async (
 
   return metadata;
 };
+
+export const fetchEthValueByUsd = async (usdValue: string) => {
+  const ethValue = await getTokenPrice('ethereum');
+  const ratio = Number(usdValue) / Number(ethValue);
+  return ratio.toFixed(6);
+};

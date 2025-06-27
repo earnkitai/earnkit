@@ -16,6 +16,7 @@ export async function createChat(chatData: Partial<Chat>) {
 
   const prismaChat = await prisma.chat.create({
     data: {
+      id: chatData.id,
       userId: chatData.userId!,
       title: chatData.title,
       isActive: chatData.isActive ?? true,

@@ -7,6 +7,7 @@
   --foreground: #171717;
   --destructive: #ee4444;
   --destructive-foreground: #ffffff;
+  --base: rgba(26, 34, 56, 1);
 }
 
 /* add the code bellow */
@@ -33,8 +34,8 @@
 } */
 
 body {
-  color: black;
-  background: white;
+  color: white;
+  background: var(--base);
   font-family: Arial, Helvetica, sans-serif;
 }
 .primary-btn {
@@ -45,7 +46,8 @@ body {
 }
 
 .primary-btn:hover {
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
     linear-gradient(90deg, #2563e4, #2563e4);
 }
 .logoSVG {
@@ -59,7 +61,8 @@ body {
   background: transparent;
 }
 .coinvise-btn-warpcast:hover {
-  background: linear-gradient(0deg, #8154d4, #8154d4),
+  background:
+    linear-gradient(0deg, #8154d4, #8154d4),
     linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
   background-blend-mode: multiply;
 }
@@ -79,11 +82,8 @@ body {
 }
 
 .blog-home-link:hover {
-  background: linear-gradient(
-      0deg,
-      var(--Color-2, #2563e4),
-      var(--Color-2, #2563e4)
-    ),
+  background:
+    linear-gradient(0deg, var(--Color-2, #2563e4), var(--Color-2, #2563e4)),
     linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
   background-blend-mode: multiply;
 }
@@ -106,4 +106,21 @@ input:-internal-autofill-selected {
   mask: var(--_m);
   -webkit-mask-composite: source-out;
   mask-composite: subtract;
+}
+
+.activity-bg {
+  background-image: radial-gradient(
+    circle,
+    #2222229d 2px,
+    rgba(0, 0, 0, 0.5) 1px
+  );
+  background-size: 24px 24px;
+}
+
+.return-on-investment-slider {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 69, 58, 0.5) 65.38%
+  );
 }

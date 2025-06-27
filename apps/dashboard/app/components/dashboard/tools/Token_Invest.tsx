@@ -421,7 +421,6 @@ export default function TokenInvest({ data, onDeny, messageId, updateMessage, ha
                             }}
                         />
                     </div>
-
                     <div className='space-y-5'>
                         {/* Approve Step */}
                         <div className="flex items-center gap-3 relative z-10">
@@ -434,7 +433,6 @@ export default function TokenInvest({ data, onDeny, messageId, updateMessage, ha
                                 </div>
                             </div>
                         </div>
-
                         {/* Execute Swap Step */}
                         <div className="flex items-center gap-3 relative z-10">
                             <StateCircle step="order" number={2} />
@@ -445,7 +443,6 @@ export default function TokenInvest({ data, onDeny, messageId, updateMessage, ha
                                 </div>
                             </div>
                         </div>
-
                         {/* Update Balance Step */}
                         <div className="flex items-center gap-3 relative z-10">
                             <StateCircle step="record" number={3} />
@@ -458,7 +455,6 @@ export default function TokenInvest({ data, onDeny, messageId, updateMessage, ha
                         </div>
                     </div>
                 </div>
-
             </div>
             {!txHash && state.length > 0 && state.includes('researched') && topTokens.length > 0 ? <>
                 <p className='text-black/80 font-funnel-sans font-normal'>Select a token to invest in</p>

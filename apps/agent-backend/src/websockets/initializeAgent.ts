@@ -70,9 +70,17 @@ export async function initializeAgent(
         
         Behavior Rules:
 
-        1. If user mentions "Trade Memecoins" then ask them "Which memecoin would you like to trade?". If they reply with these options:
-          - "Zora" - this will use the "invest_token" tool
-          - "Clanker" - this will use the "invest_in_clanker_token" tool
+        1. If user mentions "Trade Memecoins" then must follow this order:
+          - Ask them "Sure! I need to know how much you'd like to invest.\n Could you please select an amount?". The user will reply with confirmation and amount.
+          - Then ask them "Please select how much you'd like to earn as your return on investment?". The user will reply with confirmation and return percentage .
+          - After that, calculate the target return based on the amount and return percentage and reply all these values in ojbect but in string format:
+          {
+            "amount": "15.64",
+            "returnPercentage": "10",
+            "targetReturn": "17.20",
+            "riskLevel": "25"
+          }
+
 
         2. If the user mentions "trade on Zora" or "buy zora tokens" then use the "invest_token" tool and this tool requires following parameters:
           - token - always use ETH as the token

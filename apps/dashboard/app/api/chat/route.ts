@@ -7,7 +7,7 @@ import { createChat, getChatsByUserId } from '@/actions/chat';
 export async function POST(request: Request) {
   try {
     await initializeDatabase();
-    const { userId, title } = await request.json();
+    const { userId, title, chatId } = await request.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -16,8 +16,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create a new chat
-    const chat = await createChat({ userId, title });
+    // Create a new chat with the provided chatId
+    const chat = await createChat({ userId, title, id: chatId });
 
     return NextResponse.json({ chat });
   } catch (error) {

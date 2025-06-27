@@ -15,6 +15,7 @@ import { Suspense } from "react"
 import { StyleSheetManager } from 'styled-components'
 import isPropValid from '@emotion/is-prop-valid'
 import { TransactionsProvider } from "./transactions-provider"
+import { BalanceProvider } from "./balance-provider"
 
 
 // const wallet = new EthereumWallet()
@@ -50,7 +51,9 @@ export const Providers: React.FC<{ children: React.ReactNode }> = ({
                     >
                         {/* <AuthProvider> */}
                         <TransactionsProvider>
-                            {children}
+                            <BalanceProvider>
+                                {children}
+                            </BalanceProvider>
                         </TransactionsProvider>
 
                         {/* </AuthProvider> */}

@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useTransactions } from "@/providers/transactions-provider"
-import { ArrowDownIcon, ArrowUpIcon, LoaderIcon } from "lucide-react"
+import { ExternalLink } from "lucide-react"
 import { Account, formatEther } from "viem"
 
 import type { Transaction } from "@/types/web3"
 // import { useTokenPrice } from "@/hooks/use-token-price"
-import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card"
+import { Card, CardContent } from "@/app/components/ui/card"
 import { Skeleton } from "@/app/components/ui/skeleton"
 import {
   Table,
@@ -19,9 +19,9 @@ import {
   TableRow,
 } from "@/app/components/ui/table"
 
-import { ScrollArea } from "@/app/components/ui/scroll-area"
 import { base } from "viem/chains"
 import { useActiveWallet, usePrivy } from "@privy-io/react-auth"
+import { Icons } from "./icons"
 
 export default function Activity() {
   const { transactions: allTransactions, loading } = useTransactions()
@@ -51,126 +51,100 @@ export default function Activity() {
   }, [allTransactions, selectedAccount])
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg sm:text-2xl">Activity</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <ScrollArea className="flex max-h-[450px] w-full flex-col overflow-y-auto rounded-md">
-          <Table>
-            <TableHeader className="sticky top-0 bg-white">
-              <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead className="hidden sm:table-cell">Date</TableHead>
-                <TableHead>From</TableHead>
-                <TableHead className="hidden sm:table-cell">To</TableHead>
-                <TableHead>Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell>
-                    <Skeleton className="h-4 w-16" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-24" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-16" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-16" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-24" />
-                  </TableCell>
+    <Card className="bg-transparent border-none">
+      <CardContent className="p-0">
+        <div className="relative">
+          <div className="overflow-auto">
+            <Table>
+              <TableHeader className="sticky top-0 bg-black z-10 font-funnel-sans text-[18px] font-medium ">
+                <TableRow className="border-none">
+                  <TableHead className="bg-transparent text-color1 pb-4">Action</TableHead>
+                  <TableHead className="bg-transparent text-color1 pb-4">Value</TableHead>
+                  <TableHead className="bg-transparent text-color1 pb-4">Timestamp</TableHead>
                 </TableRow>
-              ) : transactions.length > 0 ? (
-                transactions.map((transaction, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <Link
-                        href={`${base.blockExplorers.default.url}/tx/${transaction.hash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 capitalize"
-                      >
-                        {transaction.status === "received" ? (
-                          <ArrowDownIcon className="h-4 w-4 text-green-500" />
-                        ) : transaction.status === "pending" ? (
-                          <LoaderIcon className="h-4 w-4 animate-spin text-yellow-500" />
-                        ) : (
-                          <ArrowUpIcon className="h-4 w-4 text-red-500" />
-                        )}
-                        {transaction.status}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="hidden p-1 text-xs sm:table-cell md:p-4 md:text-sm">
-                      {new Date(transaction.timestamp).toLocaleString("en-US", {
-                        month: "long",
-                        day: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: true,
-                      })}
-                    </TableCell>
-                    <TableCell className="hidden font-mono text-xs sm:table-cell">
-                      <Link
-                        className="underline underline-offset-4"
-                        href={`${base.blockExplorers.default.url}/address/${transaction.from}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {transaction.from.slice(0, 6)}...
-                        {transaction.from.slice(-4)}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <Link
-                        className="underline underline-offset-4"
-                        href={`${base.blockExplorers.default.url}/address/${transaction.to}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {transaction?.to?.slice(0, 6)}...
-                        {transaction?.to?.slice(-4)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">
-                        {transaction.value ? formatEther(transaction.value) : 0}{" "}
-                        <span className="text-xs text-muted-foreground">
-                          {transaction.asset ? transaction.asset : 'ETH'}
-                        </span>
-                      </div>
-                      {/* <div className="text-sm text-muted-foreground">
-                        $
-                        {transaction.value
-                          ? (
-                            parseFloat(formatEther(transaction.value)) *
-                            (ethPrice ?? 0)
-                          ).toFixed(2)
-                          : 0}
-                      </div> */}
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={3}>
+                      <Skeleton className="h-12 w-full bg-white/10" />
+                      <Skeleton className="h-12 w-full bg-white/10 mt-2" />
+                      <Skeleton className="h-12 w-full bg-white/10 mt-2" />
                     </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    className="text-center text-muted-foreground"
-                    colSpan={5}
-                  >
-                    No activity. Send or receive ETH to see transactions here.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </ScrollArea>
+                ) : transactions.length > 0 ? (
+                  transactions.map((transaction, index) => {
+                    // Determine action type and icon
+                    let actionLabel = '';
+                    let icon = null;
+                    let iconColor = '';
+                    let valueContent = null;
+                    if (transaction.status === 'received') {
+                      actionLabel = 'Deposit';
+                      icon = <Icons.earnyActivityDownArrowIcon className="w-7 h-7 text-secondary-green" />;
+                      iconColor = 'text-white/40 ';
+                      valueContent = (
+                        <div className="flex items-center gap-2 text-white text-[22px] font-funnel-sans font-semibold">
+                          {Number(formatEther(BigInt(transaction.value ?? 0))).toFixed(2)}
+                          <span className="ml-2 px-3 py-1 rounded-full bg-black border border-white/10 text-white/80 text-[12px] font-semibold flex items-center gap-1">
+                            {/* Token icon if available */}
+                            {transaction.asset === 'ETH' && <Icons.ethereum className="w-4 h-4 inline-block mr-1" />}
+                            {transaction.asset}
+                          </span>
+                          <span className="ml-2 text-white/40 text-[14px] font-normal">from</span>
+                          <span className="ml-2 px-3 py-1 rounded-full bg-black border border-white/10 text-blue-400 text-[12px] font-semibold">{transaction.from.slice(0, 6)}...{transaction.from.slice(-4)}</span>
+                        </div>
+                      );
+                    } else {
+                      actionLabel = 'Send';
+                      icon = <Icons.earnyActivityUpArrowIcon className="w-7 h-7 text-white/40" />;
+                      iconColor = 'text-white/40 ';
+                      valueContent = (
+                        <div className="flex items-center gap-2 text-white text-[22px] font-funnel-sans font-semibold">
+                          {Number(formatEther(BigInt(transaction.value ?? 0))).toFixed(2)}
+                          <span className="ml-2 px-3 py-1 rounded-full bg-black border border-white/10 text-white/80 text-[12px] font-normal flex items-center gap-1">
+                            {transaction.asset}
+                          </span>
+                          <span className="ml-2 text-white/40 text-[16px] font-normal">to</span>
+                          <span className="ml-2 px-3 py-1 rounded-full bg-black border border-white/10 text-blue-400 text-[12px] font-normal">{transaction.to ? `${transaction.to.slice(0, 6)}...${transaction.to.slice(-4)}` : 'Unknown'}</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <TableRow key={index} className="border-none">
+                        <TableCell className="py-8">
+                          <div className={`flex items-center gap-3 font-funnel-sans text-[22px] font-semibold ${iconColor}`}>
+                            {icon}
+                            <span className={iconColor}>{actionLabel}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-8">{valueContent}</TableCell>
+                        <TableCell className="py-8">
+                          <div className="flex items-center gap-2 text-white/40 text-[18px] font-funnel-sans">
+                            {new Date(transaction.timestamp).toLocaleDateString('en-GB', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric',
+                            })}
+                            <Link href={`${base.blockExplorers.default.url}/tx/${transaction.hash}`} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="w-4 h-4 text-white/40 ml-2" />
+                            </Link>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground py-12">
+                      No activity. Send or receive ETH to see transactions here.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )

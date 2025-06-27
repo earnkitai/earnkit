@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Address, Hex } from 'viem';
 
 import 'viem/window';

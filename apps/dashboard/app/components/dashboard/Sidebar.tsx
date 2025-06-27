@@ -13,8 +13,9 @@ import { useEffect, useState } from "react";
 import { findUserById } from "@/actions/user";
 // import Image from "next/image";
 import { Icons } from "../sections/icons";
-import SidebarChatHistory from "./SidebarChatHistory";
+// import SidebarChatHistory from "./SidebarChatHistory";
 import { usePrivy } from "@privy-io/react-auth";
+import { v4 as uuidv4 } from 'uuid';
 // import { useState } from "react";
 
 export default function Sidebar() {
@@ -23,13 +24,13 @@ export default function Sidebar() {
     const router = useRouter();
     const { ready, authenticated, user: privyUser, logout } = usePrivy();
     // const [isHovered, setIsHovered] = useState(false);
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(true);
     const [isMobile, setIsMobile] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-
+    const [userId, setUserId] = useState<string | null>(null);
     const [username, setUsername] = useState<string>("");
     // const [pfpUrl, setPfpUrl] = useState<string>("");
-    const [userId, setUserId] = useState<string | null>(null);
+    // const [userId, setUserId] = useState<string | null>(null);
 
     useEffect(() => {
         if (ready && authenticated && privyUser) {
@@ -65,9 +66,9 @@ export default function Sidebar() {
     }, []);
 
     // Handle sidebar toggle
-    const toggleSidebar = () => {
-        setIsOpen(!isOpen);
-    };
+    // const toggleSidebar = () => {
+    //     setIsOpen(!isOpen);
+    // };
 
     // Handle mouse events for desktop only
     // const handleMouseEnter = () => {
@@ -88,14 +89,14 @@ export default function Sidebar() {
     };
 
     const isActive = (path: string) => {
-        return pathname === path;
+        return pathname.includes(path);
     };
 
     const getLinkStyles = (path: string) => {
-        return `flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full group font-normal font-funnel-sans
+        return `flex items-center gap-2 px-0 py-0 rounded-lg transition-colors w-full group font-medium font-funnel-sans
             ${isActive(path)
-                ? "text-black font-semibold [&>svg]:bg-black/40 [&>svg]:text-white [&>svg>path]:opacity-100"
-                : "text-black/40 hover:text-black hover:font-semibold"
+                ? "text-white [&>svg]:text-white [&>svg>path]:opacity-100 "
+                : "text-white/40 hover:text-white"
             }`;
     };
 
@@ -135,27 +136,58 @@ export default function Sidebar() {
         };
     }, []);
 
+
+    const handleNewChat = async () => {
+
+        if (!userId) return;
+
+        const clientGeneratedId = uuidv4();
+
+        // // Store the initial message locally using the generated ID
+        // localStorage.setItem(`initialMessage ${clientGeneratedId}`, inputValueNew);
+
+        // Redirect immediately
+        router.push(`/chat/${clientGeneratedId}`);
+
+        try {
+            // Fire and forget (background) DB creation
+            await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    chatId: clientGeneratedId, // important: pass the UUID to backend
+                    title: "New Chat",
+                }),
+            });
+        } catch (error) {
+            console.error('Error creating new chat:', error);
+            // Optional: show a toast or handle background error
+        }
+    };
+
     return (
         <div className="relative">
-            {/* PanelRight Icon Container */}
+
             {/* Main Sidebar */}
-            <div className="fixed top-4 left-4 bg-[#f0f0f0] rounded-lg md:hidden z-100">
+
+            {/* <div className="fixed top-4 left-4 bg-[#f0f0f0] rounded-lg md:hidden z-100">
                 <div className="flex flex-col justify-start items-start space-y-6">
                     {isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />}
                 </div>
-            </div>
+            </div> */}
 
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-between items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform ${isOpen ? 'w-[200px] sm:w-[200px] p-6 bg-[#fbfbfb]' : 'w-[70px] sm:w-[70px] p-4 bg-black/4'} ${isMobile && !isOpen ? 'hidden' : 'block'} ${isMobile ? 'bg-[#f0f0f0]' : ''}`}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform gap-[60px] bg-black px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'} `}
             >
                 <div className="flex flex-col w-full justify-between items-start space-y-6">
-                    {!isMobile && (isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />)}
-                    {isOpen ? <Icons.earnkitLogoSidebar /> :
-                        <Icons.sidebarEarnkitSmallLogo />}
+                    <Icons.earnySmallGrayIcon className="w-8 h-8" />
                 </div>
                 {/* Main Navigation */}
-                <nav className="flex w-full py-2 sm:py-3 mt-4">
-                    <div className="w-full">
+                <nav className="flex w-full">
+                    <div className="w-full flex flex-col gap-[32px]">
                         <Link
                             href="/home"
                             className={getLinkStyles("/home")}
@@ -163,10 +195,20 @@ export default function Sidebar() {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.sidebarPlusIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-[10px] group-hover:bg-black/40 group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>New Chat</span>
-
+                            <Icons.newSidebarHomeMenuIcon className="group-hover:text-white h-8 w-8" />
+                            <span className={`absolute left-[54px] whitespace-nowrap transition-all `}>Home</span>
                         </Link>
+                        <div
+                            className={getLinkStyles("/chat")}
+                            onClick={() => {
+                                if (isMobile) setIsOpen(false);
+                                handleNewChat();
+                            }}
+                        >
+                            <Icons.newSidebarEarnyMenuIcon className="group-hover:text-white h-8 w-8 cursor-pointer" />
+                            <span className={`absolute left-[54px] whitespace-nowrap transition-all cursor-pointer`}>Earny</span>
+
+                        </div>
                         <Link
                             href="/wallet"
                             className={getLinkStyles("/wallet")}
@@ -174,27 +216,29 @@ export default function Sidebar() {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.sidebarWalletIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Wallet</span>
+                            <Icons.newSidebarWalletMenuIcon className="group-hover:text-white h-8 w-8" />
+                            <span className={`absolute left-[54px] whitespace-nowrap transition-all`}>Wallet</span>
                         </Link>
-                        <span
+                        {/* <span
                             className="flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full text-black/40"
                         >
                             <Icons.sidebarChatIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white font-normal group-hover:font-semibold" />
                             <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>History</span>
-                        </span>
+                        </span> */}
                     </div>
                 </nav>
-                <div className="flex-1 w-full overflow-y-auto" onClick={() => toggleSidebar()}>
+                {/* <div className="flex-1 w-full overflow-y-auto" onClick={() => toggleSidebar()}>
                     {<SidebarChatHistory
                         userId={userId}
                         isExpanded={isOpen}
                     />}
-                </div>
+                </div> */}
+
                 {/* Secondary Navigation */}
-                <nav className="flex w-full ">
+
+                <nav className="flex w-full mt-auto">
                     <div className="w-full">
-                        <Link
+                        {/* <Link
                             href="https://docs.earnkit.com"
                             target="_blank"
                             className={getLinkStyles("/docs")}
@@ -202,7 +246,7 @@ export default function Sidebar() {
                         >
                             <Icons.sidebarDocIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
                             <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
-                        </Link>
+                        </Link> */}
                         <div className="relative profile-menu">
 
                             {isProfileMenuOpen && (
@@ -243,10 +287,10 @@ export default function Sidebar() {
                                         height={20}
                                     />
                                 ) : ( */}
-                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
+                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 text-white/40 group-hover:fill-white group-hover:text-white" />
                                 {/* )} */}
-                                <span className={`absolute left-10 text-sm sm:text-base max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all duration-300  ${isOpen ? 'opacity-100' : 'opacity-0 hidden'}`}>{username !== "" ? username : "user"}</span>
-                                {isOpen && <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0" />}
+                                <span className={`absolute left-10 text-sm text-white/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-white`}>{username !== "" ? username : "user"}</span>
+                                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0 text-white/40 group-hover:text-white" />
                             </div>
 
 

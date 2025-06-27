@@ -1,10 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
-// import { useWallets } from "@/providers/wallet-provider"
-import { formatEther } from "viem"
-import { useTokenPrice } from "@/hooks/use-token-price"
-import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card"
+import { useEffect } from "react"
+import { Card, CardContent } from "@/app/components/ui/card"
 import {
   Table,
   TableBody,
@@ -13,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/app/components/ui/table"
-import { getBalance, getTokenBalances } from "@/actions/web3"
 import Image from "next/image"
 import { Icons } from "./icons"
 import { Skeleton } from "@/app/components/ui/skeleton"
@@ -39,87 +35,22 @@ interface TokenBalance {
 
 interface AssetsProps {
   onTotalValueChange?: (value: number) => void;
-  walletAddress: `0x${string}`;
+  tokens: TokenBalance[];
+  ethBalance: number | null;
+  isLoading: boolean;
+  error: string | null;
+  ethPrice: number;
 }
 
-export default function Assets({ onTotalValueChange, walletAddress }: AssetsProps) {
-  const { ethPrice } = useTokenPrice()
-  const [tokens, setTokens] = useState<TokenBalance[]>([])
-  const [ethBalance, setEthBalance] = useState<number | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const previousAddressRef = useRef<string | undefined>(null)
-  const fetchTimeoutRef = useRef<NodeJS.Timeout>(null)
-
-  useEffect(() => { console.log(ethPrice, "ethPrice") }, [ethPrice])
-
+export default function Assets({ onTotalValueChange, tokens, ethBalance, isLoading, error, ethPrice }: AssetsProps) {
   const formatTokenAmount = (balance: string, decimals: number) => {
     const amount = BigInt(balance)
-    return (Number(amount) / Math.pow(10, decimals)).toFixed(2)
+    return (Number(amount) / Math.pow(10, decimals ?? 18)).toFixed(2)
   }
 
-  const fetchTokens = useCallback(async (address: string) => {
-    if (!walletAddress) {
-      return
-    }
-    if (previousAddressRef.current === address && tokens.length > 0) {
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    try {
-      const [ethBalance, tokenData] = await Promise.all([
-        getBalance(walletAddress, "base"),
-        getTokenBalances(walletAddress, "base")
-      ])
-
-      const ethBalanceFormatted = ethBalance
-        ? parseFloat(Number(formatEther(ethBalance)).toFixed(8))
-        : 0
-      setEthBalance(ethBalanceFormatted)
-
-      const validTokens = tokenData?.filter(token =>
-        token.balance !== null &&
-        !token.error &&
-        (Number(token.balance) * (token.metadata?.priceUsd || 0)) > 0.009
-      ) as TokenBalance[]
-
-      setTokens(validTokens)
-      previousAddressRef.current = address
-    } catch (error) {
-      console.error("Failed to fetch tokens:", error)
-      setError("Failed to load token balances. Please try again later.")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [tokens.length, walletAddress])
-
-  useEffect(() => {
-    if (!walletAddress) {
-      setTokens([])
-      previousAddressRef.current = undefined
-      return
-    }
-
-    if (fetchTimeoutRef.current) {
-      clearTimeout(fetchTimeoutRef.current)
-    }
-
-    fetchTimeoutRef.current = setTimeout(() => {
-      fetchTokens(walletAddress)
-    }, 500)
-
-    return () => {
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current)
-      }
-    }
-  }, [walletAddress, fetchTokens])
-
-  const ethValueInUSD = useCallback(() => {
+  const ethValueInUSD = () => {
     return ethPrice && ethBalance ? (ethBalance * ethPrice).toFixed(2) : '0'
-  }, [ethPrice, ethBalance])
+  }
 
   useEffect(() => {
     const ethValue = ethPrice && ethBalance ? ethBalance * ethPrice : 0
@@ -134,13 +65,42 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
     onTotalValueChange?.(totalValue)
   }, [tokens, ethBalance, ethPrice, onTotalValueChange])
 
+  // Add a utility to calculate portfolio percentages
+  const getPortfolioPercentages = (ethValue: number, tokens: TokenBalance[], totalValue: number) => {
+    const percentages: { [key: string]: number } = {};
+    if (totalValue === 0) return percentages;
+    if (ethValue > 0) {
+      percentages['ETH'] = (ethValue / totalValue) * 100;
+    }
+    tokens.forEach(token => {
+      const amount = Number(token.balance);
+      const value = token.metadata.priceUsd && token.balance !== '0' ? amount * token.metadata.priceUsd : 0;
+      if (value > 0) {
+        percentages[token.contractAddress] = (value / totalValue) * 100;
+      }
+    });
+    return percentages;
+  };
+
+  // Calculate values for portfolio percentages
+  const ethValue = ethPrice && ethBalance ? ethBalance * ethPrice : 0;
+  const tokenValues = tokens.map(token => {
+    const amount = Number(token.balance);
+    return token.metadata.priceUsd && token.balance !== '0' ? amount * token.metadata.priceUsd : 0;
+  });
+  const totalValue = ethValue + tokenValues.reduce((a, b) => a + b, 0);
+  const portfolioPercentages = getPortfolioPercentages(ethValue, tokens, totalValue);
+
   const renderLoadingState = () => (
     <TableRow>
       <TableCell colSpan={4} className="p-2">
         <div className="space-y-2">
-          <Skeleton className="h-8 w-full bg-gray-100" />
-          <Skeleton className="h-8 w-full bg-gray-100" />
-          <Skeleton className="h-8 w-full bg-gray-100" />
+          <Skeleton className="h-12 w-full bg-white/10" />
+          <Skeleton className="h-12 w-full bg-white/10" />
+          <Skeleton className="h-12 w-full bg-white/10" />
+          <Skeleton className="h-12 w-full bg-white/10" />
+          <Skeleton className="h-12 w-full bg-white/10" />
+          <Skeleton className="h-12 w-full bg-white/10" />
         </div>
       </TableCell>
     </TableRow>
@@ -166,113 +126,106 @@ export default function Assets({ onTotalValueChange, walletAddress }: AssetsProp
   )
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg sm:text-2xl">Tokens</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Card className="bg-transparent border-none">
+      <CardContent className="p-0">
         <div className="relative">
-          <div className="overflow-auto max-h-[500px]">
+          <div className="overflow-auto">
             <Table>
-              <TableHeader className="sticky top-0 bg-background z-10">
-                <TableRow>
-                  <TableHead className="bg-background">Asset</TableHead>
-                  <TableHead className="hidden sm:table-cell bg-background">Symbol</TableHead>
-                  <TableHead className="bg-background">Amount</TableHead>
-                  <TableHead className="hidden sm:table-cell bg-background">Value (USD)</TableHead>
+              <TableHeader className="sticky top-0 bg-black z-10 font-funnel-sans text-[18px] font-medium ">
+                <TableRow className="border-none">
+                  <TableHead className="bg-transparent text-color1 pb-4">Asset</TableHead>
+                  <TableHead className="hidden sm:table-cell bg-transparent text-color1 pb-4">Balance</TableHead>
+                  <TableHead className="bg-transparent text-color1 pb-4">Portfolio</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? renderLoadingState() :
                   error ? renderErrorState() :
-                    tokens.length === 0 ? renderEmptyState() :
+                    tokens.length === 0 && !ethBalance ? renderEmptyState() :
                       (
                         <>
                           {/* ETH Balance Row */}
-                          <TableRow>
-                            <TableCell className="p-2 font-medium sm:p-4">
-                              <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                                <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
-                                  <Icons.ethereum className="w-6 h-6" />
-                                  <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
-                                </div>
-                                <span>Ethereum</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="hidden font-mono text-xs sm:table-cell">
-                              ETH
-                            </TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                              {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
-                            </TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                              ${ethValueInUSD()}
-                            </TableCell>
-                            <TableCell className="p-2 sm:hidden">
-                              <div className="font-medium">
-                                {ethBalance ? ethBalance.toFixed(4) : 'N/A'}
-                                <span className="ml-1 text-xs text-muted-foreground">
-                                  ETH
-                                </span>
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                ${ethValueInUSD()}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-
-                          {/* Other Tokens */}
-                          {tokens.map((token) => (
-                            <TableRow key={token.contractAddress}>
+                          {ethBalance && ethBalance > 0 && (
+                            <TableRow className="border-none">
                               <TableCell className="p-2 font-medium sm:p-4">
-                                <div className="flex items-center space-x-2 text-xs sm:text-sm">
-                                  <div className="relative w-7 h-7 flex items-center justify-center rounded-full border">
-                                    {token.metadata.imageUrl ? (
-                                      <>
-                                        <Image
-                                          src={token.metadata.imageUrl}
-                                          alt={token.metadata.name}
-                                          className="h-6 w-6 rounded-full"
-                                          width={24}
-                                          height={24}
-                                        />
-                                        <Icons.baseIcon className="w-3 h-3 absolute bottom-0 right-0" />
-                                      </>
-                                    ) : (
-                                      <Icons.basetokenImage className="w-6 h-6" />
-                                    )}
+                                <div className="flex items-center space-x-2 text-xs sm:text-sm gap-1">
+                                  <div className="relative w-8 h-8 flex items-center justify-center rounded-full">
+                                    <Icons.ethereum className="w-8 h-8" />
+                                    <Icons.baseIcon className="w-[14px] h-[14px] absolute top-[-2px] left-[-2px]" />
                                   </div>
-                                  <span>{token.name || token.metadata.name || 'N/A'}</span>
+                                  <div className="flex flex-col items-start text-white/40 font-funnel-sans text-[18px]">
+                                    <span className="font-semibold">Ethereum</span>
+                                    <span className="font-normal text-[14px]">ETH</span>
+                                  </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="hidden font-mono text-xs sm:table-cell">
-                                {token.symbol
-                                  ? (token.symbol.length > 20 ? token.symbol.slice(0, 20) + "..." : token.symbol)
-                                  : token.metadata?.symbol
-                                    ? (token.metadata.symbol.length > 20 ? token.metadata.symbol.slice(0, 20) + "..." : token.metadata.symbol)
-                                    : 'N/A'}
-                              </TableCell>
                               <TableCell className="hidden sm:table-cell">
-                                {formatTokenAmount(token.rawBalance, token.decimals)}
+                                <div className="text-[20px] font-semibold text-white font-funnel-sans">${ethValueInUSD()}</div>
+                                <div className="text-[14px] text-white/40 font-funnel-sans">{ethBalance ? ethBalance.toFixed(4) : 'N/A'}</div>
                               </TableCell>
-                              <TableCell className="hidden sm:table-cell">
-                                {token.metadata.priceUsd && token.balance !== '0'
-                                  ? `$${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)}`
-                                  : '-'}
-                              </TableCell>
-                              <TableCell className="p-2 sm:hidden">
-                                <div className="font-medium">
-                                  {formatTokenAmount(token.rawBalance, token.metadata.decimals)}
-                                  <span className="ml-1 text-xs text-muted-foreground">
-                                    {token.metadata.symbol}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  ${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals)) * token.metadata.priceUsd).toFixed(4)}
+                              <TableCell>
+                                <div className="flex flex-col items-start gap-2 w-40">
+                                  <div className="w-full h-3 rounded-full bg-white/10 overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-white/40 transition-all duration-300"
+                                      style={{ width: `${portfolioPercentages['ETH']}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-white/40 font-funnel-sans text-left">{(portfolioPercentages['ETH'] || 0).toFixed(2)}%</span>
                                 </div>
                               </TableCell>
                             </TableRow>
-                          ))}
+                          )}
+                          {/* Other Tokens */}
+                          {tokens.map((token) => {
+                            const percent = portfolioPercentages[token.contractAddress] || 0;
+                            return (
+                              <TableRow key={token.contractAddress} className="border-none">
+                                <TableCell className="p-2 font-medium sm:p-4">
+                                  <div className="flex items-center space-x-2 text-xs sm:text-sm gap-1">
+                                    <div className="relative w-8 h-8 flex items-center justify-center rounded-full border-none">
+                                      {token.metadata.imageUrl ? (
+                                        <>
+                                          <Image
+                                            src={token.metadata.imageUrl}
+                                            alt={token.metadata.name}
+                                            className="h-8 w-8 rounded-full"
+                                            width={32}
+                                            height={32}
+                                          />
+                                          <Icons.baseIcon className="w-[14px] h-[14px] absolute top-[-2px] left-[-2px]" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Icons.basetokenImage className="w-8 h-8" />
+                                          <Icons.baseIcon className="w-[14px] h-[14px] absolute top-[-2px] left-[-2px]" />
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col items-start text-white/40 font-funnel-sans text-[18px]">
+                                      <span className="font-semibold">{token.name || token.metadata.name || 'N/A'}</span>
+                                      <span className="font-normal text-[14px]">{token.symbol || token.metadata.symbol}</span>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell">
+                                  <div className="text-[20px] font-semibold text-white font-funnel-sans">${(Number(formatTokenAmount(token.rawBalance, token.metadata.decimals ?? 18)) * token.metadata.priceUsd).toFixed(2)}</div>
+                                  <div className="text-[14px] text-white/40 font-funnel-sans">{formatTokenAmount(token.rawBalance, token.decimals ?? 18)}</div>
+                                </TableCell>
+                                <TableCell className="py-8">
+                                  <div className="flex flex-col items-start gap-2 w-40">
+                                    <div className="w-full h-3 rounded-full bg-white/10 overflow-hidden">
+                                      <div
+                                        className="h-full rounded-full bg-white/40 transition-all duration-300"
+                                        style={{ width: `${percent}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-white/40 font-funnel-sans text-left">{percent.toFixed(2)}%</span>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </>
                       )}
               </TableBody>
