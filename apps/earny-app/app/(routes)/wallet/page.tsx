@@ -158,7 +158,7 @@ export default function WalletPage() {
                             className="text-white/40 font-funnel-sans border border-white/40 rounded-full px-4 py-2 uppercase hover:text-white/80"
                             onClick={() => setIsSendModalOpen(true)}
                         >
-                            Send
+                            Withdraw
                         </button>
                         {/* <span className="text-white/40 font-funnel-sans">GAIN/LOSS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.12).toFixed(2)}</span></span> */}
                         {/* <span className="text-white/40 font-funnel-sans">INFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.5).toFixed(2)}</span></span> */}

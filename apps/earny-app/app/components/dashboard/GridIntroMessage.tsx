@@ -39,17 +39,25 @@ export function GridIntroMessage({ options, handleSubmit, setCurrentActivity }: 
                 {options.map((option, i) => {
                     const color = colorClasses[i % colorClasses.length];
                     const isSelected = selectedOption === option.name;
+                    const isDisabled = option.name === 'earn_yield';
+
                     return (
                         <button
                             key={option.name}
-                            onClick={() => handleOptionClick(option)}
+                            onClick={() => !isDisabled && handleOptionClick(option)}
+                            disabled={isDisabled}
                             className={`rounded-[28px] p-[24px] flex flex-col w-[216px] h-[148px] min-w-[216px] min-h-[148px] justify-between items-start text-left text-white transition-colors border ${color.border} ${isSelected
                                 ? color.selectedBg
                                 : `${color.bg} hover:outline hover:outline-2 ${color.hoverOutline}`
-                                }`}
+                                } ${isDisabled ? 'hover:opacity-50 cursor-not-allowed' : ''} relative group`}
                         >
-                            <Icons.sparkleWhiteIcon className="w-[28px] h-[28px] min-w-[28px] min-h-[28px] text-white" />
-                            <span className='text-md '>{option.label}</span>
+                            {isDisabled && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-[28px] opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="text-white font-medium">Coming soon</span>
+                                </div>
+                            )}
+                            <Icons.sparkleWhiteIcon className={`w-[28px] h-[28px] min-w-[28px] min-h-[28px] text-white ${isDisabled ? 'group-hover:hidden' : ''}`} />
+                            <span className={`text-md ${isDisabled ? 'group-hover:hidden' : ''}`}>{option.label}</span>
                         </button>
                     )
                 })}

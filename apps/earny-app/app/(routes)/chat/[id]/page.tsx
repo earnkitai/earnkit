@@ -857,9 +857,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                     name: undefined, // selected option
                     text: JSON.stringify([
                         { name: 'get_balance', label: 'Check your token balances' },
-                        { name: 'token_analysis', label: 'Analyze crypto tokens for market details' },
-                        { name: 'swap_token', label: 'Swap between different tokens' },
-                        { name: 'send_token', label: 'Send ETH or tokens to other wallets' },
+                        // { name: 'token_analysis', label: 'Analyze crypto tokens for market details' },
+                        // { name: 'swap_token', label: 'Swap between different tokens' },
+                        // { name: 'send_token', label: 'Send ETH or tokens to other wallets' },
+                        { name: 'earn_yield', label: 'Earn Yield' },
                         { name: 'auto_invest', label: 'Trade Memecoins' },
                     ]),
                 },
