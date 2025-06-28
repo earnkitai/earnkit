@@ -17,8 +17,8 @@ const funnellsans = Funnel_Sans({
 
 export const metadata: Metadata = {
     metadataBase: new URL('https://earny.chat'),
-    title: "Earny | Home",
-    description: "Welcome to Earny - Your AI-powered earning platform.",
+    title: "Earny | Your Earning Assistant",
+    description: "Welcome to Earny - Earn with automated trading on Zora, Uniswap, Jupiter and more.",
     keywords: [
         "Earny", "AI earning", "artificial intelligence", "earning platform",
         "AI automation", "passive income", "AI tools", "earn money online",
@@ -32,12 +32,12 @@ export const metadata: Metadata = {
         canonical: 'https://earny.chat',
     },
     openGraph: {
-        title: "Earny | Home",
+        title: "Earny | Your Earning Assistant",
         siteName: "Earny",
         url: "https://earny.chat",
         type: "website",
         locale: "en_US",
-        description: "Welcome to Earny - Your AI-powered earning platform.",
+        description: "Welcome to Earny - Earn with automated trading on Zora, Uniswap, Jupiter and more.",
         images: [
             {
                 url: "https://res.cloudinary.com/coinvise/image/upload/v1747986022/Earny_Platform_Meta_Image.png",
@@ -51,8 +51,8 @@ export const metadata: Metadata = {
         site: "@Earny_ai",
         creator: "@Earny_ai",
         card: "summary_large_image",
-        title: "Earny | Home",
-        description: "Welcome to Earny - Your AI-powered earning platform.",
+        title: "Earny | Your Earning Assistant",
+        description: "Welcome to Earny - Earn with automated trading on Zora, Uniswap, Jupiter and more.",
         images: [
             {
                 url: "https://res.cloudinary.com/coinvise/image/upload/v1747986022/Earny_Platform_Meta_Image.png",
