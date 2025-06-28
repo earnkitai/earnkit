@@ -13,7 +13,11 @@ dotenv.config();
 const app = express();
 app.use(
   cors({
-    origin: ['https://app.earnkit.com', process.env.DASHBOARD_URL!],
+    origin: [
+      'https://app.earny.chat',
+      'https://app.earnkit.com',
+      process.env.DASHBOARD_URL!,
+    ],
     methods: ['GET', 'POST'],
     credentials: true,
   }),
@@ -33,7 +37,11 @@ const server = createServer(app);
 // Initialize Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: ['https://app.earnkit.com', process.env.DASHBOARD_URL!],
+    origin: [
+      'https://app.earny.chat',
+      'https://app.earnkit.com',
+      process.env.DASHBOARD_URL!,
+    ],
     methods: ['GET', 'POST'],
     credentials: true,
   },
