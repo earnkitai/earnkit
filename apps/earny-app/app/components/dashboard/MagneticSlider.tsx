@@ -2,11 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useBalance } from '@/providers/balance-provider';
+import Link from 'next/link';
 
 export default function MagneticSlider({ onConfirm, setCurrentActivity }: { onConfirm: (amount: number) => void, setCurrentActivity: (activity: string) => void }) {
     const [percentage, setPercentage] = useState<number>(0);
     const sliderRef = useRef<HTMLInputElement>(null);
     const { ethUsdValue: maxValue } = useBalance();
+    const [usdBalance, setUsdBalance] = useState<number>(0);
+
+    useEffect(() => {
+        if (maxValue > 0.1) {
+            setUsdBalance(maxValue);
+        }
+    }, [maxValue, setCurrentActivity]);
 
     useEffect(() => {
         setCurrentActivity("Waiting for confirmation...");
@@ -80,11 +88,14 @@ export default function MagneticSlider({ onConfirm, setCurrentActivity }: { onCo
                 <div className="rounded-full border-[1.5px] border-white/40 px-[16px] py-1.5 text-md text-white font-funnel-sans font-medium">
                     <span>${maxValue > 0 ? ((percentage / 100) * maxValue).toFixed(2) : '0.00'}</span>
                 </div>
-                <button
-                    onClick={() => onConfirm(maxValue > 0 ? ((percentage / 100) * maxValue) : 0)}
-                    className="max-w-max rounded-full bg-secondary-green px-[16px] py-1.5 text-md font-medium font-funnel-sans text-black">
-                    Confirm
-                </button>
+                {usdBalance > 0.1 ?
+                    <button
+                        onClick={() => onConfirm(maxValue > 0 ? ((percentage / 100) * maxValue) : 0)}
+                        className="max-w-max rounded-full bg-secondary-green px-[16px] py-1.5 text-md font-medium font-funnel-sans text-black">
+                        Confirm
+                    </button> :
+                    <Link href="/wallet" className="max-w-max rounded-full bg-secondary-green px-[16px] py-1.5 text-md font-medium font-funnel-sans text-black">Fund Wallet</Link>
+                }
             </div>
         </div>
     );
