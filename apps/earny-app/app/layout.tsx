@@ -21,7 +21,7 @@ const funnellsans = Funnel_Sans({
 export const metadata: Metadata = {
   metadataBase: new URL('https://app.earny.chat'),
   title: "Earny - Your Earning Assistant",
-  description: "Earny is your AI-powered earning assistant for automated trading on Zora, Uniswap, Jupiter and more.",
+  description: "Earny is your AI-powered earning assistant for automated trading on Zora, Clanker.",
   keywords: [
     "AI agents", "artificial intelligence", "custom AI", "AI development",
     "no-code AI", "AI platform", "business automation", "AI chatbots",

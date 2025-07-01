@@ -8,29 +8,29 @@ const quarters = [
     {
         key: "q1",
         label: "Live Now",
-        heading: "Your agent just executed on Base",
-        subheading: "Live multi-step execution. No UI. No approvals. Just your strategy in motion.",
+        heading: "EarnKit SDK (fee engine + smart wallet billing)",
+        subheading: "Developers building agents",
         status: <span className="text-[#7CA6FF]">Now active for funds and protocol teams.</span>,
     },
     {
         key: "q2",
         label: "Q2 2025",
-        heading: "Deploy elite strategies with one click",
-        subheading: "Flows created by top performers. No config, no code—just deploy and execute.",
+        heading: "Analytics",
+        subheading: "Developers & teams",
         status: <span className="italic text-[#7CA6FF]">Built for active traders and allocators.</span>,
     },
     {
         key: "q3",
         label: "Q3 2025",
-        heading: "Remix logic. Launch flows. No code.",
-        subheading: "Design agent workflows like Lego blocks—visually and modularly.",
+        heading: "Agent templates",
+        subheading: "Builders & creators",
         status: <span className="italic text-[#7CA6FF]">Perfect for creators, power users, and builders on Farcaster.</span>,
     },
     {
         key: "q4",
         label: "Late Q4 2025",
-        heading: "EarnKit opens—selectively.",
-        subheading: "Tiered public rollout begins. First in line: early users and aligned builders.",
+        heading: "Public launch",
+        subheading: "Waitlist only",
         status: <span className="italic text-[#7CA6FF]">Waitlist unlocks the gate.</span>,
     },
 ];
@@ -125,15 +125,15 @@ export default function QuarterlyRolloutSection() {
                             exit="exit"
                             className="self-start ml-10 md:ml-20 w-[95%] md:w-[70%] flex-1 md:min-h-[350px] flex flex-col justify-end mb-8 md:mb-20 mt-10"
                         >
-                            <h2 className="w-[80%] text-color8 font-funnel-sans text-3xl md:text-[2.5rem] 2xl:text-[3.5rem] font-medium mb-6 leading-tight">
+                            <h2 className="w-[80%] text-color8 font-funnel-sans text-3xl md:text-[2.3rem] 2xl:text-[3.3rem] font-medium mb-6 leading-tight">
                                 {quarters[selected].heading}
                             </h2>
-                            <p className="w-[80%] text-color7 font-funnel-sans text-lg md:text-xl my-2">
+                            <p className="w-[80%] text-color6 font-funnel-sans text-lg md:text-xl my-2">
                                 {quarters[selected].subheading}
                             </p>
-                            <div className="w-[80%] text-color6 font-funnel-sans italic text-lg mb-4 md:mb-10 mt-4">
+                            {/* <div className="w-[80%] text-color6 font-funnel-sans italic text-lg mb-4 md:mb-10 mt-4">
                                 {quarters[selected].status}
-                            </div>
+                            </div> */}
                         </motion.div>
                     </AnimatePresence>
                     <div className="grid grid-cols-2 gap-[1rem] w-full mt-12 ">
@@ -161,14 +161,11 @@ export default function QuarterlyRolloutSection() {
             <aside className="w-full h-[90vh] md:h-auto md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 md:p-28">
                 <div className="flex-1 flex flex-col justify-start">
                     <h2 className="text-color8 font-funnel-display text-4xl md:text-[3.2rem] font-semibold mb-8 leading-tight">
-                        We&apos;re Not<br />Going Public.<br />We&apos;re Going <br />Deep.
+                        We&apos;re Shipping Fast. <br />Join Early.
                     </h2>
-                    <p className="text-color8 font-funnel-sans text-lg mb-10 max-w-md w-[90%] md:w-[65%]">
-                        EarnKit is rolling out with a focused group of power users who move capital, not clicks.
-                    </p>
                 </div>
                 <div className="w-full flex flex-col items-start mt-auto">
-                    <span className="text-color8 font-funnel-sans text-xl font-semibold mb-6">Want early access?</span>
+                    <span className="w-full md:w-[65%] text-color8 font-funnel-sans text-xl font-semibold mb-6">Want to be among the first to start earning from your agent?</span>
                     <Link
                         href="https://form.typeform.com/to/TaK4Xs1E"
                         target="_blank"

@@ -3,56 +3,56 @@ import { useState, JSX } from "react";
 import { Icons } from "../ui/Icons";
 
 const tabData = {
-    "Protocol Operators": [
+    "For Consumer & Infra Teams": [
         {
             icon: (
-                <Icons.protocolIcon1 />
+                <Icons.citIcon1 />
             ),
-            text: "Automate staking, rebalancing, treasury ops",
+            text: "Add monetization to Farcaster agents or protocol automations",
         },
         {
             icon: (
                 <Icons.protocolIcon2 />
             ),
-            text: "Execute multi-chain strategies without dashboards",
+            text: "Plug into wallet infrastructure of your choice",
         },
         {
             icon: (
-                <Icons.protocolIcon3 />
+                <Icons.citIcon3 />
             ),
-            text: "Gain full visibility through public Agent Logs",
+            text: "Capture micro-fees from swaps, bridges, mints, or claims",
         },
         {
             icon: (
-                <Icons.protocolIcon4 />
+                <Icons.citIcon4 />
             ),
-            text: "Remove manual approvals from governance flows",
+            text: "Split fees across contributors, platforms and users",
         },
     ],
-    "Onchain Traders": [
+    "For Agent Developers": [
         {
             icon: (
                 <Icons.onchainTradeIcon1 />
             ),
-            text: "One-click alpha execution via Earny",
+            text: "Monetize your agent instantly without building from scratch",
         },
         {
             icon: (
-                <Icons.onchainTradeIcon2 />
+                <Icons.adIcon1 />
             ),
-            text: "Remixable templates (Q3) to customize and scale",
+            text: "Track revenue and user analytics in minutes",
         },
         {
             icon: (
-                <Icons.onchainTradeIcon3 />
+                <Icons.citIcon4 />
             ),
-            text: "Tokenized incentives for top-performing agents",
+            text: "Split fees across contributors, platforms and users",
         },
         {
             icon: (
                 <Icons.onchainTradeIcon4 />
             ),
-            text: "Run pre-built flows without writing a single line of code",
+            text: "Works with Langchain, ElizaOS, AgentKit & more",
         },
     ],
 } as const;
@@ -77,7 +77,7 @@ export default function UserTabsSection() {
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
-                        className={`text-xl md:text-2xl font-semibold px-2 transition-colors duration-200 ${activeTab === tab
+                        className={`text-md md:text-2xl font-semibold px-2 transition-colors duration-200 ${activeTab === tab
                             ? "text-color8"
                             : "text-color1 hover:text-color6"
                             }`}
@@ -91,7 +91,7 @@ export default function UserTabsSection() {
                 {tabData[activeTab].map((item: TabItem, idx: number) => (
                     <div
                         key={idx}
-                        className="rounded-[28px] border border-[3px] border-color6 bg-transparent p-8 flex flex-col items-start gap-6 min-h-[180px] transition-all duration-300 ease-in-out"
+                        className="rounded-[28px] border border-[3px] border-color6 bg-transparent p-8 flex flex-col items-start justify-between gap-2 min-h-[230px] transition-all duration-300 ease-in-out"
                     >
                         <div className="mb-2">{item.icon}</div>
                         <p className="max-w-[90%] text-white text-lg md:text-xl font-funnel-sans font-normal leading-snug transition-all duration-300 ease-in-out">
