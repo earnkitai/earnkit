@@ -42,7 +42,22 @@ export default function Header() {
 
             {/* Mobile Header */}
             <header className="container2 fixed bottom-0 flex flex-col w-full md:hidden justify-between items-center font-funnel-display z-50">
-                <div className="min-h-[100px] h-[12vh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div>
+
+                {/* curve part */}
+                {/* <div className="min-h-[100px] h-[12vh] w-full max-w-full rounded-b-[56px] bg-transparent mobile-header-bg"></div> */}
+                {/* <div className="w-full text-[#0a0917] flex justify-between items-end"> */}
+                <div className="absolute top-[-56px] left-0 text-[#0a0917]">
+                    <svg className="-rotate-90" width="56" height="56" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M0 0 H56 V56 H0 Z M0 56 A56 56 0 0 1 56 0 L56 56 Z" fill="currentColor" fillRule="evenodd" />
+                    </svg>
+                </div>
+                <div className="absolute top-[-56px] right-0 text-[#0a0917]">
+                    <svg className="rotate-180" width="56" height="56" viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M0 0 H56 V56 H0 Z M0 56 A56 56 0 0 1 56 0 L56 56 Z" fill="currentColor" fillRule="evenodd" />
+                    </svg>
+                </div>
+                {/* </div> */}
+
                 <div className="h-[10vh] z-30 h-[10dvh] bg-[#0a0917] flex flex-row justify-center items-center w-full mobile-header-bg">
                     <nav className="flex flex-row justify-start items-center font-funnel-display font-mediumitems-center gap-4 w-full max-w-full overflow-x-auto no-scrollbar">
                         <Link href="/" className="text-color2 hover:text-white transition-colors mr-4 ml-8">
