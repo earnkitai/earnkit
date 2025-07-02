@@ -18,54 +18,58 @@ interface RoadmapQuarter {
 
 const roadmapData: RoadmapQuarter[] = [
     {
-        id: 'q1',
-        title: 'Q1: Pre-Launch',
-        date: 'Jan - March 2025',
-        description: 'Our goal for this quarter is to complete building the AI agent framework, release architecture, litepaper and our first few AI agents. Here\'s what we\'re shipping this quarter:',
+        id: 'q3',
+        title: 'Q3 2025 · Alpha & Design-Partner Rollout',
+        date: 'July - September 2025',
+        description: 'Our focus this quarter is to ship the first usable version of the monetization stack and integrate it with a handful of design-partner agents.',
         items: [
-            'Open-source EarnKit\'s AI agent framework',
-            'Platform architecture',
-            'Litepaper',
-            'AI agents on Farcaster',
-            'Onboarding early access users'
+            'Earn SDK α — usage, tx-fee & credit primitives',
+            'Smart-wallet billing (Privy, Turnkey, EOA)',
+            'Developer Dashboard v0 — API keys, real-time logs',
+            'EarnKit Docs',
+            'Design-partner integrations'
         ],
         status: 'ACTIVE',
         bgColor: 'bg-[#2563E4]'
     },
     {
-        id: 'q2',
-        title: 'Q2: Launch',
-        date: 'April - June 2025',
-        description: 'Our goal for this quarter is to launch our no-code platform and reward campaigns for early users. Here\'s what we plan to build this quarter: ',
+        id: 'q4',
+        title: 'Q4 2025 · Public Beta',
+        date: 'October - December 2025',
+        description: 'Open EarnKit to all developers.',
         items: [
-            'EarnKit smart wallet',
-            'No-code AI agent creation',
-            'Access to AI agents on EarnKit\'s platform',
-            'EarnKit\'s NFT sale',
+            'Multichain support (Base, Monad, Solana & more)',
+            'Credit top-up flow with ETH/stablecoin checkout',
+            'Templates Library — trading agent, token-launcher, miniapp agent',
+            'Dashboard v1 — earnings graphs, usage throttles, free-tier controls',
+            'Launch-week campaign + leaderboard of top-earning agents'
         ],
         status: 'TBD',
         bgColor: 'bg-[#183E81]'
     },
     {
-        id: 'q3',
-        title: 'Q3: Integrations & Partnerships',
-        date: 'July - September 2025',
-        description: 'Our goal for this quarter is to build a strong community and distribution of users through key integrations and partnerships. This will enable you to use platforms you already love with agents unlocking a much simpler UX and efficiency. Here\'s our plan for building agents across these use- cases: ',
+        id: 'q1-2026',
+        title: 'Q1 2026 · Integrations',
+        date: 'January - March 2026',
+        description: '',
         items: [
-            'Trade: all kinds of tokens, perps and other assets.',
-            'Launch: Tokens, NFTs, Airdrops',
-            'Staking and earning yield',
-            'Lending & borrowing'
+            'Framework Plugins — AgentKit, ElizaOS adapters',
+            'Protocol Plug-ins — Uniswap v4 hooks, Zora Drops, Farcaster Mini-apps',
+            'On/Off-Ramps — Circle & Stripe Crypto stablecoin flow'
         ],
         status: 'TBD',
         bgColor: 'bg-[#192548]'
     },
     {
-        id: 'q4',
-        title: 'Q4: Growth',
-        date: 'October - December 2025',
-        description: 'In this quarter, we plan to extend access to EarnKit users with our mobile app on iOS, token incentives and focus more deeply on use-cases that enable better workflow automation for your day to day crypto use using AI agents.',
-        items: [],
+        id: 'q2-2026',
+        title: 'Q2 2026 · Ecosystem Expansion & Growth',
+        date: 'April - June 2026',
+        description: 'Grow distribution through deeper infra partnerships and a open-source framework.',
+        items: [
+            'Additional wallets (Coinbase Wallet SDK)',
+            'EarnKit Framework — create and manage monetized agent workflows',
+            'Analytics v2 — cohort reports, ARPU, churn alerts'
+        ],
         status: 'TBD',
         bgColor: 'bg-[#151837]'
     }
