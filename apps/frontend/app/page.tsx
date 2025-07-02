@@ -102,15 +102,11 @@ export default function Home() {
 
           </section>
 
-          <section className="w-full min-h-[90vh] md:min-h-[900px] bg-color13 mt-8 flex flex-col items-center justify-center py-20 px-4 md:px-0 rounded-[56px] relative overflow-hidden">
+          {/* video section */}
+          {/* <section className="w-full min-h-[90vh] md:min-h-[900px] bg-color13 mt-8 flex flex-col items-center justify-center py-20 px-4 md:px-0 rounded-[56px] relative overflow-hidden">
             <aside className="w-full max-w-7xl py-4 px-8 md:px-14">
               <div className="flex w-full flex-col items-start justify-center z-10">
                 <div className="mb-6">
-                  {/* <div className="mb-2">
-                    <span className="inline-block align-middle">
-                      <Icons.earnyLogoPink className="w-36 h-16" />
-                    </span>
-                  </div> */}
                   <div className="flex flex-col items-start justify-center gap-6 pt-8">
                     <h2 className="text-color14 font-funnel-display text-5xl md:text-4xl font-semibold mb-4">Add Fees in Minutes.<br />See It Live.</h2>
                     <p className="text-color14 text-lg md:text-lg font-funnel-sans max-w-md leading-[1.4] tracking-[0.2]">
@@ -132,7 +128,7 @@ export default function Home() {
                 />
               </div>
             </div>
-          </section>
+          </section> */}
 
           <QuarterlyRolloutSection />
 

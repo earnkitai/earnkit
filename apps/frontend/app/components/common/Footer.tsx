@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { InvestorsIcons } from "../ui/TeamIcons";
-import Marquee from "react-fast-marquee";
+// import { InvestorsIcons } from "../ui/TeamIcons";
+// import Marquee from "react-fast-marquee";
 import { Icons } from "../ui/Icons";
 
 export default function Footer() {
@@ -19,7 +19,7 @@ export default function Footer() {
                             <p className="font-funnel-sans text-color8 text-lg">AI Agent Framework</p>
                         </div>
                         <Link
-                            href="https://form.typeform.com/to/TaK4Xs1E"
+                            href="http://jenil.com/chat"
                             target="_blank"
                             className="inline-flex items-center max-w-max justify-center gap-2 px-6 md:px-10 py-4 md:py-6 outline outline-2 outline-color7 border border-transparent rounded-full text-color7 text-xl md:text-2xl font-funnel-sans font-medium group transition hover:border-color8 hover:outline-color8 hover:text-color8"
                         >
@@ -56,10 +56,9 @@ export default function Footer() {
 
             </section>
             {/* Investors Section */}
-            <section aria-labelledby="investors-heading" className="w-full px-0 py-4 md:py-10">
+            {/* <section aria-labelledby="investors-heading" className="w-full px-0 py-4 md:py-10">
                 <div className="relative w-full overflow-hidden">
                     <div className="flex items-center gap-16 whitespace-nowrap">
-                        {/* First row of logos */}
                         <Marquee>
                             <figure className="inline-flex items-center justify-center h-16 mx-8 ">
                                 <div className="w-32 h-12 flex items-center justify-center ">
@@ -111,61 +110,10 @@ export default function Footer() {
                                     <InvestorsIcons.cooperTurnley aria-label="Cooper Turnley investor logo" className="max-h-full text-color6 object-scale-down" />
                                 </div>
                             </figure>
-                            {/* Duplicate for seamless loop
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center object-contain">
-                                    <InvestorsIcons.LAO aria-label="LAO investor logo" className="text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.VoltCapital aria-label="Volt Capital investor logo" className=" text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.Galaxy aria-label="Galaxy investor logo" className=" text-color6    " />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.Ideo aria-label="Ideo investor logo" className=" text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.Acapital aria-label="Acapital investor logo" className="text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.Scalar aria-label="Scalar investor logo" className=" text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.gcr aria-label="GCR investor logo" className=" text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.defiAlliance aria-label="Defi Alliance investor logo" className=" text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 flex items-center justify-center">
-                                    <InvestorsIcons.block0 aria-label="Block0 investor logo" className="  text-color6" />
-                                </div>
-                            </figure>
-                            <figure className="inline-flex items-center justify-center h-16 mx-8">
-                                <div className="w-32 h-12 flex items-center justify-center">
-                                    <InvestorsIcons.cooperTurnley aria-label="Cooper Turnley investor logo" className=" text-color6" />
-                                </div>
-                            </figure> */}
                         </Marquee>
                     </div>
                 </div>
-            </section>
+            </section> */}
         </footer>
     );
 }
