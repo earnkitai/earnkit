@@ -24,7 +24,7 @@ export function FarcasterPrivy() {
                     Link your Farcaster account to enable social features.
                 </p>
                 <button
-                    className="bg-[#8a63d2] text-white border border-black/40 px-4 py-2 rounded-full flex items-center gap-2"
+                    className="bg-[#8a63d2] text-white border border-black/40 px-10 py-5 h-16 rounded-full flex items-center gap-2"
                     onClick={handleLinkFarcaster}
                 >
                     <Icons.farcasterWhiteIcon className="w-4 h-4" />

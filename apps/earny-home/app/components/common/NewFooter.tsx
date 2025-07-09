@@ -21,7 +21,7 @@ export default function NewFooter() {
             <div className="flex gap-14 items-center pt-8 md:pt-0">
                 {/* Center: Social links */}
                 <div className="flex space-x-8 text-color2 font-funnel-sans mb-4 md:mb-0">
-                    <Link href="https://x.com/EarnKit_ai" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Twitter/X</Link>
+                    <Link href="https://farcaster.xyz/earny" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Farcaster</Link>
                 </div>
             </div>
         </footer>

@@ -208,7 +208,7 @@ export default function Litepaper() {
                             <p className='font-funnel-sans font-medium text-[18px] leading-[25px] text-color3 flex flex-col md:flex-row items-center gap-2 md:gap-0'>Get Started: <Link href="https://www.earnkit.com" className="text-color3 underline font-normal text-[18px] leading-[25px] ml-2 underline-offset-2">www.earnkit.com</Link></p>
                         </div>
                         <div>
-                            <p className='font-funnel-sans font-medium text-[18px] leading-[25px] text-color3 flex flex-col md:flex-row items-center gap-2'>Connect with Us:
+                            <p className='font-funnel-sans font-medium text-[18px] leading-[25px] text-color3 flex flex-col md:flex-row items-center gap-2'>Connect:
                                 <Link href="https://x.com/EarnKit_ai" className="text-color3 font-normal text-[18px] leading-[25px] ml-1 flex items-center gap-2" aria-label="EarnKit_ai" target="_blank">
                                     <span className='p-1 w-[24px] h-[24px] bg-color3 rounded-[4px] max-w-max flex items-center justify-center '>
                                         <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">

@@ -12,7 +12,7 @@ export default function Home() {
                     style={{ minHeight: '100vh' }}
                     aria-labelledby="hero-heading"
                 >
-                    <div className="flex flex-col items-center justify-between pt-[5%] md:pt-[6%] md:mt-0 w-[90%] md:w-[80%] gap-[6vh] md:gap-[4vh]">
+                    <div className="flex flex-col items-center justify-between pt-[10%] md:pt-[10%] md:mt-0 w-[90%] md:w-[80%] gap-[6vh] md:gap-[4vh]">
                         {/* Logo with proper alt text */}
                         <Icons.earnyLogoWhite
                             className="text-white w-[85%] h-[15vh] md:w-[100%] md:h-auto"
@@ -28,9 +28,9 @@ export default function Home() {
                         </h1>
 
                         {/* Descriptive paragraph */}
-                        <p className="text-white text-[5vw] md:text-[1vw] lg:text-[1.3vw] text-center w-[80%] md:w-[100%] max-w-[100%] font-medium font-funnel-sans">
+                        {/* <p className="text-white text-[5vw] md:text-[1vw] lg:text-[1.3vw] text-center w-[80%] md:w-[100%] max-w-[100%] font-medium font-funnel-sans">
                             Earn with automated trading on Zora, Uniswap, Jupiter and more
-                        </p>
+                        </p> */}
 
                         {/* CTA Button with proper accessibility */}
                         <a
@@ -87,10 +87,10 @@ export default function Home() {
                     </div>
 
                     {/* Stats Card with semantic structure */}
-                    <div className="w-full h-[50%] md:h-[25%] mx-auto bg-color2 rounded-[56px] md:rounded-[56px] p-[10%] md:p-[5%] flex flex-col md:flex-row justify-between items-center gap-6 md:gap-0">
+                    <div className="w-full h-[50%] md:h-[25%] mx-auto bg-color2 rounded-[56px] md:rounded-[56px] p-[10%] md:p-[5%] flex flex-col md:flex-row justify-center items-center gap-6 md:gap-0">
                         <h2 id="stats-heading" className="sr-only">Earny Platform Statistics</h2>
 
-                        <div className="flex-1 text-center flex flex-col items-center justify-center" role="region" aria-label="Agentic Volume">
+                        {/* <div className="flex-1 text-center flex flex-col items-center justify-center" role="region" aria-label="Agentic Volume">
                             <div className="text-color16 text-[5vw] md:text-[1.2vw] font-medium mb-2 font-funnel-display">Agentic Volume</div>
                             <div className="text-white80 font-funnel-display text-[6vw] md:text-[1.4vw] font-medium mb-1" aria-label="93 million 587 thousand 776 dollars">$93,587,776</div>
                         </div>
@@ -103,7 +103,11 @@ export default function Home() {
                         <div className="flex-1 text-center flex flex-col items-center justify-center" role="region" aria-label="Annual Percentage Rate">
                             <div className="text-color16 text-[5vw] md:text-[1.2vw] font-medium mb-2 font-funnel-display">APR</div>
                             <div className="text-white80 font-funnel-display text-[6vw] md:text-[1.4vw] font-medium mb-1" aria-label="6.60 percent">6.60%</div>
-                        </div>
+                        </div> */}
+
+                        <p className="text-white text-[5vw] md:text-[1vw] lg:text-[1.3vw] text-center w-[80%] md:w-[70%] max-w-[100%] font-medium font-funnel-sans">
+                            Earn with automated trading on Zora, Uniswap, Jupiter and more
+                        </p>
                     </div>
                 </section>
             </main>

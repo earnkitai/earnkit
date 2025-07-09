@@ -131,14 +131,14 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-32 h-32 bg-color2/10 rounded-full -translate-y-16 translate-x-16"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-8">
-                                <div className="w-10 h-10 bg-color2 rounded-full flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center">
                                     <User className="w-5 h-5 text-white" />
                                 </div>
                                 <h2 className="text-2xl font-bold font-funnel-display text-white">Profile Information</h2>
                             </div>
                             <div className="space-y-8">
                                 <div>
-                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Username</label>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block px-6">Username</label>
                                     {isEditing ? (
                                         <div className="flex items-center gap-4">
                                             <Input
@@ -185,14 +185,14 @@ export default function SettingsPage() {
                                 </div>
 
                                 <div>
-                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Email</label>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block px-6">Email</label>
                                     <div className="bg-white/5 rounded-full px-6 py-4 border border-white/10">
                                         <p className="text-white font-medium text-lg">{user?.email?.address || 'Not set'}</p>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block">Wallet Address</label>
+                                    <label className="text-white/80 font-funnel-sans text-sm font-medium mb-3 block px-6">Wallet Address</label>
                                     <div className="bg-white/5 rounded-full px-6 py-4 border border-white/10">
                                         <p className="text-white font-medium font-mono text-sm break-all">
                                             {activeWallet ? activeWallet.address : user?.wallet?.address || 'Not set'}
@@ -208,7 +208,7 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -translate-y-12 translate-x-12"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center">
                                     <Shield className="w-5 h-5 min-w-5 min-h-5 text-white" />
                                 </div>
                                 <h2 className="text-2xl font-bold font-funnel-display text-white">Delegate Access</h2>
@@ -234,7 +234,7 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-20 h-20 bg-color6/10 rounded-full -translate-y-10 translate-x-10"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-color6 rounded-full flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center">
                                     <Wallet className="w-5 h-5 text-white" />
                                 </div>
                                 <h2 className="text-2xl font-bold font-funnel-display text-white">Embedded Wallet</h2>
@@ -247,7 +247,7 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-24 h-24 bg-color13/10 rounded-full -translate-y-12 translate-x-12"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-color13 rounded-full flex items-center justify-center">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center">
                                     <Icons.sidebarWalletIcon className="w-5 h-5 text-white" />
                                 </div>
                                 <h2 className="text-2xl font-bold font-funnel-display text-white">Connected Wallets</h2>
@@ -261,7 +261,7 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-16 h-16 bg-color2/10 rounded-full -translate-y-8 translate-x-8"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-4">
-                                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center">
                                     <Key className="w-4 h-4 text-white" />
                                 </div>
                                 <h2 className="text-xl font-bold font-funnel-display text-white">Passkey</h2>
@@ -275,7 +275,7 @@ export default function SettingsPage() {
                         <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-full -translate-y-8 translate-x-8"></div>
                         <div className="relative z-10">
                             <div className="flex items-center gap-3 mb-4">
-                                <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center">
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center">
                                     <Icons.farcasterWhiteIcon className="w-4 h-4 text-white" />
                                 </div>
                                 <h2 className="text-xl font-bold font-funnel-display text-white">Farcaster</h2>

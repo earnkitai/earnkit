@@ -180,7 +180,7 @@ export default function Sidebar() {
             </div> */}
 
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform gap-[60px] bg-black px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'} `}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center gap-[60px] bg-black px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'} `}
             >
                 <div className="flex flex-col w-full justify-between items-start space-y-6">
                     <Icons.earnySmallGrayIcon className="w-8 h-8" />
@@ -205,7 +205,10 @@ export default function Sidebar() {
                                 handleNewChat();
                             }}
                         >
-                            <Icons.newSidebarEarnyMenuIcon className="group-hover:text-white h-8 w-8 cursor-pointer" />
+                            {/* <Icons.newSidebarEarnyMenuIcon className="group-hover:text-white h-8 w-8 cursor-pointer" /> */}
+                            <span className="flex items-center justify-center h-8 w-8 p-[6px]">
+                                <Icons.newSidebarEarnyMenu2Icon className="group-hover:text-white cursor-pointer" />
+                            </span>
                             <span className={`absolute left-[54px] whitespace-nowrap transition-all cursor-pointer`}>Earny</span>
 
                         </div>

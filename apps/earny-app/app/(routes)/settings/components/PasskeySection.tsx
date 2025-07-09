@@ -23,7 +23,7 @@ export function PasskeySection() {
                     Link a passkey for secure and convenient authentication.
                 </p>
                 <button
-                    className="bg-transparent text-white border border-white/40 px-4 py-2 rounded-full hover:bg-black/4 flex items-center gap-2"
+                    className="bg-transparent text-white border border-white/40 px-10 py-5 h-16 rounded-full hover:bg-black/4 flex items-center gap-2"
                     onClick={handleLinkPasskey}
                 >
                     <Key className="w-4 h-4" />

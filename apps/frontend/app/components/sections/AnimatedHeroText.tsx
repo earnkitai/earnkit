@@ -41,7 +41,7 @@ export default function AnimatedHeroText() {
                 style={{ willChange: "transform, opacity" }}
             >
                 <p className="text-color8 font-funnel-sans text-xl lg:text-[1.2rem] 2xl:text-[2dvh] font-medium leading-[1.4]">
-                    Add usage-based fees to your agent in minutes—without rebuilding your stack.
+                    Add usage-based fees to your agent in minutes, without rebuilding your stack.
                 </p>
             </motion.div>
         </>

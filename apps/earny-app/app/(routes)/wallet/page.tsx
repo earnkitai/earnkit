@@ -139,31 +139,44 @@ export default function WalletPage() {
                                     </span> */}
                                 </div>
                             </div>
-                            <Button
-                                onClick={() => handleAddFunds()}
-                                variant="secondary"
-                                className="bg-color8 h-[100%] min-h-[88px] min-w-[280px] ml-8 text-color4 font-semibold px-8 py-3 rounded-full text-[28px] border-none leading-[120%] flex items-center gap-[12px]"
-                            >
-                                <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <rect x="1.95142" y="1.5" width="32" height="32" rx="16" stroke="#112969" strokeWidth="2.85714" />
-                                    <path d="M24.2517 19.5449L22.2312 17.5244L19.3806 20.375V9.15527H16.5232V20.376L13.6716 17.5244L11.6511 19.5449L17.9519 25.8447L24.2517 19.5449Z" fill="#112969" />
-                                </svg>
-                                Deposit
-                            </Button>
+                            <div className="flex items-center gap-4">
+                                <Button
+                                    onClick={() => handleAddFunds()}
+                                    variant="secondary"
+                                    className="bg-color8 h-[100%] min-h-[78px] min-w-[260px] ml-8 text-color4 font-semibold px-8 py-3 rounded-full text-[28px] border-none leading-[120%] flex items-center gap-[12px]"
+                                >
+                                    <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="1.95142" y="1.5" width="32" height="32" rx="16" stroke="#112969" strokeWidth="2.85714" />
+                                        <path d="M24.2517 19.5449L22.2312 17.5244L19.3806 20.375V9.15527H16.5232V20.376L13.6716 17.5244L11.6511 19.5449L17.9519 25.8447L24.2517 19.5449Z" fill="#112969" />
+                                    </svg>
+                                    Deposit
+                                </Button>
+                                <Button
+                                    onClick={() => setIsSendModalOpen(true)}
+                                    variant="secondary"
+                                    className="bg-transparent h-[100%] min-h-[78px] min-w-[260px] text-color8 font-semibold px-8 py-3 rounded-full text-[28px] border-2 border-color8 leading-[120%] flex items-center gap-[12px]"
+                                >
+                                    <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-180 text-color8">
+                                        <rect x="1.95142" y="1.5" width="32" height="32" rx="16" stroke="currentColor" strokeWidth="2.85714" />
+                                        <path d="M24.2517 19.5449L22.2312 17.5244L19.3806 20.375V9.15527H16.5232V20.376L13.6716 17.5244L11.6511 19.5449L17.9519 25.8447L24.2517 19.5449Z" fill="currentColor" />
+                                    </svg>
+                                    Withdraw
+                                </Button>
+                            </div>
                         </div>
 
                     </div>
-                    <div className="flex gap-[36px] my-[20px]">
+                    {/* <div className="flex gap-[36px] my-[20px]">
                         <button
                             className="text-white/40 font-funnel-sans border border-white/40 rounded-full px-4 py-2 uppercase hover:text-white/80"
                             onClick={() => setIsSendModalOpen(true)}
                         >
                             Withdraw
                         </button>
-                        {/* <span className="text-white/40 font-funnel-sans">GAIN/LOSS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.12).toFixed(2)}</span></span> */}
-                        {/* <span className="text-white/40 font-funnel-sans">INFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.5).toFixed(2)}</span></span> */}
-                        {/* <span className="text-white/40 font-funnel-sans">OUTFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.05).toFixed(2)}</span></span> */}
-                    </div>
+                        <span className="text-white/40 font-funnel-sans">GAIN/LOSS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.12).toFixed(2)}</span></span>
+                        <span className="text-white/40 font-funnel-sans">INFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.5).toFixed(2)}</span></span>
+                        <span className="text-white/40 font-funnel-sans">OUTFLOWS <span className="text-white/80 font-semibold pl-1">${(totalValue * 0.05).toFixed(2)}</span></span>
+                    </div> */}
                 </div>
                 {/* Decorative dots/graphics can be added here if desired */}
                 <div className="mt-auto h-[80%]">

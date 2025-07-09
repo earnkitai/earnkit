@@ -124,12 +124,13 @@ export default function Dashboard() {
                 {/* Try Earny on - div3 */}
                 <div className="md:col-start-7 md:col-end-9 md:row-start-1 md:row-end-3 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center">
                     <p className="text-xl font-medium font-funnel-display text-white/80 flex items-center gap-2 justify-center">Try <span className='h-full w-auto text-color1 flex items-end justify-center gap-2' ><Icons.earnyLogoBlack className='h-5 max-w-max text-white' /></span> on</p>
-                    <button
-                        className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled>
+                    <Link
+                        href="https://farcaster.xyz/earny"
+                        target="_blank"
+                        className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         <Icons.farcasterFavIcon className="w-5 h-5" />
                         <span>Farcaster</span>
-                    </button>
+                    </Link>
                 </div>
 
                 {/* Portfolio Value - div4 */}

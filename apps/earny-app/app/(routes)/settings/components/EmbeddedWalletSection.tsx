@@ -49,7 +49,7 @@ export function EmbeddedWalletSection() {
                         Set a recovery password to help you recover your wallet if you lose access.
                     </p>
                     <button
-                        className="bg-transparent text-white/80 border border-white/40 px-4 py-2 rounded-md hover:text-white hover:border-white flex items-center gap-2"
+                        className="bg-transparent text-white/80 border border-white/40 px-10 py-5 h-16 rounded-full hover:text-white hover:border-white flex items-center gap-2"
                         onClick={handleSetRecoveryPassword}
                     >
                         <Shield className="w-4 h-4" />
@@ -67,7 +67,7 @@ export function EmbeddedWalletSection() {
                         Export your wallet to use it with other applications or as a backup.
                     </p>
                     <button
-                        className="bg-transparent text-white/80 border border-white/40 px-4 py-2 rounded-md hover:text-white hover:border-white flex items-center gap-2"
+                        className="bg-transparent text-white/80 border border-white/40 px-10 py-5 h-16 rounded-full hover:text-white hover:border-white flex items-center gap-2"
                         onClick={handleExportWallet}
                     >
                         <Download className="w-4 h-4" />
