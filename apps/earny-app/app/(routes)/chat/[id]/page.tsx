@@ -860,7 +860,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                         // { name: 'token_analysis', label: 'Analyze crypto tokens for market details' },
                         // { name: 'swap_token', label: 'Swap between different tokens' },
                         // { name: 'send_token', label: 'Send ETH or tokens to other wallets' },
-                        { name: 'earn_yield', label: 'Earn Yield' },
+                        { name: 'reward_yaps', label: 'Reward Yaps' },
                         { name: 'auto_invest', label: 'Trade Memecoins' },
                     ]),
                 },

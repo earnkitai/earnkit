@@ -39,7 +39,7 @@ export function GridIntroMessage({ options, handleSubmit, setCurrentActivity }: 
                 {options.map((option, i) => {
                     const color = colorClasses[i % colorClasses.length];
                     const isSelected = selectedOption === option.name;
-                    const isDisabled = option.name === 'earn_yield';
+                    const isDisabled = option.name === 'reward_yaps';
 
                     return (
                         <button

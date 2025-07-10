@@ -12,7 +12,7 @@ interface RoadmapQuarter {
     date: string;
     description: string;
     items: string[];
-    status: 'ACTIVE' | 'TBD';
+    status: 'Live' | 'TBD';
     bgColor: string;
 }
 
@@ -29,7 +29,7 @@ const roadmapData: RoadmapQuarter[] = [
             'EarnKit Docs',
             'Design-partner integrations'
         ],
-        status: 'ACTIVE',
+        status: 'Live',
         bgColor: 'bg-[#2563E4]'
     },
     {
@@ -110,9 +110,9 @@ export default function Roadmap() {
                                         <h2 className="text-3xl font-semibold mb-[10px]">{quarter.title}</h2>
                                         <p className="text-white/[80%] italic font-funnel-sans text-[14px] leading-[1.5rem]">{quarter.date}</p>
                                     </div>
-                                    {quarter.status === 'ACTIVE' ? (
-                                        <span className="bg-transparent border border-[#B8CCE0] text-[#B8CCE0] px-[12px] py-[2px] mt-2 rounded-full text-[12px] leading-[1rem]">
-                                            ACTIVE
+                                    {quarter.status === 'Live' ? (
+                                        <span className="bg-transparent border border-white text-white px-[12px] py-[2px] mt-2 rounded-full text-[12px] leading-[1rem]">
+                                            Live
                                         </span>
                                     ) : (
                                         <span className="bg-transparent border border-[#B8CCE0] text-[#B8CCE0] px-[12px] py-[2px] mt-2 rounded-full text-[12px] leading-[1rem]">
