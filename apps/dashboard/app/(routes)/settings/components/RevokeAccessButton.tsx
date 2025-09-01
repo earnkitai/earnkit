@@ -29,9 +29,9 @@ export function RevokeAccessButton() {
 
     return (
         <div className="space-y-4 font-funnel-sans">
-            <p className="text-sm text-muted-foreground">Access is currently delegated</p>
+            <p className="text-sm text-black/60">Access is currently delegated</p>
             <button
-                className="bg-destructive text-white px-4 py-2 rounded-md hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-destructive text-white px-4 py-2 rounded-full hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={onRevoke}
                 disabled={!hasDelegatedWallets}
             >

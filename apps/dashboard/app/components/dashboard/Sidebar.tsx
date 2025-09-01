@@ -15,7 +15,6 @@ import { findUserById } from "@/actions/user";
 import { Icons } from "../sections/icons";
 // import SidebarChatHistory from "./SidebarChatHistory";
 import { usePrivy } from "@privy-io/react-auth";
-import { v4 as uuidv4 } from 'uuid';
 // import { useState } from "react";
 
 export default function Sidebar() {
@@ -27,7 +26,7 @@ export default function Sidebar() {
     const [isOpen, setIsOpen] = useState(true);
     const [isMobile, setIsMobile] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-    const [userId, setUserId] = useState<string | null>(null);
+    const [isSupportMenuOpen, setIsSupportMenuOpen] = useState(false);
     const [username, setUsername] = useState<string>("");
     // const [pfpUrl, setPfpUrl] = useState<string>("");
     // const [userId, setUserId] = useState<string | null>(null);
@@ -37,7 +36,6 @@ export default function Sidebar() {
             // console.log(privyUser, 'privyUser');
             const userId = privyUser?.id.split(':').pop() || privyUser?.id;
             // console.log(userId, 'userId');
-            setUserId(userId);
             const fetchUsername = async () => {
                 if (userId) {
                     const result = await findUserById(userId);
@@ -95,8 +93,8 @@ export default function Sidebar() {
     const getLinkStyles = (path: string) => {
         return `flex items-center gap-2 px-0 py-0 rounded-lg transition-colors w-full group font-medium font-funnel-sans
             ${isActive(path)
-                ? "text-white [&>svg]:text-white [&>svg>path]:opacity-100 "
-                : "text-white/40 hover:text-white"
+                ? "text-black [&>svg]:text-black [&>svg>path]:opacity-100 "
+                : "text-black/40 hover:text-black"
             }`;
     };
 
@@ -121,12 +119,19 @@ export default function Sidebar() {
         setIsProfileMenuOpen(!isProfileMenuOpen);
     };
 
+    const handleSupportClick = () => {
+        setIsSupportMenuOpen(!isSupportMenuOpen);
+    };
+
     // Close profile menu when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             const target = event.target as HTMLElement;
             if (!target.closest('.profile-menu')) {
                 setIsProfileMenuOpen(false);
+            }
+            if (!target.closest('.support-menu')) {
+                setIsSupportMenuOpen(false);
             }
         };
 
@@ -135,38 +140,6 @@ export default function Sidebar() {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, []);
-
-
-    const handleNewChat = async () => {
-
-        if (!userId) return;
-
-        const clientGeneratedId = uuidv4();
-
-        // // Store the initial message locally using the generated ID
-        // localStorage.setItem(`initialMessage ${clientGeneratedId}`, inputValueNew);
-
-        // Redirect immediately
-        router.push(`/chat/${clientGeneratedId}`);
-
-        try {
-            // Fire and forget (background) DB creation
-            await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    userId: userId,
-                    chatId: clientGeneratedId, // important: pass the UUID to backend
-                    title: "New Chat",
-                }),
-            });
-        } catch (error) {
-            console.error('Error creating new chat:', error);
-            // Optional: show a toast or handle background error
-        }
-    };
 
     return (
         <div className="relative">
@@ -180,14 +153,17 @@ export default function Sidebar() {
             </div> */}
 
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform gap-[60px] bg-black px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'} `}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform gap-[60px] px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'}`}
+                style={{
+                    background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.04))'
+                }}
             >
                 <div className="flex flex-col w-full justify-between items-start space-y-6">
-                    <Icons.earnySmallGrayIcon className="w-8 h-8" />
+                    <Icons.newEarnyIconwithName />
                 </div>
                 {/* Main Navigation */}
                 <nav className="flex w-full">
-                    <div className="w-full flex flex-col gap-[32px]">
+                    <div className="w-full flex flex-col gap-[24px]">
                         <Link
                             href="/home"
                             className={getLinkStyles("/home")}
@@ -195,45 +171,24 @@ export default function Sidebar() {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.newSidebarHomeMenuIcon className="group-hover:text-white h-8 w-8" />
-                            <span className={`absolute left-[54px] whitespace-nowrap transition-all `}>Home</span>
+                            <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8" />
+                            <span className={`absolute left-[54px] whitespace-nowrap`}>My Agents</span>
                         </Link>
-                        <div
-                            className={getLinkStyles("/chat")}
-                            onClick={() => {
-                                if (isMobile) setIsOpen(false);
-                                handleNewChat();
-                            }}
-                        >
-                            <Icons.newSidebarEarnyMenuIcon className="group-hover:text-white h-8 w-8 cursor-pointer" />
-                            <span className={`absolute left-[54px] whitespace-nowrap transition-all cursor-pointer`}>Earny</span>
-
-                        </div>
                         <Link
-                            href="/wallet"
-                            className={getLinkStyles("/wallet")}
+                            href="https://docs.earnkit.com/"
+                            className={getLinkStyles("/docs")}
                             onClick={() => {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.newSidebarWalletMenuIcon className="group-hover:text-white h-8 w-8" />
-                            <span className={`absolute left-[54px] whitespace-nowrap transition-all`}>Wallet</span>
+                            <Icons.newSidebarBookIcon className="group-hover:text-black h-8 w-8" />
+                            <span className={`absolute left-[54px] whitespace-nowrap`}>Docs</span>
                         </Link>
-                        {/* <span
-                            className="flex items-center gap-2 px-0 py-2 rounded-lg transition-colors w-full text-black/40"
-                        >
-                            <Icons.sidebarChatIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white font-normal group-hover:font-semibold" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>History</span>
-                        </span> */}
+
+
+
                     </div>
                 </nav>
-                {/* <div className="flex-1 w-full overflow-y-auto" onClick={() => toggleSidebar()}>
-                    {<SidebarChatHistory
-                        userId={userId}
-                        isExpanded={isOpen}
-                    />}
-                </div> */}
-
                 {/* Secondary Navigation */}
 
                 <nav className="flex w-full mt-auto">
@@ -247,6 +202,49 @@ export default function Sidebar() {
                             <Icons.sidebarDocIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
                             <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
                         </Link> */}
+
+                        {/* Support Menu */}
+                        <div className="relative support-menu">
+                            <div
+                                className="flex items-center gap-2 py-3 rounded-lg transition-colors w-full group font-medium font-funnel-sans cursor-pointer"
+                                onClick={handleSupportClick}
+                            >
+                                <Icons.newSidebarQuestionIcon className="w-8 h-8 text-black/40 group-hover:text-black" />
+                                <span className={`absolute left-10 text-sm text-black/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-black`}>Support</span>
+                                <Icons.arrowDownSidebarUserIcon className={`w-4 h-4 ml-auto text-black/40 group-hover:text-black transition-transform ${isSupportMenuOpen ? 'rotate-180' : ''}`} />
+                            </div>
+
+                            {/* Support Submenu Options */}
+                            {isSupportMenuOpen && (
+                                <div className="my-2 space-y-2">
+                                    <a
+                                        href="https://slack.com"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center justify-center gap-1 px-4 py-1 text-sm text-black/40 w-full group font-funnel-sans hover:bg-white transition-colors cursor-pointer rounded-full border border-black/10"
+                                        onClick={() => {
+                                            if (isMobile) setIsOpen(false);
+                                            setIsSupportMenuOpen(false);
+                                        }}
+                                    >
+                                        <span className="text-black/40 group-hover:text-black/80">Join our</span>
+                                        <div className="flex items-center gap-1">
+                                            <Icons.newSidebarSlackIcon />
+                                        </div>
+                                    </a>
+                                    <a
+                                        href="#"
+                                        className="flex items-center justify-center gap-1 px-4 py-1 text-sm text-black/40 w-full group font-funnel-sans hover:bg-white transition-colors cursor-pointer rounded-full border border-black/10"
+                                        onClick={() => {
+                                            if (isMobile) setIsOpen(false);
+                                            setIsSupportMenuOpen(false);
+                                        }}
+                                    >
+                                        <span className="text-black/40 group-hover:text-black/80">Book a 15-min call</span>
+                                    </a>
+                                </div>
+                            )}
+                        </div>
                         <div className="relative profile-menu">
 
                             {isProfileMenuOpen && (
@@ -291,10 +289,10 @@ export default function Sidebar() {
                                         height={20}
                                     />
                                 ) : ( */}
-                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 text-white/40 group-hover:fill-white group-hover:text-white" />
+                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 text-black/40 group-hover:text-black group-hover:fill-black" />
                                 {/* )} */}
-                                <span className={`absolute left-10 text-sm text-white/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-white`}>{username !== "" ? username : "user"}</span>
-                                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0 text-white/40 group-hover:text-white" />
+                                <span className={`absolute left-10 text-sm text-black/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-black`}>{username !== "" ? username : "user"}</span>
+                                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0 text-black/40 group-hover:text-black" />
                             </div>
 
 

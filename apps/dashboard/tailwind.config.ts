@@ -41,6 +41,7 @@ export default {
         'secondary-red': 'rgba(255, 59, 48, 1)',
         'secondary-blue': 'rgba(0, 122, 255, 1)',
         'secondary-orange': 'rgba(255, 149, 0, 1)',
+        'secondary-purple': 'rgba(175, 82, 222, 1)',
         'uniswap-pink': '#FF007A',
         color1: 'rgba(46, 112, 234, 1)',
         color2: 'rgba(10, 78, 194, 1)',

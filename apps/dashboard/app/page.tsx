@@ -1,15 +1,8 @@
 "use client";
 
-// import { getUserByEmail } from "@/actions/user";
 import { LoadingButton } from "@/app/components/ui/button.loader";
-// import { useUser } from "@/hooks/use-user";
-// import { useAuth } from "@/providers/auth-provider";
-// import Link from "next/link";
 import { useRouter } from "next/navigation";
-// import { providerMap } from "@/auth.config";
-// import { handleEmailSignIn } from "@/actions/signin/sendVerificationRequest";
 import { Suspense, useEffect, useState, useRef } from "react";
-// import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Toaster } from "@/app/components/ui/sonner";
 import { z } from "zod";

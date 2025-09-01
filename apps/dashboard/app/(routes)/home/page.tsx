@@ -1,304 +1,396 @@
-'use client';
+"use client";
 
-import { Icons } from '@/app/components/sections/icons';
-import { truncateAddress } from '@/lib/utils';
-import { ConnectedWallet, usePrivy, useWallets } from '@privy-io/react-auth';
-import { Eye, EyeOff } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useTokenData } from '@/hooks/use-token-data';
-import { TokenDisplay } from '@/components/dashboard/TokenDisplay';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useBalance } from '@/providers/balance-provider';
-import { v4 as uuidv4 } from 'uuid';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { Card, CardContent } from "@/app/components/ui/card";
+import { Badge } from "@/app/components/ui/badge";
+import { Icons } from "@/app/components/sections/icons";
+import { usePrivy } from "@privy-io/react-auth";
+import { useRouter } from "next/navigation";
 
-export default function Dashboard() {
-    const { wallets: privyWallets } = useWallets();
+// Agent type definition matching the database schema
+interface Agent {
+    id: string;
+    name: string;
+    agentId: string;
+    status: "ACTIVE" | "PAUSED" | "DELETED";
+    feeModel: "FREE_TIER" | "CREDIT_BASED";
+    totalEarnings: number;
+    createdAt: string;
+    topUpPackages: Array<{
+        id: string;
+        name: string;
+        credits: number;
+        price: number;
+        isActive: boolean;
+    }>;
+    transactionLogs: Array<{
+        id: string;
+        amount: number;
+        createdAt: string;
+        status: string;
+        transactionType: string;
+    }>;
+    _count: {
+        transactionLogs: number;
+    };
+}
+
+// Update type definition
+interface Update {
+    id: string;
+    title: string;
+    description: string;
+}
+
+export default function HomePage() {
     const { ready, authenticated, user: privyUser } = usePrivy();
-    const [activeWallet, setActiveWallet] = useState<ConnectedWallet | null>(null);
-    const [isPortfolioHidden, setIsPortfolioHidden] = useState(false);
-    const { tokens, loading, error } = useTokenData();
-    const [currentTokenIndex, setCurrentTokenIndex] = useState(0);
-    const { usdValue, isLoading: balanceLoading } = useBalance();
-    const [userId, setUserId] = useState<string | null>(null);
     const router = useRouter();
+    const [agents, setAgents] = useState<Agent[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [userId, setUserId] = useState<string | null>(null);
 
+    // Get the authenticated user ID
     useEffect(() => {
         if (ready && authenticated && privyUser) {
-            // console.log(privyUser, 'privyUser');
             const userId = privyUser?.id.split(':').pop() || privyUser?.id;
-            // console.log(userId, 'userId');
             setUserId(userId);
+        } else if (ready && !authenticated) {
+            // Redirect to login if not authenticated
+            router.push("/welcome-back");
         }
-    }, [ready, authenticated, privyUser]);
+    }, [ready, authenticated, privyUser, router]);
 
+    // Fetch agents when userId is available
     useEffect(() => {
-        if (privyWallets.length > 0) {
-            const wallet = privyWallets.find((wallet) => wallet.walletClientType === "privy");
-            console.log(privyWallets, "privyWallets")
-            if (wallet) {
-                setActiveWallet(wallet);
+        const fetchAgents = async () => {
+            if (!userId) return;
+
+            try {
+                const response = await fetch(`/api/agents?userId=${userId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setAgents(data.agents || []);
+                } else {
+                    console.error('Failed to fetch agents');
+                }
+            } catch (error) {
+                console.error('Error fetching agents:', error);
+            } finally {
+                setLoading(false);
             }
+        };
+
+        fetchAgents();
+    }, [userId]);
+
+    // Mock data for updates
+    const [updates] = useState<Update[]>([
+        {
+            id: "1",
+            title: "Lorem ipsum dolor sit amet",
+            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+        },
+        {
+            id: "2",
+            title: "Lorem ipsum dolor sit amet",
+            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+        },
+        {
+            id: "3",
+            title: "Lorem ipsum dolor sit amet",
+            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
         }
-    }, [privyWallets]);
+    ]);
 
-    useEffect(() => {
-        if (tokens.length > 0) {
-            console.log(tokens, 'tokens');
-            const interval = setInterval(() => {
-                setCurrentTokenIndex((prev) => (prev + 1) % tokens.length);
-            }, 5000); // Switch token every 5 seconds
+    // Calculate total earnings
+    const totalEarnings = agents.reduce((total, agent) => {
+        return total + agent.totalEarnings;
+    }, 0);
 
-            return () => clearInterval(interval);
-        }
-    }, [tokens.length]);
-
-
-    const handleNewChat = async () => {
-
-        if (!userId) return;
-
-        const clientGeneratedId = uuidv4();
-
-        // // Store the initial message locally using the generated ID
-        // localStorage.setItem(`initialMessage ${clientGeneratedId}`, inputValueNew);
-
-        // Redirect immediately
-        router.push(`/chat/${clientGeneratedId}`);
-
-        try {
-            // Fire and forget (background) DB creation
-            await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    userId: userId,
-                    chatId: clientGeneratedId, // important: pass the UUID to backend
-                    title: "New Chat",
-                }),
-            });
-        } catch (error) {
-            console.error('Error creating new chat:', error);
-            // Optional: show a toast or handle background error
-        }
-    };
+    // Show loading state while checking authentication or fetching data
+    if (!ready || !authenticated || loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin h-8 w-8 border-2 border-black/40 border-t-transparent rounded-full"></div>
+                    <p className="mt-4 text-black/40 font-funnel-sans">Loading...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <section className="w-full mx-auto text-white">
-            <div className="grid grid-cols-1 md:grid-cols-8 md:grid-rows-8 gap-4 max-w-7xl mx-auto h-[95vh]">
-                {/* Your Earning Assistant - div6 */}
-                <div className="md:col-start-1 md:col-end-3 md:row-start-1 md:row-end-7 bg-color13 rounded-[56px] p-[40px] flex flex-col justify-between">
+        <div className="min-h-screen">
+            <div className="max-w-7xl mx-auto">
+                {/* Header */}
+                <div className="mb-[60px] flex justify-between items-center">
                     <div>
-                        <Icons.newEarnyLogoWithWhite className="w-40 mb-4" />
-                        <h2 className="text-2xl font-bold mb-2 font-funnel-display text-white/80">Your Earning</h2>
-                        <h2 className="text-2xl font-bold mb-2 font-funnel-display text-white/80">Assistant <Icons.sparkleWhiteIcon className="w-6 h-6 inline-block" /></h2>
-                        <p className="max-w-[95%] text-white/40 font-funnel-sans font-normal mt-[12px]">Earn with automated trading on Zora, Uniswap, Jupiter and more</p>
+                        <h1 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">My Agents</h1>
+                        <p className="text-black/40 text-sm font-funnel-sans">Track & Manage your agent monetizations</p>
                     </div>
-                </div>
-
-                {/* 100 points - div1 */}
-                <div className="md:col-start-3 md:col-end-5 md:row-start-1 md:row-end-3 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center">
-                    <div>
-                        <p className="text-xl font-medium font-funnel-display text-white/80 blur-sm">100 points</p>
-                    </div>
-                    <button
-                        className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled>
-                        <Icons.newLeaderboardIcon className="w-5 h-5" />
-                        <span>Leaderboard</span>
-                    </button>
-                </div>
-
-                {/* EarnKit Wallet - div2 */}
-                <div className="md:col-start-5 md:col-end-7 md:row-start-1 md:row-end-3 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center">
-                    <p className="text-xl font-medium font-funnel-display text-white/80">EarnKit Wallet</p>
-                    <Link href="/wallet" className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors">
-                        <Icons.newSidebarWalletMenuIcon className="w-5 h-5 text-[#2E70EA]" />
-                        <span className="font-mono">{truncateAddress(activeWallet?.address || '', { prefix: 5, suffix: 4 })}</span>
-                    </Link>
-                </div>
-
-                {/* Try Earny on - div3 */}
-                <div className="md:col-start-7 md:col-end-9 md:row-start-1 md:row-end-3 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center">
-                    <p className="text-xl font-medium font-funnel-display text-white/80 flex items-center gap-2 justify-center">Try <span className='h-full w-auto text-color1 flex items-end justify-center gap-2' ><Icons.earnyLogoBlack className='h-5 max-w-max text-white' /></span> on</p>
-                    <button
-                        className="flex items-center justify-center gap-2 max-w-max border border-white/20 rounded-full py-3 px-6 mt-4 hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        disabled>
-                        <Icons.farcasterFavIcon className="w-5 h-5" />
-                        <span>Farcaster</span>
-                    </button>
-                </div>
-
-                {/* Portfolio Value - div4 */}
-                <div className="md:col-start-3 md:col-end-7 md:row-start-3 md:row-end-7 bg-color2 rounded-[56px] px-[40px] py-[36px] flex flex-col justify-center items-start gap-6">
-                    <div className="flex items-center justify-start gap-2">
-                        <p className="text-[24px] font-medium font-funnel-display text-color8">Portfolio Value</p>
-                        <button
-                            onClick={() => setIsPortfolioHidden(!isPortfolioHidden)}
-                            className="hover:opacity-80 transition-opacity"
+                    {/* Total Earnings */}
+                    <div className="space-y-6 w-[30%]">
+                        <Card className="border-none rounded-[20px] shadow-none"
+                            style={{
+                                background: "linear-gradient(0deg, rgba(52, 199, 89, 0.1), rgba(52, 199, 89, 0.1))"
+                            }}
                         >
-                            {!isPortfolioHidden ? <Eye className={`w-6 h-6 text-white/70`} /> : <EyeOff className={`w-6 h-6 text-white/70`} />}
-                        </button>
-                    </div>
-                    <div>
-                        <h2 className={`text-6xl font-bold font-funnel-sans font-medium ${isPortfolioHidden ? 'blur-md' : ''}`}>
-                            ${isPortfolioHidden ? '00.00' : balanceLoading ? '...' : usdValue.toFixed(2)}
-                        </h2>
-                        <div className={`flex items-center gap-4 text-lg mt-2 font-funnel-sans ${isPortfolioHidden ? 'blur-md' : ''}`}>
-                            {/* <span className="text-secondary-green font-medium">
-                                {balanceLoading ? (
-                                    <div className="animate-pulse w-20 h-6 bg-secondary-green/20 rounded"></div>
-                                ) : (
-                                    `+$${isPortfolioHidden ? '00.00' : (usdValue * 0.1).toFixed(2)}`
-                                )}
-                            </span> */}
-                            {/* <span className="flex items-center gap-1 text-white/40">
-                                {isPortfolioHidden ? '00.00' : balanceLoading ? '...' : '10.5'}%
-                                <svg width="23" height="20" viewBox="0 0 23 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M11.3558 0.564941L22.4123 19.7153H0.299316L11.3558 0.564941Z" fill="#30D158" />
-                                </svg>
-                            </span>
-                            <span className="text-white/40 font-funnel-sans font-medium">(24h)</span> */}
-                        </div>
-                    </div>
-                    <button
-                        className="bg-white text-color3 font-semibold font-funnel-sans py-6 px-16 rounded-full max-w-max mt-6 text-lg hover:bg-gray-200 transition-colors"
-                        onClick={() => handleNewChat()}
-                    >
-                        Start Earning
-                    </button>
-                </div>
-
-                {/* Earny Terminal - div5 */}
-                <div className="md:col-start-7 md:col-end-9 md:row-start-3 md:row-end-9 bg-color12 rounded-[56px] p-6 flex flex-col justify-start items-center gap-2">
-                    <h3 className="text-xl font-semibold text-color16 font-funnel-display font-semibold mb-4">Earny Terminal</h3>
-                    {/* <div className="space-y-8 w-full">
-                        {[
-                            { action: 'Deposit', amount: '$99.99', icon: 'deposit' },
-                            { action: 'Sold', amount: 'TOKEN', icon: 'sold' },
-                            { action: 'Send', amount: '$99.99', icon: 'send' },
-                            { action: 'Deposit', amount: '$99.99', icon: 'deposit' },
-                            { action: 'Sold', amount: 'TOKEN', icon: 'sold' },
-                            { action: 'Send', amount: '$99.99', icon: 'send' },
-                            { action: 'Bought', amount: 'TOKEN', icon: 'bought' },
-                        ].map((item, index) => (
-                            <div key={index} className="flex items-center justify-between text-sm">
-                                <div className="flex items-center gap-2">
-                                    <div className="rounded-full flex items-center justify-center">
-                                        {item.action === "Deposit" && <Icons.earnyActivityUpArrowIcon className="w-4 h-4 text-green-400" />}
-                                        {item.action === "Sold" && <Icons.earnyActivityDownArrowIcon className="w-4 h-4 text-green-400" />}
-                                        {item.action === "Send" && <Icons.earnyActivityDownArrowIcon className="w-4 h-4 text-green-400" />}
-                                        {item.action === "Bought" && <Icons.earnyActivityUpArrowIcon className="w-4 h-4 text-green-400" />}
-                                    </div>
-                                    <span className='text-white/40 font-funnel-sans font-medium'>{item.action}</span>
+                            <CardContent className="p-6">
+                                <div className="text-left">
+                                    <p className="text-black/40 text-[12px] font-funnel-sans mb-1">Total Earnings</p>
+                                    <p className="text-xl font-semibold font-funnel-sans text-secondary-green">${totalEarnings.toFixed(2)}</p>
                                 </div>
-                                <span className={item.amount === 'TOKEN' ? 'bg-[#3C3C3C] px-2 py-1 rounded-md text-xs' : ''}>{item.amount}</span>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </div>
+                <div className="flex items-start justify-between gap-8">
+                    {/* Left Section - Main Content */}
+                    <div className="flex-1 mr-24">
 
-                                <div className="flex items-center gap-2">
-                                    <ArrowUpRight className="w-4 h-4 text-white/50" />
+
+                        {/* Agent Cards Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-32">
+                            {/* Agent Cards */}
+                            {agents.map((agent) => (
+                                <AgentCard key={agent.id} agent={agent} />
+                            ))}
+
+                            {/* Add Agent Card */}
+                            <AddAgentCard />
+                        </div>
+
+                        {/* Get Started Faster Section */}
+                        <div className="mb-32">
+                            <div className="mb-[60px]">
+                                <h2 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">Get Started Faster</h2>
+                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your agents</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Quickstart Guide Card */}
+                                <Link href="#">
+                                    <Card className="border-2 border-black/10 rounded-[28px] hover:border-black/20 transition-colors cursor-pointer">
+                                        <CardContent className="p-6 text-center">
+                                            <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mb-8 mx-auto">
+                                                <svg width="45" height="45" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M22.5 32.6709C20.5408 31.5398 18.3185 30.9443 16.0563 30.9443C13.794 30.9443 11.5717 31.5398 9.61255 32.6709V14.0557C11.5717 12.9246 13.794 12.3291 16.0563 12.3291C18.3185 12.3291 20.5408 12.9246 22.5 14.0557M22.5 32.6709C24.4591 31.5398 26.6815 30.9443 28.9437 30.9443C31.2059 30.9443 33.4283 31.5398 35.3874 32.6709V14.0557C33.4283 12.9246 31.2059 12.3291 28.9437 12.3291C26.6815 12.3291 24.4591 12.9246 22.5 14.0557M22.5 32.6709V14.0557" stroke="white" strokeWidth="2.0625" strokeLinecap="round" strokeLinejoin="round" />
+                                                </svg>
+                                            </div>
+                                            <h3 className="font-semibold text-black font-funnel-sans text-lg mb-2">Quickstart Guide</h3>
+                                            <p className="text-black/40 text-sm font-funnel-sans">Get up and running with EarnKit&apos;s core documentation and tutorials</p>
+                                        </CardContent>
+                                    </Card>
+                                </Link>
+
+                                {/* EarnKit Templates Card */}
+                                <Link href="#">
+                                    <Card className="border-2 border-black/10 rounded-[28px] hover:border-black/20 transition-colors cursor-pointer">
+                                        <CardContent className="p-6 text-center">
+                                            <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mx-auto mb-8">
+                                                <svg width="45" height="45" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M35.481 28.272C35.5836 28.4483 35.6121 28.6581 35.5601 28.8554C35.5082 29.0526 35.38 29.2212 35.2039 29.324L22.8878 36.5084C22.7707 36.576 22.638 36.6116 22.5029 36.6116C22.3678 36.6116 22.235 36.576 22.118 36.5084L9.80187 29.324C9.64014 29.215 9.52584 29.0486 9.48207 28.8585C9.4383 28.6684 9.46833 28.4688 9.56609 28.3C9.66385 28.1312 9.82205 28.0058 10.0087 27.9492C10.1954 27.8925 10.3966 27.9089 10.5716 27.9949L22.5029 34.9522L34.4341 27.9949C34.6099 27.8939 34.8185 27.8663 35.0145 27.9182C35.2105 27.9701 35.3782 28.0973 35.481 28.272ZM34.4316 21.8343L22.5003 28.7916L10.5691 21.8343C10.394 21.7483 10.1928 21.7319 10.0061 21.7886C9.81948 21.8452 9.66128 21.9706 9.56353 22.1394C9.46577 22.3082 9.43574 22.5078 9.47951 22.6979C9.52327 22.888 9.63758 23.0543 9.79931 23.1634L22.1154 30.3478C22.2325 30.4154 22.3652 30.4509 22.5003 30.4509C22.6354 30.4509 22.7682 30.4154 22.8852 30.3478L35.2013 23.1634C35.363 23.0543 35.4774 22.888 35.5211 22.6979C35.5649 22.5078 35.5349 22.3082 35.4371 22.1394C35.3393 21.9706 35.1811 21.8452 34.9945 21.7886C34.8078 21.7319 34.6066 21.7483 34.4316 21.8343ZM9.41443 16.3408C9.41479 16.206 9.45053 16.0737 9.51807 15.9571C9.58562 15.8404 9.68259 15.7436 9.79931 15.6762L22.1154 8.4918C22.2325 8.42424 22.3652 8.38867 22.5003 8.38867C22.6354 8.38867 22.7682 8.42424 22.8852 8.4918L35.2013 15.6762C35.3174 15.744 35.4136 15.8411 35.4805 15.9577C35.5474 16.0743 35.5826 16.2063 35.5826 16.3408C35.5826 16.4752 35.5474 16.6073 35.4805 16.7239C35.4136 16.8404 35.3174 16.9375 35.2013 17.0053L22.8852 24.1897C22.7682 24.2573 22.6354 24.2929 22.5003 24.2929C22.3652 24.2929 22.2325 24.2573 22.1154 24.1897L9.79931 17.0053C9.68259 16.9379 9.58562 16.8411 9.51807 16.7245C9.45053 16.6078 9.41479 16.4755 9.41443 16.3408ZM11.7122 16.3408L22.5003 22.6335L33.2885 16.3408L22.5003 10.0544L11.7122 16.3408Z" fill="white" stroke="white" strokeWidth="0.5" />
+                                                </svg>
+                                            </div>
+                                            <h3 className="font-semibold text-black font-funnel-sans text-lg mb-2">EarnKit Templates</h3>
+                                            <p className="text-black/40 text-sm font-funnel-sans">Explore trading bots, LLM agents, and other common use cases</p>
+                                        </CardContent>
+                                    </Card>
+                                </Link>
+                            </div>
+                        </div>
+
+                        {/* FAQs Section */}
+                        <div className="mb-8 mt-[60px]">
+                            <div className="mb-[60px]">
+                                <h2 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">FAQs</h2>
+                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your agents</p>
+                            </div>
+
+                            <div className="space-y-8">
+                                {/* FAQ 1 */}
+                                <div>
+                                    <h3 className="font-semibold text-black font-funnel-sans text-lg mb-3">How do I set up monetization for my crypto trading agent?</h3>
+                                    <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
+                                        Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+                                    </p>
+                                </div>
+
+                                {/* FAQ 2 */}
+                                <div>
+                                    <h3 className="font-semibold text-black font-funnel-sans text-lg mb-3">What fees model does EarnKit support for agent monetization?</h3>
+                                    <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
+                                        Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit.
+                                    </p>
+                                </div>
+
+                                {/* FAQ 3 */}
+                                <div>
+                                    <h3 className="font-semibold text-black font-funnel-sans text-lg mb-3">How do I receive payments from my monetized crypto agents?</h3>
+                                    <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
+                                        Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.
+                                    </p>
+                                </div>
+
+                                {/* FAQ 4 */}
+                                <div>
+                                    <h3 className="font-semibold text-black font-funnel-sans text-lg mb-3">Can I customize the pricing and limits for different types of users?</h3>
+                                    <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
+                                        At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi.
+                                    </p>
                                 </div>
                             </div>
-                        ))}
-
-
-                    </div> */}
-                    <div className="flex-1 flex items-center justify-center text-sm text-white/40 text-center">
-                        <p className='text-center font-funnel-sans'>Your activity history will appear here once you start using Earny</p>
+                        </div>
                     </div>
-                </div>
 
-                {/* Base - div7 */}
-                <div className="md:col-start-1 md:col-end-5 md:row-start-7 md:row-end-9 bg-black rounded-[56px] p-4 flex items-center justify-center gap-8">
-                    <div className='w-32 h-32 rounded-full flex-col flex items-center justify-center text-black text-center text-base font-bold p-2 shrink-0 leading-tight'>
-                        <AnimatePresence mode="wait">
-                            {loading ? (
-                                <motion.div
-                                    key="loading"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    className="flex items-center justify-center"
-                                >
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-                                </motion.div>
-                            ) : error ? (
-                                <motion.div
-                                    key="error"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    className="text-red-500 text-sm"
-                                >
-                                    Failed to load token data
-                                </motion.div>
-                            ) : tokens.length > 0 && tokens[currentTokenIndex] ? (
-                                <motion.div
-                                    key={currentTokenIndex}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -20 }}
-                                    transition={{ duration: 0.5 }}
-                                    className="w-full h-full flex items-center justify-center"
-                                >
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                        src={tokens[currentTokenIndex].imageUrl || ''}
-                                        alt={tokens[currentTokenIndex].name}
-                                        className="w-full h-full object-contain"
-                                    />
-                                </motion.div>
-                            ) : null}
-                        </AnimatePresence>
-                    </div>
-                    <AnimatePresence mode="wait">
-                        {loading ? (
-                            <motion.div
-                                key="loading"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="flex items-center justify-center"
-                            >
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                            </motion.div>
-                        ) : error ? (
-                            <motion.div
-                                key="error"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="text-red-500"
-                            >
-                                {error}
-                            </motion.div>
-                        ) : tokens[currentTokenIndex] ? (
-                            <TokenDisplay
-                                key={currentTokenIndex}
-                                marketCap={tokens[currentTokenIndex].marketCap}
-                                volume24h={tokens[currentTokenIndex].volume24h}
-                                holders={tokens[currentTokenIndex].holders}
-                                tokenName={tokens[currentTokenIndex].name}
-                                platform={tokens[currentTokenIndex].platform || 'ZORA'}
-                            />
-                        ) : null}
-                    </AnimatePresence>
-                </div>
+                    {/* Right Section - Sidebar */}
+                    <div className="w-[30%]">
+                        {/* Earnkit Updates */}
+                        <Card className="rounded-[28px]">
+                            <CardContent className="p-6">
+                                <div className="flex items-center gap-2 mb-6">
 
-                {/* Staking APR - div8 */}
-                <div className="md:col-start-5 md:col-end-7 md:row-start-7 md:row-end-9 bg-black rounded-[56px] p-6 flex flex-col justify-center items-center gap-2">
-                    <p className="text-white/40 font-funnel-sans font-semibold mb-2">Staking APR</p>
-                    <p className="text-secondary-green text-4xl font-funnel-sans font-semibold mb-4 leading-none">6.60%</p>
-                    <div className="flex items-center gap-2">
-                        {/* Placeholder for icons */}
-                        <Icons.stakingAPRIcon1 className='w-8 h-8' />
-                        <Icons.stakingAPRIcon2 className='w-8 h-8' />
-                        <Icons.stakingAPRIcon3 className='w-8 h-8' />
+                                    <Icons.newEarnkitSmallIcon />
+
+                                    <h3 className="font-semibold text-black/80 font-funnel-sans">Earnkit Updates</h3>
+                                </div>
+
+                                <div className="space-y-8">
+                                    {updates.map((update) => (
+                                        <UpdateItem key={update.id} update={update} />
+                                    ))}
+                                </div>
+                            </CardContent>
+                        </Card>
                     </div>
                 </div>
             </div>
-        </section >
+        </div >
+    );
+}
+
+// Agent Card Component
+function AgentCard({ agent }: { agent: Agent }) {
+    const isActive = agent.status === "ACTIVE";
+
+    // Generate real graph data from transaction logs
+    const generateRealGraphData = () => {
+        const data = [];
+        const now = new Date();
+
+        // Get last 8 days of data
+        for (let i = 7; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+
+            // Filter transactions for this day
+            const dayTransactions = agent.transactionLogs.filter(log => {
+                const logDate = new Date(log.createdAt);
+                return logDate >= startOfDay && logDate < endOfDay;
+            });
+
+            // Sum up earnings for this day
+            const dayEarnings = dayTransactions.reduce((sum, log) => sum + log.amount, 0);
+
+            // Convert to a percentage of the max daily earnings (for visualization)
+            // If no transactions, use 0, otherwise scale relative to max earnings
+            const maxEarnings = Math.max(...agent.transactionLogs.map(log => log.amount), 1);
+            const percentage = dayEarnings > 0 ? (dayEarnings / maxEarnings) * 100 : 0;
+
+            data.push(Math.max(percentage, 5)); // Minimum 5% height for visibility
+        }
+
+        return data;
+    };
+
+    const graphData = generateRealGraphData();
+
+    return (
+        <Link href={`/agent/${agent.id}`}>
+            <Card className="bg-white outline-2 outline-black/10 rounded-[28px] shadow-[inset_0_0_0_0px_#00000033] hover:shadow-[inset_0_0_0_4px_#00000033] focus:outline-color1 focus:shadow-[inset_0_0_0_4px_#2E70EA] active:outline-color1 active:shadow-[inset_0_0_0_4px_#2E70EA] transition-shadow duration-300 cursor-pointer">
+                <CardContent className="p-6">
+                    <div className="mb-4">
+                        <h3 className="font-semibold text-black/80 font-funnel-sans text-lg mb-2">{agent.name}</h3>
+                        <Badge
+                            variant={isActive ? "default" : "secondary"}
+                            className={`${isActive ? 'bg-white/80 text-secondary-green border-secondary-green' : 'bg-white/80 text-black/30 border-black/30'} font-funnel-sans text-[12px] font-medium py-0.5 px-4`}
+                            style={{
+                                background: isActive ? 'linear-gradient(0deg, rgba(52, 199, 89, 0.2), rgba(52, 199, 89, 0.2))' : 'linear-gradient(0deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.04))',
+                            }}
+                        >
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1 ${isActive ? 'bg-secondary-green' : 'bg-black/30'}`}></div>
+                            {agent.status === "ACTIVE" ? "Active" : "Paused"}
+                        </Badge>
+                    </div>
+
+                    <div className="flex justify-between items-end">
+                        <div>
+                            <p className={`text-[18px] font-semibold font-funnel-sans ${isActive ? 'text-secondary-green' : 'text-black/40'}`}>
+                                ${agent.totalEarnings.toFixed(2)}
+                            </p>
+                            <p className="text-black/40 text-[12px] font-funnel-sans">Total Earnings</p>
+                        </div>
+
+                        {/* Mini Graph */}
+                        <div className="w-16 h-12 flex items-end gap-0.5">
+                            {graphData.map((value, index) => (
+                                <div
+                                    key={index}
+                                    className={`flex-1 rounded-sm ${isActive
+                                        ? 'bg-green-200'
+                                        : 'bg-gray-200'
+                                        }`}
+                                    style={{ height: `${(value / 40) * 100}%` }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </Link>
+    );
+}
+
+// Add Agent Card Component
+function AddAgentCard() {
+    return (
+        <Link href="/new-agent">
+            <Card className="bg-white outline-2 outline-black/10 rounded-[28px] shadow-[inset_0_0_0_0px_#00000033] hover:shadow-[inset_0_0_0_4px_#00000033] focus:outline-color1 focus:shadow-[inset_0_0_0_4px_#2E70EA] active:outline-color1 active:shadow-[inset_0_0_0_4px_#2E70EA] transition-shadow duration-300 cursor-pointer">
+                <CardContent className="p-8">
+                    <div className="flex flex-col items-center justify-center text-center">
+                        <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mb-6">
+                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                        </div>
+                        <h3 className="font-semibold text-black/80 font-funnel-sans text-[16px]">Add Agent</h3>
+                    </div>
+                </CardContent>
+            </Card>
+        </Link>
+    );
+}
+
+// Update Item Component
+function UpdateItem({ update }: { update: Update }) {
+    return (
+        <div className="relative">
+            <div className="flex gap-4 ">
+                {/* Blue line */}
+                <div className="flex-shrink-0">
+                    <div className="w-1 h-full bg-blue-500"></div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1">
+                    <h4 className="font-medium text-gray-800 text-sm mb-1">{update.title}</h4>
+                    <p className="text-gray-500 text-xs leading-relaxed">{update.description}</p>
+                </div>
+            </div>
+
+        </div>
     );
 }

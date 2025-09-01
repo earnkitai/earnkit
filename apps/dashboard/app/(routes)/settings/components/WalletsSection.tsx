@@ -51,11 +51,11 @@ export function WalletsSection() {
             <div className="space-y-4">
                 {privyWallets.length === 0 ? (
                     <div className="text-center py-8">
-                        <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <ExternalLink className="w-8 h-8 text-white/40" />
+                        <div className="w-16 h-16 bg-black/5 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <ExternalLink className="w-8 h-8 text-black/40" />
                         </div>
-                        <p className="text-white/60 font-funnel-sans text-lg mb-4">No wallets connected yet</p>
-                        <p className="text-white/40 font-funnel-sans text-sm mb-6">Connect your first wallet to get started</p>
+                        <p className="text-black/60 font-funnel-sans text-lg mb-4">No wallets connected yet</p>
+                        <p className="text-black/40 font-funnel-sans text-sm mb-6">Connect your first wallet to get started</p>
                         <Button
                             onClick={handleConnectWallet}
                             className="bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold rounded-full px-8 py-4 h-14 transition-all duration-200 hover:scale-105 shadow-lg"
@@ -94,10 +94,10 @@ export function WalletsSection() {
                                 <div
                                     key={wallet.address}
                                     className={clsx(
-                                        "group relative bg-white/5 border rounded-full px-6 py-4 transition-all duration-200 hover:bg-white/10",
+                                        "group relative bg-black/5 border rounded-full px-6 py-4 transition-all duration-200 hover:bg-black/10",
                                         isActive
                                             ? "border-color6 bg-color6/10"
-                                            : "border-white/10 hover:border-white/20"
+                                            : "border-black/10 hover:border-black/20"
                                     )}
                                     onMouseEnter={() => setHovered(wallet.address)}
                                     onMouseLeave={() => setHovered(null)}
@@ -106,7 +106,7 @@ export function WalletsSection() {
                                         <div className="flex items-center gap-4">
                                             <div className={clsx(
                                                 "w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200",
-                                                isActive ? "bg-color6" : "bg-white/10 group-hover:bg-white/20"
+                                                isActive ? "bg-color6" : "bg-black/10 group-hover:bg-black/20"
                                             )}>
                                                 {isEmbedded ? (
                                                     <Icons.ethereum className="w-6 h-6 text-white" />
@@ -115,10 +115,10 @@ export function WalletsSection() {
                                                 )}
                                             </div>
                                             <div className="flex flex-col">
-                                                <span className="font-mono text-white font-medium text-lg">
+                                                <span className="font-mono text-black font-medium text-lg">
                                                     {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
                                                 </span>
-                                                <span className="text-white/60 font-funnel-sans text-sm">
+                                                <span className="text-black/60 font-funnel-sans text-sm">
                                                     {isEmbedded ? "Embedded Wallet" : "External Wallet"}
                                                 </span>
                                             </div>
@@ -144,7 +144,7 @@ export function WalletsSection() {
                                             {!isEmbedded && (
                                                 <Button
                                                     variant="outline"
-                                                    className="border-white/20 text-white/60 hover:text-white hover:bg-white/5 rounded-full p-2 h-8 w-8 transition-all duration-200 hover:scale-105"
+                                                    className="border-black/20 text-black/60 hover:text-black hover:bg-black/5 rounded-full p-2 h-8 w-8 transition-all duration-200 hover:scale-105"
                                                     title="Unlink Wallet"
                                                     onClick={() => {
                                                         unlinkWallet(wallet.address);
@@ -164,11 +164,11 @@ export function WalletsSection() {
             </div>
 
             {privyWallets.length > 0 && (
-                <div className="pt-4 border-t border-white/10">
+                <div className="pt-4 border-t border-black/10">
                     <Button
                         onClick={handleConnectWallet}
                         variant="outline"
-                        className="border-white/20  bg-transparent text-white/80 hover:bg-white/5 rounded-full px-6 py-3 h-12 transition-all duration-200 hover:scale-105 w-full"
+                        className="border-black/20  bg-transparent text-black/80 hover:bg-black/5 rounded-full px-6 py-3 h-12 transition-all duration-200 hover:scale-105 w-full"
                     >
                         <Plus className="w-5 h-5 mr-2" />
                         Connect Another Wallet

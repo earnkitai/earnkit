@@ -20,11 +20,11 @@ export function FarcasterPrivy() {
     return (
         <div className="space-y-4 font-funnel-sans ">
             <div className="space-y-2">
-                <p className="text-sm text-white/40">
+                <p className="text-sm text-black/60">
                     Link your Farcaster account to enable social features.
                 </p>
                 <button
-                    className="bg-[#8a63d2] text-white border border-black/40 px-4 py-2 rounded-md flex items-center gap-2"
+                    className="bg-[#8a63d2] text-white border border-black/40 px-4 py-2 rounded-full flex items-center gap-2"
                     onClick={handleLinkFarcaster}
                 >
                     <Icons.farcasterWhiteIcon className="w-4 h-4" />

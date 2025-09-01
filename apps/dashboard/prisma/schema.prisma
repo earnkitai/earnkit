@@ -42,12 +42,8 @@ model User {
   telegramAccounts    TelegramAccount[]
   crossAppAccounts    CrossAppAccount[]
 
-  // Chats
-  chats Chat[]
-
-  // Orders
-  limitOrders  LimitOrder[]
-  orderHistory OrderHistory[]
+  // Agents
+  agents Agent[]
 
   @@map("users")
 }
@@ -297,99 +293,177 @@ model SmartWallet {
   @@map("smart_wallets")
 }
 
-model Chat {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  title     String?
-  isActive  Boolean   @default(true) @map("is_active")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  Message[]
-
-  @@map("chats")
-}
-
-model Message {
-  id           String   @id @default(uuid())
-  chatId       String   @map("chat_id")
-  responseFrom String   @map("response_from")
-  toolName     String?  @map("tool_name")
-  content      String
-  metadata     Json?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  chat         Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-
-  @@map("messages")
-}
-
-// Active Limit Orders Table
-model LimitOrder {
-  id              String         @id @default(cuid())
-  userId          String         @map("user_id")
-  userAddress     String         @map("user_address")
-  tokenAddress    String         @map("token_address")
-  tokenSymbol     String         @map("token_symbol")
-  tokenDecimal    Int            @default(18)
-  amount          String
-  priceAtCreation String         @map("price_at_creation")
-  targetPrice     String?        @map("target_price")
-  targetChange    Float?         @map("target_change")
-  direction       OrderDirection
-  orderType       OrderType      @default(LIMIT)
-  createdAt       DateTime       @default(now()) @map("created_at")
-  aiInitiated     Boolean        @default(false) @map("ai_initiated")
-  notes           String?        @db.Text
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+// Agent Models
+model Agent {
+  id                    String   @id @default(uuid())
+  userId                String   @map("user_id")
+  name                  String
+  agentId               String   @unique @map("agent_id")
+  status                AgentStatus @default(ACTIVE)
+  feeModel              FeeModel @default(FREE_TIER)
+  freePromptThreshold   Int?     @map("free_prompt_threshold")
+  ratePerPrompt         Float?   @map("rate_per_prompt")
+  creditsPerPrompt      Int?     @map("credits_per_prompt")
+  totalEarnings         Float    @default(0) @map("total_earnings")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpPackages         TopUpPackage[]
+  transactionLogs       TransactionLog[]
+  userBalances          UserBalance[]
+  usageEvents           UsageEvent[]
+  topUpTransactions     TopUpTransaction[]
 
   // 🔍 Indexes
   @@index([userId])
-  @@index([userAddress])
-  @@index([tokenAddress, direction])
-  @@index([direction, priceAtCreation])
+  @@index([agentId])
+  @@index([status])
   @@index([createdAt])
-  @@index([aiInitiated, direction])
-  @@map("limit_orders")
+  @@map("agents")
 }
 
-// Historical Executed Orders Table
-model OrderHistory {
-  id              String         @id @default(cuid())
-  userId          String         @map("user_id")
-  userAddress     String         @map("user_address")
-  tokenAddress    String         @map("token_address")
-  tokenSymbol     String         @map("token_symbol")
-  tokenDecimal    Int            @default(18)
-  amount          String
-  priceAtCreation String         @map("price_at_creation")
-  targetPrice     String?        @map("target_price")
-  targetChange    Float?         @map("target_change")
-  direction       OrderDirection
-  orderType       OrderType
-  createdAt       DateTime       @map("created_at")
-  executedAt      DateTime       @map("executed_at")
-  executedPrice   String         @map("executed_price")
-  aiInitiated     Boolean        @default(false) @map("ai_initiated")
-  notes           String?        @db.Text
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+model TopUpPackage {
+  id          String   @id @default(uuid())
+  agentId     String   @map("agent_id")
+  name        String
+  credits     Int
+  price       Float
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   // 🔍 Indexes
-  @@index([userId, createdAt])
-  @@index([userAddress])
-  @@index([tokenAddress, direction])
-  @@index([executedAt])
-  @@index([orderType, executedAt])
-  @@index([aiInitiated])
-  @@map("order_history")
+  @@index([agentId])
+  @@index([isActive])
+  @@map("top_up_packages")
 }
 
-enum OrderDirection {
-  BUY
-  SELL
+model TransactionLog {
+  id              String            @id @default(uuid())
+  agentId         String            @map("agent_id")
+  userId          String            @map("user_id")
+  transactionHash String?           @map("transaction_hash")
+  fromAddress     String            @map("from_address")
+  toAddress       String            @map("to_address")
+  amount          Float
+  status          TransactionStatus @default(PENDING)
+  transactionType TransactionType
+  description     String?
+  metadata        Json?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  
+  // Relations
+  agent           Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // 🔍 Indexes
+  @@index([agentId])
+  @@index([userId])
+  @@index([status])
+  @@index([transactionType])
+  @@index([createdAt])
+  @@map("transaction_logs")
 }
 
-enum OrderType {
-  LIMIT
-  DIRECT
+model UserBalance {
+  userWalletAddress String
+  agentId           String
+
+  ethBalance    Decimal @default(0)
+  creditBalance BigInt  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([userWalletAddress, agentId]) // Compound primary key
+  @@map("user_balances")
+}
+
+model UsageEvent {
+  id     String           @id @default(cuid()) // 'eventId'
+  status UsageEventStatus @default(PENDING)
+
+  feeDeducted     Decimal?
+  creditsDeducted BigInt?
+
+  idempotencyKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  userWalletAddress String
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, userWalletAddress, status])
+  @@map("usage_events")
+}
+
+model TopUpTransaction {
+  txHash String      @id // The on-chain transaction hash is our primary key
+  status TopUpStatus @default(PENDING)
+
+  userWalletAddress String // The user to credit upon confirmation
+  agentId           String // The agent context for the top-up
+  amountInEth       String // The amount we expect to see confirmed on-chain
+  creditsToTopUp    BigInt? // The number of credits this transaction corresponds to
+
+  errorMessage String? // The error message if the top-up fails
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("top_up_transactions")
+}
+
+// Enums
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+enum FeeModel {
+  FREE_TIER
+  CREDIT_BASED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionType {
+  EARNING
+  WITHDRAWAL
+  TOP_UP
+  REFUND
+}
+
+enum UsageEventStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TopUpStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
