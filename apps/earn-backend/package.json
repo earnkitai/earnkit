@@ -5,14 +5,15 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate --schema=src/prisma/schema.prisma && tsc",
     "start": "node dist/index.js",
     "test": "jest",
     "db:generate": "prisma generate --schema=src/prisma/schema.prisma",
     "db:push": "prisma db push --schema=src/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=src/prisma/schema.prisma",
     "db:studio": "prisma studio --schema=src/prisma/schema.prisma",
-    "db:init": "tsx src/scripts/initDb.ts"
+    "db:init": "tsx src/scripts/initDb.ts",
+    "postinstall": "prisma generate --schema=src/prisma/schema.prisma"
   },
   "keywords": [
     "earnkit",

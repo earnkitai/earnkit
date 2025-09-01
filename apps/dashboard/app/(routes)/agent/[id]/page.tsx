@@ -358,8 +358,8 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-black/40 mx-auto"></div>
-                    <p className="mt-4 text-black/40">Loading...</p>
+                    <div className="animate-spin h-8 w-8 border-2 border-black/40 border-t-transparent rounded-full"></div>
+                    <p className="mt-4 text-black/40 font-funnel-sans">Loading...</p>
                 </div>
             </div>
         );
