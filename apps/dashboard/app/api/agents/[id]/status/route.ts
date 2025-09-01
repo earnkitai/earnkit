@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+type Params = Promise<{ id: string }>;
+
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Params },
 ) {
   try {
-    const agentId = params.id;
+    const agentId = (await params).id;
     const body = await request.json();
     const { status } = body;
 
