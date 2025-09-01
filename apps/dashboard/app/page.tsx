@@ -151,19 +151,20 @@ function SignUpPage() {
           console.log(user, "db user details")
           // const username = user.email?.address.toString()?.split('@')[0] || '';
           const userId = user.id.split(':').pop() || user.id;
+          const randomUsername = Math.random().toString(36).substring(2, 15);
 
           // Create user in database using server action
           await createUser({
             id: userId,
             email: user.email?.address.toString() || null,
-            username: "",
+            username: user.email?.address.toString()?.split('@')[0] || randomUsername,
             hasAcceptedTerms: true,
             isGuest: false,
             mfaMethods: [],
           });
 
           // Redirect to passkey setup page
-          router.push("/sign-up/passkeys");
+          router.push("/home");
         } else if (ready && !isNewUser) {
 
           // user is there on the privy db
@@ -177,7 +178,7 @@ function SignUpPage() {
               router.push("/home");
             } else {
               // Case 3: User exists but no username - stay on page to set username
-              router.push("/sign-up/passkeys");
+              // router.push("/sign-up/passkeys");
             }
           } else {
             // Case 1 & 2: User doesn't exist in database - create user
@@ -189,7 +190,7 @@ function SignUpPage() {
               isGuest: false,
               mfaMethods: [],
             });
-            router.push("/sign-up/passkeys");
+            router.push("/home");
           }
         }
       } catch (error) {
