@@ -13,7 +13,12 @@ export interface TrackParams {
 }
 
 export interface TrackSuccessResponse {
-  data: { eventId: string };
+  data: {
+    eventId: string;
+    insufficientCredits?: boolean;
+    creditsRequired?: number;
+    creditsAvailable?: number;
+  };
   success: boolean;
 }
 
@@ -37,10 +42,24 @@ export interface ReleaseSuccessResponse {
 
 export interface TopUpOption {
   label: string;
-  amountInEth: string;
-  to: string;
+  amountInUSD: string;
+  amountInEth: string; // Converted from USD using current ETH price
   value: string; // Amount in WEI
   creditsToTopUp?: number;
+}
+
+export interface EscrowContract {
+  address: string;
+  depositFunction: {
+    name: string;
+    signature: string;
+    agentIdParam: string; // The agentId to pass to the deposit function
+  };
+  network: {
+    chainId: number;
+    name: string;
+    rpcUrl: string;
+  };
 }
 
 export interface UserBalance {
@@ -52,7 +71,8 @@ export interface SubmitTopUpParams {
   agentId: string;
   txHash: string;
   walletAddress: string;
-  amountInEth: string;
+  amountInUSD: string;
+  amountInEth: string; // Converted from USD using current ETH price
   creditsToTopUp?: number;
 }
 
@@ -63,6 +83,7 @@ export interface SubmitTopUpResponse {
 
 export interface TopUpDetailsResponse {
   options: TopUpOption[];
+  escrowContract: EscrowContract;
 }
 
 export interface ApiErrorResponse {
@@ -76,7 +97,7 @@ export interface TrackedEvent {
   walletAddress: string;
   idempotencyKey?: string;
   creditsToDeduct?: number;
-  status: 'pending' | 'captured' | 'released';
+  status: 'pending' | 'captured' | 'released' | 'insufficient_credits';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -93,7 +114,8 @@ export interface TopUpTransaction {
   txHash: string;
   agentId: string;
   walletAddress: string;
-  amountInEth: string;
+  amountInUSD: string;
+  amountInEth: string; // Converted from USD using current ETH price
   creditsToTopUp?: number;
   status: 'pending' | 'confirmed' | 'failed';
   createdAt: Date;

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { BalanceService } from '../services/balanceService';
+import { validateApiKey } from '../middleware/apiKeyAuth';
 import { AppError } from '../middleware/errorHandler';
 
 const router: Router = Router();
@@ -9,7 +10,7 @@ const balanceService = new BalanceService();
  * GET /api/balance
  * Get user balance by wallet address and agent ID
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', validateApiKey, async (req: Request, res: Response) => {
   try {
     const { walletAddress, agentId } = req.query;
 

@@ -7,8 +7,10 @@ import { Badge } from "@/app/components/ui/badge";
 import { Icons } from "@/app/components/sections/icons";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
+import { hasApiKey, hasConnectedWallets } from "@/actions/user";
+import { PrerequisiteModal } from "@/app/components/PrerequisiteModal";
 
-// Agent type definition matching the database schema
+// Agent type definition matching the comprehensive earnings API
 interface Agent {
     id: string;
     name: string;
@@ -16,6 +18,8 @@ interface Agent {
     status: "ACTIVE" | "PAUSED" | "DELETED";
     feeModel: "FREE_TIER" | "CREDIT_BASED";
     totalEarnings: number;
+    transactionLogEarnings: number;
+    topUpEarnings: number;
     createdAt: string;
     topUpPackages: Array<{
         id: string;
@@ -49,6 +53,16 @@ export default function HomePage() {
     const [agents, setAgents] = useState<Agent[]>([]);
     const [loading, setLoading] = useState(true);
     const [userId, setUserId] = useState<string | null>(null);
+    const [showPrerequisiteModal, setShowPrerequisiteModal] = useState(false);
+    const [missingPrerequisites, setMissingPrerequisites] = useState({
+        apiKey: false,
+        wallet: false
+    });
+    const [comprehensiveTotals, setComprehensiveTotals] = useState({
+        totalEarnings: 0,
+        transactionLogEarnings: 0,
+        topUpEarnings: 0,
+    });
 
     // Get the authenticated user ID
     useEffect(() => {
@@ -61,16 +75,53 @@ export default function HomePage() {
         }
     }, [ready, authenticated, privyUser, router]);
 
+    // Function to handle Add Agent click and check prerequisites
+    const handleAddAgentClick = async (e: React.MouseEvent) => {
+        e.preventDefault();
+
+        if (!userId) {
+            router.push("/welcome-back");
+            return;
+        }
+
+        try {
+            const [apiKeyExists, walletExists] = await Promise.all([
+                hasApiKey(userId),
+                hasConnectedWallets(userId)
+            ]);
+
+            if (!apiKeyExists || !walletExists) {
+                setMissingPrerequisites({
+                    apiKey: !apiKeyExists,
+                    wallet: !walletExists
+                });
+                setShowPrerequisiteModal(true);
+            } else {
+                // All prerequisites met, navigate to new-agent page
+                router.push("/new-agent");
+            }
+        } catch (error) {
+            console.error("Error checking prerequisites:", error);
+            // On error, still allow navigation to new-agent page
+            router.push("/new-agent");
+        }
+    };
+
     // Fetch agents when userId is available
     useEffect(() => {
         const fetchAgents = async () => {
             if (!userId) return;
 
             try {
-                const response = await fetch(`/api/agents?userId=${userId}`);
+                const response = await fetch(`/api/agents/earnings?userId=${userId}`);
                 if (response.ok) {
                     const data = await response.json();
                     setAgents(data.agents || []);
+                    setComprehensiveTotals(data.totals || {
+                        totalEarnings: 0,
+                        transactionLogEarnings: 0,
+                        topUpEarnings: 0,
+                    });
                 } else {
                     console.error('Failed to fetch agents');
                 }
@@ -103,10 +154,8 @@ export default function HomePage() {
         }
     ]);
 
-    // Calculate total earnings
-    const totalEarnings = agents.reduce((total, agent) => {
-        return total + agent.totalEarnings;
-    }, 0);
+    // Use comprehensive totals from API
+    const totalEarnings = comprehensiveTotals.totalEarnings;
 
     // Show loading state while checking authentication or fetching data
     if (!ready || !authenticated || loading) {
@@ -158,7 +207,7 @@ export default function HomePage() {
                             ))}
 
                             {/* Add Agent Card */}
-                            <AddAgentCard />
+                            <AddAgentCard onClick={handleAddAgentClick} />
                         </div>
 
                         {/* Get Started Faster Section */}
@@ -266,6 +315,13 @@ export default function HomePage() {
                     </div>
                 </div>
             </div>
+
+            {/* Prerequisite Modal */}
+            <PrerequisiteModal
+                isOpen={showPrerequisiteModal}
+                onClose={() => setShowPrerequisiteModal(false)}
+                missingPrerequisites={missingPrerequisites}
+            />
         </div >
     );
 }
@@ -287,17 +343,18 @@ function AgentCard({ agent }: { agent: Agent }) {
             const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
 
             // Filter transactions for this day
-            const dayTransactions = agent.transactionLogs.filter(log => {
+            const dayTransactions = agent.transactionLogs?.filter(log => {
                 const logDate = new Date(log.createdAt);
                 return logDate >= startOfDay && logDate < endOfDay;
-            });
+            }) || [];
 
             // Sum up earnings for this day
             const dayEarnings = dayTransactions.reduce((sum, log) => sum + log.amount, 0);
 
             // Convert to a percentage of the max daily earnings (for visualization)
             // If no transactions, use 0, otherwise scale relative to max earnings
-            const maxEarnings = Math.max(...agent.transactionLogs.map(log => log.amount), 1);
+            const transactionAmounts = agent.transactionLogs?.map(log => log.amount) || [];
+            const maxEarnings = transactionAmounts.length > 0 ? Math.max(...transactionAmounts) : 1;
             const percentage = dayEarnings > 0 ? (dayEarnings / maxEarnings) * 100 : 0;
 
             data.push(Math.max(percentage, 5)); // Minimum 5% height for visibility
@@ -355,22 +412,23 @@ function AgentCard({ agent }: { agent: Agent }) {
 }
 
 // Add Agent Card Component
-function AddAgentCard() {
+function AddAgentCard({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
     return (
-        <Link href="/new-agent">
-            <Card className="bg-white outline-2 outline-black/10 rounded-[28px] shadow-[inset_0_0_0_0px_#00000033] hover:shadow-[inset_0_0_0_4px_#00000033] focus:outline-color1 focus:shadow-[inset_0_0_0_4px_#2E70EA] active:outline-color1 active:shadow-[inset_0_0_0_4px_#2E70EA] transition-shadow duration-300 cursor-pointer">
-                <CardContent className="p-8">
-                    <div className="flex flex-col items-center justify-center text-center">
-                        <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mb-6">
-                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                            </svg>
-                        </div>
-                        <h3 className="font-semibold text-black/80 font-funnel-sans text-[16px]">Add Agent</h3>
+        <Card
+            onClick={onClick}
+            className="bg-white outline-2 outline-black/10 rounded-[28px] shadow-[inset_0_0_0_0px_#00000033] hover:shadow-[inset_0_0_0_4px_#00000033] focus:outline-color1 focus:shadow-[inset_0_0_0_4px_#2E70EA] active:outline-color1 active:shadow-[inset_0_0_0_4px_#2E70EA] transition-shadow duration-300 cursor-pointer"
+        >
+            <CardContent className="p-8">
+                <div className="flex flex-col items-center justify-center text-center">
+                    <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mb-6">
+                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
                     </div>
-                </CardContent>
-            </Card>
-        </Link>
+                    <h3 className="font-semibold text-black/80 font-funnel-sans text-[16px]">Add Agent</h3>
+                </div>
+            </CardContent>
+        </Card>
     );
 }
 

@@ -480,6 +480,9 @@ importers:
       '@prisma/client':
         specifier: ^5.7.0
         version: 5.22.0(prisma@5.22.0)
+      '@privy-io/server-auth':
+        specifier: ^1.21.0
+        version: 1.22.1(ethers@6.14.1)(typescript@5.8.3)(viem@2.30.0)
       cors:
         specifier: ^2.8.5
         version: 2.8.5

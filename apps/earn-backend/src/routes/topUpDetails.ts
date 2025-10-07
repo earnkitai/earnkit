@@ -7,6 +7,7 @@ import {
   validateTransactionHash,
   validateAmount,
 } from '../middleware/validation';
+import { validateApiKey } from '../middleware/apiKeyAuth';
 import { AppError } from '../middleware/errorHandler';
 
 const router: Router = Router();
@@ -17,7 +18,7 @@ const topUpService = new TopUpService(balanceService);
  * GET /api/top-up-details
  * Get top-up options for an agent
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', validateApiKey, async (req: Request, res: Response) => {
   try {
     const { agentId } = req.query;
 
@@ -42,19 +43,27 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.post(
   '/',
+  validateApiKey,
   validateAgentId,
   validateWalletAddress,
   validateTransactionHash,
   validateAmount,
   async (req: Request, res: Response) => {
     try {
-      const { agentId, walletAddress, txHash, amountInEth, creditsToTopUp } =
-        req.body;
+      const {
+        agentId,
+        walletAddress,
+        txHash,
+        amountInUSD,
+        amountInEth,
+        creditsToTopUp,
+      } = req.body;
 
       const result = await topUpService.submitTopUpTransaction({
         agentId,
         walletAddress,
         txHash,
+        amountInUSD,
         amountInEth,
         creditsToTopUp,
       });

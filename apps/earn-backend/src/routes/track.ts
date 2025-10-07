@@ -4,6 +4,7 @@ import {
   validateWalletAddress,
   validateAgentId,
 } from '../middleware/validation';
+import { validateApiKey } from '../middleware/apiKeyAuth';
 import { AppError } from '../middleware/errorHandler';
 
 const router: Router = Router();
@@ -15,6 +16,7 @@ const eventService = new EventService();
  */
 router.post(
   '/',
+  validateApiKey,
   validateAgentId,
   validateWalletAddress,
   async (req: Request, res: Response) => {
@@ -30,7 +32,12 @@ router.post(
       });
 
       res.json({
-        data: { eventId: result.eventId },
+        data: {
+          eventId: result.eventId,
+          insufficientCredits: result.insufficientCredits,
+          creditsRequired: result.creditsRequired,
+          creditsAvailable: result.creditsAvailable,
+        },
         success: true,
       });
     } catch (error) {

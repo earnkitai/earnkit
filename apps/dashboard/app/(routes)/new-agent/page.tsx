@@ -11,6 +11,7 @@ import { Icons } from "@/app/components/sections/icons";
 import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { hasApiKey, hasConnectedWallets } from "@/actions/user";
 
 interface AgentFormData {
     agentName: string;
@@ -39,8 +40,13 @@ export default function NewAgentPage() {
         topUpPackages: [
             {
                 id: "1",
-                credits: "1000",
-                price: "0.50"
+                credits: "100",
+                price: "25"
+            },
+            {
+                id: "2",
+                credits: "200",
+                price: "50"
             }
         ],
     });
@@ -75,6 +81,29 @@ export default function NewAgentPage() {
 
         if (!userId) {
             toast.error("Please log in to create an agent.");
+            return;
+        }
+
+        // Check prerequisites before submission
+        try {
+            const [apiKeyExists, walletExists] = await Promise.all([
+                hasApiKey(userId),
+                hasConnectedWallets(userId)
+            ]);
+
+            if (!apiKeyExists || !walletExists) {
+                toast.error("Prerequisites Required", {
+                    description: "You must complete the required setup before creating an agent. Go to Settings to complete the setup.",
+                    action: {
+                        label: "Go to Settings",
+                        onClick: () => router.push("/settings")
+                    }
+                });
+                return;
+            }
+        } catch (error) {
+            console.error("Error checking prerequisites:", error);
+            toast.error("Error checking prerequisites. Please try again.");
             return;
         }
 
@@ -142,6 +171,7 @@ export default function NewAgentPage() {
                 const error = await response.json();
                 console.error("Error creating agent:", error);
                 toast.dismiss(loadingToast);
+
                 toast.error(`Failed to create agent: ${error.error || 'Unknown error'}`);
             }
         } catch (error) {
@@ -410,6 +440,7 @@ export default function NewAgentPage() {
                     <div className="w-[30%]"></div>
                 </div>
             </div>
+
         </div>
     );
 }

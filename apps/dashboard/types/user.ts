@@ -172,6 +172,7 @@ export interface User {
   id: string;
   username?: string | null;
   email?: string | null;
+  apiKey?: string | null;
   createdAt: string;
   linkedAccounts?: LinkedAccount[];
   mfaMethods: string[];

@@ -7,9 +7,9 @@ import { toast } from "sonner";
 // import { truncateAddress } from "@/lib/utils";
 // import RecoveryAddressDialog from "@/app/components/sections/recovery-address-dialog";
 // import { useTheme } from "@/providers/theme-provider";
-import { useActiveWallet, useDelegatedActions, usePrivy, useWallets, WalletWithMetadata } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 // import { useSessionSigners } from "@privy-io/react-auth";
-import { RevokeAccessButton } from "@/app/(routes)/settings/components/RevokeAccessButton";
+import { ApiKeySection } from "@/app/(routes)/settings/components/ApiKeySection";
 import { EmbeddedWalletSection } from "@/app/(routes)/settings/components/EmbeddedWalletSection";
 import { PasskeySection } from "@/app/(routes)/settings/components/PasskeySection";
 import { FarcasterPrivy } from "@/app/(routes)/settings/components/FarcasterPrivy";
@@ -25,15 +25,11 @@ export default function SettingsPage() {
     // const { theme, setTheme } = useTheme();
     // const { addSessionSigners } = useSessionSigners();
 
-    const { delegateWallet } = useDelegatedActions();
-
     // const { turnkey } = useTurnkey()
-    const [isDelegated, setIsDelegated] = useState(false);
     const [username, setUsername] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [newUsername, setNewUsername] = useState("");
-    const { wallets, ready: walletsReady } = useWallets();
-    const { wallet: activeWallet } = useActiveWallet()
+    // const { wallets, ready: walletsReady } = useWallets();
 
     useEffect(() => {
         if (ready && authenticated && user?.id) {
@@ -65,48 +61,6 @@ export default function SettingsPage() {
         }
     };
 
-    useEffect(() => {
-        if (ready && authenticated) {
-            if (user) {
-                console.log(user, 'user')
-                setIsDelegated(user.wallet?.delegated || false);
-            }
-        }
-    }, [ready, authenticated, user]);
-
-    const handleDelegateAccess = async () => {
-        console.log(user)
-        console.log(user?.wallet?.address, 'user?.wallet?.address')
-        try {
-
-            // Find the embedded wallet to delegate from the array of the user's wallets
-            const walletToDelegate = wallets.find((wallet) => wallet.walletClientType === 'privy');
-
-            // Check if the wallet to delegate by inspecting the user's linked accounts
-            const isAlreadyDelegated = !!user?.linkedAccounts.find(
-                (account): account is WalletWithMetadata => account.type === 'wallet' && account.delegated,
-            );
-
-            if (!walletToDelegate || !walletsReady || isAlreadyDelegated) return;
-            try {
-                const delegateAccess = await delegateWallet({
-                    address: walletToDelegate.address,
-                    chainType: 'ethereum'
-                });
-                console.log(delegateAccess, 'delegateAccess');
-                setIsDelegated(true);
-                toast.success("Access delegated successfully");
-            }
-            catch (error) {
-                console.log("error delegating wallet", error)
-                toast.error("Failed to delegate access");
-            }
-
-        } catch (error) {
-            console.error(error, 'error');
-            toast.error("Failed to delegate access");
-        }
-    }
 
 
 
@@ -182,15 +136,15 @@ export default function SettingsPage() {
                                 <div>
                                     <label className="text-black font-funnel-sans text-sm font-medium mb-3 block">Email</label>
                                     <div className="bg-white/5 rounded-full px-6 py-4 border border-black/10">
-                                        <p className="text-black font-medium text-lg">{user?.email?.address || 'Not set'}</p>
+                                        <p className="text-black font-medium text-lg ">{user?.email?.address || 'Not set'}</p>
                                     </div>
                                 </div>
 
                                 <div>
                                     <label className="text-black font-funnel-sans text-sm font-medium mb-3 block">Wallet Address</label>
                                     <div className="bg-white/5 rounded-full px-6 py-4 border border-black/10">
-                                        <p className="text-black font-medium font-mono text-sm break-all">
-                                            {activeWallet ? activeWallet.address : user?.wallet?.address || 'Not set'}
+                                        <p className="text-black font-medium text-lg break-all">
+                                            {user?.wallet?.address || 'Not set'}
                                         </p>
                                     </div>
                                 </div>
@@ -198,26 +152,13 @@ export default function SettingsPage() {
                         </div>
                     </div>
 
-                    {/* Delegate Access Card - Medium */}
+                    {/* API Key Card - Medium */}
                     <div className="md:col-start-5 md:col-end-9 md:row-start-1 md:row-end-3 border border-black/10 rounded-[56px] p-8 flex flex-col justify-center relative overflow-hidden">
                         <div className="relative z-10">
                             <div className="mb-6">
-                                <h2 className="text-2xl font-bold font-funnel-display text-color2">Delegate Access</h2>
+                                <h2 className="text-2xl font-bold font-funnel-display text-color2">API Key</h2>
                             </div>
-                            {isDelegated ? (
-                                <RevokeAccessButton />
-                            ) : (
-                                <div className="space-y-6">
-                                    <p className="text-black font-funnel-sans text-lg leading-relaxed">Delegate access to enable additional features and enhanced functionality</p>
-                                    <Button
-                                        onClick={handleDelegateAccess}
-                                        disabled
-                                        className="bg-white text-color3 font-funnel-display font-semibold rounded-full px-10 py-5 h-16 transition-all duration-200 hover:scale-105 hover:bg-gray-200 shadow-lg text-lg"
-                                    >
-                                        Delegate Access
-                                    </Button>
-                                </div>
-                            )}
+                            <ApiKeySection />
                         </div>
                     </div>
 

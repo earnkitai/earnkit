@@ -7,22 +7,46 @@ import {
 } from '../types';
 import { prisma } from '../lib/prisma';
 import { BalanceService } from './balanceService';
+import { priceService } from './priceService';
+import { PrivyClient } from '@privy-io/server-auth';
 
 export class TopUpService {
   private balanceService: BalanceService;
+  private privyClient: PrivyClient;
 
   constructor(balanceService: BalanceService) {
     this.balanceService = balanceService;
+    // Initialize Privy client with environment variables
+    this.privyClient = new PrivyClient(
+      process.env.PRIVY_APP_ID || '',
+      process.env.PRIVY_APP_SECRET || '',
+    );
   }
 
   /**
    * Get top-up options for an agent
    */
   async getTopUpDetails(agentId: string): Promise<TopUpDetailsResponse> {
+    // First, get the agent's internal ID using the agent_id field
+    const agent = await prisma.agent.findUnique({
+      where: {
+        agentId: agentId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error(`Agent with agentId ${agentId} not found`);
+    }
+
+    const internalAgentId = agent.id;
+
     // Get top-up packages from database
     const packages = await prisma.topUpPackage.findMany({
       where: {
-        agentId,
+        agentId: internalAgentId,
         isActive: true,
       },
       orderBy: {
@@ -30,45 +54,68 @@ export class TopUpService {
       },
     });
 
+    // Get current ETH price for conversion
+    const ethPrice = await priceService.getEthPrice();
+    console.log('Current ETH price for top-up conversion:', ethPrice);
+
     // Convert packages to TopUpOption format
-    const options: TopUpOption[] = packages.map((pkg: any) => ({
-      label: `${pkg.credits} Credits - ${pkg.price} ETH`,
-      amountInEth: pkg.price.toString(),
-      to: '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6', // Example wallet
-      value: (pkg.price * 1e18).toString(), // Convert to WEI
-      creditsToTopUp: pkg.credits,
-    }));
+    const options: TopUpOption[] = await Promise.all(
+      packages.map(async (pkg: any) => {
+        const usdAmount = pkg.price; // Price is stored in USD
+        const ethAmount = usdAmount / ethPrice; // Convert USD to ETH
+        const weiAmount = ethAmount * 1e18; // Convert ETH to WEI
+
+        return {
+          label: `${pkg.credits} Credits - $${usdAmount.toFixed(2)} USD`,
+          amountInUSD: usdAmount.toString(),
+          amountInEth: ethAmount.toString(),
+          value: Math.floor(weiAmount).toString(), // Convert to WEI
+          creditsToTopUp: pkg.credits,
+        };
+      }),
+    );
 
     // If no packages found, return default options
     if (options.length === 0) {
-      return {
-        options: [
-          {
-            label: '10 Credits - 0.001 ETH',
-            amountInEth: '0.001',
-            to: '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6',
-            value: '1000000000000000',
-            creditsToTopUp: 10,
-          },
-          {
-            label: '50 Credits - 0.005 ETH',
-            amountInEth: '0.005',
-            to: '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6',
-            value: '5000000000000000',
-            creditsToTopUp: 50,
-          },
-          {
-            label: '100 Credits - 0.01 ETH',
-            amountInEth: '0.01',
-            to: '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6',
-            value: '10000000000000000',
-            creditsToTopUp: 100,
-          },
-        ],
-      };
+      const defaultUsdAmounts = [3, 15, 30]; // $3, $15, $30 USD
+      const defaultCredits = [10, 50, 100];
+
+      for (let i = 0; i < defaultUsdAmounts.length; i++) {
+        const usdAmount = defaultUsdAmounts[i];
+        const ethAmount = usdAmount / ethPrice;
+        const weiAmount = ethAmount * 1e18;
+
+        options.push({
+          label: `${defaultCredits[i]} Credits - $${usdAmount} USD`,
+          amountInUSD: usdAmount.toString(),
+          amountInEth: ethAmount.toString(),
+          value: Math.floor(weiAmount).toString(),
+          creditsToTopUp: defaultCredits[i],
+        });
+      }
     }
 
-    return { options };
+    // Escrow contract configuration
+    const escrowContract = {
+      address:
+        process.env.ESCROW_CONTRACT_ADDRESS ||
+        '0x8076E4444D6AE75396Dcf1E201Dbc6a4cd01FDC8',
+      depositFunction: {
+        name: 'deposit',
+        signature: 'deposit(bytes32)',
+        agentIdParam: agentId, // The agentId to pass to the deposit function
+      },
+      network: {
+        chainId: parseInt(process.env.CHAIN_ID || '8453'), // Ethereum mainnet by default
+        name: process.env.NETWORK_NAME || 'Base',
+        rpcUrl: process.env.RPC_URL || 'https://base-mainnet.infura.io',
+      },
+    };
+
+    return {
+      options,
+      escrowContract,
+    };
   }
 
   /**
@@ -77,8 +124,30 @@ export class TopUpService {
   async submitTopUpTransaction(
     params: SubmitTopUpParams,
   ): Promise<SubmitTopUpResponse> {
-    const { txHash, agentId, walletAddress, amountInEth, creditsToTopUp } =
-      params;
+    const {
+      txHash,
+      agentId,
+      walletAddress,
+      amountInUSD,
+      amountInEth,
+      creditsToTopUp,
+    } = params;
+
+    // First, get the agent's internal ID using the agent_id field
+    const agent = await prisma.agent.findUnique({
+      where: {
+        agentId: agentId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error(`Agent with agentId ${agentId} not found`);
+    }
+
+    const internalAgentId = agent.id;
 
     // Check if transaction already exists
     const existingTransaction = await prisma.topUpTransaction.findUnique({
@@ -96,8 +165,9 @@ export class TopUpService {
     await prisma.topUpTransaction.create({
       data: {
         txHash,
-        agentId,
+        agentId: internalAgentId,
         userWalletAddress: walletAddress,
+        amountInUSD,
         amountInEth,
         creditsToTopUp: creditsToTopUp ? BigInt(creditsToTopUp) : null,
         status: 'PENDING',
@@ -126,6 +196,13 @@ export class TopUpService {
   private async simulateTransactionConfirmation(txHash: string): Promise<void> {
     const transaction = await prisma.topUpTransaction.findUnique({
       where: { txHash },
+      include: {
+        agent: {
+          select: {
+            agentId: true,
+          },
+        },
+      },
     });
 
     if (!transaction) return;
@@ -136,17 +213,20 @@ export class TopUpService {
       data: { status: 'COMPLETED' },
     });
 
+    // Get the actual agentId (not the internal ID)
+    const actualAgentId = transaction.agent.agentId;
+
     // Update user balance
     if (transaction.creditsToTopUp) {
       await this.balanceService.addCredits(
         transaction.userWalletAddress,
-        transaction.agentId,
+        actualAgentId,
         Number(transaction.creditsToTopUp),
       );
     }
     await this.balanceService.addEth(
       transaction.userWalletAddress,
-      transaction.agentId,
+      actualAgentId,
       transaction.amountInEth,
     );
 
@@ -167,6 +247,7 @@ export class TopUpService {
       txHash: transaction.txHash,
       agentId: transaction.agentId,
       walletAddress: transaction.userWalletAddress,
+      amountInUSD: transaction.amountInUSD,
       amountInEth: transaction.amountInEth,
       creditsToTopUp: transaction.creditsToTopUp
         ? Number(transaction.creditsToTopUp)
@@ -192,6 +273,7 @@ export class TopUpService {
       txHash: transaction.txHash,
       agentId: transaction.agentId,
       walletAddress: transaction.userWalletAddress,
+      amountInUSD: transaction.amountInUSD,
       amountInEth: transaction.amountInEth,
       creditsToTopUp: transaction.creditsToTopUp
         ? Number(transaction.creditsToTopUp)
@@ -220,6 +302,7 @@ export class TopUpService {
       txHash: transaction.txHash,
       agentId: transaction.agentId,
       walletAddress: transaction.userWalletAddress,
+      amountInUSD: transaction.amountInUSD,
       amountInEth: transaction.amountInEth,
       creditsToTopUp: transaction.creditsToTopUp
         ? Number(transaction.creditsToTopUp)

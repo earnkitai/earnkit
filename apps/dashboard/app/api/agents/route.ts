@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { v4 as uuidv4 } from 'uuid';
+import { hasApiKey, hasConnectedWallets } from '@/actions/user';
 
 interface TopUpPackage {
   id: string;
@@ -25,6 +26,27 @@ export async function POST(request: NextRequest) {
     if (!agentName || !feeModel || !userId) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 },
+      );
+    }
+
+    // Check if user has API key and connected wallets
+    const [userHasApiKey, userHasWallets] = await Promise.all([
+      hasApiKey(userId),
+      hasConnectedWallets(userId),
+    ]);
+
+    if (!userHasApiKey || !userHasWallets) {
+      return NextResponse.json(
+        {
+          error: 'Prerequisites required',
+          message:
+            'You must complete the required setup before creating an agent.',
+          missingPrerequisites: {
+            apiKey: !userHasApiKey,
+            wallet: !userHasWallets,
+          },
+        },
         { status: 400 },
       );
     }

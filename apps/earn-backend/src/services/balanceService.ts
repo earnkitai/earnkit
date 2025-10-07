@@ -9,11 +9,25 @@ export class BalanceService {
     walletAddress: string,
     agentId: string,
   ): Promise<UserBalance> {
+    // First, get the agent's internal ID using the agent_id field
+    const agent = await prisma.agent.findUnique({
+      where: {
+        agentId: agentId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error(`Agent with agentId ${agentId} not found`);
+    }
+
     const balance = await prisma.userBalance.findUnique({
       where: {
         userWalletAddress_agentId: {
           userWalletAddress: walletAddress,
-          agentId,
+          agentId: agent.id, // Use the internal ID, not the agent_id
         },
       },
     });
@@ -23,7 +37,7 @@ export class BalanceService {
       const newBalance = await prisma.userBalance.create({
         data: {
           userWalletAddress: walletAddress,
-          agentId,
+          agentId: agent.id, // Use the internal ID, not the agent_id
           creditBalance: BigInt(0), // Default 0 credits
           ethBalance: 0,
         },
@@ -49,6 +63,20 @@ export class BalanceService {
     agentId: string,
     balance: Partial<UserBalance>,
   ): Promise<UserBalance> {
+    // First, get the agent's internal ID using the agent_id field
+    const agent = await prisma.agent.findUnique({
+      where: {
+        agentId: agentId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!agent) {
+      throw new Error(`Agent with agentId ${agentId} not found`);
+    }
+
     const currentBalance = await this.getBalance(walletAddress, agentId);
     const updatedBalance: UserBalance = {
       eth: balance.eth ?? currentBalance.eth,
@@ -59,7 +87,7 @@ export class BalanceService {
       where: {
         userWalletAddress_agentId: {
           userWalletAddress: walletAddress,
-          agentId,
+          agentId: agent.id, // Use the internal ID, not the agent_id
         },
       },
       update: {
@@ -68,7 +96,7 @@ export class BalanceService {
       },
       create: {
         userWalletAddress: walletAddress,
-        agentId,
+        agentId: agent.id, // Use the internal ID, not the agent_id
         ethBalance: parseFloat(updatedBalance.eth),
         creditBalance: BigInt(updatedBalance.credits),
       },

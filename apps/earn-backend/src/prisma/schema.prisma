@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,41 +8,37 @@ datasource db {
 }
 
 model User {
-  id               String   @id @unique // This will be the privyId
-  username         String?  @unique
-  email            String?  @unique
-  createdAt        DateTime @default(now()) @map("created_at")
-  hasAcceptedTerms Boolean  @default(false) @map("has_accepted_terms")
-  isGuest          Boolean  @default(false) @map("is_guest")
-  mfaMethods       String[] @default([]) @map("mfa_methods")
-
-  // Linked Accounts - will be empty arrays if no accounts are linked
-  walletAccounts      WalletAccount[]
-  smartWalletAccounts SmartWalletAccount[]
-  emailAccounts       EmailAccount[]
-  phoneAccounts       PhoneAccount[]
-  googleAccounts      GoogleAccount[]
-  twitterAccounts     TwitterAccount[]
-  discordAccounts     DiscordAccount[]
-  githubAccounts      GithubAccount[]
-  spotifyAccounts     SpotifyAccount[]
-  instagramAccounts   InstagramAccount[]
-  tiktokAccounts      TiktokAccount[]
-  linkedinAccounts    LinkedInAccount[]
+  id                  String               @id @unique
+  username            String?              @unique
+  email               String?              @unique
+  createdAt           DateTime             @default(now()) @map("created_at")
+  hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
+  isGuest             Boolean              @default(false) @map("is_guest")
+  mfaMethods          String[]             @default([]) @map("mfa_methods")
+  apiKey              String?              @unique @map("api_key")
+  agents              Agent[]
   appleAccounts       AppleAccount[]
-  customJwtAccounts   CustomJwtAccount[]
-  farcasterAccounts   FarcasterAccount[]
-  passkeyAccounts     PasskeyAccount[]
-  telegramAccounts    TelegramAccount[]
   crossAppAccounts    CrossAppAccount[]
-
-  // Agents
-  agents Agent[]
+  customJwtAccounts   CustomJwtAccount[]
+  discordAccounts     DiscordAccount[]
+  emailAccounts       EmailAccount[]
+  farcasterAccounts   FarcasterAccount[]
+  githubAccounts      GithubAccount[]
+  googleAccounts      GoogleAccount[]
+  instagramAccounts   InstagramAccount[]
+  linkedinAccounts    LinkedInAccount[]
+  passkeyAccounts     PasskeyAccount[]
+  phoneAccounts       PhoneAccount[]
+  smartWalletAccounts SmartWalletAccount[]
+  spotifyAccounts     SpotifyAccount[]
+  telegramAccounts    TelegramAccount[]
+  tiktokAccounts      TiktokAccount[]
+  twitterAccounts     TwitterAccount[]
+  walletAccounts      WalletAccount[]
 
   @@map("users")
 }
 
-// Linked Account Models
 model WalletAccount {
   id               String  @id @default(uuid())
   userId           String  @map("user_id")
@@ -293,30 +283,26 @@ model SmartWallet {
   @@map("smart_wallets")
 }
 
-// Agent Models
 model Agent {
-  id                    String   @id @default(uuid())
-  userId                String   @map("user_id")
-  name                  String
-  agentId               String   @unique @map("agent_id")
-  status                AgentStatus @default(ACTIVE)
-  feeModel              FeeModel @default(FREE_TIER)
-  freePromptThreshold   Int?     @map("free_prompt_threshold")
-  ratePerPrompt         Float?   @map("rate_per_prompt")
-  creditsPerPrompt      Int?     @map("credits_per_prompt")
-  totalEarnings         Float    @default(0) @map("total_earnings")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  
-  // Relations
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  topUpPackages         TopUpPackage[]
-  transactionLogs       TransactionLog[]
-  userBalances          UserBalance[]
-  usageEvents           UsageEvent[]
-  topUpTransactions     TopUpTransaction[]
+  id                  String             @id @default(uuid())
+  userId              String             @map("user_id")
+  name                String
+  agentId             String             @unique @map("agent_id")
+  status              AgentStatus        @default(ACTIVE)
+  feeModel            FeeModel           @default(FREE_TIER)
+  freePromptThreshold Int?               @map("free_prompt_threshold")
+  ratePerPrompt       Float?             @map("rate_per_prompt")
+  creditsPerPrompt    Int?               @map("credits_per_prompt")
+  totalEarnings       Float              @default(0) @map("total_earnings")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpPackages       TopUpPackage[]
+  topUpTransactions   TopUpTransaction[]
+  transactionLogs     TransactionLog[]
+  usageEvents         UsageEvent[]
+  userBalances        UserBalance[]
 
-  // 🔍 Indexes
   @@index([userId])
   @@index([agentId])
   @@index([status])
@@ -325,18 +311,15 @@ model Agent {
 }
 
 model TopUpPackage {
-  id          String   @id @default(uuid())
-  agentId     String   @map("agent_id")
-  name        String
-  credits     Int
-  price       Float
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  // Relations
-  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  name      String
+  credits   Int
+  price     Float
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  // 🔍 Indexes
   @@index([agentId])
   @@index([isActive])
   @@map("top_up_packages")
@@ -355,11 +338,8 @@ model TransactionLog {
   description     String?
   metadata        Json?
   createdAt       DateTime          @default(now()) @map("created_at")
-  
-  // Relations
   agent           Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  // 🔍 Indexes
   @@index([agentId])
   @@index([userId])
   @@index([status])
@@ -371,36 +351,27 @@ model TransactionLog {
 model UserBalance {
   userWalletAddress String
   agentId           String
+  ethBalance        Decimal  @default(0)
+  creditBalance     BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  ethBalance    Decimal @default(0)
-  creditBalance BigInt  @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
-  @@id([userWalletAddress, agentId]) // Compound primary key
+  @@id([userWalletAddress, agentId])
   @@map("user_balances")
 }
 
 model UsageEvent {
-  id     String           @id @default(cuid()) // 'eventId'
-  status UsageEventStatus @default(PENDING)
-
-  feeDeducted     Decimal?
-  creditsDeducted BigInt?
-
-  idempotencyKey String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  agentId String
-  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-
+  id                String           @id @default(cuid())
+  status            UsageEventStatus @default(PENDING)
+  feeDeducted       Decimal?
+  creditsDeducted   BigInt?
+  idempotencyKey    String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  agentId           String
   userWalletAddress String
+  agent             Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, idempotencyKey])
   @@index([agentId, userWalletAddress, status])
@@ -408,27 +379,22 @@ model UsageEvent {
 }
 
 model TopUpTransaction {
-  txHash String      @id // The on-chain transaction hash is our primary key
-  status TopUpStatus @default(PENDING)
-
-  userWalletAddress String // The user to credit upon confirmation
-  agentId           String // The agent context for the top-up
-  amountInEth       String // The amount we expect to see confirmed on-chain
-  creditsToTopUp    BigInt? // The number of credits this transaction corresponds to
-
-  errorMessage String? // The error message if the top-up fails
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  txHash            String      @id
+  status            TopUpStatus @default(PENDING)
+  userWalletAddress String
+  agentId           String
+  amountInUSD       String       @map("amount_in_usd") @default("0")
+  amountInEth       String       @map("amount_in_eth") @default("0")
+  creditsToTopUp    BigInt?
+  errorMessage      String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@map("top_up_transactions")
 }
 
-// Enums
 enum AgentStatus {
   ACTIVE
   PAUSED
@@ -459,6 +425,7 @@ enum UsageEventStatus {
   COMPLETED
   FAILED
   CANCELLED
+  INSUFFICIENT_CREDITS
 }
 
 enum TopUpStatus {

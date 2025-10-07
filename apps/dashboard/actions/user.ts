@@ -3,6 +3,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { User, LinkedAccount } from '@/types/user';
+import { generateApiKey } from '@/lib/utils';
 // import { Prisma } from '@prisma/client';
 
 export async function createUser(userData: Partial<User>) {
@@ -157,6 +158,7 @@ export async function updateUser(id: string, userData: Partial<User>) {
     data: {
       username: userData.username,
       email: userData.email,
+      apiKey: userData.apiKey,
       hasAcceptedTerms: userData.hasAcceptedTerms,
       isGuest: userData.isGuest,
       mfaMethods: userData.mfaMethods,
@@ -233,6 +235,7 @@ function transformPrismaUser(prismaUser: any): User {
     id: prismaUser.id,
     username: prismaUser.username,
     email: prismaUser.email,
+    apiKey: prismaUser.apiKey,
     createdAt: prismaUser.createdAt.toISOString(),
     linkedAccounts: transformLinkedAccounts(prismaUser),
     mfaMethods: prismaUser.mfaMethods,
@@ -458,4 +461,115 @@ function transformLinkedAccounts(prismaUser: any): LinkedAccount[] {
   }
 
   return accounts;
+}
+
+/**
+ * Creates a new API key for a user
+ * @param userId - The user ID
+ * @returns The generated API key
+ */
+export async function createApiKey(userId: string): Promise<string> {
+  const apiKey = generateApiKey();
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { apiKey },
+  });
+
+  return apiKey;
+}
+
+/**
+ * Gets the API key for a user
+ * @param userId - The user ID
+ * @returns The user's API key or null if not found
+ */
+export async function getApiKey(userId: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { apiKey: true },
+  });
+
+  return user?.apiKey || null;
+}
+
+/**
+ * Regenerates a new API key for a user (replaces existing one)
+ * @param userId - The user ID
+ * @returns The new API key
+ */
+export async function regenerateApiKey(userId: string): Promise<string> {
+  return createApiKey(userId);
+}
+
+/**
+ * Deletes the API key for a user
+ * @param userId - The user ID
+ */
+export async function deleteApiKey(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { apiKey: null },
+  });
+}
+
+/**
+ * Checks if user has an API key
+ * @param userId - The user ID
+ * @returns true if user has an API key, false otherwise
+ */
+export async function hasApiKey(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { apiKey: true },
+  });
+
+  return !!user?.apiKey;
+}
+
+/**
+ * Checks if user has any connected wallet addresses
+ * @param userId - The user ID
+ * @returns true if user has wallet addresses, false otherwise
+ */
+export async function hasConnectedWallets(userId: string): Promise<boolean> {
+  const walletCount = await prisma.walletAccount.count({
+    where: { userId },
+  });
+
+  return walletCount > 0;
+}
+
+/**
+ * Gets user's wallet addresses
+ * @param userId - The user ID
+ * @returns Array of wallet addresses
+ */
+export async function getUserWalletAddresses(
+  userId: string,
+): Promise<string[]> {
+  const wallets = await prisma.walletAccount.findMany({
+    where: { userId },
+    select: { address: true },
+  });
+
+  return wallets.map((wallet) => wallet.address);
+}
+
+export async function getWalletAccounts(userId: string) {
+  const wallets = await prisma.walletAccount.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      address: true,
+      chainType: true,
+      walletClientType: true,
+      connectorType: true,
+      recoveryMethod: true,
+      imported: true,
+      delegated: true,
+      walletIndex: true,
+    },
+  });
+  return wallets;
 }

@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { randomBytes } from 'crypto';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -51,4 +52,22 @@ function getDaySuffix(day: number): string {
     default:
       return 'th';
   }
+}
+
+/**
+ * Generates a secure API key with the format: ek_[32 random hex characters]
+ * @returns A secure API key string
+ */
+export function generateApiKey(): string {
+  const randomHex = randomBytes(16).toString('hex');
+  return `ek_${randomHex}`;
+}
+
+/**
+ * Extracts the user ID from a Privy user ID by removing the did:privy: prefix
+ * @param privyUserId - The full Privy user ID (e.g., "did:privy:cmfqj7sc6007aii0crjvqnqcc")
+ * @returns The user ID without the prefix (e.g., "cmfqj7sc6007aii0crjvqnqcc")
+ */
+export function extractUserId(privyUserId: string): string {
+  return privyUserId.split(':').pop() || privyUserId;
 }

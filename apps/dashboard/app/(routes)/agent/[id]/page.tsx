@@ -20,6 +20,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Logs from "./components/Logs";
+import WithdrawModal from "./components/WithdrawModal";
 
 // Agent type definition matching the database schema
 interface Agent {
@@ -52,13 +53,23 @@ interface Agent {
     };
 }
 
+// Earnings data interface
+interface EarningsData {
+    totalEarnings: number;
+    totalWithdrawals: number;
+    availableBalance: number;
+    agentEarnings: number;
+}
+
 export default function AgentPage({ params }: { params: Promise<{ id: string }> }) {
     const resolvedParams = use(params);
     const { ready, authenticated, user: privyUser } = usePrivy();
     const router = useRouter();
     const [agent, setAgent] = useState<Agent | null>(null);
+    const [earningsData, setEarningsData] = useState<EarningsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+    const [showWithdrawModal, setShowWithdrawModal] = useState(false);
 
     // Get the authenticated user ID
     useEffect(() => {
@@ -94,6 +105,27 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         };
 
         fetchAgent();
+    }, [resolvedParams.id]);
+
+    // Fetch earnings data
+    useEffect(() => {
+        const fetchEarnings = async () => {
+            if (!resolvedParams.id) return;
+
+            try {
+                const response = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setEarningsData(data);
+                } else {
+                    console.error('Failed to fetch earnings data');
+                }
+            } catch (error) {
+                console.error('Error fetching earnings data:', error);
+            }
+        };
+
+        fetchEarnings();
     }, [resolvedParams.id]);
 
     const [formData, setFormData] = useState({
@@ -820,7 +852,9 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                     <div className="flex justify-between items-center">
                                         <div>
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Total Earnings</p>
-                                            <p className="text-lg font-semibold text-secondary-green font-funnel-sans">${agent.totalEarnings.toFixed(2)}</p>
+                                            <p className="text-lg font-semibold text-secondary-green font-funnel-sans">
+                                                ${earningsData?.totalEarnings.toFixed(2) || '0.00'}
+                                            </p>
                                         </div>
                                     </div>
                                 </CardContent>
@@ -832,21 +866,28 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                     <div className="flex justify-between items-center">
                                         <div>
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Total Withdraws</p>
-                                            <p className="text-lg font-semibold text-black/60 font-funnel-sans">$0.00</p>
+                                            <p className="text-lg font-semibold text-black/60 font-funnel-sans">
+                                                ${earningsData?.totalWithdrawals.toFixed(2) || '0.00'}
+                                            </p>
                                         </div>
                                     </div>
                                 </CardContent>
                             </Card>
 
-                            {/* Account Balance */}
+                            {/* Available Balance */}
                             <Card className="rounded-[20px] shadow-none border border-black/10">
                                 <CardContent className="p-4">
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            <p className="text-sm text-black/40 font-funnel-sans mb-1">Account Balance</p>
-                                            <p className="text-lg font-semibold text-black/60 font-funnel-sans">${agent.totalEarnings.toFixed(2)}</p>
+                                            <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
+                                            <p className="text-lg font-semibold text-black/60 font-funnel-sans">
+                                                ${earningsData?.availableBalance.toFixed(2) || '0.00'}
+                                            </p>
                                         </div>
-                                        <Button className="bg-secondary-green hover:bg-green-700 text-white px-4 py-2 rounded-full font-normal font-funnel-sans">
+                                        <Button
+                                            onClick={() => setShowWithdrawModal(true)}
+                                            className="bg-secondary-green hover:bg-green-700 text-white px-4 py-2 rounded-full font-normal font-funnel-sans"
+                                        >
                                             Withdraw
                                         </Button>
                                     </div>
@@ -888,6 +929,29 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Withdraw Modal */}
+            <WithdrawModal
+                isOpen={showWithdrawModal}
+                onClose={() => setShowWithdrawModal(false)}
+                agentId={resolvedParams.id}
+                availableBalance={earningsData?.availableBalance || 0}
+                onWithdrawSuccess={() => {
+                    // Refresh earnings data after successful withdrawal
+                    const refreshEarnings = async () => {
+                        try {
+                            const response = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
+                            if (response.ok) {
+                                const data = await response.json();
+                                setEarningsData(data);
+                            }
+                        } catch (error) {
+                            console.error('Error refreshing earnings data:', error);
+                        }
+                    };
+                    refreshEarnings();
+                }}
+            />
         </div>
     );
 }
