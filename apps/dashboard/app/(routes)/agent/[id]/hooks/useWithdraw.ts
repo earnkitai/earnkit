@@ -53,7 +53,11 @@ export function useWithdraw(agentId: string) {
 
     try {
       // Get the user's wallet from Privy
-      const wallet = wallets[0];
+      // const wallet = wallets[0];
+      const wallet = wallets.find(
+        (wallet) => wallet.connectorType === 'injected',
+      );
+      console.log(wallets, 'wallets');
       if (!wallet) {
         throw new Error('No wallet connected');
       }

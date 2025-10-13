@@ -18,7 +18,7 @@ const CONTRACT_ABI = earnkitABI as unknown as Abi;
 const EIP712_DOMAIN = {
   name: 'EarnKitAgentVault',
   version: '1',
-  chainId: 84532, // Base Sepolia
+  chainId: 8453, // Base
   verifyingContract: CONTRACT_ADDRESS as `0x${string}`,
 };
 

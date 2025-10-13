@@ -38,7 +38,7 @@ export class BalanceService {
         data: {
           userWalletAddress: walletAddress,
           agentId: agent.id, // Use the internal ID, not the agent_id
-          creditBalance: BigInt(0), // Default 0 credits
+          creditBalance: BigInt(50), // Default 0 credits
           ethBalance: 0,
         },
       });

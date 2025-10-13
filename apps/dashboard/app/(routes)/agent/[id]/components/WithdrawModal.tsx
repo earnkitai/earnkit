@@ -108,6 +108,8 @@ export default function WithdrawModal({
         setStep('executing');
 
         try {
+
+            console.log(withdrawData, 'withdrawData');
             const result = await executeWithdrawal(withdrawData);
 
             toast.success("Withdrawal executed successfully!");
