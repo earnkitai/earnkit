@@ -21,6 +21,14 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
+import { createPublicClient, http, keccak256, encodePacked } from 'viem';
+import { base } from 'viem/chains';
+import earnkitABI from '@/contract/earnkit_ABI.json';
+import { type Abi } from 'viem';
+
+// Contract configuration
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
+const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 // Agent type definition matching the database schema
 interface Agent {
@@ -67,6 +75,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
     const router = useRouter();
     const [agent, setAgent] = useState<Agent | null>(null);
     const [earningsData, setEarningsData] = useState<EarningsData | null>(null);
+    const [freshBalanceData, setFreshBalanceData] = useState<{
+        ethBalance: number;
+        usdBalance: number;
+        ethPrice: number;
+    } | null>(null);
     const [loading, setLoading] = useState(true);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -127,6 +140,66 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
 
         fetchEarnings();
     }, [resolvedParams.id]);
+
+    // Fetch fresh contract balance and ETH price
+    useEffect(() => {
+        const fetchFreshBalance = async () => {
+            if (!agent?.agentId) return;
+
+            try {
+                // Create public client for contract calls
+                const publicClient = createPublicClient({
+                    chain: base,
+                    transport: http(),
+                });
+
+                // Convert agentId to bytes32
+                const agentIdBytes32 = keccak256(encodePacked(['string'], [agent.agentId]));
+
+                // Fetch contract balance
+                const balance = await publicClient.readContract({
+                    address: CONTRACT_ADDRESS as `0x${string}`,
+                    abi: CONTRACT_ABI,
+                    functionName: 'agentBalance',
+                    args: [agentIdBytes32],
+                });
+
+                const ethBalance = Number(balance) / 1e18;
+
+                // Fetch fresh ETH price
+                const { priceService } = await import('@/lib/priceService');
+                const ethPrice = await priceService.getEthPrice();
+
+                // Calculate USD balance
+                const usdBalance = ethBalance * ethPrice;
+
+                setFreshBalanceData({
+                    ethBalance,
+                    usdBalance,
+                    ethPrice,
+                });
+
+                console.log('Fresh balance data:', {
+                    ethBalance,
+                    usdBalance,
+                    ethPrice,
+                    agentId: agent.agentId,
+                });
+            } catch (error) {
+                console.error('Error fetching fresh balance:', error);
+                // Fallback to earnings data if contract call fails
+                if (earningsData) {
+                    setFreshBalanceData({
+                        ethBalance: 0,
+                        usdBalance: earningsData.availableBalance,
+                        ethPrice: 3000, // Fallback price
+                    });
+                }
+            }
+        };
+
+        fetchFreshBalance();
+    }, [agent?.agentId, earningsData]);
 
     const [formData, setFormData] = useState({
         name: "",
@@ -881,7 +954,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                         <div>
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
                                             <p className="text-lg font-semibold text-black/60 font-funnel-sans">
-                                                ${earningsData?.availableBalance.toFixed(2) || '0.00'}
+                                                ${freshBalanceData?.usdBalance.toFixed(2) || earningsData?.availableBalance.toFixed(2) || '0.00'}
                                             </p>
                                         </div>
                                         <Button
@@ -934,22 +1007,50 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
             <WithdrawModal
                 isOpen={showWithdrawModal}
                 onClose={() => setShowWithdrawModal(false)}
-                agentId={resolvedParams.id}
-                availableBalance={earningsData?.availableBalance || 0}
+                agentId={agent?.agentId || ''}
+                availableBalance={freshBalanceData?.usdBalance || earningsData?.availableBalance || 0}
                 onWithdrawSuccess={() => {
-                    // Refresh earnings data after successful withdrawal
-                    const refreshEarnings = async () => {
+                    // Refresh both earnings data and fresh balance after successful withdrawal
+                    const refreshData = async () => {
                         try {
-                            const response = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
-                            if (response.ok) {
-                                const data = await response.json();
+                            // Refresh earnings data
+                            const earningsResponse = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
+                            if (earningsResponse.ok) {
+                                const data = await earningsResponse.json();
                                 setEarningsData(data);
                             }
+
+                            // Refresh fresh balance data
+                            if (agent?.agentId) {
+                                const publicClient = createPublicClient({
+                                    chain: base,
+                                    transport: http(),
+                                });
+
+                                const agentIdBytes32 = keccak256(encodePacked(['string'], [agent.agentId]));
+                                const balance = await publicClient.readContract({
+                                    address: CONTRACT_ADDRESS as `0x${string}`,
+                                    abi: CONTRACT_ABI,
+                                    functionName: 'agentBalance',
+                                    args: [agentIdBytes32],
+                                });
+
+                                const ethBalance = Number(balance) / 1e18;
+                                const { priceService } = await import('@/lib/priceService');
+                                const ethPrice = await priceService.getEthPrice();
+                                const usdBalance = ethBalance * ethPrice;
+
+                                setFreshBalanceData({
+                                    ethBalance,
+                                    usdBalance,
+                                    ethPrice,
+                                });
+                            }
                         } catch (error) {
-                            console.error('Error refreshing earnings data:', error);
+                            console.error('Error refreshing data after withdrawal:', error);
                         }
                     };
-                    refreshEarnings();
+                    refreshData();
                 }}
             />
         </div>

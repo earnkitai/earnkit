@@ -40,8 +40,9 @@ export async function POST(
 
     // Get agent details
     const agent = await prisma.agent.findUnique({
-      where: { id: agentId },
+      where: { agentId: agentId },
       select: {
+        agentId: true,
         id: true,
         userId: true,
       },

@@ -31,22 +31,19 @@ export default function WithdrawModal({
 }: WithdrawModalProps) {
     const [amount, setAmount] = useState("");
     const [recipientAddress, setRecipientAddress] = useState("");
-    const [loading, setLoading] = useState(false);
     const [withdrawData, setWithdrawData] = useState<{
-        signature: { v: number; r: string; s: string };
-        withdrawal: {
-            agentId: string;
-            amount: string;
-            to: string;
-            deadline: string;
-            totalAmount: { eth: number; usd: number };
-            fee: { eth: number; usd: number };
-            net: { eth: number; usd: number };
-            recipient: string;
-        };
+        agentId: string;
+        amount: string;
+        to: string;
+    } | null>(null);
+    const [feeCalculation, setFeeCalculation] = useState<{
+        amount: number;
+        fee: number;
+        net: number;
+        platformFeeBps: number;
     } | null>(null);
     const [step, setStep] = useState<'form' | 'confirm' | 'executing'>('form');
-    const { executeWithdrawal, loading: executeLoading, isReady } = useWithdraw(agentId);
+    const { executeWithdrawal, calculateFees, loading: executeLoading, isReady } = useWithdraw(agentId);
 
     const handleWithdraw = async () => {
         if (!amount || !recipientAddress) {
@@ -61,6 +58,7 @@ export default function WithdrawModal({
         }
 
         if (withdrawAmount > availableBalance) {
+            console.log(withdrawAmount, availableBalance, 'withdrawAmount, availableBalance');
             toast.error("Amount exceeds available balance");
             return;
         }
@@ -70,36 +68,26 @@ export default function WithdrawModal({
             return;
         }
 
-        setLoading(true);
-
         try {
-            // Step 1: Get signature from backend
-            const response = await fetch(`/api/agents/${agentId}/withdraw`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    amount: amount,
-                    toAddress: recipientAddress,
-                }),
+            // Calculate fees
+            const fees = await calculateFees(withdrawAmount);
+            setFeeCalculation(fees);
+
+            // Set withdraw data and move to confirmation step
+            setWithdrawData({
+                agentId: agentId,
+                amount: amount,
+                to: recipientAddress,
             });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                setWithdrawData(data);
-                setStep('confirm');
-                toast.success("Signature generated! Review withdrawal details.");
-            } else {
-                toast.error(data.error || "Failed to generate signature");
-            }
+            setStep('confirm');
         } catch (error) {
-            console.error("Error generating signature:", error);
-            toast.error("An error occurred while generating signature");
-        } finally {
-            setLoading(false);
+            console.error("Error calculating fees:", error);
+            toast.error("Failed to calculate fees. Please try again.");
         }
+    };
+
+    const handleMaxAmount = () => {
+        setAmount(availableBalance.toFixed(5).toString());
     };
 
     const handleExecuteWithdrawal = async () => {
@@ -108,7 +96,6 @@ export default function WithdrawModal({
         setStep('executing');
 
         try {
-
             console.log(withdrawData, 'withdrawData');
             const result = await executeWithdrawal(withdrawData);
 
@@ -133,6 +120,7 @@ export default function WithdrawModal({
         setAmount("");
         setRecipientAddress("");
         setWithdrawData(null);
+        setFeeCalculation(null);
         setStep('form');
         onClose();
     };
@@ -160,7 +148,7 @@ export default function WithdrawModal({
                             <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
                                 <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
                                 <p className="text-lg font-semibold text-secondary-green font-funnel-sans">
-                                    ${availableBalance.toFixed(2)}
+                                    ${availableBalance.toFixed(5)}
                                 </p>
                             </div>
 
@@ -169,14 +157,24 @@ export default function WithdrawModal({
                                 <label className="block text-sm font-semibold text-black font-funnel-sans">
                                     Amount (USD)
                                 </label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="0.00"
-                                    value={amount}
-                                    onChange={(e) => setAmount(e.target.value)}
-                                    className="w-full rounded-[12px] border border-black/20 focus:border-secondary-green focus:ring-0"
-                                />
+                                <div className="flex gap-2">
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        value={amount}
+                                        onChange={(e) => setAmount(e.target.value)}
+                                        className="flex-1 rounded-[12px] border border-black/20 focus:border-secondary-green focus:ring-0"
+                                    />
+                                    <Button
+                                        type="button"
+                                        onClick={handleMaxAmount}
+                                        variant="outline"
+                                        className="px-4 py-2 rounded-[12px] border border-secondary-green text-secondary-green hover:bg-secondary-green hover:text-white font-funnel-sans"
+                                    >
+                                        Max
+                                    </Button>
+                                </div>
                                 <p className="text-xs text-black/40 font-funnel-sans">
                                     Maximum: ${availableBalance.toFixed(2)}
                                 </p>
@@ -201,7 +199,7 @@ export default function WithdrawModal({
                         </>
                     )}
 
-                    {step === 'confirm' && withdrawData && (
+                    {step === 'confirm' && withdrawData && feeCalculation && (
                         <>
                             {/* Withdrawal Summary */}
                             <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
@@ -211,20 +209,20 @@ export default function WithdrawModal({
                                     <div className="flex justify-between">
                                         <span className="text-sm text-black/60 font-funnel-sans">Amount:</span>
                                         <span className="text-sm font-semibold text-black font-funnel-sans">
-                                            ${withdrawData.withdrawal.totalAmount.usd.toFixed(2)}
+                                            ${feeCalculation.amount.toFixed(2)}
                                         </span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-sm text-black/60 font-funnel-sans">Platform Fee:</span>
+                                        <span className="text-sm text-black/60 font-funnel-sans">Platform Fee ({(feeCalculation.platformFeeBps / 100).toFixed(1)}%):</span>
                                         <span className="text-sm font-semibold text-red-500 font-funnel-sans">
-                                            -${withdrawData.withdrawal.fee.usd.toFixed(2)}
+                                            -${feeCalculation.fee.toFixed(2)}
                                         </span>
                                     </div>
                                     <div className="border-t border-black/10 pt-2">
                                         <div className="flex justify-between">
                                             <span className="text-sm font-semibold text-black font-funnel-sans">You&apos;ll Receive:</span>
                                             <span className="text-sm font-semibold text-secondary-green font-funnel-sans">
-                                                ${withdrawData.withdrawal.net.usd.toFixed(2)}
+                                                ${feeCalculation.net.toFixed(2)}
                                             </span>
                                         </div>
                                     </div>
@@ -235,7 +233,7 @@ export default function WithdrawModal({
                             <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
                                 <p className="text-sm text-black/60 font-funnel-sans mb-1">Recipient Address</p>
                                 <p className="text-sm font-mono text-black font-funnel-sans">
-                                    {withdrawData.withdrawal.recipient}
+                                    {withdrawData.to}
                                 </p>
                             </div>
                         </>
@@ -265,10 +263,10 @@ export default function WithdrawModal({
                             <Button
                                 type="button"
                                 onClick={handleWithdraw}
-                                disabled={loading || !amount || !recipientAddress || !isReady}
+                                disabled={!amount || !recipientAddress || !isReady}
                                 className="flex-1 bg-secondary-green hover:bg-green-700 text-white rounded-full font-funnel-sans"
                             >
-                                {loading ? "Processing..." : "Confirm"}
+                                Confirm
                             </Button>
                         </>
                     )}

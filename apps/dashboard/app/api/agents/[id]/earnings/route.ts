@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPublicClient } from '@/lib/web3';
 import { keccak256, encodePacked, type Abi } from 'viem';
-import earnkitABI from '@/contract/earnkit_new_ABI.json';
+import earnkitABI from '@/contract/earnkit_ABI.json';
 
 // Use latest contract ABI copied into the dashboard app
 const CONTRACT_ABI = earnkitABI as unknown as Abi;
@@ -121,7 +121,7 @@ export async function GET(
         balance = (await publicClient.readContract({
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: CONTRACT_ABI,
-          functionName: 'getAgentBalance',
+          functionName: 'agentBalance',
           args: [agentIdHash],
         })) as unknown as bigint;
       } catch {

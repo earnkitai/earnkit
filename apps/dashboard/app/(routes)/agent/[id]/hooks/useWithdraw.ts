@@ -2,47 +2,93 @@
 
 import { useState } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { createWalletClient, custom } from 'viem';
+import {
+  createWalletClient,
+  custom,
+  parseEther,
+  createPublicClient,
+  http,
+} from 'viem';
 import { base } from 'viem/chains';
-import earnkitABI from '@/contract/earnkit_new_ABI.json';
+import earnkitABI from '@/contract/earnkit_ABI.json';
 import { type Abi, type Hex } from 'viem';
 
 const CONTRACT_ADDRESS =
   process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS ||
-  '0x1890E082F6eC52c149494C93d417D549FF36fBd8';
+  '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
 const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface WithdrawData {
-  signature: {
-    v: number;
-    r: string;
-    s: string;
-  };
-  withdrawal: {
-    agentId: string;
-    amount: string;
-    to: string;
-    deadline: string;
-    totalAmount: {
-      eth: number;
-      usd: number;
-    };
-    fee: {
-      eth: number;
-      usd: number;
-    };
-    net: {
-      eth: number;
-      usd: number;
-    };
-    recipient: string;
-  };
+  agentId: string;
+  amount: string;
+  to: string;
+}
+
+interface FeeCalculation {
+  amount: number;
+  fee: number;
+  net: number;
+  platformFeeBps: number;
 }
 
 export function useWithdraw(agentId: string) {
   const [loading, setLoading] = useState(false);
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
+
+  // Function to get platform fee from contract
+  const getPlatformFee = async (): Promise<number> => {
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      });
+
+      const platformFeeBps = await publicClient.readContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: CONTRACT_ABI,
+        functionName: 'platformFeeBps',
+      });
+
+      return Number(platformFeeBps);
+    } catch (error) {
+      console.error('Error getting platform fee:', error);
+      // Default to 5% (500 basis points) if contract call fails
+      return 500;
+    }
+  };
+
+  // Function to get current ETH price in USD
+  const getEthPrice = async (): Promise<number> => {
+    try {
+      const { priceService } = await import('@/lib/priceService');
+      return await priceService.getEthPrice();
+    } catch (error) {
+      console.error('Error getting ETH price:', error);
+      return 3000; // Default fallback price
+    }
+  };
+
+  // Function to convert USD to ETH
+  const convertUsdToEth = async (usdAmount: number): Promise<string> => {
+    const ethPrice = await getEthPrice();
+    const ethAmount = usdAmount / ethPrice;
+    return ethAmount.toString();
+  };
+
+  // Function to calculate fees
+  const calculateFees = async (amount: number): Promise<FeeCalculation> => {
+    const platformFeeBps = await getPlatformFee();
+    const fee = (amount * platformFeeBps) / 10000;
+    const net = amount - fee;
+
+    return {
+      amount,
+      fee,
+      net,
+      platformFeeBps,
+    };
+  };
 
   const executeWithdrawal = async (withdrawData: WithdrawData) => {
     if (!ready || !authenticated || !user) {
@@ -72,23 +118,29 @@ export function useWithdraw(agentId: string) {
         transport: custom(provider),
       });
 
+      // Convert agentId to bytes32
+      const { keccak256, encodePacked } = await import('viem');
+      const agentIdBytes32 = keccak256(
+        encodePacked(['string'], [withdrawData.agentId]),
+      );
+
+      // Convert USD amount to ETH and then to wei for contract
+      const usdAmount = parseFloat(withdrawData.amount);
+      const ethAmount = await convertUsdToEth(usdAmount);
+      const amountInWei = parseEther(ethAmount);
+
       // Execute the withdrawal transaction
       const txHash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: CONTRACT_ABI,
-        functionName: 'withdrawWithAuthorization',
-        args: [
-          withdrawData.withdrawal.agentId as `0x${string}`,
-          BigInt(withdrawData.withdrawal.amount),
-          withdrawData.withdrawal.to as `0x${string}`,
-          BigInt(withdrawData.withdrawal.deadline),
-          withdrawData.signature.v,
-          withdrawData.signature.r as `0x${string}`,
-          withdrawData.signature.s as `0x${string}`,
-        ],
+        functionName: 'withdraw',
+        args: [agentIdBytes32, amountInWei, withdrawData.to as `0x${string}`],
       });
 
-      // Record the transaction in the database
+      // Calculate fees for database recording (in USD)
+      const feeCalculation = await calculateFees(usdAmount);
+
+      // Record the transaction in the database (using USD values)
       try {
         await fetch(`/api/agents/${agentId}/withdraw/confirm`, {
           method: 'POST',
@@ -97,12 +149,12 @@ export function useWithdraw(agentId: string) {
           },
           body: JSON.stringify({
             transactionHash: txHash,
-            agentId: withdrawData.withdrawal.agentId,
+            agentId: withdrawData.agentId,
             fromAddress: wallet.address,
-            toAddress: withdrawData.withdrawal.to,
-            amount: withdrawData.withdrawal.totalAmount.usd,
-            fee: withdrawData.withdrawal.fee.usd,
-            netAmount: withdrawData.withdrawal.net.usd,
+            fee: feeCalculation.fee,
+            netAmount: feeCalculation.net,
+            toAddress: withdrawData.to,
+            amount: usdAmount,
           }),
         });
       } catch (error) {
@@ -113,7 +165,7 @@ export function useWithdraw(agentId: string) {
       return {
         success: true,
         transactionHash: txHash,
-        withdrawal: withdrawData.withdrawal,
+        withdrawal: withdrawData,
       };
     } catch (error) {
       console.error('Error executing withdrawal:', error);
@@ -125,6 +177,7 @@ export function useWithdraw(agentId: string) {
 
   return {
     executeWithdrawal,
+    calculateFees,
     loading,
     isReady: ready && authenticated,
   };

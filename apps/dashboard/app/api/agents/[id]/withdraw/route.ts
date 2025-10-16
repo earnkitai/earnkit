@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getPublicClient } from '@/lib/web3';
 import { keccak256, encodePacked, parseEther, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import earnkitABI from '@/contract/earnkit_new_ABI.json';
+import earnkitABI from '@/contract/earnkit_ABI.json';
 import { type Abi } from 'viem';
 
 // Contract address from environment variable

@@ -532,29 +532,6 @@ export async function hasApiKey(userId: string): Promise<boolean> {
  * @param userId - The user ID
  * @returns true if user has wallet addresses, false otherwise
  */
-export async function hasConnectedWallets(userId: string): Promise<boolean> {
-  const walletCount = await prisma.walletAccount.count({
-    where: { userId },
-  });
-
-  return walletCount > 0;
-}
-
-/**
- * Gets user's wallet addresses
- * @param userId - The user ID
- * @returns Array of wallet addresses
- */
-export async function getUserWalletAddresses(
-  userId: string,
-): Promise<string[]> {
-  const wallets = await prisma.walletAccount.findMany({
-    where: { userId },
-    select: { address: true },
-  });
-
-  return wallets.map((wallet) => wallet.address);
-}
 
 export async function getWalletAccounts(userId: string) {
   const wallets = await prisma.walletAccount.findMany({

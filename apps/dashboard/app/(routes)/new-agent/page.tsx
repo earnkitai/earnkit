@@ -8,10 +8,21 @@ import { ToggleSlider } from "@/app/components/ui/toggle-slider";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Icons } from "@/app/components/sections/icons";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { hasApiKey, hasConnectedWallets } from "@/actions/user";
+import { hasApiKey } from "@/actions/user";
+import { v4 as uuidv4 } from 'uuid';
+import { createWalletClient, custom, encodePacked, Hex, keccak256 } from 'viem';
+import { base } from 'viem/chains';
+import earnkitABI from '@/contract/earnkit_ABI.json';
+import { type Abi } from 'viem';
+
+// Contract address from environment variable
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
+
+// Contract ABI
+const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface AgentFormData {
     agentName: string;
@@ -30,6 +41,7 @@ export default function NewAgentPage() {
     const { ready, authenticated, user: privyUser } = usePrivy();
     const router = useRouter();
     const [userId, setUserId] = useState<string | null>(null);
+    const { wallets } = useWallets();
 
     const [formData, setFormData] = useState<AgentFormData>({
         agentName: "",
@@ -86,14 +98,18 @@ export default function NewAgentPage() {
 
         // Check prerequisites before submission
         try {
-            const [apiKeyExists, walletExists] = await Promise.all([
+            const [apiKeyExists] = await Promise.all([
                 hasApiKey(userId),
-                hasConnectedWallets(userId)
+
             ]);
+
+            const walletExists = wallets.find((wallet) => wallet.connectorType === "injected");
+            console.log(walletExists, 'walletExists')
+
 
             if (!apiKeyExists || !walletExists) {
                 toast.error("Prerequisites Required", {
-                    description: "You must complete the required setup before creating an agent. Go to Settings to complete the setup.",
+                    description: "You must complete the required setup before creating an agent. Connect your wallet to continue.",
                     action: {
                         label: "Go to Settings",
                         onClick: () => router.push("/settings")
@@ -146,44 +162,117 @@ export default function NewAgentPage() {
 
         const loadingToast = toast.loading("Creating agent...");
 
+        // Generate agent ID
+        const agentId = uuidv4();
+
         try {
-            const response = await fetch('/api/agents', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...formData,
-                    userId: userId
-                }),
-            });
+            // First, call the contract function to register the agent
+            toast.dismiss(loadingToast);
+            const contractToast = toast.loading("Registering agent on contract...");
 
-            if (response.ok) {
-                const result = await response.json();
-                console.log("Agent created successfully:", result);
+            await registerAgentOnContract(agentId);
+            toast.dismiss(contractToast);
 
-                toast.dismiss(loadingToast);
-                toast.success("Agent created successfully!");
+            // After successful contract registration, proceed with API call
+            const apiToast = toast.loading("Saving agent data...");
 
-                // Redirect to the home page after successful creation
-                router.push('/home');
-            } else {
-                const error = await response.json();
-                console.error("Error creating agent:", error);
-                toast.dismiss(loadingToast);
+            try {
+                const response = await fetch('/api/agents', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ...formData,
+                        userId: userId,
+                        agentId: agentId
+                    }),
+                });
 
-                toast.error(`Failed to create agent: ${error.error || 'Unknown error'}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log("Agent created successfully:", result);
+
+                    toast.dismiss(apiToast);
+                    toast.success("Agent created successfully!");
+
+                    // Redirect to the home page after successful creation
+                    router.push('/home');
+                } else {
+                    const error = await response.json();
+                    console.error("Error creating agent:", error);
+                    toast.dismiss(apiToast);
+
+                    toast.error(`Failed to create agent: ${error.error || 'Unknown error'}`);
+                }
+            } catch (apiError) {
+                console.error("Error submitting form:", apiError);
+                toast.dismiss(apiToast);
+                toast.error("An error occurred while saving agent data. Please try again.");
             }
         } catch (error) {
-            console.error("Error submitting form:", error);
+            console.error("Error registering agent on contract:", error);
             toast.dismiss(loadingToast);
-            toast.error("An error occurred. Please try again.");
+            toast.error("Failed to register agent on contract. Please try again.");
         }
     };
 
     const handleCancel = () => {
         // Navigate back to home page
         router.push('/home');
+    };
+
+    // Function to call the contract registerAgent function
+    const registerAgentOnContract = async (agentId: string) => {
+        try {
+            // Get the injected wallet
+            const injectedWallet = wallets.find(wallet => wallet.connectorType === "injected");
+            if (!injectedWallet) {
+                throw new Error("No injected wallet found");
+            }
+
+            // Switch to Base chain
+            await injectedWallet.switchChain(base.id);
+
+            // Get the provider and create wallet client
+            const provider = await injectedWallet.getEthereumProvider();
+            const walletClient = createWalletClient({
+                account: injectedWallet.address as Hex,
+                chain: base,
+                transport: custom(provider),
+            });
+
+            // Convert agentId to bytes32
+            const agentIdBytes32 = keccak256(encodePacked(['string'], [agentId]));
+
+            // Call the contract function
+            const hash = await walletClient.writeContract({
+                address: CONTRACT_ADDRESS as `0x${string}`,
+                abi: CONTRACT_ABI,
+                functionName: 'registerAgent',
+                args: [agentIdBytes32],
+            });
+
+            // Wait for transaction confirmation using the public client
+            const { createPublicClient, http } = await import('viem');
+            const publicClient = createPublicClient({
+                chain: base,
+                transport: http(),
+            });
+
+            const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+            if (receipt.status === 'success') {
+                toast.success("Agent registered on contract successfully!");
+                return true;
+            } else {
+                throw new Error("Transaction failed");
+            }
+        } catch (error) {
+            console.error("Error registering agent on contract:", error);
+            toast.error("Failed to register agent on contract");
+            throw error;
+        }
     };
 
     // Show loading state while checking authentication

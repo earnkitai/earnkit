@@ -1,5 +1,30 @@
 [
   {
+    "inputs": [],
+    "name": "acceptOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "agentId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "developer",
+        "type": "address"
+      }
+    ],
+    "name": "adminRegisterAgent",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -7,9 +32,9 @@
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "_feeBasisPoints",
-        "type": "uint256"
+        "internalType": "uint16",
+        "name": "_platformFeeBps",
+        "type": "uint16"
       }
     ],
     "stateMutability": "nonpayable",
@@ -27,17 +52,35 @@
   },
   {
     "inputs": [],
+    "name": "DeadlineExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "agentId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "deposit",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "FeeTooHigh",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InsufficientBalance",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "InvalidAmount",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NotAgentDeveloper",
+    "name": "NotDeveloper",
     "type": "error"
   },
   {
@@ -52,7 +95,7 @@
   },
   {
     "inputs": [],
-    "name": "TransferFailed",
+    "name": "Reentrancy",
     "type": "error"
   },
   {
@@ -61,29 +104,9 @@
     "type": "error"
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "agentId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "oldDev",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newDev",
-        "type": "address"
-      }
-    ],
-    "name": "AgentDeveloperUpdated",
-    "type": "event"
+    "inputs": [],
+    "name": "ZeroAmount",
+    "type": "error"
   },
   {
     "anonymous": false,
@@ -105,32 +128,19 @@
     "type": "event"
   },
   {
+    "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
         "internalType": "bytes32",
         "name": "agentId",
         "type": "bytes32"
-      }
-    ],
-    "name": "deposit",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
+      },
       {
         "indexed": true,
         "internalType": "address",
         "name": "from",
         "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "agentId",
-        "type": "bytes32"
       },
       {
         "indexed": false,
@@ -146,19 +156,38 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "oldFeeBps",
-        "type": "uint256"
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "newFeeBps",
+        "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "FeeUpdated",
+    "name": "FeesSwept",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "oldOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferStarted",
     "type": "event"
   },
   {
@@ -190,22 +219,29 @@
         "type": "bool"
       }
     ],
-    "name": "PausedStateChanged",
+    "name": "PausedSet",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "oldWallet",
-        "type": "address"
-      },
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "bps",
+        "type": "uint16"
+      }
+    ],
+    "name": "PlatformFeeUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "address",
-        "name": "newWallet",
+        "name": "wallet",
         "type": "address"
       }
     ],
@@ -228,57 +264,8 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "rescue",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "agentId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "address",
-        "name": "newDeveloper",
-        "type": "address"
-      }
-    ],
-    "name": "setAgentDeveloper",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "newFeeBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "setFee",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "bool",
-        "name": "_paused",
+        "name": "p",
         "type": "bool"
       }
     ],
@@ -290,12 +277,45 @@
   {
     "inputs": [
       {
+        "internalType": "uint16",
+        "name": "bps",
+        "type": "uint16"
+      }
+    ],
+    "name": "setPlatformFeeBps",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
-        "name": "newWallet",
+        "name": "wallet",
         "type": "address"
       }
     ],
     "name": "setPlatformWallet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address payable",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "sweepFees",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "sweepFeesToPlatformWallet",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -314,8 +334,37 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "agentId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address payable",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "withdraw",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "anonymous": false,
     "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "agentId",
+        "type": "bytes32"
+      },
       {
         "indexed": true,
         "internalType": "address",
@@ -324,14 +373,14 @@
       },
       {
         "indexed": true,
-        "internalType": "bytes32",
-        "name": "agentId",
-        "type": "bytes32"
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "gross",
+        "name": "amount",
         "type": "uint256"
       },
       {
@@ -345,20 +394,10 @@
         "internalType": "uint256",
         "name": "net",
         "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
       }
     ],
     "name": "Withdraw",
     "type": "event"
-  },
-  {
-    "stateMutability": "payable",
-    "type": "fallback"
   },
   {
     "inputs": [
@@ -373,12 +412,32 @@
         "type": "uint256"
       },
       {
-        "internalType": "address",
+        "internalType": "address payable",
         "name": "to",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "v",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "r",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
       }
     ],
-    "name": "withdraw",
+    "name": "withdrawWithSig",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -391,7 +450,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "",
+        "name": "agentId",
         "type": "bytes32"
       }
     ],
@@ -410,72 +469,16 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "name": "agentDeveloper",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "slugOrUuid",
-        "type": "string"
-      }
-    ],
-    "name": "computeAgentId",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "pure",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "feeBasisPoints",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
         "name": "agentId",
         "type": "bytes32"
       }
     ],
-    "name": "getAgentInfo",
+    "name": "developerOf",
     "outputs": [
       {
         "internalType": "address",
-        "name": "developer",
+        "name": "",
         "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "balance",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -483,7 +486,39 @@
   },
   {
     "inputs": [],
-    "name": "MAX_FEE_BPS",
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feesAccrued",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "nonces",
     "outputs": [
       {
         "internalType": "uint256",
@@ -522,7 +557,7 @@
   },
   {
     "inputs": [],
-    "name": "platformWallet",
+    "name": "pendingOwner",
     "outputs": [
       {
         "internalType": "address",
@@ -534,62 +569,26 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "quoteWithdrawal",
+    "inputs": [],
+    "name": "platformFeeBps",
     "outputs": [
       {
-        "internalType": "uint256",
-        "name": "fee",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "net",
-        "type": "uint256"
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "name": "totalDeposited",
+    "inputs": [],
+    "name": "platformWallet",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "name": "totalWithdrawn",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
     "stateMutability": "view",

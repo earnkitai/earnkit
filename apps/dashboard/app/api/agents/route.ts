@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { v4 as uuidv4 } from 'uuid';
-import { hasApiKey, hasConnectedWallets } from '@/actions/user';
+import { hasApiKey } from '@/actions/user';
 
 interface TopUpPackage {
   id: string;
@@ -14,6 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       agentName,
+      agentId,
       feeModel,
       freePromptThreshold,
       ratePerPrompt,
@@ -31,12 +31,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has API key and connected wallets
-    const [userHasApiKey, userHasWallets] = await Promise.all([
-      hasApiKey(userId),
-      hasConnectedWallets(userId),
-    ]);
+    const [userHasApiKey] = await Promise.all([hasApiKey(userId)]);
 
-    if (!userHasApiKey || !userHasWallets) {
+    if (!userHasApiKey) {
       return NextResponse.json(
         {
           error: 'Prerequisites required',
@@ -44,15 +41,11 @@ export async function POST(request: NextRequest) {
             'You must complete the required setup before creating an agent.',
           missingPrerequisites: {
             apiKey: !userHasApiKey,
-            wallet: !userHasWallets,
           },
         },
         { status: 400 },
       );
     }
-
-    // Generate unique agent ID using UUID v4
-    const agentId = uuidv4();
 
     // Check if agent ID already exists (very unlikely with UUID v4, but good practice)
     const existingAgent = await prisma.agent.findUnique({

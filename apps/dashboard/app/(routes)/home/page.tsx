@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
 import { Icons } from "@/app/components/sections/icons";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useConnectWallet, useWallets } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
-import { hasApiKey, hasConnectedWallets } from "@/actions/user";
+import { hasApiKey, createApiKey, getApiKey } from "@/actions/user";
 import { PrerequisiteModal } from "@/app/components/PrerequisiteModal";
+import { toast } from "sonner";
+import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
+import { Eye, EyeOff, Copy, Key, Wallet } from "lucide-react";
 
 // Agent type definition matching the comprehensive earnings API
 interface Agent {
@@ -58,12 +62,7 @@ export default function HomePage() {
         apiKey: false,
         wallet: false
     });
-    const [comprehensiveTotals, setComprehensiveTotals] = useState({
-        totalEarnings: 0,
-        transactionLogEarnings: 0,
-        topUpEarnings: 0,
-    });
-
+    const { wallets } = useWallets();
     // Get the authenticated user ID
     useEffect(() => {
         if (ready && authenticated && privyUser) {
@@ -85,11 +84,12 @@ export default function HomePage() {
         }
 
         try {
-            const [apiKeyExists, walletExists] = await Promise.all([
-                hasApiKey(userId),
-                hasConnectedWallets(userId)
+            const [apiKeyExists] = await Promise.all([
+                hasApiKey(userId)
             ]);
 
+            const walletExists = wallets.find((wallet) => wallet.connectorType === "injected");
+            console.log(walletExists, 'walletExists')
             if (!apiKeyExists || !walletExists) {
                 setMissingPrerequisites({
                     apiKey: !apiKeyExists,
@@ -117,11 +117,6 @@ export default function HomePage() {
                 if (response.ok) {
                     const data = await response.json();
                     setAgents(data.agents || []);
-                    setComprehensiveTotals(data.totals || {
-                        totalEarnings: 0,
-                        transactionLogEarnings: 0,
-                        topUpEarnings: 0,
-                    });
                 } else {
                     console.error('Failed to fetch agents');
                 }
@@ -154,8 +149,6 @@ export default function HomePage() {
         }
     ]);
 
-    // Use comprehensive totals from API
-    const totalEarnings = comprehensiveTotals.totalEarnings;
 
     // Show loading state while checking authentication or fetching data
     if (!ready || !authenticated || loading) {
@@ -173,23 +166,19 @@ export default function HomePage() {
         <div className="min-h-screen">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
-                <div className="mb-[60px] flex justify-between items-center">
+                <div className="mb-6 flex justify-between items-start">
                     <div>
                         <h1 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">My Agents</h1>
                         <p className="text-black/40 text-sm font-funnel-sans">Track & Manage your agent monetizations</p>
                     </div>
-                    {/* Total Earnings */}
+                    {/* API Key Section */}
                     <div className="space-y-6 w-[30%]">
-                        <Card className="border-none rounded-[20px] shadow-none"
-                            style={{
-                                background: "linear-gradient(0deg, rgba(52, 199, 89, 0.1), rgba(52, 199, 89, 0.1))"
-                            }}
-                        >
+                        <Card className="border border-black/10 rounded-[20px] shadow-none">
                             <CardContent className="p-6">
-                                <div className="text-left">
-                                    <p className="text-black/40 text-[12px] font-funnel-sans mb-1">Total Earnings</p>
-                                    <p className="text-xl font-semibold font-funnel-sans text-secondary-green">${totalEarnings.toFixed(2)}</p>
+                                <div className="mb-4">
+                                    <h2 className="text-lg font-bold font-funnel-display text-color2 mb-2">API Key</h2>
                                 </div>
+                                <SimplifiedApiKeySection />
                             </CardContent>
                         </Card>
                     </div>
@@ -294,7 +283,17 @@ export default function HomePage() {
                     </div>
 
                     {/* Right Section - Sidebar */}
-                    <div className="w-[30%]">
+                    <div className="w-[30%] space-y-6">
+                        {/* Wallet Connection Section */}
+                        <Card className="border border-black/10 rounded-[20px] shadow-none">
+                            <CardContent className="p-6">
+                                <div className="mb-4">
+                                    <h2 className="text-lg font-bold font-funnel-display text-color2 mb-2">Wallet Connection</h2>
+                                </div>
+                                <SimplifiedWalletSection />
+                            </CardContent>
+                        </Card>
+
                         {/* Earnkit Updates */}
                         <Card className="rounded-[28px]">
                             <CardContent className="p-6">
@@ -449,6 +448,210 @@ function UpdateItem({ update }: { update: Update }) {
                 </div>
             </div>
 
+        </div>
+    );
+}
+
+// Simplified API Key Section Component (without delete/regenerate)
+function SimplifiedApiKeySection() {
+    const { ready, authenticated, user } = usePrivy();
+    const [apiKey, setApiKey] = useState<string | null>(null);
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
+
+    const fetchApiKey = useCallback(async () => {
+        if (!user?.id) return;
+
+        try {
+            const userId = user.id.split(':').pop() || user.id;
+            const key = await getApiKey(userId);
+            setApiKey(key);
+        } catch (error) {
+            console.error("Error fetching API key:", error);
+        }
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (ready && authenticated && user?.id) {
+            fetchApiKey();
+        }
+    }, [ready, authenticated, user, fetchApiKey]);
+
+    const handleCreateApiKey = async () => {
+        if (!user?.id) return;
+
+        setIsCreating(true);
+        try {
+            const userId = user.id.split(':').pop() || user.id;
+            const newApiKey = await createApiKey(userId);
+            setApiKey(newApiKey);
+            setShowApiKey(true);
+            toast.success("API key created successfully");
+        } catch (error) {
+            console.error("Error creating API key:", error);
+            toast.error("Failed to create API key");
+        } finally {
+            setIsCreating(false);
+        }
+    };
+
+    const handleCopyApiKey = async () => {
+        if (!apiKey) return;
+
+        try {
+            await navigator.clipboard.writeText(apiKey);
+            toast.success("API key copied to clipboard");
+        } catch (error) {
+            console.error("Error copying API key:", error);
+            toast.error("Failed to copy API key");
+        }
+    };
+
+    const maskedApiKey = apiKey ? `${apiKey.slice(0, 8)}${'•'.repeat(apiKey.length - 12)}${apiKey.slice(-4)}` : '';
+
+    return (
+        <div className="space-y-4 font-funnel-sans">
+            {apiKey ? (
+                <div className="space-y-3">
+                    <p className="text-sm text-black/60">
+                        Your API key allows you to authenticate with our services programmatically.
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <Input
+                            type={showApiKey ? "text" : "password"}
+                            value={showApiKey ? apiKey : maskedApiKey}
+                            readOnly
+                            className="flex-1 bg-white/5 border-black/20 text-black font-mono text-sm rounded-full px-4 py-3"
+                        />
+                        <Button
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            variant="outline"
+                            size="sm"
+                            className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
+                        >
+                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </Button>
+                        <Button
+                            onClick={handleCopyApiKey}
+                            variant="outline"
+                            size="sm"
+                            className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
+                        >
+                            <Copy className="w-4 h-4" />
+                        </Button>
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <p className="text-sm text-black/60">
+                        Create an API key to authenticate with our services programmatically.
+                    </p>
+                    <Button
+                        onClick={handleCreateApiKey}
+                        disabled={isCreating}
+                        className="bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold rounded-full px-6 py-3 transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
+                    >
+                        <Key className="w-4 h-4" />
+                        {isCreating ? "Creating..." : "Create API Key"}
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Simplified Wallet Section Component
+function SimplifiedWalletSection() {
+    const { connectWallet } = useConnectWallet({
+        onSuccess: ({ wallet }) => {
+            const walletAddress = wallet.address;
+            const connectedWallet = wallets.find((wallet) => wallet.address === walletAddress);
+            if (connectedWallet) {
+                connectedWallet.loginOrLink();
+                toast.success("Wallet connected successfully");
+            } else {
+                toast.error("Failed to connect wallet");
+            }
+            console.log(wallet);
+            toast.success("Wallet connected successfully");
+        },
+        onError: (error) => {
+            console.log(error);
+            toast.error("Failed to connect wallet");
+        },
+    });
+    const { wallets } = useWallets();
+    // const { unlinkWallet } = usePrivy();
+    // const [isDisconnecting, setIsDisconnecting] = useState(false);
+    console.log(wallets, 'wallets');
+
+    const handleConnectWallet = async () => {
+        await connectWallet();
+    };
+
+    // const handleDisconnectWallet = async () => {
+    //     const injectedWallet = wallets.find(wallet => wallet.connectorType === "injected");
+    //     if (injectedWallet) {
+    //         setIsDisconnecting(true);
+    //         try {
+    //             await unlinkWallet(injectedWallet.address);
+    //             // toast.success("Wallet disconnected successfully");
+    //         } catch (error) {
+    //             console.error("Error disconnecting wallet:", error);
+    //             toast.error("Failed to disconnect wallet");
+    //         } finally {
+    //             setIsDisconnecting(false);
+    //         }
+    //     }
+    // };
+
+    const formatAddress = (address: string) => {
+        return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    };
+
+    // Check if there's an injected wallet
+    const injectedWallet = wallets.find(wallet => wallet.connectorType === "injected");
+    const hasInjectedWallet = injectedWallet !== undefined;
+
+    return (
+        <div className="space-y-4 font-funnel-sans">
+            {hasInjectedWallet ? (
+                <div className="space-y-3">
+                    <p className="text-sm text-black/60">
+                        Your connected wallet allows you to interact with EarnKit services.
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <Input
+                            type="text"
+                            value={formatAddress(injectedWallet.address)}
+                            readOnly
+                            className="flex-1 bg-white/5 border-black/20 text-black font-mono text-sm rounded-full px-4 py-3"
+                        />
+                        {/* <Button
+                            onClick={handleDisconnectWallet}
+                            disabled={isDisconnecting}
+                            variant="outline"
+                            size="sm"
+                            className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
+                        >
+                            {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+                        </Button> */}
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <p className="text-sm text-black/60">
+                        Connect your wallet to start using EarnKit services.
+                    </p>
+                    <Button
+                        onClick={handleConnectWallet}
+                        className="bg-color2 hover:bg-color3 text-white font-funnel-display font-semibold rounded-full px-6 py-3 transition-all duration-200 hover:scale-105 shadow-lg flex items-center gap-2"
+                    >
+                        <Wallet className="w-4 h-4" />
+                        Connect Wallet
+                    </Button>
+                </div>
+            )}
         </div>
     );
 }

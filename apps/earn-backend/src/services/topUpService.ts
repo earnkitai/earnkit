@@ -99,7 +99,7 @@ export class TopUpService {
     const escrowContract = {
       address:
         process.env.ESCROW_CONTRACT_ADDRESS ||
-        '0x8076E4444D6AE75396Dcf1E201Dbc6a4cd01FDC8',
+        '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac',
       depositFunction: {
         name: 'deposit',
         signature: 'deposit(bytes32)',
