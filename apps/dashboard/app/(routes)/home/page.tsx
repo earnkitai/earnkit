@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
-import { Icons } from "@/app/components/sections/icons";
+// import { Icons } from "@/app/components/sections/icons";
 import { usePrivy, useConnectWallet, useWallets } from "@privy-io/react-auth";
 import { useRouter } from "next/navigation";
 import { hasApiKey, createApiKey, getApiKey } from "@/actions/user";
@@ -45,11 +45,11 @@ interface Agent {
 }
 
 // Update type definition
-interface Update {
-    id: string;
-    title: string;
-    description: string;
-}
+// interface Update {
+//     id: string;
+//     title: string;
+//     description: string;
+// }
 
 export default function HomePage() {
     const { ready, authenticated, user: privyUser } = usePrivy();
@@ -131,23 +131,23 @@ export default function HomePage() {
     }, [userId]);
 
     // Mock data for updates
-    const [updates] = useState<Update[]>([
-        {
-            id: "1",
-            title: "Lorem ipsum dolor sit amet",
-            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-        },
-        {
-            id: "2",
-            title: "Lorem ipsum dolor sit amet",
-            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-        },
-        {
-            id: "3",
-            title: "Lorem ipsum dolor sit amet",
-            description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-        }
-    ]);
+    // const [updates] = useState<Update[]>([
+    //     {
+    //         id: "1",
+    //         title: "Lorem ipsum dolor sit amet",
+    //         description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+    //     },
+    //     {
+    //         id: "2",
+    //         title: "Lorem ipsum dolor sit amet",
+    //         description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+    //     },
+    //     {
+    //         id: "3",
+    //         title: "Lorem ipsum dolor sit amet",
+    //         description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+    //     }
+    // ]);
 
 
     // Show loading state while checking authentication or fetching data
@@ -295,7 +295,7 @@ export default function HomePage() {
                         </Card>
 
                         {/* Earnkit Updates */}
-                        <Card className="rounded-[28px]">
+                        {/* <Card className="rounded-[28px]">
                             <CardContent className="p-6">
                                 <div className="flex items-center gap-2 mb-6">
 
@@ -310,7 +310,7 @@ export default function HomePage() {
                                     ))}
                                 </div>
                             </CardContent>
-                        </Card>
+                        </Card> */}
                     </div>
                 </div>
             </div>
@@ -432,25 +432,25 @@ function AddAgentCard({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
 }
 
 // Update Item Component
-function UpdateItem({ update }: { update: Update }) {
-    return (
-        <div className="relative">
-            <div className="flex gap-4 ">
-                {/* Blue line */}
-                <div className="flex-shrink-0">
-                    <div className="w-1 h-full bg-blue-500"></div>
-                </div>
+// function UpdateItem({ update }: { update: Update }) {
+//     return (
+//         <div className="relative">
+//             <div className="flex gap-4 ">
+//                 {/* Blue line */}
+//                 <div className="flex-shrink-0">
+//                     <div className="w-1 h-full bg-blue-500"></div>
+//                 </div>
 
-                {/* Content */}
-                <div className="flex-1">
-                    <h4 className="font-medium text-gray-800 text-sm mb-1">{update.title}</h4>
-                    <p className="text-gray-500 text-xs leading-relaxed">{update.description}</p>
-                </div>
-            </div>
+//                 {/* Content */}
+//                 <div className="flex-1">
+//                     <h4 className="font-medium text-gray-800 text-sm mb-1">{update.title}</h4>
+//                     <p className="text-gray-500 text-xs leading-relaxed">{update.description}</p>
+//                 </div>
+//             </div>
 
-        </div>
-    );
-}
+//         </div>
+//     );
+// }
 
 // Simplified API Key Section Component (without delete/regenerate)
 function SimplifiedApiKeySection() {
