@@ -102,19 +102,31 @@ export const validateAmount = (
   res: Response,
   next: NextFunction,
 ): void => {
-  const { amountInEth } = req.body;
+  const { amountInEth, tokenAddress, amountInToken } = req.body;
 
-  if (!amountInEth) {
+  // For token payments, amountInEth can be "0" if amountInToken is provided
+  const isTokenPayment = tokenAddress && amountInToken;
+
+  if (!amountInEth && !isTokenPayment) {
     throw new AppError('amountInEth is required', 400);
   }
 
-  if (typeof amountInEth !== 'string') {
+  if (amountInEth && typeof amountInEth !== 'string') {
     throw new AppError('amountInEth must be a string', 400);
   }
 
-  const amount = parseFloat(amountInEth);
-  if (isNaN(amount) || amount <= 0) {
-    throw new AppError('amountInEth must be a positive number', 400);
+  if (amountInEth) {
+    const amount = parseFloat(amountInEth);
+    if (isNaN(amount)) {
+      throw new AppError('amountInEth must be a valid number', 400);
+    }
+    // Allow 0 for token payments, require positive for ETH payments
+    if (amount < 0 || (amount === 0 && !isTokenPayment)) {
+      throw new AppError(
+        'amountInEth must be a positive number (or 0 for token payments)',
+        400,
+      );
+    }
   }
 
   next();

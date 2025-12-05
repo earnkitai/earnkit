@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
+import { TokenConfigPanel } from "@/app/components/TokenConfigPanel";
 import { createPublicClient, http, keccak256, encodePacked } from 'viem';
 import { base } from 'viem/chains';
 import earnkitABI from '@/contract/earnkit_ABI.json';
@@ -61,11 +62,21 @@ interface Agent {
     };
 }
 
+// Token balance interface
+interface TokenBalance {
+    symbol: string;
+    address: string;
+    balance: string;
+    balanceUsd: number;
+}
+
 // Earnings data interface
 interface EarningsData {
     totalEarnings: number;
     totalWithdrawals: number;
     availableBalance: number;
+    availableBalanceEth: number;
+    tokenBalances: TokenBalance[];
     agentEarnings: number;
 }
 
@@ -529,7 +540,8 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                     {/* Left Section - Main Content */}
                     <div className="flex-1">
                         {activeView === "overview" ? (
-                            /* Main Content Card */
+                            <>
+                            {/* Main Content Card */}
                             <Card className="rounded-[20px] shadow-none border border-black/10">
                                 <CardContent className="p-8">
                                     {/* Header */}
@@ -831,6 +843,15 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                     </div>
                                 </CardContent>
                             </Card>
+
+                            {/* Token Configuration Panel */}
+                            <div className="mt-6">
+                                <TokenConfigPanel
+                                    agentId={agent.agentId}
+                                    earnBackendUrl={process.env.NEXT_PUBLIC_EARN_BACKEND_URL || 'http://localhost:3000'}
+                                />
+                            </div>
+                            </>
                         ) : (
                             <Logs agentId={resolvedParams.id} />
                         )}
@@ -951,11 +972,28 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                             <Card className="rounded-[20px] shadow-none border border-black/10">
                                 <CardContent className="p-4">
                                     <div className="flex justify-between items-center">
-                                        <div>
+                                        <div className="flex-1">
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
                                             <p className="text-lg font-semibold text-black/60 font-funnel-sans">
                                                 ${freshBalanceData?.usdBalance.toFixed(2) || earningsData?.availableBalance.toFixed(2) || '0.00'}
                                             </p>
+                                            {/* Show ETH balance */}
+                                            <p className="text-xs text-black/40 font-funnel-sans mt-1">
+                                                {(freshBalanceData?.ethBalance || earningsData?.availableBalanceEth || 0).toFixed(6)} ETH
+                                            </p>
+                                            {/* Show token balances */}
+                                            {earningsData?.tokenBalances && earningsData.tokenBalances.length > 0 && (
+                                                <div className="mt-2 pt-2 border-t border-black/5">
+                                                    {earningsData.tokenBalances.map((token) => (
+                                                        <p key={token.address} className="text-xs text-black/40 font-funnel-sans">
+                                                            {parseFloat(token.balance).toFixed(2)} {token.symbol}
+                                                            {token.balanceUsd > 0 && (
+                                                                <span className="ml-1">(≈ ${token.balanceUsd.toFixed(2)})</span>
+                                                            )}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                         <Button
                                             onClick={() => setShowWithdrawModal(true)}
@@ -1007,8 +1045,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
             <WithdrawModal
                 isOpen={showWithdrawModal}
                 onClose={() => setShowWithdrawModal(false)}
+                agentDbId={resolvedParams.id}
                 agentId={agent?.agentId || ''}
                 availableBalance={freshBalanceData?.usdBalance || earningsData?.availableBalance || 0}
+                availableBalanceEth={freshBalanceData?.ethBalance || earningsData?.availableBalanceEth || 0}
+                tokenBalances={earningsData?.tokenBalances || []}
                 onWithdrawSuccess={() => {
                     // Refresh both earnings data and fresh balance after successful withdrawal
                     const refreshData = async () => {

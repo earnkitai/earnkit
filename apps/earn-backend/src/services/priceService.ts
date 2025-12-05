@@ -1,18 +1,42 @@
+import { tokenService, SupportedToken } from './tokenService';
+
 interface PriceCache {
   ethPrice: number;
   timestamp: number;
 }
 
+interface TokenPriceCache {
+  price: number;
+  timestamp: number;
+}
+
 export class PriceService {
   private cache: PriceCache | null = null;
+  private tokenCache: Map<string, TokenPriceCache> = new Map();
   private readonly CACHE_DURATION = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+  private readonly TOKEN_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for tokens (more volatile)
   private readonly ALCHEMY_API_KEY: string;
   private readonly ALCHEMY_API_URL =
     'https://api.g.alchemy.com/prices/v1/tokens/by-symbol';
+  private readonly COINGECKO_API_KEY: string | undefined;
+  private readonly COINGECKO_API_URL: string;
 
   constructor() {
     this.ALCHEMY_API_KEY =
       process.env.ALCHEMY_API_KEY || 'LXjhr7UM3pL_Cro_wt6ph4cd-c_0x9bo';
+    
+    // CoinGecko API configuration
+    // If API key is provided, use Pro API with better rate limits
+    this.COINGECKO_API_KEY = process.env.COINGECKO_API_KEY;
+    this.COINGECKO_API_URL = this.COINGECKO_API_KEY
+      ? 'https://pro-api.coingecko.com/api/v3'
+      : 'https://api.coingecko.com/api/v3';
+    
+    if (this.COINGECKO_API_KEY) {
+      console.log('CoinGecko Pro API enabled');
+    } else {
+      console.log('Using CoinGecko free API (consider adding COINGECKO_API_KEY for better rate limits)');
+    }
   }
 
   /**
@@ -90,6 +114,104 @@ export class PriceService {
   }
 
   /**
+   * Get current token price in USD using CoinGecko API
+   * @param coingeckoId The CoinGecko ID of the token (e.g., 'minidev', 'usd-coin')
+   */
+  async getTokenPrice(coingeckoId: string): Promise<number> {
+    const now = Date.now();
+    const cacheKey = coingeckoId.toLowerCase();
+
+    // Check if we have valid cached data
+    const cached = this.tokenCache.get(cacheKey);
+    if (cached && now - cached.timestamp < this.TOKEN_CACHE_DURATION) {
+      console.log(`Using cached ${coingeckoId} price:`, cached.price);
+      return cached.price;
+    }
+
+    try {
+      console.log(`Fetching fresh ${coingeckoId} price from CoinGecko API...`);
+
+      // Build headers - include API key if available
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+      };
+      if (this.COINGECKO_API_KEY) {
+        headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
+      }
+
+      const response = await fetch(
+        `${this.COINGECKO_API_URL}/simple/price?ids=${coingeckoId}&vs_currencies=usd`,
+        {
+          method: 'GET',
+          headers,
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `CoinGecko API error: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const data: any = await response.json();
+      const price = data[coingeckoId]?.usd;
+
+      if (price === undefined || price === null) {
+        throw new Error(`No price data found for ${coingeckoId}`);
+      }
+
+      const tokenPrice = Number(price);
+
+      // Cache the result
+      this.tokenCache.set(cacheKey, {
+        price: tokenPrice,
+        timestamp: now,
+      });
+
+      console.log(`Fresh ${coingeckoId} price fetched:`, tokenPrice);
+      return tokenPrice;
+    } catch (error) {
+      console.error(`Error fetching ${coingeckoId} price:`, error);
+
+      // If we have cached data, use it even if expired
+      if (cached) {
+        console.log(
+          `Using expired cached ${coingeckoId} price as fallback:`,
+          cached.price,
+        );
+        return cached.price;
+      }
+
+      // Throw error as we can't make assumptions about token prices
+      throw new Error(`Unable to fetch price for ${coingeckoId}`);
+    }
+  }
+
+  /**
+   * Get token price by symbol
+   * @param symbol The token symbol (e.g., 'MINIDEV', 'USDC')
+   */
+  async getTokenPriceBySymbol(symbol: string): Promise<number> {
+    const token = tokenService.getTokenBySymbol(symbol);
+    if (!token) {
+      throw new Error(`Token ${symbol} is not supported`);
+    }
+    return this.getTokenPrice(token.coingeckoId);
+  }
+
+  /**
+   * Get token price by contract address
+   * @param address The token contract address
+   */
+  async getTokenPriceByAddress(address: string): Promise<number> {
+    const token = tokenService.getTokenByAddress(address);
+    if (!token) {
+      throw new Error(`Token at ${address} is not supported`);
+    }
+    return this.getTokenPrice(token.coingeckoId);
+  }
+
+  /**
    * Convert USD amount to ETH amount
    */
   async convertUsdToEth(usdAmount: number): Promise<number> {
@@ -115,21 +237,114 @@ export class PriceService {
   }
 
   /**
-   * Get cache information for debugging
+   * Convert USD amount to token amount (in smallest units)
+   * @param usdAmount The USD amount to convert
+   * @param tokenSymbol The token symbol (e.g., 'MINIDEV', 'USDC')
    */
-  getCacheInfo(): { hasCache: boolean; isExpired: boolean; age: number } {
-    if (!this.cache) {
-      return { hasCache: false, isExpired: false, age: 0 };
+  async convertUsdToToken(
+    usdAmount: number,
+    tokenSymbol: string,
+  ): Promise<{ amount: string; humanReadable: string; decimals: number }> {
+    const token = tokenService.getTokenBySymbol(tokenSymbol);
+    if (!token) {
+      throw new Error(`Token ${tokenSymbol} is not supported`);
     }
 
-    const now = Date.now();
-    const age = now - this.cache.timestamp;
-    const isExpired = age >= this.CACHE_DURATION;
+    const tokenPrice = await this.getTokenPrice(token.coingeckoId);
+    const tokenAmount = usdAmount / tokenPrice;
+
+    // Convert to smallest unit
+    const smallestUnitAmount = BigInt(
+      Math.floor(tokenAmount * 10 ** token.decimals),
+    );
 
     return {
-      hasCache: true,
-      isExpired,
-      age: Math.floor(age / 1000), // Age in seconds
+      amount: smallestUnitAmount.toString(),
+      humanReadable: tokenAmount.toFixed(token.decimals > 6 ? 6 : token.decimals),
+      decimals: token.decimals,
+    };
+  }
+
+  /**
+   * Convert token amount (in smallest units) to USD
+   * @param tokenAmount The token amount in smallest units
+   * @param tokenSymbol The token symbol (e.g., 'MINIDEV', 'USDC')
+   */
+  async convertTokenToUsd(
+    tokenAmount: string | bigint,
+    tokenSymbol: string,
+  ): Promise<number> {
+    const token = tokenService.getTokenBySymbol(tokenSymbol);
+    if (!token) {
+      throw new Error(`Token ${tokenSymbol} is not supported`);
+    }
+
+    const tokenPrice = await this.getTokenPrice(token.coingeckoId);
+    const amountBigInt =
+      typeof tokenAmount === 'string' ? BigInt(tokenAmount) : tokenAmount;
+    const divisor = BigInt(10 ** token.decimals);
+
+    // Convert to human-readable amount and multiply by price
+    const humanReadableAmount = Number(amountBigInt) / Number(divisor);
+    return humanReadableAmount * tokenPrice;
+  }
+
+  /**
+   * Get all prices for supported tokens
+   */
+  async getAllTokenPrices(): Promise<
+    Map<string, { symbol: string; price: number }>
+  > {
+    const tokens = tokenService.getSupportedTokens();
+    const prices = new Map<string, { symbol: string; price: number }>();
+
+    for (const token of tokens) {
+      try {
+        const price = await this.getTokenPrice(token.coingeckoId);
+        prices.set(token.address.toLowerCase(), {
+          symbol: token.symbol,
+          price,
+        });
+      } catch (error) {
+        console.error(`Failed to fetch price for ${token.symbol}:`, error);
+      }
+    }
+
+    return prices;
+  }
+
+  /**
+   * Get cache information for debugging
+   */
+  getCacheInfo(): {
+    eth: { hasCache: boolean; isExpired: boolean; age: number };
+    tokens: { [key: string]: { hasCache: boolean; isExpired: boolean; age: number } };
+  } {
+    const now = Date.now();
+
+    const ethCacheInfo = !this.cache
+      ? { hasCache: false, isExpired: false, age: 0 }
+      : {
+          hasCache: true,
+          isExpired: now - this.cache.timestamp >= this.CACHE_DURATION,
+          age: Math.floor((now - this.cache.timestamp) / 1000),
+        };
+
+    const tokenCacheInfo: {
+      [key: string]: { hasCache: boolean; isExpired: boolean; age: number };
+    } = {};
+
+    for (const [key, cached] of this.tokenCache.entries()) {
+      tokenCacheInfo[key] = {
+        hasCache: true,
+        isExpired: now - cached.timestamp >= this.TOKEN_CACHE_DURATION,
+        age: Math.floor((now - cached.timestamp) / 1000),
+      };
+    }
+
+    return {
+      eth: ethCacheInfo,
+      tokens: tokenCacheInfo,
     };
   }
 }

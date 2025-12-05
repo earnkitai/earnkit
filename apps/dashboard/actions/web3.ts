@@ -262,7 +262,7 @@ export const getTokenMetadataWithCoingecko = async (token: string) => {
     method: 'GET',
     headers: {
       accept: 'application/json',
-      'x-cg-pro-api-key': env.COINGECKO_API_KEY,
+      'x-cg-pro-api-key': env.COINGECKO_API_KEY || '',
     },
   });
   const data = await response.json();
@@ -288,7 +288,7 @@ export const getTokenMetadataBasedOnChain = async (
     method: 'GET',
     headers: {
       accept: 'application/json',
-      'x-cg-pro-api-key': env.COINGECKO_API_KEY,
+      'x-cg-pro-api-key': env.COINGECKO_API_KEY || '',
     },
   });
   const data = await response.json();

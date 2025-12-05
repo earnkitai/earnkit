@@ -10,7 +10,7 @@ const CONTRACT_ABI = earnkitABI as unknown as Abi;
 // Contract address from environment variable
 const CONTRACT_ADDRESS =
   process.env.ESCROW_CONTRACT_ADDRESS ||
-  '0x8076E4444D6AE75396Dcf1E201Dbc6a4cd01FDC8';
+  '0xCAeB6A62D04C52E1e196E5Bdce63e43f45582aA2';
 
 export async function GET(
   request: NextRequest,
@@ -76,23 +76,33 @@ export async function GET(
     // Calculate total earnings from transaction logs
     const transactionLogEarnings = totalEarningsResult._sum.amount || 0;
 
-    // Calculate total earnings from top-up transactions (convert ETH to USD)
+    // Calculate total earnings from top-up transactions (ETH + tokens)
     let topUpEarnings = 0;
     try {
       const { priceService } = await import('@/lib/priceService');
       const ethPrice = await priceService.getEthPrice();
 
       for (const topUp of topUpTransactions) {
-        const ethAmount = parseFloat(topUp.amountInEth);
-        const usdAmount = ethAmount * ethPrice;
-        topUpEarnings += usdAmount;
+        // Use amountInUSD directly if available (most accurate)
+        if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
+          topUpEarnings += parseFloat(topUp.amountInUSD);
+        } else {
+          // Fallback to ETH conversion
+          const ethAmount = parseFloat(topUp.amountInEth);
+          const usdAmount = ethAmount * ethPrice;
+          topUpEarnings += usdAmount;
+        }
       }
     } catch (error) {
       console.error('Error calculating top-up earnings:', error);
-      // Fallback: use ETH amount * 3000 as rough USD conversion
+      // Fallback: use amountInUSD or ETH * 3000
       for (const topUp of topUpTransactions) {
-        const ethAmount = parseFloat(topUp.amountInEth);
-        topUpEarnings += ethAmount * 3000;
+        if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
+          topUpEarnings += parseFloat(topUp.amountInUSD);
+        } else {
+          const ethAmount = parseFloat(topUp.amountInEth);
+          topUpEarnings += ethAmount * 3000;
+        }
       }
     }
 
@@ -106,16 +116,19 @@ export async function GET(
       topUpTransactionsCount: topUpTransactions.length,
     });
 
-    // Get available balance from smart contract
+    // Get available balance from smart contract (ETH + tokens)
     let availableBalance = 0;
     let availableBalanceEth = 0;
+    const tokenBalances: { symbol: string; address: string; balance: string; balanceUsd: number }[] = [];
+    
     try {
       const publicClient = getPublicClient('base');
+      const { priceService } = await import('@/lib/priceService');
 
       // Compute agent ID hash exactly as stored on-chain: keccak256(abi.encodePacked(slugOrUuid))
       const agentIdHash = keccak256(encodePacked(['string'], [agent.agentId]));
 
-      // Primary attempt: call getAgentBalance(bytes32)
+      // Get ETH balance
       let balance: bigint | undefined;
       try {
         balance = (await publicClient.readContract({
@@ -125,24 +138,13 @@ export async function GET(
           args: [agentIdHash],
         })) as unknown as bigint;
       } catch {
-        // Fallback for older deployments without getAgentBalance: use public mapping getter agentBalance(bytes32)
-        try {
-          balance = (await publicClient.readContract({
-            address: CONTRACT_ADDRESS as `0x${string}`,
-            abi: CONTRACT_ABI,
-            functionName: 'agentBalance',
-            args: [agentIdHash],
-          })) as unknown as bigint;
-        } catch (fallbackErr) {
-          throw fallbackErr;
-        }
+        balance = BigInt(0);
       }
-      console.log('balance', balance);
+      console.log('ETH balance', balance);
       availableBalanceEth = Number(balance) / 1e18;
 
-      // Convert ETH balance to USD using current price
+      // Convert ETH balance to USD
       try {
-        const { priceService } = await import('@/lib/priceService');
         const ethPrice = await priceService.getEthPrice();
         availableBalance = availableBalanceEth * ethPrice;
         console.log('Available balance conversion:', {
@@ -151,15 +153,48 @@ export async function GET(
           usdAmount: availableBalance,
         });
       } catch (error) {
-        console.error(
-          'Error converting ETH to USD for available balance:',
-          error,
-        );
-        // Fallback: use ETH amount * 3000 as rough USD conversion
+        console.error('Error converting ETH to USD:', error);
         availableBalance = availableBalanceEth * 3000;
       }
+
+      // Get MINIDEV token balance
+      const MINIDEV_TOKEN = '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07';
+      try {
+        const tokenBalance = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI,
+          functionName: 'agentTokenBalance',
+          args: [agentIdHash, MINIDEV_TOKEN],
+        })) as unknown as bigint;
+
+        console.log('MINIDEV balance', tokenBalance);
+
+        if (tokenBalance > BigInt(0)) {
+          const tokenAmount = Number(tokenBalance) / 1e18;
+          let tokenUsd = 0;
+          try {
+            // Rough MINIDEV price - in production, fetch from CoinGecko
+            const minidevPrice = 0.00000342; // fallback price
+            tokenUsd = tokenAmount * minidevPrice;
+          } catch {
+            tokenUsd = 0;
+          }
+
+          tokenBalances.push({
+            symbol: 'MINIDEV',
+            address: MINIDEV_TOKEN,
+            balance: tokenAmount.toFixed(6),
+            balanceUsd: tokenUsd,
+          });
+
+          // Add token value to total available balance
+          availableBalance += tokenUsd;
+        }
+      } catch (tokenError) {
+        console.error('Error fetching MINIDEV balance:', tokenError);
+      }
     } catch (error) {
-      console.error('Error fetching contract balance (with fallback):', error);
+      console.error('Error fetching contract balance:', error);
       availableBalance = 0;
     }
 
@@ -167,8 +202,9 @@ export async function GET(
       totalEarnings,
       totalWithdrawals,
       availableBalance,
-      availableBalanceEth: availableBalanceEth || 0, // ETH amount for debugging
-      agentEarnings: agent.totalEarnings, // This is the cached total from the agent table
+      availableBalanceEth: availableBalanceEth || 0,
+      tokenBalances, // NEW: Token balances for withdrawal
+      agentEarnings: agent.totalEarnings,
       breakdown: {
         transactionLogEarnings,
         topUpEarnings,

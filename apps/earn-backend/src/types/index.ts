@@ -46,6 +46,60 @@ export interface TopUpOption {
   amountInEth: string; // Converted from USD using current ETH price
   value: string; // Amount in WEI
   creditsToTopUp?: number;
+  // Discount info
+  discountPercent?: number; // e.g., 10 = 10% discount
+  originalAmountInUSD?: string; // Pre-discount price
+}
+
+/**
+ * Token payment option for ERC-20 token payments
+ */
+export interface TokenPaymentOption {
+  label: string;
+  amountInUSD: string;
+  amountInToken: string; // Amount in token's smallest unit
+  amountInTokenHumanReadable: string; // Human-readable token amount
+  creditsToTopUp?: number;
+  // Discount info
+  discountPercent?: number; // e.g., 10 = 10% discount
+  originalAmountInUSD?: string; // Pre-discount price
+}
+
+/**
+ * Agent token configuration for per-agent payment settings
+ */
+export interface AgentTokenConfig {
+  tokenAddress: string; // "eth" for ETH, contract address for tokens
+  tokenSymbol: string;
+  enabled: boolean;
+  discountPercent: number; // e.g., 10 = 10% discount
+}
+
+/**
+ * Supported token information
+ */
+export interface SupportedTokenInfo {
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  chainId: number;
+  logoUrl?: string;
+}
+
+/**
+ * Payment method configuration (ETH or ERC-20 token)
+ */
+export interface PaymentMethod {
+  type: 'eth' | 'token';
+  token?: SupportedTokenInfo;
+  options: TopUpOption[] | TokenPaymentOption[];
+  contractFunction: {
+    name: string;
+    signature: string;
+    // For tokens, this includes approve step
+    approveRequired?: boolean;
+  };
 }
 
 export interface EscrowContract {
@@ -54,6 +108,12 @@ export interface EscrowContract {
     name: string;
     signature: string;
     agentIdParam: string; // The agentId to pass to the deposit function
+  };
+  // Token deposit function info
+  depositTokenFunction?: {
+    name: string;
+    signature: string;
+    agentIdParam: string;
   };
   network: {
     chainId: number;
@@ -74,6 +134,10 @@ export interface SubmitTopUpParams {
   amountInUSD: string;
   amountInEth: string; // Converted from USD using current ETH price
   creditsToTopUp?: number;
+  // Token-specific fields
+  tokenAddress?: string; // If paying with ERC-20 token
+  tokenSymbol?: string; // Token symbol (e.g., 'MINIDEV')
+  amountInToken?: string; // Amount in token's smallest unit
 }
 
 export interface SubmitTopUpResponse {
@@ -81,9 +145,15 @@ export interface SubmitTopUpResponse {
   message: string;
 }
 
+/**
+ * Updated TopUpDetailsResponse with multi-token support
+ */
 export interface TopUpDetailsResponse {
-  options: TopUpOption[];
+  options: TopUpOption[]; // Legacy ETH options for backward compatibility
   escrowContract: EscrowContract;
+  // New multi-token payment methods
+  paymentMethods: PaymentMethod[];
+  supportedTokens: SupportedTokenInfo[];
 }
 
 export interface ApiErrorResponse {
@@ -120,4 +190,8 @@ export interface TopUpTransaction {
   status: 'pending' | 'confirmed' | 'failed';
   createdAt: Date;
   updatedAt: Date;
+  // Token-specific fields
+  tokenAddress?: string;
+  tokenSymbol?: string;
+  amountInToken?: string;
 }

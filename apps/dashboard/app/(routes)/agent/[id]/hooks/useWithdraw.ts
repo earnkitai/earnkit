@@ -15,12 +15,20 @@ import { type Abi, type Hex } from 'viem';
 
 const CONTRACT_ADDRESS =
   process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS ||
-  '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
+  '0xCAeB6A62D04C52E1e196E5Bdce63e43f45582aA2';
 const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface WithdrawData {
   agentId: string;
   amount: string;
+  to: string;
+}
+
+interface TokenWithdrawData {
+  agentId: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  amount: string; // Raw token amount (not in smallest units)
   to: string;
 }
 
@@ -31,7 +39,8 @@ interface FeeCalculation {
   platformFeeBps: number;
 }
 
-export function useWithdraw(agentId: string) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function useWithdraw(agentDbId: string, agentSlug: string) {
   const [loading, setLoading] = useState(false);
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
@@ -142,7 +151,7 @@ export function useWithdraw(agentId: string) {
 
       // Record the transaction in the database (using USD values)
       try {
-        await fetch(`/api/agents/${agentId}/withdraw/confirm`, {
+        await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -175,8 +184,132 @@ export function useWithdraw(agentId: string) {
     }
   };
 
+  // Execute token withdrawal using withdrawTokenWithSig (gasless with platform signature)
+  const executeTokenWithdrawal = async (withdrawData: TokenWithdrawData) => {
+    if (!ready || !authenticated || !user) {
+      throw new Error('User not authenticated');
+    }
+
+    setLoading(true);
+
+    try {
+      // Get the user's wallet from Privy
+      const wallet = wallets.find(
+        (wallet) => wallet.connectorType === 'injected',
+      );
+      console.log(wallets, 'wallets');
+      if (!wallet) {
+        throw new Error('No wallet connected');
+      }
+
+      // Step 1: Get signature from backend (use agentDbId for API)
+      console.log('Requesting token withdrawal signature from backend...');
+      const signatureResponse = await fetch(`/api/agents/${agentDbId}/withdraw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: withdrawData.amount, // Raw token amount
+          toAddress: withdrawData.to,
+          tokenAddress: withdrawData.tokenAddress,
+          tokenSymbol: withdrawData.tokenSymbol,
+        }),
+      });
+
+      if (!signatureResponse.ok) {
+        const errorData = await signatureResponse.json();
+        throw new Error(errorData.error || 'Failed to get withdrawal signature');
+      }
+
+      const signatureData = await signatureResponse.json();
+      console.log('Signature data received:', signatureData);
+
+      if (!signatureData.success || !signatureData.signature) {
+        throw new Error('Invalid signature response from server');
+      }
+
+      // Step 2: Execute withdrawTokenWithSig with the platform's signature
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: wallet.address as Hex,
+        chain: base,
+        transport: custom(provider),
+      });
+
+      const { v, r, s } = signatureData.signature;
+      const { agentId: agentIdBytes32, amount, to, deadline, tokenAddress: token } = signatureData.withdrawal;
+
+      console.log('Executing withdrawTokenWithSig with params:', {
+        agentIdBytes32,
+        token,
+        amount,
+        to,
+        deadline,
+        v,
+        r,
+        s,
+      });
+
+      // Execute the token withdrawal transaction with signature
+      const txHash = await walletClient.writeContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: CONTRACT_ABI,
+        functionName: 'withdrawTokenWithSig',
+        args: [
+          agentIdBytes32 as `0x${string}`,
+          token as `0x${string}`,
+          BigInt(amount),
+          to as `0x${string}`,
+          BigInt(deadline),
+          v,
+          r as `0x${string}`,
+          s as `0x${string}`,
+        ],
+      });
+
+      console.log('Token withdrawal transaction hash:', txHash);
+
+      // Record the transaction in the database (use agentDbId for API)
+      try {
+        await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transactionHash: txHash,
+            agentId: withdrawData.agentId,
+            fromAddress: wallet.address,
+            fee: signatureData.withdrawal.fee,
+            netAmount: signatureData.withdrawal.net,
+            toAddress: withdrawData.to,
+            amount: signatureData.withdrawal.totalAmount,
+            tokenAddress: withdrawData.tokenAddress,
+            tokenSymbol: withdrawData.tokenSymbol,
+          }),
+        });
+      } catch (error) {
+        console.error('Error recording token transaction in database:', error);
+        // Don't throw error here as the transaction was successful
+      }
+
+      return {
+        success: true,
+        transactionHash: txHash,
+        withdrawal: withdrawData,
+      };
+    } catch (error) {
+      console.error('Error executing token withdrawal:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     executeWithdrawal,
+    executeTokenWithdrawal,
     calculateFees,
     loading,
     isReady: ready && authenticated,

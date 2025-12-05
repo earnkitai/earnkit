@@ -158,7 +158,7 @@ export async function updateUser(id: string, userData: Partial<User>) {
     data: {
       username: userData.username,
       email: userData.email,
-      apiKey: userData.apiKey,
+      ...(userData.apiKey !== undefined && { apiKey: userData.apiKey }),
       hasAcceptedTerms: userData.hasAcceptedTerms,
       isGuest: userData.isGuest,
       mfaMethods: userData.mfaMethods,

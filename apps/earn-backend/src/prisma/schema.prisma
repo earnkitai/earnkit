@@ -302,12 +302,30 @@ model Agent {
   transactionLogs     TransactionLog[]
   usageEvents         UsageEvent[]
   userBalances        UserBalance[]
+  tokenConfigs        AgentTokenConfig[]
 
   @@index([userId])
   @@index([agentId])
   @@index([status])
   @@index([createdAt])
   @@map("agents")
+}
+
+model AgentTokenConfig {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  tokenAddress    String   @map("token_address") // "eth" for ETH, contract address for tokens
+  tokenSymbol     String   @map("token_symbol")
+  enabled         Boolean  @default(true)
+  discountPercent Float    @default(0) @map("discount_percent") // e.g., 10 = 10% discount
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, tokenAddress])
+  @@index([agentId])
+  @@index([tokenAddress])
+  @@map("agent_token_configs")
 }
 
 model TopUpPackage {
@@ -383,15 +401,20 @@ model TopUpTransaction {
   status            TopUpStatus @default(PENDING)
   userWalletAddress String
   agentId           String
-  amountInUSD       String       @map("amount_in_usd") @default("0")
-  amountInEth       String       @map("amount_in_eth") @default("0")
+  amountInUSD       String      @map("amount_in_usd") @default("0")
+  amountInEth       String      @map("amount_in_eth") @default("0")
   creditsToTopUp    BigInt?
   errorMessage      String?
+  // Token-specific fields (null = ETH payment)
+  tokenAddress      String?     @map("token_address")
+  tokenSymbol       String?     @map("token_symbol")
+  amountInToken     String?     @map("amount_in_token")
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([status])
+  @@index([tokenAddress])
   @@map("top_up_transactions")
 }
 

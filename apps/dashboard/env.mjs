@@ -6,21 +6,21 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
     NEXT_PUBLIC_APP_URL: z.string().optional(),
-    NEXT_PUBLIC_BASE_URL: z.string().min(1),
-    NEXT_PUBLIC_ORGANIZATION_ID: z.string().min(1),
-    NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().min(1),
+    NEXT_PUBLIC_BASE_URL: z.string().optional(), // Turnkey base URL (optional for local dev)
+    NEXT_PUBLIC_ORGANIZATION_ID: z.string().optional(), // Turnkey org ID (optional for local dev)
+    NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().optional(), // Alchemy API key (optional for local dev)
     NEXT_PUBLIC_RP_ID: z.string().optional(),
   },
   server: {
     NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
     NEXT_PUBLIC_RP_ID: z.string().optional(),
     NEXT_PUBLIC_APP_URL: z.string().optional(),
-    TURNKEY_API_PUBLIC_KEY: z.string().min(1),
-    TURNKEY_API_PRIVATE_KEY: z.string().min(1),
-    NEXT_PUBLIC_BASE_URL: z.string().min(1),
-    NEXT_PUBLIC_ORGANIZATION_ID: z.string().min(1),
-    NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().min(1),
-    COINGECKO_API_KEY: z.string().min(1),
+    TURNKEY_API_PUBLIC_KEY: z.string().optional(), // Turnkey (optional for local dev)
+    TURNKEY_API_PRIVATE_KEY: z.string().optional(), // Turnkey (optional for local dev)
+    NEXT_PUBLIC_BASE_URL: z.string().optional(), // Turnkey base URL (optional for local dev)
+    NEXT_PUBLIC_ORGANIZATION_ID: z.string().optional(), // Turnkey org ID (optional for local dev)
+    NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().optional(), // Alchemy API key (optional for local dev)
+    COINGECKO_API_KEY: z.string().optional(), // CoinGecko (optional for local dev)
     DATABASE_URL: z.string().min(1),
     ESCROW_CONTRACT_ADDRESS: z.string().optional(),
     ALCHEMY_API_KEY: z.string().optional(),

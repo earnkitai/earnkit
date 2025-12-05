@@ -14,27 +14,47 @@ import {
 import { toast } from "sonner";
 import { useWithdraw } from "../hooks/useWithdraw";
 
+// Token balance interface
+interface TokenBalance {
+    symbol: string;
+    address: string;
+    balance: string;
+    balanceUsd: number;
+}
+
 interface WithdrawModalProps {
     isOpen: boolean;
     onClose: () => void;
-    agentId: string;
-    availableBalance: number;
+    agentDbId: string; // Database UUID for API calls
+    agentId: string; // String identifier for contract calls
+    availableBalance: number; // ETH balance in USD
+    availableBalanceEth?: number; // ETH balance in ETH
+    tokenBalances?: TokenBalance[]; // Token balances
     onWithdrawSuccess?: () => void;
 }
+
+type AssetType = 'ETH' | string; // 'ETH' or token symbol
 
 export default function WithdrawModal({
     isOpen,
     onClose,
+    agentDbId,
     agentId,
     availableBalance,
+    availableBalanceEth = 0,
+    tokenBalances = [],
     onWithdrawSuccess,
 }: WithdrawModalProps) {
     const [amount, setAmount] = useState("");
     const [recipientAddress, setRecipientAddress] = useState("");
+    const [selectedAsset, setSelectedAsset] = useState<AssetType>('ETH');
     const [withdrawData, setWithdrawData] = useState<{
         agentId: string;
         amount: string;
         to: string;
+        isToken: boolean;
+        tokenAddress?: string;
+        tokenSymbol?: string;
     } | null>(null);
     const [feeCalculation, setFeeCalculation] = useState<{
         amount: number;
@@ -43,7 +63,32 @@ export default function WithdrawModal({
         platformFeeBps: number;
     } | null>(null);
     const [step, setStep] = useState<'form' | 'confirm' | 'executing'>('form');
-    const { executeWithdrawal, calculateFees, loading: executeLoading, isReady } = useWithdraw(agentId);
+    // Use agentDbId for API calls (database UUID)
+    const { executeWithdrawal, executeTokenWithdrawal, calculateFees, loading: executeLoading, isReady } = useWithdraw(agentDbId, agentId);
+
+    // Get current balance based on selected asset
+    const getCurrentBalance = () => {
+        if (selectedAsset === 'ETH') {
+            return { balance: availableBalanceEth, balanceUsd: availableBalance, symbol: 'ETH' };
+        }
+        const token = tokenBalances.find(t => t.symbol === selectedAsset);
+        return token 
+            ? { balance: parseFloat(token.balance), balanceUsd: token.balanceUsd, symbol: token.symbol }
+            : { balance: 0, balanceUsd: 0, symbol: selectedAsset };
+    };
+
+    const currentBalance = getCurrentBalance();
+
+    // Get all available assets (ETH + tokens with balance)
+    const availableAssets = [
+        { symbol: 'ETH', balance: availableBalanceEth, balanceUsd: availableBalance },
+        ...tokenBalances.filter(t => parseFloat(t.balance) > 0).map(t => ({
+            symbol: t.symbol,
+            balance: parseFloat(t.balance),
+            balanceUsd: t.balanceUsd,
+            address: t.address
+        }))
+    ];
 
     const handleWithdraw = async () => {
         if (!amount || !recipientAddress) {
@@ -57,8 +102,10 @@ export default function WithdrawModal({
             return;
         }
 
-        if (withdrawAmount > availableBalance) {
-            console.log(withdrawAmount, availableBalance, 'withdrawAmount, availableBalance');
+        // Add small tolerance for floating point comparison (0.01% of balance)
+        const tolerance = currentBalance.balance * 0.0001;
+        if (withdrawAmount > currentBalance.balance + tolerance) {
+            console.log(withdrawAmount, currentBalance.balance, 'withdrawAmount, currentBalance');
             toast.error("Amount exceeds available balance");
             return;
         }
@@ -69,15 +116,27 @@ export default function WithdrawModal({
         }
 
         try {
-            // Calculate fees
-            const fees = await calculateFees(withdrawAmount);
-            setFeeCalculation(fees);
+            // Calculate fees (use balance amount for tokens, USD for ETH)
+            const feeBasis = selectedAsset === 'ETH' 
+                ? withdrawAmount * (availableBalance / availableBalanceEth) // Convert ETH to USD for fee calc
+                : withdrawAmount; // Token amount
+            const fees = await calculateFees(feeBasis);
+            setFeeCalculation({
+                ...fees,
+                amount: withdrawAmount, // Store actual amount being withdrawn
+            });
 
-            // Set withdraw data and move to confirmation step
+            // Set withdraw data
+            const isToken = selectedAsset !== 'ETH';
+            const token = isToken ? tokenBalances.find(t => t.symbol === selectedAsset) : null;
+            
             setWithdrawData({
                 agentId: agentId,
                 amount: amount,
                 to: recipientAddress,
+                isToken,
+                tokenAddress: token?.address,
+                tokenSymbol: token?.symbol,
             });
             setStep('confirm');
         } catch (error) {
@@ -87,7 +146,11 @@ export default function WithdrawModal({
     };
 
     const handleMaxAmount = () => {
-        setAmount(availableBalance.toFixed(5).toString());
+        // Use floor to avoid rounding up beyond available balance
+        const decimals = selectedAsset === 'ETH' ? 8 : 6;
+        const multiplier = Math.pow(10, decimals);
+        const flooredAmount = Math.floor(currentBalance.balance * multiplier) / multiplier;
+        setAmount(flooredAmount.toString());
     };
 
     const handleExecuteWithdrawal = async () => {
@@ -97,7 +160,27 @@ export default function WithdrawModal({
 
         try {
             console.log(withdrawData, 'withdrawData');
-            const result = await executeWithdrawal(withdrawData);
+            
+            let result;
+            if (withdrawData.isToken && withdrawData.tokenAddress && withdrawData.tokenSymbol) {
+                // Token withdrawal
+                result = await executeTokenWithdrawal({
+                    agentId: withdrawData.agentId,
+                    tokenAddress: withdrawData.tokenAddress,
+                    tokenSymbol: withdrawData.tokenSymbol,
+                    amount: withdrawData.amount,
+                    to: withdrawData.to,
+                });
+            } else {
+                // ETH withdrawal (need to convert ETH amount to USD for the existing API)
+                const ethAmount = parseFloat(withdrawData.amount);
+                const usdAmount = ethAmount * (availableBalance / availableBalanceEth);
+                result = await executeWithdrawal({
+                    agentId: withdrawData.agentId,
+                    amount: usdAmount.toString(),
+                    to: withdrawData.to,
+                });
+            }
 
             toast.success("Withdrawal executed successfully!");
             console.log("Withdrawal transaction:", result);
@@ -119,6 +202,7 @@ export default function WithdrawModal({
     const handleClose = () => {
         setAmount("");
         setRecipientAddress("");
+        setSelectedAsset('ETH');
         setWithdrawData(null);
         setFeeCalculation(null);
         setStep('form');
@@ -144,23 +228,61 @@ export default function WithdrawModal({
                 <div className="space-y-6 py-2">
                     {step === 'form' && (
                         <>
+                            {/* Asset Selector */}
+                            {availableAssets.length > 1 && (
+                                <div className="space-y-3">
+                                    <label className="block text-sm font-semibold text-black font-funnel-sans">
+                                        Select Asset
+                                    </label>
+                                    <div className="flex gap-2 flex-wrap">
+                                        {availableAssets.map((asset) => (
+                                            <button
+                                                key={asset.symbol}
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedAsset(asset.symbol);
+                                                    setAmount(""); // Reset amount when switching assets
+                                                }}
+                                                className={`px-4 py-2 rounded-[12px] border text-sm font-funnel-sans transition-colors ${
+                                                    selectedAsset === asset.symbol
+                                                        ? 'bg-secondary-green text-white border-secondary-green'
+                                                        : 'bg-white text-black border-black/20 hover:border-secondary-green'
+                                                }`}
+                                            >
+                                                <span className="font-semibold">{asset.symbol}</span>
+                                                <span className="ml-2 text-xs opacity-70">
+                                                    {asset.balance.toFixed(asset.symbol === 'ETH' ? 5 : 2)}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Available Balance */}
                             <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
-                                <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
-                                <p className="text-lg font-semibold text-secondary-green font-funnel-sans">
-                                    ${availableBalance.toFixed(5)}
+                                <p className="text-sm text-black/40 font-funnel-sans mb-1">
+                                    Available {selectedAsset} Balance
                                 </p>
+                                <p className="text-lg font-semibold text-secondary-green font-funnel-sans">
+                                    {currentBalance.balance.toFixed(selectedAsset === 'ETH' ? 6 : 2)} {selectedAsset}
+                                </p>
+                                {currentBalance.balanceUsd > 0 && (
+                                    <p className="text-xs text-black/40 font-funnel-sans mt-1">
+                                        ≈ ${currentBalance.balanceUsd.toFixed(2)} USD
+                                    </p>
+                                )}
                             </div>
 
                             {/* Amount Input */}
                             <div className="space-y-3">
                                 <label className="block text-sm font-semibold text-black font-funnel-sans">
-                                    Amount (USD)
+                                    Amount ({selectedAsset})
                                 </label>
                                 <div className="flex gap-2">
                                     <Input
                                         type="number"
-                                        step="0.01"
+                                        step={selectedAsset === 'ETH' ? '0.0001' : '1'}
                                         placeholder="0.00"
                                         value={amount}
                                         onChange={(e) => setAmount(e.target.value)}
@@ -176,7 +298,7 @@ export default function WithdrawModal({
                                     </Button>
                                 </div>
                                 <p className="text-xs text-black/40 font-funnel-sans">
-                                    Maximum: ${availableBalance.toFixed(2)}
+                                    Maximum: {currentBalance.balance.toFixed(selectedAsset === 'ETH' ? 6 : 2)} {selectedAsset}
                                 </p>
                             </div>
 
@@ -193,7 +315,7 @@ export default function WithdrawModal({
                                     className="w-full font-mono text-sm rounded-[12px] border border-black/20 focus:border-secondary-green focus:ring-0"
                                 />
                                 <p className="text-xs text-black/40 font-funnel-sans">
-                                    Enter the wallet address to receive the funds
+                                    Enter the wallet address to receive the {selectedAsset}
                                 </p>
                             </div>
                         </>
@@ -207,22 +329,28 @@ export default function WithdrawModal({
 
                                 <div className="space-y-2">
                                     <div className="flex justify-between">
+                                        <span className="text-sm text-black/60 font-funnel-sans">Asset:</span>
+                                        <span className="text-sm font-semibold text-black font-funnel-sans">
+                                            {withdrawData.isToken ? withdrawData.tokenSymbol : 'ETH'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
                                         <span className="text-sm text-black/60 font-funnel-sans">Amount:</span>
                                         <span className="text-sm font-semibold text-black font-funnel-sans">
-                                            ${feeCalculation.amount.toFixed(2)}
+                                            {feeCalculation.amount.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : 'ETH'}
                                         </span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-sm text-black/60 font-funnel-sans">Platform Fee ({(feeCalculation.platformFeeBps / 100).toFixed(1)}%):</span>
                                         <span className="text-sm font-semibold text-red-500 font-funnel-sans">
-                                            -${feeCalculation.fee.toFixed(2)}
+                                            -{feeCalculation.fee.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : 'ETH'}
                                         </span>
                                     </div>
                                     <div className="border-t border-black/10 pt-2">
                                         <div className="flex justify-between">
                                             <span className="text-sm font-semibold text-black font-funnel-sans">You&apos;ll Receive:</span>
                                             <span className="text-sm font-semibold text-secondary-green font-funnel-sans">
-                                                ${feeCalculation.net.toFixed(2)}
+                                                {feeCalculation.net.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : 'ETH'}
                                             </span>
                                         </div>
                                     </div>
@@ -287,7 +415,7 @@ export default function WithdrawModal({
                                 disabled={executeLoading}
                                 className="flex-1 bg-secondary-green hover:bg-green-700 text-white rounded-full font-funnel-sans"
                             >
-                                {executeLoading ? "Executing..." : "Withdrawal"}
+                                {executeLoading ? "Executing..." : "Withdraw"}
                             </Button>
                         </>
                     )}

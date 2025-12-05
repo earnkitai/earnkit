@@ -9,53 +9,68 @@ import { type Abi } from 'viem';
 // Contract address from environment variable
 const CONTRACT_ADDRESS =
   process.env.ESCROW_CONTRACT_ADDRESS ||
-  '0x8076E4444D6AE75396Dcf1E201Dbc6a4cd01FDC8';
+  '0xCAeB6A62D04C52E1e196E5Bdce63e43f45582aA2';
 
 // Contract ABI for withdrawal functions
 const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 // EIP-712 Domain for withdrawal authorization
+// MUST match contract: _NAME_HASH = keccak256('AgentEscrow')
 const EIP712_DOMAIN = {
-  name: 'EarnKitAgentVault',
+  name: 'AgentEscrow',
   version: '1',
   chainId: 8453, // Base
   verifyingContract: CONTRACT_ADDRESS as `0x${string}`,
 };
 
-// EIP-712 Types for withdrawal authorization (matches contract exactly)
-const EIP712_TYPES = {
+// EIP-712 Types for ETH withdrawal authorization (matches contract exactly)
+// Contract: 'Withdraw(bytes32 agentId,uint256 amount,address to,uint256 nonce,uint256 deadline)'
+const EIP712_TYPES_ETH = {
   Withdraw: [
     { name: 'agentId', type: 'bytes32' },
-    { name: 'developer', type: 'address' },
-    { name: 'to', type: 'address' },
     { name: 'amount', type: 'uint256' },
+    { name: 'to', type: 'address' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+};
+
+// EIP-712 Types for token withdrawal authorization (matches contract exactly)
+// Contract: 'WithdrawToken(bytes32 agentId,address token,uint256 amount,address to,uint256 nonce,uint256 deadline)'
+const EIP712_TYPES_TOKEN = {
+  WithdrawToken: [
+    { name: 'agentId', type: 'bytes32' },
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint256' },
+    { name: 'to', type: 'address' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
 };
 
 interface WithdrawRequest {
-  amount: string; // USD amount to withdraw
+  amount: string; // Amount to withdraw (USD for ETH, raw amount for tokens)
   toAddress: string; // Recipient address
+  tokenAddress?: string; // Optional: token address for token withdrawals
+  tokenSymbol?: string; // Optional: token symbol for token withdrawals
 }
 
-// Function to generate EIP-712 signature for withdrawal
+// Function to generate EIP-712 signature for ETH withdrawal
 async function generateWithdrawalSignature(
   agentIdHash: `0x${string}`,
   amount: bigint,
-  developer: `0x${string}`,
   to: `0x${string}`,
   deadline: bigint,
   nonce: bigint,
   privateKey: `0x${string}`,
 ): Promise<{ v: number; r: `0x${string}`; s: `0x${string}` }> {
   const account = privateKeyToAccount(privateKey);
-  console.log('account', account);
+  console.log('Signing ETH withdrawal with account:', account.address);
+  
   const message = {
     agentId: agentIdHash,
-    developer: developer,
-    to: to,
     amount: amount,
+    to: to,
     nonce: nonce,
     deadline: deadline,
   };
@@ -63,8 +78,47 @@ async function generateWithdrawalSignature(
   // Sign the EIP-712 message
   const signature = await account.signTypedData({
     domain: EIP712_DOMAIN,
-    types: EIP712_TYPES,
+    types: EIP712_TYPES_ETH,
     primaryType: 'Withdraw',
+    message: message,
+  });
+
+  // Parse the signature
+  const sig = signature.slice(2);
+  const r = `0x${sig.slice(0, 64)}` as `0x${string}`;
+  const s = `0x${sig.slice(64, 128)}` as `0x${string}`;
+  const v = parseInt(sig.slice(128, 130), 16);
+
+  return { v, r, s };
+}
+
+// Function to generate EIP-712 signature for token withdrawal
+async function generateTokenWithdrawalSignature(
+  agentIdHash: `0x${string}`,
+  tokenAddress: `0x${string}`,
+  amount: bigint,
+  to: `0x${string}`,
+  deadline: bigint,
+  nonce: bigint,
+  privateKey: `0x${string}`,
+): Promise<{ v: number; r: `0x${string}`; s: `0x${string}` }> {
+  const account = privateKeyToAccount(privateKey);
+  console.log('Signing token withdrawal with account:', account.address);
+  
+  const message = {
+    agentId: agentIdHash,
+    token: tokenAddress,
+    amount: amount,
+    to: to,
+    nonce: nonce,
+    deadline: deadline,
+  };
+
+  // Sign the EIP-712 message
+  const signature = await account.signTypedData({
+    domain: EIP712_DOMAIN,
+    types: EIP712_TYPES_TOKEN,
+    primaryType: 'WithdrawToken',
     message: message,
   });
 
@@ -93,7 +147,7 @@ export async function POST(
     }
 
     const body: WithdrawRequest = await request.json();
-    const { amount, toAddress } = body;
+    const { amount, toAddress, tokenAddress, tokenSymbol } = body;
 
     if (!amount || !toAddress) {
       return NextResponse.json(
@@ -101,6 +155,8 @@ export async function POST(
         { status: 400 },
       );
     }
+
+    const isTokenWithdrawal = !!tokenAddress;
 
     // Get agent details with user's wallet address
     const agent = await prisma.agent.findUnique({
@@ -138,71 +194,8 @@ export async function POST(
       );
     }
 
-    // Get current ETH price for conversion
-    const { priceService } = await import('@/lib/priceService');
-    let ethPrice: number;
-    try {
-      ethPrice = await priceService.getEthPrice();
-    } catch (error) {
-      console.error('Error getting ETH price:', error);
-      ethPrice = 3000; // Fallback price
-    }
-
-    // Convert USD amount to ETH
-    const usdAmount = parseFloat(amount);
-    const ethAmount = usdAmount / ethPrice;
-    const ethAmountWei = parseEther(ethAmount.toString());
-
-    // Get current agent balance from contract
     const publicClient = getPublicClient('base');
     const agentIdHash = keccak256(encodePacked(['string'], [agent.agentId]));
-
-    let currentBalance: bigint;
-    try {
-      currentBalance = (await publicClient.readContract({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: CONTRACT_ABI,
-        functionName: 'getAgentBalance',
-        args: [agentIdHash],
-      })) as unknown as bigint;
-    } catch {
-      // Fallback to agentBalance mapping
-      currentBalance = (await publicClient.readContract({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: CONTRACT_ABI,
-        functionName: 'agentBalance',
-        args: [agentIdHash],
-      })) as unknown as bigint;
-    }
-
-    const currentBalanceEth = Number(formatEther(currentBalance));
-    const requestedBalanceEth = ethAmount;
-
-    // Check if agent has sufficient balance
-    if (requestedBalanceEth > currentBalanceEth) {
-      return NextResponse.json(
-        {
-          error: 'Insufficient balance',
-          currentBalance: currentBalanceEth,
-          requestedAmount: requestedBalanceEth,
-        },
-        { status: 400 },
-      );
-    }
-
-    // Get withdrawal quote (fee calculation)
-    const quote = (await publicClient.readContract({
-      address: CONTRACT_ADDRESS as `0x${string}`,
-      abi: CONTRACT_ABI,
-      functionName: 'quoteWithdrawal',
-      args: [ethAmountWei],
-    })) as [bigint, bigint];
-
-    const [feeWei, netWei] = quote;
-    const feeEth = Number(formatEther(feeWei));
-    const netEth = Number(formatEther(netWei));
-    const feeUsd = feeEth * ethPrice;
-    const netUsd = netEth * ethPrice;
 
     // Get platform wallet private key from environment
     const platformPrivateKey = process.env.PLATFORM_WALLET_PRIVATE_KEY;
@@ -232,58 +225,263 @@ export async function POST(
       );
     }
 
-    // Get the current nonce for this developer from the contract
-    const publicClientForNonce = getPublicClient('base');
-    const currentNonce = (await publicClientForNonce.readContract({
+    // Get the developer address from the private key (this is who signs)
+    const signerAccount = privateKeyToAccount(formattedPrivateKey);
+    const developerAddress = signerAccount.address;
+    
+    console.log('Developer/Signer address:', developerAddress);
+
+    // Verify this is the correct developer for the agent
+    try {
+      const agentData = await publicClient.readContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: CONTRACT_ABI,
+        functionName: 'agents',
+        args: [agentIdHash],
+      }) as { developer: string; balance: bigint };
+      
+      console.log('On-chain agent developer:', agentData.developer);
+      
+      if (agentData.developer.toLowerCase() !== developerAddress.toLowerCase()) {
+        return NextResponse.json(
+          {
+            error: 'Platform wallet is not the developer of this agent',
+            platformWallet: developerAddress,
+            agentDeveloper: agentData.developer,
+          },
+          { status: 403 },
+        );
+      }
+    } catch (err) {
+      console.error('Error verifying agent developer:', err);
+    }
+
+    // Get the current nonce for the DEVELOPER (signer) from the contract
+    const currentNonce = (await publicClient.readContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: CONTRACT_ABI,
       functionName: 'nonces',
-      args: [userWalletAddress as `0x${string}`],
+      args: [developerAddress as `0x${string}`],
     })) as bigint;
+    
+    console.log('Developer nonce:', currentNonce.toString());
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
 
     try {
-      // Generate EIP-712 signature
-      const signature = await generateWithdrawalSignature(
-        agentIdHash,
-        ethAmountWei,
-        userWalletAddress as `0x${string}`, // Developer address (user's wallet)
-        toAddress as `0x${string}`, // Recipient address (user enters this)
-        deadline,
-        currentNonce,
-        formattedPrivateKey,
-      );
+      if (isTokenWithdrawal) {
+        // TOKEN WITHDRAWAL FLOW
+        const { parseUnits, formatUnits } = await import('viem');
+        
+        // Parse token amount (amount is raw token amount, not USD)
+        const tokenAmount = parseFloat(amount);
+        
+        console.log('Token withdrawal request:', {
+          rawAmount: amount,
+          parsedAmount: tokenAmount,
+        });
 
-      // Return signature data for frontend to execute
-      return NextResponse.json({
-        success: true,
-        signature: {
-          v: signature.v,
-          r: signature.r,
-          s: signature.s,
-        },
-        withdrawal: {
-          agentId: agentIdHash,
-          amount: ethAmountWei.toString(),
-          to: toAddress,
-          deadline: deadline.toString(),
-          totalAmount: {
-            eth: ethAmount,
-            usd: usdAmount,
+        // Get current token balance from contract FIRST
+        let currentTokenBalance: bigint;
+        try {
+          currentTokenBalance = (await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'agentTokenBalance',
+            args: [agentIdHash, tokenAddress as `0x${string}`],
+          })) as unknown as bigint;
+        } catch (err) {
+          console.error('Error fetching token balance:', err);
+          currentTokenBalance = BigInt(0);
+        }
+
+        console.log('Current token balance (wei):', currentTokenBalance.toString());
+        
+        const currentTokenBalanceFormatted = Number(formatUnits(currentTokenBalance, 18));
+        console.log('Current token balance (formatted):', currentTokenBalanceFormatted);
+
+        // Use the actual on-chain balance if user requested max (within 0.01% tolerance)
+        let tokenAmountWei: bigint;
+        const tolerance = currentTokenBalanceFormatted * 0.0001; // 0.01% tolerance
+        
+        if (Math.abs(tokenAmount - currentTokenBalanceFormatted) < tolerance || tokenAmount >= currentTokenBalanceFormatted) {
+          // User wants max - use exact on-chain balance
+          tokenAmountWei = currentTokenBalance;
+          console.log('Using exact on-chain balance for max withdrawal');
+        } else {
+          // Parse the requested amount
+          try {
+            const roundedAmount = tokenAmount.toFixed(6);
+            tokenAmountWei = parseUnits(roundedAmount, 18);
+          } catch {
+            tokenAmountWei = parseUnits(Math.floor(tokenAmount).toString(), 18);
+          }
+        }
+
+        console.log('Token amount to withdraw (wei):', tokenAmountWei.toString());
+
+        // Compare using BigInt to avoid precision loss
+        if (tokenAmountWei > currentTokenBalance) {
+          return NextResponse.json(
+            {
+              error: 'Insufficient token balance',
+              currentBalance: currentTokenBalanceFormatted,
+              requestedAmount: tokenAmount,
+              requestedWei: tokenAmountWei.toString(),
+              balanceWei: currentTokenBalance.toString(),
+            },
+            { status: 400 },
+          );
+        }
+
+        // Calculate fee (use same fee structure as ETH)
+        const platformFeeBps = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI,
+          functionName: 'platformFeeBps',
+        })) as number;
+
+        const fee = (tokenAmount * platformFeeBps) / 10000;
+        const net = tokenAmount - fee;
+
+        // Generate EIP-712 signature for token withdrawal
+        const signature = await generateTokenWithdrawalSignature(
+          agentIdHash,
+          tokenAddress as `0x${string}`,
+          tokenAmountWei,
+          toAddress as `0x${string}`,
+          deadline,
+          currentNonce,
+          formattedPrivateKey,
+        );
+
+        // Return signature data for frontend to execute
+        return NextResponse.json({
+          success: true,
+          isTokenWithdrawal: true,
+          signature: {
+            v: signature.v,
+            r: signature.r,
+            s: signature.s,
           },
-          fee: {
-            eth: feeEth,
-            usd: feeUsd,
+          withdrawal: {
+            agentId: agentIdHash,
+            tokenAddress: tokenAddress,
+            tokenSymbol: tokenSymbol || 'TOKEN',
+            amount: tokenAmountWei.toString(),
+            to: toAddress,
+            deadline: deadline.toString(),
+            totalAmount: tokenAmount,
+            fee: fee,
+            net: net,
+            recipient: toAddress,
           },
-          net: {
-            eth: netEth,
-            usd: netUsd,
+          message: 'Token withdrawal signature generated',
+        });
+      } else {
+        // ETH WITHDRAWAL FLOW
+        const { priceService } = await import('@/lib/priceService');
+        let ethPrice: number;
+        try {
+          ethPrice = await priceService.getEthPrice();
+        } catch (error) {
+          console.error('Error getting ETH price:', error);
+          ethPrice = 3000; // Fallback price
+        }
+
+        // Convert USD amount to ETH
+        const usdAmount = parseFloat(amount);
+        const ethAmount = usdAmount / ethPrice;
+        const ethAmountWei = parseEther(ethAmount.toString());
+
+        // Get current ETH balance from contract
+        let currentBalance: bigint;
+        try {
+          currentBalance = (await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'getAgentBalance',
+            args: [agentIdHash],
+          })) as unknown as bigint;
+        } catch {
+          currentBalance = (await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'agentBalance',
+            args: [agentIdHash],
+          })) as unknown as bigint;
+        }
+
+        const currentBalanceEth = Number(formatEther(currentBalance));
+        const requestedBalanceEth = ethAmount;
+
+        // Check if agent has sufficient balance
+        if (requestedBalanceEth > currentBalanceEth) {
+          return NextResponse.json(
+            {
+              error: 'Insufficient balance',
+              currentBalance: currentBalanceEth,
+              requestedAmount: requestedBalanceEth,
+            },
+            { status: 400 },
+          );
+        }
+
+        // Get withdrawal quote (fee calculation)
+        const quote = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI,
+          functionName: 'quoteWithdrawal',
+          args: [ethAmountWei],
+        })) as [bigint, bigint];
+
+        const [feeWei, netWei] = quote;
+        const feeEth = Number(formatEther(feeWei));
+        const netEth = Number(formatEther(netWei));
+        const feeUsd = feeEth * ethPrice;
+        const netUsd = netEth * ethPrice;
+
+        // Generate EIP-712 signature for ETH withdrawal
+        const signature = await generateWithdrawalSignature(
+          agentIdHash,
+          ethAmountWei,
+          toAddress as `0x${string}`,
+          deadline,
+          currentNonce,
+          formattedPrivateKey,
+        );
+
+        // Return signature data for frontend to execute
+        return NextResponse.json({
+          success: true,
+          isTokenWithdrawal: false,
+          signature: {
+            v: signature.v,
+            r: signature.r,
+            s: signature.s,
           },
-          recipient: toAddress,
-        },
-        message: 'Signature generated',
-      });
+          withdrawal: {
+            agentId: agentIdHash,
+            amount: ethAmountWei.toString(),
+            to: toAddress,
+            deadline: deadline.toString(),
+            totalAmount: {
+              eth: ethAmount,
+              usd: usdAmount,
+            },
+            fee: {
+              eth: feeEth,
+              usd: feeUsd,
+            },
+            net: {
+              eth: netEth,
+              usd: netUsd,
+            },
+            recipient: toAddress,
+          },
+          message: 'Signature generated',
+        });
+      }
     } catch (error) {
       console.error('Error executing withdrawal:', error);
       return NextResponse.json(

@@ -23,4 +23,9 @@ build
 
 # IDE
 .idea
-.vscode 
+.vscode
+
+# Hardhat (auto-generated)
+artifacts/
+cache/
+typechain-types/

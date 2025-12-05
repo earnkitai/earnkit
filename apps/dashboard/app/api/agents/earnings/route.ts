@@ -49,8 +49,13 @@ export async function GET(request: NextRequest) {
           0,
         );
 
-        // Calculate top-up earnings (convert from ETH to USD)
+        // Calculate top-up earnings (use amountInUSD for accuracy, includes tokens)
         const topUpEarnings = agent.topUpTransactions.reduce((sum, topUp) => {
+          // Prefer amountInUSD (works for both ETH and token payments)
+          if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
+            return sum + parseFloat(topUp.amountInUSD);
+          }
+          // Fallback to ETH conversion
           const ethAmount = parseFloat(topUp.amountInEth);
           const usdAmount = ethAmount * ethPrice;
           return sum + usdAmount;
