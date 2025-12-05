@@ -24,14 +24,27 @@ const DEFAULT_TOKEN_CONFIGS: AgentTokenConfig[] = [
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { agentId } = req.params as { agentId: string };
+    console.log('[TokenConfig] GET request for agentId param:', agentId);
 
-    // Find agent by agentId (external ID)
-    const agent = await prisma.agent.findUnique({
-      where: { agentId },
+    // Try to find agent by UUID (id) first, then fall back to external agentId
+    let agent = await prisma.agent.findUnique({
+      where: { id: agentId },
       select: { id: true },
     });
 
     if (!agent) {
+      // Fallback: try by external agentId (slug)
+      console.log('[TokenConfig] Not found by UUID, trying external agentId...');
+      agent = await prisma.agent.findUnique({
+        where: { agentId },
+        select: { id: true },
+      });
+    }
+
+    console.log('[TokenConfig] Found agent:', agent);
+
+    if (!agent) {
+      console.log('[TokenConfig] Agent not found by either UUID or agentId');
       return res.status(404).json({
         success: false,
         message: `Agent with agentId ${agentId} not found`,
@@ -86,6 +99,7 @@ router.put('/', async (req: Request, res: Response) => {
   try {
     const { agentId } = req.params as { agentId: string };
     const { configs } = req.body as { configs: AgentTokenConfig[] };
+    console.log('[TokenConfig] PUT request for agentId param:', agentId);
 
     if (!configs || !Array.isArray(configs)) {
       return res.status(400).json({
@@ -94,13 +108,25 @@ router.put('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Find agent by agentId (external ID)
-    const agent = await prisma.agent.findUnique({
-      where: { agentId },
+    // Try to find agent by UUID (id) first, then fall back to external agentId
+    let agent = await prisma.agent.findUnique({
+      where: { id: agentId },
       select: { id: true },
     });
 
     if (!agent) {
+      // Fallback: try by external agentId (slug)
+      console.log('[TokenConfig] Not found by UUID, trying external agentId...');
+      agent = await prisma.agent.findUnique({
+        where: { agentId },
+        select: { id: true },
+      });
+    }
+
+    console.log('[TokenConfig] Found agent:', agent);
+
+    if (!agent) {
+      console.log('[TokenConfig] Agent not found by either UUID or agentId');
       return res.status(404).json({
         success: false,
         message: `Agent with agentId ${agentId} not found`,
