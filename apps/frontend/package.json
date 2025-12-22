@@ -14,7 +14,7 @@
     "@notion-render/hljs-plugin": "^0.0.2",
     "@notionhq/client": "^2.2.16",
     "framer-motion": "^12.12.1",
-    "next": "15.1.6",
+    "next": "16.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-fast-marquee": "^1.6.5"
