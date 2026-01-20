@@ -5,7 +5,6 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import {
   createWalletClient,
   custom,
-  parseEther,
   createPublicClient,
   http,
 } from 'viem';
@@ -99,6 +98,8 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     };
   };
 
+  // Execute ETH withdrawal using withdrawWithSig (gasless with platform signature)
+  // Any wallet can pay gas, funds go to the specified recipient (can be multisig)
   const executeWithdrawal = async (withdrawData: WithdrawData) => {
     if (!ready || !authenticated || !user) {
       throw new Error('User not authenticated');
@@ -107,8 +108,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     setLoading(true);
 
     try {
-      // Get the user's wallet from Privy
-      // const wallet = wallets[0];
+      // Get the user's wallet from Privy (this wallet pays gas, not necessarily the recipient)
       const wallet = wallets.find(
         (wallet) => wallet.connectorType === 'injected',
       );
@@ -117,39 +117,71 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('No wallet connected');
       }
 
-      // Get the Ethereum provider from Privy
-      const provider = await wallet.getEthereumProvider();
+      // Step 1: Get signature from backend
+      console.log('Requesting ETH withdrawal signature from backend...');
+      const signatureResponse = await fetch(`/api/agents/${agentDbId}/withdraw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: withdrawData.amount, // USD amount
+          toAddress: withdrawData.to,
+        }),
+      });
 
-      // Create wallet client using Privy's provider
+      if (!signatureResponse.ok) {
+        const errorData = await signatureResponse.json();
+        throw new Error(errorData.error || 'Failed to get withdrawal signature');
+      }
+
+      const signatureData = await signatureResponse.json();
+      console.log('Signature data received:', signatureData);
+
+      if (!signatureData.success || !signatureData.signature) {
+        throw new Error('Invalid signature response from server');
+      }
+
+      // Step 2: Execute withdrawWithSig with the platform's signature
+      const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
         chain: base,
         transport: custom(provider),
       });
 
-      // Convert agentId to bytes32
-      const { keccak256, encodePacked } = await import('viem');
-      const agentIdBytes32 = keccak256(
-        encodePacked(['string'], [withdrawData.agentId]),
-      );
+      const { v, r, s } = signatureData.signature;
+      const { agentId: agentIdBytes32, amount, to, deadline } = signatureData.withdrawal;
 
-      // Convert USD amount to ETH and then to wei for contract
-      const usdAmount = parseFloat(withdrawData.amount);
-      const ethAmount = await convertUsdToEth(usdAmount);
-      const amountInWei = parseEther(ethAmount);
+      console.log('Executing withdrawWithSig with params:', {
+        agentIdBytes32,
+        amount,
+        to,
+        deadline,
+        v,
+        r,
+        s,
+      });
 
-      // Execute the withdrawal transaction
+      // Execute the ETH withdrawal transaction with signature
       const txHash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: CONTRACT_ABI,
-        functionName: 'withdraw',
-        args: [agentIdBytes32, amountInWei, withdrawData.to as `0x${string}`],
+        functionName: 'withdrawWithSig',
+        args: [
+          agentIdBytes32 as `0x${string}`,
+          BigInt(amount),
+          to as `0x${string}`,
+          BigInt(deadline),
+          v,
+          r as `0x${string}`,
+          s as `0x${string}`,
+        ],
       });
 
-      // Calculate fees for database recording (in USD)
-      const feeCalculation = await calculateFees(usdAmount);
+      console.log('ETH withdrawal transaction hash:', txHash);
 
-      // Record the transaction in the database (using USD values)
+      // Record the transaction in the database
       try {
         await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
           method: 'POST',
@@ -160,10 +192,10 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
             transactionHash: txHash,
             agentId: withdrawData.agentId,
             fromAddress: wallet.address,
-            fee: feeCalculation.fee,
-            netAmount: feeCalculation.net,
+            fee: signatureData.withdrawal.fee.usd,
+            netAmount: signatureData.withdrawal.net.usd,
             toAddress: withdrawData.to,
-            amount: usdAmount,
+            amount: signatureData.withdrawal.totalAmount.usd,
           }),
         });
       } catch (error) {
