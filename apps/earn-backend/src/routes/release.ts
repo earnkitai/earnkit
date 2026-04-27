@@ -18,8 +18,9 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { eventId } = req.body;
+      const userId = (req as any).user?.id;
 
-      const result = await eventService.release({ eventId });
+      const result = await eventService.release({ eventId, userId });
 
       res.json({
         success: result.success,

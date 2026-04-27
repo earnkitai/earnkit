@@ -5,6 +5,7 @@ import releaseRoutes from './release';
 import balanceRoutes from './balance';
 import topUpDetailsRoutes from './topUpDetails';
 import tokenConfigRoutes from './tokenConfig';
+import paymentIntentRoutes from './paymentIntents';
 import debugRoutes from './debug';
 
 const router: Router = Router();
@@ -15,6 +16,7 @@ router.use('/capture', captureRoutes);
 router.use('/release', releaseRoutes);
 router.use('/balance', balanceRoutes);
 router.use('/top-up-details', topUpDetailsRoutes);
+router.use('/payment-intents', paymentIntentRoutes);
 router.use('/agents/:agentId/token-config', tokenConfigRoutes); // Token config routes
 
 // Debug routes (only in development)

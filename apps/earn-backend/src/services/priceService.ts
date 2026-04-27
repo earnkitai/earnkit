@@ -22,8 +22,7 @@ export class PriceService {
   private readonly COINGECKO_API_URL: string;
 
   constructor() {
-    this.ALCHEMY_API_KEY =
-      process.env.ALCHEMY_API_KEY || 'LXjhr7UM3pL_Cro_wt6ph4cd-c_0x9bo';
+    this.ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || '';
     
     // CoinGecko API configuration
     // If API key is provided, use Pro API with better rate limits
@@ -54,6 +53,10 @@ export class PriceService {
 
     try {
       console.log('Fetching fresh ETH price from Alchemy API...');
+
+      if (!this.ALCHEMY_API_KEY) {
+        throw new Error('ALCHEMY_API_KEY is not configured');
+      }
 
       const response = await fetch(`${this.ALCHEMY_API_URL}?symbols=ETH`, {
         method: 'GET',

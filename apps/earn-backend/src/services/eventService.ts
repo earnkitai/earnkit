@@ -17,124 +17,179 @@ export class EventService {
     creditsRequired: number;
     creditsAvailable: number;
   }> {
-    const { agentId, walletAddress, idempotencyKey, creditsToDeduct } = params;
+    const { agentId, walletAddress, idempotencyKey, creditsToDeduct, userId } =
+      params;
 
-    // First, get the agent's internal ID and creditsPerPrompt using the agent_id field
-    const agent = await prisma.agent.findUnique({
-      where: {
-        agentId: agentId,
-      },
-      select: {
-        id: true,
-        creditsPerPrompt: true,
-      },
-    });
-
-    if (!agent) {
-      throw new Error(`Agent with agentId ${agentId} not found`);
-    }
-
-    const internalAgentId = agent.id;
-
-    // Use the agent's creditsPerPrompt if not specified in params, fallback to 1 if not set
-    const creditsToDeductFinal = creditsToDeduct ?? agent.creditsPerPrompt ?? 1;
-
-    // Check for idempotency
-    if (idempotencyKey) {
-      const existingEvent = await prisma.usageEvent.findFirst({
+    return prisma.$transaction(async (tx) => {
+      const agent = await tx.agent.findFirst({
         where: {
-          agentId: internalAgentId,
-          idempotencyKey,
+          agentId,
+          ...(userId ? { userId } : {}),
+        },
+        select: {
+          id: true,
+          creditsPerPrompt: true,
         },
       });
-      if (existingEvent) {
-        return {
-          eventId: existingEvent.id,
-          insufficientCredits: false,
-          creditsRequired: 0,
-          creditsAvailable: 0,
-        };
+
+      if (!agent) {
+        throw new Error(`Agent with agentId ${agentId} not found`);
       }
-    }
 
-    // Get or create user balance
-    let userBalance = await prisma.userBalance.findUnique({
-      where: {
-        userWalletAddress_agentId: {
-          userWalletAddress: walletAddress,
-          agentId: internalAgentId,
-        },
-      },
-    });
+      const internalAgentId = agent.id;
+      const creditsToDeductFinal =
+        creditsToDeduct ?? agent.creditsPerPrompt ?? 1;
+      const creditsToDeductBigInt = BigInt(creditsToDeductFinal);
 
-    if (!userBalance) {
-      // Create new user balance with default credits
-      userBalance = await prisma.userBalance.create({
-        data: {
-          userWalletAddress: walletAddress,
-          agentId: internalAgentId,
-          creditBalance: BigInt(100), // Default 100 credits
-          ethBalance: 0,
-        },
-      });
-    }
+      if (idempotencyKey) {
+        const existingEvent = await tx.usageEvent.findFirst({
+          where: {
+            agentId: internalAgentId,
+            idempotencyKey,
+          },
+        });
 
-    // Check if user has enough credits
-    const currentCredits = Number(userBalance.creditBalance);
-    const hasInsufficientCredits = currentCredits < creditsToDeductFinal;
+        if (existingEvent) {
+          return {
+            eventId: existingEvent.id,
+            insufficientCredits: existingEvent.status === 'INSUFFICIENT_CREDITS',
+            creditsRequired: Number(existingEvent.creditsDeducted || 0),
+            creditsAvailable: 0,
+          };
+        }
+      }
 
-    // Create new event
-    const eventId = uuidv4();
-    const event = await prisma.usageEvent.create({
-      data: {
-        id: eventId,
-        agentId: internalAgentId,
-        userWalletAddress: walletAddress,
-        idempotencyKey,
-        creditsDeducted: BigInt(
-          hasInsufficientCredits ? 0 : creditsToDeductFinal,
-        ),
-        status: hasInsufficientCredits
-          ? ('INSUFFICIENT_CREDITS' as const)
-          : ('PENDING' as const),
-      },
-    });
-
-    // Only deduct credits if user has enough
-    if (!hasInsufficientCredits) {
-      await prisma.userBalance.update({
+      let userBalance = await tx.userBalance.findUnique({
         where: {
           userWalletAddress_agentId: {
             userWalletAddress: walletAddress,
             agentId: internalAgentId,
           },
         },
+      });
+
+      if (!userBalance) {
+        userBalance = await tx.userBalance.create({
+          data: {
+            userWalletAddress: walletAddress,
+            agentId: internalAgentId,
+            creditBalance: BigInt(100),
+            ethBalance: 0,
+          },
+        });
+      }
+
+      const currentCredits = userBalance.creditBalance;
+      const hasInsufficientCredits = currentCredits < creditsToDeductBigInt;
+      const eventId = uuidv4();
+
+      if (hasInsufficientCredits) {
+        const event = await tx.usageEvent.create({
+          data: {
+            id: eventId,
+            agentId: internalAgentId,
+            userWalletAddress: walletAddress,
+            idempotencyKey,
+            creditsDeducted: BigInt(0),
+            status: 'INSUFFICIENT_CREDITS',
+          },
+        });
+
+        return {
+          eventId: event.id,
+          insufficientCredits: true,
+          creditsRequired: creditsToDeductFinal,
+          creditsAvailable: Number(currentCredits),
+        };
+      }
+
+      const updatedBalance = await tx.userBalance.updateMany({
+        where: {
+          userWalletAddress: walletAddress,
+          agentId: internalAgentId,
+          creditBalance: {
+            gte: creditsToDeductBigInt,
+          },
+        },
         data: {
-          creditBalance: BigInt(currentCredits - creditsToDeductFinal),
+          creditBalance: {
+            decrement: creditsToDeductBigInt,
+          },
         },
       });
-    }
 
-    return {
-      eventId: event.id,
-      insufficientCredits: hasInsufficientCredits,
-      creditsRequired: creditsToDeductFinal,
-      creditsAvailable: currentCredits,
-    };
+      if (updatedBalance.count === 0) {
+        const freshBalance = await tx.userBalance.findUnique({
+          where: {
+            userWalletAddress_agentId: {
+              userWalletAddress: walletAddress,
+              agentId: internalAgentId,
+            },
+          },
+        });
+
+        const event = await tx.usageEvent.create({
+          data: {
+            id: eventId,
+            agentId: internalAgentId,
+            userWalletAddress: walletAddress,
+            idempotencyKey,
+            creditsDeducted: BigInt(0),
+            status: 'INSUFFICIENT_CREDITS',
+          },
+        });
+
+        return {
+          eventId: event.id,
+          insufficientCredits: true,
+          creditsRequired: creditsToDeductFinal,
+          creditsAvailable: Number(freshBalance?.creditBalance || 0),
+        };
+      }
+
+      const event = await tx.usageEvent.create({
+        data: {
+          id: eventId,
+          agentId: internalAgentId,
+          userWalletAddress: walletAddress,
+          idempotencyKey,
+          creditsDeducted: creditsToDeductBigInt,
+          status: 'PENDING',
+        },
+      });
+
+      return {
+        eventId: event.id,
+        insufficientCredits: false,
+        creditsRequired: creditsToDeductFinal,
+        creditsAvailable: Number(currentCredits),
+      };
+    });
   }
 
   /**
    * Captures a tracked event, finalizing the charge
    */
   async capture(params: CaptureParams): Promise<{ success: boolean }> {
-    const { eventId } = params;
+    const { eventId, userId } = params;
 
     const event = await prisma.usageEvent.findUnique({
       where: { id: eventId },
+      include: {
+        agent: {
+          select: {
+            userId: true,
+          },
+        },
+      },
     });
 
     if (!event) {
       throw new Error(`Event not found: ${eventId}`);
+    }
+
+    if (userId && event.agent.userId !== userId) {
+      throw new Error('Event not found for this API key');
     }
 
     if (event.status === ('INSUFFICIENT_CREDITS' as const)) {
@@ -149,11 +204,14 @@ export class EventService {
       );
     }
 
-    // Update event status
-    await prisma.usageEvent.update({
-      where: { id: eventId },
+    const update = await prisma.usageEvent.updateMany({
+      where: { id: eventId, status: 'PENDING' },
       data: { status: 'COMPLETED' },
     });
+
+    if (update.count === 0) {
+      throw new Error(`Event cannot be captured. Current status: ${event.status}`);
+    }
 
     return { success: true };
   }
@@ -162,45 +220,55 @@ export class EventService {
    * Releases a tracked event, refunding provisionally held credits
    */
   async release(params: ReleaseParams): Promise<{ success: boolean }> {
-    const { eventId } = params;
+    const { eventId, userId } = params;
 
-    const event = await prisma.usageEvent.findUnique({
-      where: { id: eventId },
-    });
-
-    if (!event) {
-      throw new Error(`Event not found: ${eventId}`);
-    }
-
-    if (event.status === ('INSUFFICIENT_CREDITS' as const)) {
-      // For insufficient credits events, just update status to cancelled (no refund needed)
-      await prisma.usageEvent.update({
+    return prisma.$transaction(async (tx) => {
+      const event = await tx.usageEvent.findUnique({
         where: { id: eventId },
-        data: { status: 'CANCELLED' },
-      });
-      return { success: true };
-    }
-
-    if (event.status !== 'PENDING') {
-      throw new Error(
-        `Event cannot be released. Current status: ${event.status}`,
-      );
-    }
-
-    // Refund credits
-    if (event.creditsDeducted) {
-      const userBalance = await prisma.userBalance.findUnique({
-        where: {
-          userWalletAddress_agentId: {
-            userWalletAddress: event.userWalletAddress,
-            agentId: event.agentId,
+        include: {
+          agent: {
+            select: {
+              userId: true,
+            },
           },
         },
       });
 
-      if (userBalance) {
-        const currentCredits = Number(userBalance.creditBalance);
-        await prisma.userBalance.update({
+      if (!event) {
+        throw new Error(`Event not found: ${eventId}`);
+      }
+
+      if (userId && event.agent.userId !== userId) {
+        throw new Error('Event not found for this API key');
+      }
+
+      if (event.status === ('INSUFFICIENT_CREDITS' as const)) {
+        await tx.usageEvent.update({
+          where: { id: eventId },
+          data: { status: 'CANCELLED' },
+        });
+        return { success: true };
+      }
+
+      if (event.status !== 'PENDING') {
+        throw new Error(
+          `Event cannot be released. Current status: ${event.status}`,
+        );
+      }
+
+      const update = await tx.usageEvent.updateMany({
+        where: { id: eventId, status: 'PENDING' },
+        data: { status: 'CANCELLED' },
+      });
+
+      if (update.count === 0) {
+        throw new Error(
+          `Event cannot be released. Current status: ${event.status}`,
+        );
+      }
+
+      if (event.creditsDeducted && event.creditsDeducted > BigInt(0)) {
+        await tx.userBalance.update({
           where: {
             userWalletAddress_agentId: {
               userWalletAddress: event.userWalletAddress,
@@ -208,21 +276,15 @@ export class EventService {
             },
           },
           data: {
-            creditBalance: BigInt(
-              currentCredits + Number(event.creditsDeducted),
-            ),
+            creditBalance: {
+              increment: event.creditsDeducted,
+            },
           },
         });
       }
-    }
 
-    // Update event status
-    await prisma.usageEvent.update({
-      where: { id: eventId },
-      data: { status: 'CANCELLED' },
+      return { success: true };
     });
-
-    return { success: true };
   }
 
   /**

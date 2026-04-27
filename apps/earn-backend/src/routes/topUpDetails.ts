@@ -26,7 +26,10 @@ router.get('/', validateApiKey, async (req: Request, res: Response) => {
       throw new AppError('agentId query parameter is required', 400);
     }
 
-    const result = await topUpService.getTopUpDetails(agentId);
+    const result = await topUpService.getTopUpDetails(
+      agentId,
+      (req as any).user?.id,
+    );
 
     res.json(result);
   } catch (error) {
@@ -57,6 +60,9 @@ router.post(
         amountInUSD,
         amountInEth,
         creditsToTopUp,
+        tokenAddress,
+        tokenSymbol,
+        amountInToken,
       } = req.body;
 
       const result = await topUpService.submitTopUpTransaction({
@@ -66,6 +72,10 @@ router.post(
         amountInUSD,
         amountInEth,
         creditsToTopUp,
+        tokenAddress,
+        tokenSymbol,
+        amountInToken,
+        userId: (req as any).user?.id,
       });
 
       res.json(result);

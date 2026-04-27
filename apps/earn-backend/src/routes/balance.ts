@@ -26,7 +26,11 @@ router.get('/', validateApiKey, async (req: Request, res: Response) => {
       throw new AppError('walletAddress must start with 0x', 400);
     }
 
-    const balance = await balanceService.getBalance(walletAddress, agentId);
+    const balance = await balanceService.getBalance(
+      walletAddress,
+      agentId,
+      (req as any).user?.id,
+    );
 
     res.json(balance);
   } catch (error) {

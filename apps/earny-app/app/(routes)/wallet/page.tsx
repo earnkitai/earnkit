@@ -51,9 +51,9 @@ export default function WalletPage() {
     const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
     const { ethPrice } = useTokenPrice();
 
-    // Test agent configuration - replace with your actual values
-    const TEST_AGENT_ID = process.env.NEXT_PUBLIC_TEST_AGENT_ID || 'agent_test_123';
-    const TEST_API_KEY = process.env.NEXT_PUBLIC_EARNKIT_API_KEY || 'ek_ee6c68a622ff6131a77b1e9bd53f0c99';
+    // Test agent configuration for local/demo credit top-ups.
+    const TEST_AGENT_ID = process.env.NEXT_PUBLIC_TEST_AGENT_ID || '';
+    const TEST_API_KEY = process.env.NEXT_PUBLIC_EARNKIT_API_KEY || '';
     const EARN_BACKEND_URL = process.env.NEXT_PUBLIC_EARN_BACKEND_URL || 'http://localhost:3000';
     const [tokens, setTokens] = useState<TokenBalance[]>([]);
     const [ethBalance, setEthBalance] = useState<number | null>(null);
@@ -71,7 +71,7 @@ export default function WalletPage() {
 
     // Fetch EarnKit credits balance
     const fetchCredits = async () => {
-        if (!walletAddress) return;
+        if (!walletAddress || !TEST_AGENT_ID || !TEST_API_KEY) return;
         try {
             const res = await fetch(
                 `${EARN_BACKEND_URL}/api/balance?agentId=${TEST_AGENT_ID}&walletAddress=${walletAddress}`,
@@ -293,4 +293,4 @@ export default function WalletPage() {
             <Toaster />
         </section>
     );
-} 
+}

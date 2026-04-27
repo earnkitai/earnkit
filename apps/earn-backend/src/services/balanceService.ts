@@ -8,11 +8,13 @@ export class BalanceService {
   async getBalance(
     walletAddress: string,
     agentId: string,
+    userId?: string,
   ): Promise<UserBalance> {
     // First, get the agent's internal ID using the agent_id field
-    const agent = await prisma.agent.findUnique({
+    const agent = await prisma.agent.findFirst({
       where: {
-        agentId: agentId,
+        agentId,
+        ...(userId ? { userId } : {}),
       },
       select: {
         id: true,
@@ -38,7 +40,7 @@ export class BalanceService {
         data: {
           userWalletAddress: walletAddress,
           agentId: agent.id, // Use the internal ID, not the agent_id
-          creditBalance: BigInt(10), // Default 0 credits
+          creditBalance: BigInt(100),
           ethBalance: 0,
         },
       });

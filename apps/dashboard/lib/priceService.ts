@@ -14,8 +14,7 @@ class PriceService {
   private readonly CACHE_DURATION = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
   private readonly API_URL =
     'https://api.g.alchemy.com/prices/v1/tokens/by-symbol';
-  private readonly API_KEY =
-    process.env.ALCHEMY_API_KEY || 'LXjhr7UM3pL_Cro_wt6ph4cd-c_0x9bo';
+  private readonly API_KEY = process.env.ALCHEMY_API_KEY || '';
 
   private isCacheValid(): boolean {
     if (!this.cache) return false;
@@ -25,6 +24,10 @@ class PriceService {
 
   private async fetchPrices(): Promise<TokenPrice[]> {
     try {
+      if (!this.API_KEY) {
+        throw new Error('ALCHEMY_API_KEY is not configured');
+      }
+
       const response = await fetch(`${this.API_URL}?symbols=ETH`, {
         headers: {
           accept: 'application/json',

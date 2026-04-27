@@ -13,7 +13,6 @@ import { prisma } from '../lib/prisma';
 import { BalanceService } from './balanceService';
 import { priceService } from './priceService';
 import { tokenService, SupportedToken } from './tokenService';
-import { PrivyClient } from '@privy-io/server-auth';
 import {
   createPublicClient,
   http,
@@ -62,15 +61,9 @@ const DEFAULT_TOKEN_CONFIGS: AgentTokenConfig[] = [
 
 export class TopUpService {
   private balanceService: BalanceService;
-  private privyClient: PrivyClient;
 
   constructor(balanceService: BalanceService) {
     this.balanceService = balanceService;
-    // Initialize Privy client with environment variables
-    this.privyClient = new PrivyClient(
-      process.env.PRIVY_APP_ID || '',
-      process.env.PRIVY_APP_SECRET || '',
-    );
   }
 
   /**
@@ -121,11 +114,15 @@ export class TopUpService {
   /**
    * Get top-up options for an agent with multi-token support
    */
-  async getTopUpDetails(agentId: string): Promise<TopUpDetailsResponse> {
+  async getTopUpDetails(
+    agentId: string,
+    userId?: string,
+  ): Promise<TopUpDetailsResponse> {
     // First, get the agent's internal ID using the agent_id field
-    const agent = await prisma.agent.findUnique({
+    const agent = await prisma.agent.findFirst({
       where: {
-        agentId: agentId,
+        agentId,
+        ...(userId ? { userId } : {}),
       },
       select: {
         id: true,
@@ -335,12 +332,14 @@ export class TopUpService {
       tokenAddress,
       tokenSymbol,
       amountInToken,
+      userId,
     } = params;
 
     // First, get the agent's internal ID using the agent_id field
-    const agent = await prisma.agent.findUnique({
+    const agent = await prisma.agent.findFirst({
       where: {
-        agentId: agentId,
+        agentId,
+        ...(userId ? { userId } : {}),
       },
       select: {
         id: true,

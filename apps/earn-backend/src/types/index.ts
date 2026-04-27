@@ -10,6 +10,7 @@ export interface TrackParams {
   walletAddress: string;
   idempotencyKey?: string;
   creditsToDeduct?: number;
+  userId?: string;
 }
 
 export interface TrackSuccessResponse {
@@ -24,6 +25,7 @@ export interface TrackSuccessResponse {
 
 export interface CaptureParams {
   eventId: string;
+  userId?: string;
 }
 
 export interface CaptureSuccessResponse {
@@ -33,6 +35,7 @@ export interface CaptureSuccessResponse {
 
 export interface ReleaseParams {
   eventId: string;
+  userId?: string;
 }
 
 export interface ReleaseSuccessResponse {
@@ -138,6 +141,7 @@ export interface SubmitTopUpParams {
   tokenAddress?: string; // If paying with ERC-20 token
   tokenSymbol?: string; // Token symbol (e.g., 'MINIDEV')
   amountInToken?: string; // Amount in token's smallest unit
+  userId?: string;
 }
 
 export interface SubmitTopUpResponse {

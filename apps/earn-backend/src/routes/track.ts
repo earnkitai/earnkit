@@ -23,12 +23,14 @@ router.post(
     try {
       const { agentId, walletAddress, idempotencyKey, creditsToDeduct } =
         req.body;
+      const userId = (req as any).user?.id;
 
       const result = await eventService.track({
         agentId,
         walletAddress,
         idempotencyKey,
         creditsToDeduct,
+        userId,
       });
 
       res.json({

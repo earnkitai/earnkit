@@ -303,6 +303,9 @@ model Agent {
   usageEvents         UsageEvent[]
   userBalances        UserBalance[]
   tokenConfigs        AgentTokenConfig[]
+  paymentIntents      PaymentIntent[]
+  ledgerEntries       LedgerEntry[]
+  webhookEndpoints    WebhookEndpoint[]
 
   @@index([userId])
   @@index([agentId])
@@ -418,6 +421,109 @@ model TopUpTransaction {
   @@map("top_up_transactions")
 }
 
+model PaymentIntent {
+  id                    String              @id @default(cuid())
+  agentId               String              @map("agent_id")
+  clientSecret          String              @unique @map("client_secret")
+  externalReference     String?             @map("external_reference")
+  status                PaymentIntentStatus @default(CREATED)
+  customerWalletAddress String?             @map("customer_wallet_address")
+  amountInUSD           Decimal?            @map("amount_in_usd")
+  creditsToTopUp        BigInt?             @map("credits_to_top_up")
+  paymentMethodType     PaymentMethodType   @default(ETH) @map("payment_method_type")
+  tokenAddress          String?             @map("token_address")
+  tokenSymbol           String?             @map("token_symbol")
+  amountAtomic          String              @map("amount_atomic")
+  chainId               Int                 @map("chain_id")
+  txHash                String?             @unique @map("tx_hash")
+  metadata              Json?
+  expiresAt             DateTime?           @map("expires_at")
+  confirmedAt           DateTime?           @map("confirmed_at")
+  cancelledAt           DateTime?           @map("cancelled_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  agent                 Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  ledgerEntries         LedgerEntry[]
+  webhookDeliveries     WebhookDelivery[]
+
+  @@index([agentId, status])
+  @@index([customerWalletAddress])
+  @@index([txHash])
+  @@index([createdAt])
+  @@map("payment_intents")
+}
+
+model LedgerEntry {
+  id                    String            @id @default(cuid())
+  agentId               String            @map("agent_id")
+  paymentIntentId       String?           @map("payment_intent_id")
+  userWalletAddress     String?           @map("user_wallet_address")
+  entryType             LedgerEntryType   @map("entry_type")
+  status                LedgerEntryStatus @default(PENDING)
+  amountInUSD           Decimal?          @map("amount_in_usd")
+  credits               BigInt?
+  paymentMethodType     PaymentMethodType @default(ETH) @map("payment_method_type")
+  tokenAddress          String?           @map("token_address")
+  tokenSymbol           String?           @map("token_symbol")
+  amountAtomic          String?           @map("amount_atomic")
+  chainId               Int?              @map("chain_id")
+  txHash                String?           @map("tx_hash")
+  idempotencyKey        String?           @map("idempotency_key")
+  metadata              Json?
+  createdAt             DateTime          @default(now()) @map("created_at")
+  agent                 Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  paymentIntent         PaymentIntent?    @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, entryType])
+  @@index([paymentIntentId])
+  @@index([txHash])
+  @@index([createdAt])
+  @@map("ledger_entries")
+}
+
+model WebhookEndpoint {
+  id           String            @id @default(cuid())
+  agentId      String            @map("agent_id")
+  url          String
+  secret       String
+  enabled      Boolean           @default(true)
+  events       String[]          @default([])
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  agent        Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([agentId])
+  @@index([enabled])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id              String                @id @default(cuid())
+  endpointId      String                @map("endpoint_id")
+  paymentIntentId String?               @map("payment_intent_id")
+  eventType       String                @map("event_type")
+  status          WebhookDeliveryStatus @default(PENDING)
+  payload         Json
+  responseStatus  Int?                  @map("response_status")
+  responseBody    String?               @map("response_body")
+  attempts        Int                   @default(0)
+  lastError       String?               @map("last_error")
+  nextAttemptAt   DateTime?             @map("next_attempt_at")
+  deliveredAt     DateTime?             @map("delivered_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  endpoint        WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  paymentIntent   PaymentIntent?        @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  @@index([endpointId, status])
+  @@index([paymentIntentId])
+  @@index([nextAttemptAt])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+}
+
 enum AgentStatus {
   ACTIVE
   PAUSED
@@ -454,6 +560,47 @@ enum UsageEventStatus {
 enum TopUpStatus {
   PENDING
   COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentIntentStatus {
+  CREATED
+  REQUIRES_PAYMENT
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentMethodType {
+  ETH
+  ERC20
+}
+
+enum LedgerEntryType {
+  PAYMENT_INTENT_CREATED
+  PAYMENT_RECEIVED
+  CREDIT_GRANTED
+  USAGE_RESERVED
+  USAGE_CAPTURED
+  USAGE_RELEASED
+  REFUND
+  WITHDRAWAL
+  FEE
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  POSTED
+  REVERSED
+  FAILED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
   FAILED
   CANCELLED
 }

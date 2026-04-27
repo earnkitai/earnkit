@@ -233,27 +233,31 @@ export async function POST(
 
     // Verify this is the correct developer for the agent
     try {
-      const agentData = await publicClient.readContract({
+      const agentDeveloper = (await publicClient.readContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: CONTRACT_ABI,
-        functionName: 'agents',
+        functionName: 'developerOf',
         args: [agentIdHash],
-      }) as { developer: string; balance: bigint };
+      })) as `0x${string}`;
       
-      console.log('On-chain agent developer:', agentData.developer);
+      console.log('On-chain agent developer:', agentDeveloper);
       
-      if (agentData.developer.toLowerCase() !== developerAddress.toLowerCase()) {
+      if (agentDeveloper.toLowerCase() !== developerAddress.toLowerCase()) {
         return NextResponse.json(
           {
             error: 'Platform wallet is not the developer of this agent',
             platformWallet: developerAddress,
-            agentDeveloper: agentData.developer,
+            agentDeveloper,
           },
           { status: 403 },
         );
       }
     } catch (err) {
       console.error('Error verifying agent developer:', err);
+      return NextResponse.json(
+        { error: 'Unable to verify agent developer on-chain' },
+        { status: 400 },
+      );
     }
 
     // Get the current nonce for the DEVELOPER (signer) from the contract
@@ -396,21 +400,12 @@ export async function POST(
 
         // Get current ETH balance from contract
         let currentBalance: bigint;
-        try {
-          currentBalance = (await publicClient.readContract({
-            address: CONTRACT_ADDRESS as `0x${string}`,
-            abi: CONTRACT_ABI,
-            functionName: 'getAgentBalance',
-            args: [agentIdHash],
-          })) as unknown as bigint;
-        } catch {
-          currentBalance = (await publicClient.readContract({
-            address: CONTRACT_ADDRESS as `0x${string}`,
-            abi: CONTRACT_ABI,
-            functionName: 'agentBalance',
-            args: [agentIdHash],
-          })) as unknown as bigint;
-        }
+        currentBalance = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: CONTRACT_ABI,
+          functionName: 'agentBalance',
+          args: [agentIdHash],
+        })) as unknown as bigint;
 
         const currentBalanceEth = Number(formatEther(currentBalance));
         const requestedBalanceEth = ethAmount;
@@ -427,15 +422,15 @@ export async function POST(
           );
         }
 
-        // Get withdrawal quote (fee calculation)
-        const quote = (await publicClient.readContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: CONTRACT_ABI,
-          functionName: 'quoteWithdrawal',
-          args: [ethAmountWei],
-        })) as [bigint, bigint];
-
-        const [feeWei, netWei] = quote;
+        const platformFeeBps = BigInt(
+          Number(await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'platformFeeBps',
+          })),
+        );
+        const feeWei = (ethAmountWei * platformFeeBps) / BigInt(10000);
+        const netWei = ethAmountWei - feeWei;
         const feeEth = Number(formatEther(feeWei));
         const netEth = Number(formatEther(netWei));
         const feeUsd = feeEth * ethPrice;
