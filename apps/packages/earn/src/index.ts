@@ -148,12 +148,19 @@ interface SubmitTopUpResponse {
   message: string;
 }
 
+export interface SplitsPaymentConfig {
+  paymentAddress: string;
+  paymentMode: 'splits';
+  network: { chainId: number; name: string; rpcUrl: string };
+}
+
 interface TopUpDetailsResponse {
   options: TopUpOption[]; // Legacy ETH options for backward compatibility
   escrowContract: EscrowContract;
-  // New multi-token payment methods
   paymentMethods: PaymentMethod[];
   supportedTokens: SupportedTokenInfo[];
+  // Present only for agents using Splits Protocol (new agents)
+  splitsConfig?: SplitsPaymentConfig;
 }
 
 export type FreeTierConfig = {

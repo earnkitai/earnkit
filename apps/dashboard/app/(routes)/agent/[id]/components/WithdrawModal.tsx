@@ -62,7 +62,8 @@ export default function WithdrawModal({
         net: number;
         platformFeeBps: number;
     } | null>(null);
-    const [step, setStep] = useState<'form' | 'confirm' | 'executing'>('form');
+    const [step, setStep] = useState<'form' | 'confirm' | 'executing' | 'splits-info'>('form');
+    const [splitAddress, setSplitAddress] = useState<string>('');
     // Use agentDbId for API calls (database UUID)
     const { executeWithdrawal, executeTokenWithdrawal, calculateFees, loading: executeLoading, isReady } = useWithdraw(agentDbId, agentId);
 
@@ -182,10 +183,16 @@ export default function WithdrawModal({
                 });
             }
 
-            toast.success("Withdrawal executed successfully!");
-            console.log("Withdrawal transaction:", result);
+            console.log("Withdrawal result:", result);
 
-            // Show transaction hash
+            // Splits agents: funds are already in the split contract; user must call distribute()
+            if ((result as any).withdrawalMode === 'splits') {
+                setSplitAddress((result as any).splitAddress ?? '');
+                setStep('splits-info');
+                return;
+            }
+
+            toast.success("Withdrawal executed successfully!");
             if (result.transactionHash) {
                 toast.success(`Transaction: ${result.transactionHash.slice(0, 10)}...`);
             }
@@ -206,6 +213,7 @@ export default function WithdrawModal({
         setWithdrawData(null);
         setFeeCalculation(null);
         setStep('form');
+        setSplitAddress('');
         onClose();
     };
 
@@ -217,11 +225,13 @@ export default function WithdrawModal({
                         {step === 'form' && 'Withdraw Funds'}
                         {step === 'confirm' && 'Confirm Withdrawal'}
                         {step === 'executing' && 'Executing Withdrawal'}
+                        {step === 'splits-info' && 'Distribute Your Funds'}
                     </DialogTitle>
                     <DialogDescription className="text-black/40 text-sm font-funnel-sans">
                         {step === 'form' && 'Withdraw funds from your agent\'s balance. A platform fee will be deducted.'}
                         {step === 'confirm' && 'Review the withdrawal details and confirm the transaction.'}
                         {step === 'executing' && 'Please wait while we execute your withdrawal...'}
+                        {step === 'splits-info' && 'Your agent uses Splits Protocol. Call distribute() to push funds to your wallet.'}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -375,6 +385,29 @@ export default function WithdrawModal({
                             </div>
                         </div>
                     )}
+
+                    {step === 'splits-info' && (
+                        <div className="space-y-4">
+                            <div className="bg-blue-50 rounded-[12px] p-4 border border-blue-100">
+                                <p className="text-sm font-semibold text-blue-800 font-funnel-sans mb-2">
+                                    How to receive your funds
+                                </p>
+                                <ol className="text-sm text-blue-700 font-funnel-sans space-y-1 list-decimal list-inside">
+                                    <li>Go to app.splits.org</li>
+                                    <li>Connect the wallet you used when creating this agent</li>
+                                    <li>Find your split at the address below</li>
+                                    <li>Click &quot;Distribute&quot; to push funds to all recipients</li>
+                                </ol>
+                            </div>
+                            <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
+                                <p className="text-xs text-black/40 font-funnel-sans mb-1">Split Contract Address</p>
+                                <p className="text-sm font-mono text-black break-all font-funnel-sans">{splitAddress}</p>
+                            </div>
+                            <p className="text-xs text-black/40 font-funnel-sans">
+                                The 5% platform fee and any buyback percentage are distributed automatically when you call distribute().
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="flex gap-3 pt-6">
@@ -426,6 +459,16 @@ export default function WithdrawModal({
                                 Please wait while we process your withdrawal...
                             </p>
                         </div>
+                    )}
+
+                    {step === 'splits-info' && (
+                        <Button
+                            type="button"
+                            onClick={handleClose}
+                            className="flex-1 bg-secondary-green hover:bg-green-700 text-white rounded-full font-funnel-sans"
+                        >
+                            Done
+                        </Button>
                     )}
                 </DialogFooter>
             </DialogContent>

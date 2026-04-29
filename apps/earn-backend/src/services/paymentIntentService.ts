@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../lib/prisma';
+import { WebhookService } from './webhookService';
 
 const DEFAULT_PAYMENT_INTENT_TTL_MS = 30 * 60 * 1000;
 
@@ -33,11 +34,10 @@ export interface RecordPaymentSeenInput {
 
 export class PaymentIntentService {
   static async createPaymentIntent(input: CreatePaymentIntentInput) {
+    if (!input.userId) throw new Error('Authentication required');
+
     const agent = await prisma.agent.findFirst({
-      where: {
-        agentId: input.agentId,
-        ...(input.userId ? { userId: input.userId } : {}),
-      },
+      where: { agentId: input.agentId, userId: input.userId },
       select: { id: true },
     });
 
@@ -104,8 +104,8 @@ export class PaymentIntentService {
   }
 
   static async recordPaymentSeen(input: RecordPaymentSeenInput) {
-    return prisma.$transaction(async (tx) => {
-      const paymentIntent = await tx.paymentIntent.update({
+    const paymentIntent = await prisma.$transaction(async (tx) => {
+      const pi = await tx.paymentIntent.update({
         where: { id: input.paymentIntentId },
         data: {
           status: PaymentIntentStatus.PROCESSING,
@@ -116,26 +116,33 @@ export class PaymentIntentService {
 
       await tx.ledgerEntry.create({
         data: {
-          agentId: paymentIntent.agentId,
-          paymentIntentId: paymentIntent.id,
+          agentId: pi.agentId,
+          paymentIntentId: pi.id,
           userWalletAddress:
             input.customerWalletAddress?.toLowerCase() ??
-            paymentIntent.customerWalletAddress,
+            pi.customerWalletAddress,
           entryType: LedgerEntryType.PAYMENT_RECEIVED,
           status: LedgerEntryStatus.PENDING,
-          amountInUSD: paymentIntent.amountInUSD,
-          credits: paymentIntent.creditsToTopUp,
-          paymentMethodType: paymentIntent.paymentMethodType,
-          tokenAddress: paymentIntent.tokenAddress,
-          tokenSymbol: paymentIntent.tokenSymbol,
-          amountAtomic: paymentIntent.amountAtomic,
-          chainId: paymentIntent.chainId,
+          amountInUSD: pi.amountInUSD,
+          credits: pi.creditsToTopUp,
+          paymentMethodType: pi.paymentMethodType,
+          tokenAddress: pi.tokenAddress,
+          tokenSymbol: pi.tokenSymbol,
+          amountAtomic: pi.amountAtomic,
+          chainId: pi.chainId,
           txHash: input.txHash,
         },
       });
 
-      return paymentIntent;
+      return pi;
     });
+
+    // Enqueue webhook outside the transaction — non-fatal if it fails
+    WebhookService.enqueuePaymentIntentEvent(paymentIntent, 'payment_intent.processing').catch((e) =>
+      console.error('[PaymentIntentService] Webhook enqueue failed (processing):', e),
+    );
+
+    return paymentIntent;
   }
 
   static async getByClientSecret(clientSecret: string, userId?: string) {
@@ -145,5 +152,71 @@ export class PaymentIntentService {
         ...(userId ? { agent: { userId } } : {}),
       },
     });
+  }
+
+  /**
+   * Mark a payment intent SUCCEEDED, grant credits atomically, and post a ledger entry.
+   * Call this once on-chain confirmation is verified.
+   */
+  static async confirmPayment(paymentIntentId: string) {
+    const confirmedPi = await prisma.$transaction(async (tx) => {
+      const pi = await tx.paymentIntent.update({
+        where: {
+          id: paymentIntentId,
+          status: PaymentIntentStatus.PROCESSING,
+        },
+        data: {
+          status: PaymentIntentStatus.SUCCEEDED,
+          confirmedAt: new Date(),
+        },
+      });
+
+      // Atomically grant credits if applicable
+      if (pi.creditsToTopUp && pi.customerWalletAddress) {
+        await tx.userBalance.upsert({
+          where: {
+            userWalletAddress_agentId: {
+              userWalletAddress: pi.customerWalletAddress,
+              agentId: pi.agentId,
+            },
+          },
+          update: { creditBalance: { increment: pi.creditsToTopUp } },
+          create: {
+            userWalletAddress: pi.customerWalletAddress,
+            agentId: pi.agentId,
+            creditBalance: pi.creditsToTopUp,
+            ethBalance: 0,
+          },
+        });
+      }
+
+      await tx.ledgerEntry.create({
+        data: {
+          agentId: pi.agentId,
+          paymentIntentId: pi.id,
+          userWalletAddress: pi.customerWalletAddress,
+          entryType: LedgerEntryType.CREDIT_GRANTED,
+          status: LedgerEntryStatus.POSTED,
+          amountInUSD: pi.amountInUSD,
+          credits: pi.creditsToTopUp,
+          paymentMethodType: pi.paymentMethodType,
+          tokenAddress: pi.tokenAddress,
+          tokenSymbol: pi.tokenSymbol,
+          amountAtomic: pi.amountAtomic,
+          chainId: pi.chainId,
+          txHash: pi.txHash,
+          idempotencyKey: pi.txHash ?? pi.id,
+        },
+      });
+
+      return pi;
+    });
+
+    // Enqueue webhook outside the transaction — non-fatal if it fails
+    WebhookService.enqueuePaymentIntentEvent(confirmedPi, 'payment_intent.succeeded').catch((e) =>
+      console.error('[PaymentIntentService] Webhook enqueue failed (succeeded):', e),
+    );
+
+    return confirmedPi;
   }
 }

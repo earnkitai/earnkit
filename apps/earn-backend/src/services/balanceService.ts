@@ -10,15 +10,11 @@ export class BalanceService {
     agentId: string,
     userId?: string,
   ): Promise<UserBalance> {
-    // First, get the agent's internal ID using the agent_id field
+    if (!userId) throw new Error('Authentication required');
+
     const agent = await prisma.agent.findFirst({
-      where: {
-        agentId,
-        ...(userId ? { userId } : {}),
-      },
-      select: {
-        id: true,
-      },
+      where: { agentId, userId },
+      select: { id: true },
     });
 
     if (!agent) {
@@ -39,8 +35,8 @@ export class BalanceService {
       const newBalance = await prisma.userBalance.create({
         data: {
           userWalletAddress: walletAddress,
-          agentId: agent.id, // Use the internal ID, not the agent_id
-          creditBalance: BigInt(100),
+          agentId: agent.id,
+          creditBalance: BigInt(0),
           ethBalance: 0,
         },
       });
@@ -108,19 +104,39 @@ export class BalanceService {
   }
 
   /**
-   * Add credits to user balance
+   * Add credits to user balance — atomic increment, no read-then-write race.
    */
   async addCredits(
     walletAddress: string,
     agentId: string,
     creditsToAdd: number,
   ): Promise<UserBalance> {
-    const currentBalance = await this.getBalance(walletAddress, agentId);
-    const newCredits = (
-      parseInt(currentBalance.credits) + creditsToAdd
-    ).toString();
+    const agent = await prisma.agent.findFirst({
+      where: { agentId },
+      select: { id: true },
+    });
+    if (!agent) throw new Error(`Agent with agentId ${agentId} not found`);
 
-    return this.updateBalance(walletAddress, agentId, { credits: newCredits });
+    const result = await prisma.userBalance.upsert({
+      where: {
+        userWalletAddress_agentId: {
+          userWalletAddress: walletAddress,
+          agentId: agent.id,
+        },
+      },
+      update: { creditBalance: { increment: BigInt(creditsToAdd) } },
+      create: {
+        userWalletAddress: walletAddress,
+        agentId: agent.id,
+        creditBalance: BigInt(creditsToAdd),
+        ethBalance: 0,
+      },
+    });
+
+    return {
+      eth: result.ethBalance.toString(),
+      credits: result.creditBalance.toString(),
+    };
   }
 
   /**
@@ -145,19 +161,39 @@ export class BalanceService {
   }
 
   /**
-   * Add ETH to user balance
+   * Add ETH to user balance — atomic increment.
    */
   async addEth(
     walletAddress: string,
     agentId: string,
     ethToAdd: string,
   ): Promise<UserBalance> {
-    const currentBalance = await this.getBalance(walletAddress, agentId);
-    const currentEth = parseFloat(currentBalance.eth);
-    const ethToAddNum = parseFloat(ethToAdd);
-    const newEth = (currentEth + ethToAddNum).toString();
+    const agent = await prisma.agent.findFirst({
+      where: { agentId },
+      select: { id: true },
+    });
+    if (!agent) throw new Error(`Agent with agentId ${agentId} not found`);
 
-    return this.updateBalance(walletAddress, agentId, { eth: newEth });
+    const result = await prisma.userBalance.upsert({
+      where: {
+        userWalletAddress_agentId: {
+          userWalletAddress: walletAddress,
+          agentId: agent.id,
+        },
+      },
+      update: { ethBalance: { increment: parseFloat(ethToAdd) } },
+      create: {
+        userWalletAddress: walletAddress,
+        agentId: agent.id,
+        creditBalance: BigInt(0),
+        ethBalance: parseFloat(ethToAdd),
+      },
+    });
+
+    return {
+      eth: result.ethBalance.toString(),
+      credits: result.creditBalance.toString(),
+    };
   }
 
   /**

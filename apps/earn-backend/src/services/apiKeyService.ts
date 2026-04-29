@@ -1,61 +1,66 @@
+import { createHash, randomBytes } from 'crypto';
 import { prisma } from '../lib/prisma';
-import { v4 as uuidv4 } from 'uuid';
 
 export class ApiKeyService {
-  /**
-   * Generate a new API key for a user
-   */
-  static async generateApiKey(userId: string): Promise<string> {
-    // Generate a unique API key
-    const apiKey = `ek_${uuidv4().replace(/-/g, '')}`;
+  private static hashKey(rawKey: string): string {
+    return createHash('sha256').update(rawKey).digest('hex');
+  }
 
-    // Update the user with the new API key
-    await prisma.user.update({
-      where: { id: userId },
-      data: { apiKey },
-    });
-
-    return apiKey;
+  private static prefixOf(rawKey: string): string {
+    // e.g. "ek_" + first 8 hex chars → "ek_a1b2c3d4"
+    return rawKey.substring(0, 11);
   }
 
   /**
-   * Regenerate API key for a user (invalidates the old one)
+   * Generate a new API key. Returns the plaintext key — shown only once.
+   * Stores SHA-256 hash + prefix in DB.
    */
+  static async generateApiKey(userId: string): Promise<string> {
+    const rawKey = `ek_${randomBytes(20).toString('hex')}`;
+    const hash = this.hashKey(rawKey);
+    const prefix = this.prefixOf(rawKey);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { apiKey: hash, apiKeyPrefix: prefix },
+    });
+
+    return rawKey;
+  }
+
+  /** Regenerate — invalidates the existing key. */
   static async regenerateApiKey(userId: string): Promise<string> {
     return this.generateApiKey(userId);
   }
 
-  /**
-   * Revoke API key for a user
-   */
+  /** Revoke — clears both hash and prefix. */
   static async revokeApiKey(userId: string): Promise<void> {
     await prisma.user.update({
       where: { id: userId },
-      data: { apiKey: null },
+      data: { apiKey: null, apiKeyPrefix: null },
     });
   }
 
   /**
-   * Get user by API key
+   * Look up a user by a raw (plaintext) API key.
+   * Hashes the key before querying.
    */
-  static async getUserByApiKey(apiKey: string) {
+  static async getUserByApiKey(rawKey: string) {
+    const hash = this.hashKey(rawKey);
     return prisma.user.findUnique({
-      where: { apiKey },
+      where: { apiKey: hash },
       select: {
         id: true,
         username: true,
         email: true,
-        apiKey: true,
+        apiKeyPrefix: true,
         createdAt: true,
       },
     });
   }
 
-  /**
-   * Check if API key is valid
-   */
-  static async isApiKeyValid(apiKey: string): Promise<boolean> {
-    const user = await this.getUserByApiKey(apiKey);
+  static async isApiKeyValid(rawKey: string): Promise<boolean> {
+    const user = await this.getUserByApiKey(rawKey);
     return !!user;
   }
 }

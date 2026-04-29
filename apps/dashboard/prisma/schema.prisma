@@ -15,7 +15,8 @@ model User {
   hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
   isGuest             Boolean              @default(false) @map("is_guest")
   mfaMethods          String[]             @default([]) @map("mfa_methods")
-  apiKey              String?              @unique @map("api_key")
+  apiKey              String?              @unique @map("api_key")        // stores SHA-256 hash
+  apiKeyPrefix        String?              @map("api_key_prefix")         // e.g. "ek_abcd1234"
   agents              Agent[]
   appleAccounts       AppleAccount[]
   crossAppAccounts    CrossAppAccount[]
@@ -302,6 +303,9 @@ model Agent {
   transactionLogs     TransactionLog[]
   usageEvents         UsageEvent[]
   userBalances        UserBalance[]
+  splitAddress        String?            @map("split_address")
+  buybackAddress      String?            @map("buyback_address")
+  buybackPercent      Float              @default(0) @map("buyback_percent")
 
   @@index([userId])
   @@index([agentId])

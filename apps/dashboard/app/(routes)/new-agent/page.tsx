@@ -13,16 +13,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { hasApiKey } from "@/actions/user";
 import { v4 as uuidv4 } from 'uuid';
-import { createWalletClient, custom, encodePacked, Hex, keccak256 } from 'viem';
-import { base } from 'viem/chains';
-import earnkitABI from '@/contract/earnkit_ABI.json';
-import { type Abi } from 'viem';
-
-// Contract address from environment variable
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
-
-// Contract ABI
-const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface AgentFormData {
     agentName: string;
@@ -35,6 +25,8 @@ interface AgentFormData {
         credits: string;
         price: string;
     }>;
+    buybackAddress: string;
+    buybackPercent: string;
 }
 
 export default function NewAgentPage() {
@@ -50,17 +42,11 @@ export default function NewAgentPage() {
         ratePerPrompt: "",
         creditsPerPrompt: "",
         topUpPackages: [
-            {
-                id: "1",
-                credits: "100",
-                price: "25"
-            },
-            {
-                id: "2",
-                credits: "200",
-                price: "50"
-            }
+            { id: "1", credits: "100", price: "25" },
+            { id: "2", credits: "200", price: "50" },
         ],
+        buybackAddress: "",
+        buybackPercent: "",
     });
 
     // Get the authenticated user ID
@@ -160,60 +146,39 @@ export default function NewAgentPage() {
             }
         }
 
-        const loadingToast = toast.loading("Creating agent...");
-
-        // Generate agent ID
         const agentId = uuidv4();
+        const injectedWallet = wallets.find(w => w.connectorType === "injected");
+        const developerWalletAddress = injectedWallet?.address;
+
+        const loadingToast = toast.loading("Deploying payment split and creating agent...");
 
         try {
-            // First, call the contract function to register the agent
+            const response = await fetch('/api/agents', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...formData,
+                    userId,
+                    agentId,
+                    developerWalletAddress,
+                    buybackAddress: formData.buybackAddress || undefined,
+                    buybackPercent: formData.buybackPercent ? Number(formData.buybackPercent) : undefined,
+                }),
+            });
+
             toast.dismiss(loadingToast);
-            const contractToast = toast.loading("Registering agent on contract...");
 
-            await registerAgentOnContract(agentId);
-            toast.dismiss(contractToast);
-
-            // After successful contract registration, proceed with API call
-            const apiToast = toast.loading("Saving agent data...");
-
-            try {
-                const response = await fetch('/api/agents', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        ...formData,
-                        userId: userId,
-                        agentId: agentId
-                    }),
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log("Agent created successfully:", result);
-
-                    toast.dismiss(apiToast);
-                    toast.success("Agent created successfully!");
-
-                    // Redirect to the home page after successful creation
-                    router.push('/home');
-                } else {
-                    const error = await response.json();
-                    console.error("Error creating agent:", error);
-                    toast.dismiss(apiToast);
-
-                    toast.error(`Failed to create agent: ${error.error || 'Unknown error'}`);
-                }
-            } catch (apiError) {
-                console.error("Error submitting form:", apiError);
-                toast.dismiss(apiToast);
-                toast.error("An error occurred while saving agent data. Please try again.");
+            if (response.ok) {
+                toast.success("Agent created successfully!");
+                router.push('/home');
+            } else {
+                const error = await response.json();
+                toast.error(`Failed to create agent: ${error.error || 'Unknown error'}`);
             }
         } catch (error) {
-            console.error("Error registering agent on contract:", error);
             toast.dismiss(loadingToast);
-            toast.error("Failed to register agent on contract. Please try again.");
+            console.error("Error creating agent:", error);
+            toast.error("An error occurred while creating the agent. Please try again.");
         }
     };
 
@@ -222,58 +187,6 @@ export default function NewAgentPage() {
         router.push('/home');
     };
 
-    // Function to call the contract registerAgent function
-    const registerAgentOnContract = async (agentId: string) => {
-        try {
-            // Get the injected wallet
-            const injectedWallet = wallets.find(wallet => wallet.connectorType === "injected");
-            if (!injectedWallet) {
-                throw new Error("No injected wallet found");
-            }
-
-            // Switch to Base chain
-            await injectedWallet.switchChain(base.id);
-
-            // Get the provider and create wallet client
-            const provider = await injectedWallet.getEthereumProvider();
-            const walletClient = createWalletClient({
-                account: injectedWallet.address as Hex,
-                chain: base,
-                transport: custom(provider),
-            });
-
-            // Convert agentId to bytes32
-            const agentIdBytes32 = keccak256(encodePacked(['string'], [agentId]));
-
-            // Call the contract function
-            const hash = await walletClient.writeContract({
-                address: CONTRACT_ADDRESS as `0x${string}`,
-                abi: CONTRACT_ABI,
-                functionName: 'registerAgent',
-                args: [agentIdBytes32],
-            });
-
-            // Wait for transaction confirmation using the public client
-            const { createPublicClient, http } = await import('viem');
-            const publicClient = createPublicClient({
-                chain: base,
-                transport: http(),
-            });
-
-            const receipt = await publicClient.waitForTransactionReceipt({ hash });
-
-            if (receipt.status === 'success') {
-                toast.success("Agent registered on contract successfully!");
-                return true;
-            } else {
-                throw new Error("Transaction failed");
-            }
-        } catch (error) {
-            console.error("Error registering agent on contract:", error);
-            toast.error("Failed to register agent on contract");
-            throw error;
-        }
-    };
 
     // Show loading state while checking authentication
     if (!ready || !authenticated) {
@@ -502,6 +415,44 @@ export default function NewAgentPage() {
                                             </p>
                                         </div>
                                     )}
+
+                                    {/* Revenue Split Section */}
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
+                                            Buyback Address <span className="text-black/40 font-normal">(optional)</span>
+                                        </label>
+                                        <Input
+                                            type="text"
+                                            placeholder="0x... — receives your buyback percentage"
+                                            value={formData.buybackAddress}
+                                            onChange={(e) => handleInputChange("buybackAddress", e.target.value)}
+                                            className="w-full p-4 border border-gray-200 rounded-lg"
+                                        />
+                                        <p className="text-xs text-black/40 font-funnel-sans px-4">
+                                            Platform fee: 5%. If you set a buyback address, specify what % of payments it receives (max 95%).
+                                        </p>
+                                        {formData.buybackAddress && (
+                                            <div className="space-y-2 mt-2">
+                                                <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
+                                                    Buyback Percent
+                                                </label>
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max="95"
+                                                    placeholder="e.g. 10"
+                                                    value={formData.buybackPercent}
+                                                    onChange={(e) => handleInputChange("buybackPercent", e.target.value)}
+                                                    className="w-full p-4 border border-gray-200 rounded-lg"
+                                                />
+                                                {formData.buybackPercent && (
+                                                    <p className="text-xs text-black/40 px-4">
+                                                        Split: {95 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to buyback · 5% platform fee
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* Action Buttons */}
                                     <div className="flex gap-4 pt-6">

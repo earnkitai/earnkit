@@ -138,6 +138,18 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       const signatureData = await signatureResponse.json();
       console.log('Signature data received:', signatureData);
 
+      // Splits agents: distribute() is permissionless — no EIP-712 needed
+      if (signatureData.withdrawalMode === 'splits') {
+        return {
+          success: true,
+          withdrawalMode: 'splits' as const,
+          splitAddress: signatureData.splitAddress as string,
+          message: signatureData.message as string,
+          transactionHash: '',
+          withdrawal: withdrawData,
+        };
+      }
+
       if (!signatureData.success || !signatureData.signature) {
         throw new Error('Invalid signature response from server');
       }
@@ -256,6 +268,17 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
 
       const signatureData = await signatureResponse.json();
       console.log('Signature data received:', signatureData);
+
+      if (signatureData.withdrawalMode === 'splits') {
+        return {
+          success: true,
+          withdrawalMode: 'splits' as const,
+          splitAddress: signatureData.splitAddress as string,
+          message: signatureData.message as string,
+          transactionHash: '',
+          withdrawal: withdrawData,
+        };
+      }
 
       if (!signatureData.success || !signatureData.signature) {
         throw new Error('Invalid signature response from server');

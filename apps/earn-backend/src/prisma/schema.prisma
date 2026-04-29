@@ -15,7 +15,8 @@ model User {
   hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
   isGuest             Boolean              @default(false) @map("is_guest")
   mfaMethods          String[]             @default([]) @map("mfa_methods")
-  apiKey              String?              @unique @map("api_key")
+  apiKey              String?              @unique @map("api_key")        // stores SHA-256 hash
+  apiKeyPrefix        String?              @map("api_key_prefix")         // e.g. "ek_abcd1234"
   agents              Agent[]
   appleAccounts       AppleAccount[]
   crossAppAccounts    CrossAppAccount[]
@@ -306,11 +307,15 @@ model Agent {
   paymentIntents      PaymentIntent[]
   ledgerEntries       LedgerEntry[]
   webhookEndpoints    WebhookEndpoint[]
+  splitAddress        String?            @map("split_address")
+  buybackAddress      String?            @map("buyback_address")
+  buybackPercent      Float              @default(0) @map("buyback_percent")
 
   @@index([userId])
   @@index([agentId])
   @@index([status])
   @@index([createdAt])
+  @@index([splitAddress])
   @@map("agents")
 }
 
@@ -408,6 +413,8 @@ model TopUpTransaction {
   amountInEth       String      @map("amount_in_eth") @default("0")
   creditsToTopUp    BigInt?
   errorMessage      String?
+  attemptCount      Int         @default(0) @map("attempt_count")
+  nextAttemptAt     DateTime?   @map("next_attempt_at")
   // Token-specific fields (null = ETH payment)
   tokenAddress      String?     @map("token_address")
   tokenSymbol       String?     @map("token_symbol")

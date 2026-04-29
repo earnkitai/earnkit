@@ -20,6 +20,9 @@ export async function POST(request: NextRequest) {
       creditsPerPrompt,
       topUpPackages,
       userId, // This should come from the authenticated user session
+      developerWalletAddress,
+      buybackAddress,
+      buybackPercent,
     } = body;
 
     // Validate required fields
@@ -59,6 +62,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Deploy a Splits V2 contract for this agent before writing to DB.
+    // On-chain before DB — if deploy fails nothing is written.
+    let splitAddress: string | null = null;
+    if (developerWalletAddress) {
+      const backendUrl =
+        process.env.EARNKIT_BACKEND_URL || 'http://localhost:3001';
+      const internalSecret = process.env.INTERNAL_API_SECRET;
+      if (!internalSecret) {
+        return NextResponse.json(
+          { error: 'Server misconfiguration: INTERNAL_API_SECRET not set' },
+          { status: 500 },
+        );
+      }
+
+      const splitRes = await fetch(
+        `${backendUrl}/api/internal/deploy-split`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': internalSecret,
+          },
+          body: JSON.stringify({
+            developerWalletAddress,
+            buybackAddress: buybackAddress || undefined,
+            buybackPercent: buybackPercent ? Number(buybackPercent) : undefined,
+          }),
+        },
+      );
+
+      if (!splitRes.ok) {
+        const err = await splitRes.json().catch(() => ({}));
+        console.error('Failed to deploy split contract:', err);
+        return NextResponse.json(
+          { error: err.error || 'Failed to deploy split contract' },
+          { status: 500 },
+        );
+      }
+
+      const splitData = await splitRes.json();
+      splitAddress = splitData.splitAddress;
+      console.log(`Split deployed at ${splitAddress} for agent ${agentId}`);
+    }
+
     // Create the agent with transaction
     const agent = await prisma.$transaction(async (tx) => {
       // Create the main agent
@@ -77,6 +124,9 @@ export async function POST(request: NextRequest) {
             ? parseInt(creditsPerPrompt)
             : null,
           totalEarnings: 0,
+          splitAddress: splitAddress || undefined,
+          buybackAddress: buybackAddress || undefined,
+          buybackPercent: buybackPercent ? Number(buybackPercent) : undefined,
         },
       });
 

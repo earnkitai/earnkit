@@ -5,6 +5,8 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
+import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 
 // Load environment variables
 dotenv.config();
@@ -15,11 +17,21 @@ const PORT = process.env.PORT || 3000;
 // Security middleware
 app.use(helmet());
 
-// CORS configuration - Allow all origins
+// CORS — allow only explicitly listed origins via CORS_ALLOWED_ORIGINS env var.
+// This API is primarily server-to-server; browser origins must be opted in.
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim())
+  : [];
+
 app.use(
   cors({
-    origin: true, // Allow all origins
-    credentials: true,
+    origin: (origin, callback) => {
+      // Allow server-to-server requests (no Origin header)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: false,
   }),
 );
 
@@ -51,15 +63,9 @@ app.use(errorHandler);
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 EarnKit Backend API server running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔧 API base URL: http://localhost:${PORT}/api`);
-
-  if (process.env.NODE_ENV === 'development') {
-    console.log(
-      `🐛 Debug endpoints available at: http://localhost:${PORT}/api/debug`,
-    );
-  }
+  console.log(`EarnKit Backend API running on port ${PORT}`);
+  startTopUpVerificationWorker();
+  startWebhookDeliveryWorker();
 });
 
 // Graceful shutdown

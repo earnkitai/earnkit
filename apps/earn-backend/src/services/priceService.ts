@@ -1,4 +1,5 @@
 import { tokenService, SupportedToken } from './tokenService';
+import { parseUnits, formatUnits } from 'viem';
 
 interface PriceCache {
   ethPrice: number;
@@ -255,11 +256,8 @@ export class PriceService {
 
     const tokenPrice = await this.getTokenPrice(token.coingeckoId);
     const tokenAmount = usdAmount / tokenPrice;
-
-    // Convert to smallest unit
-    const smallestUnitAmount = BigInt(
-      Math.floor(tokenAmount * 10 ** token.decimals),
-    );
+    const tokenAmountFixed = tokenAmount.toFixed(token.decimals);
+    const smallestUnitAmount = parseUnits(tokenAmountFixed, token.decimals);
 
     return {
       amount: smallestUnitAmount.toString(),
@@ -285,10 +283,7 @@ export class PriceService {
     const tokenPrice = await this.getTokenPrice(token.coingeckoId);
     const amountBigInt =
       typeof tokenAmount === 'string' ? BigInt(tokenAmount) : tokenAmount;
-    const divisor = BigInt(10 ** token.decimals);
-
-    // Convert to human-readable amount and multiply by price
-    const humanReadableAmount = Number(amountBigInt) / Number(divisor);
+    const humanReadableAmount = parseFloat(formatUnits(amountBigInt, token.decimals));
     return humanReadableAmount * tokenPrice;
   }
 

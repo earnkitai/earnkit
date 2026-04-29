@@ -8,6 +8,7 @@ import {
   TokenPaymentOption,
   SupportedTokenInfo,
   AgentTokenConfig,
+  SplitsPaymentConfig,
 } from '../types';
 import { prisma } from '../lib/prisma';
 import { BalanceService } from './balanceService';
@@ -21,8 +22,11 @@ import {
   encodePacked,
   parseAbiItem,
   toEventSelector,
+  parseUnits,
+  formatUnits,
 } from 'viem';
 import { base } from 'viem/chains';
+import { LedgerEntryStatus, LedgerEntryType, PaymentMethodType } from '@prisma/client';
 
 // Escrow contract address
 const ESCROW_ADDRESS = (
@@ -51,6 +55,12 @@ const publicClient = createPublicClient({
 // Default token configs if none are set for an agent
 const DEFAULT_TOKEN_CONFIGS: AgentTokenConfig[] = [
   { tokenAddress: 'eth', tokenSymbol: 'ETH', enabled: true, discountPercent: 0 },
+  {
+    tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    tokenSymbol: 'USDC',
+    enabled: true,
+    discountPercent: 0,
+  },
   {
     tokenAddress: '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07',
     tokenSymbol: 'MINIDEV',
@@ -119,14 +129,11 @@ export class TopUpService {
     userId?: string,
   ): Promise<TopUpDetailsResponse> {
     // First, get the agent's internal ID using the agent_id field
+    if (!userId) throw new Error('Authentication required');
+
     const agent = await prisma.agent.findFirst({
-      where: {
-        agentId,
-        ...(userId ? { userId } : {}),
-      },
-      select: {
-        id: true,
-      },
+      where: { agentId, userId },
+      select: { id: true, splitAddress: true },
     });
 
     if (!agent) {
@@ -240,9 +247,9 @@ export class TopUpService {
           (usdAmount, i) => {
             const discountedUsd = this.applyDiscount(usdAmount, tokenDiscount);
             const tokenAmount = discountedUsd / tokenPrice;
-            const smallestUnitAmount = BigInt(
-              Math.floor(tokenAmount * 10 ** token.decimals),
-            );
+            // Use viem parseUnits to avoid float precision loss
+            const tokenAmountFixed = tokenAmount.toFixed(token.decimals);
+            const smallestUnitAmount = parseUnits(tokenAmountFixed, token.decimals);
 
             const option: TokenPaymentOption = {
               label:
@@ -286,6 +293,13 @@ export class TopUpService {
       }
     }
 
+    // Network config shared by both paths
+    const network = {
+      chainId: parseInt(process.env.CHAIN_ID || '8453'),
+      name: process.env.NETWORK_NAME || 'Base',
+      rpcUrl: process.env.RPC_URL || 'https://base-mainnet.infura.io',
+    };
+
     // Escrow contract configuration
     const escrowContract = {
       address:
@@ -301,18 +315,45 @@ export class TopUpService {
         signature: 'depositToken(bytes32,address,uint256)',
         agentIdParam: agentId,
       },
-      network: {
-        chainId: parseInt(process.env.CHAIN_ID || '8453'),
-        name: process.env.NETWORK_NAME || 'Base',
-        rpcUrl: process.env.RPC_URL || 'https://base-mainnet.infura.io',
-      },
+      network,
     };
+
+    let splitsConfig: SplitsPaymentConfig | undefined;
+
+    if (agent.splitAddress) {
+      // Splits mode: payment target is the split contract; plain transfer semantics
+      escrowContract.address = agent.splitAddress;
+      escrowContract.depositFunction = {
+        name: 'send',
+        signature: '',
+        agentIdParam: '',
+      };
+      escrowContract.depositTokenFunction = {
+        name: 'transfer',
+        signature: 'transfer(address,uint256)',
+        agentIdParam: agent.splitAddress,
+      };
+
+      // ERC-20 in splits mode: direct transfer, no approve needed
+      for (const pm of paymentMethods) {
+        if (pm.type === 'token' && pm.contractFunction?.approveRequired) {
+          pm.contractFunction.approveRequired = false;
+        }
+      }
+
+      splitsConfig = {
+        paymentAddress: agent.splitAddress,
+        paymentMode: 'splits',
+        network,
+      };
+    }
 
     return {
       options: ethOptions, // Legacy field for backward compatibility
       escrowContract,
       paymentMethods,
       supportedTokens: supportedTokens.map((t) => this.toTokenInfo(t)),
+      splitsConfig,
     };
   }
 
@@ -336,14 +377,11 @@ export class TopUpService {
     } = params;
 
     // First, get the agent's internal ID using the agent_id field
+    if (!userId) throw new Error('Authentication required');
+
     const agent = await prisma.agent.findFirst({
-      where: {
-        agentId,
-        ...(userId ? { userId } : {}),
-      },
-      select: {
-        id: true,
-      },
+      where: { agentId, userId },
+      select: { id: true },
     });
 
     if (!agent) {
@@ -385,11 +423,7 @@ export class TopUpService {
       },
     });
 
-    // Verify the transaction on-chain (with a small delay to allow for propagation)
-    setTimeout(async () => {
-      await this.verifyTransactionOnChain(txHash);
-    }, 3000);
-
+    // Verification is handled by the TopUpVerificationWorker which polls DB.
     const paymentType = tokenSymbol ? `${tokenSymbol} token` : 'ETH';
     return {
       status: 'submitted',
@@ -422,18 +456,11 @@ export class TopUpService {
   }
 
   /**
-   * Verify transaction on-chain and credit user based on actual deposit
-   * @param txHash - Transaction hash to verify
-   * @param retryCount - Current retry attempt (max 5 retries = ~50 seconds total)
+   * Verify a single pending transaction on-chain and credit the user.
+   * Called by TopUpVerificationWorker — do not call with setTimeout.
    */
-  private async verifyTransactionOnChain(
-    txHash: string,
-    retryCount: number = 0,
-  ): Promise<void> {
-    const MAX_RETRIES = 5;
-    console.log(
-      `[TopUpService] Verifying transaction on-chain: ${txHash} (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`,
-    );
+  async verifyAndCredit(txHash: string): Promise<void> {
+    console.log(`[TopUpService] Verifying transaction on-chain: ${txHash}`);
 
     // Get the transaction record
     const transaction = await prisma.topUpTransaction.findUnique({
@@ -442,6 +469,7 @@ export class TopUpService {
         agent: {
           select: {
             agentId: true,
+            splitAddress: true,
           },
         },
       },
@@ -464,137 +492,188 @@ export class TopUpService {
         return;
       }
 
-      // 3. Verify it went to our escrow contract
-      if (receipt.to?.toLowerCase() !== ESCROW_ADDRESS) {
-        await this.markTransactionFailed(
-          txHash,
-          `Transaction not to escrow contract. Expected: ${ESCROW_ADDRESS}, Got: ${receipt.to}`,
-        );
-        return;
-      }
-
-      // 4. Get the expected agentId hash
-      const expectedAgentIdHash = this.agentIdToBytes32(
-        transaction.agent.agentId,
-      );
-      console.log(
-        `[TopUpService] Expected agentId hash: ${expectedAgentIdHash}`,
-      );
-
-      // 5. Parse logs to find deposit event
       let depositVerified = false;
       let actualAmount: bigint | null = null;
       let isTokenDeposit = false;
       let depositTokenAddress: string | null = null;
 
-      for (const log of receipt.logs) {
-        // Skip logs not from escrow contract
-        if (log.address.toLowerCase() !== ESCROW_ADDRESS) continue;
-
-        // Check event signature (topics[0]) to determine which event type
-        const eventSignature = log.topics[0]?.toLowerCase();
-
-        // Handle ETH Deposit event
-        if (eventSignature === DEPOSIT_EVENT_TOPIC.toLowerCase()) {
-          try {
-            const decoded = decodeEventLog({
-              abi: [DEPOSIT_EVENT_ABI],
-              data: log.data,
-              topics: log.topics,
-            });
-
-            const { agentId, from, amount } = decoded.args as {
-              agentId: `0x${string}`;
-              from: `0x${string}`;
-              amount: bigint;
-            };
-
-            // Verify agentId matches
-            if (agentId.toLowerCase() !== expectedAgentIdHash.toLowerCase()) {
-              console.log(
-                `[TopUpService] AgentId mismatch. Expected: ${expectedAgentIdHash}, Got: ${agentId}`,
-              );
-              continue;
-            }
-
-            // Verify sender matches
-            if (
-              from.toLowerCase() !==
-              transaction.userWalletAddress.toLowerCase()
-            ) {
-              console.log(
-                `[TopUpService] Sender mismatch. Expected: ${transaction.userWalletAddress}, Got: ${from}`,
-              );
-              continue;
-            }
-
-            depositVerified = true;
-            actualAmount = amount;
-            isTokenDeposit = false;
-            console.log(
-              `[TopUpService] Verified ETH deposit: ${amount.toString()} wei`,
-            );
-            break;
-          } catch (e) {
-            console.log(`[TopUpService] Failed to decode Deposit event:`, e);
-          }
+      if (!transaction.agent.splitAddress) {
+        // ── LEGACY ESCROW PATH ──────────────────────────────────────────────
+        // 3. Verify it went to our escrow contract
+        if (receipt.to?.toLowerCase() !== ESCROW_ADDRESS) {
+          await this.markTransactionFailed(
+            txHash,
+            `Transaction not to escrow contract. Expected: ${ESCROW_ADDRESS}, Got: ${receipt.to}`,
+          );
+          return;
         }
 
-        // Handle Token Deposit event
-        if (eventSignature === TOKEN_DEPOSIT_EVENT_TOPIC.toLowerCase()) {
-          try {
-            const decoded = decodeEventLog({
-              abi: [TOKEN_DEPOSIT_EVENT_ABI],
-              data: log.data,
-              topics: log.topics,
-            });
+        // 4. Get the expected agentId hash
+        const expectedAgentIdHash = this.agentIdToBytes32(
+          transaction.agent.agentId,
+        );
+        console.log(
+          `[TopUpService] Expected agentId hash: ${expectedAgentIdHash}`,
+        );
 
-            const { agentId, token, from, amount } = decoded.args as {
-              agentId: `0x${string}`;
-              token: `0x${string}`;
-              from: `0x${string}`;
-              amount: bigint;
-            };
+        // 5. Parse logs to find deposit event
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== ESCROW_ADDRESS) continue;
 
-            console.log(`[TopUpService] TokenDeposit decoded:`, {
-              agentId,
-              token,
-              from,
-              amount: amount.toString(),
-            });
+          const eventSignature = log.topics[0]?.toLowerCase();
 
-            // Verify agentId matches
-            if (agentId.toLowerCase() !== expectedAgentIdHash.toLowerCase()) {
-              console.log(
-                `[TopUpService] AgentId mismatch. Expected: ${expectedAgentIdHash}, Got: ${agentId}`,
-              );
-              continue;
+          if (eventSignature === DEPOSIT_EVENT_TOPIC.toLowerCase()) {
+            try {
+              const decoded = decodeEventLog({
+                abi: [DEPOSIT_EVENT_ABI],
+                data: log.data,
+                topics: log.topics,
+              });
+
+              const { agentId, from, amount } = decoded.args as {
+                agentId: `0x${string}`;
+                from: `0x${string}`;
+                amount: bigint;
+              };
+
+              if (agentId.toLowerCase() !== expectedAgentIdHash.toLowerCase()) {
+                console.log(
+                  `[TopUpService] AgentId mismatch. Expected: ${expectedAgentIdHash}, Got: ${agentId}`,
+                );
+                continue;
+              }
+
+              if (from.toLowerCase() !== transaction.userWalletAddress.toLowerCase()) {
+                console.log(
+                  `[TopUpService] Sender mismatch. Expected: ${transaction.userWalletAddress}, Got: ${from}`,
+                );
+                continue;
+              }
+
+              depositVerified = true;
+              actualAmount = amount;
+              isTokenDeposit = false;
+              console.log(`[TopUpService] Verified ETH deposit: ${amount.toString()} wei`);
+              break;
+            } catch (e) {
+              console.log(`[TopUpService] Failed to decode Deposit event:`, e);
             }
+          }
 
-            // Verify sender matches
-            if (
-              from.toLowerCase() !==
-              transaction.userWalletAddress.toLowerCase()
-            ) {
+          if (eventSignature === TOKEN_DEPOSIT_EVENT_TOPIC.toLowerCase()) {
+            try {
+              const decoded = decodeEventLog({
+                abi: [TOKEN_DEPOSIT_EVENT_ABI],
+                data: log.data,
+                topics: log.topics,
+              });
+
+              const { agentId, token, from, amount } = decoded.args as {
+                agentId: `0x${string}`;
+                token: `0x${string}`;
+                from: `0x${string}`;
+                amount: bigint;
+              };
+
+              console.log(`[TopUpService] TokenDeposit decoded:`, {
+                agentId, token, from, amount: amount.toString(),
+              });
+
+              if (agentId.toLowerCase() !== expectedAgentIdHash.toLowerCase()) {
+                console.log(
+                  `[TopUpService] AgentId mismatch. Expected: ${expectedAgentIdHash}, Got: ${agentId}`,
+                );
+                continue;
+              }
+
+              if (from.toLowerCase() !== transaction.userWalletAddress.toLowerCase()) {
+                console.log(
+                  `[TopUpService] Sender mismatch. Expected: ${transaction.userWalletAddress}, Got: ${from}`,
+                );
+                continue;
+              }
+
+              depositVerified = true;
+              actualAmount = amount;
+              isTokenDeposit = true;
+              depositTokenAddress = token.toLowerCase();
               console.log(
-                `[TopUpService] Sender mismatch. Expected: ${transaction.userWalletAddress}, Got: ${from}`,
+                `[TopUpService] Verified token deposit: ${amount.toString()} of ${token}`,
               );
-              continue;
+              break;
+            } catch (e) {
+              console.log(`[TopUpService] Failed to decode TokenDeposit event:`, e);
             }
+          }
+        }
+      } else {
+        // ── SPLITS PATH ─────────────────────────────────────────────────────
+        const splitAddr = transaction.agent.splitAddress.toLowerCase();
 
-            depositVerified = true;
-            actualAmount = amount;
-            isTokenDeposit = true;
-            depositTokenAddress = token.toLowerCase();
-            console.log(
-              `[TopUpService] Verified token deposit: ${amount.toString()} of ${token}`,
+        if (!transaction.tokenAddress) {
+          // ETH: receipt.to must equal splitAddress
+          if (receipt.to?.toLowerCase() !== splitAddr) {
+            await this.markTransactionFailed(
+              txHash,
+              `receipt.to does not match splitAddress. Expected: ${splitAddr}, Got: ${receipt.to}`,
             );
-            break;
-          } catch (e) {
-            console.log(
-              `[TopUpService] Failed to decode TokenDeposit event:`,
-              e,
+            return;
+          }
+
+          const tx = await publicClient.getTransaction({
+            hash: txHash as `0x${string}`,
+          });
+
+          if (tx.from.toLowerCase() !== transaction.userWalletAddress.toLowerCase()) {
+            await this.markTransactionFailed(
+              txHash,
+              `Sender mismatch. Expected: ${transaction.userWalletAddress}, Got: ${tx.from}`,
             );
+            return;
+          }
+
+          actualAmount = tx.value;
+          depositVerified = true;
+          isTokenDeposit = false;
+          console.log(`[TopUpService] Splits ETH deposit verified: ${tx.value.toString()} wei`);
+        } else {
+          // ERC-20: find Transfer(from=userWallet, to=splitAddr) in logs
+          const ERC20_TRANSFER_ABI = parseAbiItem(
+            'event Transfer(address indexed from, address indexed to, uint256 value)',
+          );
+          const ERC20_TRANSFER_TOPIC = toEventSelector(ERC20_TRANSFER_ABI);
+
+          for (const log of receipt.logs) {
+            if (log.address.toLowerCase() !== transaction.tokenAddress!.toLowerCase()) continue;
+            if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
+
+            try {
+              const decoded = decodeEventLog({
+                abi: [ERC20_TRANSFER_ABI],
+                data: log.data,
+                topics: log.topics,
+              });
+
+              const { from, to, value } = decoded.args as {
+                from: `0x${string}`;
+                to: `0x${string}`;
+                value: bigint;
+              };
+
+              if (from.toLowerCase() !== transaction.userWalletAddress.toLowerCase()) continue;
+              if (to.toLowerCase() !== splitAddr) continue;
+
+              actualAmount = value;
+              depositVerified = true;
+              isTokenDeposit = true;
+              depositTokenAddress = transaction.tokenAddress!.toLowerCase();
+              console.log(
+                `[TopUpService] Splits ERC-20 deposit verified: ${value.toString()} of ${transaction.tokenAddress}`,
+              );
+              break;
+            } catch (e) {
+              console.log(`[TopUpService] Failed to decode Transfer event:`, e);
+            }
           }
         }
       }
@@ -626,8 +705,8 @@ export class TopUpService {
         const tokenPrice = await priceService.getTokenPrice(
           tokenInfo.coingeckoId,
         );
-        const actualTokenAmount =
-          Number(actualAmount) / 10 ** tokenInfo.decimals;
+        // Use viem formatUnits to avoid float precision loss on large token amounts
+        const actualTokenAmount = parseFloat(formatUnits(actualAmount, tokenInfo.decimals));
         actualUsd = actualTokenAmount * tokenPrice;
 
         console.log(
@@ -696,6 +775,34 @@ export class TopUpService {
         );
       }
 
+      // Write audit ledger entry — non-fatal if it fails
+      try {
+        await prisma.ledgerEntry.create({
+          data: {
+            agentId: transaction.agentId,
+            userWalletAddress: transaction.userWalletAddress,
+            entryType: LedgerEntryType.CREDIT_GRANTED,
+            status: LedgerEntryStatus.POSTED,
+            credits: BigInt(actualCredits),
+            amountInUSD: actualUsd.toFixed(2),
+            paymentMethodType: isTokenDeposit
+              ? PaymentMethodType.ERC20
+              : PaymentMethodType.ETH,
+            tokenAddress: isTokenDeposit ? depositTokenAddress : null,
+            tokenSymbol: isTokenDeposit ? transaction.tokenSymbol : null,
+            amountAtomic: actualAmount!.toString(),
+            chainId: 8453,
+            txHash,
+            idempotencyKey: txHash,
+          },
+        });
+      } catch (ledgerErr) {
+        console.error(
+          `[TopUpService] Ledger entry failed for ${txHash} (credits already granted):`,
+          ledgerErr,
+        );
+      }
+
       const paymentType = isTokenDeposit ? 'token' : 'ETH';
       console.log(
         `[TopUpService] ✅ Transaction ${txHash} verified and credited ${actualCredits} credits (${paymentType} payment, $${actualUsd.toFixed(2)} USD)`,
@@ -706,37 +813,8 @@ export class TopUpService {
         error,
       );
 
-      // Check if it's a "transaction not found" error (tx may be pending)
-      if (
-        error.message?.includes('could not be found') ||
-        error.message?.includes('not found')
-      ) {
-        if (retryCount < MAX_RETRIES) {
-          console.log(
-            `[TopUpService] Transaction not yet confirmed, will retry in 10s...`,
-          );
-          // Retry after a delay
-          setTimeout(
-            () => this.verifyTransactionOnChain(txHash, retryCount + 1),
-            10000,
-          );
-          return;
-        } else {
-          console.log(
-            `[TopUpService] Max retries exceeded. Transaction not found on-chain.`,
-          );
-          await this.markTransactionFailed(
-            txHash,
-            'Transaction not found on-chain after multiple attempts. Invalid or never submitted.',
-          );
-          return;
-        }
-      }
-
-      await this.markTransactionFailed(
-        txHash,
-        `Verification error: ${error.message}`,
-      );
+      // Re-throw so the worker can record the attempt and schedule retry
+      throw error;
     }
   }
 

@@ -150,6 +150,16 @@ export interface SubmitTopUpResponse {
 }
 
 /**
+ * Payment config for agents using Splits Protocol (new agents only).
+ * Present only when the agent has a splitAddress.
+ */
+export interface SplitsPaymentConfig {
+  paymentAddress: string;
+  paymentMode: 'splits';
+  network: { chainId: number; name: string; rpcUrl: string };
+}
+
+/**
  * Updated TopUpDetailsResponse with multi-token support
  */
 export interface TopUpDetailsResponse {
@@ -158,6 +168,8 @@ export interface TopUpDetailsResponse {
   // New multi-token payment methods
   paymentMethods: PaymentMethod[];
   supportedTokens: SupportedTokenInfo[];
+  // Present only for agents using Splits Protocol
+  splitsConfig?: SplitsPaymentConfig;
 }
 
 export interface ApiErrorResponse {

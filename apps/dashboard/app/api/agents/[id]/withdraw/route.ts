@@ -165,6 +165,7 @@ export async function POST(
         id: true,
         agentId: true,
         userId: true,
+        splitAddress: true,
         user: {
           select: {
             walletAccounts: {
@@ -180,6 +181,18 @@ export async function POST(
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+    }
+
+    // Splits mode: permissionless distribute() — no private key needed server-side
+    if (agent.splitAddress) {
+      return NextResponse.json({
+        success: true,
+        withdrawalMode: 'splits',
+        splitAddress: agent.splitAddress,
+        message:
+          'Call distribute() on your Split contract to push funds to your wallet. ' +
+          'Use the Splits SDK or BaseScan with the split address below.',
+      });
     }
 
     // Get user's wallet address

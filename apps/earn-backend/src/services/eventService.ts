@@ -21,11 +21,10 @@ export class EventService {
       params;
 
     return prisma.$transaction(async (tx) => {
+      if (!userId) throw new Error('Authentication required');
+
       const agent = await tx.agent.findFirst({
-        where: {
-          agentId,
-          ...(userId ? { userId } : {}),
-        },
+        where: { agentId, userId },
         select: {
           id: true,
           creditsPerPrompt: true,
@@ -73,7 +72,7 @@ export class EventService {
           data: {
             userWalletAddress: walletAddress,
             agentId: internalAgentId,
-            creditBalance: BigInt(100),
+            creditBalance: BigInt(0),
             ethBalance: 0,
           },
         });
@@ -188,7 +187,8 @@ export class EventService {
       throw new Error(`Event not found: ${eventId}`);
     }
 
-    if (userId && event.agent.userId !== userId) {
+    if (!userId) throw new Error('Authentication required');
+    if (event.agent.userId !== userId) {
       throw new Error('Event not found for this API key');
     }
 
@@ -238,7 +238,8 @@ export class EventService {
         throw new Error(`Event not found: ${eventId}`);
       }
 
-      if (userId && event.agent.userId !== userId) {
+      if (!userId) throw new Error('Authentication required');
+      if (event.agent.userId !== userId) {
         throw new Error('Event not found for this API key');
       }
 

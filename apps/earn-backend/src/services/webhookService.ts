@@ -15,11 +15,10 @@ export interface RegisterWebhookEndpointInput {
 
 export class WebhookService {
   static async registerEndpoint(input: RegisterWebhookEndpointInput) {
+    if (!input.userId) throw new Error('Authentication required');
+
     const agent = await prisma.agent.findFirst({
-      where: {
-        agentId: input.agentId,
-        ...(input.userId ? { userId: input.userId } : {}),
-      },
+      where: { agentId: input.agentId, userId: input.userId },
       select: { id: true },
     });
 

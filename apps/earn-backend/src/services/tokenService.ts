@@ -19,33 +19,23 @@ export interface SupportedToken {
  */
 const SUPPORTED_TOKENS: SupportedToken[] = [
   {
+    address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    chainId: 8453,
+    coingeckoId: 'usd-coin',
+    logoUrl: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
+  },
+  {
     address: '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07',
     symbol: 'MINIDEV',
     name: 'MiniDev',
     decimals: 18,
-    chainId: 8453, // Base
+    chainId: 8453,
     coingeckoId: 'minidev',
     logoUrl: 'https://assets.coingecko.com/coins/images/39824/small/MINIDEV.jpg',
   },
-  // Future tokens can be added here:
-  // {
-  //   address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  //   symbol: 'USDC',
-  //   name: 'USD Coin',
-  //   decimals: 6,
-  //   chainId: 8453, // Base
-  //   coingeckoId: 'usd-coin',
-  //   logoUrl: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
-  // },
-  // {
-  //   address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
-  //   symbol: 'USDT',
-  //   name: 'Tether USD',
-  //   decimals: 6,
-  //   chainId: 8453, // Base
-  //   coingeckoId: 'tether',
-  //   logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-  // },
 ];
 
 /**

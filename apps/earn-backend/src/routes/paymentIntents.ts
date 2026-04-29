@@ -84,14 +84,51 @@ router.get(
         data: paymentIntent,
       });
     } catch (error) {
-      if (error instanceof AppError) {
-        throw error;
-      }
+      if (error instanceof AppError) throw error;
+      if (error instanceof Error) throw new AppError(error.message, 400);
+      throw error;
+    }
+  },
+);
 
-      if (error instanceof Error) {
-        throw new AppError(error.message, 400);
-      }
+// POST /:id/confirm — called after on-chain tx is verified; marks SUCCEEDED + grants credits
+router.post(
+  '/:id/confirm',
+  validateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const paymentIntent = await PaymentIntentService.confirmPayment(
+        req.params.id,
+      );
 
+      res.json({ success: true, data: paymentIntent });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      if (error instanceof Error) throw new AppError(error.message, 400);
+      throw error;
+    }
+  },
+);
+
+// POST /:id/record-payment — called when tx hash is submitted; moves to PROCESSING
+router.post(
+  '/:id/record-payment',
+  validateApiKey,
+  async (req: Request, res: Response) => {
+    try {
+      const { txHash, customerWalletAddress } = req.body;
+      if (!txHash) throw new AppError('txHash is required', 400);
+
+      const paymentIntent = await PaymentIntentService.recordPaymentSeen({
+        paymentIntentId: req.params.id,
+        txHash,
+        customerWalletAddress,
+      });
+
+      res.json({ success: true, data: paymentIntent });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      if (error instanceof Error) throw new AppError(error.message, 400);
       throw error;
     }
   },

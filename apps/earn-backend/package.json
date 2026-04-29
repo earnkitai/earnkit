@@ -26,6 +26,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@0xsplits/splits-sdk": "^6.0.0",
     "@prisma/client": "^5.7.0",
     "@privy-io/server-auth": "^1.21.0",
     "cors": "^2.8.5",
