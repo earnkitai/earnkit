@@ -1,0 +1,17 @@
+providers = ["node"]
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = [
+  "corepack enable",
+  "corepack prepare pnpm@8.15.9 --activate",
+  "cd ../.. && pnpm install --frozen-lockfile=false"
+]
+
+[phases.build]
+cmds = ["cd ../.. && pnpm build:dashboard"]
+
+[start]
+cmd = "prisma migrate deploy && node_modules/.bin/next start"

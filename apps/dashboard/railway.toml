@@ -1,7 +1,6 @@
 [build]
 builder = "nixpacks"
-installCommand = "npm install -g pnpm@8.15.9"
-buildCommand = "cd ../.. && pnpm install && pnpm build:dashboard"
+nixpacksConfigPath = "nixpacks.toml"
 watchPatterns = ["/apps/dashboard/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
