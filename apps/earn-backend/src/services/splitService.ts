@@ -87,16 +87,18 @@ export async function deploySplitForAgent(
     creatorAddress: account.address,
   });
 
-  console.log(
-    `[splitService] Deployed SplitV2 at ${result.splitAddress} (tx: ${result.event.transactionHash})`,
-  );
-
   if (!result.splitAddress) {
     throw new Error('Split deployment succeeded but returned null splitAddress');
   }
 
+  const splitAddress: string = result.splitAddress;
+
+  console.log(
+    `[splitService] Deployed SplitV2 at ${splitAddress} (tx: ${result.event.transactionHash})`,
+  );
+
   return {
-    splitAddress: result.splitAddress,
-    txHash: result.event.transactionHash,
+    splitAddress,
+    txHash: result.event.transactionHash as string,
   };
 }
