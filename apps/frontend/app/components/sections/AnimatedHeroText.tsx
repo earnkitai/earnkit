@@ -15,11 +15,17 @@ export default function AnimatedHeroText() {
                     type: "spring",
                     stiffness: 100
                 }}
-                className="max-w-[75%] lg:max-w-[75%] text-center flex flex-col justify-center font-medium font-funnel-display text-[2.5rem] lg:text-[4rem] 2xl:text-[8dvh] tracking-tight leading-[1.05]"
+                className="max-w-[75%] lg:max-w-[75%] text-center flex flex-col justify-center font-medium font-funnel-display text-[2.5rem] lg:text-[5rem] 2xl:text-[8dvh] tracking-tight leading-[1.05]"
                 style={{ willChange: "transform, opacity" }}
             >
                 <h1 className="text-white">
-                    Set up onchain payments for your AI agent in minutes.
+                    Set up Onchain Payments
+                </h1>
+                <h1 className="text-white">
+                    For Your
+                </h1>
+                <h1 className="text-white">
+                    AI Agent in Minutes.
                 </h1>
             </motion.div>
             <motion.div
@@ -73,7 +79,7 @@ buy it back automatically.
                 className="max-w-[70%] lg:max-w-[70%] text-center flex justify-center mt-4"
                 style={{ willChange: "transform, opacity" }}
             >
-                <span className="text-sm text-nowrap flex items-center gap-2">Powered by <img src="/images/landing/splits_wordmark_dark.svg" className="h-4"/> <span>•</span>  Used by <img src="/images/landing/TOKENS LOGO_WHITE.png" className="h-3"/></span>
+                <span className="text-sm text-nowrap flex items-center gap-2">Powered by <img src="/images/landing/splits_wordmark_dark.svg" className="h-4"/> <span>•</span>  Used by <img src="/images/landing/TOKENS_LOGO_WHITE.png" className="h-3"/></span>
             </motion.div>
         </>
     );
