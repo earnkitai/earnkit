@@ -185,7 +185,7 @@ export default function BuybackDedicatedSection() {
                             <h2 className="w-[80%] text-color8 font-funnel-sans text-3xl md:text-[3rem] 2xl:text-[3.3rem] font-medium mb-6 leading-tight">
                                 Your token, <br/> doing real work.
                             </h2>
-                            <p className="w-[80%] text-color6 text-justify font-funnel-sans text-lg md:text-xl my-2">
+                            <p className="w-[80%] text-color6 text-left font-funnel-sans text-lg md:text-xl my-2">
                                  EarnKit makes tokens part of the business
 model. Every payment your agent earns can buy back your token automatically, tying token
 economics directly to product usage. You set the percentage. EarnKit handles the routing.
@@ -219,7 +219,7 @@ without it.
 
             </aside>
             {/* Right Side */}
-            <aside className="w-full h-[90vh] md:h-[90vh] md:w-1/2 bg-color2 flex flex-col justify-between items-start rounded-[56px] p-14 px-10 md:p-28">
+            <aside className="w-full h-[90vh] md:h-[90vh] md:w-1/2 bg-color2 flex flex-col justify-center items-start rounded-[56px] p-14 px-10 md:p-28">
      <PaymentFlow />
                 {
                 /* <div className="flex-1 flex flex-col justify-start">

@@ -115,20 +115,20 @@ export default function IntegrateInMinutesSection() {
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="3 3 34 34" fill="none" className="h-7 w-7 text-white"><path d="M37 20.034C27.8809 20.5837 20.5808 27.8809 20.0326 37H19.966C19.4163 27.8809 12.1177 20.5837 3 20.034V19.9674C12.1191 19.4163 19.4163 12.1191 19.966 3H20.0326C20.5822 12.1191 27.8809 19.4163 37 19.9674V20.034Z" fill="currentColor"></path></svg>
                 </div>
               </div>
-              <h3 className="text-3xl font-bold text-white font-funnel-display">Delegate confidently</h3>
-              <p className="text-lg text-color7 leading-relaxed font-funnel-sans max-w-md">
+              {/* <h3 className="text-3xl font-bold text-white font-funnel-display">Delegate confidently</h3> */}
+              <p className="text-lg text-color11 leading-relaxed font-funnel-sans max-w-md">
                 {tabData["AI Assistant"].subtitle}
               </p>
             </div>
 
-            <div className="bg-[#1a1a1a]/80 backdrop-blur-md border border-white/10 rounded-3xl p-8 shadow-2xl relative">
+            <div className="bg-[#1a1a1a]/80 border border-white/10 rounded-3xl p-8 relative">
               <div className="text-gray-300 font-funnel-sans text-sm md:text-base whitespace-pre-wrap leading-relaxed">
                 {tabData["AI Assistant"].prompt}
               </div>
-              <div className="mt-8 flex justify-end">
+              <div className="mt-8 flex justify-center">
                 <button 
                   onClick={() => handleCopy(tabData["AI Assistant"].prompt)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all border ${
+                  className={`flex items-center gap-2 px-6 py-3 rounded-full transition-all border ${
                     copied 
                     ? "bg-green-500/20 border-green-500/50 text-green-400" 
                     : "bg-white/10 hover:bg-white/20 text-white border-white/10"

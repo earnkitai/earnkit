@@ -2,9 +2,9 @@ import Image from "next/image";
 
 export default function CarouselFeatures() {
     return (
-        <section className="w-full flex flex-col items-center justify-center py-10 px-6 md:px-20">
+        <section className="w-full flex flex-col items-center justify-center py-10 px-6 md:px-16">
             {/* Grid container */}
-            <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-10">
+            <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-10">
                 
                 {/* Card 1: Usage-based pricing */}
                 <div
