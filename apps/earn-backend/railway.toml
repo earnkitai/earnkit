@@ -1,10 +1,10 @@
 [build]
 builder = "nixpacks"
 installCommand = "npm install -g pnpm@8.15.9"
-buildCommand = "pnpm install && pnpm build:earnbackend"
+buildCommand = "cd ../.. && pnpm install && pnpm build:earnbackend"
 watchPatterns = ["/apps/earn-backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
-startCommand = "pnpm start:earnbackend"
+startCommand = "prisma migrate deploy --schema=src/prisma/schema.prisma && node dist/index.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

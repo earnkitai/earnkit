@@ -21,8 +21,7 @@ export const notion = new Client({
 const databaseId = process.env.NOTION_DATABASE_ID;
 
 function getDbId(): string {
-  if (!databaseId) throw new Error('NOTION_DATABASE_ID is not set in environment variables');
-  return databaseId;
+  return databaseId ?? '';
 }
 
 // Cache configuration
@@ -47,8 +46,6 @@ export interface NotionBlogPost {
 // Cached database fetch
 export const getDatabase = unstable_cache(
   async () => {
-    if (!databaseId) throw new Error('Database ID not found');
-
     const response = await notion.databases.retrieve({
       database_id: getDbId(),
     });
