@@ -20,21 +20,15 @@ export default function Header() {
                         <Link href="https://blog.earnkit.com" className="text-color6 mx-6 hover:text-white transition-colors" target="_blank">
                             Blog
                         </Link>
-                        <Link href="/litepaper" className="text-color6 mx-6 hover:text-white transition-colors" >
-                            Litepaper
-                        </Link>
-                        <Link href="/roadmap" className="text-color6 mx-6 hover:text-white transition-colors">
-                            Roadmap
-                        </Link>
                         <Link href="https://app.earnkit.com" className="mr-6 text-color6  hover:text-white transition-colors ml-auto" target="_blank">
                             Login
                         </Link>
                     </nav>
                 </div>
-                <Link href="https://form.typeform.com/to/TaK4Xs1E" target="_blank" className="min-w-[20%] min-h-full flex font-funnel-sans font-medium items-center justify-center bg-color6 rounded-[56px] hover:bg-color7">
+                <Link href="https://app.earnkit.com" target="_blank" className="min-w-[20%] min-h-full flex font-funnel-sans font-medium items-center justify-center bg-color6 rounded-[56px] hover:bg-color7">
                     <nav className="text-xl 2xl:text-[1.2rem]">
                         <span className="min-h-full text-color3">
-                            Early Access
+                            Get Started
                         </span>
                     </nav>
                 </Link>
@@ -67,20 +61,14 @@ export default function Header() {
                                 <path d="M28.495 20.965C24.6358 20.965 21.5074 17.8366 21.5074 13.9774H14.532C14.532 21.689 20.7834 27.9404 28.495 27.9404V20.965Z" fill="currentColor" />
                             </svg>
                         </Link>
-                        <Link href="https://form.typeform.com/to/TaK4Xs1E" className="text-color7 hover:text-white transition-colors mr-4 flex-shrink-0 bg-color2 rounded-full px-4 py-1 flex items-center justify-center" target="_blank">
-                            Early Access
+                        <Link href="https://app.earnkit.com" className="text-color7 hover:text-white transition-colors mr-4 flex-shrink-0 bg-color2 rounded-full px-4 py-1 flex items-center justify-center" target="_blank">
+                            Get Started
                         </Link>
                         <Link href="https://app.earnkit.com" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Login
                         </Link>
                         <Link href="https://blog.earnkit.com" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Blog
-                        </Link>
-                        <Link href="/litepaper" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0">
-                            Litepaper
-                        </Link>
-                        <Link href="/roadmap" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0">
-                            Roadmap
                         </Link>
                         <Link href="https://docs.earnkit.com" className="text-color2 hover:text-white transition-colors mr-4 flex-shrink-0" target="_blank">
                             Docs
