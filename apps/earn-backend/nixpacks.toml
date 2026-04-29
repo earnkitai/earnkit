@@ -7,11 +7,11 @@ nixPkgs = ["nodejs_20"]
 cmds = [
   "corepack enable",
   "corepack prepare pnpm@8.15.9 --activate",
-  "cd ../.. && pnpm install --frozen-lockfile=false"
+  "pnpm install --frozen-lockfile=false"
 ]
 
 [phases.build]
-cmds = ["cd ../.. && pnpm build:earnbackend"]
+cmds = ["pnpm build:earnbackend"]
 
 [start]
-cmd = "prisma migrate deploy --schema=src/prisma/schema.prisma && node dist/index.js"
+cmd = "cd apps/earn-backend && pnpm exec prisma migrate deploy --schema=src/prisma/schema.prisma && node dist/index.js"
