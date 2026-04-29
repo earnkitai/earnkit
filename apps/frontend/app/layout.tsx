@@ -20,7 +20,7 @@ const funnellsans = Funnel_Sans({
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
   title: "EarnKit | The Agent Monetization Layer",
-  description: "Easiest way to monetize your AI agent in just a few lines of code.",
+  description: "Onchain Payments for AI Agents",
   keywords: [
     "ai agent monetization", "web3 monetization sdk", "crypto payments api",
     "smart wallet billing", "onchain billing solution", "usage based pricing web3",
