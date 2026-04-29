@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { deploySplitForAgent } from '../../services/splitService';
 
-const router = Router();
+const router: Router = Router();
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   const { developerWalletAddress, buybackAddress, buybackPercent } = req.body;

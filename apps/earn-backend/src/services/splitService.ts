@@ -91,6 +91,10 @@ export async function deploySplitForAgent(
     `[splitService] Deployed SplitV2 at ${result.splitAddress} (tx: ${result.event.transactionHash})`,
   );
 
+  if (!result.splitAddress) {
+    throw new Error('Split deployment succeeded but returned null splitAddress');
+  }
+
   return {
     splitAddress: result.splitAddress,
     txHash: result.event.transactionHash,
