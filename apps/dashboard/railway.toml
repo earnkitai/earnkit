@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+installCommand = "npm install -g pnpm@8.15.9"
 buildCommand = "pnpm install && pnpm build:dashboard"
 watchPatterns = ["/apps/dashboard/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
@@ -7,4 +8,3 @@ watchPatterns = ["/apps/dashboard/**/*", "turbo.json", "pnpm-lock.yaml", "packag
 startCommand = "pnpm start:dashboard"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-

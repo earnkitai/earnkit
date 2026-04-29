@@ -1,10 +1,10 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pnpm build:earnbackend"
+installCommand = "npm install -g pnpm@8.15.9"
+buildCommand = "pnpm install && pnpm build:earnbackend"
 watchPatterns = ["/apps/earn-backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
 startCommand = "pnpm start:earnbackend"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-
