@@ -21,7 +21,7 @@ export const env = createEnv({
     NEXT_PUBLIC_ORGANIZATION_ID: z.string().optional(), // Turnkey org ID (optional for local dev)
     NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().optional(), // Alchemy API key (optional for local dev)
     COINGECKO_API_KEY: z.string().optional(), // CoinGecko (optional for local dev)
-    DATABASE_URL: z.string().min(1),
+    DATABASE_URL: z.string().optional(),
     ESCROW_CONTRACT_ADDRESS: z.string().optional(),
     ALCHEMY_API_KEY: z.string().optional(),
     PLATFORM_WALLET_PRIVATE_KEY: z.string().optional(),

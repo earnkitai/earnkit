@@ -186,8 +186,9 @@ export default function WithdrawModal({
             console.log("Withdrawal result:", result);
 
             // Splits agents: funds are already in the split contract; user must call distribute()
-            if ((result as any).withdrawalMode === 'splits') {
-                setSplitAddress((result as any).splitAddress ?? '');
+            const withdrawalResult = result as { withdrawalMode?: string; splitAddress?: string };
+            if (withdrawalResult.withdrawalMode === 'splits') {
+                setSplitAddress(withdrawalResult.splitAddress ?? '');
                 setStep('splits-info');
                 return;
             }

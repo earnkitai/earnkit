@@ -1,8 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Funnel+Display:wght@400;500;600;700&family=Funnel+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  --font-funnel-display: 'Funnel Display', sans-serif;
+  --font-funnel-sans: 'Funnel Sans', sans-serif;
   --background: #ffffff;
   --foreground: #171717;
   --destructive: #ee4444;

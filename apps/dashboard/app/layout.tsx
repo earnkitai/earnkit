@@ -1,22 +1,9 @@
 import type { Metadata } from "next";
-import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import { Providers } from "@/providers";
 
-// import { Providers } from "@/providers";
-// import Header from "@/app/components/common/Header";
-// import Footer from "@/app/components/common/Footer";
-const funnelDisplay = Funnel_Display({
-  variable: "--font-funnel-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-const funnellsans = Funnel_Sans({
-  variable: "--font-funnel-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://app.earnkit.com'),
@@ -85,7 +72,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#000000" />
         <SchemaOrg />
       </head>
-      <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`} suppressHydrationWarning>
+      <body className="antialiased relative" suppressHydrationWarning>
         <Providers>
           {/* <Header />
               <main className="flex-grow z-30" > */}

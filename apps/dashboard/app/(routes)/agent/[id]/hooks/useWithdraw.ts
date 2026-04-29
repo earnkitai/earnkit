@@ -66,24 +66,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     }
   };
 
-  // Function to get current ETH price in USD
-  const getEthPrice = async (): Promise<number> => {
-    try {
-      const { priceService } = await import('@/lib/priceService');
-      return await priceService.getEthPrice();
-    } catch (error) {
-      console.error('Error getting ETH price:', error);
-      return 3000; // Default fallback price
-    }
-  };
-
-  // Function to convert USD to ETH
-  const convertUsdToEth = async (usdAmount: number): Promise<string> => {
-    const ethPrice = await getEthPrice();
-    const ethAmount = usdAmount / ethPrice;
-    return ethAmount.toString();
-  };
-
   // Function to calculate fees
   const calculateFees = async (amount: number): Promise<FeeCalculation> => {
     const platformFeeBps = await getPlatformFee();

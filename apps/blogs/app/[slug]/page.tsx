@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+export const dynamic = 'force-dynamic';
+
 // app/blog/[slug]/page.tsx
 import { notFound } from "next/navigation";
 import { getPostBySlug, getPageBlocks } from "../lib/notion";

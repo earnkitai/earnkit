@@ -412,8 +412,7 @@ export async function POST(
         const ethAmountWei = parseEther(ethAmount.toString());
 
         // Get current ETH balance from contract
-        let currentBalance: bigint;
-        currentBalance = (await publicClient.readContract({
+        const currentBalance = (await publicClient.readContract({
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: CONTRACT_ABI,
           functionName: 'agentBalance',

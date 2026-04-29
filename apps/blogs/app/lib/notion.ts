@@ -18,11 +18,11 @@ export const notion = new Client({
   auth: process.env.NOTION_API_KEY,
 });
 
-// Environment variables validation
 const databaseId = process.env.NOTION_DATABASE_ID;
 
-if (!databaseId) {
-  throw new Error('NOTION_DATABASE_ID is not set in environment variables');
+function getDbId(): string {
+  if (!databaseId) throw new Error('NOTION_DATABASE_ID is not set in environment variables');
+  return databaseId;
 }
 
 // Cache configuration
@@ -50,7 +50,7 @@ export const getDatabase = unstable_cache(
     if (!databaseId) throw new Error('Database ID not found');
 
     const response = await notion.databases.retrieve({
-      database_id: databaseId,
+      database_id: getDbId(),
     });
 
     return response as DatabaseObjectResponse;
@@ -66,7 +66,7 @@ export const getDatabase = unstable_cache(
 export const getPosts = cache(async (): Promise<NotionBlogPost[]> => {
   try {
     const response = await notion.databases.query({
-      database_id: databaseId,
+      database_id: getDbId(),
       filter: {
         and: [
           {
@@ -114,7 +114,7 @@ export async function revalidateCache(postId?: string) {
 export const getPublishedPostsCount = cache(async (): Promise<number> => {
   try {
     const response = await notion.databases.query({
-      database_id: databaseId,
+      database_id: getDbId(),
       filter: {
         property: 'Status',
         status: {
@@ -134,7 +134,7 @@ export const getPostBySlug = cache(
   async (slug: string): Promise<PageObjectResponse | undefined> => {
     try {
       const response = await notion.databases.query({
-        database_id: databaseId,
+        database_id: getDbId(),
         filter: {
           and: [
             {
