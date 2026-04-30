@@ -28,6 +28,8 @@ app.use(
     origin: (origin, callback) => {
       // Allow server-to-server requests (no Origin header)
       if (!origin) return callback(null, true);
+      // Wildcard — allow any origin
+      if (allowedOrigins.includes('*')) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
