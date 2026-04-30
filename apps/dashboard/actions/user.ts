@@ -1,10 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
+import { createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { User, LinkedAccount } from '@/types/user';
 import { generateApiKey } from '@/lib/utils';
 // import { Prisma } from '@prisma/client';
+
+// Must match the SHA-256 scheme used by earn-backend's ApiKeyService.hashKey().
+// Plaintext is shown to the user ONCE on creation; only the hash + prefix are persisted.
+function hashApiKey(rawKey: string): string {
+  return createHash('sha256').update(rawKey).digest('hex');
+}
+
+function prefixOfApiKey(rawKey: string): string {
+  // "ek_" (3) + 8 hex chars = 11 — matches earn-backend's prefixOf().
+  return rawKey.substring(0, 11);
+}
 
 export async function createUser(userData: Partial<User>) {
   const prismaUser = await prisma.user.create({
@@ -464,39 +476,48 @@ function transformLinkedAccounts(prismaUser: any): LinkedAccount[] {
 }
 
 /**
- * Creates a new API key for a user
+ * Creates a new API key for a user. The plaintext is returned to the caller
+ * exactly once; only the SHA-256 hash and prefix are persisted, so the key
+ * cannot be re-displayed later.
+ *
  * @param userId - The user ID
- * @returns The generated API key
+ * @returns The plaintext API key (show to user once, then never again)
  */
 export async function createApiKey(userId: string): Promise<string> {
   const apiKey = generateApiKey();
+  const hash = hashApiKey(apiKey);
+  const prefix = prefixOfApiKey(apiKey);
 
   await prisma.user.update({
     where: { id: userId },
-    data: { apiKey },
+    data: { apiKey: hash, apiKeyPrefix: prefix },
   });
 
   return apiKey;
 }
 
 /**
- * Gets the API key for a user
+ * Returns the prefix of the user's API key for display (e.g. "ek_a1b2c3d4").
+ * The full plaintext key is unrecoverable after creation — by design.
+ *
  * @param userId - The user ID
- * @returns The user's API key or null if not found
+ * @returns The prefix string for display, or null if no key exists
  */
 export async function getApiKey(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { apiKey: true },
+    select: { apiKeyPrefix: true, apiKey: true },
   });
 
-  return user?.apiKey || null;
+  if (!user?.apiKey) return null;
+  return user.apiKeyPrefix ?? null;
 }
 
 /**
- * Regenerates a new API key for a user (replaces existing one)
+ * Regenerates the user's API key. Invalidates the previous one immediately.
+ *
  * @param userId - The user ID
- * @returns The new API key
+ * @returns The new plaintext API key (show once)
  */
 export async function regenerateApiKey(userId: string): Promise<string> {
   return createApiKey(userId);
@@ -509,7 +530,7 @@ export async function regenerateApiKey(userId: string): Promise<string> {
 export async function deleteApiKey(userId: string): Promise<void> {
   await prisma.user.update({
     where: { id: userId },
-    data: { apiKey: null },
+    data: { apiKey: null, apiKeyPrefix: null },
   });
 }
 

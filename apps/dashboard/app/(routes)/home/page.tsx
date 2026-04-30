@@ -12,7 +12,7 @@ import { PrerequisiteModal } from "@/app/components/PrerequisiteModal";
 import { toast } from "sonner";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { Eye, EyeOff, Copy, Key, Wallet } from "lucide-react";
+import { Copy, Key, Wallet } from "lucide-react";
 
 // Agent type definition matching the comprehensive earnings API
 interface Agent {
@@ -455,8 +455,10 @@ function AddAgentCard({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
 // Simplified API Key Section Component (without delete/regenerate)
 function SimplifiedApiKeySection() {
     const { ready, authenticated, user } = usePrivy();
-    const [apiKey, setApiKey] = useState<string | null>(null);
-    const [showApiKey, setShowApiKey] = useState(false);
+    // Plaintext is only available immediately after createApiKey returns;
+    // afterwards we only know the prefix (full key cannot be retrieved).
+    const [plaintextKey, setPlaintextKey] = useState<string | null>(null);
+    const [keyPrefix, setKeyPrefix] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
 
     const fetchApiKey = useCallback(async () => {
@@ -464,8 +466,8 @@ function SimplifiedApiKeySection() {
 
         try {
             const userId = user.id.split(':').pop() || user.id;
-            const key = await getApiKey(userId);
-            setApiKey(key);
+            const prefix = await getApiKey(userId);
+            setKeyPrefix(prefix);
         } catch (error) {
             console.error("Error fetching API key:", error);
         }
@@ -484,9 +486,9 @@ function SimplifiedApiKeySection() {
         try {
             const userId = user.id.split(':').pop() || user.id;
             const newApiKey = await createApiKey(userId);
-            setApiKey(newApiKey);
-            setShowApiKey(true);
-            toast.success("API key created successfully");
+            setPlaintextKey(newApiKey);
+            setKeyPrefix(newApiKey.substring(0, 11));
+            toast.success("API key created — copy it now, it will not be shown again");
         } catch (error) {
             console.error("Error creating API key:", error);
             toast.error("Failed to create API key");
@@ -496,10 +498,10 @@ function SimplifiedApiKeySection() {
     };
 
     const handleCopyApiKey = async () => {
-        if (!apiKey) return;
+        if (!plaintextKey) return;
 
         try {
-            await navigator.clipboard.writeText(apiKey);
+            await navigator.clipboard.writeText(plaintextKey);
             toast.success("API key copied to clipboard");
         } catch (error) {
             console.error("Error copying API key:", error);
@@ -507,39 +509,49 @@ function SimplifiedApiKeySection() {
         }
     };
 
-    const maskedApiKey = apiKey ? `${apiKey.slice(0, 8)}${'•'.repeat(apiKey.length - 12)}${apiKey.slice(-4)}` : '';
+    const hasKey = !!keyPrefix;
 
     return (
         <div className="space-y-4 font-funnel-sans">
-            {apiKey ? (
+            {hasKey ? (
                 <div className="space-y-3">
-                    <p className="text-sm text-black/60">
-                        Your API key allows you to authenticate with our services programmatically.
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <Input
-                            type={showApiKey ? "text" : "password"}
-                            value={showApiKey ? apiKey : maskedApiKey}
-                            readOnly
-                            className="flex-1 bg-white/5 border-black/20 text-black font-mono text-sm rounded-full px-4 py-3"
-                        />
-                        <Button
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            variant="outline"
-                            size="sm"
-                            className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
-                        >
-                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </Button>
-                        <Button
-                            onClick={handleCopyApiKey}
-                            variant="outline"
-                            size="sm"
-                            className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
-                        >
-                            <Copy className="w-4 h-4" />
-                        </Button>
-                    </div>
+                    {plaintextKey ? (
+                        <>
+                            <p className="text-sm text-amber-700">
+                                <strong>Save this key now</strong> — it will not be shown again.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    type="text"
+                                    value={plaintextKey}
+                                    readOnly
+                                    className="flex-1 bg-white/5 border-black/20 text-black font-mono text-sm rounded-full px-4 py-3"
+                                />
+                                <Button
+                                    onClick={handleCopyApiKey}
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-black/20 bg-transparent text-black/80 hover:bg-black/5 rounded-full px-3 py-3"
+                                >
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-sm text-black/60">
+                                Your API key is active. Manage it in Settings — full key shown only on creation.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    type="text"
+                                    value={`${keyPrefix}…`}
+                                    readOnly
+                                    className="flex-1 bg-white/5 border-black/20 text-black/60 font-mono text-sm rounded-full px-4 py-3"
+                                />
+                            </div>
+                        </>
+                    )}
                 </div>
             ) : (
                 <div className="space-y-3">
