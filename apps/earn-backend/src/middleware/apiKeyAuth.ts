@@ -19,20 +19,20 @@ export const validateApiKey = async (
     const apiKey = extractApiKey(req);
 
     if (!apiKey || apiKey.trim() === '') {
-      throw new AppError('API key is required', 401);
+      return next(new AppError('API key is required', 401));
     }
 
     const user = await ApiKeyService.getUserByApiKey(apiKey);
 
     if (!user) {
-      throw new AppError('Invalid API key', 401);
+      return next(new AppError('Invalid API key', 401));
     }
 
     (req as any).user = user;
     next();
   } catch (error) {
-    if (error instanceof AppError) throw error;
-    throw new AppError('API key validation failed', 401);
+    if (error instanceof AppError) return next(error);
+    return next(new AppError('API key validation failed', 401));
   }
 };
 

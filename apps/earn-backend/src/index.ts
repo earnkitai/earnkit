@@ -11,6 +11,19 @@ import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 // Load environment variables
 dotenv.config();
 
+// Catch async errors that escape Express middleware so one bad request
+// doesn't take down the whole process. Logged loudly; do not exit.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+// Synchronous errors usually mean state is corrupted — log and exit so the
+// container restarts cleanly. Railway's restart policy will bring it back.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  process.exit(1);
+});
+
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
