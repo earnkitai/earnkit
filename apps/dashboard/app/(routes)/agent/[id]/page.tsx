@@ -843,7 +843,6 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                             <div className="mt-6">
                                 <TokenConfigPanel
                                     agentId={agent.agentId}
-                                    earnBackendUrl={process.env.NEXT_PUBLIC_EARN_BACKEND_URL || 'http://localhost:3000'}
                                 />
                             </div>
                             </>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Loader, CheckCircle2, XCircle, ExternalLink } from "lucide-react"
 import {
     Dialog,
@@ -48,11 +48,11 @@ export function TransactionStatus({
         }
     }, [type, showDialog])
 
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
         setShowDialog(false)
         setProgress(0)
         onClose()
-    }
+    }, [onClose])
 
     // Auto-close success messages after 5 seconds
     useEffect(() => {
@@ -62,7 +62,7 @@ export function TransactionStatus({
             }, 5000)
             return () => clearTimeout(timer)
         }
-    }, [type, showDialog])
+    }, [type, showDialog, handleClose])
 
     return (
         <Dialog open={showDialog} onOpenChange={handleClose}>

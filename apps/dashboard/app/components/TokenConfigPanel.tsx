@@ -24,10 +24,9 @@ interface AvailableToken {
 
 interface TokenConfigPanelProps {
   agentId: string;
-  earnBackendUrl: string;
 }
 
-export function TokenConfigPanel({ agentId, earnBackendUrl }: TokenConfigPanelProps) {
+export function TokenConfigPanel({ agentId }: TokenConfigPanelProps) {
   const [configs, setConfigs] = useState<TokenConfig[]>([]);
   const [availableTokens, setAvailableTokens] = useState<AvailableToken[]>([]);
   const [isDefault, setIsDefault] = useState(true);
@@ -41,7 +40,7 @@ export function TokenConfigPanel({ agentId, earnBackendUrl }: TokenConfigPanelPr
         setLoading(true);
         
         // Fetch current configs
-        const configRes = await fetch(`${earnBackendUrl}/api/agents/${agentId}/token-config`);
+        const configRes = await fetch(`/api/agents/${agentId}/token-config`);
         if (configRes.ok) {
           const data = await configRes.json();
           if (data.success) {
@@ -51,7 +50,9 @@ export function TokenConfigPanel({ agentId, earnBackendUrl }: TokenConfigPanelPr
         }
 
         // Fetch available tokens
-        const availableRes = await fetch(`${earnBackendUrl}/api/agents/${agentId}/token-config/available`);
+        const availableRes = await fetch(
+          `/api/agents/${agentId}/token-config/available`
+        );
         if (availableRes.ok) {
           const data = await availableRes.json();
           if (data.success) {
@@ -66,10 +67,10 @@ export function TokenConfigPanel({ agentId, earnBackendUrl }: TokenConfigPanelPr
       }
     };
 
-    if (agentId && earnBackendUrl) {
-      fetchConfigs();
-    }
-  }, [agentId, earnBackendUrl]);
+      if (agentId) {
+        fetchConfigs();
+      }
+  }, [agentId]);
 
   // Initialize configs from available tokens if default
   useEffect(() => {
@@ -115,7 +116,7 @@ export function TokenConfigPanel({ agentId, earnBackendUrl }: TokenConfigPanelPr
   const handleSave = async () => {
     try {
       setSaving(true);
-      const response = await fetch(`${earnBackendUrl}/api/agents/${agentId}/token-config`, {
+      const response = await fetch(`/api/agents/${agentId}/token-config`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

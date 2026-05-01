@@ -14,6 +14,13 @@ interface CoingeckoTokenCache {
   timestamp: number;
 }
 
+type CoinGeckoSimplePriceResponse = Record<
+  string,
+  {
+    usd?: number | string;
+  }
+>;
+
 class PriceService {
   private cache: PriceCache | null = null;
   private tokenCache: Map<string, CoingeckoTokenCache> = new Map();
@@ -152,7 +159,7 @@ class PriceService {
       );
     }
 
-    const data: any = await response.json();
+    const data: CoinGeckoSimplePriceResponse = await response.json();
     const raw = data?.[coingeckoId]?.usd;
     const price = Number(raw);
     if (!Number.isFinite(price) || price < 0) {
