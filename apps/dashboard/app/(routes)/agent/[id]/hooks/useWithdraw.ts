@@ -19,7 +19,8 @@ const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface WithdrawData {
   agentId: string;
-  amount: string;
+  amount: string; // Legacy USD string, used only when amountWei is absent
+  amountWei?: string; // Preferred: exact wei amount, no USD round-trip
   to: string;
 }
 
@@ -99,7 +100,9 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('No wallet connected');
       }
 
-      // Step 1: Get signature from backend
+      // Step 1: Get signature from backend.
+      // Prefer amountWei when the caller supplied it — that skips the
+      // ETH→USD→ETH round-trip and avoids float drift on max withdrawals.
       console.log('Requesting ETH withdrawal signature from backend...');
       const signatureResponse = await fetch(`/api/agents/${agentDbId}/withdraw`, {
         method: 'POST',
@@ -107,7 +110,8 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          amount: withdrawData.amount, // USD amount
+          amount: withdrawData.amount,
+          amountWei: withdrawData.amountWei,
           toAddress: withdrawData.to,
         }),
       });

@@ -28,7 +28,7 @@ import earnkitABI from '@/contract/earnkit_ABI.json';
 import { type Abi } from 'viem';
 
 // Contract configuration
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0x7476904a549AA6baeAFEa38070907DD5FB63c5Ac';
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0xCAeB6A62D04C52E1e196E5Bdce63e43f45582aA2';
 const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 // Agent type definition matching the database schema
@@ -198,14 +198,9 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 });
             } catch (error) {
                 console.error('Error fetching fresh balance:', error);
-                // Fallback to earnings data if contract call fails
-                if (earningsData) {
-                    setFreshBalanceData({
-                        ethBalance: 0,
-                        usdBalance: earningsData.availableBalance,
-                        ethPrice: 3000, // Fallback price
-                    });
-                }
+                // If the live read fails, leave freshBalanceData unset so the UI
+                // falls back to the earnings API values (which already have the
+                // contract balance) instead of fabricating a price.
             }
         };
 

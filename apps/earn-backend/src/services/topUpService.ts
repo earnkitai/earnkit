@@ -727,8 +727,10 @@ export class TopUpService {
       const claimedUsd = parseFloat(transaction.amountInUSD);
       const usdDifference = Math.abs(actualUsd - claimedUsd);
       const usdTolerance = claimedUsd * 0.1; // 10% tolerance for price fluctuations
+      const withinTolerance =
+        usdDifference <= usdTolerance && !!transaction.creditsToTopUp;
 
-      if (usdDifference <= usdTolerance && transaction.creditsToTopUp) {
+      if (withinTolerance) {
         // Use claimed credits if USD is within tolerance
         actualCredits = Number(transaction.creditsToTopUp);
         console.log(
@@ -746,61 +748,110 @@ export class TopUpService {
       // Ensure at least 1 credit
       actualCredits = Math.max(actualCredits, 1);
 
-      // 8. Update transaction as completed
-      await prisma.topUpTransaction.update({
-        where: { txHash },
-        data: {
-          status: 'COMPLETED',
-          amountInUSD: actualUsd.toFixed(2),
-          creditsToTopUp: BigInt(actualCredits),
-        },
-      });
+      // Persist the claimed (package) USD when within tolerance so dashboard
+      // earnings reflect what the developer priced, not a re-converted figure
+      // that drifts with ETH price moves between intent and verification.
+      const recordedUsd = withinTolerance
+        ? claimedUsd.toFixed(2)
+        : actualUsd.toFixed(2);
 
-      // 9. Credit the user
       const actualAgentId = transaction.agent.agentId;
 
-      await this.balanceService.addCredits(
-        transaction.userWalletAddress,
-        actualAgentId,
-        actualCredits,
-      );
-
-      // For ETH payments, also add to ETH balance
-      if (!isTokenDeposit) {
-        const ethAmount = (Number(actualAmount) / 1e18).toString();
-        await this.balanceService.addEth(
-          transaction.userWalletAddress,
-          actualAgentId,
-          ethAmount,
-        );
-      }
-
-      // Write audit ledger entry — non-fatal if it fails
+      // 8. Single-transaction credit grant, gated by the LedgerEntry
+      // (agentId, idempotencyKey) unique constraint.
+      //
+      // Why: there are two paths that grant credits — this top-up flow and
+      // PaymentIntentService.confirmPayment. Both write a LedgerEntry with
+      // idempotencyKey=txHash. By creating that ledger entry FIRST inside
+      // the transaction, a duplicate grant from either path becomes a
+      // P2002 unique-violation that rolls the whole grant back. Net effect:
+      // any given on-chain txHash can be credited at most once, regardless
+      // of which path picks it up first.
       try {
-        await prisma.ledgerEntry.create({
-          data: {
-            agentId: transaction.agentId,
-            userWalletAddress: transaction.userWalletAddress,
-            entryType: LedgerEntryType.CREDIT_GRANTED,
-            status: LedgerEntryStatus.POSTED,
-            credits: BigInt(actualCredits),
-            amountInUSD: actualUsd.toFixed(2),
-            paymentMethodType: isTokenDeposit
-              ? PaymentMethodType.ERC20
-              : PaymentMethodType.ETH,
-            tokenAddress: isTokenDeposit ? depositTokenAddress : null,
-            tokenSymbol: isTokenDeposit ? transaction.tokenSymbol : null,
-            amountAtomic: actualAmount!.toString(),
-            chainId: 8453,
-            txHash,
-            idempotencyKey: txHash,
-          },
+        await prisma.$transaction(async (tx) => {
+          // Lock-style guard: succeeds at most once per (agent, txHash).
+          await tx.ledgerEntry.create({
+            data: {
+              agentId: transaction.agentId,
+              userWalletAddress: transaction.userWalletAddress,
+              entryType: LedgerEntryType.CREDIT_GRANTED,
+              status: LedgerEntryStatus.POSTED,
+              credits: BigInt(actualCredits),
+              amountInUSD: recordedUsd,
+              paymentMethodType: isTokenDeposit
+                ? PaymentMethodType.ERC20
+                : PaymentMethodType.ETH,
+              tokenAddress: isTokenDeposit ? depositTokenAddress : null,
+              tokenSymbol: isTokenDeposit ? transaction.tokenSymbol : null,
+              amountAtomic: actualAmount!.toString(),
+              chainId: 8453,
+              txHash,
+              idempotencyKey: txHash,
+            },
+          });
+
+          // Move TopUpTransaction PENDING -> COMPLETED in the same tx.
+          await tx.topUpTransaction.updateMany({
+            where: { txHash, status: 'PENDING' },
+            data: {
+              status: 'COMPLETED',
+              amountInUSD: recordedUsd,
+              creditsToTopUp: BigInt(actualCredits),
+            },
+          });
+
+          // Find the agent's internal id for UserBalance keying. We already
+          // have it on `transaction.agentId`.
+          await tx.userBalance.upsert({
+            where: {
+              userWalletAddress_agentId: {
+                userWalletAddress: transaction.userWalletAddress,
+                agentId: transaction.agentId,
+              },
+            },
+            update: { creditBalance: { increment: BigInt(actualCredits) } },
+            create: {
+              userWalletAddress: transaction.userWalletAddress,
+              agentId: transaction.agentId,
+              creditBalance: BigInt(actualCredits),
+              ethBalance: 0,
+            },
+          });
+
+          if (!isTokenDeposit) {
+            const ethAmount = Number(actualAmount) / 1e18;
+            await tx.userBalance.update({
+              where: {
+                userWalletAddress_agentId: {
+                  userWalletAddress: transaction.userWalletAddress,
+                  agentId: transaction.agentId,
+                },
+              },
+              data: { ethBalance: { increment: ethAmount } },
+            });
+          }
         });
-      } catch (ledgerErr) {
-        console.error(
-          `[TopUpService] Ledger entry failed for ${txHash} (credits already granted):`,
-          ledgerErr,
-        );
+      } catch (err: any) {
+        // P2002 = unique constraint failed on (agentId, idempotencyKey).
+        // That's the cross-path double-credit guard tripping — already
+        // credited by another verify run or by PaymentIntent.confirmPayment.
+        if (err?.code === 'P2002') {
+          console.log(
+            `[TopUpService] ${txHash} already credited (idempotency hit); skipping.`,
+          );
+          // Still want the row to look COMPLETED for the operator view;
+          // do that outside the failed transaction.
+          await prisma.topUpTransaction.updateMany({
+            where: { txHash, status: 'PENDING' },
+            data: {
+              status: 'COMPLETED',
+              amountInUSD: recordedUsd,
+              creditsToTopUp: BigInt(actualCredits),
+            },
+          });
+          return;
+        }
+        throw err;
       }
 
       const paymentType = isTokenDeposit ? 'token' : 'ETH';

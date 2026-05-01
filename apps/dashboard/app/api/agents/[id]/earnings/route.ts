@@ -76,34 +76,30 @@ export async function GET(
     // Calculate total earnings from transaction logs
     const transactionLogEarnings = totalEarningsResult._sum.amount || 0;
 
-    // Calculate total earnings from top-up transactions (ETH + tokens)
+    // Calculate total earnings from top-up transactions (ETH + tokens).
+    // Prefer the stored amountInUSD (set at verify time, locked to the package
+    // price when it matched within tolerance — see TopUpService.verifyAndCredit).
+    // Only fall back to a live ETH conversion for legacy rows that never got a USD value.
     let topUpEarnings = 0;
-    try {
-      const { priceService } = await import('@/lib/priceService');
-      const ethPrice = await priceService.getEthPrice();
-
-      for (const topUp of topUpTransactions) {
-        // Use amountInUSD directly if available (most accurate)
-        if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
-          topUpEarnings += parseFloat(topUp.amountInUSD);
-        } else {
-          // Fallback to ETH conversion
-          const ethAmount = parseFloat(topUp.amountInEth);
-          const usdAmount = ethAmount * ethPrice;
-          topUpEarnings += usdAmount;
+    let liveEthPrice: number | null = null;
+    for (const topUp of topUpTransactions) {
+      if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
+        topUpEarnings += parseFloat(topUp.amountInUSD);
+        continue;
+      }
+      const ethAmount = parseFloat(topUp.amountInEth);
+      if (!Number.isFinite(ethAmount) || ethAmount <= 0) continue;
+      if (liveEthPrice === null) {
+        try {
+          const { priceService } = await import('@/lib/priceService');
+          liveEthPrice = await priceService.getEthPrice();
+        } catch (err) {
+          console.error('Earnings: live ETH price unavailable, skipping legacy ETH-only rows:', err);
+          // Skip rather than guessing — a guessed price would lie about earnings.
+          break;
         }
       }
-    } catch (error) {
-      console.error('Error calculating top-up earnings:', error);
-      // Fallback: use amountInUSD or ETH * 3000
-      for (const topUp of topUpTransactions) {
-        if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
-          topUpEarnings += parseFloat(topUp.amountInUSD);
-        } else {
-          const ethAmount = parseFloat(topUp.amountInEth);
-          topUpEarnings += ethAmount * 3000;
-        }
-      }
+      topUpEarnings += ethAmount * liveEthPrice;
     }
 
     const totalEarnings = transactionLogEarnings + topUpEarnings;
@@ -143,7 +139,9 @@ export async function GET(
       console.log('ETH balance', balance);
       availableBalanceEth = Number(balance) / 1e18;
 
-      // Convert ETH balance to USD
+      // Convert ETH balance to USD. If the price feed is unavailable, leave the
+      // USD value at 0 rather than guessing — the ETH amount is still returned
+      // separately so the UI can show what's actually in the contract.
       try {
         const ethPrice = await priceService.getEthPrice();
         availableBalance = availableBalanceEth * ethPrice;
@@ -153,45 +151,67 @@ export async function GET(
           usdAmount: availableBalance,
         });
       } catch (error) {
-        console.error('Error converting ETH to USD:', error);
-        availableBalance = availableBalanceEth * 3000;
+        console.error('Error converting ETH to USD (showing 0 USD, ETH amount preserved):', error);
+        availableBalance = 0;
       }
 
-      // Get MINIDEV token balance
-      const MINIDEV_TOKEN = '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07';
-      try {
-        const tokenBalance = (await publicClient.readContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: CONTRACT_ABI,
-          functionName: 'agentTokenBalance',
-          args: [agentIdHash, MINIDEV_TOKEN],
-        })) as unknown as bigint;
+      // Read every supported token's balance for this agent. Decimals are
+      // pulled from the token contract (never assume 18); USD price comes from
+      // CoinGecko via priceService. If anything fails for a single token, we
+      // skip it rather than stranding it with a guessed value.
+      const { erc20Abi, formatUnits } = await import('viem');
+      const SUPPORTED_TOKENS = [
+        {
+          address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          symbol: 'USDC',
+          coingeckoId: 'usd-coin',
+        },
+        {
+          address: '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07',
+          symbol: 'MINIDEV',
+          coingeckoId: 'minidev',
+        },
+      ];
 
-        console.log('MINIDEV balance', tokenBalance);
+      for (const token of SUPPORTED_TOKENS) {
+        try {
+          const tokenBalanceAtomic = (await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'agentTokenBalance',
+            args: [agentIdHash, token.address as `0x${string}`],
+          })) as unknown as bigint;
 
-        if (tokenBalance > BigInt(0)) {
-          const tokenAmount = Number(tokenBalance) / 1e18;
+          if (tokenBalanceAtomic <= BigInt(0)) continue;
+
+          const tokenDecimals = (await publicClient.readContract({
+            address: token.address as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'decimals',
+          })) as number;
+
+          const tokenAmount = Number(formatUnits(tokenBalanceAtomic, tokenDecimals));
+
           let tokenUsd = 0;
           try {
-            // Rough MINIDEV price - in production, fetch from CoinGecko
-            const minidevPrice = 0.00000342; // fallback price
-            tokenUsd = tokenAmount * minidevPrice;
-          } catch {
+            const tokenPrice = await priceService.getTokenPrice(token.coingeckoId);
+            tokenUsd = tokenAmount * tokenPrice;
+          } catch (priceErr) {
+            console.error(`Token price unavailable for ${token.symbol}, reporting $0:`, priceErr);
             tokenUsd = 0;
           }
 
           tokenBalances.push({
-            symbol: 'MINIDEV',
-            address: MINIDEV_TOKEN,
-            balance: tokenAmount.toFixed(6),
+            symbol: token.symbol,
+            address: token.address,
+            balance: tokenAmount.toFixed(Math.min(tokenDecimals, 6)),
             balanceUsd: tokenUsd,
           });
 
-          // Add token value to total available balance
           availableBalance += tokenUsd;
+        } catch (tokenError) {
+          console.error(`Error fetching ${token.symbol} balance:`, tokenError);
         }
-      } catch (tokenError) {
-        console.error('Error fetching MINIDEV balance:', tokenError);
       }
     } catch (error) {
       console.error('Error fetching contract balance:', error);

@@ -38,6 +38,21 @@ async function processPendingDeliveries(): Promise<void> {
     }
 
     const attempt = delivery.attempts + 1;
+
+    // Atomically claim this delivery before sending. If another replica
+    // already incremented `attempts`, our updateMany affects 0 rows and we
+    // skip — they own the send. Without this, two replicas would both
+    // POST the same event.
+    const claim = await prisma.webhookDelivery.updateMany({
+      where: { id: delivery.id, attempts: delivery.attempts },
+      data: { attempts: attempt },
+    });
+    if (claim.count === 0) {
+      console.log(
+        `[WebhookWorker] Skipping ${delivery.id} — claimed by another worker`,
+      );
+      continue;
+    }
     const timestamp = Math.floor(Date.now() / 1000);
     const payloadStr = JSON.stringify(delivery.payload);
     const signature = buildSignature(delivery.endpoint.secret, timestamp, payloadStr);

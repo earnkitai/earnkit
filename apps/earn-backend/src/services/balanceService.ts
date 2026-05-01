@@ -54,56 +54,6 @@ export class BalanceService {
   }
 
   /**
-   * Update user balance
-   */
-  async updateBalance(
-    walletAddress: string,
-    agentId: string,
-    balance: Partial<UserBalance>,
-  ): Promise<UserBalance> {
-    // First, get the agent's internal ID using the agent_id field
-    const agent = await prisma.agent.findUnique({
-      where: {
-        agentId: agentId,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!agent) {
-      throw new Error(`Agent with agentId ${agentId} not found`);
-    }
-
-    const currentBalance = await this.getBalance(walletAddress, agentId);
-    const updatedBalance: UserBalance = {
-      eth: balance.eth ?? currentBalance.eth,
-      credits: balance.credits ?? currentBalance.credits,
-    };
-
-    await prisma.userBalance.upsert({
-      where: {
-        userWalletAddress_agentId: {
-          userWalletAddress: walletAddress,
-          agentId: agent.id, // Use the internal ID, not the agent_id
-        },
-      },
-      update: {
-        ethBalance: parseFloat(updatedBalance.eth),
-        creditBalance: BigInt(updatedBalance.credits),
-      },
-      create: {
-        userWalletAddress: walletAddress,
-        agentId: agent.id, // Use the internal ID, not the agent_id
-        ethBalance: parseFloat(updatedBalance.eth),
-        creditBalance: BigInt(updatedBalance.credits),
-      },
-    });
-
-    return updatedBalance;
-  }
-
-  /**
    * Add credits to user balance — atomic increment, no read-then-write race.
    */
   async addCredits(
@@ -140,24 +90,60 @@ export class BalanceService {
   }
 
   /**
-   * Deduct credits from user balance
+   * Deduct credits from user balance — atomic conditional decrement so
+   * concurrent track() calls cannot oversubscribe credits.
    */
   async deductCredits(
     walletAddress: string,
     agentId: string,
     creditsToDeduct: number,
   ): Promise<UserBalance> {
-    const currentBalance = await this.getBalance(walletAddress, agentId);
-    const currentCredits = parseInt(currentBalance.credits);
+    const agent = await prisma.agent.findFirst({
+      where: { agentId },
+      select: { id: true },
+    });
+    if (!agent) throw new Error(`Agent with agentId ${agentId} not found`);
 
-    if (currentCredits < creditsToDeduct) {
+    const amount = BigInt(creditsToDeduct);
+
+    // Conditional update: only succeeds if the row exists AND has enough credits.
+    const result = await prisma.userBalance.updateMany({
+      where: {
+        userWalletAddress: walletAddress,
+        agentId: agent.id,
+        creditBalance: { gte: amount },
+      },
+      data: { creditBalance: { decrement: amount } },
+    });
+
+    if (result.count === 0) {
+      const existing = await prisma.userBalance.findUnique({
+        where: {
+          userWalletAddress_agentId: {
+            userWalletAddress: walletAddress,
+            agentId: agent.id,
+          },
+        },
+      });
+      const available = existing ? existing.creditBalance.toString() : '0';
       throw new Error(
-        `Insufficient credits. Required: ${creditsToDeduct}, Available: ${currentCredits}`,
+        `Insufficient credits. Required: ${creditsToDeduct}, Available: ${available}`,
       );
     }
 
-    const newCredits = (currentCredits - creditsToDeduct).toString();
-    return this.updateBalance(walletAddress, agentId, { credits: newCredits });
+    const updated = await prisma.userBalance.findUnique({
+      where: {
+        userWalletAddress_agentId: {
+          userWalletAddress: walletAddress,
+          agentId: agent.id,
+        },
+      },
+    });
+
+    return {
+      eth: updated!.ethBalance.toString(),
+      credits: updated!.creditBalance.toString(),
+    };
   }
 
   /**

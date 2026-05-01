@@ -49,7 +49,8 @@ const EIP712_TYPES_TOKEN = {
 };
 
 interface WithdrawRequest {
-  amount: string; // Amount to withdraw (USD for ETH, raw amount for tokens)
+  amount: string; // Legacy: USD for ETH, raw amount for tokens. Used only when amountWei is absent.
+  amountWei?: string; // Preferred: exact wei amount. When present, no USD/price conversion happens.
   toAddress: string; // Recipient address
   tokenAddress?: string; // Optional: token address for token withdrawals
   tokenSymbol?: string; // Optional: token symbol for token withdrawals
@@ -147,9 +148,9 @@ export async function POST(
     }
 
     const body: WithdrawRequest = await request.json();
-    const { amount, toAddress, tokenAddress, tokenSymbol } = body;
+    const { amount, amountWei, toAddress, tokenAddress, tokenSymbol } = body;
 
-    if (!amount || !toAddress) {
+    if ((!amount && !amountWei) || !toAddress) {
       return NextResponse.json(
         { error: 'Amount and recipient address are required' },
         { status: 400 },
@@ -288,14 +289,33 @@ export async function POST(
     try {
       if (isTokenWithdrawal) {
         // TOKEN WITHDRAWAL FLOW
-        const { parseUnits, formatUnits } = await import('viem');
-        
+        const { parseUnits, formatUnits, erc20Abi } = await import('viem');
+
+        // Read decimals from the token contract — never assume 18.
+        // USDC on Base is 6 decimals, MINIDEV is 18, future tokens may vary.
+        let tokenDecimals: number;
+        try {
+          tokenDecimals = (await publicClient.readContract({
+            address: tokenAddress as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'decimals',
+          })) as number;
+        } catch (err) {
+          console.error('Error reading token decimals:', err);
+          return NextResponse.json(
+            { error: 'Unable to read token decimals on-chain. Withdrawal blocked.' },
+            { status: 400 },
+          );
+        }
+
         // Parse token amount (amount is raw token amount, not USD)
         const tokenAmount = parseFloat(amount);
-        
+
         console.log('Token withdrawal request:', {
           rawAmount: amount,
           parsedAmount: tokenAmount,
+          tokenAddress,
+          tokenDecimals,
         });
 
         // Get current token balance from contract FIRST
@@ -312,26 +332,27 @@ export async function POST(
           currentTokenBalance = BigInt(0);
         }
 
-        console.log('Current token balance (wei):', currentTokenBalance.toString());
-        
-        const currentTokenBalanceFormatted = Number(formatUnits(currentTokenBalance, 18));
+        console.log('Current token balance (atomic):', currentTokenBalance.toString());
+
+        const currentTokenBalanceFormatted = Number(formatUnits(currentTokenBalance, tokenDecimals));
         console.log('Current token balance (formatted):', currentTokenBalanceFormatted);
 
         // Use the actual on-chain balance if user requested max (within 0.01% tolerance)
         let tokenAmountWei: bigint;
         const tolerance = currentTokenBalanceFormatted * 0.0001; // 0.01% tolerance
-        
+
         if (Math.abs(tokenAmount - currentTokenBalanceFormatted) < tolerance || tokenAmount >= currentTokenBalanceFormatted) {
           // User wants max - use exact on-chain balance
           tokenAmountWei = currentTokenBalance;
           console.log('Using exact on-chain balance for max withdrawal');
         } else {
-          // Parse the requested amount
+          // Parse the requested amount at the token's actual decimals.
+          const decimalDigitsAllowed = Math.min(tokenDecimals, 6);
           try {
-            const roundedAmount = tokenAmount.toFixed(6);
-            tokenAmountWei = parseUnits(roundedAmount, 18);
+            const roundedAmount = tokenAmount.toFixed(decimalDigitsAllowed);
+            tokenAmountWei = parseUnits(roundedAmount, tokenDecimals);
           } catch {
-            tokenAmountWei = parseUnits(Math.floor(tokenAmount).toString(), 18);
+            tokenAmountWei = parseUnits(Math.floor(tokenAmount).toString(), tokenDecimals);
           }
         }
 
@@ -397,21 +418,61 @@ export async function POST(
         });
       } else {
         // ETH WITHDRAWAL FLOW
-        const { priceService } = await import('@/lib/priceService');
-        let ethPrice: number;
-        try {
-          ethPrice = await priceService.getEthPrice();
-        } catch (error) {
-          console.error('Error getting ETH price:', error);
-          ethPrice = 3000; // Fallback price
+        // Two input modes:
+        //   1. amountWei (preferred) — exact wei amount, no price conversion.
+        //      The frontend already knows the on-chain balance in wei, so this
+        //      avoids the lossy ETH→USD→ETH round-trip that previously left
+        //      dust stranded or attempted to overdraw.
+        //   2. amount (legacy) — USD amount, converted with current price.
+        //      Kept for older clients; fails-closed if the price feed is down.
+        let ethAmountWei: bigint;
+        let ethPrice: number | null = null;
+
+        if (amountWei) {
+          try {
+            ethAmountWei = BigInt(amountWei);
+          } catch {
+            return NextResponse.json(
+              { error: 'amountWei must be a valid integer string' },
+              { status: 400 },
+            );
+          }
+          if (ethAmountWei <= BigInt(0)) {
+            return NextResponse.json(
+              { error: 'amountWei must be > 0' },
+              { status: 400 },
+            );
+          }
+          // Best-effort price for the response body's USD figures only.
+          try {
+            const { priceService } = await import('@/lib/priceService');
+            ethPrice = await priceService.getEthPrice();
+          } catch {
+            ethPrice = null;
+          }
+        } else {
+          const { priceService } = await import('@/lib/priceService');
+          try {
+            ethPrice = await priceService.getEthPrice();
+          } catch (error) {
+            console.error('Error getting ETH price for withdrawal:', error);
+            return NextResponse.json(
+              {
+                error:
+                  'Unable to fetch a current ETH price. Withdrawal blocked to avoid using an inaccurate rate. Please retry in a moment.',
+              },
+              { status: 503 },
+            );
+          }
+          const usdAmount = parseFloat(amount);
+          const ethAmount = usdAmount / ethPrice;
+          ethAmountWei = parseEther(ethAmount.toString());
         }
 
-        // Convert USD amount to ETH
-        const usdAmount = parseFloat(amount);
-        const ethAmount = usdAmount / ethPrice;
-        const ethAmountWei = parseEther(ethAmount.toString());
-
-        // Get current ETH balance from contract
+        // Get current ETH balance from contract — compare in wei to avoid
+        // float precision issues. The legacy float comparison sometimes
+        // rejected exact "max" withdrawals because a parseFloat round-trip
+        // bumped the requested amount past the on-chain balance by a hair.
         const currentBalance = (await publicClient.readContract({
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: CONTRACT_ABI,
@@ -419,16 +480,12 @@ export async function POST(
           args: [agentIdHash],
         })) as unknown as bigint;
 
-        const currentBalanceEth = Number(formatEther(currentBalance));
-        const requestedBalanceEth = ethAmount;
-
-        // Check if agent has sufficient balance
-        if (requestedBalanceEth > currentBalanceEth) {
+        if (ethAmountWei > currentBalance) {
           return NextResponse.json(
             {
               error: 'Insufficient balance',
-              currentBalance: currentBalanceEth,
-              requestedAmount: requestedBalanceEth,
+              currentBalanceWei: currentBalance.toString(),
+              requestedWei: ethAmountWei.toString(),
             },
             { status: 400 },
           );
@@ -445,8 +502,10 @@ export async function POST(
         const netWei = ethAmountWei - feeWei;
         const feeEth = Number(formatEther(feeWei));
         const netEth = Number(formatEther(netWei));
-        const feeUsd = feeEth * ethPrice;
-        const netUsd = netEth * ethPrice;
+        const ethAmountEth = Number(formatEther(ethAmountWei));
+        const feeUsd = ethPrice !== null ? feeEth * ethPrice : 0;
+        const netUsd = ethPrice !== null ? netEth * ethPrice : 0;
+        const totalUsd = ethPrice !== null ? ethAmountEth * ethPrice : 0;
 
         // Generate EIP-712 signature for ETH withdrawal
         const signature = await generateWithdrawalSignature(
@@ -473,8 +532,8 @@ export async function POST(
             to: toAddress,
             deadline: deadline.toString(),
             totalAmount: {
-              eth: ethAmount,
-              usd: usdAmount,
+              eth: ethAmountEth,
+              usd: totalUsd,
             },
             fee: {
               eth: feeEth,

@@ -14,8 +14,11 @@ interface TokenPriceCache {
 export class PriceService {
   private cache: PriceCache | null = null;
   private tokenCache: Map<string, TokenPriceCache> = new Map();
-  private readonly CACHE_DURATION = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes — short cache so a bad/stale ETH price clears quickly and doesn't overcharge users
   private readonly TOKEN_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for tokens (more volatile)
+  // Sanity bounds to reject obviously broken price feed responses (units bug, garbled value, etc.)
+  private readonly MIN_REASONABLE_ETH_PRICE = 200;
+  private readonly MAX_REASONABLE_ETH_PRICE = 50_000;
   private readonly ALCHEMY_API_KEY: string;
   private readonly ALCHEMY_API_URL =
     'https://api.g.alchemy.com/prices/v1/tokens/by-symbol';
@@ -90,6 +93,16 @@ export class PriceService {
 
       const ethPrice = Number(ethData.prices[0].value);
 
+      if (
+        !Number.isFinite(ethPrice) ||
+        ethPrice < this.MIN_REASONABLE_ETH_PRICE ||
+        ethPrice > this.MAX_REASONABLE_ETH_PRICE
+      ) {
+        throw new Error(
+          `Alchemy returned out-of-range ETH price: ${ethPrice}`,
+        );
+      }
+
       // Cache the result
       this.cache = {
         ethPrice,
@@ -110,10 +123,11 @@ export class PriceService {
         return this.cache.ethPrice;
       }
 
-      // Final fallback - use a reasonable default price
-      const fallbackPrice = 3000; // $3000 USD per ETH
-      console.log('Using fallback ETH price:', fallbackPrice);
-      return fallbackPrice;
+      // No cache and no live price: fail loudly rather than silently charging
+      // users at a guessed rate that can be wildly wrong.
+      throw new Error(
+        'ETH price unavailable: live fetch failed and no cached value. Refusing to use a hardcoded fallback.',
+      );
     }
   }
 

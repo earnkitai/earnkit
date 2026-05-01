@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { parseEther } from "viem";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import {
@@ -173,12 +174,21 @@ export default function WithdrawModal({
                     to: withdrawData.to,
                 });
             } else {
-                // ETH withdrawal (need to convert ETH amount to USD for the existing API)
+                // ETH withdrawal — send wei directly so the API doesn't have
+                // to round-trip through USD. Falls back to USD if parseEther
+                // chokes on weird input.
+                let amountWei: string | undefined;
+                try {
+                    amountWei = parseEther(withdrawData.amount).toString();
+                } catch {
+                    amountWei = undefined;
+                }
                 const ethAmount = parseFloat(withdrawData.amount);
                 const usdAmount = ethAmount * (availableBalance / availableBalanceEth);
                 result = await executeWithdrawal({
                     agentId: withdrawData.agentId,
                     amount: usdAmount.toString(),
+                    amountWei,
                     to: withdrawData.to,
                 });
             }

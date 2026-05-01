@@ -37,8 +37,24 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Get ETH price for conversion
-    const ethPrice = await priceService.getEthPrice();
+    // Live ETH price is only needed to value legacy rows that never got a USD
+    // amount stamped on them. Lazy-fetch and fail-closed: if the feed is down,
+    // we report the stable USD totals and leave legacy rows out rather than
+    // multiplying by a guessed price.
+    let liveEthPrice: number | null = null;
+    let priceFeedAvailable = true;
+    const getLiveEthPrice = async (): Promise<number | null> => {
+      if (!priceFeedAvailable) return null;
+      if (liveEthPrice !== null) return liveEthPrice;
+      try {
+        liveEthPrice = await priceService.getEthPrice();
+        return liveEthPrice;
+      } catch (err) {
+        console.error('User earnings: live ETH price unavailable:', err);
+        priceFeedAvailable = false;
+        return null;
+      }
+    };
 
     // Calculate comprehensive earnings for each agent
     const agentsWithEarnings = await Promise.all(
@@ -49,17 +65,18 @@ export async function GET(request: NextRequest) {
           0,
         );
 
-        // Calculate top-up earnings (use amountInUSD for accuracy, includes tokens)
-        const topUpEarnings = agent.topUpTransactions.reduce((sum, topUp) => {
-          // Prefer amountInUSD (works for both ETH and token payments)
+        let topUpEarnings = 0;
+        for (const topUp of agent.topUpTransactions) {
           if (topUp.amountInUSD && parseFloat(topUp.amountInUSD) > 0) {
-            return sum + parseFloat(topUp.amountInUSD);
+            topUpEarnings += parseFloat(topUp.amountInUSD);
+            continue;
           }
-          // Fallback to ETH conversion
           const ethAmount = parseFloat(topUp.amountInEth);
-          const usdAmount = ethAmount * ethPrice;
-          return sum + usdAmount;
-        }, 0);
+          if (!Number.isFinite(ethAmount) || ethAmount <= 0) continue;
+          const price = await getLiveEthPrice();
+          if (price === null) continue;
+          topUpEarnings += ethAmount * price;
+        }
 
         // Total earnings = transaction logs + top-up transactions
         const totalEarnings = transactionLogEarnings + topUpEarnings;
@@ -98,7 +115,7 @@ export async function GET(request: NextRequest) {
       success: true,
       agents: agentsWithEarnings,
       totals: overallTotals,
-      ethPrice,
+      ethPrice: liveEthPrice ?? null,
     });
   } catch (error) {
     console.error('Error fetching comprehensive earnings:', error);

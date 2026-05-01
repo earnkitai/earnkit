@@ -52,6 +52,24 @@ export async function POST(
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
+    // Idempotency: a re-submitted confirm for the same on-chain tx must not
+    // create a duplicate WITHDRAWAL log (which would inflate "Total Withdrawals"
+    // on the dashboard).
+    const existing = await prisma.transactionLog.findFirst({
+      where: {
+        transactionHash: transactionHash,
+        transactionType: 'WITHDRAWAL',
+      },
+    });
+
+    if (existing) {
+      return NextResponse.json({
+        success: true,
+        transaction: existing,
+        message: 'Withdrawal transaction already recorded',
+      });
+    }
+
     // Record withdrawal transaction in database
     const transactionLog = await prisma.transactionLog.create({
       data: {

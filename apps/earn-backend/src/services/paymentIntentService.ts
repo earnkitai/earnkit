@@ -155,62 +155,90 @@ export class PaymentIntentService {
   }
 
   /**
-   * Mark a payment intent SUCCEEDED, grant credits atomically, and post a ledger entry.
-   * Call this once on-chain confirmation is verified.
+   * Mark a payment intent SUCCEEDED, grant credits atomically, and post a
+   * ledger entry. Call this once on-chain confirmation is verified.
+   *
+   * Cross-path double-credit guard: writes a LedgerEntry with
+   * idempotencyKey=txHash (or PI id when no txHash). The
+   * @@unique([agentId, idempotencyKey]) constraint serializes against the
+   * top-up worker's verifyAndCredit, so a single on-chain payment can be
+   * credited at most once across the two paths.
    */
   static async confirmPayment(paymentIntentId: string) {
-    const confirmedPi = await prisma.$transaction(async (tx) => {
-      const pi = await tx.paymentIntent.update({
-        where: {
-          id: paymentIntentId,
-          status: PaymentIntentStatus.PROCESSING,
-        },
-        data: {
-          status: PaymentIntentStatus.SUCCEEDED,
-          confirmedAt: new Date(),
-        },
-      });
-
-      // Atomically grant credits if applicable
-      if (pi.creditsToTopUp && pi.customerWalletAddress) {
-        await tx.userBalance.upsert({
+    let confirmedPi;
+    try {
+      confirmedPi = await prisma.$transaction(async (tx) => {
+        const pi = await tx.paymentIntent.update({
           where: {
-            userWalletAddress_agentId: {
-              userWalletAddress: pi.customerWalletAddress,
-              agentId: pi.agentId,
-            },
+            id: paymentIntentId,
+            status: PaymentIntentStatus.PROCESSING,
           },
-          update: { creditBalance: { increment: pi.creditsToTopUp } },
-          create: {
-            userWalletAddress: pi.customerWalletAddress,
-            agentId: pi.agentId,
-            creditBalance: pi.creditsToTopUp,
-            ethBalance: 0,
+          data: {
+            status: PaymentIntentStatus.SUCCEEDED,
+            confirmedAt: new Date(),
           },
         });
-      }
 
-      await tx.ledgerEntry.create({
-        data: {
-          agentId: pi.agentId,
-          paymentIntentId: pi.id,
-          userWalletAddress: pi.customerWalletAddress,
-          entryType: LedgerEntryType.CREDIT_GRANTED,
-          status: LedgerEntryStatus.POSTED,
-          amountInUSD: pi.amountInUSD,
-          credits: pi.creditsToTopUp,
-          paymentMethodType: pi.paymentMethodType,
-          tokenAddress: pi.tokenAddress,
-          tokenSymbol: pi.tokenSymbol,
-          amountAtomic: pi.amountAtomic,
-          chainId: pi.chainId,
-          txHash: pi.txHash,
-          idempotencyKey: pi.txHash ?? pi.id,
-        },
+        // Lock-style guard: this insert is the single point at which credits
+        // are issued. If another path already credited the same txHash, the
+        // unique constraint trips and the entire transaction rolls back.
+        await tx.ledgerEntry.create({
+          data: {
+            agentId: pi.agentId,
+            paymentIntentId: pi.id,
+            userWalletAddress: pi.customerWalletAddress,
+            entryType: LedgerEntryType.CREDIT_GRANTED,
+            status: LedgerEntryStatus.POSTED,
+            amountInUSD: pi.amountInUSD,
+            credits: pi.creditsToTopUp,
+            paymentMethodType: pi.paymentMethodType,
+            tokenAddress: pi.tokenAddress,
+            tokenSymbol: pi.tokenSymbol,
+            amountAtomic: pi.amountAtomic,
+            chainId: pi.chainId,
+            txHash: pi.txHash,
+            idempotencyKey: pi.txHash ?? pi.id,
+          },
+        });
+
+        if (pi.creditsToTopUp && pi.customerWalletAddress) {
+          await tx.userBalance.upsert({
+            where: {
+              userWalletAddress_agentId: {
+                userWalletAddress: pi.customerWalletAddress,
+                agentId: pi.agentId,
+              },
+            },
+            update: { creditBalance: { increment: pi.creditsToTopUp } },
+            create: {
+              userWalletAddress: pi.customerWalletAddress,
+              agentId: pi.agentId,
+              creditBalance: pi.creditsToTopUp,
+              ethBalance: 0,
+            },
+          });
+        }
+
+        return pi;
       });
-
-      return pi;
-    });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        // Cross-path duplicate. Mark the PI succeeded for the operator view
+        // (no credit grant — already happened on the other path) and return.
+        const pi = await prisma.paymentIntent.update({
+          where: { id: paymentIntentId },
+          data: {
+            status: PaymentIntentStatus.SUCCEEDED,
+            confirmedAt: new Date(),
+          },
+        });
+        console.log(
+          `[PaymentIntentService] ${paymentIntentId} already credited (idempotency hit); status set to SUCCEEDED.`,
+        );
+        return pi;
+      }
+      throw err;
+    }
 
     // Enqueue webhook outside the transaction — non-fatal if it fails
     WebhookService.enqueuePaymentIntentEvent(confirmedPi, 'payment_intent.succeeded').catch((e) =>
