@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useEffect } from "react";
+import { useState, use, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Input } from "@/app/components/ui/input";
@@ -22,14 +22,6 @@ import { toast } from "sonner";
 import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
 import { TokenConfigPanel } from "@/app/components/TokenConfigPanel";
-import { createPublicClient, http, keccak256, encodePacked } from 'viem';
-import { base } from 'viem/chains';
-import earnkitABI from '@/contract/earnkit_ABI.json';
-import { type Abi } from 'viem';
-
-// Contract configuration
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_CONTRACT_ADDRESS || '0xCAeB6A62D04C52E1e196E5Bdce63e43f45582aA2';
-const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 // Agent type definition matching the database schema
 interface Agent {
@@ -43,6 +35,9 @@ interface Agent {
     creditsPerPrompt: number | null;
     totalEarnings: number;
     createdAt: string;
+    splitAddress?: string | null;
+    buybackAddress?: string | null;
+    buybackPercent?: number;
     topUpPackages: Array<{
         id: string;
         name: string;
@@ -78,6 +73,19 @@ interface EarningsData {
     availableBalanceEth: number;
     tokenBalances: TokenBalance[];
     agentEarnings: number;
+    paymentMode: "escrow" | "splits";
+    paymentAddress: string;
+    splitAddress?: string | null;
+    balanceSource: "escrow-contract" | "split-contract";
+    buybackPercent: number;
+    developerSplitPercent: number;
+    developerWalletAddress?: string | null;
+    platformFeePercent: number;
+    splitRecipients: Array<{
+        address: `0x${string}`;
+        label: "Developer" | "Platform" | "Buyback";
+        percentAllocation: number;
+    }>;
 }
 
 export default function AgentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -86,11 +94,6 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
     const router = useRouter();
     const [agent, setAgent] = useState<Agent | null>(null);
     const [earningsData, setEarningsData] = useState<EarningsData | null>(null);
-    const [freshBalanceData, setFreshBalanceData] = useState<{
-        ethBalance: number;
-        usdBalance: number;
-        ethPrice: number;
-    } | null>(null);
     const [loading, setLoading] = useState(true);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -105,6 +108,22 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
             router.push("/welcome-back");
         }
     }, [ready, authenticated, privyUser, router]);
+
+    const refreshEarningsData = useCallback(async () => {
+        if (!resolvedParams.id) return;
+
+        try {
+            const response = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
+            if (response.ok) {
+                const data = await response.json();
+                setEarningsData(data);
+            } else {
+                console.error("Failed to fetch earnings data");
+            }
+        } catch (error) {
+            console.error("Error fetching earnings data:", error);
+        }
+    }, [resolvedParams.id]);
 
     // Fetch agent data when userId is available
     useEffect(() => {
@@ -133,79 +152,8 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
 
     // Fetch earnings data
     useEffect(() => {
-        const fetchEarnings = async () => {
-            if (!resolvedParams.id) return;
-
-            try {
-                const response = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setEarningsData(data);
-                } else {
-                    console.error('Failed to fetch earnings data');
-                }
-            } catch (error) {
-                console.error('Error fetching earnings data:', error);
-            }
-        };
-
-        fetchEarnings();
-    }, [resolvedParams.id]);
-
-    // Fetch fresh contract balance and ETH price
-    useEffect(() => {
-        const fetchFreshBalance = async () => {
-            if (!agent?.agentId) return;
-
-            try {
-                // Create public client for contract calls
-                const publicClient = createPublicClient({
-                    chain: base,
-                    transport: http(),
-                });
-
-                // Convert agentId to bytes32
-                const agentIdBytes32 = keccak256(encodePacked(['string'], [agent.agentId]));
-
-                // Fetch contract balance
-                const balance = await publicClient.readContract({
-                    address: CONTRACT_ADDRESS as `0x${string}`,
-                    abi: CONTRACT_ABI,
-                    functionName: 'agentBalance',
-                    args: [agentIdBytes32],
-                });
-
-                const ethBalance = Number(balance) / 1e18;
-
-                // Fetch fresh ETH price
-                const { priceService } = await import('@/lib/priceService');
-                const ethPrice = await priceService.getEthPrice();
-
-                // Calculate USD balance
-                const usdBalance = ethBalance * ethPrice;
-
-                setFreshBalanceData({
-                    ethBalance,
-                    usdBalance,
-                    ethPrice,
-                });
-
-                console.log('Fresh balance data:', {
-                    ethBalance,
-                    usdBalance,
-                    ethPrice,
-                    agentId: agent.agentId,
-                });
-            } catch (error) {
-                console.error('Error fetching fresh balance:', error);
-                // If the live read fails, leave freshBalanceData unset so the UI
-                // falls back to the earnings API values (which already have the
-                // contract balance) instead of fabricating a price.
-            }
-        };
-
-        fetchFreshBalance();
-    }, [agent?.agentId, earningsData]);
+        refreshEarningsData();
+    }, [refreshEarningsData]);
 
     const [formData, setFormData] = useState({
         name: "",
@@ -490,6 +438,12 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
             </div>
         );
     }
+
+    const isSplitAgent = earningsData?.paymentMode === "splits";
+    const availableBalanceLabel = isSplitAgent
+        ? "Available Balance (Split Contract)"
+        : "Available Balance";
+    const routingBadgeLabel = isSplitAgent ? "Splits" : "Escrow";
 
     return (
         <div className="min-h-screen">
@@ -937,7 +891,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                             {/* Total Earnings */}
                             <Card className="rounded-[20px] shadow-none border border-black/10">
                                 <CardContent className="p-4">
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-start gap-4">
                                         <div>
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Total Earnings</p>
                                             <p className="text-lg font-semibold text-secondary-green font-funnel-sans">
@@ -951,7 +905,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                             {/* Total Withdraws */}
                             <Card className="rounded-[20px] shadow-none border border-black/10">
                                 <CardContent className="p-4">
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-start gap-4">
                                         <div>
                                             <p className="text-sm text-black/40 font-funnel-sans mb-1">Total Withdraws</p>
                                             <p className="text-lg font-semibold text-black/60 font-funnel-sans">
@@ -967,13 +921,13 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                 <CardContent className="p-4">
                                     <div className="flex justify-between items-center">
                                         <div className="flex-1">
-                                            <p className="text-sm text-black/40 font-funnel-sans mb-1">Available Balance</p>
+                                            <p className="text-sm text-black/40 font-funnel-sans mb-1">{availableBalanceLabel}</p>
                                             <p className="text-lg font-semibold text-black/60 font-funnel-sans">
-                                                ${freshBalanceData?.usdBalance.toFixed(2) || earningsData?.availableBalance.toFixed(2) || '0.00'}
+                                                ${earningsData?.availableBalance.toFixed(2) || '0.00'}
                                             </p>
                                             {/* Show ETH balance */}
                                             <p className="text-xs text-black/40 font-funnel-sans mt-1">
-                                                {(freshBalanceData?.ethBalance || earningsData?.availableBalanceEth || 0).toFixed(6)} ETH
+                                                {(earningsData?.availableBalanceEth || 0).toFixed(6)} ETH
                                             </p>
                                             {/* Show token balances */}
                                             {earningsData?.tokenBalances && earningsData.tokenBalances.length > 0 && (
@@ -986,6 +940,27 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                             )}
                                                         </p>
                                                     ))}
+                                                </div>
+                                            )}
+                                            {earningsData && (
+                                                <div className="mt-3 pt-3 border-t border-black/5 space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-xs text-black/40 font-funnel-sans">Funding Mode</p>
+                                                        <Badge variant="outline" className="rounded-full border-black/15 bg-black/[0.03] text-black/60 font-funnel-sans">
+                                                            {routingBadgeLabel}
+                                                        </Badge>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs text-black/40 font-funnel-sans">Payment Address</p>
+                                                        <p className="text-xs text-black/60 font-mono break-all font-funnel-sans">
+                                                            {earningsData.paymentAddress}
+                                                        </p>
+                                                    </div>
+                                                    {isSplitAgent && (
+                                                        <p className="text-xs text-black/40 font-funnel-sans">
+                                                            Developer {earningsData.developerSplitPercent}% · Buyback {earningsData.buybackPercent}% · Platform {earningsData.platformFeePercent}%
+                                                        </p>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -1041,52 +1016,17 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 onClose={() => setShowWithdrawModal(false)}
                 agentDbId={resolvedParams.id}
                 agentId={agent?.agentId || ''}
-                availableBalance={freshBalanceData?.usdBalance || earningsData?.availableBalance || 0}
-                availableBalanceEth={freshBalanceData?.ethBalance || earningsData?.availableBalanceEth || 0}
+                availableBalance={earningsData?.availableBalance || 0}
+                availableBalanceEth={earningsData?.availableBalanceEth || 0}
                 tokenBalances={earningsData?.tokenBalances || []}
-                onWithdrawSuccess={() => {
-                    // Refresh both earnings data and fresh balance after successful withdrawal
-                    const refreshData = async () => {
-                        try {
-                            // Refresh earnings data
-                            const earningsResponse = await fetch(`/api/agents/${resolvedParams.id}/earnings`);
-                            if (earningsResponse.ok) {
-                                const data = await earningsResponse.json();
-                                setEarningsData(data);
-                            }
-
-                            // Refresh fresh balance data
-                            if (agent?.agentId) {
-                                const publicClient = createPublicClient({
-                                    chain: base,
-                                    transport: http(),
-                                });
-
-                                const agentIdBytes32 = keccak256(encodePacked(['string'], [agent.agentId]));
-                                const balance = await publicClient.readContract({
-                                    address: CONTRACT_ADDRESS as `0x${string}`,
-                                    abi: CONTRACT_ABI,
-                                    functionName: 'agentBalance',
-                                    args: [agentIdBytes32],
-                                });
-
-                                const ethBalance = Number(balance) / 1e18;
-                                const { priceService } = await import('@/lib/priceService');
-                                const ethPrice = await priceService.getEthPrice();
-                                const usdBalance = ethBalance * ethPrice;
-
-                                setFreshBalanceData({
-                                    ethBalance,
-                                    usdBalance,
-                                    ethPrice,
-                                });
-                            }
-                        } catch (error) {
-                            console.error('Error refreshing data after withdrawal:', error);
-                        }
-                    };
-                    refreshData();
-                }}
+                paymentMode={earningsData?.paymentMode || "escrow"}
+                paymentAddress={earningsData?.paymentAddress || agent?.splitAddress || ""}
+                splitAddress={earningsData?.splitAddress || agent?.splitAddress}
+                buybackPercent={earningsData?.buybackPercent || agent?.buybackPercent || 0}
+                developerSplitPercent={earningsData?.developerSplitPercent || 95}
+                platformFeePercent={earningsData?.platformFeePercent || 5}
+                splitRecipients={earningsData?.splitRecipients || []}
+                onWithdrawSuccess={refreshEarningsData}
             />
         </div>
     );

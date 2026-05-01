@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getPublicClient } from '@/lib/web3';
-import { keccak256, encodePacked, type Abi } from 'viem';
+import {
+  buildSplitRecipients,
+  getDeveloperSplitPercent,
+  SUPPORTED_TOKENS,
+  SPLIT_PLATFORM_FEE_PERCENT,
+} from '@/lib/payment-routing';
+import {
+  keccak256,
+  encodePacked,
+  formatUnits,
+  type Abi,
+  erc20Abi,
+} from 'viem';
 import earnkitABI from '@/contract/earnkit_ABI.json';
 
 // Use latest contract ABI copied into the dashboard app
@@ -34,6 +46,19 @@ export async function GET(
         id: true,
         agentId: true,
         totalEarnings: true,
+        splitAddress: true,
+        buybackAddress: true,
+        buybackPercent: true,
+        user: {
+          select: {
+            walletAccounts: {
+              select: {
+                address: true,
+              },
+              take: 1,
+            },
+          },
+        },
       },
     });
 
@@ -115,29 +140,58 @@ export async function GET(
     // Get available balance from smart contract (ETH + tokens)
     let availableBalance = 0;
     let availableBalanceEth = 0;
-    const tokenBalances: { symbol: string; address: string; balance: string; balanceUsd: number }[] = [];
-    
+    const tokenBalances: {
+      symbol: string;
+      address: string;
+      balance: string;
+      balanceUsd: number;
+    }[] = [];
+    const paymentMode = agent.splitAddress ? 'splits' : 'escrow';
+    const paymentAddress = agent.splitAddress || CONTRACT_ADDRESS;
+    const balanceSource = agent.splitAddress
+      ? 'split-contract'
+      : 'escrow-contract';
+    const developerWalletAddress =
+      agent.user.walletAccounts[0]?.address || null;
+    const buybackPercent = agent.buybackPercent || 0;
+    const developerSplitPercent = getDeveloperSplitPercent(buybackPercent);
+    const splitRecipients = buildSplitRecipients({
+      developerWalletAddress,
+      platformFeeWallet: process.env.PLATFORM_FEE_WALLET,
+      buybackAddress: agent.buybackAddress,
+      buybackPercent,
+    });
+
     try {
       const publicClient = getPublicClient('base');
       const { priceService } = await import('@/lib/priceService');
 
-      // Compute agent ID hash exactly as stored on-chain: keccak256(abi.encodePacked(slugOrUuid))
-      const agentIdHash = keccak256(encodePacked(['string'], [agent.agentId]));
+      let ethBalanceAtomic = BigInt(0);
 
-      // Get ETH balance
-      let balance: bigint | undefined;
-      try {
-        balance = (await publicClient.readContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: CONTRACT_ABI,
-          functionName: 'agentBalance',
-          args: [agentIdHash],
-        })) as unknown as bigint;
-      } catch {
-        balance = BigInt(0);
+      if (agent.splitAddress) {
+        try {
+          ethBalanceAtomic = await publicClient.getBalance({
+            address: agent.splitAddress as `0x${string}`,
+          });
+        } catch {
+          ethBalanceAtomic = BigInt(0);
+        }
+      } else {
+        const agentIdHash = keccak256(encodePacked(['string'], [agent.agentId]));
+
+        try {
+          ethBalanceAtomic = (await publicClient.readContract({
+            address: CONTRACT_ADDRESS as `0x${string}`,
+            abi: CONTRACT_ABI,
+            functionName: 'agentBalance',
+            args: [agentIdHash],
+          })) as unknown as bigint;
+        } catch {
+          ethBalanceAtomic = BigInt(0);
+        }
       }
-      console.log('ETH balance', balance);
-      availableBalanceEth = Number(balance) / 1e18;
+
+      availableBalanceEth = Number(ethBalanceAtomic) / 1e18;
 
       // Convert ETH balance to USD. If the price feed is unavailable, leave the
       // USD value at 0 rather than guessing — the ETH amount is still returned
@@ -155,32 +209,28 @@ export async function GET(
         availableBalance = 0;
       }
 
-      // Read every supported token's balance for this agent. Decimals are
-      // pulled from the token contract (never assume 18); USD price comes from
-      // CoinGecko via priceService. If anything fails for a single token, we
-      // skip it rather than stranding it with a guessed value.
-      const { erc20Abi, formatUnits } = await import('viem');
-      const SUPPORTED_TOKENS = [
-        {
-          address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-          symbol: 'USDC',
-          coingeckoId: 'usd-coin',
-        },
-        {
-          address: '0x534b7aad1cdb6f02ec48cabe428f0d9131e40b07',
-          symbol: 'MINIDEV',
-          coingeckoId: 'minidev',
-        },
-      ];
-
       for (const token of SUPPORTED_TOKENS) {
         try {
-          const tokenBalanceAtomic = (await publicClient.readContract({
-            address: CONTRACT_ADDRESS as `0x${string}`,
-            abi: CONTRACT_ABI,
-            functionName: 'agentTokenBalance',
-            args: [agentIdHash, token.address as `0x${string}`],
-          })) as unknown as bigint;
+          let tokenBalanceAtomic = BigInt(0);
+
+          if (agent.splitAddress) {
+            tokenBalanceAtomic = (await publicClient.readContract({
+              address: token.address as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [agent.splitAddress as `0x${string}`],
+            })) as bigint;
+          } else {
+            const agentIdHash = keccak256(
+              encodePacked(['string'], [agent.agentId]),
+            );
+            tokenBalanceAtomic = (await publicClient.readContract({
+              address: CONTRACT_ADDRESS as `0x${string}`,
+              abi: CONTRACT_ABI,
+              functionName: 'agentTokenBalance',
+              args: [agentIdHash, token.address as `0x${string}`],
+            })) as unknown as bigint;
+          }
 
           if (tokenBalanceAtomic <= BigInt(0)) continue;
 
@@ -223,8 +273,17 @@ export async function GET(
       totalWithdrawals,
       availableBalance,
       availableBalanceEth: availableBalanceEth || 0,
-      tokenBalances, // NEW: Token balances for withdrawal
+      tokenBalances,
       agentEarnings: agent.totalEarnings,
+      paymentMode,
+      paymentAddress,
+      splitAddress: agent.splitAddress,
+      balanceSource,
+      buybackPercent,
+      developerSplitPercent,
+      developerWalletAddress,
+      platformFeePercent: SPLIT_PLATFORM_FEE_PERCENT,
+      splitRecipients,
       breakdown: {
         transactionLogEarnings,
         topUpEarnings,

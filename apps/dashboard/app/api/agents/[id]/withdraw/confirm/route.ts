@@ -7,8 +7,14 @@ interface ConfirmWithdrawRequest {
   fromAddress: string;
   toAddress: string;
   amount: number; // USD amount
-  fee: number; // USD fee
-  netAmount: number; // USD net amount
+  fee?: number; // USD fee
+  netAmount?: number; // USD net amount
+  withdrawalMode?: 'escrow' | 'splits';
+  paymentAddress?: string;
+  assetSymbol?: string;
+  assetAddress?: string;
+  assetAmount?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export async function POST(
@@ -27,7 +33,22 @@ export async function POST(
     }
 
     const body: ConfirmWithdrawRequest = await request.json();
-    const { transactionHash, fromAddress, toAddress, fee, amount } = body;
+    const {
+      transactionHash,
+      fromAddress,
+      toAddress,
+      fee = 0,
+      amount,
+      withdrawalMode = 'escrow',
+      paymentAddress,
+      assetSymbol,
+      assetAddress,
+      assetAmount,
+      metadata,
+    } = body;
+    const paymentAddressLabel = paymentAddress
+      ? `${paymentAddress.slice(0, 6)}...${paymentAddress.slice(-4)}`
+      : 'split contract';
 
     if (!transactionHash || !fromAddress || !toAddress) {
       return NextResponse.json(
@@ -40,7 +61,7 @@ export async function POST(
 
     // Get agent details
     const agent = await prisma.agent.findUnique({
-      where: { agentId: agentId },
+      where: { id: agentId },
       select: {
         agentId: true,
         id: true,
@@ -81,7 +102,18 @@ export async function POST(
         transactionHash: transactionHash,
         transactionType: 'WITHDRAWAL',
         status: 'COMPLETED',
-        description: `Withdrawal of $${amount.toFixed(2)} (fee: $${fee.toFixed(2)}) to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`,
+        description:
+          withdrawalMode === 'splits'
+            ? `Split distribution of $${amount.toFixed(2)} ${assetSymbol ? `(${assetSymbol}) ` : ''}from ${paymentAddressLabel}`
+            : `Withdrawal of $${amount.toFixed(2)} (fee: $${fee.toFixed(2)}) to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`,
+        metadata: {
+          withdrawalMode,
+          paymentAddress,
+          assetSymbol,
+          assetAddress,
+          assetAmount,
+          ...(metadata || {}),
+        },
       },
     });
 

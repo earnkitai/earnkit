@@ -2,14 +2,15 @@
 
 import { useState } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
-import {
-  createWalletClient,
-  custom,
-  createPublicClient,
-  http,
-} from 'viem';
+import { createWalletClient, custom, createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import earnkitABI from '@/contract/earnkit_ABI.json';
+import {
+  buildSplitDistributionConfig,
+  SPLIT_DISTRIBUTE_ABI,
+  SPLIT_NATIVE_TOKEN_ADDRESS,
+  type SplitRecipientConfig,
+} from '@/lib/payment-routing';
 import { type Abi, type Hex } from 'viem';
 
 const CONTRACT_ADDRESS =
@@ -19,8 +20,8 @@ const CONTRACT_ABI = earnkitABI as unknown as Abi;
 
 interface WithdrawData {
   agentId: string;
-  amount: string; // Legacy USD string, used only when amountWei is absent
-  amountWei?: string; // Preferred: exact wei amount, no USD round-trip
+  amount: string;
+  amountWei?: string;
   to: string;
 }
 
@@ -28,8 +29,22 @@ interface TokenWithdrawData {
   agentId: string;
   tokenAddress: string;
   tokenSymbol: string;
-  amount: string; // Raw token amount (not in smallest units)
+  amount: string;
   to: string;
+}
+
+interface SplitDistributionAsset {
+  symbol: string;
+  amount: string;
+  amountUsd: number;
+  tokenAddress?: string;
+}
+
+interface SplitDistributionData {
+  splitAddress: string;
+  paymentAddress: string;
+  recipients: SplitRecipientConfig[];
+  assets: SplitDistributionAsset[];
 }
 
 interface FeeCalculation {
@@ -39,13 +54,21 @@ interface FeeCalculation {
   platformFeeBps: number;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function useWithdraw(agentDbId: string, agentSlug: string) {
   const [loading, setLoading] = useState(false);
   const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
 
-  // Function to get platform fee from contract
+  const getInjectedWallet = () => {
+    const wallet = wallets.find((candidate) => candidate.connectorType === 'injected');
+
+    if (!wallet) {
+      throw new Error('No wallet connected');
+    }
+
+    return wallet;
+  };
+
   const getPlatformFee = async (): Promise<number> => {
     try {
       const publicClient = createPublicClient({
@@ -62,12 +85,10 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       return Number(platformFeeBps);
     } catch (error) {
       console.error('Error getting platform fee:', error);
-      // Default to 5% (500 basis points) if contract call fails
       return 500;
     }
   };
 
-  // Function to calculate fees
   const calculateFees = async (amount: number): Promise<FeeCalculation> => {
     const platformFeeBps = await getPlatformFee();
     const fee = (amount * platformFeeBps) / 10000;
@@ -81,8 +102,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     };
   };
 
-  // Execute ETH withdrawal using withdrawWithSig (gasless with platform signature)
-  // Any wallet can pay gas, funds go to the specified recipient (can be multisig)
   const executeWithdrawal = async (withdrawData: WithdrawData) => {
     if (!ready || !authenticated || !user) {
       throw new Error('User not authenticated');
@@ -91,19 +110,8 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     setLoading(true);
 
     try {
-      // Get the user's wallet from Privy (this wallet pays gas, not necessarily the recipient)
-      const wallet = wallets.find(
-        (wallet) => wallet.connectorType === 'injected',
-      );
-      console.log(wallets, 'wallets');
-      if (!wallet) {
-        throw new Error('No wallet connected');
-      }
+      const wallet = getInjectedWallet();
 
-      // Step 1: Get signature from backend.
-      // Prefer amountWei when the caller supplied it — that skips the
-      // ETH→USD→ETH round-trip and avoids float drift on max withdrawals.
-      console.log('Requesting ETH withdrawal signature from backend...');
       const signatureResponse = await fetch(`/api/agents/${agentDbId}/withdraw`, {
         method: 'POST',
         headers: {
@@ -122,9 +130,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       }
 
       const signatureData = await signatureResponse.json();
-      console.log('Signature data received:', signatureData);
 
-      // Splits agents: distribute() is permissionless — no EIP-712 needed
       if (signatureData.withdrawalMode === 'splits') {
         return {
           success: true,
@@ -140,7 +146,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('Invalid signature response from server');
       }
 
-      // Step 2: Execute withdrawWithSig with the platform's signature
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
@@ -151,17 +156,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       const { v, r, s } = signatureData.signature;
       const { agentId: agentIdBytes32, amount, to, deadline } = signatureData.withdrawal;
 
-      console.log('Executing withdrawWithSig with params:', {
-        agentIdBytes32,
-        amount,
-        to,
-        deadline,
-        v,
-        r,
-        s,
-      });
-
-      // Execute the ETH withdrawal transaction with signature
       const txHash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: CONTRACT_ABI,
@@ -177,9 +171,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         ],
       });
 
-      console.log('ETH withdrawal transaction hash:', txHash);
-
-      // Record the transaction in the database
       try {
         await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
           method: 'POST',
@@ -194,11 +185,11 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
             netAmount: signatureData.withdrawal.net.usd,
             toAddress: withdrawData.to,
             amount: signatureData.withdrawal.totalAmount.usd,
+            withdrawalMode: 'escrow',
           }),
         });
       } catch (error) {
         console.error('Error recording transaction in database:', error);
-        // Don't throw error here as the transaction was successful
       }
 
       return {
@@ -214,7 +205,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     }
   };
 
-  // Execute token withdrawal using withdrawTokenWithSig (gasless with platform signature)
   const executeTokenWithdrawal = async (withdrawData: TokenWithdrawData) => {
     if (!ready || !authenticated || !user) {
       throw new Error('User not authenticated');
@@ -223,24 +213,15 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     setLoading(true);
 
     try {
-      // Get the user's wallet from Privy
-      const wallet = wallets.find(
-        (wallet) => wallet.connectorType === 'injected',
-      );
-      console.log(wallets, 'wallets');
-      if (!wallet) {
-        throw new Error('No wallet connected');
-      }
+      const wallet = getInjectedWallet();
 
-      // Step 1: Get signature from backend (use agentDbId for API)
-      console.log('Requesting token withdrawal signature from backend...');
       const signatureResponse = await fetch(`/api/agents/${agentDbId}/withdraw`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          amount: withdrawData.amount, // Raw token amount
+          amount: withdrawData.amount,
           toAddress: withdrawData.to,
           tokenAddress: withdrawData.tokenAddress,
           tokenSymbol: withdrawData.tokenSymbol,
@@ -253,7 +234,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       }
 
       const signatureData = await signatureResponse.json();
-      console.log('Signature data received:', signatureData);
 
       if (signatureData.withdrawalMode === 'splits') {
         return {
@@ -270,7 +250,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('Invalid signature response from server');
       }
 
-      // Step 2: Execute withdrawTokenWithSig with the platform's signature
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
@@ -281,18 +260,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       const { v, r, s } = signatureData.signature;
       const { agentId: agentIdBytes32, amount, to, deadline, tokenAddress: token } = signatureData.withdrawal;
 
-      console.log('Executing withdrawTokenWithSig with params:', {
-        agentIdBytes32,
-        token,
-        amount,
-        to,
-        deadline,
-        v,
-        r,
-        s,
-      });
-
-      // Execute the token withdrawal transaction with signature
       const txHash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: CONTRACT_ABI,
@@ -309,9 +276,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         ],
       });
 
-      console.log('Token withdrawal transaction hash:', txHash);
-
-      // Record the transaction in the database (use agentDbId for API)
       try {
         await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
           method: 'POST',
@@ -328,11 +292,11 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
             amount: signatureData.withdrawal.totalAmount,
             tokenAddress: withdrawData.tokenAddress,
             tokenSymbol: withdrawData.tokenSymbol,
+            withdrawalMode: 'escrow',
           }),
         });
       } catch (error) {
         console.error('Error recording token transaction in database:', error);
-        // Don't throw error here as the transaction was successful
       }
 
       return {
@@ -348,9 +312,106 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     }
   };
 
+  const executeSplitDistribution = async (
+    distributionData: SplitDistributionData,
+  ) => {
+    if (!ready || !authenticated || !user) {
+      throw new Error('User not authenticated');
+    }
+
+    if (distributionData.recipients.length < 2) {
+      throw new Error('Split recipient configuration is incomplete');
+    }
+
+    const assetsToDistribute = distributionData.assets.filter((asset) => {
+      return parseFloat(asset.amount) > 0;
+    });
+
+    if (assetsToDistribute.length === 0) {
+      throw new Error('No split funds are currently available to distribute');
+    }
+
+    setLoading(true);
+
+    try {
+      const wallet = getInjectedWallet();
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: wallet.address as Hex,
+        chain: base,
+        transport: custom(provider),
+      });
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      });
+      const splitConfig = buildSplitDistributionConfig(
+        distributionData.recipients,
+      );
+      const transactionHashes: string[] = [];
+
+      for (const asset of assetsToDistribute) {
+        const tokenAddress = (asset.tokenAddress ||
+          SPLIT_NATIVE_TOKEN_ADDRESS) as `0x${string}`;
+
+        const txHash = await walletClient.writeContract({
+          address: distributionData.splitAddress as `0x${string}`,
+          abi: SPLIT_DISTRIBUTE_ABI,
+          functionName: 'distribute',
+          args: [splitConfig, tokenAddress, wallet.address as `0x${string}`],
+        });
+
+        transactionHashes.push(txHash);
+
+        await publicClient.waitForTransactionReceipt({
+          hash: txHash,
+        });
+
+        try {
+          await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              transactionHash: txHash,
+              agentId: agentSlug,
+              fromAddress: wallet.address,
+              toAddress: distributionData.splitAddress,
+              amount: asset.amountUsd,
+              withdrawalMode: 'splits',
+              paymentAddress: distributionData.paymentAddress,
+              assetSymbol: asset.symbol,
+              assetAddress: asset.tokenAddress,
+              assetAmount: asset.amount,
+              metadata: {
+                recipients: distributionData.recipients,
+              },
+            }),
+          });
+        } catch (error) {
+          console.error('Error recording split distribution:', error);
+        }
+      }
+
+      return {
+        success: true,
+        withdrawalMode: 'splits' as const,
+        transactionHashes,
+        distributedAssets: assetsToDistribute,
+      };
+    } catch (error) {
+      console.error('Error executing split distribution:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     executeWithdrawal,
     executeTokenWithdrawal,
+    executeSplitDistribution,
     calculateFees,
     loading,
     isReady: ready && authenticated,
