@@ -146,6 +146,8 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('Invalid signature response from server');
       }
 
+      await wallet.switchChain(base.id);
+
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
@@ -250,6 +252,8 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         throw new Error('Invalid signature response from server');
       }
 
+      await wallet.switchChain(base.id);
+
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
@@ -335,6 +339,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
 
     try {
       const wallet = getInjectedWallet();
+      await wallet.switchChain(base.id);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: wallet.address as Hex,
