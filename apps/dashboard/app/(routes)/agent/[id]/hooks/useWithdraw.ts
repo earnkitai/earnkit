@@ -9,6 +9,8 @@ import {
   buildSplitDistributionConfig,
   SPLIT_DISTRIBUTE_ABI,
   SPLIT_NATIVE_TOKEN_ADDRESS,
+  SPLIT_WAREHOUSE_ABI,
+  SPLIT_WAREHOUSE_ADDRESS,
   type SplitRecipientConfig,
 } from '@/lib/payment-routing';
 import { type Abi, type Hex } from 'viem';
@@ -355,6 +357,17 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       );
       const transactionHashes: string[] = [];
 
+      // Only auto-withdraw the developer's Warehouse balance if the connected
+      // wallet matches the Developer recipient. Otherwise the user could end up
+      // paying gas to claim into someone else's wallet.
+      const developerRecipient = distributionData.recipients.find(
+        (r) => r.label === 'Developer',
+      );
+      const connectedAddress = (wallet.address as string).toLowerCase();
+      const developerMatches =
+        developerRecipient &&
+        developerRecipient.address.toLowerCase() === connectedAddress;
+
       for (const asset of assetsToDistribute) {
         const tokenAddress = (asset.tokenAddress ||
           SPLIT_NATIVE_TOKEN_ADDRESS) as `0x${string}`;
@@ -371,6 +384,29 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         await publicClient.waitForTransactionReceipt({
           hash: txHash,
         });
+
+        if (developerMatches && developerRecipient) {
+          try {
+            const withdrawHash = await walletClient.writeContract({
+              address: SPLIT_WAREHOUSE_ADDRESS as `0x${string}`,
+              abi: SPLIT_WAREHOUSE_ABI,
+              functionName: 'withdraw',
+              args: [developerRecipient.address, tokenAddress],
+            });
+            transactionHashes.push(withdrawHash);
+            await publicClient.waitForTransactionReceipt({
+              hash: withdrawHash,
+            });
+          } catch (warehouseError) {
+            // Distribute already succeeded — funds are safe in the Warehouse.
+            // The recipient can claim them later via app.splits.org or by
+            // retrying. Don't fail the whole flow on a withdraw hiccup.
+            console.error(
+              'Warehouse withdraw failed (funds remain claimable):',
+              warehouseError,
+            );
+          }
+        }
 
         try {
           await fetch(`/api/agents/${agentDbId}/withdraw/confirm`, {
@@ -391,6 +427,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
               assetAmount: asset.amount,
               metadata: {
                 recipients: distributionData.recipients,
+                developerWithdrawn: developerMatches,
               },
             }),
           });
@@ -404,6 +441,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         withdrawalMode: 'splits' as const,
         transactionHashes,
         distributedAssets: assetsToDistribute,
+        developerWithdrawn: Boolean(developerMatches),
       };
     } catch (error) {
       console.error('Error executing split distribution:', error);

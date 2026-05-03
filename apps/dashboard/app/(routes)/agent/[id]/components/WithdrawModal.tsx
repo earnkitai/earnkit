@@ -268,7 +268,15 @@ export default function WithdrawModal({
                 assets: splitAssets,
             });
 
-            toast.success(`Distributed ${result.distributedAssets.length} funded asset(s)`);
+            if (result.developerWithdrawn) {
+                toast.success(
+                    `Distributed and withdrew ${result.distributedAssets.length} asset(s) to your wallet`,
+                );
+            } else {
+                toast.success(
+                    `Distributed ${result.distributedAssets.length} asset(s) to the Splits Warehouse. Recipients can claim from app.splits.org.`,
+                );
+            }
             if (result.transactionHashes[0]) {
                 toast.success(`First transaction: ${result.transactionHashes[0].slice(0, 10)}...`);
             }
@@ -469,7 +477,7 @@ export default function WithdrawModal({
                                     Payments for this agent land in its split contract, and this action will distribute every funded asset currently sitting there.
                                 </p>
                                 <p className="text-xs text-blue-700/80 font-funnel-sans mt-2">
-                                    You may see one wallet confirmation per funded asset.
+                                    You&apos;ll see two wallet prompts per asset: one to distribute from the split contract to the Splits Warehouse, and one to withdraw your share to your wallet. Platform and buyback recipients can claim their shares anytime from app.splits.org.
                                 </p>
                             </div>
 

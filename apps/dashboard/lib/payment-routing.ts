@@ -56,6 +56,35 @@ export const SPLIT_DISTRIBUTE_ABI = [
   },
 ] as const satisfies Abi;
 
+// Canonical 0xSplits v2 SplitsWarehouse address (deterministic across chains).
+// PullSplit deposits distributed funds here; recipients then call `withdraw` to
+// pull their balance into their wallet.
+export const SPLIT_WAREHOUSE_ADDRESS =
+  '0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8';
+
+export const SPLIT_WAREHOUSE_ABI = [
+  {
+    type: 'function',
+    name: 'withdraw',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'token', type: 'address' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'id', type: 'uint256' },
+    ],
+    outputs: [{ name: 'balance', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const satisfies Abi;
+
 export function getDeveloperSplitPercent(buybackPercent = 0): number {
   return Math.max(0, 100 - SPLIT_PLATFORM_FEE_PERCENT - buybackPercent);
 }
