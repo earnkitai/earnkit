@@ -303,6 +303,7 @@ model Agent {
   transactionLogs     TransactionLog[]
   usageEvents         UsageEvent[]
   userBalances        UserBalance[]
+  buybackConfig       BuybackConfig?
   splitAddress        String?            @map("split_address")
   buybackAddress      String?            @map("buyback_address")
   buybackPercent      Float              @default(0) @map("buyback_percent")
@@ -312,6 +313,81 @@ model Agent {
   @@index([status])
   @@index([createdAt])
   @@map("agents")
+}
+
+model BuybackConfig {
+  id                String             @id @default(cuid())
+  agentId           String             @unique @map("agent_id")
+  agent             Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  tokenAddress      String             @map("token_address")
+  tokenSymbol       String             @map("token_symbol")
+  tokenDecimals     Int                @map("token_decimals")
+
+  thresholdUsd      Float              @default(10) @map("threshold_usd")
+  slippageBps       Int                @default(500) @map("slippage_bps")
+  burnMode          BurnMode           @default(DEAD_ADDRESS) @map("burn_mode")
+
+  turnkeySubOrgId   String             @unique @map("turnkey_sub_org_id")
+  turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
+  walletAddress     String             @unique @map("wallet_address")
+  delegatedApiKeyId String             @unique @map("delegated_api_key_id")
+  policyId          String             @map("policy_id")
+
+  isActive          Boolean            @default(true) @map("is_active")
+  lastCheckedAt     DateTime?          @map("last_checked_at")
+  lastTriggeredAt   DateTime?          @map("last_triggered_at")
+
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  executions        BuybackExecution[]
+
+  @@index([isActive])
+  @@index([walletAddress])
+  @@map("buyback_configs")
+}
+
+model BuybackExecution {
+  id                      String         @id @default(cuid())
+  buybackConfigId         String         @map("buyback_config_id")
+  buybackConfig           BuybackConfig  @relation(fields: [buybackConfigId], references: [id], onDelete: Cascade)
+
+  status                  BuybackStatus  @default(QUEUED)
+  triggerBalanceUsd       Float          @map("trigger_balance_usd")
+  attempts                Int            @default(0)
+  lastError               String?        @map("last_error")
+  nextAttemptAt           DateTime?      @map("next_attempt_at")
+
+  warehouseWithdrawHashes String[]       @default([]) @map("warehouse_withdraw_hashes")
+  swapHash                String?        @map("swap_hash")
+  burnHash                String?        @map("burn_hash")
+
+  assetsIn                Json?          @map("assets_in")
+  tokensOutAmount         String?        @map("tokens_out_amount")
+  tokensOutUsd            Float?         @map("tokens_out_usd")
+  gasSpentEth             String?        @map("gas_spent_eth")
+
+  startedAt               DateTime       @default(now()) @map("started_at")
+  completedAt             DateTime?      @map("completed_at")
+
+  @@index([buybackConfigId, status])
+  @@index([status, nextAttemptAt])
+  @@map("buyback_executions")
+}
+
+enum BurnMode {
+  DEAD_ADDRESS
+  TOKEN_BURN_FN
+}
+
+enum BuybackStatus {
+  QUEUED
+  WITHDRAWING
+  SWAPPING
+  BURNING
+  COMPLETED
+  FAILED
+  RETRYING
 }
 
 model TopUpPackage {

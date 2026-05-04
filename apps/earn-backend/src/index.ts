@@ -7,6 +7,8 @@ import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
 import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
+import { startBuybackScannerWorker } from './workers/buybackScannerWorker';
+import { startBuybackExecutorWorker } from './workers/buybackExecutorWorker';
 
 // Load environment variables
 dotenv.config();
@@ -81,6 +83,8 @@ app.listen(PORT, () => {
   console.log(`EarnKit Backend API running on port ${PORT}`);
   startTopUpVerificationWorker();
   startWebhookDeliveryWorker();
+  startBuybackScannerWorker();
+  startBuybackExecutorWorker();
 });
 
 // Graceful shutdown

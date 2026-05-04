@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
+import BuybackPanel from "./components/BuybackPanel";
 import { TokenConfigPanel } from "@/app/components/TokenConfigPanel";
 
 // Agent type definition matching the database schema
@@ -798,6 +799,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                 <TokenConfigPanel
                                     agentId={agent.agentId}
                                 />
+                            </div>
+
+                            {/* Auto Buyback & Burn */}
+                            <div className="mt-6">
+                                <BuybackPanel agentDbId={resolvedParams.id} />
                             </div>
                             </>
                         ) : (

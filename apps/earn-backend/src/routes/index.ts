@@ -9,6 +9,7 @@ import paymentIntentRoutes from './paymentIntents';
 import webhookRoutes from './webhooks';
 import debugRoutes from './debug';
 import deploySplitRoutes from './internal/deploySplit';
+import buybackRoutes from './buyback';
 
 const router: Router = Router();
 
@@ -20,6 +21,7 @@ router.use('/balance', balanceRoutes);
 router.use('/top-up-details', topUpDetailsRoutes);
 router.use('/payment-intents', paymentIntentRoutes);
 router.use('/agents/:agentId/token-config', tokenConfigRoutes);
+router.use('/agents/:agentId/buyback', buybackRoutes);
 router.use('/webhooks', webhookRoutes);
 
 // Debug routes — require ADMIN_API_KEY header regardless of environment
