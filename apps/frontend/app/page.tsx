@@ -1,42 +1,41 @@
-import Image from "next/image";
+import Image from 'next/image';
 // import Link from "next/link";
 // import { SocialButton } from "@/app/components/ui/SocialButton";
-import Link from "next/link";
-import BackgroundVideoLandingPage from "./components/sections/BackgroundVideoLandingPage";
-import CarouselFeatures from "./components/sections/CarouselFeatures";
-import UserTabsSection from "./components/sections/UserTabsSection";
-import { Icons } from "@/app/components/ui/Icons";
-import AnimatedHeroText from "./components/sections/AnimatedHeroText";
-import AnimatedGridImage from "./components/sections/AnimatedGridImage";
-import ParallaxBuildingImage from "./components/sections/ParallaxBuildingImage";
-import ParallaxOctoImage from "./components/sections/ParallaxOctoImage";
+import Link from 'next/link';
+import BackgroundVideoLandingPage from './components/sections/BackgroundVideoLandingPage';
+import CarouselFeatures from './components/sections/CarouselFeatures';
+import UserTabsSection from './components/sections/UserTabsSection';
+import { Icons } from '@/app/components/ui/Icons';
+import AnimatedHeroText from './components/sections/AnimatedHeroText';
+import AnimatedGridImage from './components/sections/AnimatedGridImage';
+import ParallaxBuildingImage from './components/sections/ParallaxBuildingImage';
+import ParallaxOctoImage from './components/sections/ParallaxOctoImage';
 // import DesktopOnlyMessage from "./components/sections/DesktopOnlyMessage";
-import Footer from "./components/common/Footer";
-import IntegrateInMinutesSection from "./components/sections/IntegrateInMinutesSection";
-import WarningMsg from "./components/common/WarningMsg";
-import YoutubeEmbed from "./components/sections/YoutubeEmbed";
-import BuybackDedicatedSection from "./components/sections/BuybackDedicatedSection";
-import { InvestorsIcons } from "./components/ui/TeamIcons";
-import InvestorLogoStrip from "./components/sections/InvestorLogoStrip";
+import Footer from './components/common/Footer';
+import IntegrateInMinutesSection from './components/sections/IntegrateInMinutesSection';
+import WarningMsg from './components/common/WarningMsg';
+import YoutubeEmbed from './components/sections/YoutubeEmbed';
+import BuybackDedicatedSection from './components/sections/BuybackDedicatedSection';
+import { InvestorsIcons } from './components/ui/TeamIcons';
+import InvestorLogoStrip from './components/sections/InvestorLogoStrip';
 
 export default function Home() {
-
   return (
     <>
       <main className="md:h-screen md:min-h-screen">
         {/* <DesktopOnlyMessage /> */}
         <div className="w-full">
           {/* Hero Section */}
-          <section aria-label="Hero" className=" relative flex flex-col lg:flex-row overflow-hidden rounded-[56px] md:rounded-[15rem]">
+          <section
+            aria-label="Hero"
+            className=" relative flex flex-col lg:flex-row overflow-hidden rounded-[56px] md:rounded-[15rem]"
+          >
             <BackgroundVideoLandingPage />
             <article className="w-full h-[90vh] md:h-[calc(var(--vh,1vh)*100-12vh)] p-4 pb-20 pt-4 lg:py-30 lg:p-8 lg:py-20 flex flex-col items-center md:justify-center justify-end rounded-[56px]">
-              <WarningMsg />
+              {/* <WarningMsg /> */}
               <AnimatedHeroText />
-              
             </article>
           </section>
-
-          
 
           {/* <section className="w-full md:h-screen flex flex-col md:flex-row items-center justify-center mt-10">
             <aside className="w-full h-[90vh] md:h-full md:w-1/2 relative rounded-[56px] overflow-hidden flex flex-col items-center justify-center bg-color9 gap-[40px]"
@@ -66,7 +65,6 @@ export default function Home() {
 
           <YoutubeEmbed />
 
-
           {/* <section className="w-full h-[90vh] md:h-[530px] md:min-h-[530px] bg-color15 flex flex-col md:flex-row items-center justify-center md:justify-between rounded-[56px] md:rounded-[15rem] px-6 md:px-[10rem] ">
 
             <div className="md:max-w-max w-full max-w-[80%] py-10 md:py-0">
@@ -89,12 +87,12 @@ export default function Home() {
           </section> */}
 
           <BuybackDedicatedSection />
-          
+
           <IntegrateInMinutesSection />
 
           {/* <section className="w-full md:min-h-[600px] flex flex-col md:flex-row items-center justify-center mt-10 relative"> */}
-            {/* create a container with full height of the right side section and add a background image to it */}
-            {/* <aside className="absolute top-0 left-0 w-full md:w-[35%] h-[90vh] md:h-full rounded-[56px] overflow-hidden bg-color5">
+          {/* create a container with full height of the right side section and add a background image to it */}
+          {/* <aside className="absolute top-0 left-0 w-full md:w-[35%] h-[90vh] md:h-full rounded-[56px] overflow-hidden bg-color5">
               <ParallaxBuildingImage />
             </aside>
 
@@ -141,24 +139,27 @@ export default function Home() {
             </div>
           </section> */}
 
-
-
           <section className="w-full min-h-[700px] flex flex-col md:flex-row items-stretch justify-center bg-transparent rounded-[56px] overflow-hidden mt-10">
             {/* Left Side */}
             <aside className="w-full h-[90vh] md:h-full md:w-[40%] bg-color5 flex flex-col justify-center items-center rounded-[56px] p-10 md:p-20">
               <div className="md:py-10 flex flex-col justify-center items-center">
                 <h2 className="w-[90%] md:max-w-[70%] text-color8 font-funnel-display text-3xl md:text-5xl font-semibold mb-8 md:leading-[1.2]">
-                  Monetize<br />
-                  Your Agent,<br />
+                  Monetize
+                  <br />
+                  Your Agent,
+                  <br />
                   Your Way
                 </h2>
                 <div className="w-[90%] md:max-w-[70%] font-funnel-sans">
                   <p className="text-color6 text-lg mb-6">
-                    Whether it&apos;s per prompt, per swap, or per LLM call, EarnKit helps your agent earn without rebuilding the wheel.
+                    Whether it&apos;s per prompt, per swap, or per LLM call,
+                    EarnKit helps your agent earn without rebuilding the wheel.
                   </p>
                 </div>
                 <div className="pt-10 md:pt-20 w-[90%] md:max-w-[70%]">
-                  <p className="w-full text-color14 px-6 md:px-6 font-funnel-sans font-medium text-lg pb-10 leading-[1.4]">The easiest way to earn is with EarnKit.</p>
+                  <p className="w-full text-color14 px-6 md:px-6 font-funnel-sans font-medium text-lg pb-10 leading-[1.4]">
+                    The easiest way to earn is with EarnKit.
+                  </p>
                   <Link
                     href="https://app.earnkit.com"
                     target="_blank"
@@ -180,8 +181,6 @@ export default function Home() {
         </div>
         <Footer />
       </main>
-
-
     </>
   );
 }
