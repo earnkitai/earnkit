@@ -193,7 +193,7 @@ export class TopUpService {
       const option: TopUpOption = {
         label:
           ethDiscount > 0
-            ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} USD (${ethDiscount}% off)`
+            ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (was $${usdAmount.toFixed(2)}, ${ethDiscount}% off)`
             : `${creditAmounts[i]} Credits - $${usdAmount.toFixed(2)} USD`,
         amountInUSD: discountedUsd.toString(),
         amountInEth: ethAmount.toString(),
@@ -254,7 +254,7 @@ export class TopUpService {
             const option: TokenPaymentOption = {
               label:
                 tokenDiscount > 0
-                  ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} USD (${tokenDiscount}% off)`
+                  ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (was $${usdAmount.toFixed(2)}, ${tokenDiscount}% off)`
                   : `${creditAmounts[i]} Credits - $${usdAmount.toFixed(2)} USD`,
               amountInUSD: discountedUsd.toString(),
               amountInToken: smallestUnitAmount.toString(),
@@ -737,12 +737,49 @@ export class TopUpService {
           `[TopUpService] USD within tolerance, using claimed credits: ${actualCredits}`,
         );
       } else {
-        // Calculate credits from actual USD (1 credit = $0.01 based on typical packages)
-        // Use the package pricing: $1 = 100/3 credits approximately based on default $3 = 10 credits
-        actualCredits = Math.floor((actualUsd / 3) * 10);
-        console.log(
-          `[TopUpService] USD outside tolerance, calculated credits: ${actualCredits}`,
-        );
+        // Outside tolerance — derive credits from the agent's actual configured
+        // packages, not a hardcoded global ratio. Otherwise developers who
+        // configured (e.g.) $0.50 = 10 credits would see users credited at the
+        // legacy $3 = 10 ratio whenever ETH price moved >10% between intent and
+        // verification — silent under-crediting on volatile days.
+        const packages = await prisma.topUpPackage.findMany({
+          where: {
+            agentId: transaction.agentId,
+            isActive: true,
+          },
+          orderBy: { price: 'asc' },
+        });
+
+        if (packages.length === 0) {
+          // No packages configured — last-resort default matches the
+          // getTopUpDetails fallback so behavior stays consistent across both
+          // entry points: $3 = 10 credits, ratio 10/3.
+          actualCredits = Math.floor((actualUsd / 3) * 10);
+          console.log(
+            `[TopUpService] USD outside tolerance, no packages configured, using default ratio: ${actualCredits}`,
+          );
+        } else {
+          // Find the package whose price is closest to actualUsd, then use its
+          // credits/USD ratio. This means devs who priced $0.5 = 10 credits get
+          // their users credited at 20 credits/USD even when verification falls
+          // back, instead of the legacy 10/3 default.
+          const closest = packages.reduce((best, pkg) =>
+            Math.abs(pkg.price - actualUsd) < Math.abs(best.price - actualUsd) ? pkg : best,
+          );
+          // If actualUsd is essentially the package price (within 1 cent),
+          // grant exactly that package's credits — don't lose precision to
+          // float math. Otherwise scale by the ratio.
+          if (Math.abs(closest.price - actualUsd) < 0.01) {
+            actualCredits = closest.credits;
+          } else {
+            actualCredits = Math.floor(
+              (actualUsd / closest.price) * closest.credits,
+            );
+          }
+          console.log(
+            `[TopUpService] USD outside tolerance, using package ${closest.id} (${closest.credits} credits @ $${closest.price}) ratio: ${actualCredits} credits for $${actualUsd.toFixed(2)}`,
+          );
+        }
       }
 
       // Ensure at least 1 credit

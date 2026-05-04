@@ -167,9 +167,15 @@ export default function WithdrawModal({
         }
 
         try {
-            const feeBasis = selectedAsset === "ETH"
-                ? withdrawAmount * (availableBalance / availableBalanceEth)
-                : withdrawAmount;
+            // For ETH, derive USD via the (totalBalanceUsd / totalEth) ratio reported
+            // by the earnings endpoint. Guard against the divide-by-zero that occurs
+            // when an agent has only token balances (availableBalanceEth = 0) — in
+            // that case the ETH path isn't selectable, but defensive code prevents
+            // a NaN from leaking into the request body if it somehow is.
+            const ethToUsdRatio =
+                availableBalanceEth > 0 ? availableBalance / availableBalanceEth : 0;
+            const feeBasis =
+                selectedAsset === "ETH" ? withdrawAmount * ethToUsdRatio : withdrawAmount;
             const fees = await calculateFees(feeBasis);
             setFeeCalculation({
                 ...fees,
@@ -195,7 +201,19 @@ export default function WithdrawModal({
     };
 
     const handleMaxAmount = () => {
-        const decimals = selectedAsset === "ETH" ? 8 : 6;
+        // Use a precision derived from the actual asset rather than a hardcoded
+        // 6-decimal cap. ETH stays at 8 (display-friendly while preserving wei
+        // amounts that matter); tokens get 6 if their on-chain decimals are
+        // already <=6 (USDC), otherwise 8 — enough for any sensible UI without
+        // truncating significant balance for 18-decimal tokens like MINIDEV.
+        const tokenInfo =
+            selectedAsset !== "ETH"
+                ? tokenBalances.find((t) => t.symbol === selectedAsset)
+                : null;
+        const tokenDecimalsHint = tokenInfo
+            ? Math.min(8, parseFloat(tokenInfo.balance) < 1 ? 8 : 6)
+            : 8;
+        const decimals = selectedAsset === "ETH" ? 8 : tokenDecimalsHint;
         const multiplier = Math.pow(10, decimals);
         const flooredAmount = Math.floor(currentBalance.balance * multiplier) / multiplier;
         setAmount(flooredAmount.toString());
@@ -224,7 +242,9 @@ export default function WithdrawModal({
                     amountWei = undefined;
                 }
                 const ethAmount = parseFloat(withdrawData.amount);
-                const usdAmount = ethAmount * (availableBalance / availableBalanceEth);
+                const ethToUsdRatio =
+                    availableBalanceEth > 0 ? availableBalance / availableBalanceEth : 0;
+                const usdAmount = ethAmount * ethToUsdRatio;
                 result = await executeWithdrawal({
                     agentId: withdrawData.agentId,
                     amount: usdAmount.toString(),
