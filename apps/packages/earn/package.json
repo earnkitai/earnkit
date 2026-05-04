@@ -1,10 +1,50 @@
 {
-  "name": "@earnkit/earn",
+  "name": "earnkit-sdk",
   "version": "1.1.0",
+  "description": "EarnKit SDK — track, capture, release credits and run on-chain top-ups for AI agent monetization.",
   "main": "dist/index.js",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean"
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "prepublishOnly": "npm run build",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "keywords": [
+    "earnkit",
+    "monetization",
+    "ai",
+    "agents",
+    "web3",
+    "base",
+    "splits"
+  ],
+  "author": "EarnKit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<your-org>/earnkit.git",
+    "directory": "apps/packages/earn"
+  },
+  "homepage": "https://earnkit.com",
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "tsup": "^8.0.2",
