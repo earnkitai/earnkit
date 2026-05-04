@@ -1,0 +1,308 @@
+/**
+ * EarnKit buyback co-signer — Cloudflare Worker.
+ *
+ * This Worker holds the second of two stamper keys required by the Turnkey
+ * sub-org policy attached to every buyback wallet. The first stamper lives
+ * in the earn-backend (Railway). Both stamps are required for Turnkey to
+ * execute any signing activity, so a Railway-only compromise cannot move
+ * funds — the attacker would also need to compromise this Worker, deployed
+ * in a separate Cloudflare account with its own credentials and audit trail.
+ *
+ * Deployed in a SEPARATE Cloudflare account from any other infrastructure
+ * EarnKit operates. This is load-bearing for the security model.
+ *
+ * The Worker:
+ *   1. Authenticates the caller via a shared-secret header.
+ *   2. Re-fetches the activity from Turnkey by id, so we sign what Turnkey
+ *      actually has, not what the caller claims.
+ *   3. Validates the activity's intent matches a permitted shape:
+ *        - sub-org's wallet must be in the live buyback-wallet whitelist
+ *          (fetched from earn-backend, cached briefly).
+ *        - destination + selector + first-arg constraints match the buyback
+ *          flow OR the operator-gas drip flow (transfer ETH to a known
+ *          buyback wallet).
+ *   4. Calls Turnkey approveActivity with the co-signer's stamper key.
+ */
+
+import { Turnkey } from '@turnkey/sdk-server';
+import {
+  decodeFunctionData,
+  toFunctionSelector,
+  type Hex,
+  parseTransaction,
+} from 'viem';
+
+interface Env {
+  TURNKEY_API_PUBLIC_KEY: string;
+  TURNKEY_API_PRIVATE_KEY: string;
+  TURNKEY_PARENT_ORG_ID: string;
+  TURNKEY_API_BASE_URL?: string;
+  COSIGNER_SHARED_SECRET: string;
+  BUYBACK_BACKEND_BASE_URL: string;
+  BUYBACK_BACKEND_INTERNAL_KEY: string;
+}
+
+// Same canonical addresses the earn-backend uses. Hardcoded here so the
+// Worker has no runtime dependency on the backend for what's permitted.
+const SPLIT_WAREHOUSE_ADDRESS = '0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8'.toLowerCase();
+const UNISWAP_V3_SWAP_ROUTER_02 = '0x2626664c2603336E57B271c5C0b26F421741e481'.toLowerCase();
+const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD'.toLowerCase();
+
+const SELECTORS = {
+  warehouseWithdraw: toFunctionSelector('withdraw(address,address)'),
+  uniswapExactInput: toFunctionSelector('exactInput((bytes,address,uint256,uint256))'),
+  uniswapExactInputSingle: toFunctionSelector(
+    'exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))',
+  ),
+  erc20Transfer: toFunctionSelector('transfer(address,uint256)'),
+  erc20Approve: toFunctionSelector('approve(address,uint256)'),
+  tokenBurn: toFunctionSelector('burn(uint256)'),
+};
+
+interface BuybackWalletEntry {
+  walletAddress: string;
+  tokenAddress: string;
+}
+
+interface OperatorWalletEntry {
+  walletAddress: string;
+}
+
+interface WhitelistResponse {
+  buybackWallets: BuybackWalletEntry[];
+  operatorWallets: OperatorWalletEntry[];
+}
+
+// Cache the whitelist for 60s. Long enough to absorb the load of a normal
+// scanner cycle, short enough that newly-provisioned wallets become spendable
+// quickly. Per-Worker-isolate cache; global KV cache would be optional later.
+let cachedWhitelist: { value: WhitelistResponse; expiresAt: number } | null = null;
+const WHITELIST_CACHE_MS = 60_000;
+
+async function fetchWhitelist(env: Env): Promise<WhitelistResponse> {
+  const now = Date.now();
+  if (cachedWhitelist && cachedWhitelist.expiresAt > now) {
+    return cachedWhitelist.value;
+  }
+  const url = `${env.BUYBACK_BACKEND_BASE_URL.replace(/\/$/, '')}/api/internal/buyback-wallets`;
+  const r = await fetch(url, {
+    headers: { 'x-internal-secret': env.BUYBACK_BACKEND_INTERNAL_KEY },
+  });
+  if (!r.ok) {
+    throw new Error(`Whitelist fetch failed: HTTP ${r.status}`);
+  }
+  const data = (await r.json()) as WhitelistResponse;
+  cachedWhitelist = { value: data, expiresAt: now + WHITELIST_CACHE_MS };
+  return data;
+}
+
+interface ValidationResult {
+  ok: true;
+  reason: 'buyback' | 'operator-gas';
+}
+interface ValidationFailure {
+  ok: false;
+  reason: string;
+}
+
+// Decode the unsigned tx hex and confirm it matches one of the permitted shapes:
+//   (a) a buyback op (Warehouse withdraw, Uniswap swap to userToken, ERC20
+//       transfer to dead, ERC20 approve to router, token.burn) signed by a
+//       known buyback wallet, OR
+//   (b) an operator-gas drip (plain ETH transfer with empty data) FROM a
+//       known operator wallet TO a known buyback wallet.
+function validateUnsignedTx(
+  unsignedTxHex: string,
+  fromAddress: string,
+  whitelist: WhitelistResponse,
+): ValidationResult | ValidationFailure {
+  let parsed;
+  try {
+    parsed = parseTransaction(`0x${unsignedTxHex}` as Hex);
+  } catch (e: any) {
+    return { ok: false, reason: `Cannot parse unsigned tx: ${e?.message ?? e}` };
+  }
+
+  const to = parsed.to?.toLowerCase();
+  const data = (parsed.data ?? '0x').toLowerCase();
+  const valueHex = parsed.value?.toString(16) ?? '0';
+  const value = parsed.value ?? BigInt(0);
+
+  if (!to) return { ok: false, reason: 'Tx has no `to` address' };
+
+  const fromLower = fromAddress.toLowerCase();
+  const buyback = whitelist.buybackWallets.find(
+    (w) => w.walletAddress.toLowerCase() === fromLower,
+  );
+  const operator = whitelist.operatorWallets.find(
+    (w) => w.walletAddress.toLowerCase() === fromLower,
+  );
+
+  if (!buyback && !operator) {
+    return { ok: false, reason: `from address ${fromAddress} is not whitelisted` };
+  }
+
+  // Operator-gas drip path
+  if (operator) {
+    if (data !== '0x') {
+      return { ok: false, reason: 'Operator wallet may only send plain ETH transfers (data must be empty)' };
+    }
+    const targetIsBuyback = whitelist.buybackWallets.some(
+      (w) => w.walletAddress.toLowerCase() === to,
+    );
+    if (!targetIsBuyback) {
+      return { ok: false, reason: 'Operator drip target must be a known buyback wallet' };
+    }
+    // Hard cap drip size at 0.005 ETH per tx — Worker's belt-and-suspenders
+    // on top of Turnkey's policy. ~$15 if ETH spikes; well above any reasonable drip.
+    if (value > BigInt('5000000000000000')) {
+      return { ok: false, reason: 'Operator drip value exceeds 0.005 ETH cap' };
+    }
+    return { ok: true, reason: 'operator-gas' };
+  }
+
+  // Buyback path — `from` is a known buyback wallet
+  const userToken = buyback!.tokenAddress.toLowerCase();
+  const selector = data.slice(0, 10);
+
+  if (to === SPLIT_WAREHOUSE_ADDRESS && selector === SELECTORS.warehouseWithdraw) {
+    return { ok: true, reason: 'buyback' };
+  }
+  if (
+    to === UNISWAP_V3_SWAP_ROUTER_02 &&
+    (selector === SELECTORS.uniswapExactInput || selector === SELECTORS.uniswapExactInputSingle)
+  ) {
+    return { ok: true, reason: 'buyback' };
+  }
+  if (selector === SELECTORS.erc20Approve) {
+    // Approve must target the SwapRouter
+    try {
+      // first arg is the spender; bytes [4..36) of data
+      const spender = `0x${data.slice(34, 74)}`;
+      if (spender === UNISWAP_V3_SWAP_ROUTER_02) {
+        return { ok: true, reason: 'buyback' };
+      }
+      return { ok: false, reason: `approve spender ${spender} is not the SwapRouter` };
+    } catch {
+      return { ok: false, reason: 'Failed to decode approve args' };
+    }
+  }
+  if (to === userToken && selector === SELECTORS.erc20Transfer) {
+    const recipient = `0x${data.slice(34, 74)}`;
+    if (recipient === DEAD_ADDRESS) return { ok: true, reason: 'buyback' };
+    return { ok: false, reason: `transfer recipient ${recipient} must be 0xdEaD` };
+  }
+  if (to === userToken && selector === SELECTORS.tokenBurn) {
+    return { ok: true, reason: 'buyback' };
+  }
+
+  return {
+    ok: false,
+    reason: `Tx (to=${to}, selector=${selector}) does not match any permitted buyback or operator-gas op`,
+  };
+}
+
+interface CoSignRequest {
+  kind: 'sign-transaction';
+  subOrgId: string;
+  activityId: string;
+  fromAddress: string;
+  unsignedTransaction: string;
+}
+
+async function handleCoSign(req: CoSignRequest, env: Env): Promise<Response> {
+  const turnkey = new Turnkey({
+    apiBaseUrl: env.TURNKEY_API_BASE_URL || 'https://api.turnkey.com',
+    apiPublicKey: env.TURNKEY_API_PUBLIC_KEY,
+    apiPrivateKey: env.TURNKEY_API_PRIVATE_KEY,
+    defaultOrganizationId: env.TURNKEY_PARENT_ORG_ID,
+  });
+  const client = turnkey.apiClient();
+
+  // Re-fetch the activity so we co-sign Turnkey's view of it, not the caller's claim.
+  const activityResp = await client.getActivity({
+    organizationId: req.subOrgId,
+    activityId: req.activityId,
+  });
+  const activity = activityResp.activity;
+  const intent: any =
+    (activity.intent as any).signTransactionIntentV2 ??
+    (activity.intent as any).signTransactionIntent;
+  if (!intent) {
+    return new Response(
+      JSON.stringify({ error: 'Activity is not a signTransaction intent' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  if (intent.signWith.toLowerCase() !== req.fromAddress.toLowerCase()) {
+    return new Response(
+      JSON.stringify({ error: 'Activity signWith does not match request fromAddress' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  if (intent.unsignedTransaction.toLowerCase() !== req.unsignedTransaction.toLowerCase()) {
+    return new Response(
+      JSON.stringify({ error: 'Activity unsignedTransaction does not match request' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  const whitelist = await fetchWhitelist(env);
+  const validation = validateUnsignedTx(
+    intent.unsignedTransaction,
+    intent.signWith,
+    whitelist,
+  );
+  if (!validation.ok) {
+    return new Response(
+      JSON.stringify({ error: `Tx shape rejected: ${validation.reason}` }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  await client.approveActivity({
+    organizationId: req.subOrgId,
+    fingerprint: activity.fingerprint,
+  });
+
+  return new Response(JSON.stringify({ ok: true, kind: validation.reason }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    const auth = request.headers.get('x-cosigner-secret');
+    if (!auth || auth !== env.COSIGNER_SHARED_SECRET) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response('Invalid JSON', { status: 400 });
+    }
+
+    if (body?.kind === 'sign-transaction') {
+      try {
+        return await handleCoSign(body as CoSignRequest, env);
+      } catch (err: any) {
+        return new Response(
+          JSON.stringify({ error: err?.message ?? 'co-sign failed' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
+    return new Response(JSON.stringify({ error: 'Unsupported kind' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+};

@@ -9,6 +9,7 @@ import paymentIntentRoutes from './paymentIntents';
 import webhookRoutes from './webhooks';
 import debugRoutes from './debug';
 import deploySplitRoutes from './internal/deploySplit';
+import buybackWalletsRoutes from './internal/buybackWallets';
 import buybackRoutes from './buyback';
 
 const router: Router = Router();
@@ -47,5 +48,6 @@ const internalAuth = (req: Request, res: Response, next: NextFunction): void => 
 };
 
 router.use('/internal/deploy-split', internalAuth, deploySplitRoutes);
+router.use('/internal/buyback-wallets', internalAuth, buybackWalletsRoutes);
 
 export default router;

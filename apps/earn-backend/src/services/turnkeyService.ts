@@ -248,9 +248,18 @@ export async function signTransaction(
   }
 
   if (coSignerUrl !== 'stub') {
+    const sharedSecret = process.env.BUYBACK_COSIGNER_SHARED_SECRET;
+    if (!sharedSecret) {
+      throw new Error(
+        'BUYBACK_COSIGNER_SHARED_SECRET is not set — Worker would reject our request',
+      );
+    }
     const coResp = await fetch(coSignerUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-cosigner-secret': sharedSecret,
+      },
       body: JSON.stringify({
         kind: 'sign-transaction',
         subOrgId,

@@ -26,6 +26,7 @@ import { DEAD_ADDRESS } from '../lib/tokenSafety';
 import { signTransaction } from '../services/turnkeyService';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
 import { priceService } from '../services/priceService';
+import { ensureGasFunded } from '../lib/operatorGas';
 
 const POLL_INTERVAL_MS = 30_000;
 const MAX_ATTEMPTS = 5;
@@ -384,6 +385,20 @@ async function processOne(): Promise<void> {
     const isFinal = attempt >= MAX_ATTEMPTS;
 
     try {
+      // Top up gas from the platform's operator wallet before any signing.
+      // The buyback wallet pays its own gas for the actual ops; the drip just
+      // ensures it has enough ETH on hand to do so. Drips come from a Turnkey
+      // wallet with a "ETH transfers only, to known buyback wallets" policy,
+      // so a Railway compromise still cannot reroute the gas budget.
+      try {
+        await ensureGasFunded(ctx.walletAddress);
+      } catch (err: any) {
+        // Operator-gas failures should fail the execution attempt, not silently
+        // proceed and hit "insufficient funds" deeper in the flow with a
+        // confusing error.
+        throw new Error(`gas_drip_failed: ${err?.message ?? err}`);
+      }
+
       const withdrawHashes = await withdrawAllFromWarehouse(ctx);
       await prisma.buybackExecution.update({
         where: { id: exec.id },
