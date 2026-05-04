@@ -28,43 +28,65 @@ function getApiClient() {
   return cachedClient;
 }
 
+function getStamperUserIds(): { parentAdminUserId: string; coSignerUserId: string } {
+  const parentAdminUserId = process.env.TURNKEY_PARENT_ADMIN_USER_ID;
+  const coSignerUserId = process.env.TURNKEY_COSIGNER_USER_ID;
+  if (!parentAdminUserId || !coSignerUserId) {
+    throw new Error(
+      'Two-stamper signing requires TURNKEY_PARENT_ADMIN_USER_ID and TURNKEY_COSIGNER_USER_ID',
+    );
+  }
+  return { parentAdminUserId, coSignerUserId };
+}
+
+function getCoSignerEndpoint(override?: string | null): string {
+  const url = override ?? process.env.BUYBACK_COSIGNER_URL;
+  if (!url) {
+    throw new Error(
+      'Co-signer endpoint is not configured: set BUYBACK_COSIGNER_URL (or "stub" for non-prod local dev)',
+    );
+  }
+  if (url === 'stub' && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Refusing to use stub co-signer in production. Deploy the off-host co-signer worker and set BUYBACK_COSIGNER_URL to its URL.',
+    );
+  }
+  return url;
+}
+
 export interface CreateBuybackSubOrgParams {
   agentId: string;
   // The end user's email — set as the root authenticator on the new sub-org so
   // they can claim/sweep via Turnkey's email auth flow at any time. Required.
   userEmail: string;
-  // Public key (compressed/uncompressed hex, no 0x prefix) for our delegated API key.
-  // Generated server-side by the caller; we keep the matching private key in our secrets.
-  delegatedApiPublicKey: string;
-  policyParams: BuybackPolicyParams;
+  policyParams: Omit<BuybackPolicyParams, 'parentAdminUserId' | 'coSignerUserId'>;
 }
 
 export interface BuybackSubOrgResult {
   subOrgId: string;
   walletId: string;
   walletAddress: `0x${string}`;
-  delegatedUserId: string;
-  delegatedApiKeyId: string;
   policyId: string;
 }
 
 /**
  * Provisions a Turnkey sub-organization for a single agent's buyback wallet.
  *
- * Architecture:
- *   - Root user = end user's email (so they can claim self-custody via Turnkey at any time).
- *   - Delegated user = us, with one API key whose policy is restricted to the buyback flow.
- *   - One ETH wallet inside the sub-org. Its address is set as the agent's buybackAddress
- *     so split distributions credit it.
- *
- * Even if our backend is fully compromised, the delegated key cannot drain the wallet —
- * Turnkey enforces the policy at signing time.
+ * Architecture (post-Piece-1):
+ *   - Sub-org has exactly one user: the customer (their email = root authenticator).
+ *   - Signing is performed by parent-org users (parent-admin + co-signer) acting
+ *     into the sub-org. Both stampers must approve every activity per the
+ *     attached policy. There is no per-sub-org delegated key, no on-disk secret,
+ *     and no DB-stored key material.
+ *   - Customer can revoke our consensus at any time via Turnkey email auth by
+ *     editing or removing the policy in their sub-org.
  */
 export async function createBuybackSubOrg(
   params: CreateBuybackSubOrgParams,
 ): Promise<BuybackSubOrgResult> {
   const client = getApiClient();
-  const { agentId, userEmail, delegatedApiPublicKey, policyParams } = params;
+  const { parentAdminUserId, coSignerUserId } = getStamperUserIds();
+  const { agentId, userEmail, policyParams } = params;
 
   const subOrgName = `buyback-${agentId.slice(0, 8)}-${Date.now().toString(36)}`;
 
@@ -77,18 +99,6 @@ export async function createBuybackSubOrg(
         authenticators: [],
         apiKeys: [],
         oauthProviders: [],
-      },
-      {
-        userName: 'earnkit-buyback-bot',
-        authenticators: [],
-        oauthProviders: [],
-        apiKeys: [
-          {
-            apiKeyName: 'buyback-delegated-key',
-            publicKey: delegatedApiPublicKey,
-            curveType: 'API_KEY_CURVE_P256',
-          },
-        ],
       },
     ],
     rootQuorumThreshold: 1,
@@ -114,25 +124,15 @@ export async function createBuybackSubOrg(
   }
   const walletAddress = wallet.addresses[0] as `0x${string}`;
 
-  // Look up the user IDs of the just-created users so we can attach the policy to the bot.
-  const usersResp = await client.getUsers({ organizationId: subOrgId });
-  const botUser = usersResp.users.find((u) => u.userName === 'earnkit-buyback-bot');
-  if (!botUser) {
-    throw new Error(
-      `Created sub-org ${subOrgId} but couldn't find the delegated bot user`,
-    );
-  }
-  const delegatedUserId = botUser.userId;
-  const delegatedApiKeyId = botUser.apiKeys?.[0]?.apiKeyId;
-  if (!delegatedApiKeyId) {
-    throw new Error(
-      `Delegated user ${delegatedUserId} has no API key — sub-org provisioning incomplete`,
-    );
-  }
-
-  // Attach the buyback policy. Turnkey policies are scoped per-sub-org, so this
-  // policy only applies inside this agent's sub-org.
-  const policy = buildBuybackPolicy(policyParams);
+  // Attach the buyback policy. Consensus requires BOTH the parent-admin and
+  // the co-signer to approve every activity. Cross-org user IDs work because
+  // Turnkey treats user IDs as global identifiers — the sub-org policy just
+  // references the parent-org users that will be acting into this sub-org.
+  const policy = buildBuybackPolicy({
+    ...policyParams,
+    parentAdminUserId,
+    coSignerUserId,
+  });
   const policyResp = await client.createPolicy({
     organizationId: subOrgId,
     policyName: policy.policyName,
@@ -150,8 +150,6 @@ export async function createBuybackSubOrg(
     subOrgId,
     walletId: wallet.walletId,
     walletAddress,
-    delegatedUserId,
-    delegatedApiKeyId,
     policyId,
   };
 }
@@ -160,15 +158,63 @@ export interface SignTransactionParams {
   subOrgId: string;
   fromAddress: `0x${string}`;
   unsignedTx: TransactionSerializableEIP1559;
+  // Per-config override for the co-signer endpoint. Falls back to env.
+  coSignerEndpoint?: string | null;
+}
+
+const ACTIVITY_POLL_INTERVAL_MS = 1_000;
+const ACTIVITY_POLL_TIMEOUT_MS = 60_000;
+
+async function pollActivityUntilCompleted(
+  organizationId: string,
+  activityId: string,
+): Promise<{ signedTransaction: string }> {
+  const client = getApiClient();
+  const start = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const resp = await client.getActivity({ organizationId, activityId });
+    const status = resp.activity.status;
+    if (status === 'ACTIVITY_STATUS_COMPLETED') {
+      const signed = resp.activity.result?.signTransactionResult?.signedTransaction;
+      if (!signed) {
+        throw new Error(
+          `Activity ${activityId} completed but had no signTransactionResult`,
+        );
+      }
+      return { signedTransaction: signed };
+    }
+    if (status === 'ACTIVITY_STATUS_FAILED' || status === 'ACTIVITY_STATUS_REJECTED') {
+      const reason = resp.activity.failure?.message ?? status;
+      throw new Error(`Activity ${activityId} ended in ${status}: ${reason}`);
+    }
+    if (Date.now() - start > ACTIVITY_POLL_TIMEOUT_MS) {
+      throw new Error(`Activity ${activityId} did not complete within ${ACTIVITY_POLL_TIMEOUT_MS}ms`);
+    }
+    await new Promise((r) => setTimeout(r, ACTIVITY_POLL_INTERVAL_MS));
+  }
 }
 
 /**
- * Sign an EIP-1559 transaction via Turnkey using our delegated API key.
- * Turnkey enforces the sub-org's policy at signing time — txs that don't match
- * the buyback policy will be rejected here, not by the chain.
+ * Two-stamper signing flow.
  *
- * Returns the RLP-encoded signed transaction hex, ready to broadcast via
- * publicClient.sendRawTransaction.
+ * 1. Railway (parent-admin stamper) submits the signTransaction activity to
+ *    Turnkey. Because the sub-org policy requires consensus from a second
+ *    stamper, Turnkey records the activity in CONSENSUS_NEEDED state without
+ *    executing the signature.
+ * 2. Railway forwards the activityId to the off-host co-signer endpoint
+ *    (Cloudflare Worker / Lambda — separate cloud account from Railway).
+ * 3. The co-signer validates the activity matches the buyback shape, then
+ *    calls Turnkey approveActivity with its own stamper key.
+ * 4. Turnkey now has both stamps; the activity transitions to COMPLETED and
+ *    the signed tx is produced.
+ * 5. Railway polls until COMPLETED and returns the signed tx hex.
+ *
+ * For local dev where the co-signer worker isn't deployed, set
+ * `BUYBACK_COSIGNER_URL=stub`. In that mode, signing falls back to a single
+ * parent-admin stamp — Turnkey will accept it iff the sub-org's policy is
+ * temporarily relaxed to single-stamper. **Never use stub in production**;
+ * the env check throws otherwise.
  */
 export async function signTransaction(
   params: SignTransactionParams,
@@ -176,40 +222,52 @@ export async function signTransaction(
   const client = getApiClient();
   const { subOrgId, fromAddress, unsignedTx } = params;
 
-  // Turnkey's signTransaction expects the unsigned RLP-encoded tx as hex (no 0x).
   const unsignedSerialized = serializeTransaction(unsignedTx);
   const unsignedHex = unsignedSerialized.slice(2); // strip 0x
 
-  const resp = await client.signTransaction({
+  // Step 1: Railway (parent-admin) stamps and submits.
+  const submitResp = await client.signTransaction({
     organizationId: subOrgId,
     type: 'TRANSACTION_TYPE_ETHEREUM',
     signWith: fromAddress,
     unsignedTransaction: unsignedHex,
   });
 
-  if (!resp.signedTransaction) {
+  // If consensus already satisfied (stub mode with single-stamper policy), we're done.
+  if (submitResp.signedTransaction) {
+    return `0x${submitResp.signedTransaction}` as `0x${string}`;
+  }
+
+  // Step 2: forward to co-signer.
+  const coSignerUrl = getCoSignerEndpoint(params.coSignerEndpoint);
+  const activityId = (submitResp as any).activity?.id;
+  if (!activityId) {
     throw new Error(
-      `Turnkey signTransaction returned no signedTransaction for ${fromAddress}`,
+      'Turnkey signTransaction returned no signedTransaction and no activity id — cannot route to co-signer',
     );
   }
 
-  return `0x${resp.signedTransaction}` as `0x${string}`;
-}
+  if (coSignerUrl !== 'stub') {
+    const coResp = await fetch(coSignerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'sign-transaction',
+        subOrgId,
+        activityId,
+        fromAddress,
+        unsignedTransaction: unsignedHex,
+      }),
+    });
+    if (!coResp.ok) {
+      const text = await coResp.text();
+      throw new Error(
+        `Co-signer rejected request (HTTP ${coResp.status}): ${text.slice(0, 500)}`,
+      );
+    }
+  }
 
-/**
- * Emergency: revoke our delegated API key on a sub-org. The user retains full
- * control via their root credential and can re-attach a fresh delegated key
- * later if they want to keep using auto-buyback.
- */
-export async function revokeDelegatedKey(params: {
-  subOrgId: string;
-  delegatedUserId: string;
-  delegatedApiKeyId: string;
-}): Promise<void> {
-  const client = getApiClient();
-  await client.deleteApiKeys({
-    organizationId: params.subOrgId,
-    userId: params.delegatedUserId,
-    apiKeyIds: [params.delegatedApiKeyId],
-  });
+  // Step 3: poll until Turnkey reports COMPLETED.
+  const final = await pollActivityUntilCompleted(subOrgId, activityId);
+  return `0x${final.signedTransaction}` as `0x${string}`;
 }

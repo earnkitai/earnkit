@@ -331,8 +331,8 @@ model BuybackConfig {
   turnkeySubOrgId   String             @unique @map("turnkey_sub_org_id")
   turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
   walletAddress     String             @unique @map("wallet_address")
-  delegatedApiKeyId String             @unique @map("delegated_api_key_id")
   policyId          String             @map("policy_id")
+  coSignerEndpoint  String?            @map("co_signer_endpoint")
 
   isActive          Boolean            @default(true) @map("is_active")
   lastCheckedAt     DateTime?          @map("last_checked_at")

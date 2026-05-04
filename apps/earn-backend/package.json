@@ -27,7 +27,6 @@
   "license": "ISC",
   "dependencies": {
     "@0xsplits/splits-sdk": "^6.0.0",
-    "@noble/curves": "^2.2.0",
     "@prisma/client": "^5.7.0",
     "@privy-io/server-auth": "^1.21.0",
     "@turnkey/sdk-server": "^2.6.1",
