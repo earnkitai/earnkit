@@ -1,6 +1,6 @@
 {
   "name": "earnkit-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "EarnKit SDK — track, capture, release credits and run on-chain top-ups for AI agent monetization.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
