@@ -1,17 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { isAddress, getAddress } from 'viem';
 import { prisma } from '../lib/prisma';
-import {
-  assertHasCode,
-  canReceiveDead,
-  detectBurnFunction,
-  getTokenMeta,
-  TokenSafetyError,
-  assertNotHoneypot,
-} from '../lib/tokenSafety';
-import { SUPPORTED_TOKENS } from '../services/tokenService';
-import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
-import { createBuybackSubOrg } from '../services/turnkeyService';
 import { snapshotBuybackBalance } from '../lib/buybackBalance';
 
 const router: Router = Router({ mergeParams: true });
@@ -130,30 +118,31 @@ router.get('/status', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/agents/:agentId/buyback — create or update config
+// POST /api/agents/:agentId/buyback — UPDATE existing config only.
 //
-// Body: { tokenAddress, thresholdUsd?, slippageBps?, burnMode? }
-// On first enable: provisions a Turnkey sub-org owned by the customer's email
-// (customer is root authenticator), runs token safety pre-checks, attaches a
-// two-stamper policy that requires both the platform's parent-admin AND the
-// off-host co-signer to sign every buyback tx, and persists the config. No
-// per-config secret material is created or stored.
+// First-time enable used to live here, but the on-chain Splits contract bakes
+// the buyback recipient at deploy time and is immutable. So enabling Auto
+// Buyback after agent creation silently misrouted funds to a different address
+// than the Turnkey wallet. The only correct ordering is:
+//   1. Provision Turnkey wallet (during agent creation)
+//   2. Deploy Splits with that Turnkey address as the buyback recipient
+// That happens in the dashboard's POST /api/agents flow now. This endpoint is
+// only for editing thresholdUsd / slippageBps / burnMode of an existing config.
+//
+// Body: { thresholdUsd?, slippageBps?, burnMode? }
 router.post('/', async (req: Request, res: Response) => {
   try {
     const agent = await findAgent(req.params.agentId);
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const {
-      tokenAddress: rawToken,
-      thresholdUsd,
-      slippageBps,
-      burnMode: requestedBurnMode,
-    } = req.body ?? {};
-
-    if (!rawToken || typeof rawToken !== 'string' || !isAddress(rawToken)) {
-      return res.status(400).json({ error: 'tokenAddress must be a valid 0x address' });
+    if (!agent.buybackConfig) {
+      return res.status(400).json({
+        error:
+          'Auto Buyback can only be configured during agent creation. Create a new agent and select Auto Buyback at that step.',
+      });
     }
-    const tokenAddress = getAddress(rawToken) as `0x${string}`;
+
+    const { thresholdUsd, slippageBps, burnMode: requestedBurnMode } = req.body ?? {};
 
     const minThreshold = getMinThresholdUsd();
     if (
@@ -173,128 +162,22 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'slippageBps must be between 100 and 2000' });
     }
 
-    if (agent.buybackConfig) {
-      // Only allow updating mutable fields. Token + wallet are locked once provisioned —
-      // changing them would need a fresh sub-org (or a confirmed sweep of stranded funds).
-      if (
-        tokenAddress.toLowerCase() !==
-        agent.buybackConfig.tokenAddress.toLowerCase()
-      ) {
-        return res.status(409).json({
-          error:
-            'tokenAddress is locked once provisioned. Disable buyback (DELETE) and re-create with the new token after sweeping any stranded funds.',
-        });
-      }
-      const updated = await prisma.buybackConfig.update({
-        where: { id: agent.buybackConfig.id },
-        data: {
-          ...(thresholdUsd !== undefined && { thresholdUsd }),
-          ...(slippageBps !== undefined && { slippageBps }),
-          ...(requestedBurnMode === 'TOKEN_BURN_FN' || requestedBurnMode === 'DEAD_ADDRESS'
-            ? { burnMode: requestedBurnMode }
-            : {}),
-          isActive: true,
-        },
-      });
-      return res.json({ buybackConfig: updated });
-    }
-
-    // First-time enable: run pre-checks and provision wallet.
-    const userEmail = agent.user.email;
-    if (!userEmail) {
-      return res.status(400).json({
-        error:
-          'Agent owner must have a verified email before enabling buyback (root authenticator on Turnkey sub-org).',
-      });
-    }
-
-    try {
-      await assertHasCode(tokenAddress);
-      const meta = await getTokenMeta(tokenAddress);
-      await assertNotHoneypot(tokenAddress);
-      const canDead = await canReceiveDead(tokenAddress);
-      let burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
-      if (canDead) {
-        burnMode =
-          requestedBurnMode === 'TOKEN_BURN_FN' ? 'TOKEN_BURN_FN' : 'DEAD_ADDRESS';
-      } else {
-        // Forced fallback: token blocks transfers to 0xdEaD, must use burn().
-        const hasBurn = await detectBurnFunction(tokenAddress);
-        if (!hasBurn) {
-          throw new TokenSafetyError(
-            'no_burn_function',
-            `Token ${tokenAddress} blocks transfers to the dead address and exposes no burn() function — cannot be auto-burned`,
-          );
-        }
-        burnMode = 'TOKEN_BURN_FN';
-      }
-
-      // Provision Turnkey sub-org. No per-config keypair — all signing uses
-      // parent-org users (parent-admin + off-host co-signer) acting into the
-      // sub-org via the attached two-stamper policy.
-      const allowedSwapInputTokens = [
-        SPLIT_NATIVE_TOKEN_ADDRESS,
-        ...SUPPORTED_TOKENS.map((t) => t.address as `0x${string}`),
-      ];
-
-      const subOrg = await createBuybackSubOrg({
-        agentId: agent.id,
-        userEmail,
-        policyParams: {
-          userTokenAddress: tokenAddress,
-          allowedSwapInputTokens,
-        },
-      });
-
-      const config = await prisma.buybackConfig.create({
-        data: {
-          agentId: agent.id,
-          tokenAddress,
-          tokenSymbol: meta.symbol,
-          tokenDecimals: meta.decimals,
-          thresholdUsd: thresholdUsd ?? Math.max(minThreshold, 10),
-          slippageBps: slippageBps ?? 500,
-          burnMode,
-          turnkeySubOrgId: subOrg.subOrgId,
-          turnkeyWalletId: subOrg.walletId,
-          walletAddress: subOrg.walletAddress,
-          policyId: subOrg.policyId,
-          isActive: true,
-        },
-      });
-
-      // Update Agent.buybackAddress so future split deployments route to the new wallet.
-      await prisma.agent.update({
-        where: { id: agent.id },
-        data: { buybackAddress: subOrg.walletAddress },
-      });
-
-      return res.json({
-        buybackConfig: {
-          id: config.id,
-          tokenAddress: config.tokenAddress,
-          tokenSymbol: config.tokenSymbol,
-          tokenDecimals: config.tokenDecimals,
-          thresholdUsd: config.thresholdUsd,
-          slippageBps: config.slippageBps,
-          burnMode: config.burnMode,
-          walletAddress: config.walletAddress,
-          isActive: config.isActive,
-        },
-        notice:
-          burnMode === 'TOKEN_BURN_FN'
-            ? 'Token blocks 0xdEaD transfers — using token.burn() instead.'
-            : undefined,
-      });
-    } catch (err) {
-      if (err instanceof TokenSafetyError) {
-        return res.status(400).json({ error: err.message, reason: err.reason });
-      }
-      throw err;
-    }
-  } catch (err: any) {
+    const updated = await prisma.buybackConfig.update({
+      where: { id: agent.buybackConfig.id },
+      data: {
+        ...(thresholdUsd !== undefined && { thresholdUsd }),
+        ...(slippageBps !== undefined && { slippageBps }),
+        ...(requestedBurnMode === 'TOKEN_BURN_FN' || requestedBurnMode === 'DEAD_ADDRESS'
+          ? { burnMode: requestedBurnMode }
+          : {}),
+        isActive: true,
+      },
+    });
+    return res.json({ buybackConfig: updated });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal error';
     console.error('[buyback] POST error:', err);
-    return res.status(500).json({ error: err?.message ?? 'Internal error' });
+    return res.status(500).json({ error: message });
   }
 });
 

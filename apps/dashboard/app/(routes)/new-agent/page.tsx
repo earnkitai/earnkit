@@ -25,8 +25,13 @@ interface AgentFormData {
         credits: string;
         price: string;
     }>;
+    buybackMode: "none" | "static" | "auto";
     buybackAddress: string;
     buybackPercent: string;
+    // Auto Buyback fields — only used when buybackMode === "auto"
+    buybackTokenAddress: string;
+    buybackThresholdUsd: string;
+    buybackSlippagePercent: string;
 }
 
 export default function NewAgentPage() {
@@ -34,6 +39,7 @@ export default function NewAgentPage() {
     const router = useRouter();
     const [userId, setUserId] = useState<string | null>(null);
     const { wallets } = useWallets();
+    const injectedWallet = wallets.find(w => w.connectorType === "injected");
 
     const [formData, setFormData] = useState<AgentFormData>({
         agentName: "",
@@ -45,8 +51,12 @@ export default function NewAgentPage() {
             { id: "1", credits: "100", price: "25" },
             { id: "2", credits: "200", price: "50" },
         ],
+        buybackMode: "none",
         buybackAddress: "",
         buybackPercent: "",
+        buybackTokenAddress: "",
+        buybackThresholdUsd: "10",
+        buybackSlippagePercent: "5",
     });
 
     // Get the authenticated user ID
@@ -146,11 +156,47 @@ export default function NewAgentPage() {
             }
         }
 
+        // Buyback mode validation
+        if (formData.buybackMode === "static") {
+            if (!formData.buybackAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+                toast.error("Buyback address must be a valid 0x address.");
+                return;
+            }
+            if (!formData.buybackPercent || Number(formData.buybackPercent) <= 0 || Number(formData.buybackPercent) > 95) {
+                toast.error("Buyback percent must be between 1 and 95.");
+                return;
+            }
+        }
+        if (formData.buybackMode === "auto") {
+            if (!formData.buybackTokenAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+                toast.error("Token address must be a valid 0x address on Base.");
+                return;
+            }
+            const t = Number(formData.buybackThresholdUsd);
+            if (!Number.isFinite(t) || t <= 0) {
+                toast.error("Threshold must be a positive USD value.");
+                return;
+            }
+            const s = Number(formData.buybackSlippagePercent);
+            if (!Number.isFinite(s) || s < 1 || s > 20) {
+                toast.error("Slippage must be between 1% and 20%.");
+                return;
+            }
+            if (!formData.buybackPercent || Number(formData.buybackPercent) <= 0 || Number(formData.buybackPercent) > 95) {
+                toast.error("Auto Buyback requires a buyback percent between 1 and 95.");
+                return;
+            }
+        }
+
         const agentId = uuidv4();
-        const injectedWallet = wallets.find(w => w.connectorType === "injected");
         const developerWalletAddress = injectedWallet?.address;
 
-        const loadingToast = toast.loading("Deploying payment split and creating agent...");
+        const isAuto = formData.buybackMode === "auto";
+        const loadingToast = toast.loading(
+            isAuto
+                ? "Provisioning Turnkey buyback wallet, deploying split, and creating agent (10–20s)…"
+                : "Deploying payment split and creating agent…",
+        );
 
         try {
             const response = await fetch('/api/agents', {
@@ -161,8 +207,18 @@ export default function NewAgentPage() {
                     userId,
                     agentId,
                     developerWalletAddress,
-                    buybackAddress: formData.buybackAddress || undefined,
-                    buybackPercent: formData.buybackPercent ? Number(formData.buybackPercent) : undefined,
+                    // Static path (legacy)
+                    buybackAddress: !isAuto && formData.buybackMode === "static"
+                        ? formData.buybackAddress
+                        : undefined,
+                    buybackPercent: formData.buybackMode !== "none" && formData.buybackPercent
+                        ? Number(formData.buybackPercent)
+                        : undefined,
+                    // Auto Buyback path
+                    autoBuyback: isAuto,
+                    buybackTokenAddress: isAuto ? formData.buybackTokenAddress : undefined,
+                    buybackThresholdUsd: isAuto ? Number(formData.buybackThresholdUsd) : undefined,
+                    buybackSlippagePercent: isAuto ? Number(formData.buybackSlippagePercent) : undefined,
                 }),
             });
 
@@ -416,34 +472,49 @@ export default function NewAgentPage() {
                                         </div>
                                     )}
 
-                                    {/* Revenue Split Section */}
+                                    {/* Buyback Section */}
                                     <div className="space-y-3">
                                         <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                            Buyback Address <span className="text-black/40 font-normal">(optional)</span>
+                                            Buyback
                                         </label>
-                                        <Input
-                                            type="text"
-                                            placeholder="0x... — receives your buyback percentage"
-                                            value={formData.buybackAddress}
-                                            onChange={(e) => handleInputChange("buybackAddress", e.target.value)}
-                                            className="w-full p-4 border border-gray-200 rounded-lg"
-                                        />
                                         <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                            Platform fee: 5%. If you set a buyback address, specify what % of payments it receives (max 95%).
+                                            Platform always takes 5%. Choose how the rest of any buyback share is handled. The on-chain split contract is deployed at agent creation — this choice is locked in until you create a new agent.
                                         </p>
-                                        <p className="text-xs text-secondary-purple font-funnel-sans px-4">
-                                            Want auto-swap into your token + burn? Enable Auto Buyback on the agent page after creation — set a token address, threshold (min $5, recommended $10+), and slippage. Funds accumulate in a Turnkey-managed wallet until the threshold is crossed.
-                                        </p>
-                                        {formData.buybackAddress && (
-                                            <div className="space-y-2 mt-2">
-                                                <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                                    Buyback Percent
-                                                </label>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-4">
+                                            {([
+                                                { v: "none", title: "No Buyback", desc: "100% of payments (minus 5% platform) goes to you." },
+                                                { v: "static", title: "Static Address", desc: "Send a % to a wallet you control. You sweep & swap manually." },
+                                                { v: "auto", title: "Auto Buyback & Burn", desc: "Send a % to a Turnkey-managed wallet. We auto-swap to your token and burn when threshold hits." },
+                                            ] as const).map(opt => (
+                                                <button
+                                                    type="button"
+                                                    key={opt.v}
+                                                    onClick={() => handleInputChange("buybackMode", opt.v)}
+                                                    className={`text-left p-4 rounded-[12px] border transition-all ${formData.buybackMode === opt.v
+                                                        ? "border-secondary-purple bg-secondary-purple/10"
+                                                        : "border-black/10 hover:border-black/30"}`}
+                                                >
+                                                    <div className="text-sm font-semibold text-black font-funnel-sans">{opt.title}</div>
+                                                    <div className="text-xs text-black/60 font-funnel-sans mt-1">{opt.desc}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {formData.buybackMode === "static" && (
+                                            <div className="space-y-3 mt-2">
+                                                <Input
+                                                    type="text"
+                                                    placeholder="0x... — receives your buyback percentage"
+                                                    value={formData.buybackAddress}
+                                                    onChange={(e) => handleInputChange("buybackAddress", e.target.value)}
+                                                    className="w-full p-4 border border-gray-200 rounded-lg"
+                                                />
                                                 <Input
                                                     type="number"
-                                                    min="0"
+                                                    min="1"
                                                     max="95"
-                                                    placeholder="e.g. 10"
+                                                    placeholder="Buyback percent (e.g. 10)"
                                                     value={formData.buybackPercent}
                                                     onChange={(e) => handleInputChange("buybackPercent", e.target.value)}
                                                     className="w-full p-4 border border-gray-200 rounded-lg"
@@ -453,6 +524,71 @@ export default function NewAgentPage() {
                                                         Split: {95 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to buyback · 5% platform fee
                                                     </p>
                                                 )}
+                                            </div>
+                                        )}
+
+                                        {formData.buybackMode === "auto" && (
+                                            <div className="space-y-3 mt-2 p-4 bg-secondary-purple/5 rounded-[12px] border border-secondary-purple/20">
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-black font-funnel-sans mb-1">
+                                                        Token to buy back & burn (Base ERC-20)
+                                                    </label>
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="0x... — must have Uniswap V3 liquidity on Base"
+                                                        value={formData.buybackTokenAddress}
+                                                        onChange={(e) => handleInputChange("buybackTokenAddress", e.target.value)}
+                                                        className="w-full p-4 border border-gray-200 rounded-lg font-mono text-sm"
+                                                    />
+                                                    <p className="text-xs text-black/40 font-funnel-sans mt-1">
+                                                        We run a honeypot pre-check before saving. Token is locked once provisioned.
+                                                    </p>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    <div>
+                                                        <label className="block text-sm font-semibold text-black font-funnel-sans mb-1">Threshold (USD)</label>
+                                                        <Input
+                                                            type="number"
+                                                            min="1"
+                                                            step="1"
+                                                            value={formData.buybackThresholdUsd}
+                                                            onChange={(e) => handleInputChange("buybackThresholdUsd", e.target.value)}
+                                                            className="w-full p-4 border border-gray-200 rounded-lg"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-semibold text-black font-funnel-sans mb-1">Slippage (%)</label>
+                                                        <Input
+                                                            type="number"
+                                                            min="1"
+                                                            max="20"
+                                                            step="0.5"
+                                                            value={formData.buybackSlippagePercent}
+                                                            onChange={(e) => handleInputChange("buybackSlippagePercent", e.target.value)}
+                                                            className="w-full p-4 border border-gray-200 rounded-lg"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-semibold text-black font-funnel-sans mb-1">Buyback %</label>
+                                                        <Input
+                                                            type="number"
+                                                            min="1"
+                                                            max="95"
+                                                            placeholder="e.g. 10"
+                                                            value={formData.buybackPercent}
+                                                            onChange={(e) => handleInputChange("buybackPercent", e.target.value)}
+                                                            className="w-full p-4 border border-gray-200 rounded-lg"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                {formData.buybackPercent && (
+                                                    <p className="text-xs text-black/60 font-funnel-sans">
+                                                        Split: {95 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to Auto Buyback · 5% platform fee. Funds accumulate in a Turnkey wallet until ${formData.buybackThresholdUsd || "10"} crossed, then auto-swap & burn.
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-secondary-purple/80 font-funnel-sans">
+                                                    Recovery: any stranded funds can be swept back to your connected wallet ({injectedWallet ? `${injectedWallet.address.slice(0, 6)}…${injectedWallet.address.slice(-4)}` : "connect wallet"}) — bound into the Turnkey policy at creation.
+                                                </p>
                                             </div>
                                         )}
                                     </div>

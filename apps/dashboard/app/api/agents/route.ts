@@ -23,6 +23,14 @@ export async function POST(request: NextRequest) {
       developerWalletAddress,
       buybackAddress,
       buybackPercent,
+      // Auto Buyback fields — present iff user opted into auto-swap-and-burn
+      // at agent creation. Required as a single block: tokenAddress + thresholdUsd
+      // + slippagePercent + buybackPercent. The buybackAddress field is ignored
+      // in this mode (we provision a Turnkey wallet and use that instead).
+      autoBuyback,
+      buybackTokenAddress,
+      buybackThresholdUsd,
+      buybackSlippagePercent,
     } = body;
 
     // Validate required fields
@@ -31,6 +39,42 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields' },
         { status: 400 },
       );
+    }
+    if (autoBuyback) {
+      if (!buybackTokenAddress || !/^0x[a-fA-F0-9]{40}$/.test(buybackTokenAddress)) {
+        return NextResponse.json(
+          { error: 'Auto Buyback requires a valid token address' },
+          { status: 400 },
+        );
+      }
+      if (!Number.isFinite(Number(buybackThresholdUsd)) || Number(buybackThresholdUsd) <= 0) {
+        return NextResponse.json(
+          { error: 'Auto Buyback requires a positive thresholdUsd' },
+          { status: 400 },
+        );
+      }
+      if (
+        !Number.isFinite(Number(buybackSlippagePercent)) ||
+        Number(buybackSlippagePercent) < 1 ||
+        Number(buybackSlippagePercent) > 20
+      ) {
+        return NextResponse.json(
+          { error: 'Auto Buyback slippage must be between 1% and 20%' },
+          { status: 400 },
+        );
+      }
+      if (!buybackPercent || Number(buybackPercent) <= 0 || Number(buybackPercent) > 95) {
+        return NextResponse.json(
+          { error: 'Auto Buyback requires a buyback percent between 1 and 95' },
+          { status: 400 },
+        );
+      }
+      if (!developerWalletAddress) {
+        return NextResponse.json(
+          { error: 'Auto Buyback requires a developer wallet (used as recovery address)' },
+          { status: 400 },
+        );
+      }
     }
 
     // Check if user has API key and connected wallets
@@ -62,19 +106,95 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Deploy a Splits V2 contract for this agent before writing to DB.
-    // On-chain before DB — if deploy fails nothing is written.
+    // ─── On-chain provisioning order ────────────────────────────────────────
+    // Auto Buyback path:
+    //   1. Provision Turnkey sub-org for this agent (returns walletAddress).
+    //   2. Deploy Splits using the Turnkey wallet as the buyback recipient.
+    //      This is the ONLY ordering that makes Auto Buyback actually work,
+    //      because Splits recipients are baked in at deploy and immutable.
+    // Static path (legacy / no Auto Buyback):
+    //   1. Deploy Splits using the user-provided static buybackAddress.
+    //   2. No Turnkey provisioning, no BuybackConfig record.
+    // Both paths happen before any DB writes, so a failure mid-way leaves no
+    // half-created agent.
     let splitAddress: string | null = null;
-    if (developerWalletAddress) {
-      const backendUrl =
-        process.env.EARNKIT_BACKEND_URL || 'http://localhost:3001';
-      const internalSecret = process.env.INTERNAL_API_SECRET;
-      if (!internalSecret) {
+    let buybackProvisioning: {
+      walletAddress: string;
+      subOrgId: string;
+      walletId: string;
+      policyId: string;
+      tokenSymbol: string;
+      tokenDecimals: number;
+      burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
+      tokenAddress: string;
+      recoveryAddress: string;
+    } | null = null;
+
+    const backendUrl =
+      process.env.EARNKIT_BACKEND_URL || 'http://localhost:3001';
+    const internalSecret = process.env.INTERNAL_API_SECRET;
+
+    if ((autoBuyback || developerWalletAddress) && !internalSecret) {
+      return NextResponse.json(
+        { error: 'Server misconfiguration: INTERNAL_API_SECRET not set' },
+        { status: 500 },
+      );
+    }
+
+    if (autoBuyback) {
+      // Look up the user's email — required as the Turnkey sub-org root authenticator.
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+      if (!userRecord?.email) {
         return NextResponse.json(
-          { error: 'Server misconfiguration: INTERNAL_API_SECRET not set' },
+          {
+            error:
+              'Auto Buyback requires a verified email on your account (becomes root authenticator on the buyback wallet).',
+          },
+          { status: 400 },
+        );
+      }
+
+      const provisionRes = await fetch(
+        `${backendUrl}/api/internal/provision-buyback`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': internalSecret as string,
+          },
+          body: JSON.stringify({
+            agentId,
+            userEmail: userRecord.email,
+            tokenAddress: buybackTokenAddress,
+            recoveryAddress: developerWalletAddress,
+          }),
+        },
+      );
+      if (!provisionRes.ok) {
+        const err = await provisionRes.json().catch(() => ({}));
+        console.error('Failed to provision buyback wallet:', err);
+        return NextResponse.json(
+          { error: err.error || 'Failed to provision buyback wallet' },
           { status: 500 },
         );
       }
+      buybackProvisioning = await provisionRes.json();
+      console.log(
+        `Buyback wallet provisioned: ${buybackProvisioning?.walletAddress} (Turnkey sub-org ${buybackProvisioning?.subOrgId})`,
+      );
+    }
+
+    if (developerWalletAddress) {
+      // Pick the right buyback recipient for the on-chain Splits deploy:
+      // - Auto Buyback: the freshly provisioned Turnkey wallet (so the on-chain
+      //   split routes future payments directly into the buyback flow).
+      // - Static: whatever the user typed in (their cold wallet, etc.).
+      const splitBuybackAddress = autoBuyback
+        ? buybackProvisioning!.walletAddress
+        : buybackAddress || undefined;
 
       const splitRes = await fetch(
         `${backendUrl}/api/internal/deploy-split`,
@@ -82,11 +202,11 @@ export async function POST(request: NextRequest) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-internal-secret': internalSecret,
+            'x-internal-secret': internalSecret as string,
           },
           body: JSON.stringify({
             developerWalletAddress,
-            buybackAddress: buybackAddress || undefined,
+            buybackAddress: splitBuybackAddress,
             buybackPercent: buybackPercent ? Number(buybackPercent) : undefined,
           }),
         },
@@ -108,6 +228,13 @@ export async function POST(request: NextRequest) {
 
     // Create the agent with transaction
     const agent = await prisma.$transaction(async (tx) => {
+      // For Auto Buyback agents, the on-chain split is already routing to the
+      // Turnkey wallet — store that as Agent.buybackAddress so the existing
+      // distribute / withdraw UI shows the right address.
+      const persistedBuybackAddress = autoBuyback
+        ? buybackProvisioning!.walletAddress
+        : buybackAddress || undefined;
+
       // Create the main agent
       const newAgent = await tx.agent.create({
         data: {
@@ -125,7 +252,7 @@ export async function POST(request: NextRequest) {
             : null,
           totalEarnings: 0,
           splitAddress: splitAddress || undefined,
-          buybackAddress: buybackAddress || undefined,
+          buybackAddress: persistedBuybackAddress,
           buybackPercent: buybackPercent ? Number(buybackPercent) : undefined,
         },
       });
@@ -151,6 +278,30 @@ export async function POST(request: NextRequest) {
             data: packagesToCreate,
           });
         }
+      }
+
+      // Persist the BuybackConfig that ties the agent record to its Turnkey
+      // wallet + token + threshold. The on-chain split already routes payments
+      // to the wallet — this row is just the off-chain metadata the executor
+      // worker needs to know what to swap into and when.
+      if (autoBuyback && buybackProvisioning) {
+        await tx.buybackConfig.create({
+          data: {
+            agentId: newAgent.id,
+            tokenAddress: buybackProvisioning.tokenAddress,
+            tokenSymbol: buybackProvisioning.tokenSymbol,
+            tokenDecimals: buybackProvisioning.tokenDecimals,
+            thresholdUsd: Number(buybackThresholdUsd),
+            slippageBps: Math.round(Number(buybackSlippagePercent) * 100),
+            burnMode: buybackProvisioning.burnMode,
+            turnkeySubOrgId: buybackProvisioning.subOrgId,
+            turnkeyWalletId: buybackProvisioning.walletId,
+            walletAddress: buybackProvisioning.walletAddress,
+            policyId: buybackProvisioning.policyId,
+            recoveryAddress: buybackProvisioning.recoveryAddress,
+            isActive: true,
+          },
+        });
       }
 
       return newAgent;

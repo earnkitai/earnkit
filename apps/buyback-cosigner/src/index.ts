@@ -62,6 +62,7 @@ const SELECTORS = {
 interface BuybackWalletEntry {
   walletAddress: string;
   tokenAddress: string;
+  recoveryAddress: string;
 }
 
 interface OperatorWalletEntry {
@@ -193,6 +194,19 @@ function validateUnsignedTx(
     return { ok: false, reason: `transfer recipient ${recipient} must be 0xdEaD` };
   }
   if (to === userToken && selector === SELECTORS.tokenBurn) {
+    return { ok: true, reason: 'buyback' };
+  }
+
+  // Recovery sweep paths
+  const recovery = buyback!.recoveryAddress.toLowerCase();
+  // ERC-20 transfer to recoveryAddress (any token; the policy itself enforces
+  // which token addresses are permitted — Worker just confirms recipient).
+  if (selector === SELECTORS.erc20Transfer) {
+    const recipient = `0x${data.slice(34, 74)}`;
+    if (recipient === recovery) return { ok: true, reason: 'buyback' };
+  }
+  // Native ETH sweep: plain value transfer (empty data) to recoveryAddress.
+  if (to === recovery && (data === '0x' || data === '')) {
     return { ok: true, reason: 'buyback' };
   }
 

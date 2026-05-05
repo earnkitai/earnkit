@@ -42,7 +42,6 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    const [tokenAddress, setTokenAddress] = useState("");
     const [thresholdUsd, setThresholdUsd] = useState("10");
     const [slippagePercent, setSlippagePercent] = useState("5");
 
@@ -57,7 +56,6 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                 if (!cfg) setThresholdUsd(String(Math.max(data.minThresholdUsd, 10)));
             }
             if (cfg) {
-                setTokenAddress(cfg.tokenAddress);
                 setThresholdUsd(String(cfg.thresholdUsd));
                 setSlippagePercent(String(cfg.slippageBps / 100));
             }
@@ -93,11 +91,8 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         return () => clearInterval(id);
     }, [config, fetchStatus]);
 
-    const handleEnable = async () => {
-        if (!tokenAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-            toast.error("Token address must be a valid 0x address");
-            return;
-        }
+    const handleUpdate = async () => {
+        if (!config) return;
         const threshold = parseFloat(thresholdUsd);
         if (!Number.isFinite(threshold) || threshold < minThresholdUsd) {
             toast.error(`Threshold must be at least $${minThresholdUsd}`);
@@ -108,47 +103,12 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             toast.error("Slippage must be between 1% and 20%");
             return;
         }
-
-        setSaving(true);
-        const t = toast.loading("Provisioning buyback wallet (this can take 10-20 seconds)…");
-        try {
-            const r = await fetch(`/api/agents/${agentDbId}/buyback`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    tokenAddress,
-                    thresholdUsd: threshold,
-                    slippageBps: Math.round(slip * 100),
-                }),
-            });
-            const data = await r.json();
-            toast.dismiss(t);
-            if (!r.ok) {
-                toast.error(data.error || "Failed to enable buyback");
-                return;
-            }
-            toast.success("Buyback enabled — wallet provisioned");
-            if (data.notice) toast.info(data.notice);
-            await fetchConfig();
-        } catch (e: unknown) {
-            toast.dismiss(t);
-            toast.error(e instanceof Error ? e.message : "Unexpected error");
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleUpdate = async () => {
-        if (!config) return;
-        const threshold = parseFloat(thresholdUsd);
-        const slip = parseFloat(slippagePercent);
         setSaving(true);
         try {
             const r = await fetch(`/api/agents/${agentDbId}/buyback`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    tokenAddress: config.tokenAddress,
                     thresholdUsd: threshold,
                     slippageBps: Math.round(slip * 100),
                 }),
@@ -234,24 +194,30 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                     )}
                 </div>
 
+                {!config ? (
+                    <div className="bg-black/4 rounded-[12px] p-6 border border-black/10 space-y-2">
+                        <p className="text-sm text-black font-funnel-sans">
+                            Auto Buyback wasn&apos;t configured for this agent.
+                        </p>
+                        <p className="text-xs text-black/60 font-funnel-sans">
+                            Auto Buyback can only be set up at agent creation, because the on-chain split contract bakes in the buyback recipient at deploy time and is immutable. To enable it, create a new agent and select &quot;Auto Buyback &amp; Burn&quot; in that step.
+                        </p>
+                    </div>
+                ) : (
                 <div className="space-y-4">
                     <div className="space-y-2">
                         <label className="block text-sm font-semibold text-black font-funnel-sans">
-                            Token to buy back (Base ERC-20)
+                            Token (locked at creation)
                         </label>
                         <Input
                             type="text"
-                            placeholder="0x..."
-                            value={tokenAddress}
-                            onChange={(e) => setTokenAddress(e.target.value)}
-                            disabled={!!config}
+                            value={config.tokenAddress}
+                            disabled
                             className="font-mono text-sm"
                         />
-                        {config && (
-                            <p className="text-xs text-black/40 font-funnel-sans">
-                                {config.tokenSymbol} · locked once provisioned. To change, disable then re-create after sweeping funds.
-                            </p>
-                        )}
+                        <p className="text-xs text-black/40 font-funnel-sans">
+                            {config.tokenSymbol} · locked once provisioned. The on-chain Splits contract baked in this token&apos;s buyback wallet — to change, you must create a new agent.
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -288,7 +254,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         </div>
                     </div>
 
-                    {config && status?.configured && (
+                    {status?.configured && (
                         <div className="bg-black/4 rounded-[12px] p-4 border border-black/10 space-y-3">
                             <div>
                                 <div className="flex items-baseline justify-between mb-2">
@@ -324,44 +290,35 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         </div>
                     )}
                 </div>
+                )}
 
-                <div className="mt-6 flex gap-3">
-                    {!config ? (
+                {config && (
+                    <div className="mt-6 flex gap-3">
                         <Button
-                            onClick={handleEnable}
+                            onClick={handleUpdate}
                             disabled={saving}
-                            className="bg-secondary-green hover:bg-green-700 text-white px-8 py-6 rounded-full font-normal font-funnel-sans"
+                            className="bg-secondary-green hover:bg-green-700 text-white px-6 py-3 rounded-full font-normal font-funnel-sans"
                         >
-                            {saving ? "Provisioning…" : "Enable Auto Buyback"}
+                            Save Changes
                         </Button>
-                    ) : (
-                        <>
+                        {config.isActive && (
                             <Button
-                                onClick={handleUpdate}
-                                disabled={saving}
-                                className="bg-secondary-green hover:bg-green-700 text-white px-6 py-3 rounded-full font-normal font-funnel-sans"
-                            >
-                                Save Changes
-                            </Button>
-                            {config.isActive && (
-                                <Button
-                                    onClick={handleDisable}
-                                    variant="outline"
-                                    className="px-6 py-3 rounded-full border border-black/40 text-black/60 font-funnel-sans"
-                                >
-                                    Disable
-                                </Button>
-                            )}
-                            <Button
-                                onClick={handleRecover}
+                                onClick={handleDisable}
                                 variant="outline"
                                 className="px-6 py-3 rounded-full border border-black/40 text-black/60 font-funnel-sans"
                             >
-                                Recover stranded funds
+                                Disable
                             </Button>
-                        </>
-                    )}
-                </div>
+                        )}
+                        <Button
+                            onClick={handleRecover}
+                            variant="outline"
+                            className="px-6 py-3 rounded-full border border-black/40 text-black/60 font-funnel-sans"
+                        >
+                            Recover stranded funds
+                        </Button>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

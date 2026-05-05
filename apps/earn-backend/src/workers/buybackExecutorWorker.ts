@@ -47,6 +47,7 @@ interface RunCtx {
   tokenDecimals: number;
   slippageBps: number;
   burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
+  recoveryAddress: `0x${string}`;
 }
 
 async function buildBaseTx(
@@ -161,6 +162,15 @@ async function approveIfNeeded(
 interface SwapStepResult {
   swapHash: string | null;
   tokensOutAmount: bigint;
+  // Per-asset notes for transparency in execution log + Sentry.
+  // [{ asset: "ETH" | "USDC" | ..., amountIn: "0.05", success: true, hash?, error? }]
+  notes: Array<{
+    asset: string;
+    amountIn: string;
+    success: boolean;
+    hash?: string;
+    error?: string;
+  }>;
 }
 
 async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
@@ -197,71 +207,95 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
     ethBal > MIN_GAS_RESERVE_WEI ? ethBal - MIN_GAS_RESERVE_WEI : BigInt(0);
 
   let lastSwapHash: string | null = null;
+  const notes: SwapStepResult['notes'] = [];
 
-  // Swap ETH first (it's the input that needs no approve).
+  // Each asset's swap is wrapped in its own try/catch — a failure on ETH
+  // doesn't strand USDC, and vice versa. Failures are recorded in `notes`
+  // and the burn step proceeds with whatever userToken balance materialized.
   if (ethSwappable > BigInt(0)) {
-    // ETH -> userToken needs to wrap to WETH first. SwapRouter02 supports
-    // exactInput with ETH via msg.value when path starts with WETH and we
-    // route via the multicall pattern; simpler is to send ETH as msg.value
-    // and use exactInputSingle with WETH as tokenIn. We use exactInput here
-    // for path consistency — viem will wrap via WETH automatically only if
-    // we go through the router's payable wrap. To keep this simple and
-    // policy-safe (we only allow exactInput*), we route ETH->userToken by
-    // setting tokenIn = WETH and sending ETH as msg.value. The router
-    // wraps internally because the path starts with WETH.
-    const { WETH_BASE } = await import('../lib/uniswap');
-    const quote = await quoteBestPath({
-      tokenIn: WETH_BASE,
-      tokenOut: ctx.tokenAddress,
-      amountIn: ethSwappable,
-      client,
-    });
-    if (!quote || quote.amountOut === BigInt(0)) {
-      throw new Error('no_liquidity_eth_to_token');
+    try {
+      const { WETH_BASE } = await import('../lib/uniswap');
+      const quote = await quoteBestPath({
+        tokenIn: WETH_BASE,
+        tokenOut: ctx.tokenAddress,
+        amountIn: ethSwappable,
+        client,
+      });
+      if (!quote || quote.amountOut === BigInt(0)) {
+        throw new Error('no_liquidity_eth_to_token');
+      }
+      const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
+      const data = encodeExactInput({
+        path: quote.path,
+        recipient: ctx.walletAddress,
+        amountIn: ethSwappable,
+        amountOutMinimum: minOut,
+      });
+      const hash = await sendTurnkeySignedTx(
+        ctx,
+        UNISWAP_V3_SWAP_ROUTER_02,
+        data,
+        ethSwappable, // msg.value — router wraps to WETH internally
+      );
+      lastSwapHash = hash;
+      notes.push({
+        asset: 'ETH',
+        amountIn: formatUnits(ethSwappable, 18),
+        success: true,
+        hash,
+      });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[BuybackExecutor] ETH swap failed for ${ctx.executionId}:`, reason);
+      notes.push({
+        asset: 'ETH',
+        amountIn: formatUnits(ethSwappable, 18),
+        success: false,
+        error: reason,
+      });
     }
-    const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
-    const data = encodeExactInput({
-      path: quote.path,
-      recipient: ctx.walletAddress,
-      amountIn: ethSwappable,
-      amountOutMinimum: minOut,
-    });
-    lastSwapHash = await sendTurnkeySignedTx(
-      ctx,
-      UNISWAP_V3_SWAP_ROUTER_02,
-      data,
-      ethSwappable, // msg.value
-    );
   }
 
-  // Then each ERC-20 input
   for (const t of tokenBalances) {
-    const quote = await quoteBestPath({
-      tokenIn: t.address,
-      tokenOut: ctx.tokenAddress,
-      amountIn: t.amount,
-      client,
-    });
-    if (!quote || quote.amountOut === BigInt(0)) {
-      // Skip this asset — keep funds on wallet for retry / manual handling.
+    try {
+      const quote = await quoteBestPath({
+        tokenIn: t.address,
+        tokenOut: ctx.tokenAddress,
+        amountIn: t.amount,
+        client,
+      });
+      if (!quote || quote.amountOut === BigInt(0)) {
+        throw new Error(`no_liquidity_${t.symbol.toLowerCase()}_to_token`);
+      }
+      await approveIfNeeded(ctx, t.address, t.amount);
+      const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
+      const data = encodeExactInput({
+        path: quote.path,
+        recipient: ctx.walletAddress,
+        amountIn: t.amount,
+        amountOutMinimum: minOut,
+      });
+      const hash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
+      lastSwapHash = hash;
+      notes.push({
+        asset: t.symbol,
+        amountIn: formatUnits(t.amount, t.decimals),
+        success: true,
+        hash,
+      });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[BuybackExecutor] No swap route for ${t.symbol} -> ${ctx.tokenAddress}, leaving on wallet`,
+        `[BuybackExecutor] ${t.symbol} swap failed for ${ctx.executionId}:`,
+        reason,
       );
-      continue;
+      notes.push({
+        asset: t.symbol,
+        amountIn: formatUnits(t.amount, t.decimals),
+        success: false,
+        error: reason,
+      });
     }
-    await approveIfNeeded(ctx, t.address, t.amount);
-    const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
-    const data = encodeExactInput({
-      path: quote.path,
-      recipient: ctx.walletAddress,
-      amountIn: t.amount,
-      amountOutMinimum: minOut,
-    });
-    lastSwapHash = await sendTurnkeySignedTx(
-      ctx,
-      UNISWAP_V3_SWAP_ROUTER_02,
-      data,
-    );
   }
 
   const afterUserToken = (await client.readContract({
@@ -274,6 +308,7 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
   return {
     swapHash: lastSwapHash,
     tokensOutAmount: afterUserToken - beforeUserToken,
+    notes,
   };
 }
 
@@ -302,23 +337,75 @@ async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amou
   return { burnHash: hash, amount: balance };
 }
 
-// ---------- Recovery (sweep funds back to dev wallet) ----------
+// ---------- Recovery (sweep funds back to user's dev wallet) ----------
 
-async function recoverToDevWallet(ctx: RunCtx, devWallet: `0x${string}`): Promise<string[]> {
+async function sweepToRecoveryAddress(ctx: RunCtx): Promise<string[]> {
   const client = getBasePublicClient();
   const hashes: string[] = [];
 
-  // First ensure everything is withdrawn from the Warehouse.
+  // 1. Drain Splits Warehouse to the buyback wallet.
   hashes.push(...(await withdrawAllFromWarehouse(ctx)));
 
-  // Sweep each ERC-20 we hold to devWallet. The Turnkey policy must permit
-  // transfers to devWallet — for v1 recovery we call transfer to devWallet
-  // which the policy *does not* currently allow (policy only permits transfer
-  // to 0xdEaD). Recovery sweeps therefore require the user to revoke the
-  // delegated key + use their root credential to sign sweep txs themselves.
-  // We expose this with a clear FAILED reason so the dashboard surfaces it.
-  // (TODO: extend policy with a per-config "recoveryRecipient" address that
-  // the user pre-signs at config time, so we can sweep with our delegated key.)
+  // 2. ERC-20 sweeps: every supported token + the userToken (in case there's
+  //    a stale post-swap balance from a previously-failed burn step).
+  const tokensToSweep: Array<{ address: `0x${string}`; symbol: string }> = [
+    ...SUPPORTED_TOKENS.map((t) => ({
+      address: t.address as `0x${string}`,
+      symbol: t.symbol,
+    })),
+    { address: ctx.tokenAddress, symbol: 'USERTOKEN' },
+  ];
+  // Dedupe in case userToken is also one of the supported tokens.
+  const seen = new Set<string>();
+  for (const t of tokensToSweep) {
+    const key = t.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const bal = (await client.readContract({
+        address: t.address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [ctx.walletAddress],
+      })) as bigint;
+      if (bal === BigInt(0)) continue;
+      const data = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [ctx.recoveryAddress, bal],
+      });
+      hashes.push(await sendTurnkeySignedTx(ctx, t.address, data));
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[BuybackExecutor] sweep ${t.symbol} failed for ${ctx.executionId}:`,
+        reason,
+      );
+      // Continue — sweep is best-effort per asset.
+    }
+  }
+
+  // 3. Native ETH sweep — leave a small reserve for the sweep tx itself.
+  try {
+    const ethBal = await client.getBalance({ address: ctx.walletAddress });
+    if (ethBal > MIN_GAS_RESERVE_WEI) {
+      const sendable = ethBal - MIN_GAS_RESERVE_WEI;
+      hashes.push(
+        await sendTurnkeySignedTx(
+          ctx,
+          ctx.recoveryAddress,
+          '0x',
+          sendable,
+        ),
+      );
+    }
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[BuybackExecutor] ETH sweep failed for ${ctx.executionId}:`,
+      reason,
+    );
+  }
 
   return hashes;
 }
@@ -379,6 +466,7 @@ async function processOne(): Promise<void> {
       tokenDecimals: config.tokenDecimals,
       slippageBps: config.slippageBps,
       burnMode: config.burnMode,
+      recoveryAddress: config.recoveryAddress as `0x${string}`,
     };
 
     const attempt = exec.attempts + 1;
@@ -399,31 +487,50 @@ async function processOne(): Promise<void> {
         throw new Error(`gas_drip_failed: ${err?.message ?? err}`);
       }
 
-      const withdrawHashes = await withdrawAllFromWarehouse(ctx);
-      await prisma.buybackExecution.update({
-        where: { id: exec.id },
-        data: {
-          warehouseWithdrawHashes: withdrawHashes,
-          status: isRecovery ? 'COMPLETED' : 'SWAPPING',
-        },
-      });
-
       if (isRecovery) {
-        // For v1: recovery only withdraws Warehouse balances back to the wallet.
-        // The user then claims them via root credential at app.splits.org / Turnkey.
+        // Recovery sweep: drain Warehouse + transfer all balances on the
+        // wallet to the user-configured recoveryAddress (= their dev wallet).
+        // Permitted by the Turnkey policy because recoveryAddress is bound
+        // into the policy at config-creation time.
+        const sweepHashes = await sweepToRecoveryAddress(ctx);
         await prisma.buybackExecution.update({
           where: { id: exec.id },
           data: {
+            warehouseWithdrawHashes: sweepHashes,
             status: 'COMPLETED',
             completedAt: new Date(),
-            lastError:
-              'Recovery: funds withdrawn to buyback wallet. Use Turnkey root credential to sweep to your wallet.',
           },
         });
         continue;
       }
 
+      const withdrawHashes = await withdrawAllFromWarehouse(ctx);
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: {
+          warehouseWithdrawHashes: withdrawHashes,
+          status: 'SWAPPING',
+        },
+      });
+
       const swap = await swapAllToUserToken(ctx);
+      // If every individual swap failed, we have nothing to burn. Mark the
+      // execution FAILED with the per-asset details so the user can see
+      // which routes broke. Funds remain on the buyback wallet for retry
+      // or a manual recovery sweep.
+      const allSwapsFailed = swap.notes.length > 0 && swap.notes.every((n) => !n.success);
+      if (allSwapsFailed || swap.tokensOutAmount === BigInt(0)) {
+        await prisma.buybackExecution.update({
+          where: { id: exec.id },
+          data: {
+            status: 'FAILED',
+            swapHash: swap.swapHash ?? undefined,
+            lastError: `swap_all_failed: ${JSON.stringify(swap.notes).slice(0, 400)}`,
+            completedAt: new Date(),
+          },
+        });
+        continue;
+      }
       await prisma.buybackExecution.update({
         where: { id: exec.id },
         data: {

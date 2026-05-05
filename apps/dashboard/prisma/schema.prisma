@@ -332,6 +332,7 @@ model BuybackConfig {
   turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
   walletAddress     String             @unique @map("wallet_address")
   policyId          String             @map("policy_id")
+  recoveryAddress   String             @map("recovery_address")
   coSignerEndpoint  String?            @map("co_signer_endpoint")
 
   isActive          Boolean            @default(true) @map("is_active")

@@ -31,6 +31,7 @@ router.get('/', async (_req: Request, res: Response) => {
       select: {
         walletAddress: true,
         tokenAddress: true,
+        recoveryAddress: true,
       },
     });
 
@@ -43,6 +44,7 @@ router.get('/', async (_req: Request, res: Response) => {
       buybackWallets: configs.map((c) => ({
         walletAddress: c.walletAddress,
         tokenAddress: c.tokenAddress,
+        recoveryAddress: c.recoveryAddress,
       })),
       operatorWallets,
     });

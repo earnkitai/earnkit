@@ -27,6 +27,11 @@ export interface BuybackPolicyParams {
   // SUPPORTED_TOKEN we accept as a payment asset. Used so the policy permits
   // approve() calls for those tokens to the SwapRouter.
   allowedSwapInputTokens: readonly `0x${string}`[];
+  // EOA the recovery flow is permitted to sweep funds to. Set at config-time
+  // = the user's connected dev wallet. The policy whitelists transfer(this, _)
+  // for both the user's burn token AND every allowed swap-input token (ETH is
+  // the only odd one out — sweeping ETH uses a plain native transfer).
+  recoveryAddress: `0x${string}`;
   // Parent-org user IDs of the two stampers required for every signing activity.
   // Both must approve before Turnkey executes the activity. parentAdminUserId
   // is the Railway-side admin (TURNKEY_PARENT_ADMIN_USER_ID); coSignerUserId
@@ -59,16 +64,23 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   condition: string;
   notes: string;
 } {
-  const { userTokenAddress, allowedSwapInputTokens, parentAdminUserId, coSignerUserId } = params;
+  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, parentAdminUserId, coSignerUserId } = params;
 
   const lower = (s: string) => s.toLowerCase();
   const userToken = lower(userTokenAddress);
   const warehouse = lower(SPLIT_WAREHOUSE_ADDRESS);
   const router = lower(UNISWAP_V3_SWAP_ROUTER_02);
   const dead = lower(DEAD_ADDRESS);
+  const recovery = lower(recoveryAddress);
   const allowedInputsLower = allowedSwapInputTokens
     .map(lower)
     .filter((a) => a !== lower(SPLIT_NATIVE_TOKEN_ADDRESS));
+  // ERC-20s the recovery sweep is permitted to call transfer(recoveryAddress, _) on:
+  // every payment-input token PLUS the user's burn token (in case they want to
+  // pull tokens that already got swapped but never burned, e.g. burn step failed).
+  const recoverableTokens = Array.from(
+    new Set([...allowedInputsLower, userToken]),
+  );
 
   // Selector helpers — Turnkey gives us eth.tx.data as bytes; substring(0, 10) = "0x" + 4 bytes.
   const sel = (name: keyof typeof SELECTORS) => SELECTORS[name].toLowerCase();
@@ -97,6 +109,10 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   conditions.push(
     `(${inSet('eth.tx.to', [userToken])} && ${sliceSelector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${dead.slice(2)}')`,
     `(${inSet('eth.tx.to', [userToken])} && ${sliceSelector} == '${sel('tokenBurn')}')`,
+    // Recovery: transfer of any whitelisted token TO the recoveryAddress.
+    `(${inSet('eth.tx.to', recoverableTokens)} && ${sliceSelector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${recovery.slice(2)}')`,
+    // Recovery: native ETH sweep — plain value transfer to recoveryAddress with empty data.
+    `(${inSet('eth.tx.to', [recovery])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
   );
 
   const condition = conditions.join(' || ');

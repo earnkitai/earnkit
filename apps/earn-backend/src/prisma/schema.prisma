@@ -340,6 +340,10 @@ model BuybackConfig {
   turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
   walletAddress     String             @unique @map("wallet_address")
   policyId          String             @map("policy_id")
+  // EOA the "Recover stranded funds" flow sweeps to. Set at creation = the
+  // user's connected dev wallet. Bound into the Turnkey policy so the platform
+  // can sign sweeps without the user having to use their root credential.
+  recoveryAddress   String             @map("recovery_address")
   // Reserved for future per-config co-signer routing. v1 reads BUYBACK_COSIGNER_URL
   // for all configs; this column lets us migrate to per-tenant co-signers later
   // without another schema change. Null = use the env default.
