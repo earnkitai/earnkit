@@ -1,7 +1,7 @@
 {
   "name": "earnkit",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "devDependencies": {
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
