@@ -21,12 +21,24 @@ interface BuybackConfig {
     lastTriggeredAt: string | null;
 }
 
+interface BuybackStatus {
+    configured: boolean;
+    isActive?: boolean;
+    accumulatedUsd: number;
+    thresholdUsd: number;
+    progress: number;
+    readyToFire?: boolean;
+    inFlightExecution?: { id: string; status: string } | null;
+}
+
 interface BuybackPanelProps {
     agentDbId: string;
 }
 
 export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [config, setConfig] = useState<BuybackConfig | null>(null);
+    const [status, setStatus] = useState<BuybackStatus | null>(null);
+    const [minThresholdUsd, setMinThresholdUsd] = useState(10);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -40,6 +52,10 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             const data = await r.json();
             const cfg: BuybackConfig | null = data.buybackConfig ?? null;
             setConfig(cfg);
+            if (typeof data.minThresholdUsd === "number") {
+                setMinThresholdUsd(data.minThresholdUsd);
+                if (!cfg) setThresholdUsd(String(Math.max(data.minThresholdUsd, 10)));
+            }
             if (cfg) {
                 setTokenAddress(cfg.tokenAddress);
                 setThresholdUsd(String(cfg.thresholdUsd));
@@ -52,9 +68,30 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         }
     };
 
+    const fetchStatus = async () => {
+        try {
+            const r = await fetch(`/api/agents/${agentDbId}/buyback/status`);
+            if (!r.ok) return;
+            const data: BuybackStatus = await r.json();
+            setStatus(data);
+        } catch (e) {
+            console.error("Failed to load buyback status:", e);
+        }
+    };
+
     useEffect(() => {
         fetchConfig();
     }, [agentDbId]);
+
+    useEffect(() => {
+        if (!config) {
+            setStatus(null);
+            return;
+        }
+        fetchStatus();
+        const id = setInterval(fetchStatus, 30_000);
+        return () => clearInterval(id);
+    }, [config?.id, agentDbId]);
 
     const handleEnable = async () => {
         if (!tokenAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
@@ -62,8 +99,8 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             return;
         }
         const threshold = parseFloat(thresholdUsd);
-        if (!Number.isFinite(threshold) || threshold < 1) {
-            toast.error("Threshold must be at least $1");
+        if (!Number.isFinite(threshold) || threshold < minThresholdUsd) {
+            toast.error(`Threshold must be at least $${minThresholdUsd}`);
             return;
         }
         const slip = parseFloat(slippagePercent);
@@ -224,13 +261,13 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                             </label>
                             <Input
                                 type="number"
-                                min="1"
+                                min={minThresholdUsd}
                                 step="1"
                                 value={thresholdUsd}
                                 onChange={(e) => setThresholdUsd(e.target.value)}
                             />
                             <p className="text-xs text-black/40 font-funnel-sans">
-                                Auto-buyback fires once accumulated value crosses this.
+                                Min ${minThresholdUsd} · recommended $10+. Funds accumulate until this; no buyback fires below it.
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -251,8 +288,29 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         </div>
                     </div>
 
-                    {config && (
-                        <div className="bg-black/4 rounded-[12px] p-4 border border-black/10 space-y-2">
+                    {config && status?.configured && (
+                        <div className="bg-black/4 rounded-[12px] p-4 border border-black/10 space-y-3">
+                            <div>
+                                <div className="flex items-baseline justify-between mb-2">
+                                    <p className="text-xs text-black/40 font-funnel-sans">Accumulated balance</p>
+                                    <p className="text-xs text-black/60 font-funnel-sans">
+                                        ${status.accumulatedUsd.toFixed(2)} <span className="text-black/40">/ ${status.thresholdUsd.toFixed(2)} threshold</span>
+                                    </p>
+                                </div>
+                                <div className="h-2 w-full bg-black/10 rounded-full overflow-hidden">
+                                    <div
+                                        className={`h-full rounded-full transition-all ${status.readyToFire ? 'bg-secondary-green' : 'bg-color1'}`}
+                                        style={{ width: `${Math.round((status.progress ?? 0) * 100)}%` }}
+                                    />
+                                </div>
+                                <p className="text-xs text-black/40 font-funnel-sans mt-2">
+                                    {status.inFlightExecution
+                                        ? `Buyback in progress: ${status.inFlightExecution.status.toLowerCase()}…`
+                                        : status.readyToFire
+                                            ? "Threshold reached — next scan (within 5 min) will trigger the swap & burn."
+                                            : "Funds will keep accumulating until the threshold is reached."}
+                                </p>
+                            </div>
                             <div>
                                 <p className="text-xs text-black/40 font-funnel-sans">Buyback wallet (Turnkey-managed, your email is the root authenticator)</p>
                                 <p className="text-xs font-mono text-black break-all">{config.walletAddress}</p>

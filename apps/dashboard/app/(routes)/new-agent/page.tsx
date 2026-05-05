@@ -431,6 +431,9 @@ export default function NewAgentPage() {
                                         <p className="text-xs text-black/40 font-funnel-sans px-4">
                                             Platform fee: 5%. If you set a buyback address, specify what % of payments it receives (max 95%).
                                         </p>
+                                        <p className="text-xs text-secondary-purple font-funnel-sans px-4">
+                                            Want auto-swap into your token + burn? Enable Auto Buyback on the agent page after creation — set a token address, threshold (min $5, recommended $10+), and slippage. Funds accumulate in a Turnkey-managed wallet until the threshold is crossed.
+                                        </p>
                                         {formData.buybackAddress && (
                                             <div className="space-y-2 mt-2">
                                                 <label className="block text-sm font-semibold text-black font-funnel-sans px-4">

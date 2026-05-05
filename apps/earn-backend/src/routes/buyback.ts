@@ -12,8 +12,16 @@ import {
 import { SUPPORTED_TOKENS } from '../services/tokenService';
 import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
 import { createBuybackSubOrg } from '../services/turnkeyService';
+import { snapshotBuybackBalance } from '../lib/buybackBalance';
 
 const router: Router = Router({ mergeParams: true });
+
+function getMinThresholdUsd(): number {
+  const raw = process.env.BUYBACK_MIN_THRESHOLD_USD;
+  if (!raw) return 10;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 10;
+}
 
 async function findAgent(agentParam: string) {
   // Same fallback pattern token-config uses: try UUID, then external slug.
@@ -38,7 +46,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const config = agent.buybackConfig;
     if (!config) {
-      return res.json({ buybackConfig: null });
+      return res.json({
+        buybackConfig: null,
+        minThresholdUsd: getMinThresholdUsd(),
+      });
     }
 
     return res.json({
@@ -55,9 +66,66 @@ router.get('/', async (req: Request, res: Response) => {
         lastCheckedAt: config.lastCheckedAt,
         lastTriggeredAt: config.lastTriggeredAt,
       },
+      minThresholdUsd: getMinThresholdUsd(),
     });
   } catch (err: any) {
     console.error('[buyback] GET error:', err);
+    return res.status(500).json({ error: err?.message ?? 'Internal error' });
+  }
+});
+
+// GET /api/agents/:agentId/buyback/status — live accumulated balance vs threshold.
+// Used by the dashboard panel to show the user "$X.XX of $Y.YY accumulated"
+// without waiting for the 5-minute scanner cycle.
+router.get('/status', async (req: Request, res: Response) => {
+  try {
+    const agent = await findAgent(req.params.agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const config = agent.buybackConfig;
+    if (!config) {
+      return res.json({
+        configured: false,
+        accumulatedUsd: 0,
+        thresholdUsd: 0,
+        progress: 0,
+        minThresholdUsd: getMinThresholdUsd(),
+      });
+    }
+
+    const snapshot = await snapshotBuybackBalance(
+      config.walletAddress as `0x${string}`,
+    );
+
+    const inFlight = await prisma.buybackExecution.findFirst({
+      where: {
+        buybackConfigId: config.id,
+        status: { in: ['QUEUED', 'WITHDRAWING', 'SWAPPING', 'BURNING', 'RETRYING'] },
+      },
+      select: { id: true, status: true },
+    });
+
+    const progress =
+      config.thresholdUsd > 0
+        ? Math.min(snapshot.totalUsd / config.thresholdUsd, 1)
+        : 0;
+
+    return res.json({
+      configured: true,
+      isActive: config.isActive,
+      accumulatedUsd: snapshot.totalUsd,
+      thresholdUsd: config.thresholdUsd,
+      progress, // 0..1
+      readyToFire: snapshot.totalUsd >= config.thresholdUsd,
+      assets: snapshot.assets,
+      walletAddress: config.walletAddress,
+      lastCheckedAt: config.lastCheckedAt,
+      lastTriggeredAt: config.lastTriggeredAt,
+      inFlightExecution: inFlight ?? null,
+      minThresholdUsd: getMinThresholdUsd(),
+    });
+  } catch (err: any) {
+    console.error('[buyback] status error:', err);
     return res.status(500).json({ error: err?.message ?? 'Internal error' });
   }
 });
@@ -87,11 +155,16 @@ router.post('/', async (req: Request, res: Response) => {
     }
     const tokenAddress = getAddress(rawToken) as `0x${string}`;
 
+    const minThreshold = getMinThresholdUsd();
     if (
       thresholdUsd !== undefined &&
-      (typeof thresholdUsd !== 'number' || !Number.isFinite(thresholdUsd) || thresholdUsd < 1)
+      (typeof thresholdUsd !== 'number' ||
+        !Number.isFinite(thresholdUsd) ||
+        thresholdUsd < minThreshold)
     ) {
-      return res.status(400).json({ error: 'thresholdUsd must be a number >= 1' });
+      return res.status(400).json({
+        error: `thresholdUsd must be a number >= ${minThreshold}. Below this, on-chain gas eats most of the buyback value. (Operator can lower this floor via BUYBACK_MIN_THRESHOLD_USD for testing.)`,
+      });
     }
     if (
       slippageBps !== undefined &&
@@ -179,7 +252,7 @@ router.post('/', async (req: Request, res: Response) => {
           tokenAddress,
           tokenSymbol: meta.symbol,
           tokenDecimals: meta.decimals,
-          thresholdUsd: thresholdUsd ?? 10,
+          thresholdUsd: thresholdUsd ?? Math.max(minThreshold, 10),
           slippageBps: slippageBps ?? 500,
           burnMode,
           turnkeySubOrgId: subOrg.subOrgId,
