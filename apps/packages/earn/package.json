@@ -39,7 +39,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<your-org>/earnkit.git",
+    "url": "git+https://github.com/earnkitai/earnkit.git",
     "directory": "apps/packages/earn"
   },
   "homepage": "https://earnkit.com",
