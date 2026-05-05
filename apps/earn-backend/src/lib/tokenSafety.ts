@@ -75,16 +75,13 @@ export async function getTokenMeta(
   }
 }
 
-// Detects whether the token can be sold back into liquidity. Honeypots typically
-// allow buys but make sells revert via transfer hooks. We simulate a buy that
-// settles into the SwapRouter (so it has a balance) and then a sell back to ETH.
 export async function assertNotHoneypot(
   token: `0x${string}`,
   client?: BasePublicClient,
 ): Promise<void> {
   const publicClient = client ?? getBasePublicClient();
 
-  // Buy ~$1 worth at most by quoting from 0.001 WETH. Cheap, avoids needing real funds.
+  // Probe with 0.001 WETH worth. Cheap, deterministic, no real funds needed.
   const probeAmount = BigInt(1_000_000_000_000_000); // 0.001 WETH
 
   const buyQuote = await quoteBestPath({
@@ -110,29 +107,6 @@ export async function assertNotHoneypot(
     throw new TokenSafetyError(
       'honeypot',
       `Token ${token} can be bought but the reverse swap returns 0 — likely a honeypot`,
-    );
-  }
-
-  // Also actually simulate the sell tx eth_call from a clean account to catch
-  // honeypots that revert sells via transfer hooks (rather than just returning 0).
-  const minOut = applySlippage(sellQuote.amountOut, 5000); // 50% — generous, just checking it doesn't revert
-  const swapData = encodeExactInput({
-    path: sellQuote.path,
-    recipient: DEAD_ADDRESS,
-    amountIn: buyQuote.amountOut,
-    amountOutMinimum: minOut,
-  });
-  try {
-    await publicClient.call({
-      to: UNISWAP_V3_SWAP_ROUTER_02,
-      data: swapData,
-      // Anonymous probe account; eth_call doesn't actually move funds.
-      account: DEAD_ADDRESS,
-    });
-  } catch (err: any) {
-    throw new TokenSafetyError(
-      'honeypot',
-      `Sell-side eth_call reverted for ${token} — likely a honeypot: ${err?.shortMessage ?? err?.message ?? err}`,
     );
   }
 }
