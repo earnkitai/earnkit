@@ -28,15 +28,15 @@ function getApiClient() {
   return cachedClient;
 }
 
-function getStamperUserIds(): { parentAdminUserId: string; coSignerUserId: string } {
-  const parentAdminUserId = process.env.TURNKEY_PARENT_ADMIN_USER_ID;
-  const coSignerUserId = process.env.TURNKEY_COSIGNER_USER_ID;
-  if (!parentAdminUserId || !coSignerUserId) {
+function getStamperPublicKeys(): { parentAdminPublicKey: string; coSignerPublicKey: string } {
+  const parentAdminPublicKey = process.env.TURNKEY_API_PUBLIC_KEY;
+  const coSignerPublicKey = process.env.TURNKEY_COSIGNER_PUBLIC_KEY;
+  if (!parentAdminPublicKey || !coSignerPublicKey) {
     throw new Error(
-      'Two-stamper signing requires TURNKEY_PARENT_ADMIN_USER_ID and TURNKEY_COSIGNER_USER_ID',
+      'Two-stamper signing requires TURNKEY_API_PUBLIC_KEY (parent admin) and TURNKEY_COSIGNER_PUBLIC_KEY (off-host cosigner)',
     );
   }
-  return { parentAdminUserId, coSignerUserId };
+  return { parentAdminPublicKey, coSignerPublicKey };
 }
 
 function getCoSignerEndpoint(override?: string | null): string {
@@ -85,11 +85,16 @@ export async function createBuybackSubOrg(
   params: CreateBuybackSubOrgParams,
 ): Promise<BuybackSubOrgResult> {
   const client = getApiClient();
-  const { parentAdminUserId, coSignerUserId } = getStamperUserIds();
+  const { parentAdminPublicKey, coSignerPublicKey } = getStamperPublicKeys();
   const { agentId, userEmail, policyParams } = params;
 
   const subOrgName = `buyback-${agentId.slice(0, 8)}-${Date.now().toString(36)}`;
 
+  // Three root users: the customer (email auth, sole quorum holder) plus our
+  // two API-key-only stampers. The stamper users are registered IN the sub-org
+  // because Turnkey requires policy-consensus user IDs to belong to the same
+  // org as the activity. Quorum threshold = 1 means the customer can still
+  // unilaterally rotate keys / remove our stampers via root credential.
   const createResp = await client.createSubOrganization({
     subOrganizationName: subOrgName,
     rootUsers: [
@@ -98,6 +103,30 @@ export async function createBuybackSubOrg(
         userEmail,
         authenticators: [],
         apiKeys: [],
+        oauthProviders: [],
+      },
+      {
+        userName: 'platform-parent-admin',
+        authenticators: [],
+        apiKeys: [
+          {
+            apiKeyName: 'railway-parent-admin',
+            publicKey: parentAdminPublicKey,
+            curveType: 'API_KEY_CURVE_P256',
+          },
+        ],
+        oauthProviders: [],
+      },
+      {
+        userName: 'platform-cosigner',
+        authenticators: [],
+        apiKeys: [
+          {
+            apiKeyName: 'cloudflare-cosigner',
+            publicKey: coSignerPublicKey,
+            curveType: 'API_KEY_CURVE_P256',
+          },
+        ],
         oauthProviders: [],
       },
     ],
@@ -117,21 +146,30 @@ export async function createBuybackSubOrg(
 
   const subOrgId = createResp.subOrganizationId;
   const wallet = createResp.wallet;
-  if (!subOrgId || !wallet?.walletId || !wallet?.addresses?.[0]) {
+  const rootUserIds = createResp.rootUserIds;
+  if (
+    !subOrgId ||
+    !wallet?.walletId ||
+    !wallet?.addresses?.[0] ||
+    !rootUserIds ||
+    rootUserIds.length < 3
+  ) {
     throw new Error(
       `Turnkey createSubOrganization succeeded but response missing required fields: ${JSON.stringify(createResp)}`,
     );
   }
   const walletAddress = wallet.addresses[0] as `0x${string}`;
+  // rootUserIds is returned in the same order as the rootUsers we sent.
+  const subOrgParentAdminUserId = rootUserIds[1];
+  const subOrgCosignerUserId = rootUserIds[2];
 
-  // Attach the buyback policy. Consensus requires BOTH the parent-admin and
-  // the co-signer to approve every activity. Cross-org user IDs work because
-  // Turnkey treats user IDs as global identifiers — the sub-org policy just
-  // references the parent-org users that will be acting into this sub-org.
+  // Attach the buyback policy. Consensus references the sub-org-local user
+  // IDs of the parent-admin and cosigner — both are users IN this sub-org
+  // (registered above) so Turnkey can resolve their stamps locally.
   const policy = buildBuybackPolicy({
     ...policyParams,
-    parentAdminUserId,
-    coSignerUserId,
+    parentAdminUserId: subOrgParentAdminUserId,
+    coSignerUserId: subOrgCosignerUserId,
   });
   const policyResp = await client.createPolicy({
     organizationId: subOrgId,
