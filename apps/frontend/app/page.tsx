@@ -143,21 +143,19 @@ export default function Home() {
             {/* Left Side */}
             <aside className="w-full h-[90vh] md:h-full md:w-[40%] bg-color5 flex flex-col justify-center items-center rounded-[56px] p-10 md:p-20">
               <div className="md:py-10 flex flex-col justify-center items-center">
-                <h2 className="w-[90%] md:max-w-[70%] text-color8 font-funnel-display text-3xl md:text-5xl font-semibold mb-8 md:leading-[1.2]">
+                <h2 className="w-[90%] md:max-w-[70%] text-color8 text-center md:text-left font-funnel-display text-3xl md:text-5xl font-semibold mb-8 md:leading-[1.2]">
                   Monetize
-                  <br />
-                  Your Agent,
-                  <br />
-                  Your Way
+                  <br className="hidden md:block" /> Your Agent,
+                  <br className="hidden md:block" /> Your Way
                 </h2>
                 <div className="w-[90%] md:max-w-[70%] font-funnel-sans">
-                  <p className="text-color6 text-lg mb-6">
+                  <p className="text-color6 text-lg text-center md:text-left mb-6">
                     Whether it&apos;s per prompt, per swap, or per LLM call,
                     EarnKit helps your agent earn without rebuilding the wheel.
                   </p>
                 </div>
-                <div className="pt-10 md:pt-20 w-[90%] md:max-w-[70%]">
-                  <p className="w-full text-color14 px-6 md:px-6 font-funnel-sans font-medium text-lg pb-10 leading-[1.4]">
+                <div className="pt-10 md:pt-20 w-[90%] md:max-w-[70%] font-funnel-display">
+                  <p className="w-full text-color14 font-funnel-sans font-medium text-lg text-center md:text-left pb-10 leading-[1.4]">
                     The easiest way to earn is with EarnKit.
                   </p>
                   <Link
