@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../../lib/prisma';
+import { getOperatorWalletAddress } from '../../lib/operatorGas';
 
 /**
  * GET /api/internal/buyback-wallets
@@ -17,7 +18,7 @@ import { prisma } from '../../lib/prisma';
  *     operatorWallets: [{ walletAddress }]
  *   }
  *
- * The operatorWallets array is read from env (OPERATOR_WALLET_ADDRESS), since
+ * The operator wallet address is derived from OPERATOR_GAS_PRIVATE_KEY, since
  * we typically run with one operator wallet — but the array shape leaves room
  * for per-region or per-fleet operator wallets later.
  */
@@ -33,7 +34,7 @@ router.get('/', async (_req: Request, res: Response) => {
       },
     });
 
-    const operatorWalletAddress = process.env.OPERATOR_WALLET_ADDRESS;
+    const operatorWalletAddress = getOperatorWalletAddress();
     const operatorWallets = operatorWalletAddress
       ? [{ walletAddress: operatorWalletAddress }]
       : [];
