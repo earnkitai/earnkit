@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "buyback_configs" ADD COLUMN "recovery_address" TEXT NOT NULL DEFAULT '0x0000000000000000000000000000000000000000';
+ALTER TABLE "buyback_configs" ALTER COLUMN "recovery_address" DROP DEFAULT;
