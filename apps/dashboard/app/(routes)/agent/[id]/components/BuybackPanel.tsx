@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
@@ -46,7 +46,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [thresholdUsd, setThresholdUsd] = useState("10");
     const [slippagePercent, setSlippagePercent] = useState("5");
 
-    const fetchConfig = async () => {
+    const fetchConfig = useCallback(async () => {
         try {
             const r = await fetch(`/api/agents/${agentDbId}/buyback`);
             const data = await r.json();
@@ -66,9 +66,9 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [agentDbId]);
 
-    const fetchStatus = async () => {
+    const fetchStatus = useCallback(async () => {
         try {
             const r = await fetch(`/api/agents/${agentDbId}/buyback/status`);
             if (!r.ok) return;
@@ -77,11 +77,11 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         } catch (e) {
             console.error("Failed to load buyback status:", e);
         }
-    };
+    }, [agentDbId]);
 
     useEffect(() => {
         fetchConfig();
-    }, [agentDbId]);
+    }, [fetchConfig]);
 
     useEffect(() => {
         if (!config) {
@@ -91,7 +91,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         fetchStatus();
         const id = setInterval(fetchStatus, 30_000);
         return () => clearInterval(id);
-    }, [config?.id, agentDbId]);
+    }, [config, fetchStatus]);
 
     const handleEnable = async () => {
         if (!tokenAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
@@ -130,9 +130,9 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             toast.success("Buyback enabled — wallet provisioned");
             if (data.notice) toast.info(data.notice);
             await fetchConfig();
-        } catch (e: any) {
+        } catch (e: unknown) {
             toast.dismiss(t);
-            toast.error(e?.message || "Unexpected error");
+            toast.error(e instanceof Error ? e.message : "Unexpected error");
         } finally {
             setSaving(false);
         }
@@ -192,8 +192,8 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             } else {
                 toast.error(d.error || "Failed to start recovery");
             }
-        } catch (e: any) {
-            toast.error(e?.message || "Unexpected error");
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Unexpected error");
         }
     };
 

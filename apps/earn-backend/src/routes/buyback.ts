@@ -319,6 +319,72 @@ router.delete('/', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/agents/:agentId/buyback/check
+//
+// Event-driven trigger fired by the dashboard right after a successful Split
+// distribute. Reads the buyback wallet's accumulated balance once and queues a
+// BuybackExecution if the threshold is crossed. No background polling — funds
+// only get re-evaluated on the next distribute (or via this endpoint manually).
+router.post('/check', async (req: Request, res: Response) => {
+  try {
+    const agent = await findAgent(req.params.agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const config = agent.buybackConfig;
+    if (!config || !config.isActive) {
+      return res.json({ queued: false, reason: 'no_active_config' });
+    }
+
+    const inFlight = await prisma.buybackExecution.findFirst({
+      where: {
+        buybackConfigId: config.id,
+        status: { in: ['QUEUED', 'WITHDRAWING', 'SWAPPING', 'BURNING', 'RETRYING'] },
+      },
+      select: { id: true, status: true },
+    });
+    if (inFlight) {
+      return res.json({ queued: false, reason: 'in_flight', execution: inFlight });
+    }
+
+    const snapshot = await snapshotBuybackBalance(
+      config.walletAddress as `0x${string}`,
+    );
+
+    await prisma.buybackConfig.update({
+      where: { id: config.id },
+      data: { lastCheckedAt: new Date() },
+    });
+
+    if (snapshot.totalUsd < config.thresholdUsd) {
+      return res.json({
+        queued: false,
+        reason: 'below_threshold',
+        accumulatedUsd: snapshot.totalUsd,
+        thresholdUsd: config.thresholdUsd,
+      });
+    }
+
+    const execution = await prisma.buybackExecution.create({
+      data: {
+        buybackConfigId: config.id,
+        status: 'QUEUED',
+        triggerBalanceUsd: snapshot.totalUsd,
+        assetsIn: snapshot.assets as any,
+      },
+    });
+
+    return res.json({
+      queued: true,
+      executionId: execution.id,
+      accumulatedUsd: snapshot.totalUsd,
+      thresholdUsd: config.thresholdUsd,
+    });
+  } catch (err: any) {
+    console.error('[buyback] check error:', err);
+    return res.status(500).json({ error: err?.message ?? 'Internal error' });
+  }
+});
+
 // POST /api/agents/:agentId/buyback/recover
 //
 // Sweeps any stranded funds from the buyback wallet back to the developer's

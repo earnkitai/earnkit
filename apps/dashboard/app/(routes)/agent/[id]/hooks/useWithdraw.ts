@@ -436,6 +436,14 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
         }
       }
 
+      // Event-driven buyback trigger — funds are now in the Splits Warehouse
+      // for the buyback recipient. Ask the backend to check accumulated balance
+      // against the configured threshold and queue an execution if crossed.
+      // Fire-and-forget; do not block the user on this.
+      fetch(`/api/agents/${agentDbId}/buyback/check`, { method: 'POST' }).catch(
+        (err) => console.error('Buyback check trigger failed:', err),
+      );
+
       return {
         success: true,
         withdrawalMode: 'splits' as const,
