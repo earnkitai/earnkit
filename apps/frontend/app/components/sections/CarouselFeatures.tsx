@@ -13,7 +13,7 @@ export default function CarouselFeatures() {
           <div className="h-24 w-24 mb-8 relative flex items-center justify-start">
             <div className="relative h-[86px] w-full">
               <Image
-                src="/images/landing/pricing-glow.png"
+                src="/images/landing/pricing.png"
                 alt="pricing"
                 fill
                 className="object-contain"
@@ -61,7 +61,7 @@ export default function CarouselFeatures() {
         <div className="w-full flex flex-col rounded-[28px] border-[3px] bg-color5 border-transparent p-8 md:p-10 transition-all duration-300 ease-in-out">
           <div className="h-24 w-24 mb-8 relative flex items-center justify-start">
             <Image
-              src="/images/landing/automated_buybacks-glow.png"
+              src="/images/landing/automated_buybacks.png"
               alt="buybacks"
               fill
               className="object-contain"
@@ -153,7 +153,7 @@ export default function CarouselFeatures() {
           <div className="h-24 w-24 mb-8 relative flex items-center justify-start">
             <div className="relative h-[80px] w-full">
               <Image
-                src="/images/landing/flashIcon-glow.png"
+                src="/images/landing/flashIcon.png"
                 alt="splits"
                 fill
                 className="object-contain"
