@@ -45,7 +45,7 @@ export default function Header() {
             </Link>
             <Link
               href="https://clanker.world/clanker/0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07"
-              className="mr-6 text-color6 uppercase hover:text-white transition-colors ml-auto flex items-center font-funnel-display justify-center h-fit text-nowrap gap-1 py-2.5  duration-200 px-4 text-base md:text-xl font-medium text-center focus:outline-none focus:ring-2 focus:ring-color16/50 focus:ring-offset-2 focus:ring-offset-earnyBase rounded-full"
+              className="mr-6 text-color6 uppercase hover:text-white transition-colors ml-auto flex items-center font-funnel-display justify-center h-fit text-nowrap gap-1 py-2.5  duration-200 px-4 text-base md:text-xl font-medium text-center focus:outline-none rounded-full"
               target="_blank"
             >
               $Mini
@@ -138,7 +138,7 @@ export default function Header() {
             </Link>
             <Link
               href="https://clanker.world/clanker/0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07"
-              className="text-color2 hover:text-white uppercase transition-colors flex-shrink-0 flex items-center font-funnel-display justify-center h-fit text-nowrap gap-1 py-2.5  duration-200 px-4 text-base md:text-xl font-medium text-center focus:outline-none focus:ring-2 focus:ring-color16/50 focus:ring-offset-2 focus:ring-offset-earnyBase rounded-full"
+              className="text-color2 hover:text-white uppercase transition-colors flex-shrink-0 flex items-center font-funnel-display justify-center h-fit text-nowrap gap-1 py-2.5  duration-200 px-4 text-base md:text-xl font-medium text-center focus:outline-none rounded-full"
               target="_blank"
             >
               $Mini
