@@ -206,6 +206,52 @@ export class PriceService {
   }
 
   /**
+   * Get token price by contract address using Alchemy Price API.
+   * Used as fallback when CoinGecko doesn't have the token.
+   */
+  async getTokenPriceByAddressAlchemy(address: string, network = 'base-mainnet'): Promise<number> {
+    const cacheKey = `alchemy:${address.toLowerCase()}`;
+    const now = Date.now();
+
+    const cached = this.tokenCache.get(cacheKey);
+    if (cached && now - cached.timestamp < this.TOKEN_CACHE_DURATION) {
+      console.log(`Using cached Alchemy price for ${address}:`, cached.price);
+      return cached.price;
+    }
+
+    if (!this.ALCHEMY_API_KEY) {
+      throw new Error('ALCHEMY_API_KEY is not configured');
+    }
+
+    const response = await fetch(
+      `https://api.g.alchemy.com/prices/v1/${this.ALCHEMY_API_KEY}/tokens/by-address`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          addresses: [{ network, address }],
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Alchemy price API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    const usdPrice = data?.data?.[0]?.prices?.find((p: any) => p.currency === 'usd')?.value;
+
+    if (!usdPrice) {
+      throw new Error(`No Alchemy price found for ${address}`);
+    }
+
+    const price = Number(usdPrice);
+    this.tokenCache.set(cacheKey, { price, timestamp: now });
+    console.log(`Alchemy price for ${address}: $${price}`);
+    return price;
+  }
+
+  /**
    * Get token price by symbol
    * @param symbol The token symbol (e.g., 'MINIDEV', 'USDC')
    */
