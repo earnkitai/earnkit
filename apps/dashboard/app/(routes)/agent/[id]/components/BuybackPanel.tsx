@@ -378,7 +378,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                                 <p className="text-[11px] text-red-600 font-mono break-all mt-0.5">{shortError}</p>
                                                 {status.readyToFire && (
                                                     <p className="text-[11px] text-red-500 font-funnel-sans mt-1">
-                                                        Funds are still in the wallet. Use "Trigger buyback now" to retry.
+                                                        Funds are still in the wallet. Use &quot;Trigger buyback now&quot; to retry.
                                                     </p>
                                                 )}
                                             </div>
@@ -394,7 +394,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                     if (status.readyToFire) {
                                         return (
                                             <p className="text-xs text-secondary-green font-funnel-sans mt-2">
-                                                Threshold reached. Buyback fires automatically when you click "Distribute Fees", or use "Trigger now" below.
+                                                Threshold reached. Buyback fires automatically when you click &quot;Distribute Fees&quot;, or use &quot;Trigger now&quot; below.
                                             </p>
                                         );
                                     }
