@@ -93,22 +93,19 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
     const resolvedParams = use(params);
     const { ready, authenticated, user: privyUser } = usePrivy();
     const router = useRouter();
+    const userId = privyUser?.id.split(':').pop() || privyUser?.id;
     const [agent, setAgent] = useState<Agent | null>(null);
     const [earningsData, setEarningsData] = useState<EarningsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
 
-    // Get the authenticated user ID
     useEffect(() => {
-        if (ready && authenticated && privyUser) {
-            const userId = privyUser?.id.split(':').pop() || privyUser?.id;
-            console.log(userId, 'userId');
-        } else if (ready && !authenticated) {
+        if (ready && !authenticated) {
             // Redirect to login if not authenticated
             router.push("/welcome-back");
         }
-    }, [ready, authenticated, privyUser, router]);
+    }, [ready, authenticated, router]);
 
     const refreshEarningsData = useCallback(async () => {
         if (!resolvedParams.id) return;
@@ -798,6 +795,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                             <div className="mt-6">
                                 <TokenConfigPanel
                                     agentId={agent.agentId}
+                                    userId={userId}
                                 />
                             </div>
 

@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { tokenService } from '../services/tokenService';
 import { AgentTokenConfig } from '../types';
-import { validateApiKey } from '../middleware/apiKeyAuth';
 
 // Use mergeParams to access parent route params (:agentId)
 const router: Router = Router({ mergeParams: true });
@@ -91,11 +90,32 @@ router.get('/', async (req: Request, res: Response) => {
  * Update token configuration for an agent
  * Body: { configs: AgentTokenConfig[] }
  */
-router.put('/', validateApiKey, async (req: Request, res: Response) => {
+router.put('/', async (req: Request, res: Response) => {
   try {
     const { agentId } = req.params as { agentId: string };
     const { configs } = req.body as { configs: AgentTokenConfig[] };
-    const userId = (req as any).user?.id;
+
+    // Accept either user API key or internal dashboard secret + userId header
+    let userId: string | undefined;
+    const internalSecret = process.env.INTERNAL_API_SECRET;
+    const providedSecret = req.headers['x-internal-secret'];
+    const headerUserId = req.headers['x-user-id'] as string | undefined;
+
+    if (internalSecret && providedSecret === internalSecret && headerUserId) {
+      userId = headerUserId;
+    } else {
+      const auth = req.headers.authorization;
+      const apiKey = auth?.startsWith('Bearer ') ? auth.substring(7) : (req.headers['x-api-key'] as string);
+      if (!apiKey) {
+        return res.status(401).json({ success: false, message: 'API key is required' });
+      }
+      const { ApiKeyService } = await import('../services/apiKeyService');
+      const user = await ApiKeyService.getUserByApiKey(apiKey);
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Invalid API key' });
+      }
+      userId = user.id;
+    }
 
     if (!configs || !Array.isArray(configs)) {
       return res.status(400).json({
