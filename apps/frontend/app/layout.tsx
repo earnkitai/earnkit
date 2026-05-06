@@ -1,48 +1,65 @@
 import type { Metadata } from "next";
-import { Funnel_Display } from "next/font/google";
+import { Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
-import SchemaOrg from '@/components/SchemaOrg';
+import SchemaOrg from '@/app/components/ui/SchemaOrg';
+import Header from "@/app/components/common/Header";
+import ViewportHeightSetter from "./components/common/ViewportHeightSetter";
 
 const funnelDisplay = Funnel_Display({
   variable: "--font-funnel-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const funnellsans = Funnel_Sans({
+  variable: "--font-funnel-sans",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
-  title: "EarnKit - Create Specialized AI Agents in Minutes",
-  description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+  title: "EarnKit | The Agent Monetization Layer",
+  description: "Easiest way to monetize your AI agent in just a few lines of code.",
   keywords: [
-    "AI agents", "artificial intelligence", "custom AI", "AI development",
-    "no-code AI", "AI platform", "business automation", "AI chatbots",
-    "Earnkit", "EarnKit AI", "AI automation tools", "AI solutions for businesses",
-    "create AI agent", "build AI assistant without coding",
-    "best AI automation platform", "AI tools for business growth",
-    "AI for startups", "automate business with AI", "AI chatbot for sales",
-    "how to build AI agent", "AI for e-commerce", "AI for customer support", "Earn",
-    "Decentralized AI", "AI Agent Framework", "AI in Web3", "AI-Powered Blockchain",
-    "AI & Blockchain Integration", "AI agent crypto", "Web3 Automation",
-    "Blockchain AI", "Crypto Earning Platform", "Earn Cryptocurrency",
-    "Next-Gen AI Agents", "AI-Driven dApps", "Agentic AI", "EarnKit Web3",
-    "AI agent create free", "EarnKit AI Agent Framework"
+    "ai agent monetization", "web3 monetization sdk", "crypto payments api",
+    "smart wallet billing", "onchain billing solution", "usage based pricing web3",
+    "ethereum payment sdk", "stablecoin payment integration", "web3 developer tools",
+    "monetize ai agents with crypto", "agent fee routing sdk", "per prompt billing api",
+    "credit system for ai bots", "wallet native subscription payments",
+    "fee capture from swaps and bridges", "farcaster bot monetization",
+    "telegram trading bot fees", "erc4337 smart wallet billing",
+    "turnkey wallet integration", "privy wallet billing", "zora coins sdk monetization",
+    "langchain monetization plugin", "agentkit billing integration",
+    "elizaos fee layer", "stripe alternative for crypto agents",
+    "how to charge per api call in web3", "add usage based fees to ai agent",
+    "integrate crypto payments in nextjs app", "best sdk for ethereum micropayments",
+    "credit top up system for llm usage", "accept eth and stablecoins in dapp",
+    "build pay per use farcaster mini app", "create subscription model for onchain bots",
+    "sdk to track prompts and onchain fees", "monetize openai agent on polygon",
+    "implement wallet auto deduction no popups", "web3 analytics for agent revenue",
+    "fee splitting smart contract template", "deploy tokenized mini app with earnings",
+    "convert llm usage to onchain revenue", "stripe vs earnkit",
+    "polar sh alternative web3", "web3 billing vs stripe",
+    "best crypto payment sdk 2025", "segment for agent billing",
+    "earnkit sdk", "earnkit monetization protocol", "earnkit agent templates",
+    "earnkit crypto payments", "earnkit dashboard"
   ],
   authors: [{ name: "EarnKit Team" }],
   robots: "index, follow",
   alternates: {
     canonical: 'https://earnkit.com',
   },
-  themeColor: "#000000",
   openGraph: {
-    title: "EarnKit - Create Specialized AI Agents in Minutes",
+    title: "EarnKit | The Agent Matrix",
     siteName: "EarnKit",
     url: "https://earnkit.com",
     type: "website",
     locale: "en_US",
-    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit's framework.",
     images: [
       {
-        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        url: "https://res.cloudinary.com/coinvise/image/upload/v1751438732/earnkit_monetize_metaimage_ub79zc.png",
         width: 1200,
         height: 630,
         alt: "EarnKit Platform Preview",
@@ -53,11 +70,11 @@ export const metadata: Metadata = {
     site: "@EarnKit_ai",
     creator: "@EarnKit_ai",
     card: "summary_large_image",
-    title: "EarnKit - Create Specialized AI Agents in Minutes",
-    description: "Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.",
+    title: "EarnKit | The Agent Matrix",
+    description: "Build and deploy custom AI agents effortlessly with EarnKit's framework.",
     images: [
       {
-        url: "https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png",
+        url: "https://res.cloudinary.com/coinvise/image/upload/v1751438732/earnkit_monetize_metaimage_ub79zc.png",
         alt: "EarnKit Platform Preview",
       },
     ],
@@ -74,10 +91,15 @@ export default function RootLayout({
       <head>
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/apple-icon.png" />
+        <meta name="theme-color" content="#000000" />
         <SchemaOrg />
       </head>
-      <body className={`${funnelDisplay.variable} antialiased`} suppressHydrationWarning>
-        {children}
+      <body className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`} suppressHydrationWarning>
+        <ViewportHeightSetter />
+        <Header />
+        <main className="flex-grow z-30" >
+          {children}
+        </main>
       </body>
     </html>
   );

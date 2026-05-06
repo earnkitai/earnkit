@@ -1,0 +1,614 @@
+import {
+  encodeFunctionData,
+  erc20Abi,
+  formatUnits,
+  parseAbi,
+  parseUnits,
+  type Abi,
+  type TransactionSerializableEIP1559,
+} from 'viem';
+import { base } from 'viem/chains';
+import { prisma } from '../lib/prisma';
+import {
+  encodeWarehouseWithdraw,
+  getBasePublicClient,
+  readWarehouseBalance,
+  SPLIT_NATIVE_TOKEN_ADDRESS,
+  SPLIT_WAREHOUSE_ADDRESS,
+} from '../lib/splitsWarehouse';
+import {
+  applySlippage,
+  encodeExactInput,
+  quoteBestPath,
+  UNISWAP_V3_SWAP_ROUTER_02,
+} from '../lib/uniswap';
+import { DEAD_ADDRESS } from '../lib/tokenSafety';
+import { signTransaction } from '../services/turnkeyService';
+import { SUPPORTED_TOKENS } from '../services/tokenService';
+import { priceService } from '../services/priceService';
+import { ensureGasFunded } from '../lib/operatorGas';
+
+const POLL_INTERVAL_MS = 30_000;
+const MAX_ATTEMPTS = 5;
+const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000]; // 1m, 5m, 30m, 2h, 12h
+const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18); // ~$0.30 worth on Base
+const TX_RECEIPT_TIMEOUT_MS = 5 * 60_000;
+
+const BURN_FN_ABI = parseAbi(['function burn(uint256 amount)']) as Abi;
+
+let intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+interface RunCtx {
+  configId: string;
+  executionId: string;
+  walletAddress: `0x${string}`;
+  subOrgId: string;
+  tokenAddress: `0x${string}`;
+  tokenDecimals: number;
+  slippageBps: number;
+  burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
+  recoveryAddress: `0x${string}`;
+}
+
+async function buildBaseTx(
+  client: ReturnType<typeof getBasePublicClient>,
+  walletAddress: `0x${string}`,
+  to: `0x${string}`,
+  data: `0x${string}`,
+  value: bigint,
+): Promise<TransactionSerializableEIP1559> {
+  const [nonce, fees, gas] = await Promise.all([
+    client.getTransactionCount({ address: walletAddress, blockTag: 'pending' }),
+    client.estimateFeesPerGas(),
+    client.estimateGas({ account: walletAddress, to, data, value }),
+  ]);
+  const gasWithBuffer = (gas * BigInt(120)) / BigInt(100);
+  return {
+    chainId: base.id,
+    type: 'eip1559',
+    to,
+    data,
+    value,
+    nonce,
+    gas: gasWithBuffer,
+    maxFeePerGas: fees.maxFeePerGas,
+    maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+  };
+}
+
+async function sendTurnkeySignedTx(
+  ctx: RunCtx,
+  to: `0x${string}`,
+  data: `0x${string}`,
+  value: bigint = BigInt(0),
+): Promise<`0x${string}`> {
+  const client = getBasePublicClient();
+  const unsignedTx = await buildBaseTx(client, ctx.walletAddress, to, data, value);
+  const signed = await signTransaction({
+    subOrgId: ctx.subOrgId,
+    fromAddress: ctx.walletAddress,
+    unsignedTx,
+  });
+  const txHash = await client.sendRawTransaction({ serializedTransaction: signed });
+  await client.waitForTransactionReceipt({
+    hash: txHash,
+    timeout: TX_RECEIPT_TIMEOUT_MS,
+  });
+  return txHash;
+}
+
+// ---------- State machine steps ----------
+
+async function withdrawAllFromWarehouse(ctx: RunCtx): Promise<string[]> {
+  const client = getBasePublicClient();
+  const hashes: string[] = [];
+
+  // ETH first
+  const ethBal = await readWarehouseBalance({
+    owner: ctx.walletAddress,
+    token: SPLIT_NATIVE_TOKEN_ADDRESS,
+    client,
+  });
+  if (ethBal > BigInt(0)) {
+    const data = encodeWarehouseWithdraw({
+      owner: ctx.walletAddress,
+      token: SPLIT_NATIVE_TOKEN_ADDRESS,
+    });
+    hashes.push(
+      await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data),
+    );
+  }
+
+  // Each supported ERC-20
+  for (const token of SUPPORTED_TOKENS) {
+    const bal = await readWarehouseBalance({
+      owner: ctx.walletAddress,
+      token: token.address as `0x${string}`,
+      client,
+    });
+    if (bal === BigInt(0)) continue;
+    const data = encodeWarehouseWithdraw({
+      owner: ctx.walletAddress,
+      token: token.address as `0x${string}`,
+    });
+    hashes.push(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
+  }
+
+  return hashes;
+}
+
+async function approveIfNeeded(
+  ctx: RunCtx,
+  token: `0x${string}`,
+  amount: bigint,
+): Promise<void> {
+  const client = getBasePublicClient();
+  const allowance = (await client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [ctx.walletAddress, UNISWAP_V3_SWAP_ROUTER_02],
+  })) as bigint;
+  if (allowance >= amount) return;
+
+  const data = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [UNISWAP_V3_SWAP_ROUTER_02, BigInt(2) ** BigInt(256) - BigInt(1)], // max approve
+  });
+  await sendTurnkeySignedTx(ctx, token, data);
+}
+
+interface SwapStepResult {
+  swapHash: string | null;
+  tokensOutAmount: bigint; // delta from swaps only (0 when fees arrived as the buyback token)
+  tokenBalanceAfter: bigint; // full wallet balance after all swaps — use this to decide whether to burn
+  // Per-asset notes for transparency in execution log + Sentry.
+  // [{ asset: "ETH" | "USDC" | ..., amountIn: "0.05", success: true, hash?, error? }]
+  notes: Array<{
+    asset: string;
+    amountIn: string;
+    success: boolean;
+    hash?: string;
+    error?: string;
+  }>;
+}
+
+async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
+  const client = getBasePublicClient();
+  const beforeUserToken = (await client.readContract({
+    address: ctx.tokenAddress,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [ctx.walletAddress],
+  })) as bigint;
+
+  // Discover what's on the wallet (after warehouse withdraw step).
+  const ethBal = await client.getBalance({ address: ctx.walletAddress });
+  const tokenBalances: Array<{ address: `0x${string}`; amount: bigint; symbol: string; decimals: number }> = [];
+  for (const t of SUPPORTED_TOKENS) {
+    const bal = (await client.readContract({
+      address: t.address as `0x${string}`,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [ctx.walletAddress],
+    })) as bigint;
+    if (bal > BigInt(0) && t.address.toLowerCase() !== ctx.tokenAddress.toLowerCase()) {
+      tokenBalances.push({
+        address: t.address as `0x${string}`,
+        amount: bal,
+        symbol: t.symbol,
+        decimals: t.decimals,
+      });
+    }
+  }
+
+  // Reserve gas: only swap ETH amount > MIN_GAS_RESERVE_WEI.
+  const ethSwappable =
+    ethBal > MIN_GAS_RESERVE_WEI ? ethBal - MIN_GAS_RESERVE_WEI : BigInt(0);
+
+  let lastSwapHash: string | null = null;
+  const notes: SwapStepResult['notes'] = [];
+
+  // Each asset's swap is wrapped in its own try/catch — a failure on ETH
+  // doesn't strand USDC, and vice versa. Failures are recorded in `notes`
+  // and the burn step proceeds with whatever userToken balance materialized.
+  if (ethSwappable > BigInt(0)) {
+    try {
+      const { WETH_BASE } = await import('../lib/uniswap');
+      const quote = await quoteBestPath({
+        tokenIn: WETH_BASE,
+        tokenOut: ctx.tokenAddress,
+        amountIn: ethSwappable,
+        client,
+      });
+      if (!quote || quote.amountOut === BigInt(0)) {
+        throw new Error('no_liquidity_eth_to_token');
+      }
+      const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
+      const data = encodeExactInput({
+        path: quote.path,
+        recipient: ctx.walletAddress,
+        amountIn: ethSwappable,
+        amountOutMinimum: minOut,
+      });
+      const hash = await sendTurnkeySignedTx(
+        ctx,
+        UNISWAP_V3_SWAP_ROUTER_02,
+        data,
+        ethSwappable, // msg.value — router wraps to WETH internally
+      );
+      lastSwapHash = hash;
+      notes.push({
+        asset: 'ETH',
+        amountIn: formatUnits(ethSwappable, 18),
+        success: true,
+        hash,
+      });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[BuybackExecutor] ETH swap failed for ${ctx.executionId}:`, reason);
+      notes.push({
+        asset: 'ETH',
+        amountIn: formatUnits(ethSwappable, 18),
+        success: false,
+        error: reason,
+      });
+    }
+  }
+
+  for (const t of tokenBalances) {
+    try {
+      const quote = await quoteBestPath({
+        tokenIn: t.address,
+        tokenOut: ctx.tokenAddress,
+        amountIn: t.amount,
+        client,
+      });
+      if (!quote || quote.amountOut === BigInt(0)) {
+        throw new Error(`no_liquidity_${t.symbol.toLowerCase()}_to_token`);
+      }
+      await approveIfNeeded(ctx, t.address, t.amount);
+      const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
+      const data = encodeExactInput({
+        path: quote.path,
+        recipient: ctx.walletAddress,
+        amountIn: t.amount,
+        amountOutMinimum: minOut,
+      });
+      const hash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
+      lastSwapHash = hash;
+      notes.push({
+        asset: t.symbol,
+        amountIn: formatUnits(t.amount, t.decimals),
+        success: true,
+        hash,
+      });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[BuybackExecutor] ${t.symbol} swap failed for ${ctx.executionId}:`,
+        reason,
+      );
+      notes.push({
+        asset: t.symbol,
+        amountIn: formatUnits(t.amount, t.decimals),
+        success: false,
+        error: reason,
+      });
+    }
+  }
+
+  const afterUserToken = (await client.readContract({
+    address: ctx.tokenAddress,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [ctx.walletAddress],
+  })) as bigint;
+
+  return {
+    swapHash: lastSwapHash,
+    tokensOutAmount: afterUserToken - beforeUserToken,
+    // Fees may have arrived already as the buyback token (no swap needed).
+    // In that case tokensOutAmount delta is 0 even though there's balance to burn.
+    tokenBalanceAfter: afterUserToken,
+    notes,
+  };
+}
+
+async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amount: bigint }> {
+  const client = getBasePublicClient();
+  const balance = (await client.readContract({
+    address: ctx.tokenAddress,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [ctx.walletAddress],
+  })) as bigint;
+
+  if (balance === BigInt(0)) {
+    throw new Error('no_balance_to_burn');
+  }
+
+  const data =
+    ctx.burnMode === 'TOKEN_BURN_FN'
+      ? encodeFunctionData({ abi: BURN_FN_ABI, functionName: 'burn', args: [balance] })
+      : encodeFunctionData({
+          abi: erc20Abi,
+          functionName: 'transfer',
+          args: [DEAD_ADDRESS, balance],
+        });
+  const hash = await sendTurnkeySignedTx(ctx, ctx.tokenAddress, data);
+  return { burnHash: hash, amount: balance };
+}
+
+// ---------- Recovery (sweep funds back to user's dev wallet) ----------
+
+async function sweepToRecoveryAddress(ctx: RunCtx): Promise<string[]> {
+  const client = getBasePublicClient();
+  const hashes: string[] = [];
+
+  // 1. Drain Splits Warehouse to the buyback wallet.
+  hashes.push(...(await withdrawAllFromWarehouse(ctx)));
+
+  // 2. ERC-20 sweeps: every supported token + the userToken (in case there's
+  //    a stale post-swap balance from a previously-failed burn step).
+  const tokensToSweep: Array<{ address: `0x${string}`; symbol: string }> = [
+    ...SUPPORTED_TOKENS.map((t) => ({
+      address: t.address as `0x${string}`,
+      symbol: t.symbol,
+    })),
+    { address: ctx.tokenAddress, symbol: 'USERTOKEN' },
+  ];
+  // Dedupe in case userToken is also one of the supported tokens.
+  const seen = new Set<string>();
+  for (const t of tokensToSweep) {
+    const key = t.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const bal = (await client.readContract({
+        address: t.address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [ctx.walletAddress],
+      })) as bigint;
+      if (bal === BigInt(0)) continue;
+      const data = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [ctx.recoveryAddress, bal],
+      });
+      hashes.push(await sendTurnkeySignedTx(ctx, t.address, data));
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[BuybackExecutor] sweep ${t.symbol} failed for ${ctx.executionId}:`,
+        reason,
+      );
+      // Continue — sweep is best-effort per asset.
+    }
+  }
+
+  // 3. Native ETH sweep — leave a small reserve for the sweep tx itself.
+  try {
+    const ethBal = await client.getBalance({ address: ctx.walletAddress });
+    if (ethBal > MIN_GAS_RESERVE_WEI) {
+      const sendable = ethBal - MIN_GAS_RESERVE_WEI;
+      hashes.push(
+        await sendTurnkeySignedTx(
+          ctx,
+          ctx.recoveryAddress,
+          '0x',
+          sendable,
+        ),
+      );
+    }
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[BuybackExecutor] ETH sweep failed for ${ctx.executionId}:`,
+      reason,
+    );
+  }
+
+  return hashes;
+}
+
+// ---------- Main loop ----------
+
+async function processOne(): Promise<void> {
+  const now = new Date();
+
+  const due = await prisma.buybackExecution.findMany({
+    where: {
+      status: { in: ['QUEUED', 'RETRYING'] },
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+    },
+    include: { buybackConfig: true },
+    take: 5,
+  });
+
+  if (due.length === 0) return;
+
+  for (const exec of due) {
+    const config = exec.buybackConfig;
+    if (!config.isActive) {
+      // Owner disabled buyback — cancel pending executions.
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: { status: 'FAILED', lastError: 'config_disabled', completedAt: new Date() },
+      });
+      continue;
+    }
+
+    // Atomic claim: set status to a transitional state so other workers skip.
+    const claim = await prisma.buybackExecution.updateMany({
+      where: { id: exec.id, attempts: exec.attempts },
+      data: {
+        attempts: exec.attempts + 1,
+        status: 'WITHDRAWING',
+        nextAttemptAt: null,
+      },
+    });
+    if (claim.count === 0) {
+      console.log(`[BuybackExecutor] Skipping ${exec.id} — claimed by another worker`);
+      continue;
+    }
+
+    const isRecovery =
+      exec.assetsIn &&
+      typeof exec.assetsIn === 'object' &&
+      !Array.isArray(exec.assetsIn) &&
+      (exec.assetsIn as any).intent === 'recover';
+
+    const ctx: RunCtx = {
+      configId: config.id,
+      executionId: exec.id,
+      walletAddress: config.walletAddress as `0x${string}`,
+      subOrgId: config.turnkeySubOrgId,
+      tokenAddress: config.tokenAddress as `0x${string}`,
+      tokenDecimals: config.tokenDecimals,
+      slippageBps: config.slippageBps,
+      burnMode: config.burnMode,
+      recoveryAddress: config.recoveryAddress as `0x${string}`,
+    };
+
+    const attempt = exec.attempts + 1;
+    const isFinal = attempt >= MAX_ATTEMPTS;
+
+    try {
+      // Top up gas from the platform's operator wallet before any signing.
+      // The buyback wallet pays its own gas for the actual ops; the drip just
+      // ensures it has enough ETH on hand to do so. Drips come from a Turnkey
+      // wallet with a "ETH transfers only, to known buyback wallets" policy,
+      // so a Railway compromise still cannot reroute the gas budget.
+      try {
+        await ensureGasFunded(ctx.walletAddress);
+      } catch (err: any) {
+        // Operator-gas failures should fail the execution attempt, not silently
+        // proceed and hit "insufficient funds" deeper in the flow with a
+        // confusing error.
+        throw new Error(`gas_drip_failed: ${err?.message ?? err}`);
+      }
+
+      if (isRecovery) {
+        // Recovery sweep: drain Warehouse + transfer all balances on the
+        // wallet to the user-configured recoveryAddress (= their dev wallet).
+        // Permitted by the Turnkey policy because recoveryAddress is bound
+        // into the policy at config-creation time.
+        const sweepHashes = await sweepToRecoveryAddress(ctx);
+        await prisma.buybackExecution.update({
+          where: { id: exec.id },
+          data: {
+            warehouseWithdrawHashes: sweepHashes,
+            status: 'COMPLETED',
+            completedAt: new Date(),
+          },
+        });
+        continue;
+      }
+
+      const withdrawHashes = await withdrawAllFromWarehouse(ctx);
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: {
+          warehouseWithdrawHashes: withdrawHashes,
+          status: 'SWAPPING',
+        },
+      });
+
+      const swap = await swapAllToUserToken(ctx);
+      // Use tokenBalanceAfter (not the delta) to decide whether to proceed to burn.
+      // Fees can arrive already as the buyback token — in that case tokensOutAmount
+      // is 0 (no swap ran) but tokenBalanceAfter > 0 and burn should still fire.
+      const allSwapsFailed = swap.notes.length > 0 && swap.notes.every((n) => !n.success);
+      if (allSwapsFailed || swap.tokenBalanceAfter === BigInt(0)) {
+        await prisma.buybackExecution.update({
+          where: { id: exec.id },
+          data: {
+            status: 'FAILED',
+            swapHash: swap.swapHash ?? undefined,
+            lastError: `swap_all_failed: ${JSON.stringify(swap.notes).slice(0, 400)}`,
+            completedAt: new Date(),
+          },
+        });
+        continue;
+      }
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: {
+          swapHash: swap.swapHash ?? undefined,
+          status: 'BURNING',
+        },
+      });
+
+      const burn = await burnAcquiredTokens(ctx);
+
+      let usdEstimate: number | undefined;
+      try {
+        const tokenAmountHuman = Number(formatUnits(burn.amount, ctx.tokenDecimals));
+        // We don't know the token's USD price from coingecko (it's user-supplied),
+        // so we report the trigger USD as a stand-in.
+        usdEstimate = exec.triggerBalanceUsd;
+        void tokenAmountHuman;
+      } catch {
+        // ignore — accounting is best-effort.
+      }
+
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: {
+          status: 'COMPLETED',
+          burnHash: burn.burnHash,
+          tokensOutAmount: burn.amount.toString(),
+          tokensOutUsd: usdEstimate,
+          completedAt: new Date(),
+        },
+      });
+      await prisma.buybackConfig.update({
+        where: { id: config.id },
+        data: { lastTriggeredAt: new Date() },
+      });
+
+      console.log(
+        `[BuybackExecutor] Completed ${exec.id}: burned ${formatUnits(burn.amount, ctx.tokenDecimals)} ${config.tokenSymbol}`,
+      );
+    } catch (err: any) {
+      const reason: string = err?.message ?? 'unknown_error';
+      const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)];
+      await prisma.buybackExecution.update({
+        where: { id: exec.id },
+        data: {
+          status: isFinal ? 'FAILED' : 'RETRYING',
+          lastError: reason.slice(0, 500),
+          nextAttemptAt: isFinal ? null : new Date(Date.now() + delay),
+          completedAt: isFinal ? new Date() : null,
+        },
+      });
+      console.error(
+        `[BuybackExecutor] Execution ${exec.id} attempt ${attempt} failed:`,
+        reason,
+      );
+    }
+  }
+}
+
+export function startBuybackExecutorWorker(): void {
+  if (intervalHandle) return;
+  console.log(
+    `[BuybackExecutor] Starting — polling every ${POLL_INTERVAL_MS / 1000}s`,
+  );
+  processOne().catch((e) =>
+    console.error('[BuybackExecutor] Initial run error:', e),
+  );
+  intervalHandle = setInterval(() => {
+    processOne().catch((e) => console.error('[BuybackExecutor] Poll error:', e));
+  }, POLL_INTERVAL_MS);
+}
+
+export function stopBuybackExecutorWorker(): void {
+  if (intervalHandle) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
+}
