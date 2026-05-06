@@ -24,9 +24,10 @@ interface AvailableToken {
 
 interface TokenConfigPanelProps {
   agentId: string;
+  userId?: string;
 }
 
-export function TokenConfigPanel({ agentId }: TokenConfigPanelProps) {
+export function TokenConfigPanel({ agentId, userId }: TokenConfigPanelProps) {
   const [configs, setConfigs] = useState<TokenConfig[]>([]);
   const [availableTokens, setAvailableTokens] = useState<AvailableToken[]>([]);
   const [isDefault, setIsDefault] = useState(true);
@@ -121,7 +122,7 @@ export function TokenConfigPanel({ agentId }: TokenConfigPanelProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ configs }),
+        body: JSON.stringify({ configs, ...(userId ? { userId } : {}) }),
       });
 
       const data = await response.json();

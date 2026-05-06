@@ -32,12 +32,19 @@ export async function PUT(
   try {
     const agentId = (await params).id;
     const body = await request.json();
+    const { userId, ...rest } = body;
+    const internalSecret = process.env.INTERNAL_API_SECRET;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (internalSecret && userId) {
+      headers['x-internal-secret'] = internalSecret;
+      headers['x-user-id'] = userId;
+    }
+
     const response = await fetch(`${backendUrl}/api/agents/${agentId}/token-config`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: JSON.stringify(rest),
     });
     const data = await response.json();
 
