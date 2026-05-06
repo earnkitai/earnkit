@@ -8,6 +8,7 @@ import Activity from "@/app/components/sections/activity";
 import { Toaster } from "@/app/components/ui/sonner";
 import { Button } from "@/app/components/ui/button";
 import { SendTransactionModal } from '@/components/modals/send-transaction-modal';
+import { TopUpCreditsModal } from '@/components/modals/top-up-credits-modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Card } from "@/app/components/ui/card";
 import Image from "next/image";
@@ -15,7 +16,7 @@ import { getBalance, getTokenBalances } from "@/actions/web3";
 import { useTokenPrice } from "@/hooks/use-token-price";
 import { formatEther } from "viem";
 import { truncateAddress } from "@/lib/utils";
-import { Copy } from "lucide-react";
+import { Copy, Coins } from "lucide-react";
 import { toast } from "sonner";
 
 // Add TokenBalance type from assets.tsx
@@ -47,11 +48,19 @@ export default function WalletPage() {
 
     const { ready: privyWalletReady, wallets } = useWallets();
     const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+    const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
     const { ethPrice } = useTokenPrice();
+
+    // Test agent configuration for local/demo credit top-ups.
+    const TEST_AGENT_ID = process.env.NEXT_PUBLIC_TEST_AGENT_ID || '';
+    const TEST_API_KEY = process.env.NEXT_PUBLIC_EARNKIT_API_KEY || '';
+    const EARN_BACKEND_URL = process.env.NEXT_PUBLIC_EARN_BACKEND_URL || 'http://localhost:3000';
     const [tokens, setTokens] = useState<TokenBalance[]>([]);
     const [ethBalance, setEthBalance] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [earnkitCredits, setEarnkitCredits] = useState<number>(0);
+    const [creditsRefreshKey, setCreditsRefreshKey] = useState(0);
 
 
     useEffect(() => {
@@ -59,6 +68,37 @@ export default function WalletPage() {
             // console.log(privyUser, "privy user details")
         }
     }, [privyReady, privyUser, authenticated]);
+
+    // Fetch EarnKit credits balance
+    const fetchCredits = async () => {
+        if (!walletAddress || !TEST_AGENT_ID || !TEST_API_KEY) return;
+        try {
+            const res = await fetch(
+                `${EARN_BACKEND_URL}/api/balance?agentId=${TEST_AGENT_ID}&walletAddress=${walletAddress}`,
+                { headers: { Authorization: `Bearer ${TEST_API_KEY}` } }
+            );
+            if (res.ok) {
+                const data = await res.json();
+                setEarnkitCredits(parseInt(data.credits) || 0);
+            }
+        } catch (err) {
+            console.error('Failed to fetch credits:', err);
+        }
+    };
+
+    useEffect(() => {
+        fetchCredits();
+    }, [walletAddress, creditsRefreshKey]);
+
+    // Handle successful top-up - refresh credits after backend processes
+    const handleTopUpSuccess = (txHash: string) => {
+        toast.success(`Credits topped up! TX: ${txHash.slice(0, 10)}...`);
+        // Backend has 5-second delay to confirm, refresh after 6 seconds
+        setTimeout(() => {
+            setCreditsRefreshKey(k => k + 1);
+            toast.success('Credits balance updated!');
+        }, 6000);
+    };
 
     useEffect(() => {
         if (privyWalletReady && wallets.length > 0) {
@@ -122,6 +162,12 @@ export default function WalletPage() {
                 <div className="flex flex-col items-start justify-between gap-6">
                     <div className="flex flex-col gap-[50px] mt-[35px] justify-center">
                         <div className="text-[32px] font-medium font-funnel-display text-color8 mb-2">Wallet Balance <span className="flex items-center gap-2 text-white/40 text-sm font-funnel-sans">{truncateAddress(walletAddress ?? "")} <Copy className="w-4 h-4" onClick={() => handleCopyAddress(walletAddress ?? "")} /></span></div>
+                        {earnkitCredits > 0 && (
+                            <div className="bg-purple-600/20 border border-purple-500/30 rounded-full px-4 py-1 flex items-center gap-2">
+                                <Coins className="w-4 h-4 text-purple-400" />
+                                <span className="text-purple-300 font-semibold">{earnkitCredits} Credits</span>
+                            </div>
+                        )}
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex flex-col items-start gap-4">
                                 <span className="text-4xl md:text-[72px] font-bold font-funnel-display text-white">${totalValue.toFixed(2)}</span>
@@ -161,6 +207,14 @@ export default function WalletPage() {
                                         <path d="M24.2517 19.5449L22.2312 17.5244L19.3806 20.375V9.15527H16.5232V20.376L13.6716 17.5244L11.6511 19.5449L17.9519 25.8447L24.2517 19.5449Z" fill="currentColor" />
                                     </svg>
                                     Withdraw
+                                </Button>
+                                <Button
+                                    onClick={() => setIsTopUpModalOpen(true)}
+                                    variant="secondary"
+                                    className="bg-purple-600 h-[100%] min-h-[78px] min-w-[260px] text-white font-semibold px-8 py-3 rounded-full text-[28px] border-none leading-[120%] flex items-center gap-[12px] hover:bg-purple-700"
+                                >
+                                    <Coins className="w-9 h-9" />
+                                    Top Up Credits
                                 </Button>
                             </div>
                         </div>
@@ -225,7 +279,18 @@ export default function WalletPage() {
                 isOpen={isSendModalOpen}
                 onClose={() => setIsSendModalOpen(false)}
             />}
+            
+            {isTopUpModalOpen && (
+                <TopUpCreditsModal
+                    isOpen={isTopUpModalOpen}
+                    onClose={() => setIsTopUpModalOpen(false)}
+                    agentId={TEST_AGENT_ID}
+                    apiKey={TEST_API_KEY}
+                    apiBaseUrl={EARN_BACKEND_URL}
+                    onSuccess={handleTopUpSuccess}
+                />
+            )}
             <Toaster />
         </section>
     );
-} 
+}

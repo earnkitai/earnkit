@@ -1,15 +1,8 @@
 "use client";
 
-// import { getUserByEmail } from "@/actions/user";
 import { LoadingButton } from "@/app/components/ui/button.loader";
-// import { useUser } from "@/hooks/use-user";
-// import { useAuth } from "@/providers/auth-provider";
-// import Link from "next/link";
 import { useRouter } from "next/navigation";
-// import { providerMap } from "@/auth.config";
-// import { handleEmailSignIn } from "@/actions/signin/sendVerificationRequest";
 import { Suspense, useEffect, useState, useRef } from "react";
-// import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Toaster } from "@/app/components/ui/sonner";
 import { z } from "zod";
@@ -158,19 +151,20 @@ function SignUpPage() {
           console.log(user, "db user details")
           // const username = user.email?.address.toString()?.split('@')[0] || '';
           const userId = user.id.split(':').pop() || user.id;
+          const randomUsername = Math.random().toString(36).substring(2, 15);
 
           // Create user in database using server action
           await createUser({
             id: userId,
             email: user.email?.address.toString() || null,
-            username: "",
+            username: user.email?.address.toString()?.split('@')[0] || randomUsername,
             hasAcceptedTerms: true,
             isGuest: false,
             mfaMethods: [],
           });
 
           // Redirect to passkey setup page
-          router.push("/sign-up/passkeys");
+          router.push("/home");
         } else if (ready && !isNewUser) {
 
           // user is there on the privy db
@@ -184,7 +178,7 @@ function SignUpPage() {
               router.push("/home");
             } else {
               // Case 3: User exists but no username - stay on page to set username
-              router.push("/sign-up/passkeys");
+              // router.push("/sign-up/passkeys");
             }
           } else {
             // Case 1 & 2: User doesn't exist in database - create user
@@ -196,7 +190,7 @@ function SignUpPage() {
               isGuest: false,
               mfaMethods: [],
             });
-            router.push("/sign-up/passkeys");
+            router.push("/home");
           }
         }
       } catch (error) {

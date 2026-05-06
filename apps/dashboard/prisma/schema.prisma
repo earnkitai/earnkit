@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,45 +8,38 @@ datasource db {
 }
 
 model User {
-  id               String   @id @unique // This will be the privyId
-  username         String?  @unique
-  email            String?  @unique
-  createdAt        DateTime @default(now()) @map("created_at")
-  hasAcceptedTerms Boolean  @default(false) @map("has_accepted_terms")
-  isGuest          Boolean  @default(false) @map("is_guest")
-  mfaMethods       String[] @default([]) @map("mfa_methods")
-
-  // Linked Accounts - will be empty arrays if no accounts are linked
-  walletAccounts      WalletAccount[]
-  smartWalletAccounts SmartWalletAccount[]
-  emailAccounts       EmailAccount[]
-  phoneAccounts       PhoneAccount[]
-  googleAccounts      GoogleAccount[]
-  twitterAccounts     TwitterAccount[]
-  discordAccounts     DiscordAccount[]
-  githubAccounts      GithubAccount[]
-  spotifyAccounts     SpotifyAccount[]
-  instagramAccounts   InstagramAccount[]
-  tiktokAccounts      TiktokAccount[]
-  linkedinAccounts    LinkedInAccount[]
+  id                  String               @id @unique
+  username            String?              @unique
+  email               String?              @unique
+  createdAt           DateTime             @default(now()) @map("created_at")
+  hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
+  isGuest             Boolean              @default(false) @map("is_guest")
+  mfaMethods          String[]             @default([]) @map("mfa_methods")
+  apiKey              String?              @unique @map("api_key")        // stores SHA-256 hash
+  apiKeyPrefix        String?              @map("api_key_prefix")         // e.g. "ek_abcd1234"
+  agents              Agent[]
   appleAccounts       AppleAccount[]
-  customJwtAccounts   CustomJwtAccount[]
-  farcasterAccounts   FarcasterAccount[]
-  passkeyAccounts     PasskeyAccount[]
-  telegramAccounts    TelegramAccount[]
   crossAppAccounts    CrossAppAccount[]
-
-  // Chats
-  chats Chat[]
-
-  // Orders
-  limitOrders  LimitOrder[]
-  orderHistory OrderHistory[]
+  customJwtAccounts   CustomJwtAccount[]
+  discordAccounts     DiscordAccount[]
+  emailAccounts       EmailAccount[]
+  farcasterAccounts   FarcasterAccount[]
+  githubAccounts      GithubAccount[]
+  googleAccounts      GoogleAccount[]
+  instagramAccounts   InstagramAccount[]
+  linkedinAccounts    LinkedInAccount[]
+  passkeyAccounts     PasskeyAccount[]
+  phoneAccounts       PhoneAccount[]
+  smartWalletAccounts SmartWalletAccount[]
+  spotifyAccounts     SpotifyAccount[]
+  telegramAccounts    TelegramAccount[]
+  tiktokAccounts      TiktokAccount[]
+  twitterAccounts     TwitterAccount[]
+  walletAccounts      WalletAccount[]
 
   @@map("users")
 }
 
-// Linked Account Models
 model WalletAccount {
   id               String  @id @default(uuid())
   userId           String  @map("user_id")
@@ -297,99 +284,234 @@ model SmartWallet {
   @@map("smart_wallets")
 }
 
-model Chat {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  title     String?
-  isActive  Boolean   @default(true) @map("is_active")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  Message[]
+model Agent {
+  id                  String             @id @default(uuid())
+  userId              String             @map("user_id")
+  name                String
+  agentId             String             @unique @map("agent_id")
+  status              AgentStatus        @default(ACTIVE)
+  feeModel            FeeModel           @default(FREE_TIER)
+  freePromptThreshold Int?               @map("free_prompt_threshold")
+  ratePerPrompt       Float?             @map("rate_per_prompt")
+  creditsPerPrompt    Int?               @map("credits_per_prompt")
+  totalEarnings       Float              @default(0) @map("total_earnings")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpPackages       TopUpPackage[]
+  topUpTransactions   TopUpTransaction[]
+  transactionLogs     TransactionLog[]
+  usageEvents         UsageEvent[]
+  userBalances        UserBalance[]
+  buybackConfig       BuybackConfig?
+  splitAddress        String?            @map("split_address")
+  buybackAddress      String?            @map("buyback_address")
+  buybackPercent      Float              @default(0) @map("buyback_percent")
 
-  @@map("chats")
-}
-
-model Message {
-  id           String   @id @default(uuid())
-  chatId       String   @map("chat_id")
-  responseFrom String   @map("response_from")
-  toolName     String?  @map("tool_name")
-  content      String
-  metadata     Json?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  chat         Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-
-  @@map("messages")
-}
-
-// Active Limit Orders Table
-model LimitOrder {
-  id              String         @id @default(cuid())
-  userId          String         @map("user_id")
-  userAddress     String         @map("user_address")
-  tokenAddress    String         @map("token_address")
-  tokenSymbol     String         @map("token_symbol")
-  tokenDecimal    Int            @default(18)
-  amount          String
-  priceAtCreation String         @map("price_at_creation")
-  targetPrice     String?        @map("target_price")
-  targetChange    Float?         @map("target_change")
-  direction       OrderDirection
-  orderType       OrderType      @default(LIMIT)
-  createdAt       DateTime       @default(now()) @map("created_at")
-  aiInitiated     Boolean        @default(false) @map("ai_initiated")
-  notes           String?        @db.Text
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // 🔍 Indexes
   @@index([userId])
-  @@index([userAddress])
-  @@index([tokenAddress, direction])
-  @@index([direction, priceAtCreation])
+  @@index([agentId])
+  @@index([status])
   @@index([createdAt])
-  @@index([aiInitiated, direction])
-  @@map("limit_orders")
+  @@map("agents")
 }
 
-// Historical Executed Orders Table
-model OrderHistory {
-  id              String         @id @default(cuid())
-  userId          String         @map("user_id")
-  userAddress     String         @map("user_address")
-  tokenAddress    String         @map("token_address")
-  tokenSymbol     String         @map("token_symbol")
-  tokenDecimal    Int            @default(18)
-  amount          String
-  priceAtCreation String         @map("price_at_creation")
-  targetPrice     String?        @map("target_price")
-  targetChange    Float?         @map("target_change")
-  direction       OrderDirection
-  orderType       OrderType
-  createdAt       DateTime       @map("created_at")
-  executedAt      DateTime       @map("executed_at")
-  executedPrice   String         @map("executed_price")
-  aiInitiated     Boolean        @default(false) @map("ai_initiated")
-  notes           String?        @db.Text
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+model BuybackConfig {
+  id                String             @id @default(cuid())
+  agentId           String             @unique @map("agent_id")
+  agent             Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
-  // 🔍 Indexes
-  @@index([userId, createdAt])
-  @@index([userAddress])
-  @@index([tokenAddress, direction])
-  @@index([executedAt])
-  @@index([orderType, executedAt])
-  @@index([aiInitiated])
-  @@map("order_history")
+  tokenAddress      String             @map("token_address")
+  tokenSymbol       String             @map("token_symbol")
+  tokenDecimals     Int                @map("token_decimals")
+
+  thresholdUsd      Float              @default(10) @map("threshold_usd")
+  slippageBps       Int                @default(500) @map("slippage_bps")
+  burnMode          BurnMode           @default(DEAD_ADDRESS) @map("burn_mode")
+
+  turnkeySubOrgId   String             @unique @map("turnkey_sub_org_id")
+  turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
+  walletAddress     String             @unique @map("wallet_address")
+  policyId          String             @map("policy_id")
+  recoveryAddress   String             @map("recovery_address")
+  coSignerEndpoint  String?            @map("co_signer_endpoint")
+
+  isActive          Boolean            @default(true) @map("is_active")
+  lastCheckedAt     DateTime?          @map("last_checked_at")
+  lastTriggeredAt   DateTime?          @map("last_triggered_at")
+
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  executions        BuybackExecution[]
+
+  @@index([isActive])
+  @@index([walletAddress])
+  @@map("buyback_configs")
 }
 
-enum OrderDirection {
-  BUY
-  SELL
+model BuybackExecution {
+  id                      String         @id @default(cuid())
+  buybackConfigId         String         @map("buyback_config_id")
+  buybackConfig           BuybackConfig  @relation(fields: [buybackConfigId], references: [id], onDelete: Cascade)
+
+  status                  BuybackStatus  @default(QUEUED)
+  triggerBalanceUsd       Float          @map("trigger_balance_usd")
+  attempts                Int            @default(0)
+  lastError               String?        @map("last_error")
+  nextAttemptAt           DateTime?      @map("next_attempt_at")
+
+  warehouseWithdrawHashes String[]       @default([]) @map("warehouse_withdraw_hashes")
+  swapHash                String?        @map("swap_hash")
+  burnHash                String?        @map("burn_hash")
+
+  assetsIn                Json?          @map("assets_in")
+  tokensOutAmount         String?        @map("tokens_out_amount")
+  tokensOutUsd            Float?         @map("tokens_out_usd")
+  gasSpentEth             String?        @map("gas_spent_eth")
+
+  startedAt               DateTime       @default(now()) @map("started_at")
+  completedAt             DateTime?      @map("completed_at")
+
+  @@index([buybackConfigId, status])
+  @@index([status, nextAttemptAt])
+  @@map("buyback_executions")
 }
 
-enum OrderType {
-  LIMIT
-  DIRECT
+enum BurnMode {
+  DEAD_ADDRESS
+  TOKEN_BURN_FN
+}
+
+enum BuybackStatus {
+  QUEUED
+  WITHDRAWING
+  SWAPPING
+  BURNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+model TopUpPackage {
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  name      String
+  credits   Int
+  price     Float
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([isActive])
+  @@map("top_up_packages")
+}
+
+model TransactionLog {
+  id              String            @id @default(uuid())
+  agentId         String            @map("agent_id")
+  userId          String            @map("user_id")
+  transactionHash String?           @map("transaction_hash")
+  fromAddress     String            @map("from_address")
+  toAddress       String            @map("to_address")
+  amount          Float
+  status          TransactionStatus @default(PENDING)
+  transactionType TransactionType
+  description     String?
+  metadata        Json?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  agent           Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([status])
+  @@index([transactionType])
+  @@index([createdAt])
+  @@map("transaction_logs")
+}
+
+model UserBalance {
+  userWalletAddress String
+  agentId           String
+  ethBalance        Decimal  @default(0)
+  creditBalance     BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([userWalletAddress, agentId])
+  @@map("user_balances")
+}
+
+model UsageEvent {
+  id                String           @id @default(cuid())
+  status            UsageEventStatus @default(PENDING)
+  feeDeducted       Decimal?
+  creditsDeducted   BigInt?
+  idempotencyKey    String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  agentId           String
+  userWalletAddress String
+  agent             Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, userWalletAddress, status])
+  @@map("usage_events")
+}
+
+model TopUpTransaction {
+  txHash            String      @id
+  status            TopUpStatus @default(PENDING)
+  userWalletAddress String
+  agentId           String
+  amountInUSD       String       @map("amount_in_usd") @default("0")
+  amountInEth       String       @map("amount_in_eth") @default("0")
+  creditsToTopUp    BigInt?
+  errorMessage      String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("top_up_transactions")
+}
+
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+enum FeeModel {
+  FREE_TIER
+  CREDIT_BASED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionType {
+  EARNING
+  WITHDRAWAL
+  TOP_UP
+  REFUND
+}
+
+enum UsageEventStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  INSUFFICIENT_CREDITS
+}
+
+enum TopUpStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
 }

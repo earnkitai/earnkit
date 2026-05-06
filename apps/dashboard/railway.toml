@@ -1,10 +1,9 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pnpm install && pnpm build:dashboard"
-watchPatterns = ["/apps/dashboard/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
+nixpacksConfigPath = "apps/dashboard/nixpacks.toml"
+watchPatterns = ["apps/dashboard/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
 
 [deploy]
-startCommand = "pnpm start:dashboard"
+startCommand = "cd apps/dashboard && pnpm exec prisma migrate deploy && pnpm exec next start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-

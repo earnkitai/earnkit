@@ -1,0 +1,702 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String               @id @unique
+  username            String?              @unique
+  email               String?              @unique
+  createdAt           DateTime             @default(now()) @map("created_at")
+  hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
+  isGuest             Boolean              @default(false) @map("is_guest")
+  mfaMethods          String[]             @default([]) @map("mfa_methods")
+  apiKey              String?              @unique @map("api_key")        // stores SHA-256 hash
+  apiKeyPrefix        String?              @map("api_key_prefix")         // e.g. "ek_abcd1234"
+  agents              Agent[]
+  appleAccounts       AppleAccount[]
+  crossAppAccounts    CrossAppAccount[]
+  customJwtAccounts   CustomJwtAccount[]
+  discordAccounts     DiscordAccount[]
+  emailAccounts       EmailAccount[]
+  farcasterAccounts   FarcasterAccount[]
+  githubAccounts      GithubAccount[]
+  googleAccounts      GoogleAccount[]
+  instagramAccounts   InstagramAccount[]
+  linkedinAccounts    LinkedInAccount[]
+  passkeyAccounts     PasskeyAccount[]
+  phoneAccounts       PhoneAccount[]
+  smartWalletAccounts SmartWalletAccount[]
+  spotifyAccounts     SpotifyAccount[]
+  telegramAccounts    TelegramAccount[]
+  tiktokAccounts      TiktokAccount[]
+  twitterAccounts     TwitterAccount[]
+  walletAccounts      WalletAccount[]
+
+  @@map("users")
+}
+
+model WalletAccount {
+  id               String  @id @default(uuid())
+  userId           String  @map("user_id")
+  type             String  @default("wallet")
+  address          String
+  chainType        String  @map("chain_type")
+  walletClientType String  @map("wallet_client_type")
+  connectorType    String  @map("connector_type")
+  recoveryMethod   String  @map("recovery_method")
+  imported         Boolean @default(false)
+  delegated        Boolean @default(false)
+  walletIndex      Int?    @map("wallet_index")
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallet_accounts")
+}
+
+model SmartWalletAccount {
+  id              String @id @default(uuid())
+  userId          String @map("user_id")
+  type            String @default("smart_wallet")
+  address         String
+  smartWalletType String @map("smart_wallet_type")
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("smart_wallet_accounts")
+}
+
+model EmailAccount {
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  type    String @default("email")
+  address String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_accounts")
+}
+
+model PhoneAccount {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  type   String @default("phone")
+  number String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("phone_accounts")
+}
+
+model GoogleAccount {
+  id      String  @id @default(uuid())
+  userId  String  @map("user_id")
+  type    String  @default("google_oauth")
+  subject String
+  email   String
+  name    String?
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("google_accounts")
+}
+
+model TwitterAccount {
+  id                String  @id @default(uuid())
+  userId            String  @map("user_id")
+  type              String  @default("twitter_oauth")
+  subject           String
+  username          String?
+  name              String?
+  profilePictureUrl String? @map("profile_picture_url")
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("twitter_accounts")
+}
+
+model DiscordAccount {
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("discord_oauth")
+  subject  String
+  username String?
+  email    String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("discord_accounts")
+}
+
+model GithubAccount {
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("github_oauth")
+  subject  String
+  username String?
+  name     String?
+  email    String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("github_accounts")
+}
+
+model SpotifyAccount {
+  id      String  @id @default(uuid())
+  userId  String  @map("user_id")
+  type    String  @default("spotify_oauth")
+  subject String
+  email   String?
+  name    String?
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("spotify_accounts")
+}
+
+model InstagramAccount {
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("instagram_oauth")
+  subject  String
+  username String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("instagram_accounts")
+}
+
+model TiktokAccount {
+  id       String  @id @default(uuid())
+  userId   String  @map("user_id")
+  type     String  @default("tiktok_oauth")
+  subject  String
+  username String?
+  name     String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tiktok_accounts")
+}
+
+model LinkedInAccount {
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  type       String  @default("linkedin_oauth")
+  subject    String
+  name       String?
+  email      String?
+  vanityName String? @map("vanity_name")
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("linkedin_accounts")
+}
+
+model AppleAccount {
+  id      String @id @default(uuid())
+  userId  String @map("user_id")
+  type    String @default("apple_oauth")
+  subject String
+  email   String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("apple_accounts")
+}
+
+model CustomJwtAccount {
+  id           String @id @default(uuid())
+  userId       String @map("user_id")
+  type         String @default("custom_auth")
+  customUserId String @map("custom_user_id")
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("custom_jwt_accounts")
+}
+
+model FarcasterAccount {
+  id              String  @id @default(uuid())
+  userId          String  @map("user_id")
+  type            String  @default("farcaster")
+  fid             Int?
+  ownerAddress    String  @map("owner_address")
+  username        String?
+  displayName     String? @map("display_name")
+  bio             String?
+  pfp             String?
+  url             String?
+  signerPublicKey String? @map("signer_public_key")
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("farcaster_accounts")
+}
+
+model PasskeyAccount {
+  id                 String  @id @default(uuid())
+  userId             String  @map("user_id")
+  type               String  @default("passkey")
+  credentialId       String  @map("credential_id")
+  enrolledInMfa      Boolean @default(false) @map("enrolled_in_mfa")
+  authenticatorName  String  @map("authenticator_name")
+  createdWithDevice  String  @map("created_with_device")
+  createdWithOs      String  @map("created_with_os")
+  createdWithBrowser String  @map("created_with_browser")
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("passkey_accounts")
+}
+
+model TelegramAccount {
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  type           String  @default("telegram")
+  telegramUserId String  @map("telegram_user_id")
+  firstName      String? @map("first_name")
+  lastName       String? @map("last_name")
+  username       String?
+  photoUrl       String? @map("photo_url")
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_accounts")
+}
+
+model CrossAppAccount {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  type            String           @default("cross_app")
+  subject         String
+  providerApp     Json             @map("provider_app")
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  embeddedWallets EmbeddedWallet[]
+  smartWallets    SmartWallet[]
+
+  @@map("cross_app_accounts")
+}
+
+model EmbeddedWallet {
+  id                String          @id @default(uuid())
+  crossAppAccountId String          @map("cross_app_account_id")
+  address           String
+  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
+
+  @@map("embedded_wallets")
+}
+
+model SmartWallet {
+  id                String          @id @default(uuid())
+  crossAppAccountId String          @map("cross_app_account_id")
+  address           String
+  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
+
+  @@map("smart_wallets")
+}
+
+model Agent {
+  id                  String             @id @default(uuid())
+  userId              String             @map("user_id")
+  name                String
+  agentId             String             @unique @map("agent_id")
+  status              AgentStatus        @default(ACTIVE)
+  feeModel            FeeModel           @default(FREE_TIER)
+  freePromptThreshold Int?               @map("free_prompt_threshold")
+  ratePerPrompt       Float?             @map("rate_per_prompt")
+  creditsPerPrompt    Int?               @map("credits_per_prompt")
+  totalEarnings       Float              @default(0) @map("total_earnings")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topUpPackages       TopUpPackage[]
+  topUpTransactions   TopUpTransaction[]
+  transactionLogs     TransactionLog[]
+  usageEvents         UsageEvent[]
+  userBalances        UserBalance[]
+  tokenConfigs        AgentTokenConfig[]
+  paymentIntents      PaymentIntent[]
+  ledgerEntries       LedgerEntry[]
+  webhookEndpoints    WebhookEndpoint[]
+  buybackConfig       BuybackConfig?
+  splitAddress        String?            @map("split_address")
+  buybackAddress      String?            @map("buyback_address")
+  buybackPercent      Float              @default(0) @map("buyback_percent")
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([splitAddress])
+  @@map("agents")
+}
+
+model BuybackConfig {
+  id                String             @id @default(cuid())
+  agentId           String             @unique @map("agent_id")
+  agent             Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // The user's chosen ERC-20 to buy back & burn (must live on Base, must pass safety pre-checks).
+  tokenAddress      String             @map("token_address")
+  tokenSymbol       String             @map("token_symbol")
+  tokenDecimals     Int                @map("token_decimals")
+
+  thresholdUsd      Float              @default(10) @map("threshold_usd")
+  // Slippage tolerance in basis points; 500 = 5%. UI clamps 100..2000 (1%..20%).
+  slippageBps       Int                @default(500) @map("slippage_bps")
+  burnMode          BurnMode           @default(DEAD_ADDRESS) @map("burn_mode")
+
+  // Turnkey identifiers — sub-org root is the end user, not us.
+  turnkeySubOrgId   String             @unique @map("turnkey_sub_org_id")
+  turnkeyWalletId   String             @unique @map("turnkey_wallet_id")
+  walletAddress     String             @unique @map("wallet_address")
+  policyId          String             @map("policy_id")
+  // EOA the "Recover stranded funds" flow sweeps to. Set at creation = the
+  // user's connected dev wallet. Bound into the Turnkey policy so the platform
+  // can sign sweeps without the user having to use their root credential.
+  recoveryAddress   String             @map("recovery_address")
+  // Reserved for future per-config co-signer routing. v1 reads BUYBACK_COSIGNER_URL
+  // for all configs; this column lets us migrate to per-tenant co-signers later
+  // without another schema change. Null = use the env default.
+  coSignerEndpoint  String?            @map("co_signer_endpoint")
+
+  isActive          Boolean            @default(true) @map("is_active")
+  lastCheckedAt     DateTime?          @map("last_checked_at")
+  lastTriggeredAt   DateTime?          @map("last_triggered_at")
+
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  executions        BuybackExecution[]
+
+  @@index([isActive])
+  @@index([walletAddress])
+  @@map("buyback_configs")
+}
+
+model BuybackExecution {
+  id                      String         @id @default(cuid())
+  buybackConfigId         String         @map("buyback_config_id")
+  buybackConfig           BuybackConfig  @relation(fields: [buybackConfigId], references: [id], onDelete: Cascade)
+
+  status                  BuybackStatus  @default(QUEUED)
+  triggerBalanceUsd       Float          @map("trigger_balance_usd")
+  attempts                Int            @default(0)
+  lastError               String?        @map("last_error")
+  nextAttemptAt           DateTime?      @map("next_attempt_at")
+
+  // Per-step tx hashes — one row covers the full withdraw → swap → burn chain.
+  warehouseWithdrawHashes String[]       @default([]) @map("warehouse_withdraw_hashes")
+  swapHash                String?        @map("swap_hash")
+  burnHash                String?        @map("burn_hash")
+
+  // Accounting snapshot captured when the execution starts.
+  // assetsIn = [{ symbol, address, amount, usdValue }] — JSON for flexibility.
+  assetsIn                Json?          @map("assets_in")
+  tokensOutAmount         String?        @map("tokens_out_amount")
+  tokensOutUsd            Float?         @map("tokens_out_usd")
+  gasSpentEth             String?        @map("gas_spent_eth")
+
+  startedAt               DateTime       @default(now()) @map("started_at")
+  completedAt             DateTime?      @map("completed_at")
+
+  @@index([buybackConfigId, status])
+  @@index([status, nextAttemptAt])
+  @@map("buyback_executions")
+}
+
+enum BurnMode {
+  DEAD_ADDRESS
+  TOKEN_BURN_FN
+}
+
+enum BuybackStatus {
+  QUEUED
+  WITHDRAWING
+  SWAPPING
+  BURNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+model AgentTokenConfig {
+  id              String   @id @default(uuid())
+  agentId         String   @map("agent_id")
+  tokenAddress    String   @map("token_address") // "eth" for ETH, contract address for tokens
+  tokenSymbol     String   @map("token_symbol")
+  enabled         Boolean  @default(true)
+  discountPercent Float    @default(0) @map("discount_percent") // e.g., 10 = 10% discount
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, tokenAddress])
+  @@index([agentId])
+  @@index([tokenAddress])
+  @@map("agent_token_configs")
+}
+
+model TopUpPackage {
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  name      String
+  credits   Int
+  price     Float
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([isActive])
+  @@map("top_up_packages")
+}
+
+model TransactionLog {
+  id              String            @id @default(uuid())
+  agentId         String            @map("agent_id")
+  userId          String            @map("user_id")
+  transactionHash String?           @map("transaction_hash")
+  fromAddress     String            @map("from_address")
+  toAddress       String            @map("to_address")
+  amount          Float
+  status          TransactionStatus @default(PENDING)
+  transactionType TransactionType
+  description     String?
+  metadata        Json?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  agent           Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([status])
+  @@index([transactionType])
+  @@index([createdAt])
+  @@map("transaction_logs")
+}
+
+model UserBalance {
+  userWalletAddress String
+  agentId           String
+  ethBalance        Decimal  @default(0)
+  creditBalance     BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([userWalletAddress, agentId])
+  @@map("user_balances")
+}
+
+model UsageEvent {
+  id                String           @id @default(cuid())
+  status            UsageEventStatus @default(PENDING)
+  feeDeducted       Decimal?
+  creditsDeducted   BigInt?
+  idempotencyKey    String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  agentId           String
+  userWalletAddress String
+  agent             Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, userWalletAddress, status])
+  @@map("usage_events")
+}
+
+model TopUpTransaction {
+  txHash            String      @id
+  status            TopUpStatus @default(PENDING)
+  userWalletAddress String
+  agentId           String
+  amountInUSD       String      @map("amount_in_usd") @default("0")
+  amountInEth       String      @map("amount_in_eth") @default("0")
+  creditsToTopUp    BigInt?
+  errorMessage      String?
+  attemptCount      Int         @default(0) @map("attempt_count")
+  nextAttemptAt     DateTime?   @map("next_attempt_at")
+  // Token-specific fields (null = ETH payment)
+  tokenAddress      String?     @map("token_address")
+  tokenSymbol       String?     @map("token_symbol")
+  amountInToken     String?     @map("amount_in_token")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([tokenAddress])
+  @@map("top_up_transactions")
+}
+
+model PaymentIntent {
+  id                    String              @id @default(cuid())
+  agentId               String              @map("agent_id")
+  clientSecret          String              @unique @map("client_secret")
+  externalReference     String?             @map("external_reference")
+  status                PaymentIntentStatus @default(CREATED)
+  customerWalletAddress String?             @map("customer_wallet_address")
+  amountInUSD           Decimal?            @map("amount_in_usd")
+  creditsToTopUp        BigInt?             @map("credits_to_top_up")
+  paymentMethodType     PaymentMethodType   @default(ETH) @map("payment_method_type")
+  tokenAddress          String?             @map("token_address")
+  tokenSymbol           String?             @map("token_symbol")
+  amountAtomic          String              @map("amount_atomic")
+  chainId               Int                 @map("chain_id")
+  txHash                String?             @unique @map("tx_hash")
+  metadata              Json?
+  expiresAt             DateTime?           @map("expires_at")
+  confirmedAt           DateTime?           @map("confirmed_at")
+  cancelledAt           DateTime?           @map("cancelled_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  agent                 Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  ledgerEntries         LedgerEntry[]
+  webhookDeliveries     WebhookDelivery[]
+
+  @@index([agentId, status])
+  @@index([customerWalletAddress])
+  @@index([txHash])
+  @@index([createdAt])
+  @@map("payment_intents")
+}
+
+model LedgerEntry {
+  id                    String            @id @default(cuid())
+  agentId               String            @map("agent_id")
+  paymentIntentId       String?           @map("payment_intent_id")
+  userWalletAddress     String?           @map("user_wallet_address")
+  entryType             LedgerEntryType   @map("entry_type")
+  status                LedgerEntryStatus @default(PENDING)
+  amountInUSD           Decimal?          @map("amount_in_usd")
+  credits               BigInt?
+  paymentMethodType     PaymentMethodType @default(ETH) @map("payment_method_type")
+  tokenAddress          String?           @map("token_address")
+  tokenSymbol           String?           @map("token_symbol")
+  amountAtomic          String?           @map("amount_atomic")
+  chainId               Int?              @map("chain_id")
+  txHash                String?           @map("tx_hash")
+  idempotencyKey        String?           @map("idempotency_key")
+  metadata              Json?
+  createdAt             DateTime          @default(now()) @map("created_at")
+  agent                 Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  paymentIntent         PaymentIntent?    @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, entryType])
+  @@index([paymentIntentId])
+  @@index([txHash])
+  @@index([createdAt])
+  @@map("ledger_entries")
+}
+
+model WebhookEndpoint {
+  id           String            @id @default(cuid())
+  agentId      String            @map("agent_id")
+  url          String
+  secret       String
+  enabled      Boolean           @default(true)
+  events       String[]          @default([])
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  agent        Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  deliveries   WebhookDelivery[]
+
+  @@index([agentId])
+  @@index([enabled])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id              String                @id @default(cuid())
+  endpointId      String                @map("endpoint_id")
+  paymentIntentId String?               @map("payment_intent_id")
+  eventType       String                @map("event_type")
+  status          WebhookDeliveryStatus @default(PENDING)
+  payload         Json
+  responseStatus  Int?                  @map("response_status")
+  responseBody    String?               @map("response_body")
+  attempts        Int                   @default(0)
+  lastError       String?               @map("last_error")
+  nextAttemptAt   DateTime?             @map("next_attempt_at")
+  deliveredAt     DateTime?             @map("delivered_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  endpoint        WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  paymentIntent   PaymentIntent?        @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  @@index([endpointId, status])
+  @@index([paymentIntentId])
+  @@index([nextAttemptAt])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+}
+
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  DELETED
+}
+
+enum FeeModel {
+  FREE_TIER
+  CREDIT_BASED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransactionType {
+  EARNING
+  WITHDRAWAL
+  TOP_UP
+  REFUND
+}
+
+enum UsageEventStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  INSUFFICIENT_CREDITS
+}
+
+enum TopUpStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentIntentStatus {
+  CREATED
+  REQUIRES_PAYMENT
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentMethodType {
+  ETH
+  ERC20
+}
+
+enum LedgerEntryType {
+  PAYMENT_INTENT_CREATED
+  PAYMENT_RECEIVED
+  CREDIT_GRANTED
+  USAGE_RESERVED
+  USAGE_CAPTURED
+  USAGE_RELEASED
+  REFUND
+  WITHDRAWAL
+  FEE
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  POSTED
+  REVERSED
+  FAILED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
+}

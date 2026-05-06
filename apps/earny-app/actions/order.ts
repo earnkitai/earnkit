@@ -1,7 +1,7 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { OrderDirection, OrderType } from '@prisma/client';
+import { OrderDirection, OrderType } from '@/generated/prisma';
 
 export type CreateLimitOrderInput = {
   userId: string;

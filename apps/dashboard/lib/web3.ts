@@ -1,10 +1,4 @@
-import {
-  Alchemy,
-  AlchemyMinedTransactionsAddress,
-  AlchemySubscription,
-  AssetTransfersCategory,
-  Network,
-} from 'alchemy-sdk';
+import { Alchemy, AssetTransfersCategory, Network } from 'alchemy-sdk';
 import {
   Address,
   createPublicClient,
@@ -12,14 +6,12 @@ import {
   getAddress,
   http,
   parseEther,
-  PublicClient,
   WalletClient,
-  webSocket,
 } from 'viem';
 import { sepolia, baseSepolia, base } from 'viem/chains';
 
 import { env } from '@/env.mjs';
-import type { AlchemyMinedTransaction, Transaction } from '@/types/web3';
+import type { Transaction } from '@/types/web3';
 import { turnkeyConfig } from '@/config/privy';
 
 const clients = {
@@ -49,91 +41,6 @@ const settings = {
 };
 
 const alchemy = new Alchemy(settings);
-
-export const watchMinedTransactions = (
-  address: Address,
-  callback: (tx: Transaction) => void,
-) => {
-  const addressPairs: [
-    AlchemyMinedTransactionsAddress,
-    ...AlchemyMinedTransactionsAddress[],
-  ] = [{ from: address }, { to: address }] as [
-    AlchemyMinedTransactionsAddress,
-    ...AlchemyMinedTransactionsAddress[],
-  ];
-
-  alchemy.ws.on(
-    {
-      method: AlchemySubscription.MINED_TRANSACTIONS,
-      addresses: addressPairs,
-      includeRemoved: true,
-      hashesOnly: false,
-    },
-    ({ transaction }: AlchemyMinedTransaction) => {
-      // Convert addresses to checksummed addresses before comparison
-      const { from, to } = {
-        from: getAddress(transaction.from),
-        to: getAddress(transaction.to),
-      };
-      const txn: Transaction = {
-        hash: transaction.hash,
-        blockNumber: parseInt(transaction.blockNumber, 16),
-        value: BigInt(transaction.value),
-        from,
-        to,
-        status: from === address ? 'sent' : 'received',
-        timestamp: new Date().toISOString(),
-      };
-
-      callback?.(txn);
-    },
-  );
-  return () => {
-    alchemy.ws.off(AlchemySubscription.MINED_TRANSACTIONS);
-  };
-};
-
-let webSocketClient: PublicClient;
-
-const getWebSocketClient = () => {
-  if (!webSocketClient) {
-    webSocketClient = createPublicClient({
-      chain: sepolia,
-      transport: webSocket('wss://ethereum-sepolia-rpc.publicnode.com'),
-    });
-  }
-  return webSocketClient;
-};
-
-export const watchPendingTransactions = (
-  address: Address,
-  network: 'ethereum' | 'base' | 'baseSepolia' = 'ethereum',
-  callback: (tx: Transaction) => void,
-) => {
-  const webSocketClient = getWebSocketClient();
-  const publicClient = getPublicClient(network);
-  const unwatch = webSocketClient.watchPendingTransactions({
-    onTransactions: (hashes) => {
-      hashes.forEach(async (hash) => {
-        const tx = await publicClient.getTransaction({ hash });
-        if (tx && (tx.from === address || tx.to === address)) {
-          const transaction: Transaction = {
-            hash: tx.hash,
-            from: tx.from,
-            to: tx.to,
-            value: tx.value,
-            blockNumber: tx.blockNumber ? Number(tx.blockNumber) : null,
-            status: tx.from === address ? 'sent' : 'received',
-            timestamp: new Date().toISOString(),
-          };
-          callback(transaction);
-        }
-      });
-    },
-  });
-
-  return unwatch;
-};
 
 export const getBalance = async (
   address: Address,

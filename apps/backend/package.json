@@ -20,7 +20,7 @@
   "description": "",
   "dependencies": {
     "@neynar/nodejs-sdk": "^2.5.0",
-    "@turnkey/sdk-server": "^1.7.1",
+    "@turnkey/sdk-server": "^2.6.1",
     "@turnkey/viem": "^0.6.7",
     "axios": "^1.7.9",
     "body-parser": "^1.20.3",
