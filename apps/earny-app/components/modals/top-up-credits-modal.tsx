@@ -102,12 +102,14 @@ export function TopUpCreditsModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [step, setStep] = useState<'select' | 'approve' | 'deposit'>('select');
 
-  // Auto-select ETH method on load
+  // Prefer ETH when available, otherwise fall back to the first enabled method.
   useEffect(() => {
     if (paymentMethods.length > 0 && !selectedMethod) {
-      const ethMethod = paymentMethods.find((m) => m.type === 'eth');
-      if (ethMethod) {
-        setSelectedMethod(ethMethod);
+      const defaultMethod =
+        paymentMethods.find((m) => m.type === 'eth') ?? paymentMethods[0];
+
+      if (defaultMethod) {
+        setSelectedMethod(defaultMethod);
       }
     }
   }, [paymentMethods, selectedMethod]);

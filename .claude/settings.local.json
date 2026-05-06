@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:DATABASE_URL=\"postgresql://postgres:rgmbgmcoFEZwMafnfhrdroqUOlbtopjV@trolley.proxy.rlwy.net:47392/railway\"; cd \"C:\\\\2026 Projects\\\\Earnkit\\\\earnkit\\\\apps\\\\dashboard\"; npx prisma migrate deploy 2>&1)",
+      "PowerShell($env:DATABASE_URL=\"postgresql://postgres:rgmbgmcoFEZwMafnfhrdroqUOlbtopjV@trolley.proxy.rlwy.net:47392/railway\"; cd \"C:\\\\2026 Projects\\\\Earnkit\\\\earnkit\\\\apps\\\\dashboard\"; npx prisma migrate resolve --applied \"20250828185955_add_user_balance_usage_events_topup_transactions\" 2>&1; npx prisma migrate resolve --applied \"20250919063125_add_api_key_to_user\" 2>&1; npx prisma migrate resolve --applied \"20251007162530_add_amount_in_usd_to_top_up_transactions\" 2>&1; npx prisma migrate resolve --applied \"20260429000001_add_splits_fields\" 2>&1; npx prisma migrate resolve --applied \"20260429000002_add_api_key_prefix_to_user\" 2>&1; npx prisma migrate resolve --applied \"20260505000000_add_buyback_config_and_execution\" 2>&1; npx prisma migrate resolve --applied \"20260506000000_add_recovery_address\" 2>&1)",
+      "PowerShell(cd \"C:\\\\2026 Projects\\\\Earnkit\\\\earnkit\\\\apps\\\\earn-backend\"; $env:DATABASE_URL=\"postgresql://postgres:rgmbgmcoFEZwMafnfhrdroqUOlbtopjV@trolley.proxy.rlwy.net:47392/railway\"; npx prisma migrate deploy --schema src/prisma/schema.prisma 2>&1)",
+      "PowerShell(cd \"C:\\\\2026 Projects\\\\Earnkit\\\\earnkit\\\\apps\\\\dashboard\"; $env:DATABASE_URL=\"postgresql://postgres:rgmbgmcoFEZwMafnfhrdroqUOlbtopjV@trolley.proxy.rlwy.net:47392/railway\"; npx prisma migrate deploy 2>&1)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js\\)$\")"
+    ]
+  }
+}

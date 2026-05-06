@@ -155,7 +155,7 @@ export interface SplitsPaymentConfig {
 }
 
 interface TopUpDetailsResponse {
-  options: TopUpOption[]; // Legacy ETH options for backward compatibility
+  options: TopUpOption[]; // Legacy ETH options only; empty when ETH is disabled
   escrowContract: EscrowContract;
   paymentMethods: PaymentMethod[];
   supportedTokens: SupportedTokenInfo[];

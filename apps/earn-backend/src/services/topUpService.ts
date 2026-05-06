@@ -349,7 +349,9 @@ export class TopUpService {
     }
 
     return {
-      options: ethOptions, // Legacy field for backward compatibility
+      // Only expose legacy ETH options when ETH is actually enabled for the agent.
+      // Token-only agents should rely on paymentMethods to avoid stale ETH pricing data.
+      options: ethEnabled ? ethOptions : [],
       escrowContract,
       paymentMethods,
       supportedTokens: supportedTokens.map((t) => this.toTokenInfo(t)),

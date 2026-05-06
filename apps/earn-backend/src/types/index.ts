@@ -163,7 +163,7 @@ export interface SplitsPaymentConfig {
  * Updated TopUpDetailsResponse with multi-token support
  */
 export interface TopUpDetailsResponse {
-  options: TopUpOption[]; // Legacy ETH options for backward compatibility
+  options: TopUpOption[]; // Legacy ETH options only; empty when ETH is disabled
   escrowContract: EscrowContract;
   // New multi-token payment methods
   paymentMethods: PaymentMethod[];
