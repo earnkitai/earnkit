@@ -86,7 +86,7 @@ export default function Home() {
             </div>
           </section> */}
 
-          <BuybackDedicatedSection />
+          {/* <BuybackDedicatedSection /> */}
 
           <IntegrateInMinutesSection />
 
@@ -139,8 +139,7 @@ export default function Home() {
             </div>
           </section> */}
 
-          <section className="w-full min-h-[700px] flex flex-col md:flex-row items-stretch justify-center bg-transparent rounded-[56px] overflow-hidden mt-10">
-            {/* Left Side */}
+          {/* <section className="w-full min-h-[700px] flex flex-col md:flex-row items-stretch justify-center bg-transparent rounded-[56px] overflow-hidden mt-10">
             <aside className="w-full h-[90vh] md:h-full md:w-[40%] bg-color5 flex flex-col justify-center items-center rounded-[56px] p-10 md:p-20">
               <div className="md:py-10 flex flex-col justify-center items-center">
                 <h2 className="w-[90%] md:max-w-[70%] text-color8 text-center md:text-left font-funnel-display text-3xl md:text-5xl font-semibold mb-8 md:leading-[1.2]">
@@ -169,11 +168,10 @@ export default function Home() {
                 </div>
               </div>
             </aside>
-            {/* Right Side */}
             <aside className="w-full md:w-[60%] relative h-[400px] md:h-auto bg-color4 rounded-[56px] overflow-hidden">
               <ParallaxOctoImage />
             </aside>
-          </section>
+          </section> */}
 
           <InvestorLogoStrip />
         </div>

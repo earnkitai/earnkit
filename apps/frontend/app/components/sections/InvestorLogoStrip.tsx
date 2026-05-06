@@ -18,7 +18,7 @@ export default function InvestorLogoStrip() {
   ];
 
   return (
-    <section className="w-full min-h-[40vh] bg-color5 rounded-[56px] mt-10 flex flex-col items-center justify-center px-6 py-20 text-center overflow-hidden">
+    <section className="w-full min-h-[40vh] bg-[url(/images/landing/FINAL_CTA.png)] bg-cover bg-top rounded-[56px] mt-10 flex flex-col items-center justify-center px-0 py-20 text-center overflow-hidden">
       {/* Final CTA Content */}
       <div className="max-w-3xl mb-16">
         <h2 className="text-color11 font-funnel-display text-4xl md:text-5xl font-bold">
@@ -56,7 +56,7 @@ export default function InvestorLogoStrip() {
         </p>
 
         {/* Marquee Container */}
-        <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-20 before:bg-gradient-to-r before:from-color5 before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-20 after:bg-gradient-to-l after:from-color5 after:to-transparent">
+        <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-[#000F44] before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-[#000F44] after:to-transparent">
           <div className="flex w-fit animate-marquee items-center gap-16 md:gap-24 px-8">
             {/* Double the array to create the infinite loop effect */}
             {[...investorLogos, ...investorLogos].map((logo, index) => (
