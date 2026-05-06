@@ -164,54 +164,69 @@ export function TopUpCreditsModal({
         
         onClose();
       } else {
-        // Token deposit - need approve first
+        // Token deposit
         if (!selectedMethod.token) {
           toast.error('Token not configured');
           return;
         }
         const tokenAddress = selectedMethod.token.address as `0x${string}`;
         const amount = BigInt(selectedOption.amountInToken || '0');
+        const isSplitsMode = escrowContract.depositFunction.name === 'send';
 
-        // Step 1: Approve
-        setStep('approve');
-        toast.info('Step 1/2: Approving token spend...');
-        
-        const approveTx = await walletClient.writeContract({
-          address: tokenAddress,
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [escrowContract.address as `0x${string}`, amount],
-          account: activeWallet.address as `0x${string}`,
-        });
+        if (isSplitsMode) {
+          // Splits mode: direct ERC-20 transfer to split address, no approve step
+          setStep('deposit');
+          toast.info('Transferring tokens...');
 
-        // Wait for approve transaction to be confirmed before depositing
-        toast.info('Waiting for approval confirmation...');
-        await publicClient.waitForTransactionReceipt({ 
-          hash: approveTx,
-          confirmations: 1,
-        });
+          const txHash = await walletClient.writeContract({
+            address: tokenAddress,
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [escrowContract.address as `0x${string}`, amount],
+            account: activeWallet.address as `0x${string}`,
+          });
 
-        toast.success('Approval confirmed! Now depositing...');
+          toast.success('Deposit successful!');
+          onSuccess?.(txHash);
+          await submitTopUpTransaction(txHash, 'token');
+          onClose();
+        } else {
+          // Escrow mode: approve + depositToken
+          setStep('approve');
+          toast.info('Step 1/2: Approving token spend...');
 
-        // Step 2: Deposit
-        setStep('deposit');
-        toast.info('Step 2/2: Depositing tokens...');
-        
-        const depositTx = await walletClient.writeContract({
-          address: escrowContract.address as `0x${string}`,
-          abi: ESCROW_ABI,
-          functionName: 'depositToken',
-          args: [agentIdBytes32, tokenAddress, amount],
-          account: activeWallet.address as `0x${string}`,
-        });
+          const approveTx = await walletClient.writeContract({
+            address: tokenAddress,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [escrowContract.address as `0x${string}`, amount],
+            account: activeWallet.address as `0x${string}`,
+          });
 
-        toast.success('Deposit successful!');
-        onSuccess?.(depositTx);
-        
-        // Submit to backend for tracking
-        await submitTopUpTransaction(depositTx, 'token');
-        
-        onClose();
+          toast.info('Waiting for approval confirmation...');
+          await publicClient.waitForTransactionReceipt({
+            hash: approveTx,
+            confirmations: 1,
+          });
+
+          toast.success('Approval confirmed! Now depositing...');
+
+          setStep('deposit');
+          toast.info('Step 2/2: Depositing tokens...');
+
+          const depositTx = await walletClient.writeContract({
+            address: escrowContract.address as `0x${string}`,
+            abi: ESCROW_ABI,
+            functionName: 'depositToken',
+            args: [agentIdBytes32, tokenAddress, amount],
+            account: activeWallet.address as `0x${string}`,
+          });
+
+          toast.success('Deposit successful!');
+          onSuccess?.(depositTx);
+          await submitTopUpTransaction(depositTx, 'token');
+          onClose();
+        }
       }
     } catch (err: unknown) {
       console.error('Transaction error:', err);
