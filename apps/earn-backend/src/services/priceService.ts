@@ -149,30 +149,66 @@ export class PriceService {
       return cached.price;
     }
 
-    const headers: Record<string, string> = { accept: 'application/json' };
-    if (this.COINGECKO_API_KEY) {
-      headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
+    // Try CoinGecko first
+    try {
+      const headers: Record<string, string> = { accept: 'application/json' };
+      if (this.COINGECKO_API_KEY) {
+        headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
+      }
+
+      const url = `${this.COINGECKO_API_URL}/simple/token_price/${platformId}?contract_addresses=${address.toLowerCase()}&vs_currencies=usd`;
+      console.log(`Fetching price for ${address} on ${platformId} via CoinGecko...`);
+
+      const response = await fetch(url, { method: 'GET', headers });
+
+      if (response.ok) {
+        const data: any = await response.json();
+        const price = data[address.toLowerCase()]?.usd;
+
+        if (price !== undefined && price !== null) {
+          const tokenPrice = Number(price);
+          this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
+          console.log(`CoinGecko price for ${address}: $${tokenPrice}`);
+          return tokenPrice;
+        }
+      }
+      console.log(`CoinGecko returned no price for ${address}, trying Alchemy...`);
+    } catch (err) {
+      console.log(`CoinGecko failed for ${address}:`, err, '— trying Alchemy...');
     }
 
-    const url = `${this.COINGECKO_API_URL}/simple/token_price/${platformId}?contract_addresses=${address.toLowerCase()}&vs_currencies=usd`;
-    console.log(`Fetching price for ${address} on ${platformId}...`);
-
-    const response = await fetch(url, { method: 'GET', headers });
-
-    if (!response.ok) {
-      throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
+    // Fallback: Alchemy token price by address
+    if (!this.ALCHEMY_API_KEY) {
+      throw new Error(`No price data available for ${address} — CoinGecko returned nothing and ALCHEMY_API_KEY is not set`);
     }
 
-    const data: any = await response.json();
-    const price = data[address.toLowerCase()]?.usd;
+    // Map CoinGecko platformId to Alchemy network name
+    const alchemyNetwork = platformId === 'base' ? 'base-mainnet'
+      : platformId === 'ethereum' ? 'eth-mainnet'
+      : platformId;
 
-    if (price === undefined || price === null) {
-      throw new Error(`No price data found for ${address} on ${platformId}`);
+    const alchemyUrl = `https://api.g.alchemy.com/prices/v1/tokens/by-address?addresses[0].network=${alchemyNetwork}&addresses[0].address=${address.toLowerCase()}`;
+    console.log(`Fetching price for ${address} via Alchemy...`);
+
+    const alchemyResponse = await fetch(alchemyUrl, {
+      method: 'GET',
+      headers: { accept: 'application/json', Authorization: `Bearer ${this.ALCHEMY_API_KEY}` },
+    });
+
+    if (!alchemyResponse.ok) {
+      throw new Error(`Alchemy token price API error: ${alchemyResponse.status} ${alchemyResponse.statusText}`);
     }
 
-    const tokenPrice = Number(price);
+    const alchemyData: any = await alchemyResponse.json();
+    const alchemyPrice = alchemyData?.data?.[0]?.prices?.[0]?.value;
+
+    if (alchemyPrice === undefined || alchemyPrice === null) {
+      throw new Error(`No price data found for ${address} on ${platformId} from CoinGecko or Alchemy`);
+    }
+
+    const tokenPrice = Number(alchemyPrice);
     this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
-    console.log(`Price for ${address}: $${tokenPrice}`);
+    console.log(`Alchemy price for ${address}: $${tokenPrice}`);
     return tokenPrice;
   }
 
