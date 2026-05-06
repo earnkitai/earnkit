@@ -20,11 +20,11 @@ export default function InvestorLogoStrip() {
   return (
     <section className="w-full min-h-[40vh] bg-[url(/images/landing/FINAL_CTA.png)] bg-cover bg-top rounded-[56px] mt-10 flex flex-col items-center justify-center px-0 py-20 text-center overflow-hidden">
       {/* Final CTA Content */}
-      <div className="max-w-3xl mb-16">
-        <h2 className="text-color11 font-funnel-display text-4xl md:text-5xl font-bold">
+      <div className="max-w-4xl mb-16">
+        <h2 className="text-color8 font-funnel-display text-4xl md:text-5xl font-bold">
           Tokens that buy back earn trust
         </h2>
-        <p className="text-color11/80 font-funnel-sans text-lg md:text-xl mt-4">
+        <p className="text-color7 font-funnel-sans text-xl md:text-2xl mt-4">
           Projects that return value to holders last longer. Automated buybacks
           show your community the revenue is real and commitment is permanent.
           No manual buys. No trust-me promises. Just onchain execution, every
@@ -51,7 +51,7 @@ export default function InvestorLogoStrip() {
 
       {/* Quiet Logo Strip */}
       <div className="w-full flex flex-col items-center gap-10 mt-8">
-        <p className="text-color11/40 font-funnel-sans text-xs uppercase tracking-[0.3em] font-medium">
+        <p className="text-color11 font-funnel-sans text-xs uppercase tracking-[0.3em] font-medium">
           Backed by
         </p>
 

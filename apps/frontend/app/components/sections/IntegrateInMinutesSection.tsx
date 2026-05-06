@@ -416,7 +416,7 @@ export default function IntegrateInMinutesSection() {
         <h2 className="text-4xl md:text-5xl font-funnel-display font-semibold text-color8 tracking-tight mb-4">
           Integrate in minutes
         </h2>
-        <p className="text-xl md:text-2xl text-color7 font-funnel-sans max-w-2xl">
+        <p className="text-xl md:text-2xl text-color7 font-funnel-sans max-w-3xl">
           Connect your treasury and configure buybacks with code or a prompt.
         </p>
       </div>
@@ -459,7 +459,7 @@ export default function IntegrateInMinutesSection() {
 
         {/* AI Divider */}
         <div className="flex flex-col items-center w-full mb-8">
-          <p className="text-color11/60 font-funnel-sans text-center text-lg">
+          <p className="text-color7 font-funnel-sans text-center text-xl md:text-2xl">
             Or drop this into Claude Code, Cursor, or any AI coding tool:
           </p>
         </div>
