@@ -21,6 +21,14 @@ interface BuybackConfig {
     lastTriggeredAt: string | null;
 }
 
+interface BuybackAsset {
+    symbol: string;
+    address: string;
+    amountHuman: string;
+    usdValue: number;
+    source: 'warehouse' | 'wallet';
+}
+
 interface BuybackStatus {
     configured: boolean;
     isActive?: boolean;
@@ -28,6 +36,7 @@ interface BuybackStatus {
     thresholdUsd: number;
     progress: number;
     readyToFire?: boolean;
+    assets?: BuybackAsset[];
     inFlightExecution?: { id: string; status: string } | null;
 }
 
@@ -205,7 +214,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     };
 
     const handleRecover = async () => {
-        if (!confirm("Trigger fund recovery? This will withdraw any Splits Warehouse balance back to your buyback wallet so you can sweep it via Turnkey.")) return;
+        if (!confirm("Recover stranded funds? This will withdraw everything from the Splits Warehouse and transfer all token balances from the buyback wallet back to your configured recovery address (your dev wallet). ETH gas reserve stays behind to cover the sweep transactions.")) return;
         try {
             const r = await fetch(`/api/agents/${agentDbId}/buyback/recover`, { method: "POST" });
             const d = await r.json();
@@ -320,7 +329,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         <div className="bg-black/4 rounded-[12px] p-4 border border-black/10 space-y-3">
                             <div>
                                 <div className="flex items-baseline justify-between mb-2">
-                                    <p className="text-xs text-black/40 font-funnel-sans">Accumulated balance</p>
+                                    <p className="text-xs text-black/40 font-funnel-sans">Swappable balance</p>
                                     <p className="text-xs text-black/60 font-funnel-sans">
                                         ${status.accumulatedUsd.toFixed(2)} <span className="text-black/40">/ ${status.thresholdUsd.toFixed(2)} threshold</span>
                                     </p>
@@ -331,13 +340,70 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                         style={{ width: `${Math.round((status.progress ?? 0) * 100)}%` }}
                                     />
                                 </div>
-                                <p className="text-xs text-black/40 font-funnel-sans mt-2">
-                                    {status.inFlightExecution
-                                        ? `Buyback in progress: ${status.inFlightExecution.status.toLowerCase()}…`
-                                        : status.readyToFire
-                                            ? "Threshold reached. Buyback fires automatically when you click \"Distribute Fees\", or use \"Trigger now\" below."
-                                            : "Funds will keep accumulating until the threshold is reached."}
-                                </p>
+
+                                {/* Asset breakdown */}
+                                {status.assets && status.assets.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                                        {status.assets.map((a, i) => (
+                                            <span key={i} className="text-[11px] text-black/50 font-funnel-sans font-mono">
+                                                {a.amountHuman} {a.symbol}
+                                                <span className="text-black/30"> (${a.usdValue.toFixed(2)}, {a.source})</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                {(!status.assets || status.assets.length === 0) && status.accumulatedUsd === 0 && (
+                                    <p className="text-[11px] text-black/40 font-funnel-sans mt-1">
+                                        No swappable balance yet. Gas reserve (~0.0001 ETH) is held on the wallet but not counted here.
+                                    </p>
+                                )}
+
+                                {/* Inline execution status */}
+                                {(() => {
+                                    const lastExec = executions[0];
+                                    if (status.inFlightExecution) {
+                                        return (
+                                            <p className="text-xs text-secondary-purple font-funnel-sans mt-2">
+                                                Buyback in progress: {status.inFlightExecution.status.toLowerCase()}…
+                                            </p>
+                                        );
+                                    }
+                                    if (lastExec?.status === 'FAILED') {
+                                        const shortError = lastExec.lastError
+                                            ? lastExec.lastError.replace(/^swap_all_failed:\s*/, 'Swap failed — ').slice(0, 120)
+                                            : 'unknown error';
+                                        return (
+                                            <div className="mt-2 bg-red-50 border border-red-200 rounded-[8px] px-3 py-2">
+                                                <p className="text-xs text-red-700 font-funnel-sans font-semibold">Last attempt failed</p>
+                                                <p className="text-[11px] text-red-600 font-mono break-all mt-0.5">{shortError}</p>
+                                                {status.readyToFire && (
+                                                    <p className="text-[11px] text-red-500 font-funnel-sans mt-1">
+                                                        Funds are still in the wallet. Use "Trigger buyback now" to retry.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        );
+                                    }
+                                    if (lastExec?.status === 'RETRYING') {
+                                        return (
+                                            <p className="text-xs text-amber-600 font-funnel-sans mt-2">
+                                                Retrying… next attempt at {lastExec.nextAttemptAt ? new Date(lastExec.nextAttemptAt).toLocaleString() : '—'}
+                                            </p>
+                                        );
+                                    }
+                                    if (status.readyToFire) {
+                                        return (
+                                            <p className="text-xs text-secondary-green font-funnel-sans mt-2">
+                                                Threshold reached. Buyback fires automatically when you click "Distribute Fees", or use "Trigger now" below.
+                                            </p>
+                                        );
+                                    }
+                                    return (
+                                        <p className="text-xs text-black/40 font-funnel-sans mt-2">
+                                            Funds accumulating — buyback fires once the threshold is crossed.
+                                        </p>
+                                    );
+                                })()}
                             </div>
                             <div>
                                 <p className="text-xs text-black/40 font-funnel-sans">Buyback wallet (Turnkey-managed, your email is the root authenticator)</p>

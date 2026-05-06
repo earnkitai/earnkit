@@ -87,7 +87,7 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
       return Number(platformFeeBps);
     } catch (error) {
       console.error('Error getting platform fee:', error);
-      return 500;
+      return 0;
     }
   };
 

@@ -1,4 +1,4 @@
-import { erc20Abi, formatUnits } from 'viem';
+import { erc20Abi, formatUnits, parseUnits } from 'viem';
 import {
   getBasePublicClient,
   readWarehouseBalance,
@@ -6,6 +6,10 @@ import {
 } from './splitsWarehouse';
 import { priceService } from '../services/priceService';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
+
+// Must match buybackExecutorWorker — the executor never swaps this ETH, so
+// we must not count it toward the accumulated balance either.
+const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);
 
 /**
  * Reads the accumulated balance of a buyback wallet — both the Splits Warehouse
@@ -44,7 +48,11 @@ export async function snapshotBuybackBalance(
     token: SPLIT_NATIVE_TOKEN_ADDRESS,
     client,
   });
-  const ethWallet = await client.getBalance({ address: walletAddress });
+  const ethWalletRaw = await client.getBalance({ address: walletAddress });
+  // Strip the gas reserve — it is never swapped, so it must not inflate the
+  // displayed balance or push the threshold check over the line prematurely.
+  const ethWallet =
+    ethWalletRaw > MIN_GAS_RESERVE_WEI ? ethWalletRaw - MIN_GAS_RESERVE_WEI : BigInt(0);
   const ethTotalAtomic = ethWarehouse + ethWallet;
   if (ethTotalAtomic > BigInt(0)) {
     const eth = Number(formatUnits(ethTotalAtomic, 18));

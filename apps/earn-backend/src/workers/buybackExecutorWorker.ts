@@ -161,7 +161,8 @@ async function approveIfNeeded(
 
 interface SwapStepResult {
   swapHash: string | null;
-  tokensOutAmount: bigint;
+  tokensOutAmount: bigint; // delta from swaps only (0 when fees arrived as the buyback token)
+  tokenBalanceAfter: bigint; // full wallet balance after all swaps — use this to decide whether to burn
   // Per-asset notes for transparency in execution log + Sentry.
   // [{ asset: "ETH" | "USDC" | ..., amountIn: "0.05", success: true, hash?, error? }]
   notes: Array<{
@@ -308,6 +309,9 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
   return {
     swapHash: lastSwapHash,
     tokensOutAmount: afterUserToken - beforeUserToken,
+    // Fees may have arrived already as the buyback token (no swap needed).
+    // In that case tokensOutAmount delta is 0 even though there's balance to burn.
+    tokenBalanceAfter: afterUserToken,
     notes,
   };
 }
@@ -514,12 +518,11 @@ async function processOne(): Promise<void> {
       });
 
       const swap = await swapAllToUserToken(ctx);
-      // If every individual swap failed, we have nothing to burn. Mark the
-      // execution FAILED with the per-asset details so the user can see
-      // which routes broke. Funds remain on the buyback wallet for retry
-      // or a manual recovery sweep.
+      // Use tokenBalanceAfter (not the delta) to decide whether to proceed to burn.
+      // Fees can arrive already as the buyback token — in that case tokensOutAmount
+      // is 0 (no swap ran) but tokenBalanceAfter > 0 and burn should still fire.
       const allSwapsFailed = swap.notes.length > 0 && swap.notes.every((n) => !n.success);
-      if (allSwapsFailed || swap.tokensOutAmount === BigInt(0)) {
+      if (allSwapsFailed || swap.tokenBalanceAfter === BigInt(0)) {
         await prisma.buybackExecution.update({
           where: { id: exec.id },
           data: {

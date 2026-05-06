@@ -964,7 +964,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                     </div>
                                                     {isSplitAgent && (
                                                         <p className="text-xs text-black/40 font-funnel-sans">
-                                                            Developer {earningsData.developerSplitPercent}% · Buyback {earningsData.buybackPercent}% · Platform {earningsData.platformFeePercent}%
+                                                            Developer {earningsData.developerSplitPercent}% · Buyback {earningsData.buybackPercent}%
                                                         </p>
                                                     )}
                                                 </div>
@@ -1030,7 +1030,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 splitAddress={earningsData?.splitAddress || agent?.splitAddress}
                 buybackPercent={earningsData?.buybackPercent || agent?.buybackPercent || 0}
                 developerSplitPercent={earningsData?.developerSplitPercent || 95}
-                platformFeePercent={earningsData?.platformFeePercent || 5}
+                platformFeePercent={earningsData?.platformFeePercent ?? 0}
                 splitRecipients={earningsData?.splitRecipients || []}
                 onWithdrawSuccess={refreshEarningsData}
             />

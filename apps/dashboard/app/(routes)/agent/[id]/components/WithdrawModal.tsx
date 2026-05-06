@@ -57,7 +57,7 @@ export default function WithdrawModal({
     splitAddress,
     buybackPercent = 0,
     developerSplitPercent = 95,
-    platformFeePercent = 5,
+    platformFeePercent = 0,
     splitRecipients = [],
     onWithdrawSuccess,
 }: WithdrawModalProps) {
@@ -331,7 +331,7 @@ export default function WithdrawModal({
                         {step === "split-review" && "Distribute Split Funds"}
                     </DialogTitle>
                     <DialogDescription className="text-black/40 text-sm font-funnel-sans">
-                        {step === "form" && "Withdraw funds from your agent's balance. A platform fee will be deducted."}
+                        {step === "form" && "Withdraw funds from your agent's balance."}
                         {step === "confirm" && "Review the withdrawal details and confirm the transaction."}
                         {step === "executing" && (paymentMode === "splits"
                             ? "Please confirm each funded asset in your wallet to distribute it from the split contract."
@@ -450,12 +450,14 @@ export default function WithdrawModal({
                                             {feeCalculation.amount.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
                                         </span>
                                     </div>
+                                    {feeCalculation.platformFeeBps > 0 && (
                                     <div className="flex justify-between">
                                         <span className="text-sm text-black/60 font-funnel-sans">Platform Fee ({(feeCalculation.platformFeeBps / 100).toFixed(1)}%):</span>
                                         <span className="text-sm font-semibold text-red-500 font-funnel-sans">
                                             -{feeCalculation.fee.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
                                         </span>
                                     </div>
+                                    )}
                                     <div className="border-t border-black/10 pt-2">
                                         <div className="flex justify-between">
                                             <span className="text-sm font-semibold text-black font-funnel-sans">You&apos;ll Receive:</span>
