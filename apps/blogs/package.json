@@ -14,7 +14,7 @@
     "@notion-render/hljs-plugin": "^0.0.2",
     "@notionhq/client": "^2.2.16",
     "clsx": "^2.1.1",
-    "next": "15.1.11",
+    "next": "15.3.9",
     "next-mdx-remote": "^5.0.0",
     "notion-to-md": "^3.1.6",
     "prismjs": "^1.29.0",
