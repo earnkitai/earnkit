@@ -54,6 +54,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [config, setConfig] = useState<BuybackConfig | null>(null);
     const [status, setStatus] = useState<BuybackStatus | null>(null);
     const [executions, setExecutions] = useState<BuybackExecution[]>([]);
+    const [executionsError, setExecutionsError] = useState<string | null>(null);
     const [minThresholdUsd, setMinThresholdUsd] = useState(10);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -96,11 +97,17 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const fetchExecutions = useCallback(async () => {
         try {
             const r = await fetch(`/api/agents/${agentDbId}/buyback/executions`);
-            if (!r.ok) return;
+            if (!r.ok) {
+                const text = await r.text();
+                setExecutionsError(`HTTP ${r.status}: ${text.slice(0, 200)}`);
+                return;
+            }
             const data = await r.json();
             setExecutions(data.executions ?? []);
+            setExecutionsError(null);
         } catch (e) {
             console.error("Failed to load buyback executions:", e);
+            setExecutionsError(e instanceof Error ? e.message : String(e));
         }
     }, [agentDbId]);
 
@@ -383,14 +390,37 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                     </div>
                 )}
 
-                {config && executions.length > 0 && (
+                {config && (
                     <div className="mt-8">
-                        <h3 className="text-sm font-semibold text-black font-funnel-sans mb-3">Execution history</h3>
-                        <div className="space-y-2">
-                            {executions.map((e) => (
-                                <ExecutionRow key={e.id} exec={e} tokenSymbol={config.tokenSymbol} tokenDecimals={config.tokenDecimals} />
-                            ))}
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-semibold text-black font-funnel-sans">Execution history</h3>
+                            <button
+                                type="button"
+                                onClick={fetchExecutions}
+                                className="text-xs text-black/40 hover:text-black/60 font-funnel-sans"
+                            >
+                                Refresh
+                            </button>
                         </div>
+                        {executionsError ? (
+                            <div className="bg-red-50 border border-red-200 rounded-[12px] p-3 text-xs font-funnel-sans">
+                                <p className="text-red-700 font-semibold">Couldn&apos;t load history</p>
+                                <p className="text-red-600 font-mono break-all mt-1">{executionsError}</p>
+                                <p className="text-black/40 mt-1">
+                                    If this says HTTP 404, the backend hasn&apos;t been redeployed with the executions endpoint yet.
+                                </p>
+                            </div>
+                        ) : executions.length === 0 ? (
+                            <div className="bg-black/4 border border-black/10 rounded-[12px] p-4 text-xs font-funnel-sans text-black/60">
+                                No buyback runs yet. Each completed buyback (and any failed attempt) will appear here with the on-chain tx hashes for the Warehouse withdraw, Uniswap swap, and burn.
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {executions.map((e) => (
+                                    <ExecutionRow key={e.id} exec={e} tokenSymbol={config.tokenSymbol} tokenDecimals={config.tokenDecimals} />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </CardContent>
