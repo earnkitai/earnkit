@@ -177,38 +177,26 @@ export class PriceService {
       console.log(`CoinGecko failed for ${address}:`, err, '— trying Alchemy...');
     }
 
-    // Fallback: Alchemy token price by address
-    if (!this.ALCHEMY_API_KEY) {
-      throw new Error(`No price data available for ${address} — CoinGecko returned nothing and ALCHEMY_API_KEY is not set`);
+    // Fallback: DexScreener — works for any token with DEX liquidity, no API key needed
+    console.log(`Fetching price for ${address} via DexScreener...`);
+    const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${address.toLowerCase()}`;
+    const dexResponse = await fetch(dexUrl, { method: 'GET', headers: { accept: 'application/json' } });
+
+    if (!dexResponse.ok) {
+      throw new Error(`DexScreener API error: ${dexResponse.status} ${dexResponse.statusText}`);
     }
 
-    // Map CoinGecko platformId to Alchemy network name
-    const alchemyNetwork = platformId === 'base' ? 'base-mainnet'
-      : platformId === 'ethereum' ? 'eth-mainnet'
-      : platformId;
+    const dexData: any = await dexResponse.json();
+    // pairs are sorted by liquidity descending — first pair is the most liquid
+    const priceUsd = dexData?.pairs?.[0]?.priceUsd;
 
-    const alchemyUrl = `https://api.g.alchemy.com/prices/v1/tokens/by-address?addresses[0].network=${alchemyNetwork}&addresses[0].address=${address.toLowerCase()}`;
-    console.log(`Fetching price for ${address} via Alchemy...`);
-
-    const alchemyResponse = await fetch(alchemyUrl, {
-      method: 'GET',
-      headers: { accept: 'application/json', Authorization: `Bearer ${this.ALCHEMY_API_KEY}` },
-    });
-
-    if (!alchemyResponse.ok) {
-      throw new Error(`Alchemy token price API error: ${alchemyResponse.status} ${alchemyResponse.statusText}`);
+    if (priceUsd === undefined || priceUsd === null) {
+      throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
     }
 
-    const alchemyData: any = await alchemyResponse.json();
-    const alchemyPrice = alchemyData?.data?.[0]?.prices?.[0]?.value;
-
-    if (alchemyPrice === undefined || alchemyPrice === null) {
-      throw new Error(`No price data found for ${address} on ${platformId} from CoinGecko or Alchemy`);
-    }
-
-    const tokenPrice = Number(alchemyPrice);
+    const tokenPrice = Number(priceUsd);
     this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
-    console.log(`Alchemy price for ${address}: $${tokenPrice}`);
+    console.log(`DexScreener price for ${address}: $${tokenPrice}`);
     return tokenPrice;
   }
 
