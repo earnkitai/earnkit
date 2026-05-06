@@ -100,7 +100,7 @@ export class TokenService {
    */
   getCoingeckoId(address: string): string | undefined {
     const token = this.getTokenByAddress(address);
-    return token?.coingeckoId;
+    return token?.coingeckoPlatformId;
   }
 
   /**
