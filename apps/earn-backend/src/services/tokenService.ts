@@ -9,7 +9,8 @@ export interface SupportedToken {
   name: string;
   decimals: number;
   chainId: number;
-  coingeckoId: string;
+  /** CoinGecko platform ID for the chain (e.g. "base", "ethereum") */
+  coingeckoPlatformId: string;
   logoUrl?: string;
 }
 
@@ -24,7 +25,7 @@ const SUPPORTED_TOKENS: SupportedToken[] = [
     name: 'USD Coin',
     decimals: 6,
     chainId: 8453,
-    coingeckoId: 'usd-coin',
+    coingeckoPlatformId: 'base',
     logoUrl: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
   },
   {
@@ -33,7 +34,7 @@ const SUPPORTED_TOKENS: SupportedToken[] = [
     name: 'MiniDev',
     decimals: 18,
     chainId: 8453,
-    coingeckoId: 'minidev',
+    coingeckoPlatformId: 'base',
     logoUrl: 'https://assets.coingecko.com/coins/images/39824/small/MINIDEV.jpg',
   },
 ];

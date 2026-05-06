@@ -132,123 +132,48 @@ export class PriceService {
   }
 
   /**
-   * Get current token price in USD using CoinGecko API
-   * @param coingeckoId The CoinGecko ID of the token (e.g., 'minidev', 'usd-coin')
+   * Get token price in USD using CoinGecko's contract-address endpoint.
+   * This is more reliable than the slug-based /simple/price because it
+   * works for any token with on-chain liquidity — no CoinGecko slug needed.
+   *
+   * @param platformId  CoinGecko platform ID for the chain (e.g. "base", "ethereum")
+   * @param address     Token contract address
    */
-  async getTokenPrice(coingeckoId: string): Promise<number> {
+  async getTokenPrice(platformId: string, address: string): Promise<number> {
     const now = Date.now();
-    const cacheKey = coingeckoId.toLowerCase();
-
-    // Check if we have valid cached data
-    const cached = this.tokenCache.get(cacheKey);
-    if (cached && now - cached.timestamp < this.TOKEN_CACHE_DURATION) {
-      console.log(`Using cached ${coingeckoId} price:`, cached.price);
-      return cached.price;
-    }
-
-    try {
-      console.log(`Fetching fresh ${coingeckoId} price from CoinGecko API...`);
-
-      // Build headers - include API key if available
-      const headers: Record<string, string> = {
-        accept: 'application/json',
-      };
-      if (this.COINGECKO_API_KEY) {
-        headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
-      }
-
-      const response = await fetch(
-        `${this.COINGECKO_API_URL}/simple/price?ids=${coingeckoId}&vs_currencies=usd`,
-        {
-          method: 'GET',
-          headers,
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `CoinGecko API error: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const data: any = await response.json();
-      const price = data[coingeckoId]?.usd;
-
-      if (price === undefined || price === null) {
-        throw new Error(`No price data found for ${coingeckoId}`);
-      }
-
-      const tokenPrice = Number(price);
-
-      // Cache the result
-      this.tokenCache.set(cacheKey, {
-        price: tokenPrice,
-        timestamp: now,
-      });
-
-      console.log(`Fresh ${coingeckoId} price fetched:`, tokenPrice);
-      return tokenPrice;
-    } catch (error) {
-      console.error(`Error fetching ${coingeckoId} price:`, error);
-
-      // If we have cached data, use it even if expired
-      if (cached) {
-        console.log(
-          `Using expired cached ${coingeckoId} price as fallback:`,
-          cached.price,
-        );
-        return cached.price;
-      }
-
-      // Throw error as we can't make assumptions about token prices
-      throw new Error(`Unable to fetch price for ${coingeckoId}`);
-    }
-  }
-
-  /**
-   * Get token price by contract address using Alchemy Price API.
-   * Used as fallback when CoinGecko doesn't have the token.
-   */
-  async getTokenPriceByAddressAlchemy(address: string, network = 'base-mainnet'): Promise<number> {
-    const cacheKey = `alchemy:${address.toLowerCase()}`;
-    const now = Date.now();
+    const cacheKey = `${platformId}:${address.toLowerCase()}`;
 
     const cached = this.tokenCache.get(cacheKey);
     if (cached && now - cached.timestamp < this.TOKEN_CACHE_DURATION) {
-      console.log(`Using cached Alchemy price for ${address}:`, cached.price);
+      console.log(`Using cached price for ${address}:`, cached.price);
       return cached.price;
     }
 
-    if (!this.ALCHEMY_API_KEY) {
-      throw new Error('ALCHEMY_API_KEY is not configured');
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (this.COINGECKO_API_KEY) {
+      headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
     }
 
-    const response = await fetch(
-      `https://api.g.alchemy.com/prices/v1/${this.ALCHEMY_API_KEY}/tokens/by-address`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({
-          addresses: [{ network, address }],
-        }),
-      },
-    );
+    const url = `${this.COINGECKO_API_URL}/simple/token_price/${platformId}?contract_addresses=${address.toLowerCase()}&vs_currencies=usd`;
+    console.log(`Fetching price for ${address} on ${platformId}...`);
+
+    const response = await fetch(url, { method: 'GET', headers });
 
     if (!response.ok) {
-      throw new Error(`Alchemy price API error: ${response.status} ${response.statusText}`);
+      throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
     }
 
     const data: any = await response.json();
-    const usdPrice = data?.data?.[0]?.prices?.find((p: any) => p.currency === 'usd')?.value;
+    const price = data[address.toLowerCase()]?.usd;
 
-    if (!usdPrice) {
-      throw new Error(`No Alchemy price found for ${address}`);
+    if (price === undefined || price === null) {
+      throw new Error(`No price data found for ${address} on ${platformId}`);
     }
 
-    const price = Number(usdPrice);
-    this.tokenCache.set(cacheKey, { price, timestamp: now });
-    console.log(`Alchemy price for ${address}: $${price}`);
-    return price;
+    const tokenPrice = Number(price);
+    this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
+    console.log(`Price for ${address}: $${tokenPrice}`);
+    return tokenPrice;
   }
 
   /**
@@ -260,7 +185,7 @@ export class PriceService {
     if (!token) {
       throw new Error(`Token ${symbol} is not supported`);
     }
-    return this.getTokenPrice(token.coingeckoId);
+    return this.getTokenPrice(token.coingeckoPlatformId, token.address);
   }
 
   /**
@@ -272,7 +197,7 @@ export class PriceService {
     if (!token) {
       throw new Error(`Token at ${address} is not supported`);
     }
-    return this.getTokenPrice(token.coingeckoId);
+    return this.getTokenPrice(token.coingeckoPlatformId, token.address);
   }
 
   /**
@@ -314,7 +239,7 @@ export class PriceService {
       throw new Error(`Token ${tokenSymbol} is not supported`);
     }
 
-    const tokenPrice = await this.getTokenPrice(token.coingeckoId);
+    const tokenPrice = await this.getTokenPrice(token.coingeckoPlatformId, token.address);
     const tokenAmount = usdAmount / tokenPrice;
     const tokenAmountFixed = tokenAmount.toFixed(token.decimals);
     const smallestUnitAmount = parseUnits(tokenAmountFixed, token.decimals);
@@ -340,7 +265,7 @@ export class PriceService {
       throw new Error(`Token ${tokenSymbol} is not supported`);
     }
 
-    const tokenPrice = await this.getTokenPrice(token.coingeckoId);
+    const tokenPrice = await this.getTokenPrice(token.coingeckoPlatformId, token.address);
     const amountBigInt =
       typeof tokenAmount === 'string' ? BigInt(tokenAmount) : tokenAmount;
     const humanReadableAmount = parseFloat(formatUnits(amountBigInt, token.decimals));
@@ -358,7 +283,7 @@ export class PriceService {
 
     for (const token of tokens) {
       try {
-        const price = await this.getTokenPrice(token.coingeckoId);
+        const price = await this.getTokenPrice(token.coingeckoPlatformId, token.address);
         prices.set(token.address.toLowerCase(), {
           symbol: token.symbol,
           price,

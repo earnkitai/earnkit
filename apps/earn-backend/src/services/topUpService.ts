@@ -240,13 +240,7 @@ export class TopUpService {
       const tokenDiscount = tokenConfig.discountPercent;
 
       try {
-        let tokenPrice: number;
-        try {
-          tokenPrice = await priceService.getTokenPrice(token.coingeckoId);
-        } catch {
-          console.log(`CoinGecko failed for ${token.symbol}, trying Alchemy by address...`);
-          tokenPrice = await priceService.getTokenPriceByAddressAlchemy(token.address);
-        }
+        const tokenPrice = await priceService.getTokenPrice(token.coingeckoPlatformId, token.address);
         console.log(`${token.symbol} price for top-up conversion:`, tokenPrice);
 
         const tokenOptions: TokenPaymentOption[] = usdAmounts.map(
@@ -710,13 +704,7 @@ export class TopUpService {
           return;
         }
 
-        let tokenPrice: number;
-        try {
-          tokenPrice = await priceService.getTokenPrice(tokenInfo.coingeckoId);
-        } catch {
-          console.log(`[TopUpService] CoinGecko failed for ${tokenInfo.symbol}, trying Alchemy...`);
-          tokenPrice = await priceService.getTokenPriceByAddressAlchemy(tokenInfo.address);
-        }
+        const tokenPrice = await priceService.getTokenPrice(tokenInfo.coingeckoPlatformId, tokenInfo.address);
         // Use viem formatUnits to avoid float precision loss on large token amounts
         const actualTokenAmount = parseFloat(formatUnits(actualAmount, tokenInfo.decimals));
         actualUsd = actualTokenAmount * tokenPrice;
