@@ -94,23 +94,23 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   //   || (to in allowed_input_tokens && selector == approve && first_arg == SwapRouter)
   //   || (to == userToken && selector == transfer && first_arg == 0xdEaD)
   //   || (to == userToken && selector == burn)
-  const sliceSelector = "eth.tx.data[0:10]";
-  const firstArgAddress = "eth.tx.data[34:74]"; // address sits in bytes 4..36, lowercased hex
+  const selector = 'eth.tx.function_signature';
+  const firstArgAddress = 'eth.tx.data[34..74]'; // address sits in bytes 4..36, lowercased hex
 
   const conditions: string[] = [
-    `(${inSet('eth.tx.to', [warehouse])} && ${sliceSelector} == '${sel('warehouseWithdraw')}')`,
-    `(${inSet('eth.tx.to', [router])} && ${inSet(sliceSelector, [sel('uniswapExactInput'), sel('uniswapExactInputSingle')])})`,
+    `(${inSet('eth.tx.to', [warehouse])} && ${selector} == '${sel('warehouseWithdraw')}')`,
+    `(${inSet('eth.tx.to', [router])} && ${inSet(selector, [sel('uniswapExactInput'), sel('uniswapExactInputSingle')])})`,
   ];
   if (allowedInputsLower.length > 0) {
     conditions.push(
-      `(${inSet('eth.tx.to', allowedInputsLower)} && ${sliceSelector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${router.slice(2)}')`,
+      `(${inSet('eth.tx.to', allowedInputsLower)} && ${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${router.slice(2)}')`,
     );
   }
   conditions.push(
-    `(${inSet('eth.tx.to', [userToken])} && ${sliceSelector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${dead.slice(2)}')`,
-    `(${inSet('eth.tx.to', [userToken])} && ${sliceSelector} == '${sel('tokenBurn')}')`,
+    `(${inSet('eth.tx.to', [userToken])} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${dead.slice(2)}')`,
+    `(${inSet('eth.tx.to', [userToken])} && ${selector} == '${sel('tokenBurn')}')`,
     // Recovery: transfer of any whitelisted token TO the recoveryAddress.
-    `(${inSet('eth.tx.to', recoverableTokens)} && ${sliceSelector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${recovery.slice(2)}')`,
+    `(${inSet('eth.tx.to', recoverableTokens)} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${recovery.slice(2)}')`,
     // Recovery: native ETH sweep — plain value transfer to recoveryAddress with empty data.
     `(${inSet('eth.tx.to', [recovery])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
   );
