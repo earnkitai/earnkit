@@ -202,6 +202,47 @@ router.delete('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/agents/:agentId/buyback/executions — recent execution history with
+// per-step tx hashes and error reasons. Used by the dashboard's history panel
+// so users can see what happened without needing DB access.
+router.get('/executions', async (req: Request, res: Response) => {
+  try {
+    const agent = await findAgent(req.params.agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const config = agent.buybackConfig;
+    if (!config) return res.json({ executions: [] });
+
+    const rows = await prisma.buybackExecution.findMany({
+      where: { buybackConfigId: config.id },
+      orderBy: { startedAt: 'desc' },
+      take: 20,
+    });
+
+    return res.json({
+      executions: rows.map((r) => ({
+        id: r.id,
+        status: r.status,
+        triggerBalanceUsd: r.triggerBalanceUsd,
+        attempts: r.attempts,
+        lastError: r.lastError,
+        warehouseWithdrawHashes: r.warehouseWithdrawHashes,
+        swapHash: r.swapHash,
+        burnHash: r.burnHash,
+        tokensOutAmount: r.tokensOutAmount,
+        gasSpentEth: r.gasSpentEth,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        nextAttemptAt: r.nextAttemptAt,
+      })),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal error';
+    console.error('[buyback] executions error:', err);
+    return res.status(500).json({ error: message });
+  }
+});
+
 // POST /api/agents/:agentId/buyback/check
 //
 // Event-driven trigger fired by the dashboard right after a successful Split

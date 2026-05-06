@@ -31,6 +31,21 @@ interface BuybackStatus {
     inFlightExecution?: { id: string; status: string } | null;
 }
 
+interface BuybackExecution {
+    id: string;
+    status: "QUEUED" | "WITHDRAWING" | "SWAPPING" | "BURNING" | "COMPLETED" | "FAILED" | "RETRYING";
+    triggerBalanceUsd: number;
+    attempts: number;
+    lastError: string | null;
+    warehouseWithdrawHashes: string[];
+    swapHash: string | null;
+    burnHash: string | null;
+    tokensOutAmount: string | null;
+    startedAt: string;
+    completedAt: string | null;
+    nextAttemptAt: string | null;
+}
+
 interface BuybackPanelProps {
     agentDbId: string;
 }
@@ -38,6 +53,7 @@ interface BuybackPanelProps {
 export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [config, setConfig] = useState<BuybackConfig | null>(null);
     const [status, setStatus] = useState<BuybackStatus | null>(null);
+    const [executions, setExecutions] = useState<BuybackExecution[]>([]);
     const [minThresholdUsd, setMinThresholdUsd] = useState(10);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -77,6 +93,17 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         }
     }, [agentDbId]);
 
+    const fetchExecutions = useCallback(async () => {
+        try {
+            const r = await fetch(`/api/agents/${agentDbId}/buyback/executions`);
+            if (!r.ok) return;
+            const data = await r.json();
+            setExecutions(data.executions ?? []);
+        } catch (e) {
+            console.error("Failed to load buyback executions:", e);
+        }
+    }, [agentDbId]);
+
     useEffect(() => {
         fetchConfig();
     }, [fetchConfig]);
@@ -84,12 +111,17 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     useEffect(() => {
         if (!config) {
             setStatus(null);
+            setExecutions([]);
             return;
         }
         fetchStatus();
-        const id = setInterval(fetchStatus, 30_000);
+        fetchExecutions();
+        const id = setInterval(() => {
+            fetchStatus();
+            fetchExecutions();
+        }, 30_000);
         return () => clearInterval(id);
-    }, [config, fetchStatus]);
+    }, [config, fetchStatus, fetchExecutions]);
 
     const handleUpdate = async () => {
         if (!config) return;
@@ -139,6 +171,29 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
             }
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleTriggerNow = async () => {
+        try {
+            const r = await fetch(`/api/agents/${agentDbId}/buyback/check`, { method: "POST" });
+            const d = await r.json();
+            if (!r.ok) {
+                toast.error(d.error || "Failed to trigger buyback");
+                return;
+            }
+            if (d.queued) {
+                toast.success(`Buyback queued — executor will run within 30s ($${d.accumulatedUsd?.toFixed?.(2) ?? "?"} of $${d.thresholdUsd ?? "?"})`);
+            } else {
+                toast.info(d.reason === 'below_threshold'
+                    ? `Below threshold — $${d.accumulatedUsd?.toFixed?.(2) ?? "?"} of $${d.thresholdUsd ?? "?"}`
+                    : d.reason === 'in_flight'
+                        ? `Already in flight: ${d.execution?.status?.toLowerCase?.() ?? "running"}`
+                        : `No-op: ${d.reason ?? "unknown"}`);
+            }
+            await fetchStatus();
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Unexpected error");
         }
     };
 
@@ -273,7 +328,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                     {status.inFlightExecution
                                         ? `Buyback in progress: ${status.inFlightExecution.status.toLowerCase()}…`
                                         : status.readyToFire
-                                            ? "Threshold reached — next scan (within 5 min) will trigger the swap & burn."
+                                            ? "Threshold reached. Buyback fires automatically when you click \"Distribute Fees\", or use \"Trigger now\" below."
                                             : "Funds will keep accumulating until the threshold is reached."}
                                 </p>
                             </div>
@@ -293,7 +348,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                 )}
 
                 {config && (
-                    <div className="mt-6 flex gap-3">
+                    <div className="mt-6 flex flex-wrap gap-3">
                         <Button
                             onClick={handleUpdate}
                             disabled={saving}
@@ -301,6 +356,14 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         >
                             Save Changes
                         </Button>
+                        {config.isActive && status?.readyToFire && !status?.inFlightExecution && (
+                            <Button
+                                onClick={handleTriggerNow}
+                                className="bg-secondary-purple hover:bg-purple-700 text-white px-6 py-3 rounded-full font-normal font-funnel-sans"
+                            >
+                                Trigger buyback now
+                            </Button>
+                        )}
                         {config.isActive && (
                             <Button
                                 onClick={handleDisable}
@@ -319,7 +382,124 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                         </Button>
                     </div>
                 )}
+
+                {config && executions.length > 0 && (
+                    <div className="mt-8">
+                        <h3 className="text-sm font-semibold text-black font-funnel-sans mb-3">Execution history</h3>
+                        <div className="space-y-2">
+                            {executions.map((e) => (
+                                <ExecutionRow key={e.id} exec={e} tokenSymbol={config.tokenSymbol} tokenDecimals={config.tokenDecimals} />
+                            ))}
+                        </div>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
+}
+
+function ExecutionRow({ exec, tokenSymbol, tokenDecimals }: { exec: BuybackExecution; tokenSymbol: string; tokenDecimals: number }) {
+    const [open, setOpen] = useState(false);
+
+    const statusColor = (() => {
+        switch (exec.status) {
+            case "COMPLETED": return "text-secondary-green border-secondary-green bg-secondary-green/10";
+            case "FAILED": return "text-red-600 border-red-300 bg-red-50";
+            case "RETRYING": return "text-amber-600 border-amber-300 bg-amber-50";
+            default: return "text-secondary-purple border-secondary-purple bg-secondary-purple/10"; // in-flight
+        }
+    })();
+
+    const tokensOutHuman = exec.tokensOutAmount && tokenDecimals != null
+        ? formatRawTokenAmount(exec.tokensOutAmount, tokenDecimals)
+        : null;
+
+    return (
+        <div className="border border-black/10 rounded-[12px] overflow-hidden">
+            <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                className="w-full flex items-center justify-between p-3 hover:bg-black/4 transition-colors text-left"
+            >
+                <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full border font-funnel-sans ${statusColor}`}>
+                        {exec.status}
+                    </span>
+                    <div className="min-w-0">
+                        <p className="text-sm text-black font-funnel-sans truncate">
+                            ${exec.triggerBalanceUsd.toFixed(2)} triggered
+                            {tokensOutHuman && exec.status === "COMPLETED" && (
+                                <span className="text-black/60"> · burned {tokensOutHuman} {tokenSymbol}</span>
+                            )}
+                        </p>
+                        <p className="text-xs text-black/40 font-funnel-sans">
+                            {new Date(exec.startedAt).toLocaleString()} · {exec.attempts} attempt{exec.attempts === 1 ? "" : "s"}
+                        </p>
+                    </div>
+                </div>
+                <span className="text-xs text-black/40 font-funnel-sans">{open ? "▲" : "▼"}</span>
+            </button>
+            {open && (
+                <div className="p-3 border-t border-black/10 bg-black/2 space-y-2 text-xs font-funnel-sans">
+                    {exec.lastError && (
+                        <div>
+                            <p className="text-black/40">Error</p>
+                            <p className="text-red-700 font-mono break-all whitespace-pre-wrap">{exec.lastError}</p>
+                        </div>
+                    )}
+                    {exec.warehouseWithdrawHashes && exec.warehouseWithdrawHashes.length > 0 && (
+                        <div>
+                            <p className="text-black/40">Warehouse withdraws</p>
+                            {exec.warehouseWithdrawHashes.map((h) => (
+                                <a key={h} href={`https://basescan.org/tx/${h}`} target="_blank" rel="noopener noreferrer" className="block text-color1 font-mono break-all hover:underline">
+                                    {h}
+                                </a>
+                            ))}
+                        </div>
+                    )}
+                    {exec.swapHash && (
+                        <div>
+                            <p className="text-black/40">Swap (Uniswap V3)</p>
+                            <a href={`https://basescan.org/tx/${exec.swapHash}`} target="_blank" rel="noopener noreferrer" className="text-color1 font-mono break-all hover:underline">
+                                {exec.swapHash}
+                            </a>
+                        </div>
+                    )}
+                    {exec.burnHash && (
+                        <div>
+                            <p className="text-black/40">Burn</p>
+                            <a href={`https://basescan.org/tx/${exec.burnHash}`} target="_blank" rel="noopener noreferrer" className="text-color1 font-mono break-all hover:underline">
+                                {exec.burnHash}
+                            </a>
+                        </div>
+                    )}
+                    {exec.completedAt && (
+                        <div>
+                            <p className="text-black/40">Completed at</p>
+                            <p className="text-black/80">{new Date(exec.completedAt).toLocaleString()}</p>
+                        </div>
+                    )}
+                    {exec.nextAttemptAt && exec.status === "RETRYING" && (
+                        <div>
+                            <p className="text-black/40">Next retry at</p>
+                            <p className="text-black/80">{new Date(exec.nextAttemptAt).toLocaleString()}</p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function formatRawTokenAmount(raw: string, decimals: number): string {
+    try {
+        const v = BigInt(raw);
+        const divisor = BigInt(10) ** BigInt(decimals);
+        const whole = v / divisor;
+        const frac = v % divisor;
+        const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+        return fracStr ? `${whole}.${fracStr}` : whole.toString();
+    } catch {
+        return raw;
+    }
 }
