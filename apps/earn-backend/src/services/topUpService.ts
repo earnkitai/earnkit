@@ -193,7 +193,7 @@ export class TopUpService {
       const option: TopUpOption = {
         label:
           ethDiscount > 0
-            ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (was $${usdAmount.toFixed(2)}, ${ethDiscount}% off)`
+            ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (${ethDiscount}% off)`
             : `${creditAmounts[i]} Credits - $${usdAmount.toFixed(2)} USD`,
         amountInUSD: discountedUsd.toString(),
         amountInEth: ethAmount.toString(),
@@ -254,7 +254,7 @@ export class TopUpService {
             const option: TokenPaymentOption = {
               label:
                 tokenDiscount > 0
-                  ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (was $${usdAmount.toFixed(2)}, ${tokenDiscount}% off)`
+                  ? `${creditAmounts[i]} Credits - $${discountedUsd.toFixed(2)} (${tokenDiscount}% off)`
                   : `${creditAmounts[i]} Credits - $${usdAmount.toFixed(2)} USD`,
               amountInUSD: discountedUsd.toString(),
               amountInToken: smallestUnitAmount.toString(),
