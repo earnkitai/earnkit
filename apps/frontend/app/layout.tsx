@@ -19,8 +19,8 @@ const funnellsans = Funnel_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
-  title: 'EarnKit | The Agent Monetization Layer',
-  description: 'Onchain Payments for AI Agents',
+  title: 'EarnKit | Make Tokens Durable',
+  description: 'Setup automated buybacks everytime you earn.',
   keywords: [
     'ai agent monetization',
     'web3 monetization sdk',
@@ -79,15 +79,15 @@ export const metadata: Metadata = {
     canonical: 'https://earnkit.com',
   },
   openGraph: {
-    title: 'EarnKit | The Agent Matrix',
+    title: 'EarnKit | Make Tokens Durable',
     siteName: 'EarnKit',
     url: 'https://earnkit.com',
     type: 'website',
     locale: 'en_US',
-    description: 'Onchain Payments for AI Agents',
+    description: 'Setup automated buybacks everytime you earn.',
     images: [
       {
-        url: 'https://res.cloudinary.com/coinvise/image/upload/v1751438732/earnkit_monetize_metaimage_ub79zc.png',
+        url: '/og.png',
         width: 1200,
         height: 630,
         alt: 'EarnKit Platform Preview',
@@ -95,14 +95,14 @@ export const metadata: Metadata = {
     ],
   },
   twitter: {
-    site: '@EarnKit_ai',
-    creator: '@EarnKit_ai',
+    site: '@earnkit_ai',
+    creator: '@earnkit_ai',
     card: 'summary_large_image',
-    title: 'EarnKit | The Agent Matrix',
-    description: 'Onchain Payments for AI Agents',
+    title: 'EarnKit | Make Tokens Durable',
+    description: 'Setup automated buybacks everytime you earn.',
     images: [
       {
-        url: 'https://res.cloudinary.com/coinvise/image/upload/v1751438732/earnkit_monetize_metaimage_ub79zc.png',
+        url: '/og.png',
         alt: 'EarnKit Platform Preview',
       },
     ],
