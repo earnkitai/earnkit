@@ -116,7 +116,7 @@ export default function Logs({ agentId }: LogsProps) {
                     <div className="mb-8">
                         <h1 className="text-xl font-semibold font-funnel-display text-black mb-2">Transaction History</h1>
                         <p className="text-black/40 text-sm font-funnel-sans">
-                            Recent payment transactions collected by your agent
+                            Recent payment transactions collected by your app
                         </p>
                     </div>
 
@@ -127,7 +127,7 @@ export default function Logs({ agentId }: LogsProps) {
                                 <div className="text-center">
                                     <p className="text-black/40 font-funnel-sans">No transactions found</p>
                                     <p className="text-xs text-black/20 font-funnel-sans mt-2">
-                                        Agent ID: {agentId}
+                                        App ID: {agentId}
                                     </p>
                                 </div>
                             </div>

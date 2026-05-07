@@ -168,8 +168,8 @@ export default function HomePage() {
                 {/* Header */}
                 <div className="mb-6 flex justify-between items-start">
                     <div>
-                        <h1 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">My Agents</h1>
-                        <p className="text-black/40 text-sm font-funnel-sans">Track & Manage your agent monetizations</p>
+                        <h1 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">My Apps</h1>
+                        <p className="text-black/40 text-sm font-funnel-sans">Track & Manage your app monetizations</p>
                     </div>
                     {/* API Key Section */}
                     <div className="space-y-6 w-[30%]">
@@ -185,7 +185,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-start justify-between gap-8">
                     {/* Left Section - Main Content */}
-                    <div className="flex-1 mr-24">
+                    <div className="flex-1">
 
 
                         {/* Agent Cards Grid */}
@@ -203,7 +203,7 @@ export default function HomePage() {
                         <div className="mb-32">
                             <div className="mb-[60px]">
                                 <h2 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">Get Started Faster</h2>
-                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your agents</p>
+                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your apps</p>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -243,7 +243,7 @@ export default function HomePage() {
                         <div className="mb-8 mt-[60px]">
                             <div className="mb-[60px]">
                                 <h2 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">FAQs</h2>
-                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your agents</p>
+                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your apps</p>
                             </div>
 
                             <div className="space-y-8">
@@ -424,7 +424,7 @@ function AddAgentCard({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                     </div>
-                    <h3 className="font-semibold text-black/80 font-funnel-sans text-[16px]">Add Agent</h3>
+                    <h3 className="font-semibold text-black/80 font-funnel-sans text-[16px]">Add App</h3>
                 </div>
             </CardContent>
         </Card>

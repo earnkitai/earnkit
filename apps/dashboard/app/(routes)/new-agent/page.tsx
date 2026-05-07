@@ -88,7 +88,7 @@ export default function NewAgentPage() {
         e.preventDefault();
 
         if (!userId) {
-            toast.error("Please log in to create an agent.");
+            toast.error("Please log in to create an app.");
             return;
         }
 
@@ -105,7 +105,7 @@ export default function NewAgentPage() {
 
             if (!apiKeyExists || !walletExists) {
                 toast.error("Prerequisites Required", {
-                    description: "You must complete the required setup before creating an agent. Connect your wallet to continue.",
+                    description: "You must complete the required setup before creating an app. Connect your wallet to continue.",
                     action: {
                         label: "Go to Settings",
                         onClick: () => router.push("/settings")
@@ -121,7 +121,7 @@ export default function NewAgentPage() {
 
         // Validate required fields
         if (!formData.agentName.trim()) {
-            toast.error("Please enter an agent name.");
+            toast.error("Please enter an app name.");
             return;
         }
 
@@ -225,7 +225,7 @@ export default function NewAgentPage() {
             toast.dismiss(loadingToast);
 
             if (response.ok) {
-                toast.success("Agent created successfully!");
+                toast.success("App created successfully!");
                 router.push('/home');
             } else {
                 const error = await response.json();
@@ -234,7 +234,7 @@ export default function NewAgentPage() {
         } catch (error) {
             toast.dismiss(loadingToast);
             console.error("Error creating agent:", error);
-            toast.error("An error occurred while creating the agent. Please try again.");
+            toast.error("An error occurred while creating the app. Please try again.");
         }
     };
 
@@ -263,11 +263,11 @@ export default function NewAgentPage() {
                 <div className="mb-[60px]">
                     <div className="flex items-center gap-2 text-sm">
                         <Link href="/home" className="text-black/40 font-funnel-display font-semibold text-xl hover:text-black/60 transition-colors cursor-pointer">
-                            My Agents
+                            My Apps
                         </Link>
                         <ChevronRight className="w-6 h-6 text-black/20 font-semibold " />
                         <div className="flex items-center gap-2">
-                            <span className="text-color1 font-funnel-display font-semibold text-xl hover:text-black/60 transition-colors cursor-pointer" >Add Agent</span>
+                            <span className="text-color1 font-funnel-display font-semibold text-xl hover:text-black/60 transition-colors cursor-pointer" >Add App</span>
                             <Icons.breadcrumbAddAgentIcon className="w-5 h-5" />
                         </div>
                     </div>
@@ -283,7 +283,7 @@ export default function NewAgentPage() {
                                     {/* Agent Name Section */}
                                     <div className="space-y-3">
                                         <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                            Agent Name
+                                            App Name
                                         </label>
                                         <Input
                                             type="text"
@@ -293,7 +293,7 @@ export default function NewAgentPage() {
                                             className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
                                         <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                            Choose a descriptive name that clearly identifies your agent&apos;s purpose and functionality.
+                                            Choose a descriptive name that clearly identifies your app&apos;s purpose and functionality.
                                         </p>
                                     </div>
 
@@ -331,10 +331,11 @@ export default function NewAgentPage() {
                                                 placeholder="e.g. 10"
                                                 value={formData.freePromptThreshold}
                                                 onChange={(e) => handleInputChange("freePromptThreshold", e.target.value)}
+                                                onWheel={(e) => e.currentTarget.blur()}
                                                 className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                             <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                Number of free prompts each user gets before being charged. Helps build trust and allows users to test your agent.
+                                                Number of free prompts each user gets before being charged. Helps build trust and allows users to test your app.
                                             </p>
                                         </div>
                                     )}
@@ -351,10 +352,11 @@ export default function NewAgentPage() {
                                                 placeholder="e.g. 0.10"
                                                 value={formData.ratePerPrompt}
                                                 onChange={(e) => handleInputChange("ratePerPrompt", e.target.value)}
+                                                onWheel={(e) => e.currentTarget.blur()}
                                                 className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                             <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                Price per prompt in USD. Consider your agent&apos;s value and complexity when setting rates. Typical range: $0.01 - $0.50.
+                                                Price per prompt in USD. Consider your app&apos;s value and complexity when setting rates. Typical range: $0.01 - $0.50.
                                             </p>
                                         </div>
                                     )}
@@ -370,6 +372,7 @@ export default function NewAgentPage() {
                                                 placeholder="e.g. 5 (Credits deducted from user's balance per prompt)"
                                                 value={formData.creditsPerPrompt}
                                                 onChange={(e) => handleInputChange("creditsPerPrompt", e.target.value)}
+                                                onWheel={(e) => e.currentTarget.blur()}
                                                 className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                             <p className="text-xs text-black/40 font-funnel-sans px-4">
@@ -404,6 +407,7 @@ export default function NewAgentPage() {
                                                                             topUpPackages: newPackages
                                                                         }));
                                                                     }}
+                                                                    onWheel={(e) => e.currentTarget.blur()}
                                                                     className="w-full p-3 border border-black/10 rounded-lg  bg-black/4"
                                                                 />
                                                             </div>
@@ -425,6 +429,7 @@ export default function NewAgentPage() {
                                                                                 topUpPackages: newPackages
                                                                             }));
                                                                         }}
+                                                                        onWheel={(e) => e.currentTarget.blur()}
                                                                         className="flex-1 p-3 border border-black/10 rounded-lg  bg-black/4"
                                                                     />
 
@@ -478,7 +483,7 @@ export default function NewAgentPage() {
                                             Buyback
                                         </label>
                                         <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                            Platform always takes 5%. Choose how the rest of any buyback share is handled. The on-chain split contract is deployed at agent creation — this choice is locked in until you create a new agent.
+                                            Platform always takes 5%. Choose how the rest of any buyback share is handled. The on-chain split contract is deployed at app creation — this choice is locked in until you create a new app.
                                         </p>
 
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-4">
@@ -517,6 +522,7 @@ export default function NewAgentPage() {
                                                     placeholder="Buyback percent (e.g. 10)"
                                                     value={formData.buybackPercent}
                                                     onChange={(e) => handleInputChange("buybackPercent", e.target.value)}
+                                                    onWheel={(e) => e.currentTarget.blur()}
                                                     className="w-full p-4 border border-gray-200 rounded-lg"
                                                 />
                                                 {formData.buybackPercent && (
@@ -553,6 +559,7 @@ export default function NewAgentPage() {
                                                             step="1"
                                                             value={formData.buybackThresholdUsd}
                                                             onChange={(e) => handleInputChange("buybackThresholdUsd", e.target.value)}
+                                                            onWheel={(e) => e.currentTarget.blur()}
                                                             className="w-full p-4 border border-gray-200 rounded-lg"
                                                         />
                                                     </div>
@@ -565,6 +572,7 @@ export default function NewAgentPage() {
                                                             step="0.5"
                                                             value={formData.buybackSlippagePercent}
                                                             onChange={(e) => handleInputChange("buybackSlippagePercent", e.target.value)}
+                                                            onWheel={(e) => e.currentTarget.blur()}
                                                             className="w-full p-4 border border-gray-200 rounded-lg"
                                                         />
                                                     </div>
@@ -577,6 +585,7 @@ export default function NewAgentPage() {
                                                             placeholder="e.g. 10"
                                                             value={formData.buybackPercent}
                                                             onChange={(e) => handleInputChange("buybackPercent", e.target.value)}
+                                                            onWheel={(e) => e.currentTarget.blur()}
                                                             className="w-full p-4 border border-gray-200 rounded-lg"
                                                         />
                                                     </div>
@@ -599,7 +608,7 @@ export default function NewAgentPage() {
                                             type="submit"
                                             className="bg-secondary-green hover:bg-green-700 text-white px-8 py-6 rounded-full font-normal font-funnel-sans"
                                         >
-                                            Add Agent
+                                            Add App
                                         </Button>
                                         <Button
                                             type="button"

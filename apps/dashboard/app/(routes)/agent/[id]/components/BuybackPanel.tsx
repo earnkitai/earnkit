@@ -40,20 +40,6 @@ interface BuybackStatus {
     inFlightExecution?: { id: string; status: string } | null;
 }
 
-interface BuybackExecution {
-    id: string;
-    status: "QUEUED" | "WITHDRAWING" | "SWAPPING" | "BURNING" | "COMPLETED" | "FAILED" | "RETRYING";
-    triggerBalanceUsd: number;
-    attempts: number;
-    lastError: string | null;
-    warehouseWithdrawHashes: string[];
-    swapHash: string | null;
-    burnHash: string | null;
-    tokensOutAmount: string | null;
-    startedAt: string;
-    completedAt: string | null;
-    nextAttemptAt: string | null;
-}
 
 interface BuybackPanelProps {
     agentDbId: string;
@@ -62,8 +48,6 @@ interface BuybackPanelProps {
 export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     const [config, setConfig] = useState<BuybackConfig | null>(null);
     const [status, setStatus] = useState<BuybackStatus | null>(null);
-    const [executions, setExecutions] = useState<BuybackExecution[]>([]);
-    const [executionsError, setExecutionsError] = useState<string | null>(null);
     const [minThresholdUsd, setMinThresholdUsd] = useState(10);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -103,23 +87,6 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         }
     }, [agentDbId]);
 
-    const fetchExecutions = useCallback(async () => {
-        try {
-            const r = await fetch(`/api/agents/${agentDbId}/buyback/executions`);
-            if (!r.ok) {
-                const text = await r.text();
-                setExecutionsError(`HTTP ${r.status}: ${text.slice(0, 200)}`);
-                return;
-            }
-            const data = await r.json();
-            setExecutions(data.executions ?? []);
-            setExecutionsError(null);
-        } catch (e) {
-            console.error("Failed to load buyback executions:", e);
-            setExecutionsError(e instanceof Error ? e.message : String(e));
-        }
-    }, [agentDbId]);
-
     useEffect(() => {
         fetchConfig();
     }, [fetchConfig]);
@@ -127,17 +94,14 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
     useEffect(() => {
         if (!config) {
             setStatus(null);
-            setExecutions([]);
             return;
         }
         fetchStatus();
-        fetchExecutions();
         const id = setInterval(() => {
             fetchStatus();
-            fetchExecutions();
         }, 30_000);
         return () => clearInterval(id);
-    }, [config, fetchStatus, fetchExecutions]);
+    }, [config, fetchStatus]);
 
     const handleUpdate = async () => {
         if (!config) return;
@@ -268,10 +232,10 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                 {!config ? (
                     <div className="bg-black/4 rounded-[12px] p-6 border border-black/10 space-y-2">
                         <p className="text-sm text-black font-funnel-sans">
-                            Auto Buyback wasn&apos;t configured for this agent.
+                            Auto Buyback wasn&apos;t configured for this app.
                         </p>
                         <p className="text-xs text-black/60 font-funnel-sans">
-                            Auto Buyback can only be set up at agent creation, because the on-chain split contract bakes in the buyback recipient at deploy time and is immutable. To enable it, create a new agent and select &quot;Auto Buyback &amp; Burn&quot; in that step.
+                            Auto Buyback can only be set up at app creation, because the on-chain split contract bakes in the buyback recipient at deploy time and is immutable. To enable it, create a new app and select &quot;Auto Buyback &amp; Burn&quot; in that step.
                         </p>
                     </div>
                 ) : (
@@ -287,7 +251,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                             className="font-mono text-sm"
                         />
                         <p className="text-xs text-black/40 font-funnel-sans">
-                            {config.tokenSymbol} · locked once provisioned. The on-chain Splits contract baked in this token&apos;s buyback wallet — to change, you must create a new agent.
+                            {config.tokenSymbol} · locked once provisioned. The on-chain Splits contract baked in this token&apos;s buyback wallet — to change, you must create a new app.
                         </p>
                     </div>
 
@@ -457,145 +421,12 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                 )}
 
                 {config && (
-                    <div className="mt-8">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-semibold text-black font-funnel-sans">Execution history</h3>
-                            <button
-                                type="button"
-                                onClick={fetchExecutions}
-                                className="text-xs text-black/40 hover:text-black/60 font-funnel-sans"
-                            >
-                                Refresh
-                            </button>
-                        </div>
-                        {executionsError ? (
-                            <div className="bg-red-50 border border-red-200 rounded-[12px] p-3 text-xs font-funnel-sans">
-                                <p className="text-red-700 font-semibold">Couldn&apos;t load history</p>
-                                <p className="text-red-600 font-mono break-all mt-1">{executionsError}</p>
-                                <p className="text-black/40 mt-1">
-                                    If this says HTTP 404, the backend hasn&apos;t been redeployed with the executions endpoint yet.
-                                </p>
-                            </div>
-                        ) : executions.length === 0 ? (
-                            <div className="bg-black/4 border border-black/10 rounded-[12px] p-4 text-xs font-funnel-sans text-black/60">
-                                No buyback runs yet. Each completed buyback (and any failed attempt) will appear here with the on-chain tx hashes for the Warehouse withdraw, Uniswap swap, and burn.
-                            </div>
-                        ) : (
-                            <div className="space-y-2">
-                                {executions.map((e) => (
-                                    <ExecutionRow key={e.id} exec={e} tokenSymbol={config.tokenSymbol} tokenDecimals={config.tokenDecimals} />
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <p className="mt-4 text-xs text-black/40 font-funnel-sans">
+                        View full execution history in the <strong>Buyback</strong> tab above.
+                    </p>
                 )}
             </CardContent>
         </Card>
     );
 }
 
-function ExecutionRow({ exec, tokenSymbol, tokenDecimals }: { exec: BuybackExecution; tokenSymbol: string; tokenDecimals: number }) {
-    const [open, setOpen] = useState(false);
-
-    const statusColor = (() => {
-        switch (exec.status) {
-            case "COMPLETED": return "text-secondary-green border-secondary-green bg-secondary-green/10";
-            case "FAILED": return "text-red-600 border-red-300 bg-red-50";
-            case "RETRYING": return "text-amber-600 border-amber-300 bg-amber-50";
-            default: return "text-secondary-purple border-secondary-purple bg-secondary-purple/10"; // in-flight
-        }
-    })();
-
-    const tokensOutHuman = exec.tokensOutAmount && tokenDecimals != null
-        ? formatRawTokenAmount(exec.tokensOutAmount, tokenDecimals)
-        : null;
-
-    return (
-        <div className="border border-black/10 rounded-[12px] overflow-hidden">
-            <button
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                className="w-full flex items-center justify-between p-3 hover:bg-black/4 transition-colors text-left"
-            >
-                <div className="flex items-center gap-3 min-w-0">
-                    <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full border font-funnel-sans ${statusColor}`}>
-                        {exec.status}
-                    </span>
-                    <div className="min-w-0">
-                        <p className="text-sm text-black font-funnel-sans truncate">
-                            ${exec.triggerBalanceUsd.toFixed(2)} triggered
-                            {tokensOutHuman && exec.status === "COMPLETED" && (
-                                <span className="text-black/60"> · burned {tokensOutHuman} {tokenSymbol}</span>
-                            )}
-                        </p>
-                        <p className="text-xs text-black/40 font-funnel-sans">
-                            {new Date(exec.startedAt).toLocaleString()} · {exec.attempts} attempt{exec.attempts === 1 ? "" : "s"}
-                        </p>
-                    </div>
-                </div>
-                <span className="text-xs text-black/40 font-funnel-sans">{open ? "▲" : "▼"}</span>
-            </button>
-            {open && (
-                <div className="p-3 border-t border-black/10 bg-black/2 space-y-2 text-xs font-funnel-sans">
-                    {exec.lastError && (
-                        <div>
-                            <p className="text-black/40">Error</p>
-                            <p className="text-red-700 font-mono break-all whitespace-pre-wrap">{exec.lastError}</p>
-                        </div>
-                    )}
-                    {exec.warehouseWithdrawHashes && exec.warehouseWithdrawHashes.length > 0 && (
-                        <div>
-                            <p className="text-black/40">Warehouse withdraws</p>
-                            {exec.warehouseWithdrawHashes.map((h) => (
-                                <a key={h} href={`https://basescan.org/tx/${h}`} target="_blank" rel="noopener noreferrer" className="block text-color1 font-mono break-all hover:underline">
-                                    {h}
-                                </a>
-                            ))}
-                        </div>
-                    )}
-                    {exec.swapHash && (
-                        <div>
-                            <p className="text-black/40">Swap (Uniswap V3)</p>
-                            <a href={`https://basescan.org/tx/${exec.swapHash}`} target="_blank" rel="noopener noreferrer" className="text-color1 font-mono break-all hover:underline">
-                                {exec.swapHash}
-                            </a>
-                        </div>
-                    )}
-                    {exec.burnHash && (
-                        <div>
-                            <p className="text-black/40">Burn</p>
-                            <a href={`https://basescan.org/tx/${exec.burnHash}`} target="_blank" rel="noopener noreferrer" className="text-color1 font-mono break-all hover:underline">
-                                {exec.burnHash}
-                            </a>
-                        </div>
-                    )}
-                    {exec.completedAt && (
-                        <div>
-                            <p className="text-black/40">Completed at</p>
-                            <p className="text-black/80">{new Date(exec.completedAt).toLocaleString()}</p>
-                        </div>
-                    )}
-                    {exec.nextAttemptAt && exec.status === "RETRYING" && (
-                        <div>
-                            <p className="text-black/40">Next retry at</p>
-                            <p className="text-black/80">{new Date(exec.nextAttemptAt).toLocaleString()}</p>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function formatRawTokenAmount(raw: string, decimals: number): string {
-    try {
-        const v = BigInt(raw);
-        const divisor = BigInt(10) ** BigInt(decimals);
-        const whole = v / divisor;
-        const frac = v % divisor;
-        const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
-        return fracStr ? `${whole}.${fracStr}` : whole.toString();
-    } catch {
-        return raw;
-    }
-}

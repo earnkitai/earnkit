@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
 import BuybackPanel from "./components/BuybackPanel";
+import BuybackHistory from "./components/BuybackHistory";
 import { TokenConfigPanel } from "@/app/components/TokenConfigPanel";
 
 // Agent type definition matching the database schema
@@ -204,7 +205,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         }
     }, [agent]);
 
-    const [activeView, setActiveView] = useState<"overview" | "logs">("overview");
+    const [activeView, setActiveView] = useState<"overview" | "logs" | "buyback">("overview");
 
     // Generate real chart data from transaction logs
     const generateChartData = () => {
@@ -259,7 +260,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
 
     const copyAgentId = () => {
         navigator.clipboard.writeText(formData.agentId);
-        toast.success("Agent ID copied to clipboard");
+        toast.success("App ID copied to clipboard");
     };
 
     const handleSaveChanges = async () => {
@@ -301,7 +302,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 console.log("Agent updated successfully:", result);
 
                 toast.dismiss(loadingToast);
-                toast.success("Agent updated successfully!");
+                toast.success("App updated successfully!");
 
                 // Refresh agent data
                 const refreshResponse = await fetch(`/api/agents/${agent.id}`);
@@ -318,7 +319,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         } catch (error) {
             console.error("Error updating agent:", error);
             toast.dismiss(loadingToast);
-            toast.error("An error occurred while updating the agent.");
+            toast.error("An error occurred while updating the app.");
         }
     };
 
@@ -349,7 +350,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         const actionText = newStatus === "PAUSED" ? "pausing" : "activating";
         const successText = newStatus === "PAUSED" ? "paused" : "activated";
 
-        const loadingToast = toast.loading(`${actionText.charAt(0).toUpperCase() + actionText.slice(1)} agent...`);
+        const loadingToast = toast.loading(`${actionText.charAt(0).toUpperCase() + actionText.slice(1)} app...`);
 
         try {
             const response = await fetch(`/api/agents/${agent.id}/status`, {
@@ -365,7 +366,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
             if (response.ok) {
                 const result = await response.json();
                 toast.dismiss(loadingToast);
-                toast.success(`Agent ${successText} successfully!`);
+                toast.success(`App ${successText} successfully!`);
 
                 // Update local agent state with new status
                 setAgent(prev => prev ? { ...prev, status: result.agent.status } : null);
@@ -378,14 +379,14 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         } catch (error) {
             console.error("Error updating agent status:", error);
             toast.dismiss(loadingToast);
-            toast.error(`An error occurred while ${actionText} the agent.`);
+            toast.error(`An error occurred while ${actionText} the app.`);
         }
     };
 
     const handleDeleteAgent = async () => {
         if (!agent) return;
 
-        const loadingToast = toast.loading("Deleting agent...");
+        const loadingToast = toast.loading("Deleting app...");
 
         try {
             const response = await fetch(`/api/agents/${agent.id}`, {
@@ -394,7 +395,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
 
             if (response.ok) {
                 toast.dismiss(loadingToast);
-                toast.success("Agent deleted successfully!");
+                toast.success("App deleted successfully!");
                 setShowDeleteDialog(false);
                 router.push('/home');
             } else {
@@ -406,7 +407,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         } catch (error) {
             console.error("Error deleting agent:", error);
             toast.dismiss(loadingToast);
-            toast.error("An error occurred while deleting the agent.");
+            toast.error("An error occurred while deleting the app.");
         }
     };
 
@@ -430,7 +431,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                     <h2 className="text-2xl font-semibold text-black mb-4">Agent Not Found</h2>
                     <p className="text-black/40 mb-6">The agent you&apos;re looking for doesn&apos;t exist or has been deleted.</p>
                     <Button onClick={() => router.push('/home')} className="bg-secondary-green hover:bg-green-700 text-white">
-                        Back to Agents
+                        Back to Apps
                     </Button>
                 </div>
             </div>
@@ -450,7 +451,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 <div className="mb-[60px] flex justify-between items-center">
                     <div className="flex items-center gap-2 text-sm">
                         <Link href="/home" className="text-black/40 font-funnel-display font-semibold text-xl hover:text-black/60 transition-colors cursor-pointer">
-                            My Agents
+                            My Apps
                         </Link>
                         <ChevronRight className="w-6 h-6 text-black/20 font-semibold " />
                         <span className="text-color1 font-funnel-display font-semibold text-xl transition-colors">{agent.name}</span>
@@ -471,10 +472,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                         <ToggleSlider
                             options={[
                                 { value: "overview", label: "Overview", textColor: "text-black" },
-                                { value: "logs", label: "Logs", textColor: "text-black" }
+                                { value: "logs", label: "Logs", textColor: "text-black" },
+                                { value: "buyback", label: "Buyback", textColor: "text-black" },
                             ]}
                             value={activeView}
-                            onChange={(value) => setActiveView(value as "overview" | "logs")}
+                            onChange={(value) => setActiveView(value as "overview" | "logs" | "buyback")}
                             selectedBgColor="bg-white"
                             unselectedBgColor="bg-transparent"
                             containerClassName="bg-black/10 p-2.5 rounded-full"
@@ -486,7 +488,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 <div className="flex items-start justify-between gap-6">
                     {/* Left Section - Main Content */}
                     <div className="flex-1">
-                        {activeView === "overview" ? (
+                        {activeView === "buyback" ? (
+                            <BuybackHistory agentDbId={resolvedParams.id} />
+                        ) : activeView === "logs" ? (
+                            <Logs agentId={resolvedParams.id} />
+                        ) : (
                             <>
                             {/* Main Content Card */}
                             <Card className="rounded-[20px] shadow-none border border-black/10">
@@ -495,7 +501,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                     <div className="mb-8">
                                         <h1 className="text-xl font-semibold font-funnel-display text-black mb-2">Monetisation Settings</h1>
                                         <p className="text-black/40 text-sm font-funnel-sans">
-                                            Configure how your agent generates revenue. Adjust pricing models, free tier limits, and monetization parameters to optimize earnings while providing value to users.
+                                            Configure how your app generates revenue. Adjust pricing models, free tier limits, and monetization parameters to optimize earnings while providing value to users.
                                         </p>
                                     </div>
 
@@ -505,24 +511,24 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                             {/* Agent Name Section */}
                                             <div className="space-y-3">
                                                 <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                                    Agent Name
+                                                    App Name
                                                 </label>
                                                 <Input
                                                     type="text"
-                                                    placeholder="Enter agent name"
+                                                    placeholder="Enter app name"
                                                     value={formData.name}
                                                     onChange={(e) => handleInputChange("name", e.target.value)}
                                                     className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 />
                                                 <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                    Choose a descriptive name that clearly identifies your agent&apos;s purpose and functionality.
+                                                    Choose a descriptive name that clearly identifies your app&apos;s purpose and functionality.
                                                 </p>
                                             </div>
 
                                             {/* Agent ID Section */}
                                             <div className="space-y-3">
                                                 <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                                    Agent ID
+                                                    App ID
                                                 </label>
                                                 <div className="flex gap-2">
                                                     <Input
@@ -540,7 +546,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                     </Button>
                                                 </div>
                                                 <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                    Unique identifier for your agent. Use this ID to integrate EarnKit monetization with your agent&apos;s code.
+                                                    Unique identifier for your app. Use this ID to integrate EarnKit monetization with your app&apos;s code.
                                                 </p>
                                             </div>
 
@@ -579,10 +585,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                         placeholder="e.g. 10"
                                                         value={formData.freePromptThreshold}
                                                         onChange={(e) => handleInputChange("freePromptThreshold", e.target.value)}
+                                                        onWheel={(e) => e.currentTarget.blur()}
                                                         className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     />
                                                     <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                        Number of free prompts each user gets before being charged. Helps build trust and allows users to test your agent.
+                                                        Number of free prompts each user gets before being charged. Helps build trust and allows users to test your app.
                                                     </p>
                                                 </div>
                                             )}
@@ -599,10 +606,11 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                         placeholder="e.g. 0.10"
                                                         value={formData.ratePerPrompt}
                                                         onChange={(e) => handleInputChange("ratePerPrompt", e.target.value)}
+                                                        onWheel={(e) => e.currentTarget.blur()}
                                                         className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     />
                                                     <p className="text-xs text-black/40 font-funnel-sans px-4">
-                                                        Price per prompt in USD. Consider your agent&apos;s value and complexity when setting rates. Typical range: $0.01 - $0.50.
+                                                        Price per prompt in USD. Consider your app&apos;s value and complexity when setting rates. Typical range: $0.01 - $0.50.
                                                     </p>
                                                 </div>
                                             )}
@@ -618,6 +626,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                         placeholder="e.g. 5 (Credits deducted from user's balance per prompt)"
                                                         value={formData.creditsPerPrompt}
                                                         onChange={(e) => handleInputChange("creditsPerPrompt", e.target.value)}
+                                                        onWheel={(e) => e.currentTarget.blur()}
                                                         className="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     />
                                                     <p className="text-xs text-black/40 font-funnel-sans px-4">
@@ -652,6 +661,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                                                     topUpPackages: newPackages
                                                                                 }));
                                                                             }}
+                                                                            onWheel={(e) => e.currentTarget.blur()}
                                                                             className="w-full p-3 border border-black/10 rounded-lg bg-black/4"
                                                                         />
                                                                     </div>
@@ -673,6 +683,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                                                         topUpPackages: newPackages
                                                                                     }));
                                                                                 }}
+                                                                                onWheel={(e) => e.currentTarget.blur()}
                                                                                 className="flex-1 p-3 border border-black/10 rounded-lg bg-black/4"
                                                                             />
                                                                         </div>
@@ -748,9 +759,9 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                         {/* Pause Agent Section */}
                                         <div className="flex items-start justify-between my-12 mx-4">
                                             <div className="flex-1">
-                                                <h3 className="font-semibold text-secondary-red font-funnel-sans text-lg mb-2">Pause Agent</h3>
+                                                <h3 className="font-semibold text-secondary-red font-funnel-sans text-lg mb-2">Pause App</h3>
                                                 <p className="text-black/40 text-sm font-funnel-sans">
-                                                    Temporarily disable your agent from accepting new prompts. Users won&apos;t be charged and existing sessions will complete. You can reactivate anytime.
+                                                    Temporarily disable your app from accepting new prompts. Users won&apos;t be charged and existing sessions will complete. You can reactivate anytime.
                                                 </p>
                                             </div>
                                             <div className="flex items-center ml-4">
@@ -772,9 +783,9 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                         {/* Delete Agent Section */}
                                         <div className="flex items-start justify-between my-12 mx-4">
                                             <div className="flex-1">
-                                                <h3 className="font-semibold text-secondary-red font-funnel-sans text-lg mb-2">Delete Agent</h3>
+                                                <h3 className="font-semibold text-secondary-red font-funnel-sans text-lg mb-2">Delete App</h3>
                                                 <p className="text-black/40 text-sm font-funnel-sans">
-                                                    Permanently remove this agent and all its data. This action cannot be undone. Withdraw any remaining earnings first.
+                                                    Permanently remove this app and all its data. This action cannot be undone. Withdraw any remaining earnings first.
                                                 </p>
                                             </div>
                                             <Button
@@ -804,8 +815,6 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                 <BuybackPanel agentDbId={resolvedParams.id} />
                             </div>
                             </>
-                        ) : (
-                            <Logs agentId={resolvedParams.id} />
                         )}
                     </div>
 
@@ -987,10 +996,10 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 <DialogContent className="sm:max-w-md p-8 font-funnel-sans">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-semibold text-black">
-                            Delete Agent
+                            Delete App
                         </DialogTitle>
                         <DialogDescription className="text-black/60">
-                            Are you sure you want to delete this agent? This action cannot be undone.
+                            Are you sure you want to delete this app? This action cannot be undone.
                             Please withdraw any remaining earnings first.
                         </DialogDescription>
                     </DialogHeader>

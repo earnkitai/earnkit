@@ -44,11 +44,11 @@ export function PrerequisiteModal({
     const getDescription = () => {
         const missingCount = Object.values(missingPrerequisites).filter(Boolean).length;
         if (missingCount > 1) {
-            return "Complete the following setup to create your first agent:";
+            return "Complete the following setup to create your first app:";
         }
         return missingPrerequisites.apiKey
             ? "Create an API key to authenticate with our services."
-            : "Connect a wallet to enable transactions for your agent.";
+            : "Connect a wallet to enable transactions for your app.";
     };
 
     return (

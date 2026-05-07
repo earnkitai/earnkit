@@ -153,7 +153,7 @@ export default function Sidebar() {
             </div> */}
 
             <aside
-                className={`fixed z-30 left-0 top-0 h-[100dvh] py-[80px] md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out transform transition-all duration-300 ease-in-out transform gap-[60px] px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'}`}
+                className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out gap-8 px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'}`}
                 style={{
                     background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.04))'
                 }}
@@ -171,8 +171,8 @@ export default function Sidebar() {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8" />
-                            <span className={`absolute left-[54px] whitespace-nowrap`}>My Agents</span>
+                            <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8 shrink-0" />
+                            <span className="whitespace-nowrap">My Apps</span>
                         </Link>
                         <Link
                             href="https://docs.earnkit.com/"
@@ -181,8 +181,8 @@ export default function Sidebar() {
                                 if (isMobile) setIsOpen(false);
                             }}
                         >
-                            <Icons.newSidebarBookIcon className="group-hover:text-black h-8 w-8" />
-                            <span className={`absolute left-[54px] whitespace-nowrap`}>Docs</span>
+                            <Icons.newSidebarBookIcon className="group-hover:text-black h-8 w-8 shrink-0" />
+                            <span className="whitespace-nowrap">Docs</span>
                         </Link>
 
 
@@ -209,9 +209,9 @@ export default function Sidebar() {
                                 className="flex items-center gap-2 py-3 rounded-lg transition-colors w-full group font-medium font-funnel-sans cursor-pointer"
                                 onClick={handleSupportClick}
                             >
-                                <Icons.newSidebarQuestionIcon className="w-8 h-8 text-black/40 group-hover:text-black" />
-                                <span className={`absolute left-10 text-sm text-black/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-black`}>Support</span>
-                                <Icons.arrowDownSidebarUserIcon className={`w-4 h-4 ml-auto text-black/40 group-hover:text-black transition-transform ${isSupportMenuOpen ? 'rotate-180' : ''}`} />
+                                <Icons.newSidebarQuestionIcon className="w-8 h-8 text-black/40 group-hover:text-black shrink-0" />
+                                <span className="text-sm text-black/40 font-medium whitespace-nowrap overflow-hidden text-ellipsis transition-all group-hover:text-black flex-1 min-w-0">Support</span>
+                                <Icons.arrowDownSidebarUserIcon className={`w-4 h-4 shrink-0 text-black/40 group-hover:text-black transition-transform ${isSupportMenuOpen ? 'rotate-180' : ''}`} />
                             </div>
 
                             {/* Support Submenu Options */}
@@ -289,10 +289,10 @@ export default function Sidebar() {
                                         height={20}
                                     />
                                 ) : ( */}
-                                <User className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-2 text-black/40 group-hover:text-black group-hover:fill-black" />
+                                <User className="w-8 h-8 min-w-8 min-h-8 bg-black/4 rounded-full p-2 text-black/40 group-hover:text-black group-hover:fill-black shrink-0" />
                                 {/* )} */}
-                                <span className={`absolute left-10 text-sm text-black/40 max-w-[75%] font-medium whitespace-nowrap text-ellipsis overflow-hidden transition-all group-hover:text-black`}>{username !== "" ? username : "user"}</span>
-                                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 absolute right-0 text-black/40 group-hover:text-black" />
+                                <span className="text-sm text-black/40 font-medium whitespace-nowrap overflow-hidden text-ellipsis transition-all group-hover:text-black flex-1 min-w-0">{username !== "" ? username : "user"}</span>
+                                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 shrink-0 text-black/40 group-hover:text-black" />
                             </div>
 
 
