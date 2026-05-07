@@ -6,6 +6,26 @@ Platform fee: 0%. Developers keep 100% of revenue (minus whatever they allocate 
 
 ---
 
+## Getting Credentials
+
+Before writing any code, you need an `agentId` and `apiKey` from the EarnKit dashboard.
+
+1. Go to **https://app.earnkit.com** and sign up or log in.
+2. Click **"Create Agent"** and fill in:
+   - Agent name
+   - Price per call (in credits)
+   - Buyback % and token address (optional — can skip for now)
+3. After creating the agent, open it and go to the **API Keys** tab.
+4. Copy your **Agent ID** and **API Key**.
+5. Add them to your environment:
+
+```
+EARNKIT_AGENT_ID=your_agent_id_here
+EARNKIT_API_KEY=your_api_key_here
+```
+
+---
+
 ## Installation
 
 ```
