@@ -2,19 +2,7 @@ import Footer from '../components/common/Footer';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Risk Disclosure | Tokens',
-  description:
-    'Understanding the risks of crypto assets. Read our disclaimer regarding token volatility, smart contract risks, and capital loss.',
-  openGraph: {
-    title: 'Risk Disclosure | Tokens',
-    description: `Understanding the risks of crypto assets. Read our disclaimer regarding token volatility, smart contract risks, and capital loss.`,
-    images: ['https://tokens.fun/og-image.png'],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Risk Disclosure | Tokens',
-    images: ['https://tokens.fun/og-image.png'],
-  },
+  title: 'Risk Disclosure | Earnkit',
 };
 
 export default function RiskDisclosurePage() {

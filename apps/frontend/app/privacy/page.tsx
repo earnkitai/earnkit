@@ -2,20 +2,7 @@ import Footer from '../components/common/Footer';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy | Tokens',
-  description:
-    'Learn how tokens.fun collects, uses, and protects your information while you interact with our platform.',
-  robots: { index: true, follow: false },
-  openGraph: {
-    title: 'Privacy Policy | Tokens',
-    description: `Learn how tokens.fun collects, uses, and protects your information while you interact with our platform.`,
-    images: ['https://tokens.fun/og-image.png'],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Privacy Policy | Tokens',
-    images: ['https://tokens.fun/og-image.png'],
-  },
+  title: 'Privacy Policy | Earnkit',
 };
 
 export default function PrivacyPage() {

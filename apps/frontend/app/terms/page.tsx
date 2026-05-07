@@ -2,20 +2,7 @@ import Footer from '../components/common/Footer';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service | Tokens',
-  description:
-    'Read the terms and conditions for using tokens.fun. Learn about your rights and responsibilities when launching and trading tokens.',
-  robots: { index: true, follow: false },
-  openGraph: {
-    title: 'Terms of Service | Tokens',
-    description: `Read the terms and conditions for using tokens.fun. Learn about your rights and responsibilities when launching and trading tokens.`,
-    images: ['https://tokens.fun/og-image.png'],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Terms of Service | Tokens',
-    images: ['https://tokens.fun/og-image.png'],
-  },
+  title: 'Terms of Service | Earnkit',
 };
 
 export default function TermsPage() {

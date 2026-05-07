@@ -1,22 +1,9 @@
 import Header from '../components/common/Header';
 import Footer from '../components/common/Footer';
 import { Metadata } from 'next';
-import Head from 'next/head';
 
 export const metadata: Metadata = {
-  title: 'Token Creator Agreement | Tokens',
-  description:
-    'The legal framework for builders launching tokens on tokens.fun. Understand your obligations regarding tokenomics and security.',
-  openGraph: {
-    title: 'Token Creator Agreement | Tokens',
-    description: `The legal framework for builders launching tokens on tokens.fun. Understand your obligations regarding tokenomics and security.`,
-    images: ['https://tokens.fun/og-image.png'],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Token Creator Agreement | Tokens',
-    images: ['https://tokens.fun/og-image.png'],
-  },
+  title: 'Token Creator Agreement | Earnkit',
 };
 
 export default function TokenCreatorAgreementPage() {
