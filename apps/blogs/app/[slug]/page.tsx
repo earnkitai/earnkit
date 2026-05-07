@@ -149,9 +149,11 @@ export default async function BlogPost({
             {groupedBlocks.map((block: any) => {
               if (block.type === 'bulleted_list') {
                 return (
-                  <ul key={block.items[0].id} className="mb-4">
+                  <ul
+                    key={block.items[0].id}
+                    className="list-disc ml-6 mb-4 space-y-2"
+                  >
                     {block.items.map((item: any) => (
-                      // <Block key={item.id} block={item} />
                       <RenderBlock key={item.id} block={item} />
                     ))}
                   </ul>
@@ -160,7 +162,10 @@ export default async function BlogPost({
 
               if (block.type === 'numbered_list') {
                 return (
-                  <ol key={block.items[0].id} className="mb-4">
+                  <ol
+                    key={block.items[0].id}
+                    className="list-decimal ml-6 mb-4 space-y-2"
+                  >
                     {block.items.map((item: any) => (
                       <RenderBlock key={item.id} block={item} />
                     ))}

@@ -14,6 +14,7 @@
     "@notion-render/hljs-plugin": "^0.0.2",
     "@notionhq/client": "^2.2.16",
     "clsx": "^2.1.1",
+    "lucide-react": "^0.476.0",
     "next": "15.3.9",
     "next-mdx-remote": "^5.0.0",
     "notion-to-md": "^3.1.6",
@@ -24,14 +25,14 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
+    "@types/node": "^20.17.50",
     "@types/prismjs": "^1.26.5",
-    "@types/react": "^19",
+    "@types/react": "^19.0.10",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.1.11",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5.8.3"
   }
 }

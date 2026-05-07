@@ -1,124 +1,133 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BlockObjectResponse, RichTextItemResponse } from "@notionhq/client/build/src/api-endpoints"
-import { getMediaProperties } from "../../lib/notion"
-import { NotionHeading } from "./NotionHeading"
-import { NotionImage } from "./NotionImage"
-import { NotionText } from "./NotionText"
-import CodeBlock from "./CodeBlock"
+import { BlockObjectResponse } from '@notionhq/client/build/src/api-endpoints';
+import { getMediaProperties } from '../../lib/notion';
+import { NotionHeading } from './NotionHeading';
+import { NotionText } from './NotionText';
+import CodeBlock from './CodeBlock';
 
 interface Props {
-    block: BlockObjectResponse
+  block: BlockObjectResponse | any;
 }
-// ImageBlockObjectResponse
-/**
- * {
-   caption: [],
-   type: 'external',
-   external: { url: 'https://youtu.be/DsL28RWOFJ8' }
- }
- */
 
-export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({ block }) => {
-    // If empty block, return null
-    if (!block) {
-        return null
+// Async server component so we can await getMediaProperties
+async function NotionImage({ block }: { block: any }) {
+  const { source, caption } = await getMediaProperties(block.image, block.id);
+  return (
+    <div className="my-8 flex flex-col items-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/notion-image?url=${encodeURIComponent(source)}`}
+        alt={caption || 'Notion Image'}
+        className="rounded-lg max-w-full"
+      />
+      {caption && <p className="mt-2 text-sm text-gray-500">{caption}</p>}
+    </div>
+  );
+}
+
+export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({
+  block,
+}) => {
+  if (!block) return null;
+
+  switch (block.type) {
+    case 'paragraph': {
+      const richText = block.paragraph?.rich_text ?? [];
+      // Empty paragraphs in Notion render as spacers
+      if (richText.length === 0) return <div className="mb-4" />;
+      return (
+        <p className="mb-6 leading-7 text-black/[80%] font-funnel-sans font-normal text-[1rem] md:text-[1.125rem]">
+          <NotionText text={richText} />
+        </p>
+      );
     }
 
-    switch (block.type) {
-    case "paragraph": {
-        return (
-            <p className="mb-6 leading-7 text-black/[80%] font-funnel-sans font-normal text-[1rem] md:text-[1.125rem]">
-                <NotionText text={block.paragraph.rich_text} />
-            </p>
-        )
-    }
-    case "heading_1":
-    case "heading_2":
-    case "heading_3": {
-        type HeadingType = typeof block.type;
-        const value = (block as any)[block.type] as {
-            rich_text: RichTextItemResponse[];
-        };
-        return <NotionHeading type={block.type as HeadingType} text={value.rich_text} />
-    }
+    case 'heading_1':
+    case 'heading_2':
+    case 'heading_3':
+      return (
+        <NotionHeading
+          type={block.type}
+          text={(block as any)[block.type].rich_text}
+        />
+      );
 
-    case "callout": {
-        const value = block.callout
-        return (
-            <div className="my-8 flex w-full rounded border border-transparent bg-color-2 p-4 text-color-9 bg-[#B8CCE033]">
-                {value.icon?.type === "emoji" && <div className="text-yellow-500">{value.icon.emoji}</div>}
+    case 'bulleted_list_item':
+    case 'numbered_list_item': {
+      const blockData = (block as any)[block.type];
+      const richText = blockData?.rich_text ?? [];
 
-                <div className="text-foreground ml-4 font-funnel-sans font-medium text-[1rem] md:text-[1.125rem] border-l-2 border-black/[20%] pl-4">
-                    <NotionText text={value.rich_text} />
-                </div>
+      return (
+        <li className="mb-2 list-outside text-[1rem] md:text-[1.125rem] font-funnel-sans font-normal text-black/[80%]">
+          {richText.length > 0 && <NotionText text={richText} />}
+
+          {/* Nested children */}
+          {block.children && block.children.length > 0 && (
+            <div className="ml-6 mt-1 mb-2">
+              {block.children.map((child: any) => (
+                <RenderBlock key={child.id} block={child} />
+              ))}
             </div>
-        )
+          )}
+        </li>
+      );
     }
-    case "bulleted_list_item":
-        return (
-            <li className="mb-2 text-[1rem] md:text-[1.125rem]">
-                <NotionText text={block.bulleted_list_item.rich_text} />
-            </li>
-        )
-    case "numbered_list_item": {
-        return (
-            <li className="mb-2 text-[1rem] md:text-[1.125rem]">
-                <NotionText text={block.numbered_list_item.rich_text} />
-            </li>
-        )
-    }
-    case "quote": {
-        return (
-            <blockquote className="mb-2 text-black italic font-funnel-sans font-medium text-[1rem] md:text-[1.125rem] border-l-2 border-black/[20%] pl-4 pl-8" >
-                <NotionText text={block.quote.rich_text} />
-            </blockquote>
-        )
-    }
-    case "image": {
-        const value = block.image
-        const { source, caption } = getMediaProperties(value)
-        return (
-            <div className="my-8 flex flex-col space-y-4">
-                <NotionImage src={source} alt={caption} />
-                {caption && <p className="text-sm text-gray-600">{caption}</p>}
-            </div>
-        )
-    }
-    case "code": {
-        return <div key={block.id} className="w-full overflow-x-auto">
-            <CodeBlock
-                language={block.code.language}
-                text={block.code.rich_text || ""}
-            />
+
+    case 'callout': {
+      const value = block.callout;
+      return (
+        <div className="my-8 flex w-full rounded border border-transparent bg-[#B8CCE033] p-4">
+          {value.icon?.type === 'emoji' && (
+            <div className="mr-4 text-xl">{value.icon.emoji}</div>
+          )}
+          <div className="text-foreground border-l-2 border-black/[10%] pl-6">
+            <NotionText text={value.rich_text} />
+            {block.children && block.children.length > 0 && (
+              <div className="mt-4">
+                {block.children.map((child: any) => (
+                  <RenderBlock key={child.id} block={child} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+      );
     }
 
-    case "divider": {
-        return <hr />
-    }
-    case "video": {
-        const { source, caption } = getMediaProperties(block.video)
-        // Convert YouTube URL to embed format
-        const embedUrl = source.includes('youtube.com') || source.includes('youtu.be')
-            ? source.replace(/(youtube\.com|youtu\.be)\/(watch\?v=)?/, 'youtube.com/embed/')
-            : source
+    case 'image':
+      return <NotionImage block={block} />;
 
-        return (
-            <div className="my-8 flex flex-col space-y-2">
-                <div className="relative w-full pt-[56.25%]">
-                    <iframe
-                        src={embedUrl}
-                        className="absolute top-0 left-0 h-full w-full rounded-lg"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                    />
-                </div>
-                {caption && <p className="text-gray-500 text-sm">{caption}</p>}
-            </div>
-        )
+    case 'code':
+      return (
+        <div key={block.id} className="w-full overflow-x-auto my-6">
+          <CodeBlock
+            language={block.code.language}
+            text={block.code.rich_text}
+          />
+        </div>
+      );
+
+    case 'divider':
+      return <hr className="my-8 border-gray-100" />;
+
+    case 'quote':
+      return (
+        <blockquote className="border-l-4 border-black pl-4 italic my-6 text-lg">
+          <NotionText text={block.quote.rich_text} />
+        </blockquote>
+      );
+
+    // Legacy Notion block type
+    case 'text': {
+      const richText = (block as any).text?.rich_text ?? [];
+      return (
+        <p className="mb-6 leading-7 text-black/[80%] font-funnel-sans font-normal text-[1rem] md:text-[1.125rem]">
+          <NotionText text={richText} />
+        </p>
+      );
     }
-    default: {
-        return <p>❌ Unsupported block {block.type === "unsupported" ? "unsupported by Notion API" : block.type})</p>
-    }
-    }
-}
+
+    default:
+      return null;
+  }
+};

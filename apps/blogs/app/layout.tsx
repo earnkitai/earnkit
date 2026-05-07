@@ -17,9 +17,8 @@ const funnellsans = Funnel_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://blog.earnkit.com'),
-  title: 'Blog | EarnKit - Create Specialized AI Agents in Minutes',
-  description:
-    'Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.',
+  title: 'Blog | EarnKit - Make Tokens Durable',
+  description: 'Setup automated buybacks everytime you earn.',
   keywords: [
     'AI agents',
     'artificial intelligence',
@@ -67,16 +66,15 @@ export const metadata: Metadata = {
     canonical: 'https://blog.earnkit.com',
   },
   openGraph: {
-    title: 'Blog | EarnKit - Create Specialized AI Agents in Minutes',
+    title: 'Blog | EarnKit - Make Tokens Durable',
     siteName: 'EarnKit',
     url: 'https://blog.earnkit.com',
     type: 'website',
     locale: 'en_US',
-    description:
-      'Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.',
+    description: 'Setup automated buybacks everytime you earn.',
     images: [
       {
-        url: 'https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png',
+        url: '/og.png',
         width: 1200,
         height: 630,
         alt: 'EarnKit Platform Preview',
@@ -84,15 +82,14 @@ export const metadata: Metadata = {
     ],
   },
   twitter: {
-    site: '@EarnKit_ai',
-    creator: '@EarnKit_ai',
+    site: '@earnkit_ai',
+    creator: '@earnkit_ai',
     card: 'summary_large_image',
-    title: 'EarnKit - Create Specialized AI Agents in Minutes',
-    description:
-      'Build and deploy custom AI agents effortlessly with EarnKit. Our platform enables quick creation of specialized AI solutions for various business needs.',
+    title: 'Blog | EarnKit - Make Tokens Durable',
+    description: 'Setup automated buybacks everytime you earn.',
     images: [
       {
-        url: 'https://res.cloudinary.com/dptwcv6rr/image/upload/v1737913728/csm4k01ftwomjsbr89hl.png',
+        url: '/og.png',
         alt: 'EarnKit Platform Preview',
       },
     ],
