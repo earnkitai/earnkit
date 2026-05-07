@@ -5,7 +5,7 @@ import { Icons } from '../ui/Icons';
 
 export default function Footer() {
   return (
-    <footer className="w-full pb-24 md:pb-2">
+    <footer className="w-full bg-background pb-24 md:pb-2">
       <section
         aria-labelledby="footer-content"
         className="w-full rounded-[56px] mt-10"
@@ -96,7 +96,37 @@ export default function Footer() {
             </div>
           </div>
         </div>
-        <div className="w-full flex justify-center items-center text-center text-sm text-color14 mt-4">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-center gap-6">
+          <div className="flex items-center gap-6 text-sm text-color14">
+            <Link
+              href="/terms"
+              className="text-color14 hover:text-color6 transition-colors"
+            >
+              Terms
+            </Link>
+            <Link
+              href="/privacy"
+              className="text-color14 hover:text-color6 transition-colors"
+            >
+              Privacy
+            </Link>
+            <Link
+              href="/risk-disclosure"
+              className="text-color14 hover:text-color6 transition-colors"
+            >
+              Risk Disclosure
+            </Link>
+          </div>
+          <div className="flex items-center gap-6 text-sm text-color14">
+            <Link
+              href="/token-creator-agreement"
+              className="text-color14 hover:text-color6 transition-colors"
+            >
+              Token Creator Agreement
+            </Link>
+          </div>
+        </div>
+        <div className="w-full flex justify-center items-center text-center text-sm text-color14">
           &copy; {new Date().getFullYear()} TokenFi Inc. All rights reserved.
         </div>
       </section>

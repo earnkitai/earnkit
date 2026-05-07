@@ -10,7 +10,7 @@
 /* add the code bellow */
 @layer utilities {
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto ;
   }
   .no-scrollbar {
     scroll-behavior: smooth;
