@@ -1,7 +1,10 @@
-import { createWalletClient, http, parseUnits } from 'viem';
+import { createWalletClient, formatEther, http, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 import { getBasePublicClient } from './splitsWarehouse';
+
+// Warn in logs when operator wallet drops below this — top it up before it hits 0.
+const OPERATOR_WARN_THRESHOLD_WEI = parseUnits('0.02', 18);
 
 /**
  * Operator gas wallet — drips just enough ETH to a buyback wallet right before
@@ -50,8 +53,8 @@ function getOperatorEnv(): OperatorEnv {
     safetyMultiplierBps: Number(process.env.GAS_SAFETY_MULTIPLIER_BPS ?? '13000'),
     // Floor: don't bother dripping less than the drip's own gas cost × ~5.
     minDripWei: parseUnits(process.env.GAS_MIN_DRIP_ETH ?? '0.00002', 18),
-    // Ceiling: even during a 100-gwei spike, never drip more than this.
-    maxDripWei: parseUnits(process.env.GAS_MAX_DRIP_ETH ?? '0.002', 18),
+    // Ceiling: covers extreme Base gas spikes plus the burn-fallback path.
+    maxDripWei: parseUnits(process.env.GAS_MAX_DRIP_ETH ?? '0.005', 18),
   };
   return cachedEnv;
 }
@@ -109,5 +112,39 @@ export async function ensureGasFunded(
   });
   await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: 5 * 60_000 });
 
+  // Warn after each drip so low-balance is visible in logs before it hits zero.
+  try {
+    const operatorBalance = await publicClient.getBalance({ address: op.walletAddress });
+    if (operatorBalance < OPERATOR_WARN_THRESHOLD_WEI) {
+      console.warn(
+        `[OperatorGas] LOW BALANCE WARNING: operator wallet ${op.walletAddress} has only ${formatEther(operatorBalance)} ETH remaining. Top it up to at least 0.05 ETH on Base to keep buybacks running.`,
+      );
+    }
+  } catch {
+    // Non-critical — don't let a balance check block execution.
+  }
+
   return { topped: true, txHash, required, sent: dripAmount };
+}
+
+/**
+ * Log operator wallet balance at startup so an empty wallet is immediately
+ * visible in Railway logs rather than discovered on the first failed buyback.
+ */
+export async function logOperatorWalletStatus(): Promise<void> {
+  try {
+    const op = getOperatorEnv();
+    const publicClient = getBasePublicClient();
+    const balance = await publicClient.getBalance({ address: op.walletAddress });
+    const ethStr = formatEther(balance);
+    if (balance < OPERATOR_WARN_THRESHOLD_WEI) {
+      console.warn(
+        `[OperatorGas] STARTUP WARNING: operator wallet ${op.walletAddress} has only ${ethStr} ETH. Buybacks will fail until topped up to at least 0.05 ETH on Base.`,
+      );
+    } else {
+      console.log(`[OperatorGas] Operator wallet ${op.walletAddress} balance: ${ethStr} ETH`);
+    }
+  } catch (err) {
+    console.error('[OperatorGas] Could not check operator wallet balance at startup:', err);
+  }
 }

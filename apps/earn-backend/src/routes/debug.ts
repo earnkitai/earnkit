@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { EventService } from '../services/eventService';
 import { BalanceService } from '../services/balanceService';
 import { TopUpService } from '../services/topUpService';
+import { prisma } from '../lib/prisma';
 
 const router: Router = Router();
 const eventService = new EventService();
@@ -81,6 +82,59 @@ router.get('/status', async (req: Request, res: Response) => {
       },
     },
   });
+});
+
+/**
+ * GET /api/debug/buyback-executions
+ * List recent buyback executions with their status (last 50).
+ */
+router.get('/buyback-executions', async (req: Request, res: Response) => {
+  const executions = await prisma.buybackExecution.findMany({
+    orderBy: { startedAt: 'desc' },
+    take: 50,
+    select: {
+      id: true,
+      status: true,
+      attempts: true,
+      lastError: true,
+      startedAt: true,
+      completedAt: true,
+      nextAttemptAt: true,
+      swapHash: true,
+      burnHash: true,
+      buybackConfig: { select: { id: true, tokenSymbol: true, walletAddress: true } },
+    },
+  });
+  res.json({ success: true, data: executions, count: executions.length });
+});
+
+/**
+ * POST /api/debug/buyback-executions/:id/retry
+ * Re-queue a FAILED buyback execution so the worker picks it up again.
+ * Resets attempts to 0 so all retry attempts are available.
+ */
+router.post('/buyback-executions/:id/retry', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const execution = await prisma.buybackExecution.findUnique({ where: { id } });
+  if (!execution) {
+    res.status(404).json({ error: 'Execution not found' });
+    return;
+  }
+  if (execution.status !== 'FAILED') {
+    res.status(400).json({ error: `Execution is ${execution.status}, only FAILED executions can be retried` });
+    return;
+  }
+  const updated = await prisma.buybackExecution.update({
+    where: { id },
+    data: {
+      status: 'QUEUED',
+      attempts: 0,
+      lastError: null,
+      completedAt: null,
+      nextAttemptAt: null,
+    },
+  });
+  res.json({ success: true, data: updated });
 });
 
 export default router;

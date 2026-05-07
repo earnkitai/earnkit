@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
 import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 import { startBuybackExecutorWorker } from './workers/buybackExecutorWorker';
+import { logOperatorWalletStatus } from './lib/operatorGas';
 
 // Load environment variables
 dotenv.config();
@@ -83,6 +84,7 @@ app.listen(PORT, () => {
   startTopUpVerificationWorker();
   startWebhookDeliveryWorker();
   startBuybackExecutorWorker();
+  logOperatorWalletStatus().catch(() => {});
 });
 
 // Graceful shutdown

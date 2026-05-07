@@ -316,7 +316,7 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
   };
 }
 
-async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amount: bigint }> {
+async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amount: bigint; burnMethod: string }> {
   const client = getBasePublicClient();
   const balance = (await client.readContract({
     address: ctx.tokenAddress,
@@ -329,16 +329,30 @@ async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amou
     throw new Error('no_balance_to_burn');
   }
 
-  const data =
-    ctx.burnMode === 'TOKEN_BURN_FN'
-      ? encodeFunctionData({ abi: BURN_FN_ABI, functionName: 'burn', args: [balance] })
-      : encodeFunctionData({
-          abi: erc20Abi,
-          functionName: 'transfer',
-          args: [DEAD_ADDRESS, balance],
-        });
+  // Try token's native burn() first when configured, fall back to dead-address
+  // transfer if the burn function reverts (e.g. permission-gated or non-standard ABI).
+  if (ctx.burnMode === 'TOKEN_BURN_FN') {
+    try {
+      const data = encodeFunctionData({ abi: BURN_FN_ABI, functionName: 'burn', args: [balance] });
+      const hash = await sendTurnkeySignedTx(ctx, ctx.tokenAddress, data);
+      return { burnHash: hash, amount: balance, burnMethod: 'TOKEN_BURN_FN' };
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[BuybackExecutor] burn() failed for ${ctx.executionId}, falling back to dead-address transfer:`,
+        reason,
+      );
+      // Fall through to dead-address transfer below.
+    }
+  }
+
+  const data = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'transfer',
+    args: [DEAD_ADDRESS, balance],
+  });
   const hash = await sendTurnkeySignedTx(ctx, ctx.tokenAddress, data);
-  return { burnHash: hash, amount: balance };
+  return { burnHash: hash, amount: balance, burnMethod: 'DEAD_ADDRESS' };
 }
 
 // ---------- Recovery (sweep funds back to user's dev wallet) ----------
@@ -571,7 +585,7 @@ async function processOne(): Promise<void> {
       });
 
       console.log(
-        `[BuybackExecutor] Completed ${exec.id}: burned ${formatUnits(burn.amount, ctx.tokenDecimals)} ${config.tokenSymbol}`,
+        `[BuybackExecutor] Completed ${exec.id}: burned ${formatUnits(burn.amount, ctx.tokenDecimals)} ${config.tokenSymbol} via ${burn.burnMethod}`,
       );
     } catch (err: any) {
       const reason: string = err?.message ?? 'unknown_error';
