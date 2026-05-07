@@ -292,8 +292,8 @@ export default function WithdrawModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
-            <DialogContent className="sm:max-w-md rounded-[20px] shadow-none border border-black/10">
-                <DialogHeader className="pb-4">
+            <DialogContent className="sm:max-w-md rounded-[20px] shadow-none border border-black/10 flex flex-col max-h-[90vh]">
+                <DialogHeader className="pb-4 shrink-0">
                     <DialogTitle className="text-xl font-semibold text-black font-funnel-display">
                         {step === "form" && "Withdraw Funds"}
                         {step === "confirm" && "Confirm Withdrawal"}
@@ -310,7 +310,7 @@ export default function WithdrawModal({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-6 py-2">
+                <div className="space-y-6 py-2 overflow-y-auto flex-1 min-h-0">
                     {paymentMode === "escrow" && step === "form" && (
                         <>
                             {availableAssets.length > 1 && (
@@ -522,7 +522,7 @@ export default function WithdrawModal({
                     )}
                 </div>
 
-                <DialogFooter className="flex gap-3 pt-6">
+                <DialogFooter className="flex gap-3 pt-6 shrink-0">
                     {paymentMode === "escrow" && step === "form" && (
                         <>
                             <Button
