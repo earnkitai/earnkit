@@ -26,7 +26,6 @@ export default function Sidebar() {
     const [isOpen, setIsOpen] = useState(true);
     const [isMobile, setIsMobile] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-    const [isSupportMenuOpen, setIsSupportMenuOpen] = useState(false);
     const [username, setUsername] = useState<string>("");
     // const [pfpUrl, setPfpUrl] = useState<string>("");
     // const [userId, setUserId] = useState<string | null>(null);
@@ -119,19 +118,12 @@ export default function Sidebar() {
         setIsProfileMenuOpen(!isProfileMenuOpen);
     };
 
-    const handleSupportClick = () => {
-        setIsSupportMenuOpen(!isSupportMenuOpen);
-    };
-
     // Close profile menu when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             const target = event.target as HTMLElement;
             if (!target.closest('.profile-menu')) {
                 setIsProfileMenuOpen(false);
-            }
-            if (!target.closest('.support-menu')) {
-                setIsSupportMenuOpen(false);
             }
         };
 
@@ -203,48 +195,6 @@ export default function Sidebar() {
                             <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
                         </Link> */}
 
-                        {/* Support Menu */}
-                        <div className="relative support-menu">
-                            <div
-                                className="flex items-center gap-2 py-3 rounded-lg transition-colors w-full group font-medium font-funnel-sans cursor-pointer"
-                                onClick={handleSupportClick}
-                            >
-                                <Icons.newSidebarQuestionIcon className="w-8 h-8 text-black/40 group-hover:text-black shrink-0" />
-                                <span className="text-sm text-black/40 font-medium whitespace-nowrap overflow-hidden text-ellipsis transition-all group-hover:text-black flex-1 min-w-0">Support</span>
-                                <Icons.arrowDownSidebarUserIcon className={`w-4 h-4 shrink-0 text-black/40 group-hover:text-black transition-transform ${isSupportMenuOpen ? 'rotate-180' : ''}`} />
-                            </div>
-
-                            {/* Support Submenu Options */}
-                            {isSupportMenuOpen && (
-                                <div className="my-2 space-y-2">
-                                    <a
-                                        href="https://slack.com"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center justify-center gap-1 px-4 py-1 text-sm text-black/40 w-full group font-funnel-sans hover:bg-white transition-colors cursor-pointer rounded-full border border-black/10"
-                                        onClick={() => {
-                                            if (isMobile) setIsOpen(false);
-                                            setIsSupportMenuOpen(false);
-                                        }}
-                                    >
-                                        <span className="text-black/40 group-hover:text-black/80">Join our</span>
-                                        <div className="flex items-center gap-1">
-                                            <Icons.newSidebarSlackIcon />
-                                        </div>
-                                    </a>
-                                    <a
-                                        href="#"
-                                        className="flex items-center justify-center gap-1 px-4 py-1 text-sm text-black/40 w-full group font-funnel-sans hover:bg-white transition-colors cursor-pointer rounded-full border border-black/10"
-                                        onClick={() => {
-                                            if (isMobile) setIsOpen(false);
-                                            setIsSupportMenuOpen(false);
-                                        }}
-                                    >
-                                        <span className="text-black/40 group-hover:text-black/80">Book a 15-min call</span>
-                                    </a>
-                                </div>
-                            )}
-                        </div>
                         <div className="relative profile-menu">
 
                             {isProfileMenuOpen && (

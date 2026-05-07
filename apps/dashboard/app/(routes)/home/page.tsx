@@ -199,46 +199,6 @@ export default function HomePage() {
                             <AddAgentCard onClick={handleAddAgentClick} />
                         </div>
 
-                        {/* Get Started Faster Section */}
-                        <div className="mb-32">
-                            <div className="mb-[60px]">
-                                <h2 className="text-3xl font-semibold font-funnel-display text-color2 mb-2">Get Started Faster</h2>
-                                <p className="text-black/40 text-sm font-funnel-sans">Quick actions and resources to help you maximize your apps</p>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Quickstart Guide Card */}
-                                <Link href="#">
-                                    <Card className="border-2 border-black/10 rounded-[28px] hover:border-black/20 transition-colors cursor-pointer">
-                                        <CardContent className="p-6 text-center">
-                                            <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mb-8 mx-auto">
-                                                <svg width="45" height="45" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M22.5 32.6709C20.5408 31.5398 18.3185 30.9443 16.0563 30.9443C13.794 30.9443 11.5717 31.5398 9.61255 32.6709V14.0557C11.5717 12.9246 13.794 12.3291 16.0563 12.3291C18.3185 12.3291 20.5408 12.9246 22.5 14.0557M22.5 32.6709C24.4591 31.5398 26.6815 30.9443 28.9437 30.9443C31.2059 30.9443 33.4283 31.5398 35.3874 32.6709V14.0557C33.4283 12.9246 31.2059 12.3291 28.9437 12.3291C26.6815 12.3291 24.4591 12.9246 22.5 14.0557M22.5 32.6709V14.0557" stroke="white" strokeWidth="2.0625" strokeLinecap="round" strokeLinejoin="round" />
-                                                </svg>
-                                            </div>
-                                            <h3 className="font-semibold text-black font-funnel-sans text-lg mb-2">Quickstart Guide</h3>
-                                            <p className="text-black/40 text-sm font-funnel-sans">Get up and running with EarnKit&apos;s core documentation and tutorials</p>
-                                        </CardContent>
-                                    </Card>
-                                </Link>
-
-                                {/* EarnKit Templates Card */}
-                                <Link href="#">
-                                    <Card className="border-2 border-black/10 rounded-[28px] hover:border-black/20 transition-colors cursor-pointer">
-                                        <CardContent className="p-6 text-center">
-                                            <div className="w-16 h-16 bg-color1 rounded-xl flex items-center justify-center mx-auto mb-8">
-                                                <svg width="45" height="45" viewBox="0 0 45 45" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M35.481 28.272C35.5836 28.4483 35.6121 28.6581 35.5601 28.8554C35.5082 29.0526 35.38 29.2212 35.2039 29.324L22.8878 36.5084C22.7707 36.576 22.638 36.6116 22.5029 36.6116C22.3678 36.6116 22.235 36.576 22.118 36.5084L9.80187 29.324C9.64014 29.215 9.52584 29.0486 9.48207 28.8585C9.4383 28.6684 9.46833 28.4688 9.56609 28.3C9.66385 28.1312 9.82205 28.0058 10.0087 27.9492C10.1954 27.8925 10.3966 27.9089 10.5716 27.9949L22.5029 34.9522L34.4341 27.9949C34.6099 27.8939 34.8185 27.8663 35.0145 27.9182C35.2105 27.9701 35.3782 28.0973 35.481 28.272ZM34.4316 21.8343L22.5003 28.7916L10.5691 21.8343C10.394 21.7483 10.1928 21.7319 10.0061 21.7886C9.81948 21.8452 9.66128 21.9706 9.56353 22.1394C9.46577 22.3082 9.43574 22.5078 9.47951 22.6979C9.52327 22.888 9.63758 23.0543 9.79931 23.1634L22.1154 30.3478C22.2325 30.4154 22.3652 30.4509 22.5003 30.4509C22.6354 30.4509 22.7682 30.4154 22.8852 30.3478L35.2013 23.1634C35.363 23.0543 35.4774 22.888 35.5211 22.6979C35.5649 22.5078 35.5349 22.3082 35.4371 22.1394C35.3393 21.9706 35.1811 21.8452 34.9945 21.7886C34.8078 21.7319 34.6066 21.7483 34.4316 21.8343ZM9.41443 16.3408C9.41479 16.206 9.45053 16.0737 9.51807 15.9571C9.58562 15.8404 9.68259 15.7436 9.79931 15.6762L22.1154 8.4918C22.2325 8.42424 22.3652 8.38867 22.5003 8.38867C22.6354 8.38867 22.7682 8.42424 22.8852 8.4918L35.2013 15.6762C35.3174 15.744 35.4136 15.8411 35.4805 15.9577C35.5474 16.0743 35.5826 16.2063 35.5826 16.3408C35.5826 16.4752 35.5474 16.6073 35.4805 16.7239C35.4136 16.8404 35.3174 16.9375 35.2013 17.0053L22.8852 24.1897C22.7682 24.2573 22.6354 24.2929 22.5003 24.2929C22.3652 24.2929 22.2325 24.2573 22.1154 24.1897L9.79931 17.0053C9.68259 16.9379 9.58562 16.8411 9.51807 16.7245C9.45053 16.6078 9.41479 16.4755 9.41443 16.3408ZM11.7122 16.3408L22.5003 22.6335L33.2885 16.3408L22.5003 10.0544L11.7122 16.3408Z" fill="white" stroke="white" strokeWidth="0.5" />
-                                                </svg>
-                                            </div>
-                                            <h3 className="font-semibold text-black font-funnel-sans text-lg mb-2">EarnKit Templates</h3>
-                                            <p className="text-black/40 text-sm font-funnel-sans">Explore trading bots, LLM agents, and other common use cases</p>
-                                        </CardContent>
-                                    </Card>
-                                </Link>
-                            </div>
-                        </div>
-
                         {/* FAQs Section */}
                         <div className="mb-8 mt-[60px]">
                             <div className="mb-[60px]">

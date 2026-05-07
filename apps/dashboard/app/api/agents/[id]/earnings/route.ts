@@ -5,7 +5,6 @@ import {
   buildSplitRecipients,
   getDeveloperSplitPercent,
   SUPPORTED_TOKENS,
-  SPLIT_PLATFORM_FEE_PERCENT,
 } from '@/lib/payment-routing';
 import {
   keccak256,
@@ -157,7 +156,6 @@ export async function GET(
     const developerSplitPercent = getDeveloperSplitPercent(buybackPercent);
     const splitRecipients = buildSplitRecipients({
       developerWalletAddress,
-      platformFeeWallet: process.env.PLATFORM_FEE_WALLET,
       buybackAddress: agent.buybackAddress,
       buybackPercent,
     });
@@ -282,7 +280,6 @@ export async function GET(
       buybackPercent,
       developerSplitPercent,
       developerWalletAddress,
-      platformFeePercent: SPLIT_PLATFORM_FEE_PERCENT,
       splitRecipients,
       breakdown: {
         transactionLogEarnings,

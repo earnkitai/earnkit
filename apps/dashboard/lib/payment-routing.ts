@@ -86,7 +86,7 @@ export const SPLIT_WAREHOUSE_ABI = [
 ] as const satisfies Abi;
 
 export function getDeveloperSplitPercent(buybackPercent = 0): number {
-  return Math.max(0, 100 - SPLIT_PLATFORM_FEE_PERCENT - buybackPercent);
+  return Math.max(0, 100 - buybackPercent);
 }
 
 export function buildSplitRecipients(params: {

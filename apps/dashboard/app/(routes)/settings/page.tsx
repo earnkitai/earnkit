@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { usePrivy } from "@privy-io/react-auth";
 // import { useSessionSigners } from "@privy-io/react-auth";
 import { ApiKeySection } from "@/app/(routes)/settings/components/ApiKeySection";
-import { EmbeddedWalletSection } from "@/app/(routes)/settings/components/EmbeddedWalletSection";
 import { PasskeySection } from "@/app/(routes)/settings/components/PasskeySection";
 import { FarcasterPrivy } from "@/app/(routes)/settings/components/FarcasterPrivy";
 import { findUsernameByUserId, updateUser } from "@/actions/user";
@@ -152,8 +151,8 @@ export default function SettingsPage() {
                         </div>
                     </div>
 
-                    {/* API Key Card - Medium */}
-                    <div className="md:col-start-5 md:col-end-9 md:row-start-1 md:row-end-3 border border-black/10 rounded-[56px] p-8 flex flex-col justify-center relative overflow-hidden">
+                    {/* API Key Card */}
+                    <div className="md:col-start-5 md:col-end-9 md:row-start-1 md:row-end-4 border border-black/10 rounded-[56px] p-8 flex flex-col justify-center relative overflow-hidden">
                         <div className="relative z-10">
                             <div className="mb-6">
                                 <h2 className="text-2xl font-bold font-funnel-display text-color2">API Key</h2>
@@ -162,15 +161,6 @@ export default function SettingsPage() {
                         </div>
                     </div>
 
-                    {/* Embedded Wallet Card - Medium */}
-                    <div className="md:col-start-5 md:col-end-9 md:row-start-3 md:row-end-5 border border-black/10 rounded-[56px] p-8 relative overflow-hidden">
-                        <div className="relative z-10">
-                            <div className="mb-6">
-                                <h2 className="text-2xl font-bold font-funnel-display text-color2">Embedded Wallet</h2>
-                            </div>
-                            <EmbeddedWalletSection />
-                        </div>
-                    </div>
                     {/* Wallets Section - Large */}
                     <div className="md:col-start-1 md:col-end-5 md:row-start-4 md:row-end-7 border border-black/10 rounded-[56px] p-8 relative overflow-hidden">
                         <div className="relative z-10">
@@ -182,7 +172,7 @@ export default function SettingsPage() {
                     </div>
 
                     {/* Passkey Card - Small */}
-                    <div className="md:col-start-5 md:col-end-7 md:row-start-5 md:row-end-7 border border-black/10 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
+                    <div className="md:col-start-5 md:col-end-7 md:row-start-4 md:row-end-7 border border-black/10 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
                         <div className="relative z-10">
                             <div className="mb-4">
                                 <h2 className="text-xl font-bold font-funnel-display text-color2">Passkey</h2>
@@ -192,7 +182,7 @@ export default function SettingsPage() {
                     </div>
 
                     {/* Farcaster Card - Small */}
-                    <div className="md:col-start-7 md:col-end-9 md:row-start-5 md:row-end-7 border border-black/10 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
+                    <div className="md:col-start-7 md:col-end-9 md:row-start-4 md:row-end-7 border border-black/10 rounded-[56px] p-6 flex flex-col justify-center relative overflow-hidden">
                         <div className="relative z-10">
                             <div className="mb-4">
                                 <h2 className="text-xl font-bold font-funnel-display text-color2">Farcaster</h2>
