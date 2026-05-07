@@ -36,7 +36,6 @@ interface WithdrawModalProps {
     splitAddress?: string | null;
     buybackPercent?: number;
     developerSplitPercent?: number;
-    platformFeePercent?: number;
     splitRecipients?: SplitRecipientConfig[];
     onWithdrawSuccess?: () => void;
 }
@@ -57,7 +56,6 @@ export default function WithdrawModal({
     splitAddress,
     buybackPercent = 0,
     developerSplitPercent = 95,
-    platformFeePercent = 0,
     splitRecipients = [],
     onWithdrawSuccess,
 }: WithdrawModalProps) {
@@ -72,12 +70,6 @@ export default function WithdrawModal({
         tokenAddress?: string;
         tokenSymbol?: string;
     } | null>(null);
-    const [feeCalculation, setFeeCalculation] = useState<{
-        amount: number;
-        fee: number;
-        net: number;
-        platformFeeBps: number;
-    } | null>(null);
     const [step, setStep] = useState<ModalStep>(
         paymentMode === "splits" ? "split-review" : "form",
     );
@@ -85,7 +77,6 @@ export default function WithdrawModal({
         executeWithdrawal,
         executeTokenWithdrawal,
         executeSplitDistribution,
-        calculateFees,
         loading: executeLoading,
         isReady,
     } = useWithdraw(agentDbId, agentId);
@@ -143,7 +134,7 @@ export default function WithdrawModal({
         })),
     ];
 
-    const handleWithdraw = async () => {
+    const handleWithdraw = () => {
         if (!amount || !recipientAddress) {
             toast.error("Please fill in all fields");
             return;
@@ -166,38 +157,18 @@ export default function WithdrawModal({
             return;
         }
 
-        try {
-            // For ETH, derive USD via the (totalBalanceUsd / totalEth) ratio reported
-            // by the earnings endpoint. Guard against the divide-by-zero that occurs
-            // when an agent has only token balances (availableBalanceEth = 0) — in
-            // that case the ETH path isn't selectable, but defensive code prevents
-            // a NaN from leaking into the request body if it somehow is.
-            const ethToUsdRatio =
-                availableBalanceEth > 0 ? availableBalance / availableBalanceEth : 0;
-            const feeBasis =
-                selectedAsset === "ETH" ? withdrawAmount * ethToUsdRatio : withdrawAmount;
-            const fees = await calculateFees(feeBasis);
-            setFeeCalculation({
-                ...fees,
-                amount: withdrawAmount,
-            });
+        const isToken = selectedAsset !== "ETH";
+        const token = isToken ? tokenBalances.find((candidate) => candidate.symbol === selectedAsset) : null;
 
-            const isToken = selectedAsset !== "ETH";
-            const token = isToken ? tokenBalances.find((candidate) => candidate.symbol === selectedAsset) : null;
-
-            setWithdrawData({
-                agentId: agentId,
-                amount: amount,
-                to: recipientAddress,
-                isToken,
-                tokenAddress: token?.address,
-                tokenSymbol: token?.symbol,
-            });
-            setStep("confirm");
-        } catch (error) {
-            console.error("Error calculating fees:", error);
-            toast.error("Failed to calculate fees. Please try again.");
-        }
+        setWithdrawData({
+            agentId: agentId,
+            amount: amount,
+            to: recipientAddress,
+            isToken,
+            tokenAddress: token?.address,
+            tokenSymbol: token?.symbol,
+        });
+        setStep("confirm");
     };
 
     const handleMaxAmount = () => {
@@ -315,7 +286,6 @@ export default function WithdrawModal({
         setRecipientAddress("");
         setSelectedAsset("ETH");
         setWithdrawData(null);
-        setFeeCalculation(null);
         setStep(paymentMode === "splits" ? "split-review" : "form");
         onClose();
     };
@@ -398,6 +368,7 @@ export default function WithdrawModal({
                                         placeholder="0.00"
                                         value={amount}
                                         onChange={(event) => setAmount(event.target.value)}
+                                        onWheel={(e) => e.currentTarget.blur()}
                                         className="flex-1 rounded-[12px] border border-black/20 focus:border-secondary-green focus:ring-0"
                                     />
                                     <Button
@@ -432,11 +403,10 @@ export default function WithdrawModal({
                         </>
                     )}
 
-                    {paymentMode === "escrow" && step === "confirm" && withdrawData && feeCalculation && (
+                    {paymentMode === "escrow" && step === "confirm" && withdrawData && (
                         <>
                             <div className="bg-gray-50 rounded-[12px] p-4 border border-black/5">
                                 <h3 className="text-lg font-semibold text-black font-funnel-sans mb-3">Withdrawal Summary</h3>
-
                                 <div className="space-y-2">
                                     <div className="flex justify-between">
                                         <span className="text-sm text-black/60 font-funnel-sans">Asset:</span>
@@ -445,26 +415,10 @@ export default function WithdrawModal({
                                         </span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="text-sm text-black/60 font-funnel-sans">Amount:</span>
-                                        <span className="text-sm font-semibold text-black font-funnel-sans">
-                                            {feeCalculation.amount.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
+                                        <span className="text-sm font-semibold text-black font-funnel-sans">You&apos;ll Receive:</span>
+                                        <span className="text-sm font-semibold text-secondary-green font-funnel-sans">
+                                            {parseFloat(withdrawData.amount).toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
                                         </span>
-                                    </div>
-                                    {feeCalculation.platformFeeBps > 0 && (
-                                    <div className="flex justify-between">
-                                        <span className="text-sm text-black/60 font-funnel-sans">Platform Fee ({(feeCalculation.platformFeeBps / 100).toFixed(1)}%):</span>
-                                        <span className="text-sm font-semibold text-red-500 font-funnel-sans">
-                                            -{feeCalculation.fee.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
-                                        </span>
-                                    </div>
-                                    )}
-                                    <div className="border-t border-black/10 pt-2">
-                                        <div className="flex justify-between">
-                                            <span className="text-sm font-semibold text-black font-funnel-sans">You&apos;ll Receive:</span>
-                                            <span className="text-sm font-semibold text-secondary-green font-funnel-sans">
-                                                {feeCalculation.net.toFixed(withdrawData.isToken ? 2 : 6)} {withdrawData.isToken ? withdrawData.tokenSymbol : "ETH"}
-                                            </span>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -499,7 +453,7 @@ export default function WithdrawModal({
                                     Payments for this agent land in its split contract, and this action will distribute every funded asset currently sitting there.
                                 </p>
                                 <p className="text-xs text-blue-700/80 font-funnel-sans mt-2">
-                                    You&apos;ll see two wallet prompts per asset: one to distribute from the split contract to the Splits Warehouse, and one to withdraw your share to your wallet. Platform and buyback recipients can claim their shares anytime from app.splits.org.
+                                    You&apos;ll see two wallet prompts per asset: one to distribute from the split contract to the Splits Warehouse, and one to withdraw your share to your wallet. Buyback recipients can claim their shares anytime from app.splits.org.
                                 </p>
                             </div>
 
@@ -552,12 +506,7 @@ export default function WithdrawModal({
                                 </div>
                                 {buybackPercent > 0 && (
                                     <p className="text-xs text-black/40 font-funnel-sans mt-3">
-                                        Developer {developerSplitPercent}% · Buyback {buybackPercent}% · Platform {platformFeePercent}%
-                                    </p>
-                                )}
-                                {buybackPercent <= 0 && (
-                                    <p className="text-xs text-black/40 font-funnel-sans mt-3">
-                                        Developer {developerSplitPercent}% · Platform {platformFeePercent}%
+                                        Developer {developerSplitPercent}% · Buyback {buybackPercent}%
                                     </p>
                                 )}
                             </div>

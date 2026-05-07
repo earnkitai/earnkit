@@ -266,6 +266,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                 step="1"
                                 value={thresholdUsd}
                                 onChange={(e) => setThresholdUsd(e.target.value)}
+                                onWheel={(e) => e.currentTarget.blur()}
                             />
                             <p className="text-xs text-black/40 font-funnel-sans">
                                 Min ${minThresholdUsd} · recommended $10+. Funds accumulate until this; no buyback fires below it.
@@ -282,6 +283,7 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                                 step="0.5"
                                 value={slippagePercent}
                                 onChange={(e) => setSlippagePercent(e.target.value)}
+                                onWheel={(e) => e.currentTarget.blur()}
                             />
                             <p className="text-xs text-black/40 font-funnel-sans">
                                 Higher tolerance helps thin liquidity but invites MEV.
@@ -324,34 +326,28 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
 
                                 {/* Inline execution status */}
                                 {(() => {
-                                    const lastExec = executions[0];
-                                    if (status.inFlightExecution) {
-                                        return (
-                                            <p className="text-xs text-secondary-purple font-funnel-sans mt-2">
-                                                Buyback in progress: {status.inFlightExecution.status.toLowerCase()}…
-                                            </p>
-                                        );
-                                    }
-                                    if (lastExec?.status === 'FAILED') {
-                                        const shortError = lastExec.lastError
-                                            ? lastExec.lastError.replace(/^swap_all_failed:\s*/, 'Swap failed — ').slice(0, 120)
-                                            : 'unknown error';
+                                    const execStatus = status.inFlightExecution?.status;
+                                    if (execStatus === 'FAILED') {
                                         return (
                                             <div className="mt-2 bg-red-50 border border-red-200 rounded-[8px] px-3 py-2">
                                                 <p className="text-xs text-red-700 font-funnel-sans font-semibold">Last attempt failed</p>
-                                                <p className="text-[11px] text-red-600 font-mono break-all mt-0.5">{shortError}</p>
-                                                {status.readyToFire && (
-                                                    <p className="text-[11px] text-red-500 font-funnel-sans mt-1">
-                                                        Funds are still in the wallet. Use &quot;Trigger buyback now&quot; to retry.
-                                                    </p>
-                                                )}
+                                                <p className="text-[11px] text-red-500 font-funnel-sans mt-1">
+                                                    See the <strong>Buyback</strong> tab for details. Use &quot;Trigger buyback now&quot; to retry.
+                                                </p>
                                             </div>
                                         );
                                     }
-                                    if (lastExec?.status === 'RETRYING') {
+                                    if (execStatus === 'RETRYING') {
                                         return (
                                             <p className="text-xs text-amber-600 font-funnel-sans mt-2">
-                                                Retrying… next attempt at {lastExec.nextAttemptAt ? new Date(lastExec.nextAttemptAt).toLocaleString() : '—'}
+                                                Retrying… check the <strong>Buyback</strong> tab for the next attempt time.
+                                            </p>
+                                        );
+                                    }
+                                    if (execStatus) {
+                                        return (
+                                            <p className="text-xs text-secondary-purple font-funnel-sans mt-2">
+                                                Buyback in progress: {execStatus.toLowerCase()}…
                                             </p>
                                         );
                                     }

@@ -488,7 +488,7 @@ export default function NewAgentPage() {
 
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 px-4">
                                             {([
-                                                { v: "none", title: "No Buyback", desc: "100% of payments (minus 5% platform) goes to you." },
+                                                { v: "none", title: "No Buyback", desc: "100% of payments go directly to you." },
                                                 { v: "static", title: "Static Address", desc: "Send a % to a wallet you control. You sweep & swap manually." },
                                                 { v: "auto", title: "Auto Buyback & Burn", desc: "Send a % to a Turnkey-managed wallet. We auto-swap to your token and burn when threshold hits." },
                                             ] as const).map(opt => (
@@ -527,7 +527,7 @@ export default function NewAgentPage() {
                                                 />
                                                 {formData.buybackPercent && (
                                                     <p className="text-xs text-black/40 px-4">
-                                                        Split: {95 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to buyback · 5% platform fee
+                                                        Split: {100 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to buyback
                                                     </p>
                                                 )}
                                             </div>
@@ -592,7 +592,7 @@ export default function NewAgentPage() {
                                                 </div>
                                                 {formData.buybackPercent && (
                                                     <p className="text-xs text-black/60 font-funnel-sans">
-                                                        Split: {95 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to Auto Buyback · 5% platform fee. Funds accumulate in a Turnkey wallet until ${formData.buybackThresholdUsd || "10"} crossed, then auto-swap & burn.
+                                                        Split: {100 - Number(formData.buybackPercent)}% to your wallet · {formData.buybackPercent}% to Auto Buyback. Funds accumulate in a Turnkey wallet until ${formData.buybackThresholdUsd || "10"} crossed, then auto-swap & burn.
                                                     </p>
                                                 )}
                                                 <p className="text-xs text-secondary-purple/80 font-funnel-sans">

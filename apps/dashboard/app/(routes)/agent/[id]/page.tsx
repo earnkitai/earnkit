@@ -82,7 +82,6 @@ interface EarningsData {
     buybackPercent: number;
     developerSplitPercent: number;
     developerWalletAddress?: string | null;
-    platformFeePercent: number;
     splitRecipients: Array<{
         address: `0x${string}`;
         label: "Developer" | "Platform" | "Buyback";
@@ -969,7 +968,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                                             {earningsData.paymentAddress}
                                                         </p>
                                                     </div>
-                                                    {isSplitAgent && (
+                                                    {isSplitAgent && earningsData.buybackPercent > 0 && (
                                                         <p className="text-xs text-black/40 font-funnel-sans">
                                                             Developer {earningsData.developerSplitPercent}% · Buyback {earningsData.buybackPercent}%
                                                         </p>
@@ -1037,7 +1036,6 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 splitAddress={earningsData?.splitAddress || agent?.splitAddress}
                 buybackPercent={earningsData?.buybackPercent || agent?.buybackPercent || 0}
                 developerSplitPercent={earningsData?.developerSplitPercent || 95}
-                platformFeePercent={earningsData?.platformFeePercent ?? 0}
                 splitRecipients={earningsData?.splitRecipients || []}
                 onWithdrawSuccess={refreshEarningsData}
             />

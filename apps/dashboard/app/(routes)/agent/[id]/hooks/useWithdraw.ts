@@ -49,13 +49,6 @@ interface SplitDistributionData {
   assets: SplitDistributionAsset[];
 }
 
-interface FeeCalculation {
-  amount: number;
-  fee: number;
-  net: number;
-  platformFeeBps: number;
-}
-
 export function useWithdraw(agentDbId: string, agentSlug: string) {
   const [loading, setLoading] = useState(false);
   const { ready, authenticated, user } = usePrivy();
@@ -69,39 +62,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     }
 
     return wallet;
-  };
-
-  const getPlatformFee = async (): Promise<number> => {
-    try {
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http(),
-      });
-
-      const platformFeeBps = await publicClient.readContract({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: CONTRACT_ABI,
-        functionName: 'platformFeeBps',
-      });
-
-      return Number(platformFeeBps);
-    } catch (error) {
-      console.error('Error getting platform fee:', error);
-      return 0;
-    }
-  };
-
-  const calculateFees = async (amount: number): Promise<FeeCalculation> => {
-    const platformFeeBps = await getPlatformFee();
-    const fee = (amount * platformFeeBps) / 10000;
-    const net = amount - fee;
-
-    return {
-      amount,
-      fee,
-      net,
-      platformFeeBps,
-    };
   };
 
   const executeWithdrawal = async (withdrawData: WithdrawData) => {
@@ -463,7 +423,6 @@ export function useWithdraw(agentDbId: string, agentSlug: string) {
     executeWithdrawal,
     executeTokenWithdrawal,
     executeSplitDistribution,
-    calculateFees,
     loading,
     isReady: ready && authenticated,
   };

@@ -219,6 +219,7 @@ export function TokenConfigPanel({ agentId, userId }: TokenConfigPanelProps) {
                         onChange={(e) =>
                           handleDiscountChange(config.tokenAddress, e.target.value)
                         }
+                        onWheel={(e) => e.currentTarget.blur()}
                         className="w-16 h-8 text-center text-sm"
                         disabled={!config.enabled}
                       />
