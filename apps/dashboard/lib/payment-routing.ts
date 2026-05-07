@@ -138,16 +138,12 @@ export function getSplitAllocationFromPercent(percent: number): bigint {
 export function buildSplitDistributionConfig(
   recipients: SplitRecipientConfig[],
 ) {
-  // 0xSplits V2 stores a hash of the split config with recipients in ascending
-  // address order. If the order doesn't match what was set at creation time the
-  // distribute() call reverts — this is why it fails for some wallets but not
-  // others (whether the developer address happens to be < the platform address).
-  const sorted = [...recipients].sort((a, b) =>
-    a.address.toLowerCase() < b.address.toLowerCase() ? -1 : 1,
-  );
-
-  const addresses = sorted.map((r) => r.address);
-  const allocations = sorted.map((r) =>
+  // Recipients MUST be passed in the same order they were given to createSplit.
+  // The 0xSplits SDK does NOT sort recipients before creating the split — it
+  // stores keccak256(abi.encode(splitParams)) with the original order, and
+  // distribute() recomputes that hash to verify. Sorting here causes a mismatch.
+  const addresses = recipients.map((r) => r.address);
+  const allocations = recipients.map((r) =>
     getSplitAllocationFromPercent(r.percentAllocation),
   );
   const totalAllocation = allocations.reduce(
