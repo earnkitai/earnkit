@@ -527,7 +527,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                             {/* Agent ID Section */}
                                             <div className="space-y-3">
                                                 <label className="block text-sm font-semibold text-black font-funnel-sans px-4">
-                                                    App ID
+                                                    Agent ID
                                                 </label>
                                                 <div className="flex gap-2">
                                                     <Input
