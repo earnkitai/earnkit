@@ -9,18 +9,23 @@ interface Props {
   block: BlockObjectResponse | any;
 }
 
-// Async server component so we can await getMediaProperties
-async function NotionImage({ block }: { block: any }) {
+// Internal Image component for the block renderer
+async function NotionBlockImage({ block }: { block: any }) {
   const { source, caption } = await getMediaProperties(block.image, block.id);
+
+  if (!source) return null;
+
   return (
-    <div className="my-8 flex flex-col items-center">
+    <div className="my-8 flex flex-col items-center w-full">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={`/api/notion-image?url=${encodeURIComponent(source)}`}
+        src={source}
         alt={caption || 'Notion Image'}
-        className="rounded-lg max-w-full"
+        className="rounded-lg max-w-full h-auto object-cover"
       />
-      {caption && <p className="mt-2 text-sm text-gray-500">{caption}</p>}
+      {caption && (
+        <p className="mt-2 text-sm text-gray-500 italic">{caption}</p>
+      )}
     </div>
   );
 }
@@ -33,7 +38,6 @@ export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({
   switch (block.type) {
     case 'paragraph': {
       const richText = block.paragraph?.rich_text ?? [];
-      // Empty paragraphs in Notion render as spacers
       if (richText.length === 0) return <div className="mb-4" />;
       return (
         <p className="mb-6 leading-7 text-black/[80%] font-funnel-sans font-normal text-[1rem] md:text-[1.125rem]">
@@ -60,8 +64,6 @@ export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({
       return (
         <li className="mb-2 list-outside text-[1rem] md:text-[1.125rem] font-funnel-sans font-normal text-black/[80%]">
           {richText.length > 0 && <NotionText text={richText} />}
-
-          {/* Nested children */}
           {block.children && block.children.length > 0 && (
             <div className="ml-6 mt-1 mb-2">
               {block.children.map((child: any) => (
@@ -95,7 +97,7 @@ export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({
     }
 
     case 'image':
-      return <NotionImage block={block} />;
+      return <NotionBlockImage block={block} />;
 
     case 'code':
       return (
@@ -116,16 +118,6 @@ export const RenderBlock: React.FC<React.PropsWithChildren<Props>> = ({
           <NotionText text={block.quote.rich_text} />
         </blockquote>
       );
-
-    // Legacy Notion block type
-    case 'text': {
-      const richText = (block as any).text?.rich_text ?? [];
-      return (
-        <p className="mb-6 leading-7 text-black/[80%] font-funnel-sans font-normal text-[1rem] md:text-[1.125rem]">
-          <NotionText text={richText} />
-        </p>
-      );
-    }
 
     default:
       return null;
