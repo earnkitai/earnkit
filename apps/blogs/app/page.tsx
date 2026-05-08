@@ -35,10 +35,20 @@ export default async function Blog({ params }: any) {
 
   const featuredPost =
     notionPosts.find((post) => post.featured) || notionPosts[0];
-  const otherPosts = notionPosts.filter((post) => post.id !== featuredPost.id);
+  const otherPosts = featuredPost
+    ? notionPosts.filter((post) => post.id !== featuredPost.id)
+    : [];
   const startIndex = (currentPage - 1) * POSTS_PER_PAGE;
   const endIndex = startIndex + POSTS_PER_PAGE;
   const currentPosts = otherPosts.slice(startIndex, endIndex);
+
+  if (!featuredPost) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <p className="text-gray-500 font-funnel-sans text-lg">No posts published yet.</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen rounded-[56px] overflow-hidden">
