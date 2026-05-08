@@ -1,17 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Client } from '@notionhq/client';
 import {
-  //   PageObjectResponse,
   DatabaseObjectResponse,
   ImageBlockObjectResponse,
   PageObjectResponse,
-  // PageObjectResponse,
 } from '@notionhq/client/build/src/api-endpoints';
 import { unstable_cache } from 'next/cache';
 import { NotionToMarkdown } from 'notion-to-md';
-// import { resolve } from 'path';
 import { cache } from 'react';
-import 'server-only';
 
 // Initialize Notion client
 export const notion = new Client({
@@ -164,27 +160,52 @@ export const getPostBySlug = cache(
   },
 );
 
-export async function getPageBlocks(pageId: string) {
+/**
+ * Fetch all children of a block (handles pagination).
+ */
+async function fetchAllChildren(blockId: string): Promise<any[]> {
   const blocks: any[] = [];
-  let cursor = undefined;
+  let cursor: string | undefined = undefined;
 
+  while (true) {
+    const { results, next_cursor } = await notion.blocks.children.list({
+      block_id: blockId,
+      page_size: 100,
+      start_cursor: cursor,
+    });
+
+    blocks.push(...results);
+
+    if (!next_cursor) break;
+    cursor = next_cursor;
+  }
+
+  return blocks;
+}
+
+/**
+ * Recursively fetch blocks and their children.
+ * Any block with has_children = true will have a `children` array attached.
+ */
+async function fetchBlocksRecursively(blockId: string): Promise<any[]> {
+  const blocks = await fetchAllChildren(blockId);
+
+  const blocksWithChildren = await Promise.all(
+    blocks.map(async (block) => {
+      if (block.has_children) {
+        const children = await fetchBlocksRecursively(block.id);
+        return { ...block, children };
+      }
+      return block;
+    }),
+  );
+
+  return blocksWithChildren;
+}
+
+export async function getPageBlocks(pageId: string): Promise<any[]> {
   try {
-    // Keep fetching blocks until there are no more
-    while (true) {
-      const { results, next_cursor } = await notion.blocks.children.list({
-        block_id: pageId,
-        page_size: 100, // Max number of blocks to fetch per request
-        start_cursor: cursor,
-      });
-
-      blocks.push(...results);
-
-      // If there's no next_cursor, we've reached the end
-      if (!next_cursor) break;
-      cursor = next_cursor;
-    }
-
-    return blocks;
+    return await fetchBlocksRecursively(pageId);
   } catch (error) {
     console.error('Error fetching Notion blocks:', error);
     throw error;
@@ -199,15 +220,46 @@ export async function getPostMarkdown(pageId: string) {
   return markdown;
 }
 
-export const getMediaProperties = (
+/**
+ * Get media properties for an image block.
+ *
+ * Notion-hosted images (type === 'file') have URLs that expire after ~1 hour.
+ * To avoid serving expired URLs, we re-fetch the block from the API so Notion
+ * returns a freshly-signed URL at render time. External images are stable and
+ * returned as-is.
+ */
+export async function getMediaProperties(
   value: ImageBlockObjectResponse['image'],
-): { source: string; caption: string } => {
-  const source =
-    value.type === 'external' ? value.external.url : value.file.url;
+  blockId?: string,
+): Promise<{ source: string; caption: string }> {
+  let source: string;
+
+  if (value.type === 'external') {
+    source = value.external.url;
+  } else {
+    // Notion file URLs expire. Re-fetch the block to get a fresh signed URL.
+    if (blockId) {
+      try {
+        const freshBlock = (await notion.blocks.retrieve({
+          block_id: blockId,
+        })) as ImageBlockObjectResponse;
+        source =
+          freshBlock.image.type === 'file'
+            ? freshBlock.image.file.url
+            : (freshBlock.image as any).external?.url ?? value.file.url;
+      } catch {
+        // Fall back to the original (possibly expired) URL
+        source = value.file.url;
+      }
+    } else {
+      source = value.file.url;
+    }
+  }
+
   const caption =
     value.caption && value.caption.length > 0
       ? value.caption[0].plain_text
       : '';
 
   return { source, caption };
-};
+}
