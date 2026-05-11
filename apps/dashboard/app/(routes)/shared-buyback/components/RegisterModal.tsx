@@ -100,7 +100,7 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                         {step === "ready" && "Buyback Wallet Ready"}
                     </DialogTitle>
                     <DialogDescription className="font-funnel-sans text-sm text-black/40">
-                        {step === "form" && "Connect your existing split to an automated buyback. A 5% platform fee applies per execution."}
+                        {step === "form" && "Connect your existing split to an automated buyback. A 1% platform fee applies per execution."}
                         {step === "provisioning" && "Creating your Turnkey-managed buyback wallet. This takes a few seconds."}
                         {step === "ready" && "Add the wallet address below to your split as a recipient to activate buyback."}
                     </DialogDescription>

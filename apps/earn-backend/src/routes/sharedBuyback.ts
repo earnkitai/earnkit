@@ -17,8 +17,8 @@ import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
 const router: Router = Router();
 
 function getPlatformFeeRateBps(): number {
-  const val = parseInt(process.env.PLATFORM_FEE_BPS ?? '500', 10);
-  return isNaN(val) ? 500 : Math.min(Math.max(val, 0), 2000);
+  const val = parseInt(process.env.PLATFORM_FEE_BPS ?? '100', 10);
+  return isNaN(val) ? 100 : Math.min(Math.max(val, 0), 2000);
 }
 
 function getPlatformThresholdUsd(): number {

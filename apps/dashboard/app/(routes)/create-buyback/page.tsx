@@ -66,6 +66,21 @@ export default function CreateBuybackPage() {
   const [step, setStep] = useState<Step>('form');
   const [copied, setCopied] = useState(false);
 
+  // --- Platform Config (fetched from backend) ---
+  const [platformFeeRateBps, setPlatformFeeRateBps] = useState<number>(100);
+  const [minThresholdUsd, setMinThresholdUsd] = useState<number>(10);
+  const platformFeePercent = (platformFeeRateBps / 100).toFixed(1).replace(/\.0$/, '');
+
+  useEffect(() => {
+    fetch('/api/platform-config')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.platformFeeRateBps) setPlatformFeeRateBps(d.platformFeeRateBps);
+        if (d.minThresholdUsd) setMinThresholdUsd(d.minThresholdUsd);
+      })
+      .catch(() => {});
+  }, []);
+
   // --- Shared Buyback States ---
   const [sharedForm, setSharedForm] = useState({
     ownerAddress: '',
@@ -73,7 +88,6 @@ export default function CreateBuybackPage() {
     targetToken: '',
     recoveryAddress: '',
     userEmail: '',
-    feeRateBps: '500',
     thresholdUsd: '10',
   });
 
@@ -84,7 +98,6 @@ export default function CreateBuybackPage() {
     ownerAddress: '',
     recoveryAddress: '',
     userEmail: '',
-    feeRateBps: '500',
     thresholdUsd: '10',
   });
   const [tokenErrors, setTokenErrors] = useState<Partial<typeof tokenForm>>({});
@@ -170,8 +183,6 @@ export default function CreateBuybackPage() {
     if (!isAddress(sharedForm.targetToken)) { toast.error('Target token is not a valid 0x address'); return; }
     if (!isAddress(sharedForm.recoveryAddress)) { toast.error('Recovery address is not a valid 0x address'); return; }
     if (!sharedForm.userEmail.includes('@')) { toast.error('Enter a valid email address'); return; }
-    const fee = parseInt(sharedForm.feeRateBps, 10);
-    if (isNaN(fee) || fee < 0 || fee > 2000) { toast.error('Fee rate must be between 0 and 2000 bps'); return; }
 
     setStep('provisioning');
     try {
@@ -184,8 +195,7 @@ export default function CreateBuybackPage() {
           targetToken: sharedForm.targetToken.trim(),
           recoveryAddress: sharedForm.recoveryAddress.trim(),
           userEmail: sharedForm.userEmail.trim(),
-          feeRateBps: fee,
-          thresholdUsd: parseFloat(sharedForm.thresholdUsd) || 10,
+          thresholdUsd: parseFloat(sharedForm.thresholdUsd) || minThresholdUsd,
         }),
       });
       const data = await res.json();
@@ -222,8 +232,6 @@ export default function CreateBuybackPage() {
     if (!isAddress(tokenForm.ownerAddress)) errs.ownerAddress = 'Invalid address';
     if (!isAddress(tokenForm.recoveryAddress)) errs.recoveryAddress = 'Invalid address';
     if (!tokenForm.userEmail.includes('@')) errs.userEmail = 'Invalid email';
-    const bps = Number(tokenForm.feeRateBps);
-    if (isNaN(bps) || bps < 0 || bps > 2000) errs.feeRateBps = '0–2000 bps';
     const thr = Number(tokenForm.thresholdUsd);
     if (isNaN(thr) || thr <= 0) errs.thresholdUsd = 'Must be > 0';
     setTokenErrors(errs);
@@ -265,7 +273,6 @@ export default function CreateBuybackPage() {
           ownerAddress: tokenForm.ownerAddress,
           recoveryAddress: tokenForm.recoveryAddress,
           userEmail: tokenForm.userEmail,
-          feeRateBps: Number(tokenForm.feeRateBps),
           thresholdUsd: Number(tokenForm.thresholdUsd),
         }),
       });
@@ -313,7 +320,7 @@ export default function CreateBuybackPage() {
 
         <p className="text-black/50 font-funnel-sans mt-2">
           {view === 'selection' && 'Select the type of buyback integration you want to set up.'}
-          {view === 'shared' && step === 'form' && 'Connect your existing split to an automated buyback. A 5% platform fee applies per execution.'}
+          {view === 'shared' && step === 'form' && `Connect your existing split to an automated buyback. A ${platformFeePercent}% platform fee applies per execution.`}
           {view === 'token' && step === 'form' && "Provision a buyback wallet for your token contract's fee revenue."}
           {step === 'provisioning' && 'Creating your Turnkey-managed buyback wallet. This takes a few seconds.'}
           {step === 'ready' && 'Add the wallet address below to your contract/split to activate buyback.'}
@@ -644,36 +651,18 @@ export default function CreateBuybackPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-black font-funnel-sans">
-                Fee Rate ({((Number(tokenForm.feeRateBps) || 0) / 100).toFixed(1)}%)
-              </Label>
-              <Input
-                type="number"
-                min="0"
-                max="2000"
-                value={tokenForm.feeRateBps}
-                onChange={handleTokenField('feeRateBps')}
-                className="text-sm"
-              />
-              {tokenErrors.feeRateBps && (
-                <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.feeRateBps}</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-black font-funnel-sans">Trigger Threshold (USD)</Label>
-              <Input
-                type="number"
-                min="1"
-                value={tokenForm.thresholdUsd}
-                onChange={handleTokenField('thresholdUsd')}
-                className="text-sm"
-              />
-              {tokenErrors.thresholdUsd && (
-                <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.thresholdUsd}</p>
-              )}
-            </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm font-semibold text-black font-funnel-sans">Trigger Threshold (USD)</Label>
+            <Input
+              type="number"
+              min="1"
+              value={tokenForm.thresholdUsd}
+              onChange={handleTokenField('thresholdUsd')}
+              className="text-sm"
+            />
+            {tokenErrors.thresholdUsd && (
+              <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.thresholdUsd}</p>
+            )}
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">

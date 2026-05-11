@@ -18,6 +18,16 @@ import tokenBuybackRoutes from './tokenBuyback';
 
 const router: Router = Router();
 
+// Public platform config
+router.get('/config', (_req: Request, res: Response) => {
+  const feeRateBps = parseInt(process.env.PLATFORM_FEE_BPS ?? '100', 10);
+  const minThresholdUsd = parseFloat(process.env.PLATFORM_THRESHOLD_USD ?? '10');
+  res.json({
+    platformFeeRateBps: isNaN(feeRateBps) ? 100 : Math.min(Math.max(feeRateBps, 0), 2000),
+    minThresholdUsd: isNaN(minThresholdUsd) || minThresholdUsd <= 0 ? 10 : minThresholdUsd,
+  });
+});
+
 // API routes
 router.use('/track', trackRoutes);
 router.use('/capture', captureRoutes);

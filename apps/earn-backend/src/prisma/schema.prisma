@@ -710,7 +710,7 @@ model SharedSplitBuybackConfig {
   tokenSymbol     String   @map("token_symbol")
   tokenDecimals   Int      @map("token_decimals")
 
-  feeRateBps      Int      @default(500)  @map("fee_rate_bps")
+  feeRateBps      Int      @default(100)  @map("fee_rate_bps")
   thresholdUsd    Float    @default(10)   @map("threshold_usd")
   slippageBps     Int      @default(500)  @map("slippage_bps")
   burnMode        BurnMode @default(DEAD_ADDRESS) @map("burn_mode")
@@ -795,7 +795,7 @@ model TokenContractBuybackConfig {
   // Stored for display only — we never call the source contract ourselves.
   feeGetterName   String?  @map("fee_getter_name")
 
-  feeRateBps      Int      @default(500)  @map("fee_rate_bps")
+  feeRateBps      Int      @default(100)  @map("fee_rate_bps")
   thresholdUsd    Float    @default(10)   @map("threshold_usd")
   slippageBps     Int      @default(500)  @map("slippage_bps")
   burnMode        BurnMode @default(DEAD_ADDRESS) @map("burn_mode")
