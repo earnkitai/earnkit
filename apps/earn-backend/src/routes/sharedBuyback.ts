@@ -16,6 +16,16 @@ import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
 
 const router: Router = Router();
 
+function getPlatformFeeRateBps(): number {
+  const val = parseInt(process.env.PLATFORM_FEE_BPS ?? '500', 10);
+  return isNaN(val) ? 500 : Math.min(Math.max(val, 0), 2000);
+}
+
+function getPlatformThresholdUsd(): number {
+  const val = parseFloat(process.env.PLATFORM_THRESHOLD_USD ?? '10');
+  return isNaN(val) || val <= 0 ? 10 : val;
+}
+
 function getTreasuryAddress(): `0x${string}` | undefined {
   const addr = process.env.BUYBACK_TREASURY_ADDRESS;
   if (!addr || !isAddress(addr)) return undefined;
@@ -47,7 +57,6 @@ router.post('/register', async (req: Request, res: Response) => {
       targetToken: rawToken,
       recoveryAddress: rawRecovery,
       userEmail,
-      feeRateBps,
       thresholdUsd,
     } = req.body ?? {};
 
@@ -71,8 +80,12 @@ router.post('/register', async (req: Request, res: Response) => {
     const splitAddress = getAddress(rawSplit) as `0x${string}`;
     const tokenAddress = getAddress(rawToken) as `0x${string}`;
     const recoveryAddress = getAddress(rawRecovery) as `0x${string}`;
-    const resolvedFeeRateBps = typeof feeRateBps === 'number' ? Math.min(Math.max(feeRateBps, 0), 2000) : 500;
-    const resolvedThresholdUsd = typeof thresholdUsd === 'number' ? thresholdUsd : 10;
+    const resolvedFeeRateBps = getPlatformFeeRateBps();
+    const platformThreshold = getPlatformThresholdUsd();
+    // User may set threshold higher than platform default, never lower
+    const resolvedThresholdUsd = typeof thresholdUsd === 'number' && thresholdUsd > platformThreshold
+      ? thresholdUsd
+      : platformThreshold;
 
     // Token safety checks — same as agent buyback
     await assertHasCode(tokenAddress);

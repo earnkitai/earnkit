@@ -5,8 +5,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/app/componen
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
-import { Copy, Check, Search, Loader2 } from "lucide-react";
+import { Copy, Check, Search, Loader2, AlertTriangle, XCircle, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
+import { usePrivy } from "@privy-io/react-auth";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -16,6 +17,11 @@ interface DetectionResult {
     setterName: string | null;
     currentRecipient: string | null;
     instruction: string;
+    ownership: {
+        ownerAddress: string | null;
+        ownerIsContract: boolean;
+        callerIsOwner: boolean | null;
+    };
 }
 
 interface RegisterResult {
@@ -24,7 +30,11 @@ interface RegisterResult {
     walletAddress: string;
     status: string;
     feeGetterName: string | null;
+    setterName: string | null;
     instruction: string;
+    onChainOwnerAddress: string | null;
+    ownerIsContract: boolean;
+    callerIsOwner: boolean | null;
 }
 
 interface RegisterModalProps {
@@ -36,19 +46,24 @@ interface RegisterModalProps {
 
 type Step = "form" | "detecting" | "provisioning" | "ready";
 
+function truncate(addr: string) {
+    return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
 export default function RegisterModal({ open, onClose, onRegistered, defaultEmail = "" }: RegisterModalProps) {
+    const { user: privyUser } = usePrivy();
+    const connectedAddress = privyUser?.wallet?.address ?? "";
+
     const [step, setStep] = useState<Step>("form");
     const [detection, setDetection] = useState<DetectionResult | null>(null);
-    const [result, setResult]   = useState<RegisterResult | null>(null);
-    const [copied, setCopied]   = useState(false);
+    const [result, setResult] = useState<RegisterResult | null>(null);
+    const [copied, setCopied] = useState(false);
 
     const [form, setForm] = useState({
         tokenContractAddress: "",
         targetToken:          "",
-        ownerAddress:         "",
         recoveryAddress:      "",
         userEmail:            defaultEmail,
-        feeRateBps:           "500",
         thresholdUsd:         "10",
     });
     const [errors, setErrors] = useState<Partial<typeof form>>({});
@@ -56,19 +71,18 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
     const field = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
         setForm((f) => ({ ...f, [key]: e.target.value }));
         setErrors((er) => ({ ...er, [key]: undefined }));
+        // Clear detection when contract address changes
+        if (key === "tokenContractAddress") setDetection(null);
     };
 
     function validate() {
         const errs: Partial<typeof form> = {};
         if (!ADDRESS_RE.test(form.tokenContractAddress)) errs.tokenContractAddress = "Invalid address";
         if (!ADDRESS_RE.test(form.targetToken))          errs.targetToken          = "Invalid address";
-        if (!ADDRESS_RE.test(form.ownerAddress))         errs.ownerAddress         = "Invalid address";
         if (!ADDRESS_RE.test(form.recoveryAddress))      errs.recoveryAddress      = "Invalid address";
         if (!form.userEmail.includes("@"))               errs.userEmail            = "Invalid email";
-        const bps = Number(form.feeRateBps);
-        if (isNaN(bps) || bps < 0 || bps > 2000)        errs.feeRateBps           = "0–2000 bps";
         const thr = Number(form.thresholdUsd);
-        if (isNaN(thr) || thr <= 0)                      errs.thresholdUsd         = "Must be > 0";
+        if (isNaN(thr) || thr < 10)                      errs.thresholdUsd         = "Minimum $10";
         setErrors(errs);
         return Object.keys(errs).length === 0;
     }
@@ -78,15 +92,19 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
             setErrors((e) => ({ ...e, tokenContractAddress: "Invalid address" }));
             return;
         }
+        setDetection(null);
         setStep("detecting");
         try {
-            const res  = await fetch("/api/token-buyback/detect", {
+            const res = await fetch("/api/token-buyback/detect", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ tokenContractAddress: form.tokenContractAddress }),
+                body:    JSON.stringify({
+                    tokenContractAddress: form.tokenContractAddress,
+                    callerAddress:        connectedAddress || undefined,
+                }),
             });
             const data = await res.json();
-            if (!res.ok) { toast.error(data.error || "Detection failed"); setStep("form"); return; }
+            if (!res.ok) { toast.error(data.error || "Detection failed"); return; }
             setDetection(data as DetectionResult);
         } catch {
             toast.error("Detection failed");
@@ -97,19 +115,22 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
 
     async function handleSubmit() {
         if (!validate()) return;
+        if (!detection?.detected) {
+            toast.error("Run detection first and confirm the contract is supported");
+            return;
+        }
         setStep("provisioning");
         try {
-            const res  = await fetch("/api/token-buyback/register", {
+            const res = await fetch("/api/token-buyback/register", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
                 body:    JSON.stringify({
                     tokenContractAddress: form.tokenContractAddress,
                     targetToken:          form.targetToken,
-                    ownerAddress:         form.ownerAddress,
+                    ownerAddress:         connectedAddress || form.recoveryAddress,
                     recoveryAddress:      form.recoveryAddress,
                     userEmail:            form.userEmail,
-                    feeRateBps:           Number(form.feeRateBps),
-                    thresholdUsd:         Number(form.thresholdUsd),
+                    thresholdUsd:         Number(form.thresholdUsd) || 10,
                 }),
             });
             const data = await res.json();
@@ -135,7 +156,7 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
     }
 
     function handleClose() {
-        if (step === "provisioning") return;
+        if (step === "provisioning" || step === "detecting") return;
         setStep("form");
         setDetection(null);
         setResult(null);
@@ -143,6 +164,87 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
         onClose();
     }
 
+    // Detection state banner
+    function DetectionBanner() {
+        if (!detection) return null;
+
+        if (!detection.detected) {
+            return (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-[10px] px-3 py-2.5">
+                    <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-xs font-semibold text-red-700 font-funnel-sans">Not supported</p>
+                        <p className="text-xs text-red-600 font-funnel-sans mt-0.5">
+                            This contract has no updatable fee recipient. Use <span className="font-semibold">Shared Buyback</span> instead.
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        const { ownerAddress, ownerIsContract, callerIsOwner } = detection.ownership;
+
+        // Owner is a Safe/multisig
+        if (ownerIsContract) {
+            return (
+                <div className="flex items-start gap-2 bg-secondary-blue/10 border border-secondary-blue/30 rounded-[10px] px-3 py-2.5">
+                    <CheckCircle className="w-4 h-4 text-secondary-blue shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-xs font-semibold text-secondary-blue font-funnel-sans">
+                            Supported — Safe/multisig owner
+                        </p>
+                        <p className="text-xs text-secondary-blue/80 font-funnel-sans mt-0.5">
+                            Getter: <span className="font-mono">{detection.getterName}()</span>
+                            {ownerAddress && <> · Owner: <span className="font-mono">{truncate(ownerAddress)}</span></>}
+                        </p>
+                        <p className="text-xs text-secondary-blue/70 font-funnel-sans mt-1">
+                            After provisioning you&apos;ll get a Safe TX builder link to propose the fee recipient update.
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Caller is not the owner
+        if (callerIsOwner === false && ownerAddress) {
+            return (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-[10px] px-3 py-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-xs font-semibold text-amber-700 font-funnel-sans">
+                            Supported — wrong wallet connected
+                        </p>
+                        <p className="text-xs text-amber-600 font-funnel-sans mt-0.5">
+                            Getter: <span className="font-mono">{detection.getterName}()</span>
+                            {" · "}Owner: <span className="font-mono">{truncate(ownerAddress)}</span>
+                        </p>
+                        <p className="text-xs text-amber-600/80 font-funnel-sans mt-1">
+                            You can still provision the wallet, but you&apos;ll need to switch to the owner wallet to sign the fee recipient transaction.
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        // All good — caller is owner
+        return (
+            <div className="flex items-start gap-2 bg-secondary-green/10 border border-secondary-green/30 rounded-[10px] px-3 py-2.5">
+                <CheckCircle className="w-4 h-4 text-secondary-green shrink-0 mt-0.5" />
+                <div>
+                    <p className="text-xs font-semibold text-secondary-green font-funnel-sans">Supported</p>
+                    <p className="text-xs text-secondary-green/80 font-funnel-sans mt-0.5">
+                        Getter: <span className="font-mono">{detection.getterName}()</span>
+                        {" · "}Setter: <span className="font-mono">{detection.setterName}(address)</span>
+                    </p>
+                    <p className="text-xs text-secondary-green/70 font-funnel-sans mt-1">
+                        After provisioning you&apos;ll sign the fee recipient update directly from this wallet.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    const canProvision = detection?.detected === true;
     const isProvisioning = step === "provisioning" || step === "detecting";
 
     return (
@@ -159,20 +261,18 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                     )}
                 </DialogHeader>
 
-                {/* Provisioning spinner */}
                 {isProvisioning && (
                     <div className="flex flex-col items-center justify-center py-12 gap-4">
                         <Loader2 className="w-8 h-8 animate-spin text-black/40" />
                         <p className="text-sm text-black/50 font-funnel-sans">
-                            {step === "detecting" ? "Detecting fee pattern…" : "Provisioning Turnkey wallet…"}
+                            {step === "detecting" ? "Checking contract…" : "Provisioning Turnkey wallet…"}
                         </p>
                     </div>
                 )}
 
-                {/* Form */}
                 {step === "form" && (
                     <div className="space-y-4 mt-2">
-                        {/* Token contract with detect button */}
+                        {/* Token contract with detect */}
                         <div className="space-y-1.5">
                             <Label className="text-xs font-funnel-sans text-black/60 font-medium">
                                 Token Contract Address
@@ -188,7 +288,8 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                                     type="button"
                                     variant="outline"
                                     onClick={handleDetect}
-                                    className="shrink-0 rounded-[10px] border-black/20 px-3 text-xs font-funnel-sans hover:bg-black/5"
+                                    disabled={!form.tokenContractAddress}
+                                    className="shrink-0 rounded-[10px] border-black/20 px-3 hover:bg-black/5"
                                 >
                                     <Search className="w-3.5 h-3.5" />
                                 </Button>
@@ -196,97 +297,65 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                             {errors.tokenContractAddress && (
                                 <p className="text-xs text-red-500 font-funnel-sans">{errors.tokenContractAddress}</p>
                             )}
-                            {/* Detection result inline */}
-                            {detection && (
-                                <div className="bg-black/4 border border-black/10 rounded-[10px] px-3 py-2 text-xs font-funnel-sans space-y-0.5">
-                                    {detection.detected ? (
-                                        <>
-                                            <p className="text-black/60">
-                                                Detected: <span className="font-mono text-black">{detection.getterName}()</span>
-                                            </p>
-                                            <p className="text-black/40">
-                                                Current: <span className="font-mono">{detection.currentRecipient?.slice(0, 10)}…</span>
-                                            </p>
-                                            <p className="text-black/50">
-                                                You&apos;ll call: <span className="font-mono text-black">{detection.setterName}(&lt;wallet&gt;)</span>
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <p className="text-black/50">No standard fee recipient getter detected — you&apos;ll receive generic instructions after provisioning.</p>
-                                    )}
+                        </div>
+
+                        {/* Detection result */}
+                        <DetectionBanner />
+
+                        {/* Rest of form — only shown when supported */}
+                        {canProvision && (
+                            <>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-funnel-sans text-black/60 font-medium">Target Token to Buy Back &amp; Burn</Label>
+                                    <Input placeholder="0x…" value={form.targetToken} onChange={field("targetToken")} className="font-mono text-xs rounded-[10px] border-black/20" />
+                                    {errors.targetToken && <p className="text-xs text-red-500 font-funnel-sans">{errors.targetToken}</p>}
                                 </div>
-                            )}
-                        </div>
 
-                        <div className="space-y-1.5">
-                            <Label className="text-xs font-funnel-sans text-black/60 font-medium">Target Token to Buy Back &amp; Burn</Label>
-                            <Input placeholder="0x…" value={form.targetToken} onChange={field("targetToken")} className="font-mono text-xs rounded-[10px] border-black/20" />
-                            {errors.targetToken && <p className="text-xs text-red-500 font-funnel-sans">{errors.targetToken}</p>}
-                        </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-funnel-sans text-black/60 font-medium">Recovery Address</Label>
+                                    <Input placeholder="0x…" value={form.recoveryAddress} onChange={field("recoveryAddress")} className="font-mono text-xs rounded-[10px] border-black/20" />
+                                    {errors.recoveryAddress && <p className="text-xs text-red-500 font-funnel-sans">{errors.recoveryAddress}</p>}
+                                    <p className="text-xs text-black/40 font-funnel-sans">Emergency sweep destination — your own EOA.</p>
+                                </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-funnel-sans text-black/60 font-medium">Your Wallet (Owner)</Label>
-                                <Input placeholder="0x…" value={form.ownerAddress} onChange={field("ownerAddress")} className="font-mono text-xs rounded-[10px] border-black/20" />
-                                {errors.ownerAddress && <p className="text-xs text-red-500 font-funnel-sans">{errors.ownerAddress}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-funnel-sans text-black/60 font-medium">Recovery Address</Label>
-                                <Input placeholder="0x…" value={form.recoveryAddress} onChange={field("recoveryAddress")} className="font-mono text-xs rounded-[10px] border-black/20" />
-                                {errors.recoveryAddress && <p className="text-xs text-red-500 font-funnel-sans">{errors.recoveryAddress}</p>}
-                            </div>
-                        </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-funnel-sans text-black/60 font-medium">Email (Turnkey authenticator)</Label>
+                                    <Input type="email" placeholder="you@example.com" value={form.userEmail} onChange={field("userEmail")} className="text-xs rounded-[10px] border-black/20" />
+                                    {errors.userEmail && <p className="text-xs text-red-500 font-funnel-sans">{errors.userEmail}</p>}
+                                </div>
 
-                        <div className="space-y-1.5">
-                            <Label className="text-xs font-funnel-sans text-black/60 font-medium">Email (Turnkey authenticator)</Label>
-                            <Input type="email" placeholder="you@example.com" value={form.userEmail} onChange={field("userEmail")} className="text-xs rounded-[10px] border-black/20" />
-                            {errors.userEmail && <p className="text-xs text-red-500 font-funnel-sans">{errors.userEmail}</p>}
-                        </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-funnel-sans text-black/60 font-medium">Trigger Threshold (USD)</Label>
+                                    <Input
+                                        type="number" min="10" step="1"
+                                        placeholder="10"
+                                        value={form.thresholdUsd}
+                                        onChange={field("thresholdUsd")}
+                                        className="text-xs rounded-[10px] border-black/20"
+                                    />
+                                    {errors.thresholdUsd && <p className="text-xs text-red-500 font-funnel-sans">{errors.thresholdUsd}</p>}
+                                    <p className="text-xs text-black/40 font-funnel-sans">Minimum $10.</p>
+                                </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-funnel-sans text-black/60 font-medium">
-                                    Fee Rate ({((Number(form.feeRateBps) || 0) / 100).toFixed(1)}%)
-                                </Label>
-                                <Input
-                                    type="number" min="0" max="2000"
-                                    placeholder="500"
-                                    value={form.feeRateBps}
-                                    onChange={field("feeRateBps")}
-                                    className="text-xs rounded-[10px] border-black/20"
-                                />
-                                {errors.feeRateBps && <p className="text-xs text-red-500 font-funnel-sans">{errors.feeRateBps}</p>}
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-funnel-sans text-black/60 font-medium">Trigger Threshold (USD)</Label>
-                                <Input
-                                    type="number" min="1"
-                                    placeholder="10"
-                                    value={form.thresholdUsd}
-                                    onChange={field("thresholdUsd")}
-                                    className="text-xs rounded-[10px] border-black/20"
-                                />
-                                {errors.thresholdUsd && <p className="text-xs text-red-500 font-funnel-sans">{errors.thresholdUsd}</p>}
-                            </div>
-                        </div>
+                                <Button
+                                    onClick={handleSubmit}
+                                    className="w-full bg-black text-white rounded-full font-funnel-sans text-sm hover:bg-black/80"
+                                >
+                                    Provision Buyback Wallet
+                                </Button>
+                            </>
+                        )}
 
-                        {/* Limitations notice */}
-                        <div className="bg-amber-50 border border-amber-200 rounded-[10px] px-3 py-2">
-                            <p className="text-xs text-amber-700 font-funnel-sans">
-                                <span className="font-semibold">Push-based only.</span> The buyback wallet must receive fees directly. Claim-based patterns (where fees accumulate inside the contract and require a manual pull) are not supported.
+                        {/* Not supported — suggest shared buyback */}
+                        {detection && !detection.detected && (
+                            <p className="text-xs text-black/40 font-funnel-sans text-center">
+                                Go to <span className="text-black font-medium">Buybacks</span> to set up a shared buyback for this token instead.
                             </p>
-                        </div>
-
-                        <Button
-                            onClick={handleSubmit}
-                            className="w-full bg-black text-white rounded-full font-funnel-sans text-sm hover:bg-black/80"
-                        >
-                            Provision Buyback Wallet
-                        </Button>
+                        )}
                     </div>
                 )}
 
-                {/* Success state */}
+                {/* Success */}
                 {step === "ready" && result && (
                     <div className="space-y-5 mt-2">
                         <div className="bg-black/4 border border-black/10 rounded-[14px] p-4 space-y-3">
@@ -294,10 +363,7 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                             <div className="flex items-center gap-2">
                                 <p className="font-mono text-sm text-black flex-1 break-all">{result.walletAddress}</p>
                                 <button onClick={handleCopy} className="shrink-0 p-1.5 rounded-lg hover:bg-black/10 transition-colors">
-                                    {copied
-                                        ? <Check className="w-4 h-4 text-secondary-green" />
-                                        : <Copy className="w-4 h-4 text-black/40" />
-                                    }
+                                    {copied ? <Check className="w-4 h-4 text-secondary-green" /> : <Copy className="w-4 h-4 text-black/40" />}
                                 </button>
                             </div>
                         </div>
@@ -308,7 +374,7 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                                 <p className="text-sm text-secondary-orange font-funnel-sans">{result.instruction}</p>
                             </div>
                             <p className="text-xs text-black/40 font-funnel-sans">
-                                Once fees start arriving in the wallet (≥ $0.10), buyback activates automatically — no further action needed.
+                                The card on the dashboard has a <span className="font-medium text-black/60">Set Fee Recipient</span> button — click it to sign the transaction directly from your wallet.
                             </p>
                         </div>
 

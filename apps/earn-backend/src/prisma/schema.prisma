@@ -784,6 +784,12 @@ model TokenContractBuybackConfig {
   targetTokenDecimals   Int      @map("target_token_decimals")
 
   ownerAddress    String   @map("owner_address")
+  // On-chain detected owner of the token contract (may differ from ownerAddress if
+  // the registrant connected a different wallet than the contract owner).
+  onChainOwnerAddress String? @map("on_chain_owner_address")
+  // True when the on-chain owner is a contract (Safe/multisig) — determines
+  // whether we show a direct-sign button or a Safe TX builder link.
+  ownerIsContract Boolean  @default(false) @map("owner_is_contract")
 
   // Detected fee recipient getter on the source contract (e.g. "feeRecipient")
   // Stored for display only — we never call the source contract ourselves.

@@ -17,6 +17,16 @@ import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
 
 const router: Router = Router();
 
+function getPlatformFeeRateBps(): number {
+  const val = parseInt(process.env.PLATFORM_FEE_BPS ?? '500', 10);
+  return isNaN(val) ? 500 : Math.min(Math.max(val, 0), 2000);
+}
+
+function getPlatformThresholdUsd(): number {
+  const val = parseFloat(process.env.PLATFORM_THRESHOLD_USD ?? '10');
+  return isNaN(val) || val <= 0 ? 10 : val;
+}
+
 function getTreasuryAddress(): `0x${string}` | undefined {
   const addr = process.env.BUYBACK_TREASURY_ADDRESS;
   if (!addr || !isAddress(addr)) return undefined;
@@ -32,15 +42,19 @@ function getTreasuryAddress(): `0x${string}` | undefined {
  */
 router.post('/detect', async (req: Request, res: Response) => {
   try {
-    const { tokenContractAddress: raw } = req.body ?? {};
+    const { tokenContractAddress: raw, callerAddress: rawCaller } = req.body ?? {};
     if (!raw || !isAddress(raw)) {
       return res.status(400).json({ error: 'tokenContractAddress must be a valid 0x address' });
     }
 
     const tokenContractAddress = getAddress(raw) as `0x${string}`;
+    const callerAddress = rawCaller && isAddress(rawCaller)
+      ? getAddress(rawCaller) as `0x${string}`
+      : undefined;
+
     await assertHasCode(tokenContractAddress);
 
-    const detection = await detectFeeRecipient(tokenContractAddress);
+    const detection = await detectFeeRecipient(tokenContractAddress, callerAddress);
     return res.json(detection);
   } catch (err: unknown) {
     if (err instanceof TokenSafetyError) {
@@ -79,7 +93,6 @@ router.post('/register', async (req: Request, res: Response) => {
       ownerAddress: rawOwner,
       recoveryAddress: rawRecovery,
       userEmail,
-      feeRateBps,
       thresholdUsd,
     } = req.body ?? {};
 
@@ -103,8 +116,11 @@ router.post('/register', async (req: Request, res: Response) => {
     const targetTokenAddress   = getAddress(rawTarget)   as `0x${string}`;
     const ownerAddress         = getAddress(rawOwner)    as `0x${string}`;
     const recoveryAddress      = getAddress(rawRecovery) as `0x${string}`;
-    const resolvedFeeRateBps   = typeof feeRateBps  === 'number' ? Math.min(Math.max(feeRateBps, 0), 2000) : 500;
-    const resolvedThresholdUsd = typeof thresholdUsd === 'number' && thresholdUsd > 0 ? thresholdUsd : 10;
+    const resolvedFeeRateBps = getPlatformFeeRateBps();
+    const platformThreshold  = getPlatformThresholdUsd();
+    const resolvedThresholdUsd = typeof thresholdUsd === 'number' && thresholdUsd > platformThreshold
+      ? thresholdUsd
+      : platformThreshold;
 
     // Verify the source contract exists on-chain
     await assertHasCode(tokenContractAddress);
@@ -148,30 +164,35 @@ router.post('/register', async (req: Request, res: Response) => {
       burnMode = 'TOKEN_BURN_FN';
     }
 
-    // Best-effort fee recipient detection — read-only, never blocks registration
-    let feeGetterName: string | null = null;
-    let instruction =
-      'Set the provisioned buyback wallet as the fee recipient on your token contract.';
-    try {
-      const detection = await detectFeeRecipient(tokenContractAddress);
-      feeGetterName = detection.getterName;
-      instruction   = detection.instruction;
-    } catch {
-      // Non-fatal — detection is best-effort
+    // Fee recipient detection — blocks registration if no setter found on the contract
+    const detection = await detectFeeRecipient(tokenContractAddress, ownerAddress);
+
+    if (!detection.detected) {
+      return res.status(400).json({
+        error: 'This token contract does not expose a standard fee recipient setter. Use Shared Buyback instead.',
+        reason: 'no_fee_setter',
+        suggestion: 'shared_buyback',
+      });
     }
+
+    // Ownership: warn if the caller is not the on-chain owner, but allow registration
+    // (they may intend to have the Safe/multisig owner sign the setter tx later)
+    const { ownerAddress: onChainOwner, ownerIsContract, callerIsOwner } = detection.ownership;
 
     // Create config first to get a cuid for the sub-org name
     const config = await prisma.tokenContractBuybackConfig.create({
       data: {
         tokenContractAddress: tokenContractAddress,
         targetTokenAddress,
-        targetTokenSymbol:   meta.symbol,
-        targetTokenDecimals: meta.decimals,
-        ownerAddress,
-        feeGetterName,
+        targetTokenSymbol:    meta.symbol,
+        targetTokenDecimals:  meta.decimals,
+        ownerAddress:         onChainOwner ?? ownerAddress,
+        onChainOwnerAddress:  onChainOwner,
+        ownerIsContract:      ownerIsContract,
+        feeGetterName:        detection.getterName,
         recoveryAddress,
-        feeRateBps:   resolvedFeeRateBps,
-        thresholdUsd: resolvedThresholdUsd,
+        feeRateBps:           resolvedFeeRateBps,
+        thresholdUsd:         resolvedThresholdUsd,
         burnMode,
         status: 'PROVISIONING',
       },
@@ -211,18 +232,21 @@ router.post('/register', async (req: Request, res: Response) => {
       },
     });
 
-    const setterHint = feeGetterName
-      ? `Call \`set${feeGetterName.charAt(0).toUpperCase()}${feeGetterName.slice(1)}(${subOrg.walletAddress})\` on your token contract.`
-      : `Set ${subOrg.walletAddress} as the fee recipient on your token contract.`;
+    const setterName = detection.setterName!;
+    const instruction = `Call \`${setterName}(${subOrg.walletAddress})\` on your token contract.`;
 
     return res.status(201).json({
       ok: true,
-      configId:      updated.id,
-      walletAddress: subOrg.walletAddress,
-      status:        updated.status,
-      feeGetterName,
-      instruction:   setterHint,
-      note: 'Once fees start arriving in the wallet, buyback activates automatically. Only push-based fee flows are supported — the wallet must receive funds directly.',
+      configId:         updated.id,
+      walletAddress:    subOrg.walletAddress,
+      status:           updated.status,
+      feeGetterName:    detection.getterName,
+      setterName,
+      instruction,
+      // Ownership info — frontend uses this to decide sign vs Safe link
+      onChainOwnerAddress: onChainOwner,
+      ownerIsContract,
+      callerIsOwner,
     });
   } catch (err: unknown) {
     if (err instanceof TokenSafetyError) {
@@ -269,8 +293,13 @@ router.get('/:id', async (req: Request, res: Response) => {
       targetTokenSymbol:    config.targetTokenSymbol,
       targetTokenDecimals:  config.targetTokenDecimals,
       ownerAddress:         config.ownerAddress,
+      onChainOwnerAddress:  config.onChainOwnerAddress,
+      ownerIsContract:      config.ownerIsContract,
       walletAddress:        config.walletAddress,
       feeGetterName:        config.feeGetterName,
+      setterName:           config.feeGetterName
+        ? `set${config.feeGetterName.charAt(0).toUpperCase()}${config.feeGetterName.slice(1)}`
+        : null,
       status:               config.status,
       isActive:             config.isActive,
       feeRateBps:           config.feeRateBps,

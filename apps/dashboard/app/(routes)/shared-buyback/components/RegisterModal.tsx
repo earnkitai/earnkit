@@ -25,9 +25,8 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
     const [targetToken, setTargetToken] = useState("");
     const [recoveryAddress, setRecoveryAddress] = useState("");
     const [userEmail, setUserEmail] = useState(defaultEmail);
-    const [feeRateBps, setFeeRateBps] = useState("500");
-    const [thresholdUsd, setThresholdUsd] = useState("10");
 
+    const [thresholdUsd, setThresholdUsd] = useState("10");
     const [resultWallet, setResultWallet] = useState("");
     const [resultConfigId, setResultConfigId] = useState("");
     const [resultInstructions, setResultInstructions] = useState("");
@@ -41,9 +40,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
         if (!isAddress(recoveryAddress)) { toast.error("Recovery address is not a valid 0x address"); return; }
         if (!userEmail.includes("@")) { toast.error("Enter a valid email address"); return; }
 
-        const fee = parseInt(feeRateBps, 10);
-        if (isNaN(fee) || fee < 0 || fee > 2000) { toast.error("Fee rate must be between 0 and 2000 bps"); return; }
-
         setStep("provisioning");
 
         try {
@@ -56,7 +52,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                     targetToken: targetToken.trim(),
                     recoveryAddress: recoveryAddress.trim(),
                     userEmail: userEmail.trim(),
-                    feeRateBps: fee,
                     thresholdUsd: parseFloat(thresholdUsd) || 10,
                 }),
             });
@@ -89,7 +84,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
         setSplitAddress("");
         setTargetToken("");
         setRecoveryAddress("");
-        setFeeRateBps("500");
         setThresholdUsd("10");
         setResultWallet("");
         setResultConfigId("");
@@ -171,32 +165,19 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                                 <p className="text-xs text-black/40 font-funnel-sans">Becomes the root authenticator on your Turnkey sub-org — you can revoke at any time.</p>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-semibold text-black font-funnel-sans">Trigger threshold (USD)</label>
-                                    <Input
-                                        type="number"
-                                        min="10"
-                                        step="1"
-                                        value={thresholdUsd}
-                                        onChange={(e) => setThresholdUsd(e.target.value)}
-                                        onWheel={(e) => e.currentTarget.blur()}
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-semibold text-black font-funnel-sans">Fee rate (bps)</label>
-                                    <Input
-                                        type="number"
-                                        min="0"
-                                        max="2000"
-                                        step="50"
-                                        value={feeRateBps}
-                                        onChange={(e) => setFeeRateBps(e.target.value)}
-                                        onWheel={(e) => e.currentTarget.blur()}
-                                    />
-                                    <p className="text-xs text-black/40 font-funnel-sans">500 = 5%</p>
-                                </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-semibold text-black font-funnel-sans">Trigger threshold (USD)</label>
+                                <Input
+                                    type="number"
+                                    min="10"
+                                    step="1"
+                                    value={thresholdUsd}
+                                    onChange={(e) => setThresholdUsd(e.target.value)}
+                                    onWheel={(e) => e.currentTarget.blur()}
+                                />
+                                <p className="text-xs text-black/40 font-funnel-sans">Minimum $10. Buyback fires once this much has accumulated in the wallet.</p>
                             </div>
+
                         </>
                     )}
 
