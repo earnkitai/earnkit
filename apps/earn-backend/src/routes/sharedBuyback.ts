@@ -306,12 +306,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'thresholdUsd must be a positive number' });
     }
 
-    const platformThreshold = getPlatformThresholdUsd();
-    const resolved = Math.max(thresholdUsd, platformThreshold);
-
     const updated = await prisma.sharedSplitBuybackConfig.update({
       where: { id: config.id },
-      data: { thresholdUsd: resolved },
+      data: { thresholdUsd },
     });
 
     return res.json({ ok: true, thresholdUsd: updated.thresholdUsd });
