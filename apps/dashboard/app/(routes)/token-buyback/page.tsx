@@ -64,7 +64,7 @@ export default function TokenBuybackPage() {
   }, []);
 
   const handleRegistered = useCallback(
-    (configId: string, _walletAddress: string) => {
+    (configId: string) => {
       saveConfigId(configId);
       setConfigIds((prev) =>
         prev.includes(configId) ? prev : [...prev, configId],

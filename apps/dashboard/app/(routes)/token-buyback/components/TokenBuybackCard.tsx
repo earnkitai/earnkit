@@ -97,8 +97,8 @@ export default function TokenBuybackCard({ configId, onRemoved }: TokenBuybackCa
                     onError: (e) => toast.error(e.message?.slice(0, 100) ?? "Transaction failed"),
                 },
             );
-        } catch (e: any) {
-            toast.error(e?.message ?? "Failed to build transaction");
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Failed to build transaction");
         }
     };
 

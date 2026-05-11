@@ -321,9 +321,7 @@ async function checkPendingActivations(): Promise<void> {
           where: { id: config.id },
           data:  { status: 'ACTIVE' },
         });
-        console.log(
-          `[TokenBuybackWorker] Activated config ${config.id} — $${snapshot.totalUsd.toFixed(2)} received in wallet`,
-        );
+        console.log(`[TokenBuybackWorker] Activated config ${config.id} — funds received in wallet`);
       }
     } catch (err: unknown) {
       console.warn(`[TokenBuybackWorker] Activation check failed for ${config.id}:`, err);

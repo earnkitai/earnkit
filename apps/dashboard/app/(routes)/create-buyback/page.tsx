@@ -104,14 +104,12 @@ export default function CreateBuybackPage() {
   const [detection, setDetection] = useState<DetectionResult | null>(null);
 
   // --- Common Result States ---
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<{ walletAddress: string; instructions?: string; instruction?: string; configId?: string } | null>(null);
 
   // --- Bottom Preview + Stats ---
   const [previewConfigIds, setPreviewConfigIds] = useState<string[]>([]);
   const [previewConfigs, setPreviewConfigs] = useState<MiniConfig[]>([]);
   const [previewExecutions, setPreviewExecutions] = useState<MiniExecution[]>([]);
-  const [totalBuybacks, setTotalBuybacks] = useState(0);
-  const [totalVolumeUsd, setTotalVolumeUsd] = useState(0);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
@@ -146,8 +144,8 @@ export default function CreateBuybackPage() {
             if (!res.ok) return [];
             const d = await res.json();
             return (d.executions ?? [])
-              .filter((e: any) => e.status === 'COMPLETED')
-              .map((e: any) => ({
+              .filter((e: { status: string }) => e.status === 'COMPLETED')
+              .map((e: { id: string; status: string; triggerBalanceUsd: number; startedAt: string }) => ({
                 configId: cfg.id,
                 tokenSymbol: cfg.tokenSymbol,
                 id: e.id,
@@ -163,8 +161,6 @@ export default function CreateBuybackPage() {
         (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
       );
 
-      setTotalBuybacks(allCompleted.length);
-      setTotalVolumeUsd(allCompleted.reduce((sum, e) => sum + e.triggerBalanceUsd, 0));
       setPreviewExecutions(allCompleted.slice(0, 4));
     }).finally(() => setPreviewLoading(false));
   }, [previewConfigIds]);

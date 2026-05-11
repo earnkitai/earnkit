@@ -98,7 +98,7 @@ export default function ExecutionsPage() {
             const res = await fetch(`/api/shared-buyback/${meta.id}/executions`);
             if (!res.ok) return [];
             const d = await res.json();
-            return (d.executions ?? []).map((e: any) => ({
+            return (d.executions ?? []).map((e: Omit<Execution, 'configId' | 'tokenSymbol' | 'tokenDecimals'>) => ({
               ...e,
               configId: meta.id,
               tokenSymbol: meta.tokenSymbol,
