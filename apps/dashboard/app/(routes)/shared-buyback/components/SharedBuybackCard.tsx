@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/app/components/ui/button";
-import { Badge } from "@/app/components/ui/badge";
+
 import { toast } from "sonner";
 import { Copy, Check, Clock, Zap, History, Trash2, ArrowRight, Pencil, X } from "lucide-react";
 

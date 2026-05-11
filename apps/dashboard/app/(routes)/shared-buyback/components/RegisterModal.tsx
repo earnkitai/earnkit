@@ -28,7 +28,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
 
     const [thresholdUsd, setThresholdUsd] = useState("10");
     const [resultWallet, setResultWallet] = useState("");
-    const [resultConfigId, setResultConfigId] = useState("");
     const [resultInstructions, setResultInstructions] = useState("");
 
     const isAddress = (val: string) => /^0x[0-9a-fA-F]{40}$/.test(val.trim());
@@ -62,7 +61,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
                 return;
             }
             setResultWallet(data.walletAddress);
-            setResultConfigId(data.configId);
             setResultInstructions(data.instructions);
             setStep("ready");
             onRegistered(data.configId, data.walletAddress);
@@ -86,7 +84,6 @@ export default function RegisterModal({ open, onClose, onRegistered, defaultEmai
         setRecoveryAddress("");
         setThresholdUsd("10");
         setResultWallet("");
-        setResultConfigId("");
         onClose();
     };
 
