@@ -16,6 +16,23 @@ export async function GET(_req: NextRequest, { params }: { params: Params }) {
   }
 }
 
+export async function PATCH(req: NextRequest, { params }: { params: Params }) {
+  try {
+    const { id } = await params;
+    const body = await req.json();
+    const response = await fetch(`${backendUrl}/api/shared-buyback/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    return NextResponse.json(data, { status: response.status });
+  } catch (error) {
+    console.error('Error proxying shared-buyback PATCH:', error);
+    return NextResponse.json({ error: 'Failed to update config' }, { status: 500 });
+  }
+}
+
 export async function DELETE(_req: NextRequest, { params }: { params: Params }) {
   try {
     const { id } = await params;
