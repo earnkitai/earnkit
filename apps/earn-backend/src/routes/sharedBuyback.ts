@@ -11,6 +11,7 @@ import {
   TokenSafetyError,
 } from '../lib/tokenSafety';
 import { snapshotBuybackBalance } from '../lib/buybackBalance';
+import { isWalletInSplit } from '../lib/splitReader';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
 import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../lib/splitsWarehouse';
 
@@ -285,6 +286,77 @@ router.post('/:id/check', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
     console.error('[shared-buyback/:id/check] error:', err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * PATCH /api/shared-buyback/:id
+ * Update mutable config fields (currently: thresholdUsd).
+ */
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const config = await prisma.sharedSplitBuybackConfig.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!config) return res.status(404).json({ error: 'Not found' });
+
+    const { thresholdUsd } = req.body ?? {};
+    if (typeof thresholdUsd !== 'number' || thresholdUsd <= 0) {
+      return res.status(400).json({ error: 'thresholdUsd must be a positive number' });
+    }
+
+    const platformThreshold = getPlatformThresholdUsd();
+    const resolved = Math.max(thresholdUsd, platformThreshold);
+
+    const updated = await prisma.sharedSplitBuybackConfig.update({
+      where: { id: config.id },
+      data: { thresholdUsd: resolved },
+    });
+
+    return res.json({ ok: true, thresholdUsd: updated.thresholdUsd });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal error';
+    console.error('[shared-buyback/:id PATCH] error:', err);
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/shared-buyback/:id/check-activation
+ * Manually triggers the on-chain check: activates the config if the buyback
+ * wallet is now a recipient in the split.
+ */
+router.post('/:id/check-activation', async (req: Request, res: Response) => {
+  try {
+    const config = await prisma.sharedSplitBuybackConfig.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!config) return res.status(404).json({ error: 'Not found' });
+    if (config.status !== 'PENDING_SPLIT_UPDATE') {
+      return res.json({ activated: false, reason: 'not_pending' });
+    }
+    if (!config.walletAddress) {
+      return res.status(400).json({ error: 'Wallet not provisioned' });
+    }
+
+    const inSplit = await isWalletInSplit(
+      config.splitAddress as `0x${string}`,
+      config.walletAddress as `0x${string}`,
+    );
+
+    if (inSplit) {
+      await prisma.sharedSplitBuybackConfig.update({
+        where: { id: config.id },
+        data: { status: 'ACTIVE' },
+      });
+      return res.json({ activated: true });
+    }
+
+    return res.json({ activated: false, reason: 'not_in_split' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal error';
+    console.error('[shared-buyback/:id/check-activation] error:', err);
     return res.status(500).json({ error: message });
   }
 });

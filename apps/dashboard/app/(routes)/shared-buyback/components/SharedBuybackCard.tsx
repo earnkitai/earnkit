@@ -52,6 +52,7 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     const [editingThreshold, setEditingThreshold] = useState(false);
     const [thresholdInput, setThresholdInput] = useState('');
     const [savingThreshold, setSavingThreshold] = useState(false);
+    const [checkingActivation, setCheckingActivation] = useState(false);
 
     const fetchConfig = useCallback(async () => {
         try {
@@ -116,6 +117,23 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
         await navigator.clipboard.writeText(config.walletAddress);
         setCopiedWallet(true);
         setTimeout(() => setCopiedWallet(false), 2000);
+    };
+
+    const handleCheckActivation = async () => {
+        setCheckingActivation(true);
+        try {
+            const res = await fetch(`/api/shared-buyback/${configId}/check-activation`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) { toast.error(data.error || 'Check failed'); return; }
+            if (data.activated) {
+                toast.success('Activated! Buyback is now live.');
+                await fetchConfig();
+            } else {
+                toast.info('Wallet not yet in split — add it and try again.');
+            }
+        } finally {
+            setCheckingActivation(false);
+        }
     };
 
     const startEditThreshold = () => {
@@ -342,6 +360,16 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
                             >
                                 <Zap className="w-3 h-3" />
                                 {checking ? "Checking…" : "Check"}
+                            </Button>
+                        )}
+                        {config.status === "PENDING_SPLIT_UPDATE" && (
+                            <Button
+                                onClick={handleCheckActivation}
+                                disabled={checkingActivation}
+                                className="flex items-center gap-1 bg-black hover:bg-black/80 text-white rounded-full px-3 py-1.5 text-xs font-funnel-sans h-auto"
+                            >
+                                <Zap className="w-3 h-3" />
+                                {checkingActivation ? "Checking…" : "Check now"}
                             </Button>
                         )}
                         <Link
