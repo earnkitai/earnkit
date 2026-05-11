@@ -32,7 +32,7 @@ import { ensureGasFunded } from '../lib/operatorGas';
 import { isWalletInSplit } from '../lib/splitReader';
 import { snapshotBuybackBalance } from '../lib/buybackBalance';
 
-const POLL_INTERVAL_MS = 5 * 60_000; // 5 minutes
+const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS ?? String(5 * 60_000), 10);
 const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
 const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);

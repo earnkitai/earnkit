@@ -11,7 +11,6 @@ import {
   Check,
   Search,
   Loader2,
-  ExternalLink,
   ArrowLeft,
   ChevronRight,
   Flame,
@@ -738,7 +737,7 @@ export default function CreateBuybackPage() {
             </p>
           </div>
 
-          {view === 'shared' && sharedForm.ownerAddress && (
+          {/* {view === 'shared' && sharedForm.ownerAddress && (
             <a
               href={`https://app.safe.global/transactions/queue?safe=base:${sharedForm.ownerAddress}`}
               target="_blank"
@@ -747,7 +746,7 @@ export default function CreateBuybackPage() {
             >
               Open Safe App <ExternalLink className="w-4 h-4" />
             </a>
-          )}
+          )} */}
 
           <Button
             onClick={resetToSelection}
