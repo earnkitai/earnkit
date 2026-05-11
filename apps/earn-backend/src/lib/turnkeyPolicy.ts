@@ -32,6 +32,11 @@ export interface BuybackPolicyParams {
   // for both the user's burn token AND every allowed swap-input token (ETH is
   // the only odd one out — sweeping ETH uses a plain native transfer).
   recoveryAddress: `0x${string}`;
+  // Platform treasury address for fee collection (shared-split buyback only).
+  // When set, the policy additionally permits transfer(treasury, _) on all
+  // input tokens and a plain ETH transfer to treasury — used to deduct the
+  // swap fee before executing the buyback.
+  treasuryAddress?: `0x${string}`;
   // Parent-org user IDs of the two stampers required for every signing activity.
   // Both must approve before Turnkey executes the activity. parentAdminUserId
   // is the Railway-side admin (TURNKEY_PARENT_ADMIN_USER_ID); coSignerUserId
@@ -64,7 +69,7 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   condition: string;
   notes: string;
 } {
-  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, parentAdminUserId, coSignerUserId } = params;
+  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, treasuryAddress, parentAdminUserId, coSignerUserId } = params;
 
   const lower = (s: string) => s.toLowerCase();
   const userToken = lower(userTokenAddress);
@@ -114,6 +119,17 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
     // Recovery: native ETH sweep — plain value transfer to recoveryAddress with empty data.
     `(${inSet('eth.tx.to', [recovery])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
   );
+
+  // Fee collection: permitted only when a treasury address is configured
+  // (shared-split buyback). Allows transfer of any input token or the user
+  // token to the treasury — used to deduct the platform fee before swapping.
+  if (treasuryAddress) {
+    const treasury = lower(treasuryAddress);
+    conditions.push(
+      `(${inSet('eth.tx.to', recoverableTokens)} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${treasury.slice(2)}')`,
+      `(${inSet('eth.tx.to', [treasury])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
+    );
+  }
 
   const condition = conditions.join(' || ');
 

@@ -4,7 +4,11 @@ import { base } from 'viem/chains';
 import { getBasePublicClient } from './splitsWarehouse';
 
 // Warn in logs when operator wallet drops below this — top it up before it hits 0.
-const OPERATOR_WARN_THRESHOLD_WEI = parseUnits('0.02', 18);
+// Configurable via OPERATOR_WARN_THRESHOLD_ETH env var (default 0.02 ETH).
+const OPERATOR_WARN_THRESHOLD_WEI = parseUnits(
+  process.env.OPERATOR_WARN_THRESHOLD_ETH ?? '0.02',
+  18,
+);
 
 /**
  * Operator gas wallet — drips just enough ETH to a buyback wallet right before
@@ -117,7 +121,7 @@ export async function ensureGasFunded(
     const operatorBalance = await publicClient.getBalance({ address: op.walletAddress });
     if (operatorBalance < OPERATOR_WARN_THRESHOLD_WEI) {
       console.warn(
-        `[OperatorGas] LOW BALANCE WARNING: operator wallet ${op.walletAddress} has only ${formatEther(operatorBalance)} ETH remaining. Top it up to at least 0.05 ETH on Base to keep buybacks running.`,
+        `[OperatorGas] LOW BALANCE WARNING: operator wallet ${op.walletAddress} has only ${formatEther(operatorBalance)} ETH remaining. Top it up to at least ${formatEther(OPERATOR_WARN_THRESHOLD_WEI)} ETH on Base to keep buybacks running.`,
       );
     }
   } catch {
@@ -139,7 +143,7 @@ export async function logOperatorWalletStatus(): Promise<void> {
     const ethStr = formatEther(balance);
     if (balance < OPERATOR_WARN_THRESHOLD_WEI) {
       console.warn(
-        `[OperatorGas] STARTUP WARNING: operator wallet ${op.walletAddress} has only ${ethStr} ETH. Buybacks will fail until topped up to at least 0.05 ETH on Base.`,
+        `[OperatorGas] STARTUP WARNING: operator wallet ${op.walletAddress} has only ${ethStr} ETH. Buybacks will fail until topped up to at least ${formatEther(OPERATOR_WARN_THRESHOLD_WEI)} ETH on Base.`,
       );
     } else {
       console.log(`[OperatorGas] Operator wallet ${op.walletAddress} balance: ${ethStr} ETH`);

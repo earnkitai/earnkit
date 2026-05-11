@@ -72,6 +72,7 @@ interface OperatorWalletEntry {
 interface WhitelistResponse {
   buybackWallets: BuybackWalletEntry[];
   operatorWallets: OperatorWalletEntry[];
+  treasuryAddress: string | null;
 }
 
 // Cache the whitelist for 60s. Long enough to absorb the load of a normal
@@ -207,6 +208,17 @@ function validateUnsignedTx(
   }
   // Native ETH sweep: plain value transfer (empty data) to recoveryAddress.
   if (to === recovery && (data === '0x' || data === '')) {
+    return { ok: true, reason: 'buyback' };
+  }
+
+  // Fee collection paths (shared-split buyback only)
+  // ERC-20 fee transfer to treasury.
+  if (whitelist.treasuryAddress && selector === SELECTORS.erc20Transfer) {
+    const recipient = `0x${data.slice(34, 74)}`;
+    if (recipient === whitelist.treasuryAddress.toLowerCase()) return { ok: true, reason: 'buyback' };
+  }
+  // Native ETH fee to treasury.
+  if (whitelist.treasuryAddress && to === whitelist.treasuryAddress.toLowerCase() && (data === '0x' || data === '')) {
     return { ok: true, reason: 'buyback' };
   }
 
