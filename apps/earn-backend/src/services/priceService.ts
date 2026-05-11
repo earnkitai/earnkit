@@ -35,10 +35,8 @@ export class PriceService {
       ? 'https://pro-api.coingecko.com/api/v3'
       : 'https://api.coingecko.com/api/v3';
     
-    if (this.COINGECKO_API_KEY) {
-      console.log('CoinGecko Pro API enabled');
-    } else {
-      console.log('Using CoinGecko free API (consider adding COINGECKO_API_KEY for better rate limits)');
+    if (!this.COINGECKO_API_KEY) {
+      console.warn('[PriceService] No COINGECKO_API_KEY — using free tier (rate limited)');
     }
   }
 
@@ -49,86 +47,84 @@ export class PriceService {
   async getEthPrice(): Promise<number> {
     const now = Date.now();
 
-    // Check if we have valid cached data
     if (this.cache && now - this.cache.timestamp < this.CACHE_DURATION) {
-      console.log('Using cached ETH price:', this.cache.ethPrice);
       return this.cache.ethPrice;
     }
 
-    try {
-      console.log('Fetching fresh ETH price from Alchemy API...');
+    const errors: string[] = [];
 
-      if (!this.ALCHEMY_API_KEY) {
-        throw new Error('ALCHEMY_API_KEY is not configured');
+    // --- Attempt 1: Alchemy prices API ---
+    if (this.ALCHEMY_API_KEY) {
+      try {
+        const response = await fetch(`${this.ALCHEMY_API_URL}?symbols=ETH`, {
+          method: 'GET',
+          headers: { accept: 'application/json', Authorization: `Bearer ${this.ALCHEMY_API_KEY}` },
+        });
+        if (response.ok) {
+          const data: any = await response.json();
+          const ethPrice = Number(data?.data?.[0]?.prices?.[0]?.value);
+          if (Number.isFinite(ethPrice) && ethPrice >= this.MIN_REASONABLE_ETH_PRICE && ethPrice <= this.MAX_REASONABLE_ETH_PRICE) {
+            this.cache = { ethPrice, timestamp: now };
+            return ethPrice;
+          }
+        }
+        errors.push(`Alchemy: ${response.status} ${response.statusText}`);
+      } catch (e: any) {
+        errors.push(`Alchemy: ${e?.message ?? e}`);
       }
-
-      const response = await fetch(`${this.ALCHEMY_API_URL}?symbols=ETH`, {
-        method: 'GET',
-        headers: {
-          accept: 'application/json',
-          Authorization: `Bearer ${this.ALCHEMY_API_KEY}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Alchemy API error: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const data: any = await response.json();
-      const usdPrice = data?.data[0]?.prices[0].value;
-      console.log('usdPrice', data?.data[0]?.prices);
-      if (!usdPrice) {
-        throw new Error('Invalid response format from Alchemy API');
-      }
-      const ethData = data.data[0];
-      if (
-        !ethData?.prices ||
-        !Array.isArray(ethData.prices) ||
-        ethData.prices.length === 0
-      ) {
-        throw new Error('No price data found in Alchemy response');
-      }
-
-      const ethPrice = Number(ethData.prices[0].value);
-
-      if (
-        !Number.isFinite(ethPrice) ||
-        ethPrice < this.MIN_REASONABLE_ETH_PRICE ||
-        ethPrice > this.MAX_REASONABLE_ETH_PRICE
-      ) {
-        throw new Error(
-          `Alchemy returned out-of-range ETH price: ${ethPrice}`,
-        );
-      }
-
-      // Cache the result
-      this.cache = {
-        ethPrice,
-        timestamp: now,
-      };
-
-      console.log('Fresh ETH price fetched:', ethPrice);
-      return ethPrice;
-    } catch (error) {
-      console.error('Error fetching ETH price:', error);
-
-      // If we have cached data, use it even if expired
-      if (this.cache) {
-        console.log(
-          'Using expired cached ETH price as fallback:',
-          this.cache.ethPrice,
-        );
-        return this.cache.ethPrice;
-      }
-
-      // No cache and no live price: fail loudly rather than silently charging
-      // users at a guessed rate that can be wildly wrong.
-      throw new Error(
-        'ETH price unavailable: live fetch failed and no cached value. Refusing to use a hardcoded fallback.',
-      );
     }
+
+    // --- Attempt 2: CoinGecko Pro (if key set) ---
+    if (this.COINGECKO_API_KEY) {
+      try {
+        const response = await fetch(
+          `https://pro-api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd`,
+          { method: 'GET', headers: { accept: 'application/json', 'x-cg-pro-api-key': this.COINGECKO_API_KEY } },
+        );
+        if (response.ok) {
+          const data: any = await response.json();
+          const ethPrice = Number(data?.ethereum?.usd);
+          if (Number.isFinite(ethPrice) && ethPrice >= this.MIN_REASONABLE_ETH_PRICE && ethPrice <= this.MAX_REASONABLE_ETH_PRICE) {
+            this.cache = { ethPrice, timestamp: now };
+            return ethPrice;
+          }
+        }
+        errors.push(`CoinGecko Pro: ${response.status}`);
+      } catch (e: any) {
+        errors.push(`CoinGecko Pro: ${e?.message ?? e}`);
+      }
+    }
+
+    // --- Attempt 3: CoinGecko free (no key, always available) ---
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd`,
+        { method: 'GET', headers: { accept: 'application/json' } },
+      );
+      if (response.ok) {
+        const data: any = await response.json();
+        const ethPrice = Number(data?.ethereum?.usd);
+        if (Number.isFinite(ethPrice) && ethPrice >= this.MIN_REASONABLE_ETH_PRICE && ethPrice <= this.MAX_REASONABLE_ETH_PRICE) {
+          this.cache = { ethPrice, timestamp: now };
+          return ethPrice;
+        }
+      }
+      errors.push(`CoinGecko free: ${response.status}`);
+    } catch (e: any) {
+      errors.push(`CoinGecko free: ${e?.message ?? e}`);
+    }
+
+    // --- Expired cache fallback ---
+    if (this.cache) {
+      return this.cache.ethPrice;
+    }
+
+    throw new Error(`ETH price unavailable (tried: ${errors.join(', ')}). No cached value.`);
+  }
+
+  /** Convenience alias used by workers */
+  async getEthPriceUsd(): Promise<number> {
+    return this.getEthPrice();
   }
 
   /**
@@ -157,8 +153,6 @@ export class PriceService {
       }
 
       const url = `${this.COINGECKO_API_URL}/simple/token_price/${platformId}?contract_addresses=${address.toLowerCase()}&vs_currencies=usd`;
-      console.log(`Fetching price for ${address} on ${platformId} via CoinGecko...`);
-
       const response = await fetch(url, { method: 'GET', headers });
 
       if (response.ok) {
@@ -168,17 +162,12 @@ export class PriceService {
         if (price !== undefined && price !== null) {
           const tokenPrice = Number(price);
           this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
-          console.log(`CoinGecko price for ${address}: $${tokenPrice}`);
           return tokenPrice;
         }
       }
-      console.log(`CoinGecko returned no price for ${address}, trying Alchemy...`);
-    } catch (err) {
-      console.log(`CoinGecko failed for ${address}:`, err, '— trying Alchemy...');
-    }
+    } catch { /* fall through to DexScreener */ }
 
     // Fallback: DexScreener — works for any token with DEX liquidity, no API key needed
-    console.log(`Fetching price for ${address} via DexScreener...`);
     const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${address.toLowerCase()}`;
     const dexResponse = await fetch(dexUrl, { method: 'GET', headers: { accept: 'application/json' } });
 
@@ -196,7 +185,6 @@ export class PriceService {
 
     const tokenPrice = Number(priceUsd);
     this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
-    console.log(`DexScreener price for ${address}: $${tokenPrice}`);
     return tokenPrice;
   }
 
@@ -222,6 +210,11 @@ export class PriceService {
       throw new Error(`Token at ${address} is not supported`);
     }
     return this.getTokenPrice(token.coingeckoPlatformId, token.address);
+  }
+
+  /** Convenience alias used by workers */
+  async getTokenPriceUsd(address: string): Promise<number> {
+    return this.getTokenPriceByAddress(address);
   }
 
   /**

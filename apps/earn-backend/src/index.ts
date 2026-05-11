@@ -3,15 +3,19 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
 import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 import { startBuybackExecutorWorker } from './workers/buybackExecutorWorker';
+import { startSharedSplitBuybackWorker } from './workers/sharedSplitBuybackWorker';
+import { startTokenBuybackWorker } from './workers/tokenBuybackWorker';
 import { logOperatorWalletStatus } from './lib/operatorGas';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables — explicit path so it works regardless of CWD
+// (monorepo root vs package directory)
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 // Catch async errors that escape Express middleware so one bad request
 // doesn't take down the whole process. Logged loudly; do not exit.
@@ -84,6 +88,8 @@ app.listen(PORT, () => {
   startTopUpVerificationWorker();
   startWebhookDeliveryWorker();
   startBuybackExecutorWorker();
+  startSharedSplitBuybackWorker();
+  startTokenBuybackWorker();
   logOperatorWalletStatus().catch(() => {});
 });
 

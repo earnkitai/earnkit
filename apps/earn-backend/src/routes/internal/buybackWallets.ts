@@ -26,28 +26,45 @@ const router: Router = Router();
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    const configs = await prisma.buybackConfig.findMany({
-      where: { isActive: true },
-      select: {
-        walletAddress: true,
-        tokenAddress: true,
-        recoveryAddress: true,
-      },
-    });
+    const [agentConfigs, sharedConfigs, tokenConfigs] = await Promise.all([
+      prisma.buybackConfig.findMany({
+        where: { isActive: true },
+        select: { walletAddress: true, tokenAddress: true, recoveryAddress: true },
+      }),
+      prisma.sharedSplitBuybackConfig.findMany({
+        where: { isActive: true, walletAddress: { not: null } },
+        select: { walletAddress: true, tokenAddress: true, recoveryAddress: true },
+      }),
+      prisma.tokenContractBuybackConfig.findMany({
+        where: { isActive: true, walletAddress: { not: null } },
+        select: { walletAddress: true, targetTokenAddress: true, recoveryAddress: true },
+      }),
+    ]);
 
-    const operatorWalletAddress = getOperatorWalletAddress();
-    const operatorWallets = operatorWalletAddress
-      ? [{ walletAddress: operatorWalletAddress }]
-      : [];
-
-    return res.json({
-      buybackWallets: configs.map((c) => ({
+    const buybackWallets = [
+      ...agentConfigs.map((c) => ({
         walletAddress: c.walletAddress,
         tokenAddress: c.tokenAddress,
         recoveryAddress: c.recoveryAddress,
       })),
-      operatorWallets,
-    });
+      ...sharedConfigs.map((c) => ({
+        walletAddress: c.walletAddress!,
+        tokenAddress: c.tokenAddress,
+        recoveryAddress: c.recoveryAddress,
+      })),
+      ...tokenConfigs.map((c) => ({
+        walletAddress: c.walletAddress!,
+        tokenAddress: c.targetTokenAddress,
+        recoveryAddress: c.recoveryAddress,
+      })),
+    ];
+
+    const operatorWalletAddress = getOperatorWalletAddress();
+    const operatorWallets = operatorWalletAddress ? [{ walletAddress: operatorWalletAddress }] : [];
+
+    const treasuryAddress = process.env.BUYBACK_TREASURY_ADDRESS ?? null;
+
+    return res.json({ buybackWallets, operatorWallets, treasuryAddress });
   } catch (err: any) {
     console.error('[internal/buyback-wallets] error:', err);
     return res.status(500).json({ error: err?.message ?? 'Internal error' });

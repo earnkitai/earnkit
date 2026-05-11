@@ -7,6 +7,8 @@ import {
     User,
     Settings,
     LogOut,
+    Flame,
+    Coins,
 } from "lucide-react";
 // import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from "react";
@@ -165,6 +167,26 @@ export default function Sidebar() {
                         >
                             <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8 shrink-0" />
                             <span className="whitespace-nowrap">My Apps</span>
+                        </Link>
+                        <Link
+                            href="/shared-buyback"
+                            className={getLinkStyles("/shared-buyback")}
+                            onClick={() => {
+                                if (isMobile) setIsOpen(false);
+                            }}
+                        >
+                            <Flame className="group-hover:text-black h-8 w-8 shrink-0 p-1.5 bg-black/4 rounded-full" />
+                            <span className="whitespace-nowrap">Buybacks</span>
+                        </Link>
+                        <Link
+                            href="/token-buyback"
+                            className={getLinkStyles("/token-buyback")}
+                            onClick={() => {
+                                if (isMobile) setIsOpen(false);
+                            }}
+                        >
+                            <Coins className="group-hover:text-black h-8 w-8 shrink-0 p-1.5 bg-black/4 rounded-full" />
+                            <span className="whitespace-nowrap">Token Buyback</span>
                         </Link>
                         <Link
                             href="https://docs.earnkit.com/"
