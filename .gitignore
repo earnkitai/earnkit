@@ -35,3 +35,4 @@ typechain-types/
 
 # Local one-shot scripts (DB resets, key rotations, etc.) — never committed
 /scripts/
+.vercel
