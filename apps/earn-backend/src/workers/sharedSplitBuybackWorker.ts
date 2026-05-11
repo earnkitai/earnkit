@@ -100,7 +100,8 @@ async function sendTurnkeySignedTx(
     unsignedTx,
   });
   const txHash = await client.sendRawTransaction({ serializedTransaction: signed });
-  await client.waitForTransactionReceipt({ hash: txHash, timeout: TX_RECEIPT_TIMEOUT_MS });
+  const receipt = await client.waitForTransactionReceipt({ hash: txHash, timeout: TX_RECEIPT_TIMEOUT_MS });
+  if (receipt.status === 'reverted') throw new Error(`tx_reverted:${txHash}`);
   return txHash;
 }
 
