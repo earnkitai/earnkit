@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+type Params = Promise<{ id: string }>;
+
 const backendUrl = process.env.EARNKIT_BACKEND_URL || 'http://localhost:3001';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Params }) {
   try {
-    const res = await fetch(`${backendUrl}/api/token-buyback/${params.id}/executions`, {
+    const { id } = await params;
+    const res = await fetch(`${backendUrl}/api/token-buyback/${id}/executions`, {
       cache: 'no-store',
     });
     const data = await res.json();
