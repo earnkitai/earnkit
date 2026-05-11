@@ -67,8 +67,8 @@ export async function isWalletInSplit(
       address: splitAddress,
       abi: SPLIT_V2_STRUCT_ABI,
       functionName: 'getSplit',
-    }) as { recipients?: string[] } | undefined;
-    const recipients: string[] = (result as { recipients?: string[] })?.recipients ?? [];
+    });
+    const recipients: string[] = ((result as unknown as { recipients?: string[] })?.recipients ?? []) as string[];
     if (recipients.length > 0) {
       return recipients.some((r) => r.toLowerCase() === walletLower);
     }
@@ -76,11 +76,11 @@ export async function isWalletInSplit(
 
   // --- Attempt 3: getSplit() tuple-array ABI ---
   try {
-    const [receivers] = await publicClient.readContract({
+    const [receivers] = (await publicClient.readContract({
       address: splitAddress,
       abi: SPLIT_V2_TUPLE_ABI,
       functionName: 'getSplit',
-    }) as [Array<{ recipient: string }>];
+    }) as unknown) as [Array<{ recipient: string }>];
     if (Array.isArray(receivers) && receivers.length > 0) {
       return receivers.some((r) => r.recipient?.toLowerCase() === walletLower);
     }
