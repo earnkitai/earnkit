@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/app/components/ui/button";
 
 import { toast } from "sonner";
-import { Copy, Check, Clock, Zap, History, Trash2, ArrowRight, Pencil, X } from "lucide-react";
+import { Copy, Check, Clock, Zap, History, Trash2, Pencil, X } from "lucide-react";
 
 interface ConfigData {
     id: string;
@@ -35,6 +35,22 @@ function truncate(addr: string) {
     return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+function CopyButton({ value }: { value: string }) {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = async () => {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+    return (
+        <button onClick={handleCopy} className="shrink-0 p-1.5 rounded-lg hover:bg-black/10 transition-colors">
+            {copied
+                ? <Check className="w-3.5 h-3.5 text-secondary-green" />
+                : <Copy className="w-3.5 h-3.5 text-black/30" />}
+        </button>
+    );
+}
+
 const statusConfig = {
     PROVISIONING:       { label: "Provisioning",        dot: "bg-black/30" },
     PENDING_SPLIT_UPDATE: { label: "Awaiting Update",   dot: "bg-secondary-orange" },
@@ -48,7 +64,6 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     const [loading, setLoading] = useState(true);
     const [checking, setChecking] = useState(false);
     const [disabling, setDisabling] = useState(false);
-    const [copiedWallet, setCopiedWallet] = useState(false);
     const [editingThreshold, setEditingThreshold] = useState(false);
     const [thresholdInput, setThresholdInput] = useState('');
     const [savingThreshold, setSavingThreshold] = useState(false);
@@ -110,13 +125,6 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
         } finally {
             setDisabling(false);
         }
-    };
-
-    const handleCopyWallet = async () => {
-        if (!config?.walletAddress) return;
-        await navigator.clipboard.writeText(config.walletAddress);
-        setCopiedWallet(true);
-        setTimeout(() => setCopiedWallet(false), 2000);
     };
 
     const handleCheckActivation = async () => {
@@ -201,30 +209,34 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
                     </div>
                 </div>
 
-                {/* Address strip */}
-                <div className="mx-5 mb-4 bg-black/[0.03] rounded-[12px] px-3 py-2.5 flex items-center gap-2">
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[10px] text-black/30 font-funnel-sans uppercase tracking-wide mb-0.5">Split</p>
-                        <p className="font-mono text-xs text-black/60 truncate">{truncate(config.splitAddress)}</p>
+                {/* Split contract address */}
+                <div className="mx-5 mb-3 border border-black/[0.08] rounded-[12px] px-3 py-3 space-y-2.5">
+                    <p className="text-[10px] text-black/30 font-funnel-sans uppercase tracking-wide">Split Contract</p>
+                    <div className="flex items-center gap-2">
+                        <p className="font-mono text-xs text-black/60 break-all flex-1 leading-relaxed">
+                            {config.splitAddress}
+                        </p>
+                        <CopyButton value={config.splitAddress} />
                     </div>
-                    {config.walletAddress && (
-                        <>
-                            <ArrowRight className="w-3.5 h-3.5 text-black/20 shrink-0" />
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[10px] text-black/30 font-funnel-sans uppercase tracking-wide mb-0.5">Buyback Wallet</p>
-                                <p className="font-mono text-xs text-black/60 truncate">{truncate(config.walletAddress)}</p>
-                            </div>
-                            <button
-                                onClick={handleCopyWallet}
-                                className="shrink-0 p-1.5 rounded-lg hover:bg-black/10 transition-colors"
-                            >
-                                {copiedWallet
-                                    ? <Check className="w-3.5 h-3.5 text-secondary-green" />
-                                    : <Copy className="w-3.5 h-3.5 text-black/30" />}
-                            </button>
-                        </>
-                    )}
                 </div>
+
+                {/* Turnkey wallet — full address + balance */}
+                {config.walletAddress && (
+                    <div className="mx-5 mb-4 border border-black/[0.08] rounded-[12px] px-3 py-3 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-[10px] text-black/30 font-funnel-sans uppercase tracking-wide">Turnkey Wallet</p>
+                            <span className="text-xs font-semibold text-black font-funnel-sans">
+                                ${(config.accumulatedUsd ?? 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <p className="font-mono text-xs text-black/60 break-all flex-1 leading-relaxed">
+                                {config.walletAddress}
+                            </p>
+                            <CopyButton value={config.walletAddress} />
+                        </div>
+                    </div>
+                )}
 
                 {/* Status banners */}
                 {config.status === "PENDING_SPLIT_UPDATE" && config.walletAddress && (

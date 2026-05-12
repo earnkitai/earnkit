@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 // import { signOut } from "next-auth/react";
-import { User, Settings, LogOut } from 'lucide-react';
+import { User, Settings, LogOut, Flame } from 'lucide-react';
 // import { useAuth } from "@/providers/auth-provider";
 import { useEffect, useState } from 'react';
 import { findUserById } from '@/actions/user';
@@ -148,11 +148,23 @@ export default function Sidebar() {
         }}
       >
         <div className="flex flex-col w-full justify-between items-start space-y-6">
-          <Icons.newEarnyIconwithName />
+          <Link href="/home">
+            <Icons.newEarnyIconwithName />
+          </Link>
         </div>
         {/* Main Navigation */}
         <nav className="flex w-full">
           <div className="w-full flex flex-col gap-[24px]">
+            <Link
+              href="/home"
+              className={getLinkStyles('/home')}
+              onClick={() => {
+                if (isMobile) setIsOpen(false);
+              }}
+            >
+              <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8 shrink-0" />
+              <span className="whitespace-nowrap">Home</span>
+            </Link>
             <Link
               href="/create-buyback"
               className={getLinkStyles('/create-buyback')}
@@ -160,7 +172,7 @@ export default function Sidebar() {
                 if (isMobile) setIsOpen(false);
               }}
             >
-              <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8 shrink-0" />
+              <Flame className="h-5 w-5 ml-1.5 shrink-0" />
               <span className="whitespace-nowrap">Create Buybacks</span>
             </Link>
             <Link
