@@ -192,7 +192,7 @@ function SignUpPage() {
             });
 
             // Redirect to passkey setup page
-            router.push('/create-buyback');
+            router.push('/home');
           } else if (ready && !isNewUser) {
             // user is there on the privy db
             const userId = user.id.split(':').pop() || user.id;
@@ -201,7 +201,7 @@ function SignUpPage() {
             if (existingUser) {
               if (existingUser.username) {
                 // Case 4: User exists and has username - redirect to home
-                router.push('/create-buyback');
+                router.push('/home');
               } else {
                 // Case 3: User exists but no username - stay on page to set username
                 // router.push("/sign-up/passkeys");
@@ -216,7 +216,7 @@ function SignUpPage() {
                 isGuest: false,
                 mfaMethods: [],
               });
-              router.push('/create-buyback');
+              router.push('/home');
             }
           }
         } catch (error) {
@@ -236,7 +236,7 @@ function SignUpPage() {
 
   useEffect(() => {
     if (ready && authenticated) {
-      router.push('/create-buyback');
+      router.push('/home');
     } else {
       setIsUserLoggedIn(false);
     }
@@ -338,7 +338,7 @@ function SignUpPage() {
     loginWithPasskey()
       .then(() => {
         console.log('Logged in');
-        router.push('/create-buyback');
+        router.push('/home');
       })
       .catch((error) => {
         if (error instanceof Error) {
