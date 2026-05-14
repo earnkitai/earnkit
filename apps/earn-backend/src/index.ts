@@ -7,6 +7,7 @@ import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
+import { startPaymentIntentVerifierWorker } from './workers/paymentIntentVerifierWorker';
 import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 import { startBuybackExecutorWorker } from './workers/buybackExecutorWorker';
 import { startSharedSplitBuybackWorker } from './workers/sharedSplitBuybackWorker';
@@ -86,6 +87,7 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`EarnKit Backend API running on port ${PORT}`);
   startTopUpVerificationWorker();
+  startPaymentIntentVerifierWorker();
   startWebhookDeliveryWorker();
   startBuybackExecutorWorker();
   startSharedSplitBuybackWorker();

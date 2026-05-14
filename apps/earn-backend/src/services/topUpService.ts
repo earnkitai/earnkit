@@ -161,17 +161,22 @@ export class TopUpService {
     const ethPrice = await priceService.getEthPrice();
     console.log('Current ETH price for top-up conversion:', ethPrice);
 
-    // Define USD amounts and credits (from packages or defaults)
+    // Define USD amounts and credits (from packages or defaults). Keep a
+    // parallel packageIds array so emitted options can echo the chosen
+    // package back to the server when a PaymentIntent is created.
     let usdAmounts: number[] = [];
     let creditAmounts: number[] = [];
+    let packageIds: (string | undefined)[] = [];
 
     if (packages.length > 0) {
       usdAmounts = packages.map((pkg: any) => pkg.price);
       creditAmounts = packages.map((pkg: any) => pkg.credits);
+      packageIds = packages.map((pkg: any) => pkg.id);
     } else {
       // Default options
       usdAmounts = [3, 15, 30];
       creditAmounts = [10, 50, 100];
+      packageIds = [undefined, undefined, undefined];
     }
 
     // Build payment methods array
@@ -199,6 +204,7 @@ export class TopUpService {
         amountInEth: ethAmount.toString(),
         value: Math.floor(weiAmount).toString(),
         creditsToTopUp: creditAmounts[i],
+        packageId: packageIds[i],
       };
 
       // Add discount info if applicable
@@ -262,6 +268,7 @@ export class TopUpService {
                 token.decimals > 6 ? 6 : token.decimals,
               ),
               creditsToTopUp: creditAmounts[i],
+              packageId: packageIds[i],
             };
 
             // Add discount info if applicable

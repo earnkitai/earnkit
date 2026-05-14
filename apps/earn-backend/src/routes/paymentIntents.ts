@@ -9,6 +9,7 @@ router.post('/', validateApiKey, async (req: Request, res: Response) => {
   try {
     const {
       agentId,
+      packageId,
       amountAtomic,
       chainId,
       amountInUSD,
@@ -25,8 +26,11 @@ router.post('/', validateApiKey, async (req: Request, res: Response) => {
       throw new AppError('agentId is required', 400);
     }
 
-    if (!amountAtomic || typeof amountAtomic !== 'string') {
-      throw new AppError('amountAtomic is required', 400);
+    // Either packageId (server derives the quote) or amountAtomic (legacy
+    // direct-amount path) must be supplied. packageId is preferred — it lets
+    // the server lock credits/amount and skip on-chain repricing later.
+    if (!packageId && (!amountAtomic || typeof amountAtomic !== 'string')) {
+      throw new AppError('packageId or amountAtomic is required', 400);
     }
 
     if (!chainId || typeof chainId !== 'number') {
@@ -36,6 +40,7 @@ router.post('/', validateApiKey, async (req: Request, res: Response) => {
     const paymentIntent = await PaymentIntentService.createPaymentIntent({
       agentId,
       userId: (req as any).user?.id,
+      packageId,
       amountAtomic,
       chainId,
       amountInUSD,
