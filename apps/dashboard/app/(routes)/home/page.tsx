@@ -6,7 +6,27 @@ import { Card, CardContent } from '@/app/components/ui/card';
 import { Badge } from '@/app/components/ui/badge';
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
-import { Flame, ArrowRight, DollarSign, TrendingUp } from 'lucide-react';
+import { Plus } from 'lucide-react';
+
+function AddAppCard() {
+  return (
+    <Link href="/create">
+      <Card className="bg-white border-2 border-dashed rounded-[28px] cursor-pointer h-full hover:border-gray-400 transition-all group">
+        <CardContent className="p-8 flex flex-col items-center justify-center h-full">
+          {/* Blue Icon Square */}
+          <div className="w-16 h-16 bg-blue-600 rounded-[20px] flex items-center justify-center mb-4  ">
+            <Plus className="w-8 h-8 text-white" strokeWidth={3} />
+          </div>
+
+          {/* Label */}
+          <p className="font-semibold text-black/60 font-funnel-sans text-base">
+            Add App
+          </p>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
 
 interface Agent {
   id: string;
@@ -35,7 +55,9 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [sharedBuybackCount, setSharedBuybackCount] = useState(0);
-  const [totalBuybackedUsd, setTotalBuybackedUsd] = useState<number | null>(null);
+  const [totalBuybackedUsd, setTotalBuybackedUsd] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     if (ready && authenticated && privyUser) {
@@ -123,19 +145,19 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen max-w-7xl mx-auto">
+    <div className="min-h-screen max-w-7xl mx-auto p-[24px] md:p-[35px] pt-20 md:pt-10">
       {/* Header */}
-      <div className="mb-8">
+      {/* <div className="mb-8">
         <h1 className="text-3xl font-semibold font-funnel-display text-color2">
           Overview
         </h1>
         <p className="text-black/40 text-sm font-funnel-sans mt-1">
           Your EarnKit dashboard at a glance
         </p>
-      </div>
+      </div> */}
 
       {/* Stats row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+      {/* <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
         <StatCard
           icon={<DollarSign className="w-4 h-4 text-black/40" />}
           label="Total Earnings"
@@ -162,29 +184,30 @@ export default function HomePage() {
           value={`${sharedBuybackCount}`}
           sub={sharedBuybackCount === 0 ? 'None configured' : `${sharedBuybackCount} split${sharedBuybackCount !== 1 ? 's' : ''} active`}
         />
-      </div>
+      </div> */}
 
-      {/* My Apps — only shown if legacy apps exist */}
-      {agents.length > 0 && (
-        <div className="mb-10">
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold font-funnel-display text-color2">
-              My Apps
-            </h2>
-            <p className="text-black/40 text-sm font-funnel-sans">
-              Your existing app monetizations
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {agents.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} />
-            ))}
-          </div>
+      {/* My Tokens — only shown if legacy tokens exist */}
+      {/* {agents.length > 0 && ( */}
+      <div className="mb-10">
+        <div className="mb-8">
+          <h2 className="text-2xl md:text-3xl font-semibold font-funnel-display text-color2">
+            My Tokens
+          </h2>
+          <p className="text-black/40 text-sm md:text-base font-funnel-sans">
+            Setup and manage your token buybacks
+          </p>
         </div>
-      )}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <AddAppCard />
+          {agents.map((agent) => (
+            <AgentCard key={agent.id} agent={agent} />
+          ))}
+        </div>
+      </div>
+      {/* )} */}
 
       {/* Buybacks section */}
-      <div className="mb-10">
+      {/* <div className="mb-10">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-semibold font-funnel-display text-color2">
@@ -224,9 +247,9 @@ export default function HomePage() {
             </CardContent>
           </Card>
         </Link>
-      </div>
+      </div> */}
       {/* FAQ section */}
-      <div className="mb-10">
+      {/* <div className="mb-10">
         <div className="mb-8">
           <h2 className="text-xl font-semibold font-funnel-display text-color2">
             FAQs
@@ -242,7 +265,13 @@ export default function HomePage() {
               How does the Splits Buyback work?
             </h3>
             <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
-              You register your existing 0xSplits contract and EarnKit provisions a Turnkey-managed buyback wallet on your behalf. You then add that wallet as a recipient in your split. Every time your split distributes, ETH accumulates in the buyback wallet. Once the balance crosses your configured threshold, EarnKit automatically swaps it for your token and burns it — no manual intervention needed.
+              You register your existing 0xSplits contract and EarnKit
+              provisions a Turnkey-managed buyback wallet on your behalf. You
+              then add that wallet as a recipient in your split. Every time your
+              split distributes, ETH accumulates in the buyback wallet. Once the
+              balance crosses your configured threshold, EarnKit automatically
+              swaps it for your token and burns it — no manual intervention
+              needed.
             </p>
           </div>
 
@@ -251,7 +280,18 @@ export default function HomePage() {
               How do I activate the buyback after registering?
             </h3>
             <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
-              After registration, your config will show a status of <span className="font-medium text-black/70">Awaiting Update</span>. Copy the Turnkey wallet address from your buyback card and add it as a recipient in your 0xSplits contract via your Safe or a direct <span className="font-mono text-xs bg-black/5 px-1 py-0.5 rounded">updateSplit</span> call. Once added, click <span className="font-medium text-black/70">Check now</span> on the card — EarnKit will verify the wallet is in the split and flip the status to Active.
+              After registration, your config will show a status of{' '}
+              <span className="font-medium text-black/70">Awaiting Update</span>
+              . Copy the Turnkey wallet address from your buyback card and add
+              it as a recipient in your 0xSplits contract via your Safe or a
+              direct{' '}
+              <span className="font-mono text-xs bg-black/5 px-1 py-0.5 rounded">
+                updateSplit
+              </span>{' '}
+              call. Once added, click{' '}
+              <span className="font-medium text-black/70">Check now</span> on
+              the card — EarnKit will verify the wallet is in the split and flip
+              the status to Active.
             </p>
           </div>
 
@@ -260,7 +300,13 @@ export default function HomePage() {
               What is the trigger threshold and how do I set it?
             </h3>
             <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
-              The trigger threshold is the minimum USD value that must accumulate in the buyback wallet before a swap is executed. You can set and edit it directly on the buyback card. A higher threshold means fewer, larger buybacks; a lower threshold means more frequent, smaller ones. We recommend setting it above gas costs on your target chain to ensure each execution is economically worthwhile.
+              The trigger threshold is the minimum USD value that must
+              accumulate in the buyback wallet before a swap is executed. You
+              can set and edit it directly on the buyback card. A higher
+              threshold means fewer, larger buybacks; a lower threshold means
+              more frequent, smaller ones. We recommend setting it above gas
+              costs on your target chain to ensure each execution is
+              economically worthwhile.
             </p>
           </div>
 
@@ -269,11 +315,16 @@ export default function HomePage() {
               Who controls the buyback wallet — can I withdraw from it?
             </h3>
             <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
-              The buyback wallet is a Turnkey-managed smart wallet provisioned specifically for your config. EarnKit orchestrates transactions through it but you retain custody via a recovery address set at registration. Funds in the wallet are solely used for the buyback swap and burn — they are not accessible to EarnKit for any other purpose.
+              The buyback wallet is a Turnkey-managed smart wallet provisioned
+              specifically for your config. EarnKit orchestrates transactions
+              through it but you retain custody via a recovery address set at
+              registration. Funds in the wallet are solely used for the buyback
+              swap and burn — they are not accessible to EarnKit for any other
+              purpose.
             </p>
           </div>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }
@@ -312,9 +363,9 @@ function AgentCard({ agent }: { agent: Agent }) {
 
   return (
     <Link href={`/agent/${agent.id}`}>
-      <Card className="bg-white outline-2 outline-black/10 rounded-[28px] shadow-[inset_0_0_0_0px_#00000033] hover:shadow-[inset_0_0_0_4px_#00000033] transition-shadow duration-300 cursor-pointer h-full">
+      <Card className="bg-white rounded-[28px] cursor-pointer h-full">
         <CardContent className="p-6">
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between mb-20">
             <h3 className="font-semibold text-black/80 font-funnel-sans text-base leading-snug">
               {agent.name}
             </h3>
@@ -340,14 +391,16 @@ function AgentCard({ agent }: { agent: Agent }) {
                 ${agent.totalEarnings.toFixed(2)}
               </p>
               <p className="text-black/40 text-xs font-funnel-sans">
-                Total Earnings
+                Total Buyback
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm font-medium text-black/60 font-funnel-sans">
                 {agent.feeModel === 'FREE_TIER' ? 'Free Tier' : 'Credit Based'}
               </p>
-              <p className="text-black/30 text-xs font-funnel-sans">Fee Model</p>
+              <p className="text-black/30 text-xs font-funnel-sans">
+                Fee Model
+              </p>
             </div>
           </div>
         </CardContent>
