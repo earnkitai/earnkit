@@ -49,6 +49,10 @@ export interface TopUpOption {
   amountInEth: string; // Converted from USD using current ETH price
   value: string; // Amount in WEI
   creditsToTopUp?: number;
+  // Identifies the TopUpPackage this option came from. Frontend echoes this
+  // back when creating a PaymentIntent so the server can re-derive the
+  // canonical amount/credits instead of trusting client-supplied values.
+  packageId?: string;
   // Discount info
   discountPercent?: number; // e.g., 10 = 10% discount
   originalAmountInUSD?: string; // Pre-discount price
@@ -63,6 +67,8 @@ export interface TokenPaymentOption {
   amountInToken: string; // Amount in token's smallest unit
   amountInTokenHumanReadable: string; // Human-readable token amount
   creditsToTopUp?: number;
+  // See TopUpOption.packageId — same purpose for token-denominated options.
+  packageId?: string;
   // Discount info
   discountPercent?: number; // e.g., 10 = 10% discount
   originalAmountInUSD?: string; // Pre-discount price
