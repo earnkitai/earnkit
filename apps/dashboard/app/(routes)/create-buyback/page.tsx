@@ -49,10 +49,23 @@ interface MiniExecution {
 }
 
 const statusConfig: Record<string, { label: string; class: string }> = {
-  PROVISIONING: { label: 'Provisioning', class: 'text-black/40 border-black/30 bg-black/4' },
-  PENDING_SPLIT_UPDATE: { label: 'Pending', class: 'text-secondary-orange border-secondary-orange bg-secondary-orange/10' },
-  ACTIVE: { label: 'Active', class: 'text-secondary-green border-secondary-green bg-secondary-green/10' },
-  PAUSED: { label: 'Paused', class: 'text-black/40 border-black/30 bg-black/4' },
+  PROVISIONING: {
+    label: 'Provisioning',
+    class: 'text-black/40 border-black/30 bg-black/4',
+  },
+  PENDING_SPLIT_UPDATE: {
+    label: 'Pending',
+    class:
+      'text-secondary-orange border-secondary-orange bg-secondary-orange/10',
+  },
+  ACTIVE: {
+    label: 'Active',
+    class: 'text-secondary-green border-secondary-green bg-secondary-green/10',
+  },
+  PAUSED: {
+    label: 'Paused',
+    class: 'text-black/40 border-black/30 bg-black/4',
+  },
   BROKEN: { label: 'Broken', class: 'text-red-600 border-red-300 bg-red-50' },
 };
 
@@ -68,7 +81,9 @@ export default function CreateBuybackPage() {
   // --- Platform Config (fetched from backend) ---
   const [platformFeeRateBps, setPlatformFeeRateBps] = useState<number>(100);
   const [minThresholdUsd, setMinThresholdUsd] = useState<number>(10);
-  const platformFeePercent = (platformFeeRateBps / 100).toFixed(1).replace(/\.0$/, '');
+  const platformFeePercent = (platformFeeRateBps / 100)
+    .toFixed(1)
+    .replace(/\.0$/, '');
 
   useEffect(() => {
     fetch('/api/platform-config')
@@ -103,12 +118,19 @@ export default function CreateBuybackPage() {
   const [detection, setDetection] = useState<DetectionResult | null>(null);
 
   // --- Common Result States ---
-  const [result, setResult] = useState<{ walletAddress: string; instructions?: string; instruction?: string; configId?: string } | null>(null);
+  const [result, setResult] = useState<{
+    walletAddress: string;
+    instructions?: string;
+    instruction?: string;
+    configId?: string;
+  } | null>(null);
 
   // --- Bottom Preview + Stats ---
   const [previewConfigIds, setPreviewConfigIds] = useState<string[]>([]);
   const [previewConfigs, setPreviewConfigs] = useState<MiniConfig[]>([]);
-  const [previewExecutions, setPreviewExecutions] = useState<MiniExecution[]>([]);
+  const [previewExecutions, setPreviewExecutions] = useState<MiniExecution[]>(
+    [],
+  );
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
@@ -129,39 +151,61 @@ export default function CreateBuybackPage() {
           const res = await fetch(`/api/shared-buyback/${id}`);
           if (!res.ok) return null;
           const d = await res.json();
-          return { id, tokenSymbol: d.tokenSymbol, status: d.status, splitAddress: d.splitAddress, lastTriggeredAt: d.lastTriggeredAt } as MiniConfig;
-        } catch { return null; }
+          return {
+            id,
+            tokenSymbol: d.tokenSymbol,
+            status: d.status,
+            splitAddress: d.splitAddress,
+            lastTriggeredAt: d.lastTriggeredAt,
+          } as MiniConfig;
+        } catch {
+          return null;
+        }
+      }),
+    )
+      .then(async (configs) => {
+        const valid = configs.filter(Boolean) as MiniConfig[];
+        setPreviewConfigs(valid);
+
+        const execResults = await Promise.all(
+          valid.map(async (cfg) => {
+            try {
+              const res = await fetch(
+                `/api/shared-buyback/${cfg.id}/executions`,
+              );
+              if (!res.ok) return [];
+              const d = await res.json();
+              return (d.executions ?? [])
+                .filter((e: { status: string }) => e.status === 'COMPLETED')
+                .map(
+                  (e: {
+                    id: string;
+                    status: string;
+                    triggerBalanceUsd: number;
+                    startedAt: string;
+                  }) => ({
+                    configId: cfg.id,
+                    tokenSymbol: cfg.tokenSymbol,
+                    id: e.id,
+                    status: e.status,
+                    triggerBalanceUsd: e.triggerBalanceUsd,
+                    startedAt: e.startedAt,
+                  }),
+                );
+            } catch {
+              return [];
+            }
+          }),
+        );
+
+        const allCompleted = (execResults.flat() as MiniExecution[]).sort(
+          (a, b) =>
+            new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+        );
+
+        setPreviewExecutions(allCompleted.slice(0, 4));
       })
-    ).then(async (configs) => {
-      const valid = configs.filter(Boolean) as MiniConfig[];
-      setPreviewConfigs(valid);
-
-      const execResults = await Promise.all(
-        valid.map(async (cfg) => {
-          try {
-            const res = await fetch(`/api/shared-buyback/${cfg.id}/executions`);
-            if (!res.ok) return [];
-            const d = await res.json();
-            return (d.executions ?? [])
-              .filter((e: { status: string }) => e.status === 'COMPLETED')
-              .map((e: { id: string; status: string; triggerBalanceUsd: number; startedAt: string }) => ({
-                configId: cfg.id,
-                tokenSymbol: cfg.tokenSymbol,
-                id: e.id,
-                status: e.status,
-                triggerBalanceUsd: e.triggerBalanceUsd,
-                startedAt: e.startedAt,
-              }));
-          } catch { return []; }
-        })
-      );
-
-      const allCompleted = (execResults.flat() as MiniExecution[]).sort(
-        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-      );
-
-      setPreviewExecutions(allCompleted.slice(0, 4));
-    }).finally(() => setPreviewLoading(false));
+      .finally(() => setPreviewLoading(false));
   }, [previewConfigIds]);
 
   const isAddress = (val: string) => ADDRESS_RE.test(val.trim());
@@ -173,11 +217,26 @@ export default function CreateBuybackPage() {
     };
 
   const handleRegisterShared = async () => {
-    if (!isAddress(sharedForm.ownerAddress)) { toast.error('Owner address is not a valid 0x address'); return; }
-    if (!isAddress(sharedForm.splitAddress)) { toast.error('Split address is not a valid 0x address'); return; }
-    if (!isAddress(sharedForm.targetToken)) { toast.error('Target token is not a valid 0x address'); return; }
-    if (!isAddress(sharedForm.recoveryAddress)) { toast.error('Recovery address is not a valid 0x address'); return; }
-    if (!sharedForm.userEmail.includes('@')) { toast.error('Enter a valid email address'); return; }
+    if (!isAddress(sharedForm.ownerAddress)) {
+      toast.error('Owner address is not a valid 0x address');
+      return;
+    }
+    if (!isAddress(sharedForm.splitAddress)) {
+      toast.error('Split address is not a valid 0x address');
+      return;
+    }
+    if (!isAddress(sharedForm.targetToken)) {
+      toast.error('Target token is not a valid 0x address');
+      return;
+    }
+    if (!isAddress(sharedForm.recoveryAddress)) {
+      toast.error('Recovery address is not a valid 0x address');
+      return;
+    }
+    if (!sharedForm.userEmail.includes('@')) {
+      toast.error('Enter a valid email address');
+      return;
+    }
 
     setStep('provisioning');
     try {
@@ -194,15 +253,24 @@ export default function CreateBuybackPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || 'Registration failed'); setStep('form'); return; }
+      if (!res.ok) {
+        toast.error(data.error || 'Registration failed');
+        setStep('form');
+        return;
+      }
       if (data.configId) {
         try {
           const raw = localStorage.getItem(SHARED_STORAGE_KEY);
           const existing: string[] = raw ? JSON.parse(raw) : [];
           if (!existing.includes(data.configId)) {
-            localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify([...existing, data.configId]));
+            localStorage.setItem(
+              SHARED_STORAGE_KEY,
+              JSON.stringify([...existing, data.configId]),
+            );
           }
-          setPreviewConfigIds((prev) => prev.includes(data.configId) ? prev : [...prev, data.configId]);
+          setPreviewConfigIds((prev) =>
+            prev.includes(data.configId) ? prev : [...prev, data.configId],
+          );
         } catch {}
       }
       setResult(data);
@@ -222,10 +290,13 @@ export default function CreateBuybackPage() {
 
   function validateToken() {
     const errs: Partial<typeof tokenForm> = {};
-    if (!isAddress(tokenForm.tokenContractAddress)) errs.tokenContractAddress = 'Invalid address';
+    if (!isAddress(tokenForm.tokenContractAddress))
+      errs.tokenContractAddress = 'Invalid address';
     if (!isAddress(tokenForm.targetToken)) errs.targetToken = 'Invalid address';
-    if (!isAddress(tokenForm.ownerAddress)) errs.ownerAddress = 'Invalid address';
-    if (!isAddress(tokenForm.recoveryAddress)) errs.recoveryAddress = 'Invalid address';
+    if (!isAddress(tokenForm.ownerAddress))
+      errs.ownerAddress = 'Invalid address';
+    if (!isAddress(tokenForm.recoveryAddress))
+      errs.recoveryAddress = 'Invalid address';
     if (!tokenForm.userEmail.includes('@')) errs.userEmail = 'Invalid email';
     const thr = Number(tokenForm.thresholdUsd);
     if (isNaN(thr) || thr <= 0) errs.thresholdUsd = 'Must be > 0';
@@ -235,7 +306,10 @@ export default function CreateBuybackPage() {
 
   const handleDetectToken = async () => {
     if (!isAddress(tokenForm.tokenContractAddress)) {
-      setTokenErrors((e) => ({ ...e, tokenContractAddress: 'Invalid address' }));
+      setTokenErrors((e) => ({
+        ...e,
+        tokenContractAddress: 'Invalid address',
+      }));
       return;
     }
     setStep('detecting');
@@ -243,10 +317,16 @@ export default function CreateBuybackPage() {
       const res = await fetch('/api/token-buyback/detect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenContractAddress: tokenForm.tokenContractAddress }),
+        body: JSON.stringify({
+          tokenContractAddress: tokenForm.tokenContractAddress,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || 'Detection failed'); setStep('form'); return; }
+      if (!res.ok) {
+        toast.error(data.error || 'Detection failed');
+        setStep('form');
+        return;
+      }
       setDetection(data);
     } catch {
       toast.error('Detection failed');
@@ -272,7 +352,11 @@ export default function CreateBuybackPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { toast.error(data.error || 'Registration failed'); setStep('form'); return; }
+      if (!res.ok) {
+        toast.error(data.error || 'Registration failed');
+        setStep('form');
+        return;
+      }
       setResult(data);
       setStep('ready');
     } catch {
@@ -314,18 +398,24 @@ export default function CreateBuybackPage() {
         </h1>
 
         <p className="text-black/50 font-funnel-sans mt-2">
-          {view === 'selection' && 'Select the type of buyback integration you want to set up.'}
-          {view === 'shared' && step === 'form' && `Connect your existing split to an automated buyback. A ${platformFeePercent}% platform fee applies per execution.`}
-          {view === 'token' && step === 'form' && "Provision a buyback wallet for your token contract's fee revenue."}
-          {step === 'provisioning' && 'Creating your Turnkey-managed buyback wallet. This takes a few seconds.'}
-          {step === 'ready' && 'Add the wallet address below to your contract/split to activate buyback.'}
+          {view === 'selection' &&
+            'Select the type of buyback integration you want to set up.'}
+          {view === 'shared' &&
+            step === 'form' &&
+            `Connect your existing split to an automated buyback. A ${platformFeePercent}% platform fee applies per execution.`}
+          {view === 'token' &&
+            step === 'form' &&
+            "Provision a buyback wallet for your token contract's fee revenue."}
+          {step === 'provisioning' &&
+            'Creating your Turnkey-managed buyback wallet. This takes a few seconds.'}
+          {step === 'ready' &&
+            'Add the wallet address below to your contract/split to activate buyback.'}
         </p>
       </div>
 
       {/* View 1: Selection */}
       {view === 'selection' && (
         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
-
           {/* Type Cards */}
           <div className="flex flex-col gap-4">
             <button
@@ -334,10 +424,13 @@ export default function CreateBuybackPage() {
             >
               <div className="flex items-center gap-2 mb-2">
                 <Flame className="w-5 h-5 text-secondary-orange" />
-                <span className="text-lg font-funnel-sans font-semibold text-black">Splits Buyback</span>
+                <span className="text-lg font-funnel-sans font-semibold text-black">
+                  Splits Buyback
+                </span>
               </div>
               <span className="text-sm text-black/40 font-funnel-sans leading-relaxed">
-                Add your existing splits contract and we handle everything else for the buyback.
+                Add your existing splits contract and we handle everything else
+                for the buyback.
               </span>
             </button>
 
@@ -351,86 +444,99 @@ export default function CreateBuybackPage() {
           </div>
 
           {/* Bottom Preview — only render columns that have data */}
-          {previewConfigIds.length > 0 && !previewLoading && (previewConfigs.length > 0 || previewExecutions.length > 0) && (
-            <div className="border-t border-black/10 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Splits Setup Column */}
-              {previewConfigs.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-xs font-semibold font-funnel-sans text-black/50 uppercase tracking-wide">
-                    Your Buybacks
-                  </h2>
-                  <Link
-                    href="/shared-buyback"
-                    className="flex items-center gap-0.5 text-xs text-black/40 hover:text-black font-funnel-sans transition-colors"
-                  >
-                    View all <ChevronRight className="w-3 h-3" />
-                  </Link>
-                </div>
-                <div className="space-y-2">
-                  {previewConfigs.map((cfg) => {
-                    const sc = statusConfig[cfg.status] ?? statusConfig.PAUSED;
-                    return (
-                      <div
-                        key={cfg.id}
-                        className="flex items-center justify-between gap-3 bg-black/[0.02] border border-black/[0.06] rounded-[12px] px-3 py-2.5"
+          {previewConfigIds.length > 0 &&
+            !previewLoading &&
+            (previewConfigs.length > 0 || previewExecutions.length > 0) && (
+              <div className="border-t border-black/10 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Splits Setup Column */}
+                {previewConfigs.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-xs font-semibold font-funnel-sans text-black/50 uppercase tracking-wide">
+                        Your Buybacks
+                      </h2>
+                      <Link
+                        href="/shared-buyback"
+                        className="flex items-center gap-0.5 text-xs text-black/40 hover:text-black font-funnel-sans transition-colors"
                       >
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-black font-funnel-sans truncate">
-                            {cfg.tokenSymbol || '—'}
-                          </p>
-                          <p className="text-[11px] text-black/30 font-mono mt-0.5">
-                            {truncate(cfg.splitAddress)}
+                        View all <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                    <div className="space-y-2">
+                      {previewConfigs.map((cfg) => {
+                        const sc =
+                          statusConfig[cfg.status] ?? statusConfig.PAUSED;
+                        return (
+                          <div
+                            key={cfg.id}
+                            className="flex items-center justify-between gap-3 bg-black/[0.02] border border-black/[0.06] rounded-[12px] px-3 py-2.5"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-black font-funnel-sans truncate">
+                                {cfg.tokenSymbol || '—'}
+                              </p>
+                              <p className="text-[11px] text-black/30 font-mono mt-0.5">
+                                {truncate(cfg.splitAddress)}
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-funnel-sans font-medium shrink-0 ${sc.class}`}
+                            >
+                              {sc.label}
+                            </Badge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Buybacks Column */}
+                {previewExecutions.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-xs font-semibold font-funnel-sans text-black/50 uppercase tracking-wide">
+                        Recent Buybacks
+                      </h2>
+                      <Link
+                        href="/executions"
+                        className="flex items-center gap-0.5 text-xs text-black/40 hover:text-black font-funnel-sans transition-colors"
+                      >
+                        View all <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                    <div className="space-y-2">
+                      {previewExecutions.map((exec) => (
+                        <div
+                          key={exec.id}
+                          className="flex items-center justify-between gap-3 bg-black/[0.02] border border-black/[0.06] rounded-[12px] px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-black font-funnel-sans">
+                              {exec.tokenSymbol}
+                            </p>
+                            <p className="text-[11px] text-black/30 font-funnel-sans mt-0.5">
+                              {new Date(exec.startedAt).toLocaleDateString(
+                                undefined,
+                                {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                },
+                              )}
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold text-secondary-green font-funnel-sans shrink-0">
+                            ${exec.triggerBalanceUsd.toFixed(2)}
                           </p>
                         </div>
-                        <Badge variant="outline" className={`text-[10px] font-funnel-sans font-medium shrink-0 ${sc.class}`}>
-                          {sc.label}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              )}
-
-              {/* Recent Buybacks Column */}
-              {previewExecutions.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-xs font-semibold font-funnel-sans text-black/50 uppercase tracking-wide">
-                    Recent Buybacks
-                  </h2>
-                  <Link
-                    href="/executions"
-                    className="flex items-center gap-0.5 text-xs text-black/40 hover:text-black font-funnel-sans transition-colors"
-                  >
-                    View all <ChevronRight className="w-3 h-3" />
-                  </Link>
-                </div>
-                <div className="space-y-2">
-                  {previewExecutions.map((exec) => (
-                    <div
-                      key={exec.id}
-                      className="flex items-center justify-between gap-3 bg-black/[0.02] border border-black/[0.06] rounded-[12px] px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-black font-funnel-sans">
-                          {exec.tokenSymbol}
-                        </p>
-                        <p className="text-[11px] text-black/30 font-funnel-sans mt-0.5">
-                          {new Date(exec.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </p>
-                      </div>
-                      <p className="text-sm font-semibold text-secondary-green font-funnel-sans shrink-0">
-                        ${exec.triggerBalanceUsd.toFixed(2)}
-                      </p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
+                )}
               </div>
-              )}
-            </div>
-          )}
+            )}
         </div>
       )}
 
@@ -447,7 +553,9 @@ export default function CreateBuybackPage() {
               onChange={handleSharedField('ownerAddress')}
               className="font-mono text-sm"
             />
-            <p className="text-xs text-black/40 font-funnel-sans">The Safe that controls your split.</p>
+            <p className="text-xs text-black/40 font-funnel-sans">
+              The Safe that controls your split.
+            </p>
           </div>
 
           <div className="space-y-1">
@@ -460,7 +568,9 @@ export default function CreateBuybackPage() {
               onChange={handleSharedField('splitAddress')}
               className="font-mono text-sm"
             />
-            <p className="text-xs text-black/40 font-funnel-sans">The 0xSplits V2 contract already deployed on Base.</p>
+            <p className="text-xs text-black/40 font-funnel-sans">
+              The 0xSplits V2 contract already deployed on Base.
+            </p>
           </div>
 
           <div className="space-y-1">
@@ -479,18 +589,24 @@ export default function CreateBuybackPage() {
           </div>
 
           <div className="space-y-1">
-            <Label className="text-sm font-semibold text-black font-funnel-sans">Recovery address</Label>
+            <Label className="text-sm font-semibold text-black font-funnel-sans">
+              Recovery address
+            </Label>
             <Input
               placeholder="0x…"
               value={sharedForm.recoveryAddress}
               onChange={handleSharedField('recoveryAddress')}
               className="font-mono text-sm"
             />
-            <p className="text-xs text-black/40 font-funnel-sans">Emergency sweep destination — your own EOA.</p>
+            <p className="text-xs text-black/40 font-funnel-sans">
+              Emergency sweep destination — your own EOA.
+            </p>
           </div>
 
           <div className="space-y-1">
-            <Label className="text-sm font-semibold text-black font-funnel-sans">Your email</Label>
+            <Label className="text-sm font-semibold text-black font-funnel-sans">
+              Your email
+            </Label>
             <Input
               type="email"
               placeholder="you@example.com"
@@ -562,7 +678,9 @@ export default function CreateBuybackPage() {
               </Button>
             </div>
             {tokenErrors.tokenContractAddress && (
-              <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.tokenContractAddress}</p>
+              <p className="text-xs text-red-500 font-funnel-sans">
+                {tokenErrors.tokenContractAddress}
+              </p>
             )}
             {detection && (
               <div className="bg-black/4 border border-black/10 rounded-lg px-4 py-3 text-sm font-funnel-sans mt-2 space-y-1">
@@ -570,20 +688,27 @@ export default function CreateBuybackPage() {
                   <>
                     <p className="text-black/70">
                       Detected:{' '}
-                      <span className="font-mono text-black">{detection.getterName}()</span>
+                      <span className="font-mono text-black">
+                        {detection.getterName}()
+                      </span>
                     </p>
                     <p className="text-black/50">
                       Current:{' '}
-                      <span className="font-mono">{detection.currentRecipient?.slice(0, 10)}…</span>
+                      <span className="font-mono">
+                        {detection.currentRecipient?.slice(0, 10)}…
+                      </span>
                     </p>
                     <p className="text-black/60">
                       You&apos;ll call:{' '}
-                      <span className="font-mono text-black">{detection.setterName}(&lt;wallet&gt;)</span>
+                      <span className="font-mono text-black">
+                        {detection.setterName}(&lt;wallet&gt;)
+                      </span>
                     </p>
                   </>
                 ) : (
                   <p className="text-black/50">
-                    No standard fee recipient getter detected — you&apos;ll receive generic instructions after provisioning.
+                    No standard fee recipient getter detected — you&apos;ll
+                    receive generic instructions after provisioning.
                   </p>
                 )}
               </div>
@@ -601,13 +726,17 @@ export default function CreateBuybackPage() {
               className="font-mono text-sm"
             />
             {tokenErrors.targetToken && (
-              <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.targetToken}</p>
+              <p className="text-xs text-red-500 font-funnel-sans">
+                {tokenErrors.targetToken}
+              </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-black font-funnel-sans">Your Wallet (Owner)</Label>
+              <Label className="text-sm font-semibold text-black font-funnel-sans">
+                Your Wallet (Owner)
+              </Label>
               <Input
                 placeholder="0x…"
                 value={tokenForm.ownerAddress}
@@ -615,11 +744,15 @@ export default function CreateBuybackPage() {
                 className="font-mono text-sm"
               />
               {tokenErrors.ownerAddress && (
-                <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.ownerAddress}</p>
+                <p className="text-xs text-red-500 font-funnel-sans">
+                  {tokenErrors.ownerAddress}
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-black font-funnel-sans">Recovery Address</Label>
+              <Label className="text-sm font-semibold text-black font-funnel-sans">
+                Recovery Address
+              </Label>
               <Input
                 placeholder="0x…"
                 value={tokenForm.recoveryAddress}
@@ -627,13 +760,17 @@ export default function CreateBuybackPage() {
                 className="font-mono text-sm"
               />
               {tokenErrors.recoveryAddress && (
-                <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.recoveryAddress}</p>
+                <p className="text-xs text-red-500 font-funnel-sans">
+                  {tokenErrors.recoveryAddress}
+                </p>
               )}
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sm font-semibold text-black font-funnel-sans">Email (Turnkey authenticator)</Label>
+            <Label className="text-sm font-semibold text-black font-funnel-sans">
+              Email (Turnkey authenticator)
+            </Label>
             <Input
               type="email"
               placeholder="you@example.com"
@@ -642,12 +779,16 @@ export default function CreateBuybackPage() {
               className="text-sm"
             />
             {tokenErrors.userEmail && (
-              <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.userEmail}</p>
+              <p className="text-xs text-red-500 font-funnel-sans">
+                {tokenErrors.userEmail}
+              </p>
             )}
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sm font-semibold text-black font-funnel-sans">Trigger Threshold (USD)</Label>
+            <Label className="text-sm font-semibold text-black font-funnel-sans">
+              Trigger Threshold (USD)
+            </Label>
             <Input
               type="number"
               min="1"
@@ -656,13 +797,17 @@ export default function CreateBuybackPage() {
               className="text-sm"
             />
             {tokenErrors.thresholdUsd && (
-              <p className="text-xs text-red-500 font-funnel-sans">{tokenErrors.thresholdUsd}</p>
+              <p className="text-xs text-red-500 font-funnel-sans">
+                {tokenErrors.thresholdUsd}
+              </p>
             )}
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
             <p className="text-sm text-amber-800 font-funnel-sans">
-              <span className="font-bold">Push-based only.</span> The buyback wallet must receive fees directly. Claim-based patterns are not supported.
+              <span className="font-bold">Push-based only.</span> The buyback
+              wallet must receive fees directly. Claim-based patterns are not
+              supported.
             </p>
           </div>
 
@@ -689,7 +834,9 @@ export default function CreateBuybackPage() {
         <div className="flex flex-col items-center justify-center py-20 gap-6 animate-in fade-in duration-500">
           <Loader2 className="w-12 h-12 animate-spin text-black/40" />
           <p className="text-lg text-black/60 font-funnel-sans font-medium">
-            {step === 'detecting' ? 'Detecting fee pattern…' : 'Setting up your Turnkey buyback wallet…'}
+            {step === 'detecting'
+              ? 'Detecting fee pattern…'
+              : 'Setting up your Turnkey buyback wallet…'}
           </p>
         </div>
       )}
@@ -702,7 +849,8 @@ export default function CreateBuybackPage() {
               Buyback wallet ready
             </p>
             <p className="text-sm text-black/60 font-funnel-sans mt-1">
-              Your buyback wallet has been created. Add it to your split to start automating buybacks.
+              Your buyback wallet has been created. Add it to your split to
+              start automating buybacks.
             </p>
           </div>
 
@@ -711,7 +859,9 @@ export default function CreateBuybackPage() {
               Buyback Wallet Address
             </p>
             <div className="flex items-center gap-3 bg-black/[0.03] rounded-[14px] px-4 py-3 border border-black/10">
-              <span className="font-mono text-sm text-black flex-1 break-all">{result.walletAddress}</span>
+              <span className="font-mono text-sm text-black flex-1 break-all">
+                {result.walletAddress}
+              </span>
               <button
                 onClick={() => handleCopy(result.walletAddress)}
                 className="shrink-0 p-2 rounded-lg hover:bg-black/10 transition-colors"
@@ -726,7 +876,9 @@ export default function CreateBuybackPage() {
           </div>
 
           <div className="bg-[#FFF8F3] border border-[#FFD8B8] rounded-[20px] p-5 space-y-2">
-            <p className="text-sm font-semibold text-[#CC5500] font-funnel-sans">What to do next</p>
+            <p className="text-sm font-semibold text-[#CC5500] font-funnel-sans">
+              What to do next
+            </p>
             <p className="text-sm text-black/70 font-funnel-sans leading-relaxed">
               {result.instructions || result.instruction}
             </p>
