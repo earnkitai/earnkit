@@ -36,7 +36,7 @@ export class BalanceService {
         data: {
           userWalletAddress: walletAddress,
           agentId: agent.id,
-          creditBalance: BigInt(30),
+          creditBalance: BigInt(10),
           ethBalance: 0,
         },
       });
