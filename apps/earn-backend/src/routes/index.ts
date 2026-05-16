@@ -14,7 +14,6 @@ import provisionBuybackRoutes from './internal/provisionBuyback';
 import activateBuybackRoutes from './internal/activateBuyback';
 import buybackRoutes from './buyback';
 import sharedBuybackRoutes from './sharedBuyback';
-import tokenBuybackRoutes from './tokenBuyback';
 
 const router: Router = Router();
 
@@ -38,7 +37,6 @@ router.use('/payment-intents', paymentIntentRoutes);
 router.use('/agents/:agentId/token-config', tokenConfigRoutes);
 router.use('/agents/:agentId/buyback', buybackRoutes);
 router.use('/shared-buyback', sharedBuybackRoutes);
-router.use('/token-buyback', tokenBuybackRoutes);
 router.use('/webhooks', webhookRoutes);
 
 // Debug routes — require ADMIN_API_KEY header regardless of environment

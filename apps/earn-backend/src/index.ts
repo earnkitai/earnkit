@@ -6,12 +6,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import { startTopUpVerificationWorker } from './workers/topUpVerificationWorker';
-import { startPaymentIntentVerifierWorker } from './workers/paymentIntentVerifierWorker';
-import { startWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
-import { startBuybackExecutorWorker } from './workers/buybackExecutorWorker';
-import { startSharedSplitBuybackWorker } from './workers/sharedSplitBuybackWorker';
-import { startTokenBuybackWorker } from './workers/tokenBuybackWorker';
+import { startTopUpVerificationWorker, stopTopUpVerificationWorker } from './workers/topUpVerificationWorker';
+import { startPaymentIntentVerifierWorker, stopPaymentIntentVerifierWorker } from './workers/paymentIntentVerifierWorker';
+import { startWebhookDeliveryWorker, stopWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
+import { startBuybackExecutorWorker, stopBuybackExecutorWorker } from './workers/buybackExecutorWorker';
+import { startSharedSplitBuybackWorker, stopSharedSplitBuybackWorker } from './workers/sharedSplitBuybackWorker';
 import { logOperatorWalletStatus } from './lib/operatorGas';
 
 // Load environment variables — explicit path so it works regardless of CWD
@@ -84,26 +83,44 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`EarnKit Backend API running on port ${PORT}`);
   startTopUpVerificationWorker();
   startPaymentIntentVerifierWorker();
   startWebhookDeliveryWorker();
   startBuybackExecutorWorker();
   startSharedSplitBuybackWorker();
-  startTokenBuybackWorker();
   logOperatorWalletStatus().catch(() => {});
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
+// Graceful shutdown — see docs/06_RELIABILITY_FIXES_2026_05_14.md §7.
+const SHUTDOWN_GRACE_MS = parseInt(process.env.SHUTDOWN_GRACE_MS ?? '15000', 10);
+let shuttingDown = false;
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[${signal}] graceful shutdown starting (grace ${SHUTDOWN_GRACE_MS}ms)`);
+
+  // Stop new work entering the workers.
+  try { stopTopUpVerificationWorker(); } catch (e) { console.error('stop topUp:', e); }
+  try { stopPaymentIntentVerifierWorker(); } catch (e) { console.error('stop PIVerifier:', e); }
+  try { stopWebhookDeliveryWorker(); } catch (e) { console.error('stop webhook:', e); }
+  try { stopBuybackExecutorWorker(); } catch (e) { console.error('stop buyback exec:', e); }
+  try { stopSharedSplitBuybackWorker(); } catch (e) { console.error('stop sharedSplit:', e); }
+
+  // Stop accepting new HTTP connections; existing requests drain.
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  // Best-effort: let in-flight worker tasks finish. We cannot await them
+  // directly (the workers don't expose a barrier), so we time-box.
+  await new Promise((r) => setTimeout(r, SHUTDOWN_GRACE_MS));
+
+  console.log(`[${signal}] graceful shutdown complete`);
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
 
 export default app;

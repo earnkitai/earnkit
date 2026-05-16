@@ -2,16 +2,59 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { User, Settings, LogOut, House, PanelLeft } from 'lucide-react';
+import { User, Settings, LogOut, House, PanelLeft, Wallet, Power } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { findUserById } from '@/actions/user';
 import { Icons } from '../sections/icons';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useConnectWallet, useWallets } from '@privy-io/react-auth';
+import { toast } from 'sonner';
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { ready, authenticated, user: privyUser, logout } = usePrivy();
+  const { connectWallet } = useConnectWallet();
+  const { wallets } = useWallets();
+
+  // We only care about the injected (browser-extension) wallet — that's the
+  // one used to sign buyback actions in CreateSection. Privy can also surface
+  // embedded/social wallets, but those don't need a "connect" affordance.
+  const injectedWallet = wallets.find((w) => w.connectorType === 'injected');
+  const walletAddress = injectedWallet?.address ?? null;
+  const truncatedWallet = walletAddress
+    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    : null;
+
+  const handleConnectWallet = () => connectWallet();
+  const handleDisconnectWallet = async () => {
+    // Privy v2 declares disconnect() on ConnectedWallet but explicitly no-ops
+    // for MetaMask/Phantom (see node_modules/@privy-io/react-auth dts:750).
+    // We try both: unlink() removes the wallet from the Privy user record
+    // (only if linked), disconnect() severs the connector session where the
+    // wallet supports it. For MM, neither truly disconnects — the wallet
+    // extension owns that state. Surface that honestly to the user.
+    let acted = false;
+    try {
+      if (injectedWallet?.linked) {
+        await injectedWallet.unlink();
+        acted = true;
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      injectedWallet?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    if (acted) {
+      toast.success('Wallet unlinked from your account');
+    } else {
+      toast.message(
+        'Your wallet extension controls connection. Disconnect this site from your wallet (MetaMask → Connected sites) to fully sever.',
+      );
+    }
+  };
 
   const [isHovered, setIsHovered] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -173,6 +216,38 @@ export default function Sidebar() {
 
         {/* Profile Section */}
         <div className="p-3 relative">
+          {/* Wallet row — only when sidebar is open. Collapsed state shows a
+              status dot on the avatar instead. */}
+          {isOpen && ready && authenticated && (
+            <div className="mb-2">
+              {walletAddress ? (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-black/[0.03] border border-black/5 rounded-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-xs font-mono text-black/70 truncate">
+                      {truncatedWallet}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleDisconnectWallet}
+                    title="Disconnect wallet"
+                    className="text-black/30 hover:text-black/70 transition-colors shrink-0"
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleConnectWallet}
+                  className="w-full px-3 py-2 text-xs font-semibold text-white bg-black rounded-lg hover:bg-black/80 transition-colors flex items-center justify-center gap-2 font-funnel-sans"
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  Connect Wallet
+                </button>
+              )}
+            </div>
+          )}
+
           {isProfileMenuOpen && (
             <div
               className={`absolute bg-white border border-black/10 rounded-2xl shadow-xl py-2 z-[60] transition-all duration-200 animate-in fade-in slide-in-from-bottom-2
@@ -215,8 +290,14 @@ export default function Sidebar() {
               ${!isOpen ? 'justify-center' : ''}`}
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
           >
-            <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center shrink-0 border border-black/5 group-hover:border-black/10">
+            <div className="relative w-8 h-8 rounded-full bg-black/5 flex items-center justify-center shrink-0 border border-black/5 group-hover:border-black/10">
               <User className="w-4 h-4 text-black/40 group-hover:text-black transition-colors" />
+              {walletAddress && (
+                <span
+                  title="Wallet connected"
+                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white"
+                />
+              )}
             </div>
 
             {isOpen && (

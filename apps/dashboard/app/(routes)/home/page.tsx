@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/app/components/ui/card';
 import { Badge } from '@/app/components/ui/badge';
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { Plus, Flame } from 'lucide-react';
 
 function AddAppCard() {
   return (
@@ -46,6 +46,15 @@ interface Totals {
   topUpEarnings: number;
 }
 
+interface BuybackConfig {
+  id: string;
+  tokenSymbol: string;
+  status: string;
+  splitAddress: string | null;
+  walletAddress: string | null;
+  totalBoughtBackUsd: number;
+}
+
 export default function HomePage() {
   const { ready, authenticated, user: privyUser } = usePrivy();
   const router = useRouter();
@@ -58,6 +67,10 @@ export default function HomePage() {
   const [totalBuybackedUsd, setTotalBuybackedUsd] = useState<number | null>(
     null,
   );
+  // Buyback configs hydrated from localStorage IDs → backend details. Lives
+  // alongside the legacy `agents` list in the same grid; doesn't block the
+  // initial render (the page is still gated on the agents fetch only).
+  const [buybacks, setBuybacks] = useState<BuybackConfig[]>([]);
 
   useEffect(() => {
     if (ready && authenticated && privyUser) {
@@ -110,6 +123,79 @@ export default function HomePage() {
     };
 
     loadBuybackData();
+  }, []);
+
+  // Hydrate full buyback configs for the grid. Independent of the totals
+  // effect above so a slow individual config doesn't hold up the others.
+  //
+  // We read TWO localStorage keys for backwards compatibility:
+  //   - `earnkit_shared_buyback_configs` — both the Splits-card flow and the
+  //     unified Token-card flow write here (post-unification).
+  //   - `earnkit_token_buyback_configs` — legacy key from pre-unification
+  //     Token-card runs. Most of those IDs reference dropped DB rows now and
+  //     will 404; we tolerate that silently.
+  // Configs are deduped by ID. Failed fetches drop out so dead references
+  // don't render empty cards.
+  useEffect(() => {
+    const loadBuybackCards = async () => {
+      try {
+        const readKey = (k: string): string[] => {
+          try {
+            const raw = localStorage.getItem(k);
+            return raw ? (JSON.parse(raw) as string[]) : [];
+          } catch {
+            return [];
+          }
+        };
+        const shared = readKey('earnkit_shared_buyback_configs');
+        const legacyToken = readKey('earnkit_token_buyback_configs');
+        const configIds = Array.from(new Set([...shared, ...legacyToken]));
+        if (configIds.length === 0) {
+          setBuybacks([]);
+          return;
+        }
+
+        const cards = await Promise.all(
+          configIds.map(async (id): Promise<BuybackConfig | null> => {
+            try {
+              const [cfgRes, execRes] = await Promise.all([
+                fetch(`/api/shared-buyback/${id}`),
+                fetch(`/api/shared-buyback/${id}/executions`),
+              ]);
+              if (!cfgRes.ok) return null;
+              const cfg = await cfgRes.json();
+              const execData = execRes.ok
+                ? await execRes.json()
+                : { executions: [] };
+              const total = (
+                (execData.executions ?? []) as Array<{
+                  status: string;
+                  triggerBalanceUsd: number;
+                }>
+              )
+                .filter((e) => e.status === 'COMPLETED')
+                .reduce((sum, e) => sum + (e.triggerBalanceUsd ?? 0), 0);
+
+              return {
+                id: cfg.id,
+                tokenSymbol: cfg.tokenSymbol ?? '—',
+                status: cfg.status,
+                splitAddress: cfg.splitAddress,
+                walletAddress: cfg.walletAddress,
+                totalBoughtBackUsd: total,
+              };
+            } catch {
+              return null;
+            }
+          }),
+        );
+        setBuybacks(cards.filter((c): c is BuybackConfig => c !== null));
+      } catch {
+        setBuybacks([]);
+      }
+    };
+
+    loadBuybackCards();
   }, []);
 
   useEffect(() => {
@@ -202,6 +288,9 @@ export default function HomePage() {
           {agents.map((agent) => (
             <AgentCard key={agent.id} agent={agent} />
           ))}
+          {buybacks.map((b) => (
+            <BuybackCard key={b.id} buyback={b} />
+          ))}
         </div>
       </div>
       {/* )} */}
@@ -218,7 +307,7 @@ export default function HomePage() {
             </p>
           </div>
           <Link
-            href="/create-buyback"
+            href="/create"
             className="flex items-center gap-2 border border-black/15 text-black/60 hover:text-black rounded-full px-4 py-2 text-sm font-funnel-sans transition-colors"
           >
             New Buyback
@@ -358,6 +447,81 @@ function StatCard({
   );
 }
 
+function BuybackCard({ buyback }: { buyback: BuybackConfig }) {
+  const isActive = buyback.status === 'ACTIVE';
+  // Map backend SharedSplitStatus to display label + tone. Statuses other
+  // than ACTIVE are intentionally muted so the user's eye lands on the
+  // active configs first.
+  const statusMeta: Record<string, { label: string; tone: 'green' | 'amber' | 'gray' | 'red' }> = {
+    ACTIVE: { label: 'Active', tone: 'green' },
+    PENDING_SPLIT_UPDATE: { label: 'Pending', tone: 'amber' },
+    PROVISIONING: { label: 'Provisioning', tone: 'gray' },
+    PAUSED: { label: 'Paused', tone: 'gray' },
+    BROKEN: { label: 'Broken', tone: 'red' },
+  };
+  const meta = statusMeta[buyback.status] ?? { label: buyback.status, tone: 'gray' as const };
+  const toneClass =
+    meta.tone === 'green'
+      ? 'bg-green-50 text-secondary-green border-secondary-green/30'
+      : meta.tone === 'amber'
+        ? 'bg-amber-50 text-amber-700 border-amber-300'
+        : meta.tone === 'red'
+          ? 'bg-red-50 text-red-700 border-red-300'
+          : 'bg-black/[0.04] text-black/30 border-black/20';
+  const dotClass =
+    meta.tone === 'green'
+      ? 'bg-secondary-green'
+      : meta.tone === 'amber'
+        ? 'bg-amber-500'
+        : meta.tone === 'red'
+          ? 'bg-red-500'
+          : 'bg-black/30';
+
+  return (
+    <Link href={`/shared-buyback/${buyback.id}`}>
+      <Card className="bg-white rounded-[28px] cursor-pointer h-full">
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between mb-20">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-secondary-orange/10 flex items-center justify-center shrink-0">
+                <Flame className="w-3.5 h-3.5 text-secondary-orange" />
+              </div>
+              <h3 className="font-semibold text-black/80 font-funnel-sans text-base leading-snug truncate">
+                {buyback.tokenSymbol}
+              </h3>
+            </div>
+            <Badge
+              className={`ml-2 shrink-0 ${toneClass} font-funnel-sans text-[11px] font-medium py-0.5 px-3`}
+            >
+              <div className={`w-1.5 h-1.5 rounded-full mr-1 ${dotClass}`} />
+              {meta.label}
+            </Badge>
+          </div>
+
+          <div className="flex items-end justify-between">
+            <div>
+              <p
+                className={`text-xl font-semibold font-funnel-sans ${isActive ? 'text-secondary-green' : 'text-black/40'}`}
+              >
+                ${buyback.totalBoughtBackUsd.toFixed(2)}
+              </p>
+              <p className="text-black/40 text-xs font-funnel-sans">
+                Total Bought Back
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-medium text-black/60 font-funnel-sans">
+                Splits Buyback
+              </p>
+              <p className="text-black/30 text-xs font-funnel-sans">Type</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
 function AgentCard({ agent }: { agent: Agent }) {
   const isActive = agent.status === 'ACTIVE';
 
@@ -391,7 +555,7 @@ function AgentCard({ agent }: { agent: Agent }) {
                 ${agent.totalEarnings.toFixed(2)}
               </p>
               <p className="text-black/40 text-xs font-funnel-sans">
-                Total Buyback
+                Total Earnings
               </p>
             </div>
             <div className="text-right">

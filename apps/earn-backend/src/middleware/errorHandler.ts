@@ -17,11 +17,56 @@ export class AppError extends Error {
   }
 }
 
+// See docs/06_RELIABILITY_FIXES_2026_05_14.md §9. Keep this list conservative.
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'pwd',
+  'secret',
+  'token',
+  'apikey',
+  'api_key',
+  'authorization',
+  'auth',
+  'privatekey',
+  'private_key',
+  'mnemonic',
+  'seed',
+  'signature',
+  'sig',
+  'cookie',
+  'session',
+  'jwt',
+  'bearer',
+]);
+
+function redactValue(): string {
+  return '[REDACTED]';
+}
+
+function sanitize(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (depth > 4) return '[depth-limit]';
+  if (Array.isArray(value)) return value.map((v) => sanitize(v, depth + 1));
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+        out[k] = redactValue();
+      } else {
+        out[k] = sanitize(v, depth + 1);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 export const errorHandler = (
   error: Error | AppError,
   req: Request,
   res: Response,
-  next: NextFunction,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _next: NextFunction,
 ): void => {
   let status = 500;
   let message = 'Internal Server Error';
@@ -38,14 +83,13 @@ export const errorHandler = (
     stack: error.stack,
     url: req.url,
     method: req.method,
-    body: req.body,
-    query: req.query,
+    body: sanitize(req.body),
+    query: sanitize(req.query),
   });
 
   res.status(status).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
   });
 };
 

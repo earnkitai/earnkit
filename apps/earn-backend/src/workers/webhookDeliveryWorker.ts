@@ -58,12 +58,16 @@ async function processPendingDeliveries(): Promise<void> {
     const signature = buildSignature(delivery.endpoint.secret, timestamp, payloadStr);
 
     try {
+      // X-Idempotency-Key = delivery.id (stable across retries) — see docs §11.
       const response = await fetch(delivery.endpoint.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-EarnKit-Signature': `t=${timestamp},v1=${signature}`,
           'X-EarnKit-Event': delivery.eventType,
+          'X-EarnKit-Delivery': delivery.id,
+          'X-Idempotency-Key': delivery.id,
+          'X-EarnKit-Attempt': String(attempt),
         },
         body: payloadStr,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

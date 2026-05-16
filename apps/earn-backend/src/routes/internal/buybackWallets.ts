@@ -26,7 +26,7 @@ const router: Router = Router();
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    const [agentConfigs, sharedConfigs, tokenConfigs] = await Promise.all([
+    const [agentConfigs, sharedConfigs] = await Promise.all([
       prisma.buybackConfig.findMany({
         where: { isActive: true },
         select: { walletAddress: true, tokenAddress: true, recoveryAddress: true },
@@ -34,10 +34,6 @@ router.get('/', async (_req: Request, res: Response) => {
       prisma.sharedSplitBuybackConfig.findMany({
         where: { isActive: true, walletAddress: { not: null } },
         select: { walletAddress: true, tokenAddress: true, recoveryAddress: true },
-      }),
-      prisma.tokenContractBuybackConfig.findMany({
-        where: { isActive: true, walletAddress: { not: null } },
-        select: { walletAddress: true, targetTokenAddress: true, recoveryAddress: true },
       }),
     ]);
 
@@ -50,11 +46,6 @@ router.get('/', async (_req: Request, res: Response) => {
       ...sharedConfigs.map((c) => ({
         walletAddress: c.walletAddress!,
         tokenAddress: c.tokenAddress,
-        recoveryAddress: c.recoveryAddress,
-      })),
-      ...tokenConfigs.map((c) => ({
-        walletAddress: c.walletAddress!,
-        tokenAddress: c.targetTokenAddress,
         recoveryAddress: c.recoveryAddress,
       })),
     ];
