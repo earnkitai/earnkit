@@ -7,29 +7,32 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
-  encodeFunctionData,
   http,
-  parseAbi,
   type Hex,
 } from 'viem';
 import { base } from 'viem/chains';
-import { Check, Copy, ExternalLink, Loader2, Search } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { FieldLabel } from '../ui/FieldBits';
 import { signBuybackAction } from '@/lib/buybackAuth';
 import {
   buildCreateSplitCalldata,
   parseSplitCreatedFromReceipt,
+  waitForSuccessReceipt,
 } from '@/lib/splitsFactoryV2';
 import {
   buildUpdateRecipientCalldata,
   getClankerV4Deployment,
   type ClankerV4Deployment,
 } from '@/lib/clankerV4';
+import {
+  buildUpdateV3RecipientCalldata,
+  findClankerV3PositionsForCreator,
+  type ClankerV3Position,
+} from '@/lib/clankerV3';
 
 type FlowType = 'token' | 'splits' | 'safe';
 type Step =
   | 'form'
-  | 'detecting'
   | 'provisioning'
   | 'deploying_split'
   | 'setting_split'
@@ -38,23 +41,10 @@ type Step =
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const SHARED_STORAGE_KEY = 'earnkit_shared_buyback_configs';
 
-interface DetectionResult {
-  detected: boolean;
-  getterName: string | null;
-  setterName: string | null;
-  currentRecipient: string | null;
-  instruction: string;
-}
-
 interface ReadyState {
   walletAddress: string;
   splitAddress: string;
   configId: string;
-  // Detection metadata — drives the instruction text + Safe shortcut on the
-  // ready screen. May be absent when detection wasn't run / failed.
-  setterName?: string | null;
-  onChainOwnerAddress?: string | null;
-  ownerIsContract?: boolean;
 }
 
 const FLOW_OPTIONS = [
@@ -95,38 +85,6 @@ const FLOW_OPTIONS = [
   },
 ];
 
-// Pre-fills a Safe TX-builder deeplink that calls the detected fee-recipient
-// setter on the source contract. Safe owners can't sign with a plain EOA, so
-// they propose the tx via Safe instead. We now point the setter at the
-// **split address** (not the buyback wallet directly).
-function buildSafeTxBuilderUrl(args: {
-  safeAddress: string;
-  contractAddress: string;
-  setterName: string;
-  splitAddress: string;
-}): string {
-  try {
-    const calldata = encodeFunctionData({
-      abi: parseAbi([`function ${args.setterName}(address)`]),
-      functionName: args.setterName,
-      args: [args.splitAddress as `0x${string}`],
-    });
-    const importData = encodeURIComponent(
-      JSON.stringify({
-        version: '1.0',
-        chainId: '8453',
-        createdAt: Date.now(),
-        meta: { name: 'Set buyback fee recipient' },
-        transactions: [
-          { to: args.contractAddress, value: '0', data: calldata },
-        ],
-      }),
-    );
-    return `https://app.safe.global/apps/open?safe=base:${args.safeAddress}&appUrl=https://apps.safe.global/tx-builder&importData=${importData}`;
-  } catch {
-    return `https://app.safe.global/apps/open?safe=base:${args.safeAddress}&appUrl=https://apps.safe.global/tx-builder`;
-  }
-}
 
 const INPUT_CLASS =
   'w-full px-4 py-3 bg-gray-50 border border-border rounded-2xl focus:ring-1 focus:ring-primary outline-none text-sm text-foreground transition-all';
@@ -184,7 +142,6 @@ export default function CreateSection() {
     ownerPct: '90',
     buybackPct: '10',
   });
-  const [detection, setDetection] = useState<DetectionResult | null>(null);
 
   const [result, setResult] = useState<ReadyState | null>(null);
 
@@ -196,6 +153,14 @@ export default function CreateSection() {
   const [clankerRewardIndex, setClankerRewardIndex] = useState('0');
   const [clankerUpdating, setClankerUpdating] = useState(false);
   const [clankerUpdateTx, setClankerUpdateTx] = useState<string | null>(null);
+
+  // Clanker v3 — independent of v4 detection. We probe both v3 lockers for
+  // any LP NFTs the connected wallet is creator-admin of, and let them
+  // redirect any one of them to the just-deployed split.
+  const [v3Positions, setV3Positions] = useState<ClankerV3Position[]>([]);
+  const [v3SelectedKey, setV3SelectedKey] = useState<string | null>(null);
+  const [v3Updating, setV3Updating] = useState(false);
+  const [v3UpdateTx, setV3UpdateTx] = useState<string | null>(null);
 
   useEffect(() => {
     if (!connectedWalletAddress) return;
@@ -215,10 +180,12 @@ export default function CreateSection() {
     setActiveSection('none');
     setStep('form');
     setResult(null);
-    setDetection(null);
     setClankerDeployment(null);
     setClankerRewardIndex('0');
     setClankerUpdateTx(null);
+    setV3Positions([]);
+    setV3SelectedKey(null);
+    setV3UpdateTx(null);
   };
 
   // Probe the Clanker v4 factory for this token. If it returns a locker, the
@@ -230,6 +197,99 @@ export default function CreateSection() {
       setClankerDeployment(info);
     } catch {
       setClankerDeployment(null);
+    }
+  };
+
+  // After the split is deployed, also probe Clanker v3 lockers for any LP
+  // positions the connected wallet admins. v3 positions are creator-keyed
+  // (not token-keyed), so they may surface even for tokens we wouldn't
+  // otherwise associate with the user's launch.
+  const probeClankerV3 = async () => {
+    const wallet = wallets.find((w) => w.connectorType === 'injected');
+    if (!wallet) {
+      setV3Positions([]);
+      return;
+    }
+    try {
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(),
+      });
+      const positions = await findClankerV3PositionsForCreator({
+        creator: wallet.address,
+        publicClient: publicClient as Parameters<
+          typeof findClankerV3PositionsForCreator
+        >[0]['publicClient'],
+      });
+      setV3Positions(positions);
+      const updatable = positions.find(
+        (p) => p.creator.admin.toLowerCase() === wallet.address.toLowerCase(),
+      );
+      if (updatable) {
+        setV3SelectedKey(
+          `${updatable.locker.address}:${updatable.lpTokenId.toString()}`,
+        );
+      }
+    } catch {
+      setV3Positions([]);
+    }
+  };
+
+  const handleUpdateV3Recipient = async () => {
+    if (!result || !v3SelectedKey) return;
+    const position = v3Positions.find(
+      (p) => `${p.locker.address}:${p.lpTokenId.toString()}` === v3SelectedKey,
+    );
+    if (!position) return;
+    const wallet = wallets.find((w) => w.connectorType === 'injected');
+    if (!wallet) {
+      toast.error('Connect a wallet first');
+      return;
+    }
+    if (
+      position.creator.admin.toLowerCase() !== wallet.address.toLowerCase()
+    ) {
+      toast.error(
+        `You're not the creator admin for LP #${position.lpTokenId} on ${position.locker.version}`,
+      );
+      return;
+    }
+
+    setV3Updating(true);
+    try {
+      const built = buildUpdateV3RecipientCalldata({
+        locker: position.locker,
+        lpTokenId: position.lpTokenId,
+        slot: 'creator',
+        newRecipient: result.splitAddress,
+      });
+
+      await wallet.switchChain(base.id).catch(() => {});
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: wallet.address as Hex,
+        chain: base,
+        transport: custom(provider),
+      });
+      const hash = await walletClient.sendTransaction({
+        to: built.to,
+        data: built.data,
+      });
+      const publicClient = getBasePublicClient();
+      await waitForSuccessReceipt(publicClient, hash);
+      setV3UpdateTx(hash);
+      toast.success(
+        `Clanker ${position.locker.version} creator recipient updated`,
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Update failed';
+      toast.error(
+        msg.includes('execution reverted')
+          ? "Reverted — likely the wrong admin for this LP."
+          : msg,
+      );
+    } finally {
+      setV3Updating(false);
     }
   };
 
@@ -267,9 +327,11 @@ export default function CreateSection() {
         data: built.data,
       });
       const publicClient = getBasePublicClient();
-      // We don't need the receipt's logs; just wait for inclusion so the
-      // toast reflects the actual on-chain outcome.
-      await publicClient.waitForTransactionReceipt({ hash });
+      // Wait for inclusion AND check status — `waitForTransactionReceipt`
+      // doesn't throw on revert by default; it returns `status: 'reverted'`.
+      // Without `waitForSuccessReceipt`, a reverted tx would falsely fire
+      // the success toast.
+      await waitForSuccessReceipt(publicClient, hash);
       setClankerUpdateTx(hash);
       toast.success('Reward recipient updated on your Clanker locker');
     } catch (e: unknown) {
@@ -295,7 +357,6 @@ export default function CreateSection() {
     (key: keyof typeof tokenForm) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setTokenForm((f) => ({ ...f, [key]: e.target.value }));
-      if (key === 'tokenContractAddress') setDetection(null);
     };
 
   const handleRegisterShared = async () => {
@@ -388,34 +449,6 @@ export default function CreateSection() {
     }
   };
 
-  const handleDetectToken = async () => {
-    // Detection is purely informational under the new flow: we still tell the
-    // user the precise setter name on their token if one exists, but the
-    // ready-screen instruction always points at the deployed split — so
-    // detection never blocks the flow.
-    if (!isAddress(tokenForm.tokenContractAddress))
-      return toast.error('Token contract address is invalid');
-    setStep('detecting');
-    try {
-      const res = await fetch('/api/shared-buyback/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tokenContractAddress: tokenForm.tokenContractAddress,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Detection failed');
-        return;
-      }
-      setDetection(data);
-    } catch {
-      toast.error('Detection failed');
-    } finally {
-      setStep('form');
-    }
-  };
 
   const validateTokenForm = (): {
     ok: boolean;
@@ -555,6 +588,13 @@ export default function CreateSection() {
 
       const publicClient = getBasePublicClient();
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      // Don't trust the receipt without verifying the tx didn't revert.
+      // A reverted createSplit produces no SplitCreated event — parsing
+      // would throw with a confusing "event not found" message; surfacing
+      // the actual on-chain revert is clearer.
+      if (receipt.status !== 'success') {
+        throw new Error('Split deploy reverted on-chain');
+      }
       splitAddress = parseSplitCreatedFromReceipt(receipt);
     } catch (e: unknown) {
       // The buyback config is now an orphan (registered, no split). User can
@@ -621,17 +661,13 @@ export default function CreateSection() {
         walletAddress: buybackWalletAddress,
         splitAddress,
         configId,
-        setterName: detection?.setterName ?? null,
-        // Ownership info isn't returned by the new flow; keep this null —
-        // we'll suppress the Safe shortcut unless detection populated it.
-        onChainOwnerAddress: null,
-        ownerIsContract: false,
       });
       setStep('ready');
       // Kick off Clanker v4 probe in the background. If the token isn't a
       // Clanker launch, the ready screen just shows the generic instruction
       // and the panel never renders.
       void probeClanker(tokenForm.tokenContractAddress.trim());
+      void probeClankerV3();
     } catch {
       toast.error('Failed to attach split');
       setStep('form');
@@ -646,20 +682,17 @@ export default function CreateSection() {
 
   const isProvisioning =
     step === 'provisioning' ||
-    step === 'detecting' ||
     step === 'deploying_split' ||
     step === 'setting_split';
 
   const loaderMessage =
-    step === 'detecting'
-      ? 'Detecting fee pattern…'
-      : step === 'provisioning'
-        ? 'Setting up your Turnkey buyback wallet…'
-        : step === 'deploying_split'
-          ? 'Waiting for split deploy tx — confirm in your wallet…'
-          : step === 'setting_split'
-            ? 'Attaching the split to your buyback config…'
-            : '';
+    step === 'provisioning'
+      ? 'Setting up your Turnkey buyback wallet…'
+      : step === 'deploying_split'
+        ? 'Waiting for split deploy tx — confirm in your wallet…'
+        : step === 'setting_split'
+          ? 'Attaching the split to your buyback config…'
+          : '';
 
   return (
     <header className="flex-1 flex flex-col font-funnel-display items-center bg-background overflow-y-auto relative">
@@ -820,24 +853,17 @@ export default function CreateSection() {
                         What to do next
                       </p>
                       <p className="text-sm text-black/70 font-funnel-sans leading-relaxed">
-                        {flowType === 'token' && result.setterName ? (
-                          <>
-                            Call{' '}
-                            <span className="font-mono">
-                              {result.setterName}({result.splitAddress})
-                            </span>{' '}
-                            on your token contract.
-                          </>
-                        ) : flowType === 'token' ? (
+                        {flowType === 'token' ? (
                           <>
                             Point your token’s fee revenue at{' '}
                             <span className="font-mono break-all">
                               {result.splitAddress}
                             </span>
-                            . For Clanker-launched tokens, set the reward
-                            recipient on your LP locker. For Doppler tokens,
-                            configure your airlock. Once the split receives its
-                            first fees, the buyback activates automatically.
+                            . For Clanker launches, use the Update button
+                            below if shown — otherwise set the fee recipient
+                            on your token (or LP locker / airlock) manually.
+                            Once the split receives its first fees, the
+                            buyback activates automatically.
                           </>
                         ) : (
                           <>
@@ -923,26 +949,100 @@ export default function CreateSection() {
                       </div>
                     )}
 
-                    {flowType === 'token' &&
-                      result.ownerIsContract &&
-                      result.setterName &&
-                      result.onChainOwnerAddress && (
-                        <a
-                          href={buildSafeTxBuilderUrl({
-                            safeAddress: result.onChainOwnerAddress,
-                            contractAddress:
-                              tokenForm.tokenContractAddress.trim(),
-                            setterName: result.setterName,
-                            splitAddress: result.splitAddress,
+                    {/* Clanker v3 panel — only shown when the connected
+                        wallet has at least one v3 LP position. Independent
+                        of the v4 detection above; both can render at once
+                        if a creator has both v3 and v4 launches. */}
+                    {flowType === 'token' && v3Positions.length > 0 && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-3">
+                        <div>
+                          <p className="text-sm font-semibold text-purple-900 font-funnel-sans">
+                            Clanker v3 LP position{v3Positions.length === 1 ? '' : 's'} found
+                          </p>
+                          <p className="text-xs text-purple-900/70 font-funnel-sans mt-1">
+                            Pick the LP whose creator-side fees should flow
+                            into this split.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          {v3Positions.map((p) => {
+                            const key = `${p.locker.address}:${p.lpTokenId.toString()}`;
+                            const wallet = wallets.find(
+                              (w) => w.connectorType === 'injected',
+                            );
+                            const youAreAdmin =
+                              !!wallet &&
+                              p.creator.admin.toLowerCase() ===
+                                wallet.address.toLowerCase();
+                            const isSelected = v3SelectedKey === key;
+                            return (
+                              <button
+                                key={key}
+                                onClick={() => setV3SelectedKey(key)}
+                                disabled={!youAreAdmin}
+                                className={`w-full text-left rounded-[12px] border px-3 py-2.5 transition-colors ${
+                                  isSelected
+                                    ? 'bg-purple-100 border-purple-400'
+                                    : youAreAdmin
+                                      ? 'bg-white border-purple-200 hover:border-purple-300'
+                                      : 'bg-purple-50/40 border-purple-100 opacity-60 cursor-not-allowed'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-semibold text-purple-900 font-funnel-sans">
+                                    LP #{p.lpTokenId.toString()}{' '}
+                                    <span className="text-xs font-normal text-purple-900/60">
+                                      ({p.locker.version})
+                                    </span>
+                                  </p>
+                                  {!youAreAdmin && (
+                                    <span className="text-[10px] text-purple-900/60 font-funnel-sans">
+                                      not admin
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-purple-900/60 font-mono mt-0.5">
+                                  recipient {p.creator.recipient.slice(0, 6)}…{p.creator.recipient.slice(-4)}
+                                </p>
+                              </button>
+                            );
                           })}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 w-full rounded-full bg-blue-600 text-white py-3 font-funnel-sans hover:bg-blue-700 transition-colors"
+                        </div>
+                        <button
+                          onClick={handleUpdateV3Recipient}
+                          disabled={
+                            v3Updating || !!v3UpdateTx || !v3SelectedKey
+                          }
+                          className="w-full rounded-full bg-purple-600 text-white py-3 font-funnel-sans hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                          Propose via Safe{' '}
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      )}
+                          {v3Updating ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Updating…
+                            </>
+                          ) : v3UpdateTx ? (
+                            <>
+                              <Check className="w-4 h-4" />
+                              Updated
+                            </>
+                          ) : (
+                            'Update Clanker v3 creator recipient'
+                          )}
+                        </button>
+                        {v3UpdateTx && (
+                          <a
+                            href={`https://basescan.org/tx/${v3UpdateTx}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-purple-700 hover:text-purple-900 font-funnel-sans underline flex items-center gap-1"
+                          >
+                            View tx on BaseScan{' '}
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
                   </div>
                 )}
 
@@ -951,51 +1051,16 @@ export default function CreateSection() {
                   <div className="space-y-6">
                     <div className="space-y-1.5">
                       <FieldLabel label="Token Contract Address" required />
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="0x..."
-                          value={tokenForm.tokenContractAddress}
-                          onChange={handleTokenField('tokenContractAddress')}
-                          className={`${INPUT_CLASS} flex-1 font-mono`}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleDetectToken}
-                          className="shrink-0 px-4 rounded-2xl bg-gray-50 border border-border hover:bg-gray-100 transition-colors flex items-center justify-center"
-                          title="Detect fee recipient pattern"
-                        >
-                          <Search className="w-4 h-4 text-foreground" />
-                        </button>
-                      </div>
-                      {detection && (
-                        <div className="bg-gray-50 border border-border rounded-2xl px-4 py-3 text-sm font-funnel-sans mt-2 space-y-1">
-                          {detection.detected ? (
-                            <>
-                              <p className="text-black/70">
-                                Detected:{' '}
-                                <span className="font-mono text-black">
-                                  {detection.getterName}()
-                                </span>
-                              </p>
-                              <p className="text-black/60">
-                                You’ll call:{' '}
-                                <span className="font-mono text-black">
-                                  {detection.setterName}(&lt;split&gt;)
-                                </span>
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-black/50">
-                              No standard fee setter on the token itself. That’s
-                              fine — Clanker / Doppler / custom launchers
-                              expose fee redirection on a separate contract
-                              (locker / airlock). You’ll point that at the
-                              deployed split after this step.
-                            </p>
-                          )}
-                        </div>
-                      )}
+                      <input
+                        type="text"
+                        placeholder="0x..."
+                        value={tokenForm.tokenContractAddress}
+                        onChange={handleTokenField('tokenContractAddress')}
+                        className={`${INPUT_CLASS} font-mono`}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        The token whose fees you want flowing into the split.
+                      </p>
                     </div>
 
                     <div className="space-y-1.5">

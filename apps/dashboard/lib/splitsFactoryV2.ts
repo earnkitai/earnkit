@@ -243,6 +243,83 @@ export function buildDistributeCalldata(args: BuildDistributeCalldataArgs): {
   return { to: getAddress(args.splitAddress) as `0x${string}`, data };
 }
 
+/**
+ * Wait for a tx receipt and throw if it reverted. `waitForTransactionReceipt`
+ * returns `{ status: 'reverted' | 'success' }` instead of throwing on revert,
+ * so the caller's success path runs even when the tx was mined-and-reverted.
+ * Use this everywhere we follow a sendTransaction with a "success" toast.
+ */
+// PublicClient typed loosely — chain-specific viem clients (e.g. one built
+// with `chain: base`) don't unify cleanly with the bare `PublicClient`
+// generic. Both shapes have the same `waitForTransactionReceipt` method, so
+// `any` here is the smallest cost vs adding chain generics everywhere.
+export async function waitForSuccessReceipt(
+  publicClient: {
+    waitForTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<{
+      status: 'success' | 'reverted';
+    }>;
+  },
+  hash: `0x${string}`,
+) {
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error('Transaction reverted on-chain');
+  }
+  return receipt;
+}
+
+// SplitsWarehouse — the central balance store for V2 pull splits. After a
+// `distribute(...)` call on a split contract, each recipient's share lives
+// here keyed by (recipient, token). To get funds out, the recipient calls
+// `withdraw(owner=recipient, token)`. Anyone can call withdraw for any owner;
+// the funds always go to the owner's address.
+export const SPLITS_WAREHOUSE_ADDRESS =
+  '0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8' as const;
+
+export const SPLITS_WAREHOUSE_ABI = parseAbi([
+  'function withdraw(address owner, address token)',
+  'function balanceOf(address owner, uint256 id) view returns (uint256 balance)',
+]);
+
+/**
+ * Read the user's claimable balance from the SplitsWarehouse for a token.
+ * The warehouse stores balances keyed by `uint256(token)`. ETH uses the
+ * sentinel `0xEeee…`.
+ */
+export async function readWarehouseBalance(args: {
+  owner: `0x${string}`;
+  token: `0x${string}` | typeof SPLITS_NATIVE_TOKEN;
+  publicClient: PublicClient;
+}): Promise<bigint> {
+  try {
+    return (await args.publicClient.readContract({
+      address: SPLITS_WAREHOUSE_ADDRESS,
+      abi: SPLITS_WAREHOUSE_ABI,
+      functionName: 'balanceOf',
+      args: [args.owner, BigInt(args.token)],
+    })) as bigint;
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/**
+ * Encode `warehouse.withdraw(owner, token)` calldata. The user signs and
+ * sends this from their wallet to pull their own share out of the warehouse
+ * after a distribute call has credited them.
+ */
+export function buildWarehouseWithdrawCalldata(args: {
+  owner: `0x${string}`;
+  token: `0x${string}` | typeof SPLITS_NATIVE_TOKEN;
+}): { to: `0x${string}`; data: Hex } {
+  const data = encodeFunctionData({
+    abi: SPLITS_WAREHOUSE_ABI,
+    functionName: 'withdraw',
+    args: [args.owner, args.token],
+  });
+  return { to: SPLITS_WAREHOUSE_ADDRESS, data };
+}
+
 // Canonical Multicall3 deployed at the same address on every major chain,
 // including Base. We use `aggregate3` to bundle N `distribute` calls into
 // a single tx so the user gets one MetaMask popup regardless of how many
