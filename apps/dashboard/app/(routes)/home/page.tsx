@@ -40,12 +40,6 @@ interface Agent {
   createdAt: string;
 }
 
-interface Totals {
-  totalEarnings: number;
-  transactionLogEarnings: number;
-  topUpEarnings: number;
-}
-
 interface BuybackConfig {
   id: string;
   tokenSymbol: string;
@@ -60,13 +54,8 @@ export default function HomePage() {
   const router = useRouter();
 
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [totals, setTotals] = useState<Totals | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [sharedBuybackCount, setSharedBuybackCount] = useState(0);
-  const [totalBuybackedUsd, setTotalBuybackedUsd] = useState<number | null>(
-    null,
-  );
   // Buyback configs hydrated from localStorage IDs → backend details. Lives
   // alongside the legacy `agents` list in the same grid; doesn't block the
   // initial render (the page is still gated on the agents fetch only).
@@ -81,52 +70,7 @@ export default function HomePage() {
     }
   }, [ready, authenticated, privyUser, router]);
 
-  // Load shared buyback configs from localStorage and fetch their execution totals
-  useEffect(() => {
-    const loadBuybackData = async () => {
-      try {
-        const stored = localStorage.getItem('earnkit_shared_buyback_configs');
-        const configIds: string[] = stored ? JSON.parse(stored) : [];
-        setSharedBuybackCount(configIds.length);
-
-        if (configIds.length === 0) {
-          setTotalBuybackedUsd(0);
-          return;
-        }
-
-        const execGroups = await Promise.all(
-          configIds.map(async (id) => {
-            try {
-              const res = await fetch(`/api/shared-buyback/${id}/executions`);
-              if (!res.ok) return [];
-              const data = await res.json();
-              return data.executions ?? [];
-            } catch {
-              return [];
-            }
-          }),
-        );
-
-        const allExecutions = execGroups.flat() as Array<{
-          status: string;
-          triggerBalanceUsd: number;
-        }>;
-
-        const total = allExecutions
-          .filter((e) => e.status === 'COMPLETED')
-          .reduce((sum, e) => sum + (e.triggerBalanceUsd ?? 0), 0);
-
-        setTotalBuybackedUsd(total);
-      } catch {
-        setTotalBuybackedUsd(0);
-      }
-    };
-
-    loadBuybackData();
-  }, []);
-
-  // Hydrate full buyback configs for the grid. Independent of the totals
-  // effect above so a slow individual config doesn't hold up the others.
+  // Hydrate full buyback configs for the grid.
   //
   // We read TWO localStorage keys for backwards compatibility:
   //   - `earnkit_shared_buyback_configs` — both the Splits-card flow and the
@@ -207,7 +151,6 @@ export default function HomePage() {
         if (res.ok) {
           const data = await res.json();
           setAgents(data.agents || []);
-          setTotals(data.totals || null);
         }
       } catch (error) {
         console.error('Error fetching agents:', error);
@@ -415,35 +358,6 @@ export default function HomePage() {
         </div>
       </div> */}
     </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <Card className="border border-black/10 rounded-[20px] shadow-none">
-      <CardContent className="p-5">
-        <div className="w-9 h-9 bg-black/[0.04] rounded-xl flex items-center justify-center mb-4">
-          {icon}
-        </div>
-        <p className="text-2xl font-semibold font-funnel-display text-black mb-0.5">
-          {value}
-        </p>
-        <p className="text-xs text-black/40 font-funnel-sans">{label}</p>
-        {sub && (
-          <p className="text-xs text-black/30 font-funnel-sans mt-0.5">{sub}</p>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
