@@ -24,42 +24,52 @@ const SPLIT_RECIPIENTS_ABI = parseAbi([
   'function recipients() external view returns (address[])',
 ]);
 
-/**
- * Check if a wallet is listed as a recipient in a 0xSplits V2 split contract.
- *
- * Strategy (in order):
- * 1. Query SplitUpdated event logs — the authoritative source for V2 contracts
- *    which store only a splitHash on-chain, not the full struct.
- * 2. getSplit() struct ABI — for older factory deployments that do expose it.
- * 3. getSplit() tuple-array ABI — alternative V2 layout.
- * 4. recipients() — some push-split variants.
- * 5. Warehouse balance — last resort for push splits with no readable state.
- */
+// Most public Base RPCs cap getLogs at 10k blocks. Scan in chunks from the
+// chain tip backward so we don't miss the latest SplitUpdated event when the
+// split was deployed long ago.
+const LOG_SCAN_CHUNK_BLOCKS = BigInt(9_500);
+const LOG_SCAN_MAX_CHUNKS = 40; // ~380k blocks (~9 days on Base) — adequate for
+                                // recent activity; older splits will likely
+                                // also have a getSplit() variant that works.
+
+// Tri-state: true = in split, false = readable + absent, null = unknown.
+// See docs/06_RELIABILITY_FIXES_2026_05_14.md §4.
 export async function isWalletInSplit(
   splitAddress: `0x${string}`,
   walletAddress: `0x${string}`,
   client?: BasePublicClient,
-): Promise<boolean> {
+): Promise<boolean | null> {
   const publicClient = client ?? getBasePublicClient();
   const walletLower = walletAddress.toLowerCase();
 
+  let anyReadSucceeded = false;
+
   // --- Attempt 1: SplitUpdated event logs (canonical V2 approach) ---
+  // Scan in chunks from the tip backward; the latest event has the current
+  // recipients. We stop as soon as we find one.
   try {
-    const logs = await publicClient.getLogs({
-      address: splitAddress,
-      event: SPLIT_UPDATED_EVENT,
-      fromBlock: BigInt(1),
-      toBlock: 'latest',
-    });
-    if (logs.length > 0) {
-      // Most recent event has the current recipients
-      const last = logs[logs.length - 1];
-      const recipients: string[] = (last.args as { _split?: { recipients?: string[] } })._split?.recipients ?? [];
-      if (recipients.length > 0) {
-        return recipients.some((r) => r.toLowerCase() === walletLower);
+    const tip = await publicClient.getBlockNumber();
+    let toBlock = tip;
+    for (let i = 0; i < LOG_SCAN_MAX_CHUNKS; i++) {
+      const fromBlock = toBlock > LOG_SCAN_CHUNK_BLOCKS ? toBlock - LOG_SCAN_CHUNK_BLOCKS : BigInt(0);
+      const logs = await publicClient.getLogs({
+        address: splitAddress,
+        event: SPLIT_UPDATED_EVENT,
+        fromBlock,
+        toBlock,
+      });
+      if (logs.length > 0) {
+        anyReadSucceeded = true;
+        const last = logs[logs.length - 1];
+        const recipients: string[] = (last.args as { _split?: { recipients?: string[] } })._split?.recipients ?? [];
+        if (recipients.length > 0) {
+          return recipients.some((r) => r.toLowerCase() === walletLower);
+        }
       }
+      if (fromBlock === BigInt(0)) break;
+      toBlock = fromBlock - BigInt(1);
     }
-  } catch { /* try next */ }
+  } catch { /* RPC failure — try other strategies */ }
 
   // --- Attempt 2: getSplit() struct ABI (older V2 deployments) ---
   try {
@@ -72,6 +82,7 @@ export async function isWalletInSplit(
     if (recipients.length > 0) {
       return recipients.some((r) => r.toLowerCase() === walletLower);
     }
+    anyReadSucceeded = true; // returned, just empty
   } catch { /* try next */ }
 
   // --- Attempt 3: getSplit() tuple-array ABI ---
@@ -84,6 +95,7 @@ export async function isWalletInSplit(
     if (Array.isArray(receivers) && receivers.length > 0) {
       return receivers.some((r) => r.recipient?.toLowerCase() === walletLower);
     }
+    anyReadSucceeded = true;
   } catch { /* try next */ }
 
   // --- Attempt 4: recipients() fallback ---
@@ -96,10 +108,17 @@ export async function isWalletInSplit(
     if (Array.isArray(addrs) && addrs.length > 0) {
       return addrs.some((r) => r.toLowerCase() === walletLower);
     }
+    anyReadSucceeded = true;
   } catch { /* try next */ }
 
-  // --- Attempt 5: Warehouse balance (push splits, last resort) ---
-  return hasWarehouseBalance(walletAddress, publicClient);
+  // Attempt 5: warehouse balance — positive-only signal.
+  try {
+    if (await hasWarehouseBalance(walletAddress, publicClient)) {
+      return true;
+    }
+  } catch { /* fall through */ }
+
+  return anyReadSucceeded ? false : null;
 }
 
 async function hasWarehouseBalance(

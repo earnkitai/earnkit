@@ -107,21 +107,31 @@ async function sendTurnkeySignedTx(
 
 // ---------- Step 1: Withdraw from warehouse ----------
 
+// Persists each hash incrementally so a mid-loop failure doesn't lose
+// prior progress on retry — see docs §5.
 async function withdrawAllFromWarehouse(ctx: RunCtx): Promise<string[]> {
   const client = getBasePublicClient();
   const hashes: string[] = [];
 
+  const persistHash = async (hash: string): Promise<void> => {
+    hashes.push(hash);
+    await prisma.sharedSplitExecution.update({
+      where: { id: ctx.executionId },
+      data: { warehouseWithdrawHashes: { push: hash } },
+    });
+  };
+
   const ethBal = await readWarehouseBalance({ owner: ctx.walletAddress, token: SPLIT_NATIVE_TOKEN_ADDRESS, client });
   if (ethBal > BigInt(0)) {
     const data = encodeWarehouseWithdraw({ owner: ctx.walletAddress, token: SPLIT_NATIVE_TOKEN_ADDRESS });
-    hashes.push(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
+    await persistHash(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
   }
 
   for (const token of SUPPORTED_TOKENS) {
     const bal = await readWarehouseBalance({ owner: ctx.walletAddress, token: token.address as `0x${string}`, client });
     if (bal === BigInt(0)) continue;
     const data = encodeWarehouseWithdraw({ owner: ctx.walletAddress, token: token.address as `0x${string}` });
-    hashes.push(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
+    await persistHash(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
   }
 
   return hashes;
@@ -209,6 +219,28 @@ async function approveIfNeeded(ctx: RunCtx, token: `0x${string}`, amount: bigint
   await sendTurnkeySignedTx(ctx, token, data);
 }
 
+interface SwapNote {
+  symbol: string;
+  status: 'ok' | 'no_quote' | 'failed';
+  hash?: string;
+  error?: string;
+}
+
+// Read-modify-write on assetsIn.swapResults — see docs §6.
+async function recordSwapNote(executionId: string, note: SwapNote): Promise<void> {
+  const exec = await prisma.sharedSplitExecution.findUnique({
+    where: { id: executionId },
+    select: { assetsIn: true },
+  });
+  const current = (exec?.assetsIn as Record<string, unknown> | null) ?? {};
+  const list = (Array.isArray(current.swapResults) ? current.swapResults : []) as SwapNote[];
+  list.push(note);
+  await prisma.sharedSplitExecution.update({
+    where: { id: executionId },
+    data: { assetsIn: { ...current, swapResults: list } as never },
+  });
+}
+
 async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | null; tokenBalanceAfter: bigint }> {
   const client = getBasePublicClient();
   let lastSwapHash: string | null = null;
@@ -219,7 +251,9 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
   if (ethSwappable > BigInt(0)) {
     try {
       const quote = await quoteBestPath({ tokenIn: WETH_BASE, tokenOut: ctx.tokenAddress, amountIn: ethSwappable, client });
-      if (quote && quote.amountOut > BigInt(0)) {
+      if (!quote || quote.amountOut === BigInt(0)) {
+        await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'no_quote' });
+      } else {
         const data = encodeExactInput({
           path: quote.path,
           recipient: ctx.walletAddress,
@@ -227,9 +261,12 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
           amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
         });
         lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data, ethSwappable);
+        await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'ok', hash: lastSwapHash });
       }
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[SharedSplitWorker] ETH swap failed for ${ctx.executionId}:`, err);
+      await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'failed', error: msg.slice(0, 300) });
     }
   }
 
@@ -247,7 +284,10 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
 
     try {
       const quote = await quoteBestPath({ tokenIn: tokenAddr, tokenOut: ctx.tokenAddress, amountIn: bal, client });
-      if (!quote || quote.amountOut === BigInt(0)) continue;
+      if (!quote || quote.amountOut === BigInt(0)) {
+        await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
+        continue;
+      }
       await approveIfNeeded(ctx, tokenAddr, bal);
       const data = encodeExactInput({
         path: quote.path,
@@ -256,8 +296,11 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
         amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
       });
       lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
+      await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash: lastSwapHash });
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[SharedSplitWorker] ${token.symbol} swap failed for ${ctx.executionId}:`, err);
+      await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'failed', error: msg.slice(0, 300) });
     }
   }
 
@@ -302,23 +345,33 @@ async function burnAcquiredTokens(ctx: RunCtx): Promise<{ burnHash: string; amou
 // ---------- Activation check ----------
 
 async function checkPendingActivations(): Promise<void> {
+  // Skip configs without a split yet (Token card flow: user hasn't completed
+  // the deploy step). They'll surface here once `/set-split` lands.
   const pending = await prisma.sharedSplitBuybackConfig.findMany({
-    where: { status: 'PENDING_SPLIT_UPDATE', isActive: true, walletAddress: { not: null } },
+    where: {
+      status: 'PENDING_SPLIT_UPDATE',
+      isActive: true,
+      walletAddress: { not: null },
+      splitAddress: { not: null },
+    },
     take: 20,
   });
 
   for (const config of pending) {
     try {
       const inSplit = await isWalletInSplit(
-        config.splitAddress as `0x${string}`,
+        config.splitAddress! as `0x${string}`,
         config.walletAddress! as `0x${string}`,
       );
-      if (inSplit) {
+      if (inSplit === true) {
         await prisma.sharedSplitBuybackConfig.update({
           where: { id: config.id },
           data: { status: 'ACTIVE' },
         });
         console.log(`[SharedSplitWorker] Activated config ${config.id} — wallet found in split`);
+      } else if (inSplit === null) {
+        // null = unknown; retry next poll. See docs §4.
+        console.log(`[SharedSplitWorker] Activation check for ${config.id}: membership unknown, will retry`);
       }
     } catch (err: unknown) {
       console.warn(`[SharedSplitWorker] Activation check failed for ${config.id}:`, err);
@@ -423,10 +476,11 @@ async function processExecutions(): Promise<void> {
         throw new Error(`gas_drip_failed: ${err instanceof Error ? err.message : err}`);
       }
 
-      const withdrawHashes = await withdrawAllFromWarehouse(ctx);
+      // Hashes are persisted inside the helper; don't overwrite on retry.
+      await withdrawAllFromWarehouse(ctx);
       await prisma.sharedSplitExecution.update({
         where: { id: exec.id },
-        data: { warehouseWithdrawHashes: withdrawHashes, status: 'SWAPPING' },
+        data: { status: 'SWAPPING' },
       });
 
       const { hashes: feeHashes, feeUsd } = await deductFees(ctx);

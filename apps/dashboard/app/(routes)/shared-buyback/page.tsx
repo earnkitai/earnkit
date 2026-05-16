@@ -82,7 +82,7 @@ export default function SharedBuybackPage() {
                     <h1 className="text-2xl font-semibold font-funnel-display text-black">Splits Buyback</h1>
                 </div>
                 <Link
-                    href="/create-buyback"
+                    href="/create"
                     className="flex items-center gap-2 bg-black text-white rounded-full px-4 py-2 font-funnel-sans text-sm hover:bg-black/80 transition-colors"
                 >
                     <Plus className="w-4 h-4" />
@@ -111,7 +111,7 @@ export default function SharedBuybackPage() {
                             </p>
                         </div>
                         <Link
-                            href="/create-buyback"
+                            href="/create"
                             className="flex items-center gap-2 bg-black text-white rounded-full px-5 py-2.5 font-funnel-sans text-sm hover:bg-black/80 transition-colors"
                         >
                             <Plus className="w-4 h-4" />
@@ -142,7 +142,15 @@ export default function SharedBuybackPage() {
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {configIds.map((id) => (
-                            <SharedBuybackCard key={id} configId={id} onRemoved={handleRemoved} />
+                            <div key={id} className="space-y-1.5">
+                                <SharedBuybackCard configId={id} onRemoved={handleRemoved} />
+                                <Link
+                                    href={`/shared-buyback/${id}`}
+                                    className="flex items-center justify-end gap-1 text-xs text-black/40 hover:text-black font-funnel-sans transition-colors px-1"
+                                >
+                                    Open details &amp; distribute <ChevronRight className="w-3.5 h-3.5" />
+                                </Link>
+                            </div>
                         ))}
                     </div>
 

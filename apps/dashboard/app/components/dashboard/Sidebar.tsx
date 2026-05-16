@@ -2,273 +2,324 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-// import { signOut } from "next-auth/react";
-import { User, Settings, LogOut, Flame } from 'lucide-react';
-// import { useAuth } from "@/providers/auth-provider";
-import { useEffect, useState } from 'react';
+import { User, Settings, LogOut, House, PanelLeft, Wallet, Power } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { findUserById } from '@/actions/user';
-// import Image from "next/image";
 import { Icons } from '../sections/icons';
-// import SidebarChatHistory from "./SidebarChatHistory";
-import { usePrivy } from '@privy-io/react-auth';
-// import { useState } from "react";
+import { usePrivy, useConnectWallet, useWallets } from '@privy-io/react-auth';
+import { toast } from 'sonner';
 
 export default function Sidebar() {
-  // const { user } = useUser();
   const pathname = usePathname();
   const router = useRouter();
   const { ready, authenticated, user: privyUser, logout } = usePrivy();
-  // const [isHovered, setIsHovered] = useState(false);
-  const [isOpen, setIsOpen] = useState(true);
+  const { connectWallet } = useConnectWallet();
+  const { wallets } = useWallets();
+
+  // We only care about the injected (browser-extension) wallet — that's the
+  // one used to sign buyback actions in CreateSection. Privy can also surface
+  // embedded/social wallets, but those don't need a "connect" affordance.
+  const injectedWallet = wallets.find((w) => w.connectorType === 'injected');
+  const walletAddress = injectedWallet?.address ?? null;
+  const truncatedWallet = walletAddress
+    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    : null;
+
+  const handleConnectWallet = () => connectWallet();
+  const handleDisconnectWallet = async () => {
+    // Privy v2 declares disconnect() on ConnectedWallet but explicitly no-ops
+    // for MetaMask/Phantom (see node_modules/@privy-io/react-auth dts:750).
+    // We try both: unlink() removes the wallet from the Privy user record
+    // (only if linked), disconnect() severs the connector session where the
+    // wallet supports it. For MM, neither truly disconnects — the wallet
+    // extension owns that state. Surface that honestly to the user.
+    let acted = false;
+    try {
+      if (injectedWallet?.linked) {
+        await injectedWallet.unlink();
+        acted = true;
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      injectedWallet?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    if (acted) {
+      toast.success('Wallet unlinked from your account');
+    } else {
+      toast.message(
+        'Your wallet extension controls connection. Disconnect this site from your wallet (MetaMask → Connected sites) to fully sever.',
+      );
+    }
+  };
+
+  const [isHovered, setIsHovered] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [username, setUsername] = useState<string>('');
-  // const [pfpUrl, setPfpUrl] = useState<string>("");
-  // const [userId, setUserId] = useState<string | null>(null);
+
+  const fetchUsername = useCallback(async (userId: string) => {
+    const result = await findUserById(userId);
+    if (result?.username) {
+      setUsername(result.username);
+    }
+  }, []);
 
   useEffect(() => {
-    if (ready && authenticated && privyUser) {
-      // console.log(privyUser, 'privyUser');
-      const userId = privyUser?.id.split(':').pop() || privyUser?.id;
-      // console.log(userId, 'userId');
-      const fetchUsername = async () => {
-        if (userId) {
-          const result = await findUserById(userId);
-          if (result && result.username) {
-            setUsername(result.username);
-            // console.log(result, 'result');
-          }
-        }
-      };
-      fetchUsername();
+    if (ready && authenticated && privyUser?.id) {
+      const userId = privyUser.id.split(':').pop() || privyUser.id;
+      fetchUsername(userId);
     }
-  }, [ready, authenticated, privyUser]);
+  }, [ready, authenticated, privyUser?.id, fetchUsername]);
 
-  // Check if device is mobile
   useEffect(() => {
     const checkIfMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobileValue = window.innerWidth < 768;
+      setIsMobile((prev) => (prev !== mobileValue ? mobileValue : prev));
     };
 
     checkIfMobile();
     window.addEventListener('resize', checkIfMobile);
-
-    return () => {
-      window.removeEventListener('resize', checkIfMobile);
-    };
+    return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
-  // Handle sidebar toggle
-  // const toggleSidebar = () => {
-  //     setIsOpen(!isOpen);
-  // };
-
-  // Handle mouse events for desktop only
-  // const handleMouseEnter = () => {
-  //     if (!isMobile) {
-  //         setIsHovered(true);
-  //     }
-  // };
-
-  // const handleMouseLeave = () => {
-  //     if (!isMobile) {
-  //         setIsHovered(false);
-  //     }
-  // };
-
-  // Close sidebar when clicking outside
-  const handleOverlayClick = () => {
-    setIsOpen(false);
-  };
-
-  const isActive = (path: string) => {
-    return pathname.includes(path);
+  const handleLogoutClick = () => {
+    logout().then(() => {
+      router.push('/');
+      setIsOpen(false);
+    });
   };
 
   const getLinkStyles = (path: string) => {
-    return `flex items-center gap-2 px-0 py-0 rounded-lg transition-colors w-full group font-medium font-funnel-sans
-            ${
-              isActive(path)
-                ? 'text-black [&>svg]:text-black [&>svg>path]:opacity-100 '
-                : 'text-black/40 hover:text-black'
-            }`;
+    const active = pathname.includes(path);
+    return `flex items-center gap-3 ${isOpen ? 'px-0' : 'px-3'} py-2 rounded-lg transition-all duration-200 w-full group font-medium font-funnel-sans
+            ${active ? 'text-black' : 'text-gray-400 hover:text-black hover:bg-black/5'}`;
   };
-
-  // Handle logout and close sidebar on mobile
-  const handleLogoutClick = () => {
-    console.log('logging out');
-    logout().then(() => {
-      console.log('logged out');
-      router.push('/');
-      if (isMobile) {
-        setIsOpen(false);
-      }
-    });
-    // console.log("logged out");
-    // router.push("/");
-    // if (isMobile) {
-    //     setIsOpen(false);
-    // }
-  };
-
-  const handleProfileClick = () => {
-    setIsProfileMenuOpen(!isProfileMenuOpen);
-  };
-
-  // Close profile menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.profile-menu')) {
-        setIsProfileMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
 
   return (
-    <div className="relative">
-      {/* Main Sidebar */}
+    <>
+      {/* Mobile Floating Toggle Button */}
+      {isMobile && !isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed top-4 left-4 z-[60] p-2 bg-white border border-black/10 rounded-lg shadow-sm active:scale-95 transition-transform"
+        >
+          <PanelLeft className="w-6 h-6 text-black/60" />
+        </button>
+      )}
 
-      {/* <div className="fixed top-4 left-4 bg-[#f0f0f0] rounded-lg md:hidden z-100">
-                <div className="flex flex-col justify-start items-start space-y-6">
-                    {isOpen ? <Icons.sidebarOpen onClick={() => toggleSidebar()} className="cursor-pointer" /> : <Icons.sidebarOpenIcon onClick={() => toggleSidebar()} className="cursor-pointer" />}
-                </div>
-            </div> */}
-
-      <aside
-        className={`fixed z-30 left-0 top-0 h-[100dvh] py-8 md:h-screen flex flex-col justify-start items-center transition-all duration-300 ease-in-out gap-8 px-[20px] w-[200px] sm:w-[200px] ${isMobile && !isOpen ? 'hidden' : 'block'}`}
-        style={{
-          background:
-            'linear-gradient(0deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.04))',
-        }}
-      >
-        <div className="flex flex-col w-full justify-between items-start space-y-6">
-          <Link href="/home">
-            <Icons.newEarnyIconwithName />
-          </Link>
-        </div>
-        {/* Main Navigation */}
-        <nav className="flex w-full">
-          <div className="w-full flex flex-col gap-[24px]">
-            <Link
-              href="/home"
-              className={getLinkStyles('/home')}
-              onClick={() => {
-                if (isMobile) setIsOpen(false);
-              }}
-            >
-              <Icons.newSidebarHomeMenuIcon className="group-hover:text-black h-8 w-8 shrink-0" />
-              <span className="whitespace-nowrap">Home</span>
-            </Link>
-            <Link
-              href="/create-buyback"
-              className={getLinkStyles('/create-buyback')}
-              onClick={() => {
-                if (isMobile) setIsOpen(false);
-              }}
-            >
-              <Flame className="h-5 w-5 ml-1.5 shrink-0" />
-              <span className="whitespace-nowrap">Create Buybacks</span>
-            </Link>
-            <Link
-              href="https://docs.earnkit.com/"
-              className={getLinkStyles('/docs')}
-              onClick={() => {
-                if (isMobile) setIsOpen(false);
-              }}
-            >
-              <Icons.newSidebarBookIcon className="group-hover:text-black h-8 w-8 shrink-0" />
-              <span className="whitespace-nowrap">Docs</span>
-            </Link>
-          </div>
-        </nav>
-        {/* Secondary Navigation */}
-
-        <nav className="flex w-full mt-auto">
-          <div className="w-full">
-            {/* <Link
-                            href="https://docs.earnkit.com"
-                            target="_blank"
-                            className={getLinkStyles("/docs")}
-                            onClick={() => isMobile && setIsOpen(false)}
-                        >
-                            <Icons.sidebarDocIcon className="w-8 h-8 min-w-8 min-h-8 md:w-4 md:h-4 bg-black/4 rounded-full p-1 group-hover:bg-black/40 group-hover:fill-white group-hover:text-white" />
-                            <span className={`absolute left-16 whitespace-nowrap transition-all duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}>Docs</span>
-                        </Link> */}
-
-            <div className="relative profile-menu">
-              {isProfileMenuOpen && (
-                <div className="absolute -top-40 left-0 mt-2 w-56 bg-white border border-black/10 rounded-[24px] shadow-xl py-3 z-50">
-                  <Link
-                    href="/settings"
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-black/80 w-full group font-funnel-sans hover:bg-black/5 transition-colors"
-                    onClick={() => {
-                      if (isMobile) setIsOpen(false);
-                      setIsProfileMenuOpen(false);
-                    }}
-                  >
-                    <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center group-hover:bg-color3 transition-colors">
-                      <Settings className="w-4 h-4 text-white" />
-                    </div>
-                    <span className="group-hover:text-black transition-colors font-medium">
-                      Settings
-                    </span>
-                  </Link>
-                  <button
-                    className="flex items-center gap-3 px-4 py-3 text-sm text-black/80 w-full group font-funnel-sans hover:bg-black/5 transition-colors"
-                    onClick={() => {
-                      handleLogoutClick();
-                      setIsProfileMenuOpen(false);
-                    }}
-                  >
-                    <div className="w-8 h-8 bg-color2 rounded-full flex items-center justify-center group-hover:bg-color3 transition-colors">
-                      <LogOut className="w-4 h-4 text-white" />
-                    </div>
-                    <span className="group-hover:text-black transition-colors font-medium">
-                      Log out
-                    </span>
-                  </button>
-                </div>
-              )}
-              <div
-                className={
-                  getLinkStyles('/user/profile') + ' relative cursor-pointer'
-                }
-                onClick={handleProfileClick}
-              >
-                {/* {false ? (
-                                    <Image
-                                        src={"pfpUrl"}
-                                        alt="Profile Picture"
-                                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full"
-                                        width={20}
-                                        height={20}
-                                    />
-                                ) : ( */}
-                <User className="w-8 h-8 min-w-8 min-h-8 bg-black/4 rounded-full p-2 text-black/40 group-hover:text-black group-hover:fill-black shrink-0" />
-                {/* )} */}
-                <span className="text-sm text-black/40 font-medium whitespace-nowrap overflow-hidden text-ellipsis transition-all group-hover:text-black flex-1 min-w-0">
-                  {username !== '' ? username : 'user'}
-                </span>
-                <Icons.arrowDownSidebarUserIcon className="w-4 h-4 shrink-0 text-black/40 group-hover:text-black" />
-              </div>
-            </div>
-          </div>
-        </nav>
-      </aside>
-
-      {/* Overlay for mobile */}
-      {isOpen && (
+      {/* Background Overlay for Mobile Expansion */}
+      {isMobile && isOpen && (
         <div
-          className="fixed inset-0 bg-transparent z-10 sm:hidden"
-          onClick={handleOverlayClick}
+          className="fixed inset-0 bg-black/20 z-[40] backdrop-blur-[2px] transition-opacity duration-300"
+          onClick={() => setIsOpen(false)}
         />
       )}
-    </div>
+
+      <aside
+        onMouseEnter={() => !isMobile && setIsHovered(true)}
+        onMouseLeave={() => {
+          setIsHovered(false);
+          setIsProfileMenuOpen(false);
+        }}
+        className={`fixed z-[50] left-0 top-0 h-screen flex flex-col transition-all duration-300 ease-in-out border-r border-black/5 bg-white
+          ${
+            isMobile
+              ? isOpen
+                ? 'translate-x-0 w-[280px]'
+                : '-translate-x-full w-[280px]'
+              : isOpen
+                ? 'w-[260px]'
+                : 'w-[68px]'
+          }`}
+      >
+        {/* Header Section */}
+        <div className="p-4 flex items-center justify-between h-[72px]">
+          <div className="flex items-center gap-2 overflow-hidden shrink-0">
+            {!isOpen ? (
+              <button
+                onClick={() => setIsOpen(true)}
+                className="p-1 rounded-md ml-1 transition-colors"
+              >
+                {!isMobile && isHovered ? (
+                  <PanelLeft className="w-6 h-6 text-black/60" />
+                ) : (
+                  <img
+                    src="images/landing/earnkit_logo_mobile.png"
+                    className="h-6 w-6 min-w-[24px] brightness-0 invert-0"
+                    alt="Logo"
+                  />
+                )}
+              </button>
+            ) : (
+              <Icons.newEarnyIconwithName />
+            )}
+          </div>
+
+          {isOpen && (
+            <button
+              onClick={() => setIsOpen(false)}
+              className="text-black/60 hover:text-black p-1 hover:bg-black/5 rounded-md transition-colors"
+            >
+              <PanelLeft className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Navigation Items */}
+        <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto overflow-x-hidden">
+          {[
+            {
+              href: '/home',
+              label: 'Home',
+              icon: <House className="h-5 w-5 mr-0.5 shrink-0" />,
+            },
+            {
+              href: '/discover',
+              label: 'Discover',
+              icon: (
+                <Icons.newSidebarHomeMenuIcon className="h-7 w-7 shrink-0 !text-gray-400 group-hover:!text-black -ml-1" />
+              ),
+            },
+            {
+              href: 'https://docs.earnkit.com/',
+              label: 'Docs',
+              icon: (
+                <Icons.newSidebarBookIcon className="h-7 w-7 shrink-0 !text-gray-600 group-hover:!text-black -ml-1" />
+              ),
+              external: true,
+            },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              target={item.external ? '_blank' : undefined}
+              className={getLinkStyles(item.href)}
+              onClick={() => isMobile && setIsOpen(false)}
+            >
+              <div className="w-6 flex justify-center shrink-0">
+                {item.icon}
+              </div>
+              <span
+                className={`whitespace-nowrap transition-all duration-300 
+                ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 pointer-events-none'}`}
+              >
+                {item.label}
+              </span>
+            </Link>
+          ))}
+        </nav>
+
+        {/* Profile Section */}
+        <div className="p-3 relative">
+          {/* Wallet row — only when sidebar is open. Collapsed state shows a
+              status dot on the avatar instead. */}
+          {isOpen && ready && authenticated && (
+            <div className="mb-2">
+              {walletAddress ? (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-black/[0.03] border border-black/5 rounded-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="text-xs font-mono text-black/70 truncate">
+                      {truncatedWallet}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleDisconnectWallet}
+                    title="Disconnect wallet"
+                    className="text-black/30 hover:text-black/70 transition-colors shrink-0"
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleConnectWallet}
+                  className="w-full px-3 py-2 text-xs font-semibold text-white bg-black rounded-lg hover:bg-black/80 transition-colors flex items-center justify-center gap-2 font-funnel-sans"
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  Connect Wallet
+                </button>
+              )}
+            </div>
+          )}
+
+          {isProfileMenuOpen && (
+            <div
+              className={`absolute bg-white border border-black/10 rounded-2xl shadow-xl py-2 z-[60] transition-all duration-200 animate-in fade-in slide-in-from-bottom-2
+                ${
+                  isOpen
+                    ? 'bottom-[calc(100%+8px)] left-3 right-3 w-auto'
+                    : 'bottom-4 left-[72px] w-[220px]'
+                }`}
+            >
+              {!isOpen && (
+                <div className="px-4 py-1 border-b border-black/5 mb-1">
+                  <p className="text-[10px] font-bold text-black/30 uppercase tracking-widest">
+                    Account
+                  </p>
+                  <p className="text-sm font-semibold text-black truncate">
+                    {username || 'User'}
+                  </p>
+                </div>
+              )}
+              <Link
+                href="/settings"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-black/70 hover:text-black hover:bg-black/5 transition-colors font-funnel-sans"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Settings</span>
+              </Link>
+              <button
+                onClick={handleLogoutClick}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-black/70 hover:text-red-600 hover:bg-red-50 w-full transition-colors font-funnel-sans text-left"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log out</span>
+              </button>
+            </div>
+          )}
+
+          <div
+            className={`flex items-center gap-3 p-2 rounded-xl transition-all cursor-pointer group
+              ${!isOpen ? 'justify-center' : ''}`}
+            onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+          >
+            <div className="relative w-8 h-8 rounded-full bg-black/5 flex items-center justify-center shrink-0 border border-black/5 group-hover:border-black/10">
+              <User className="w-4 h-4 text-black/40 group-hover:text-black transition-colors" />
+              {walletAddress && (
+                <span
+                  title="Wallet connected"
+                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white"
+                />
+              )}
+            </div>
+
+            {isOpen && (
+              <>
+                <div className="flex flex-col flex-1 min-w-0">
+                  <span className="text-sm text-black truncate leading-tight font-medium">
+                    {username || 'User'}
+                  </span>
+                </div>
+                <Icons.arrowDownSidebarUserIcon
+                  className={`w-4 h-4 shrink-0 text-black/30 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180' : ''}`}
+                />
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      <div
+        className={`transition-all duration-300 ease-in-out shrink-0 
+        ${isMobile ? 'w-0' : isOpen ? 'w-[260px]' : 'w-[68px]'}`}
+      />
+    </>
   );
 }

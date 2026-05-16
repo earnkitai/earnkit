@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useWallets } from "@privy-io/react-auth";
 import { Button } from "@/app/components/ui/button";
 
 import { toast } from "sonner";
 import { Copy, Check, Clock, Zap, History, Trash2, Pencil, X } from "lucide-react";
+import { signBuybackAction, type BuybackAction } from "@/lib/buybackAuth";
 
 interface ConfigData {
     id: string;
@@ -68,6 +70,26 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     const [thresholdInput, setThresholdInput] = useState('');
     const [savingThreshold, setSavingThreshold] = useState(false);
     const [checkingActivation, setCheckingActivation] = useState(false);
+    const { wallets } = useWallets();
+
+    // Returns null on cancel / no-wallet — callers must bail.
+    const signAction = useCallback(
+        async (action: BuybackAction): Promise<{ signature: string; signedAt: string } | null> => {
+            if (!config) return null;
+            const wallet = wallets.find((w) => w.connectorType === "injected");
+            if (!wallet) {
+                toast.error("Connect your wallet first");
+                return null;
+            }
+            try {
+                return await signBuybackAction({ wallet, owner: config.ownerAddress, action });
+            } catch (e: unknown) {
+                toast.error(e instanceof Error ? e.message : "Signature rejected");
+                return null;
+            }
+        },
+        [config, wallets],
+    );
 
     const fetchConfig = useCallback(async () => {
         try {
@@ -89,9 +111,15 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     }, [fetchConfig]);
 
     const handleCheck = async () => {
+        const signed = await signAction({ kind: "check", configId });
+        if (!signed) return;
         setChecking(true);
         try {
-            const res = await fetch(`/api/shared-buyback/${configId}/check`, { method: "POST" });
+            const res = await fetch(`/api/shared-buyback/${configId}/check`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(signed),
+            });
             const data = await res.json();
             if (!res.ok) { toast.error(data.error || "Check failed"); return; }
             if (data.queued) {
@@ -112,9 +140,15 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
 
     const handleDisable = async () => {
         if (!confirm("Disable this buyback? Accumulated funds stay in the wallet.")) return;
+        const signed = await signAction({ kind: "delete", configId });
+        if (!signed) return;
         setDisabling(true);
         try {
-            const res = await fetch(`/api/shared-buyback/${configId}`, { method: "DELETE" });
+            const res = await fetch(`/api/shared-buyback/${configId}`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(signed),
+            });
             if (res.ok) {
                 toast.success("Buyback disabled");
                 onRemoved(configId);
@@ -128,14 +162,22 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     };
 
     const handleCheckActivation = async () => {
+        const signed = await signAction({ kind: "check-activation", configId });
+        if (!signed) return;
         setCheckingActivation(true);
         try {
-            const res = await fetch(`/api/shared-buyback/${configId}/check-activation`, { method: 'POST' });
+            const res = await fetch(`/api/shared-buyback/${configId}/check-activation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(signed),
+            });
             const data = await res.json();
             if (!res.ok) { toast.error(data.error || 'Check failed'); return; }
             if (data.activated) {
                 toast.success('Activated! Buyback is now live.');
                 await fetchConfig();
+            } else if (data.reason === 'membership_unknown') {
+                toast.info("Couldn't verify split membership right now — try again in a moment.");
             } else {
                 toast.info('Wallet not yet in split — add it and try again.');
             }
@@ -152,12 +194,17 @@ export default function SharedBuybackCard({ configId, onRemoved }: SharedBuyback
     const handleSaveThreshold = async () => {
         const val = parseFloat(thresholdInput);
         if (isNaN(val) || val <= 0) { toast.error('Enter a valid threshold above 0'); return; }
+        // Server still enforces the platform-min floor (PLATFORM_THRESHOLD_USD).
+        // No raise-only restriction — users can lower their threshold freely
+        // down to that floor for testing / tuning.
+        const signed = await signAction({ kind: "patch", configId, thresholdUsd: val });
+        if (!signed) return;
         setSavingThreshold(true);
         try {
             const res = await fetch(`/api/shared-buyback/${configId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ thresholdUsd: val }),
+                body: JSON.stringify({ thresholdUsd: val, ...signed }),
             });
             const data = await res.json();
             if (!res.ok) { toast.error(data.error || 'Update failed'); return; }

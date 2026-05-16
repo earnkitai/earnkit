@@ -705,7 +705,11 @@ model SharedSplitBuybackConfig {
   id              String   @id @default(cuid())
 
   ownerAddress    String   @map("owner_address")
-  splitAddress    String   @map("split_address")
+  // Nullable: in the deferred-register flow (Token card → we deploy the split
+  // after Turnkey provisioning), splitAddress is populated by /:id/set-split
+  // once the user's deploy tx confirms. For the Splits card flow it's set at
+  // registration time.
+  splitAddress    String?  @map("split_address")
   tokenAddress    String   @map("token_address")
   tokenSymbol     String   @map("token_symbol")
   tokenDecimals   Int      @map("token_decimals")
@@ -773,87 +777,7 @@ enum SharedSplitStatus {
   BROKEN
 }
 
-model TokenContractBuybackConfig {
-  id              String   @id @default(cuid())
-
-  // The existing token contract whose fee revenue we're routing into buyback
-  tokenContractAddress  String   @map("token_contract_address")
-  // The ERC-20 to buy back and burn with those fees
-  targetTokenAddress    String   @map("target_token_address")
-  targetTokenSymbol     String   @map("target_token_symbol")
-  targetTokenDecimals   Int      @map("target_token_decimals")
-
-  ownerAddress    String   @map("owner_address")
-  // On-chain detected owner of the token contract (may differ from ownerAddress if
-  // the registrant connected a different wallet than the contract owner).
-  onChainOwnerAddress String? @map("on_chain_owner_address")
-  // True when the on-chain owner is a contract (Safe/multisig) — determines
-  // whether we show a direct-sign button or a Safe TX builder link.
-  ownerIsContract Boolean  @default(false) @map("owner_is_contract")
-
-  // Detected fee recipient getter on the source contract (e.g. "feeRecipient")
-  // Stored for display only — we never call the source contract ourselves.
-  feeGetterName   String?  @map("fee_getter_name")
-
-  feeRateBps      Int      @default(100)  @map("fee_rate_bps")
-  thresholdUsd    Float    @default(10)   @map("threshold_usd")
-  slippageBps     Int      @default(500)  @map("slippage_bps")
-  burnMode        BurnMode @default(DEAD_ADDRESS) @map("burn_mode")
-
-  turnkeySubOrgId String?  @unique @map("turnkey_sub_org_id")
-  turnkeyWalletId String?  @unique @map("turnkey_wallet_id")
-  walletAddress   String?  @unique @map("wallet_address")
-  policyId        String?  @map("policy_id")
-  recoveryAddress String   @map("recovery_address")
-
-  status          TokenContractStatus @default(PROVISIONING)
-  isActive        Boolean   @default(true)  @map("is_active")
-  lastCheckedAt   DateTime? @map("last_checked_at")
-  lastTriggeredAt DateTime? @map("last_triggered_at")
-
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt      @map("updated_at")
-
-  executions      TokenContractExecution[]
-
-  @@index([status])
-  @@index([walletAddress])
-  @@index([tokenContractAddress])
-  @@map("token_contract_buyback_configs")
-}
-
-model TokenContractExecution {
-  id        String                         @id @default(cuid())
-  configId  String                         @map("config_id")
-  config    TokenContractBuybackConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
-
-  status            BuybackStatus @default(QUEUED)
-  triggerBalanceUsd Float         @map("trigger_balance_usd")
-  attempts          Int           @default(0)
-  lastError         String?       @map("last_error")
-  nextAttemptAt     DateTime?     @map("next_attempt_at")
-
-  feeTransferHashes  String[] @default([]) @map("fee_transfer_hashes")
-  swapHash           String?  @map("swap_hash")
-  burnHash           String?  @map("burn_hash")
-
-  assetsIn        Json?    @map("assets_in")
-  feeCollectedUsd Float?   @map("fee_collected_usd")
-  tokensOutAmount String?  @map("tokens_out_amount")
-  tokensOutUsd    Float?   @map("tokens_out_usd")
-
-  startedAt   DateTime  @default(now()) @map("started_at")
-  completedAt DateTime? @map("completed_at")
-
-  @@index([configId, status])
-  @@index([status, nextAttemptAt])
-  @@map("token_contract_executions")
-}
-
-enum TokenContractStatus {
-  PROVISIONING
-  PENDING_FEE_RECIPIENT_UPDATE
-  ACTIVE
-  PAUSED
-  BROKEN
-}
+// TokenContractBuybackConfig, TokenContractExecution, TokenContractStatus
+// removed: the legacy single-recipient token-buyback flow is superseded by
+// the unified split-based flow on SharedSplitBuybackConfig (Token card on
+// /create now deploys a 0xSplits contract per launch).
