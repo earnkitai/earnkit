@@ -27,12 +27,13 @@ interface GiftCodesProps {
 export default function GiftCodes({ agentDbId }: GiftCodesProps) {
     const [codes, setCodes] = useState<GiftCode[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [credits, setCredits] = useState("");
     const [maxRedemptions, setMaxRedemptions] = useState("");
 
     const fetchCodes = useCallback(async () => {
-        setLoading(true);
+        setRefreshing(true);
         try {
             const res = await fetch(`/api/agents/${agentDbId}/gift-codes`);
             if (!res.ok) {
@@ -45,6 +46,7 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
             toast.error("Failed to load gift codes");
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     }, [agentDbId]);
 
@@ -184,9 +186,6 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                                     className="w-full p-4 border border-gray-200 rounded-lg"
                                     min={1}
                                 />
-                                <p className="text-xs text-black/40 font-funnel-sans px-4 mt-2">
-                                    If left empty, this code can be used any number of times (one redemption per wallet).
-                                </p>
                             </div>
                             <Button
                                 type="submit"
@@ -196,6 +195,9 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                                 {submitting ? "Creating..." : "Generate Code"}
                             </Button>
                         </div>
+                        <p className="text-xs text-black/40 font-funnel-sans px-4">
+                            If &quot;Max redemptions&quot; is left empty, this code can be used any number of times (one redemption per wallet).
+                        </p>
                     </form>
                 </CardContent>
             </Card>
@@ -211,10 +213,10 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                             type="button"
                             variant="outline"
                             onClick={fetchCodes}
-                            disabled={loading}
+                            disabled={refreshing}
                             className="rounded-full border border-black/15 text-black/60 px-4 py-2 h-9"
                         >
-                            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+                            <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
                             Refresh
                         </Button>
                     </div>
