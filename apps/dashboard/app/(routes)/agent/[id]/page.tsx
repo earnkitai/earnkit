@@ -445,8 +445,8 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
     const routingBadgeLabel = isSplitAgent ? "Splits" : "Escrow";
 
     return (
-        <div className="min-h-screen">
-            <div className="max-w-7xl">
+        <div className="min-h-screen max-w-7xl mx-auto p-[24px] md:p-[35px] pt-20 md:pt-10">
+            <div>
                 {/* Breadcrumb Navigation */}
                 <div className="mb-[60px] flex justify-between items-center">
                     <div className="flex items-center gap-2 text-sm">

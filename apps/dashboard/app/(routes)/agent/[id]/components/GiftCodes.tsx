@@ -184,6 +184,9 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                                     className="w-full p-4 border border-gray-200 rounded-lg"
                                     min={1}
                                 />
+                                <p className="text-xs text-black/40 font-funnel-sans px-4 mt-2">
+                                    If left empty, this code can be used any number of times (one redemption per wallet).
+                                </p>
                             </div>
                             <Button
                                 type="submit"
