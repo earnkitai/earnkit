@@ -23,6 +23,7 @@ import Logs from "./components/Logs";
 import WithdrawModal from "./components/WithdrawModal";
 import BuybackPanel from "./components/BuybackPanel";
 import BuybackHistory from "./components/BuybackHistory";
+import GiftCodes from "./components/GiftCodes";
 import { TokenConfigPanel } from "@/app/components/TokenConfigPanel";
 
 // Agent type definition matching the database schema
@@ -204,7 +205,7 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
         }
     }, [agent]);
 
-    const [activeView, setActiveView] = useState<"overview" | "logs" | "buyback">("overview");
+    const [activeView, setActiveView] = useState<"overview" | "logs" | "buyback" | "gift-codes">("overview");
 
     // Generate real chart data from transaction logs
     const generateChartData = () => {
@@ -473,9 +474,10 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                                 { value: "overview", label: "Overview", textColor: "text-black" },
                                 { value: "logs", label: "Logs", textColor: "text-black" },
                                 { value: "buyback", label: "Buyback", textColor: "text-black" },
+                                { value: "gift-codes", label: "Gift Codes", textColor: "text-black" },
                             ]}
                             value={activeView}
-                            onChange={(value) => setActiveView(value as "overview" | "logs" | "buyback")}
+                            onChange={(value) => setActiveView(value as "overview" | "logs" | "buyback" | "gift-codes")}
                             selectedBgColor="bg-white"
                             unselectedBgColor="bg-transparent"
                             containerClassName="bg-black/10 p-2.5 rounded-full"
@@ -487,7 +489,9 @@ export default function AgentPage({ params }: { params: Promise<{ id: string }> 
                 <div className="flex items-start justify-between gap-6">
                     {/* Left Section - Main Content */}
                     <div className="flex-1">
-                        {activeView === "buyback" ? (
+                        {activeView === "gift-codes" ? (
+                            <GiftCodes agentDbId={resolvedParams.id} />
+                        ) : activeView === "buyback" ? (
                             <BuybackHistory agentDbId={resolvedParams.id} />
                         ) : activeView === "logs" ? (
                             <Logs agentId={resolvedParams.id} />

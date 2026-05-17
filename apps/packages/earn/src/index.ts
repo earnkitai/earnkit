@@ -148,6 +148,17 @@ interface SubmitTopUpResponse {
   message: string;
 }
 
+interface RedeemGiftCodeParams {
+  code: string;
+  walletAddress: string;
+}
+
+interface RedeemGiftCodeResponse {
+  success: boolean;
+  creditsAdded: number;
+  balance: UserBalance;
+}
+
 export interface SplitsPaymentConfig {
   paymentAddress: string;
   paymentMode: 'splits';
@@ -438,6 +449,42 @@ export class EarnKit {
     );
 
     return response;
+  }
+
+  /**
+   * Redeems a gift code, adding credits to the user's per-agent balance.
+   * Each wallet can redeem a given code at most once. The backend validates
+   * the code is active, unexpired, and has remaining redemptions.
+   *
+   * @param {RedeemGiftCodeParams} params - The parameters for the redemption.
+   * @param {string} params.code - The gift code (e.g. "EK-XXXX-XXXX-XXXX").
+   * @param {string} params.walletAddress - The end user's wallet address.
+   * @returns {Promise<RedeemGiftCodeResponse>} Credits added and the new balance.
+   * @throws {EarnKitInputError | EarnKitApiError} If the code is invalid,
+   *   already redeemed by this wallet, exhausted, expired, or inactive.
+   */
+  public async redeemGiftCode(
+    params: RedeemGiftCodeParams,
+  ): Promise<RedeemGiftCodeResponse> {
+    if (!params) {
+      throw new EarnKitInputError('Parameters object is required.');
+    }
+
+    this._validateString(params.code, 'code');
+    this._validateString(params.walletAddress, 'walletAddress', {
+      startsWith: '0x',
+    });
+
+    const body = {
+      agentId: this.agentId,
+      code: params.code,
+      walletAddress: params.walletAddress,
+    };
+
+    return this._apiCall<RedeemGiftCodeResponse>('/gift-codes/redeem', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   }
 
   /**
