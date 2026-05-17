@@ -303,6 +303,7 @@ model Agent {
   transactionLogs     TransactionLog[]
   usageEvents         UsageEvent[]
   userBalances        UserBalance[]
+  giftCodes           GiftCode[]
   buybackConfig       BuybackConfig?
   splitAddress        String?            @map("split_address")
   buybackAddress      String?            @map("buyback_address")
@@ -313,6 +314,39 @@ model Agent {
   @@index([status])
   @@index([createdAt])
   @@map("agents")
+}
+
+model GiftCode {
+  id                   String               @id @default(cuid())
+  code                 String               @unique
+  agentId              String               @map("agent_id")
+  creditsPerRedemption Int                  @map("credits_per_redemption")
+  maxRedemptions       Int?                 @map("max_redemptions")
+  redemptionCount      Int                  @default(0) @map("redemption_count")
+  isActive             Boolean              @default(true) @map("is_active")
+  expiresAt            DateTime?            @map("expires_at")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  agent                Agent                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  redemptions          GiftCodeRedemption[]
+
+  @@index([agentId])
+  @@index([code])
+  @@map("gift_codes")
+}
+
+model GiftCodeRedemption {
+  id                String   @id @default(cuid())
+  giftCodeId        String   @map("gift_code_id")
+  userWalletAddress String   @map("user_wallet_address")
+  creditsAdded      Int      @map("credits_added")
+  redeemedAt        DateTime @default(now()) @map("redeemed_at")
+  giftCode          GiftCode @relation(fields: [giftCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([giftCodeId, userWalletAddress])
+  @@index([giftCodeId])
+  @@index([userWalletAddress])
+  @@map("gift_code_redemptions")
 }
 
 model BuybackConfig {
