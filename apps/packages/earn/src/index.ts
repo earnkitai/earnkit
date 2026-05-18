@@ -641,15 +641,19 @@ export class EarnKit {
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      this.requestTimeoutMs,
-    );
-
     let lastError: Error | null = null;
 
     for (let i = 0; i <= MAX_RETRIES; i++) {
+      // Fresh AbortController per attempt. A single controller shared across
+      // retries means the first timeout poisons every subsequent attempt with
+      // "signal is aborted without reason" — the retry fires fetch() against
+      // an already-aborted signal and rejects synchronously.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(
+        () => controller.abort(),
+        this.requestTimeoutMs,
+      );
+
       try {
         const url = path.startsWith('http')
           ? path
@@ -672,9 +676,15 @@ export class EarnKit {
         const response = await fetch(url, mergedOptions);
 
         if (!response.ok) {
-          const errorData: ApiErrorResponse = await response.json();
+          let errorData: ApiErrorResponse | undefined;
+          try {
+            errorData = (await response.json()) as ApiErrorResponse;
+          } catch {
+            // Non-JSON error body (HTML error page, empty, etc.). Fall through
+            // with status-text so the surfaced error is still actionable.
+          }
           throw new EarnKitApiError(
-            errorData.message || `HTTP Error: ${response.status}`,
+            errorData?.message || `HTTP ${response.status}: ${response.statusText || 'Request failed'}`,
             response.status,
             errorData,
           );
@@ -683,6 +693,7 @@ export class EarnKit {
         clearTimeout(timeoutId);
         return (await response.json()) as T;
       } catch (error) {
+        clearTimeout(timeoutId);
         lastError = error as Error;
 
         // decide if we should retry
@@ -696,8 +707,6 @@ export class EarnKit {
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
-
-    clearTimeout(timeoutId);
 
     // re-throw the last captured error
     if (lastError instanceof EarnKitApiError) {
