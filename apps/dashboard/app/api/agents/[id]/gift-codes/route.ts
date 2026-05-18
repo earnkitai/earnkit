@@ -63,6 +63,10 @@ export async function GET(
   }
 }
 
+// Custom codes: 3–32 chars, alphanumeric plus `-` and `_`. Always stored
+// uppercase so lookups are case-insensitive without an `ilike` on the index.
+const CUSTOM_CODE_REGEX = /^[A-Z0-9_-]{3,32}$/;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Params },
@@ -70,10 +74,11 @@ export async function POST(
   try {
     const agentId = (await params).id;
     const body = await request.json();
-    const { creditsPerRedemption, maxRedemptions, expiresAt } = body as {
+    const { creditsPerRedemption, maxRedemptions, expiresAt, customCode } = body as {
       creditsPerRedemption: number;
       maxRedemptions?: number | null;
       expiresAt?: string | null;
+      customCode?: string | null;
     };
 
     if (!agentId) {
@@ -92,12 +97,53 @@ export async function POST(
       );
     }
 
+    const trimmedCustom =
+      typeof customCode === 'string' ? customCode.trim().toUpperCase() : '';
+    if (trimmedCustom && !CUSTOM_CODE_REGEX.test(trimmedCustom)) {
+      return NextResponse.json(
+        {
+          error:
+            'Custom code must be 3–32 characters, using only letters, numbers, dashes, and underscores.',
+        },
+        { status: 400 },
+      );
+    }
+
     const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } });
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    // Retry on the off chance of a code collision (extremely unlikely).
+    // Custom code: try once, surface a clear 409 if taken.
+    if (trimmedCustom) {
+      try {
+        const created = await prisma.giftCode.create({
+          data: {
+            code: trimmedCustom,
+            agentId,
+            creditsPerRedemption,
+            maxRedemptions: maxRedemptions ?? null,
+            expiresAt: expiresAt ? new Date(expiresAt) : null,
+          },
+        });
+        return NextResponse.json({ code: created });
+      } catch (err: unknown) {
+        if (
+          typeof err === 'object' &&
+          err !== null &&
+          'code' in err &&
+          (err as { code?: string }).code === 'P2002'
+        ) {
+          return NextResponse.json(
+            { error: 'That code is already taken. Choose a different one.' },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
+    }
+
+    // Auto-generate: retry on the off chance of a collision (extremely unlikely).
     let created;
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = generateCode();

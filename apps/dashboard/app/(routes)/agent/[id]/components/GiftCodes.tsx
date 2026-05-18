@@ -31,6 +31,7 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
     const [submitting, setSubmitting] = useState(false);
     const [credits, setCredits] = useState("");
     const [maxRedemptions, setMaxRedemptions] = useState("");
+    const [customCode, setCustomCode] = useState("");
 
     const fetchCodes = useCallback(async () => {
         setRefreshing(true);
@@ -71,6 +72,12 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
             maxNum = n;
         }
 
+        const trimmedCustom = customCode.trim().toUpperCase();
+        if (trimmedCustom && !/^[A-Z0-9_-]{3,32}$/.test(trimmedCustom)) {
+            toast.error("Custom code must be 3–32 chars: letters, numbers, dashes, underscores only");
+            return;
+        }
+
         setSubmitting(true);
         try {
             const res = await fetch(`/api/agents/${agentDbId}/gift-codes`, {
@@ -79,6 +86,7 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                 body: JSON.stringify({
                     creditsPerRedemption: creditsNum,
                     maxRedemptions: maxNum,
+                    customCode: trimmedCustom || undefined,
                 }),
             });
             if (!res.ok) {
@@ -89,6 +97,7 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
             toast.success("Gift code created");
             setCredits("");
             setMaxRedemptions("");
+            setCustomCode("");
             await fetchCodes();
         } finally {
             setSubmitting(false);
@@ -195,8 +204,24 @@ export default function GiftCodes({ agentDbId }: GiftCodesProps) {
                                 {submitting ? "Creating..." : "Generate Code"}
                             </Button>
                         </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-black font-funnel-sans px-4 mb-2">
+                                Custom code (optional)
+                            </label>
+                            <Input
+                                type="text"
+                                placeholder="e.g. MINI20"
+                                value={customCode}
+                                onChange={(e) => setCustomCode(e.target.value.toUpperCase())}
+                                className="w-full p-4 border border-gray-200 rounded-lg uppercase"
+                                maxLength={32}
+                            />
+                        </div>
+
                         <p className="text-xs text-black/40 font-funnel-sans px-4">
                             If &quot;Max redemptions&quot; is left empty, this code can be used any number of times (one redemption per wallet).
+                            Leave &quot;Custom code&quot; blank to auto-generate (3–32 chars: letters, numbers, dashes, underscores).
                         </p>
                     </form>
                 </CardContent>

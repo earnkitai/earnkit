@@ -35,6 +35,8 @@ router.post(
       if (!code || typeof code !== 'string') {
         throw new AppError('code is required', 400);
       }
+      // Codes are stored uppercase; normalize so end users can type any case.
+      const normalizedCode = code.trim().toUpperCase();
       if (!walletAddress || !walletAddress.startsWith('0x')) {
         throw new AppError('walletAddress is required and must start with 0x', 400);
       }
@@ -50,7 +52,9 @@ router.post(
         throw new AppError(`Agent with agentId ${agentId} not found`, 404);
       }
 
-      const giftCode = await prisma.giftCode.findUnique({ where: { code } });
+      const giftCode = await prisma.giftCode.findUnique({
+        where: { code: normalizedCode },
+      });
       if (!giftCode || giftCode.agentId !== agent.id) {
         throw new AppError('Invalid gift code', 404);
       }
