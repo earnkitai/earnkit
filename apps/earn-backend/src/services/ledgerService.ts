@@ -5,6 +5,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { normalizeWalletOptional } from '../lib/wallet';
 
 export interface CreateLedgerEntryInput {
   agentId: string;
@@ -30,7 +31,7 @@ export class LedgerService {
       data: {
         agentId: input.agentId,
         paymentIntentId: input.paymentIntentId,
-        userWalletAddress: input.userWalletAddress?.toLowerCase(),
+        userWalletAddress: normalizeWalletOptional(input.userWalletAddress),
         entryType: input.entryType,
         status: input.status ?? LedgerEntryStatus.POSTED,
         amountInUSD: input.amountInUSD,

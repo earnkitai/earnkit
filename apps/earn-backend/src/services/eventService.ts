@@ -6,6 +6,7 @@ import {
   CaptureParams,
   ReleaseParams,
 } from '../types';
+import { normalizeWallet } from '../lib/wallet';
 
 export class EventService {
   /**
@@ -17,8 +18,8 @@ export class EventService {
     creditsRequired: number;
     creditsAvailable: number;
   }> {
-    const { agentId, walletAddress, idempotencyKey, creditsToDeduct, userId } =
-      params;
+    const { agentId, idempotencyKey, creditsToDeduct, userId } = params;
+    const walletAddress = normalizeWallet(params.walletAddress);
 
     return prisma.$transaction(async (tx) => {
       if (!userId) throw new Error('Authentication required');

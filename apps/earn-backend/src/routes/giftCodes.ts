@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { validateApiKey } from '../middleware/apiKeyAuth';
 import { AppError } from '../middleware/errorHandler';
+import { requireWalletAddress } from '../lib/wallet';
 
 const router: Router = Router();
 
@@ -37,10 +38,7 @@ router.post(
       }
       // Codes are stored uppercase; normalize so end users can type any case.
       const normalizedCode = code.trim().toUpperCase();
-      if (!walletAddress || !walletAddress.startsWith('0x')) {
-        throw new AppError('walletAddress is required and must start with 0x', 400);
-      }
-      const normalizedWallet = walletAddress.toLowerCase();
+      const normalizedWallet = requireWalletAddress(walletAddress, 'walletAddress');
       if (!agentId || typeof agentId !== 'string') {
         throw new AppError('agentId is required', 400);
       }

@@ -1,29 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from './errorHandler';
+import { requireWalletAddress } from '../lib/wallet';
 
+/**
+ * Validates AND normalizes req.body.walletAddress to lowercase in-place.
+ * Downstream handlers should treat the value as already-canonical — the
+ * DB has CHECK constraints that reject anything else.
+ */
 export const validateWalletAddress = (
   req: Request,
   res: Response,
   next: NextFunction,
 ): void => {
-  const { walletAddress } = req.body;
-
-  if (!walletAddress) {
-    throw new AppError('walletAddress is required', 400);
-  }
-
-  if (typeof walletAddress !== 'string') {
-    throw new AppError('walletAddress must be a string', 400);
-  }
-
-  if (!walletAddress.startsWith('0x')) {
-    throw new AppError('walletAddress must start with 0x', 400);
-  }
-
-  if (walletAddress.length !== 42) {
-    throw new AppError('walletAddress must be 42 characters long', 400);
-  }
-
+  req.body.walletAddress = requireWalletAddress(
+    req.body.walletAddress,
+    'walletAddress',
+  );
   next();
 };
 

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { UserBalance } from '../types';
+import { normalizeWallet } from '../lib/wallet';
 
 export class BalanceService {
   /**
@@ -11,7 +12,7 @@ export class BalanceService {
     userId?: string,
   ): Promise<UserBalance> {
     if (!userId) throw new Error('Authentication required');
-    walletAddress = walletAddress.toLowerCase();
+    walletAddress = normalizeWallet(walletAddress);
 
     const agent = await prisma.agent.findFirst({
       where: { agentId, userId },
@@ -62,7 +63,7 @@ export class BalanceService {
     agentId: string,
     creditsToAdd: number,
   ): Promise<UserBalance> {
-    walletAddress = walletAddress.toLowerCase();
+    walletAddress = normalizeWallet(walletAddress);
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },
@@ -100,7 +101,7 @@ export class BalanceService {
     agentId: string,
     creditsToDeduct: number,
   ): Promise<UserBalance> {
-    walletAddress = walletAddress.toLowerCase();
+    walletAddress = normalizeWallet(walletAddress);
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },
@@ -157,7 +158,7 @@ export class BalanceService {
     agentId: string,
     ethToAdd: string,
   ): Promise<UserBalance> {
-    walletAddress = walletAddress.toLowerCase();
+    walletAddress = normalizeWallet(walletAddress);
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },

@@ -14,6 +14,7 @@ import { prisma } from '../lib/prisma';
 import { BalanceService } from './balanceService';
 import { priceService } from './priceService';
 import { tokenService, SupportedToken } from './tokenService';
+import { normalizeWallet } from '../lib/wallet';
 import {
   createPublicClient,
   http,
@@ -375,7 +376,6 @@ export class TopUpService {
     const {
       txHash,
       agentId,
-      walletAddress,
       amountInUSD,
       amountInEth,
       creditsToTopUp,
@@ -384,6 +384,7 @@ export class TopUpService {
       amountInToken,
       userId,
     } = params;
+    const walletAddress = normalizeWallet(params.walletAddress);
 
     // First, get the agent's internal ID using the agent_id field
     if (!userId) throw new Error('Authentication required');
@@ -980,7 +981,7 @@ export class TopUpService {
     walletAddress: string,
   ): Promise<TopUpTransaction[]> {
     const transactions = await prisma.topUpTransaction.findMany({
-      where: { userWalletAddress: walletAddress },
+      where: { userWalletAddress: normalizeWallet(walletAddress) },
       orderBy: { createdAt: 'desc' },
     });
 

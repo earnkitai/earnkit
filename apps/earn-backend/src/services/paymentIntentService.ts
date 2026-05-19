@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma';
 import { WebhookService } from './webhookService';
 import { priceService } from './priceService';
 import { tokenService } from './tokenService';
+import { normalizeWalletOptional } from '../lib/wallet';
 
 const DEFAULT_PAYMENT_INTENT_TTL_MS = 30 * 60 * 1000;
 
@@ -43,6 +44,10 @@ export interface RecordPaymentSeenInput {
 export class PaymentIntentService {
   static async createPaymentIntent(input: CreatePaymentIntentInput) {
     if (!input.userId) throw new Error('Authentication required');
+
+    const normalizedCustomerWallet = normalizeWalletOptional(
+      input.customerWalletAddress,
+    );
 
     const agent = await prisma.agent.findFirst({
       where: { agentId: input.agentId, userId: input.userId },
@@ -145,7 +150,7 @@ export class PaymentIntentService {
           clientSecret,
           externalReference: input.externalReference,
           status: PaymentIntentStatus.REQUIRES_PAYMENT,
-          customerWalletAddress: input.customerWalletAddress?.toLowerCase(),
+          customerWalletAddress: normalizedCustomerWallet,
           amountInUSD: resolvedAmountInUSD,
           creditsToTopUp:
             resolvedCredits === undefined
@@ -165,7 +170,7 @@ export class PaymentIntentService {
         data: {
           agentId: agent.id,
           paymentIntentId: paymentIntent.id,
-          userWalletAddress: input.customerWalletAddress?.toLowerCase(),
+          userWalletAddress: normalizedCustomerWallet,
           entryType: LedgerEntryType.PAYMENT_INTENT_CREATED,
           status: LedgerEntryStatus.POSTED,
           amountInUSD: resolvedAmountInUSD,
@@ -188,6 +193,10 @@ export class PaymentIntentService {
 
   // Idempotent on retry — see docs/06_RELIABILITY_FIXES_2026_05_14.md §8.
   static async recordPaymentSeen(input: RecordPaymentSeenInput) {
+    const normalizedCustomerWallet = normalizeWalletOptional(
+      input.customerWalletAddress,
+    );
+
     let isDuplicate = false;
     let paymentIntent;
     try {
@@ -197,7 +206,7 @@ export class PaymentIntentService {
           data: {
             status: PaymentIntentStatus.PROCESSING,
             txHash: input.txHash,
-            customerWalletAddress: input.customerWalletAddress?.toLowerCase(),
+            customerWalletAddress: normalizedCustomerWallet,
           },
         });
 
@@ -206,8 +215,7 @@ export class PaymentIntentService {
             agentId: pi.agentId,
             paymentIntentId: pi.id,
             userWalletAddress:
-              input.customerWalletAddress?.toLowerCase() ??
-              pi.customerWalletAddress,
+              normalizedCustomerWallet ?? pi.customerWalletAddress,
             entryType: LedgerEntryType.PAYMENT_RECEIVED,
             status: LedgerEntryStatus.PENDING,
             amountInUSD: pi.amountInUSD,

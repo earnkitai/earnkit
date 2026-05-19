@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { AppError } from '../middleware/errorHandler';
 import { validateApiKey } from '../middleware/apiKeyAuth';
 import { PaymentIntentService } from '../services/paymentIntentService';
+import { optionalWalletAddress, requireWalletAddress } from '../lib/wallet';
 
 const router: Router = Router();
 
@@ -45,7 +46,10 @@ router.post('/', validateApiKey, async (req: Request, res: Response) => {
       chainId,
       amountInUSD,
       creditsToTopUp,
-      customerWalletAddress,
+      customerWalletAddress: optionalWalletAddress(
+        customerWalletAddress,
+        'customerWalletAddress',
+      ),
       tokenAddress,
       tokenSymbol,
       externalReference,
@@ -127,7 +131,10 @@ router.post(
       const paymentIntent = await PaymentIntentService.recordPaymentSeen({
         paymentIntentId: req.params.id,
         txHash,
-        customerWalletAddress,
+        customerWalletAddress: optionalWalletAddress(
+          customerWalletAddress,
+          'customerWalletAddress',
+        ),
       });
 
       res.json({ success: true, data: paymentIntent });
