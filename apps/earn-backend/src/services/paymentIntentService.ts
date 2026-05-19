@@ -305,7 +305,12 @@ export class PaymentIntentService {
           },
         });
 
-        if (pi.creditsToTopUp && pi.customerWalletAddress) {
+        if (pi.creditsToTopUp) {
+          if (!pi.customerWalletAddress) {
+            throw new Error(
+              `PI ${pi.id} has creditsToTopUp but no customerWalletAddress — cannot grant credits`,
+            );
+          }
           await tx.userBalance.upsert({
             where: {
               userWalletAddress_agentId: {

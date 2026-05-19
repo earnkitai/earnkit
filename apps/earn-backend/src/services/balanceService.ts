@@ -11,6 +11,7 @@ export class BalanceService {
     userId?: string,
   ): Promise<UserBalance> {
     if (!userId) throw new Error('Authentication required');
+    walletAddress = walletAddress.toLowerCase();
 
     const agent = await prisma.agent.findFirst({
       where: { agentId, userId },
@@ -61,6 +62,7 @@ export class BalanceService {
     agentId: string,
     creditsToAdd: number,
   ): Promise<UserBalance> {
+    walletAddress = walletAddress.toLowerCase();
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },
@@ -98,6 +100,7 @@ export class BalanceService {
     agentId: string,
     creditsToDeduct: number,
   ): Promise<UserBalance> {
+    walletAddress = walletAddress.toLowerCase();
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },
@@ -154,6 +157,7 @@ export class BalanceService {
     agentId: string,
     ethToAdd: string,
   ): Promise<UserBalance> {
+    walletAddress = walletAddress.toLowerCase();
     const agent = await prisma.agent.findFirst({
       where: { agentId },
       select: { id: true },

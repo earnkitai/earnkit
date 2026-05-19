@@ -154,7 +154,12 @@ async function processOne(id: string): Promise<void> {
   try {
     await PaymentIntentService.confirmPayment(id);
     console.log(`[PIVerifier] Confirmed ${id} (tx ${pi.txHash})`);
-  } catch (err) {
+  } catch (err: any) {
+    // P2025 = record not found for the PROCESSING status filter — the PI
+    // already reached a final state (SUCCEEDED/FAILED) via another path.
+    // No action needed; the status check at the top of processOne will
+    // short-circuit on the next poll.
+    if (err?.code === 'P2025') return;
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[PIVerifier] confirmPayment failed for ${id}: ${message}`);
   }

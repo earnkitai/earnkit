@@ -33,9 +33,6 @@ process.on('uncaughtException', (err) => {
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
-// BigInt fields (e.g. creditsToTopUp) from Prisma can't be serialized by the
-// default JSON.stringify. Serialize them as strings so callers get a stable
-// representation that avoids precision loss.
 app.set('json replacer', (_key: string, value: unknown) =>
   typeof value === 'bigint' ? value.toString() : value,
 );
