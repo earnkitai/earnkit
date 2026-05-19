@@ -40,6 +40,7 @@ router.post(
       if (!walletAddress || !walletAddress.startsWith('0x')) {
         throw new AppError('walletAddress is required and must start with 0x', 400);
       }
+      const normalizedWallet = walletAddress.toLowerCase();
       if (!agentId || typeof agentId !== 'string') {
         throw new AppError('agentId is required', 400);
       }
@@ -77,7 +78,7 @@ router.post(
           await tx.giftCodeRedemption.create({
             data: {
               giftCodeId: giftCode.id,
-              userWalletAddress: walletAddress,
+              userWalletAddress: normalizedWallet,
               creditsAdded: giftCode.creditsPerRedemption,
             },
           });
@@ -105,7 +106,7 @@ router.post(
           const balance = await tx.userBalance.upsert({
             where: {
               userWalletAddress_agentId: {
-                userWalletAddress: walletAddress,
+                userWalletAddress: normalizedWallet,
                 agentId: agent.id,
               },
             },
@@ -113,7 +114,7 @@ router.post(
               creditBalance: { increment: BigInt(giftCode.creditsPerRedemption) },
             },
             create: {
-              userWalletAddress: walletAddress,
+              userWalletAddress: normalizedWallet,
               agentId: agent.id,
               creditBalance: BigInt(giftCode.creditsPerRedemption),
               ethBalance: 0,
