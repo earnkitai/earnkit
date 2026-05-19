@@ -27,11 +27,12 @@ router.get('/', validateApiKey, async (req: Request, res: Response) => {
     }
 
     const balance = await balanceService.getBalance(
-      walletAddress,
+      walletAddress.toLowerCase(),
       agentId,
       (req as any).user?.id,
     );
 
+    res.set('Cache-Control', 'no-store');
     res.json(balance);
   } catch (error) {
     if (error instanceof Error) {
