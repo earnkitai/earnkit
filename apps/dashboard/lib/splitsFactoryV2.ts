@@ -132,6 +132,65 @@ export const PULL_SPLIT_ABI = parseAbi([
   'function distribute(Split _split, address _token, address _distributor)',
 ]);
 
+// `updateSplit` is owner-only — used by the Safe flow to add the buyback
+// wallet as a recipient on an existing split.
+export const PULL_SPLIT_UPDATE_ABI = parseAbi([
+  'struct Split { address[] recipients; uint256[] allocations; uint256 totalAllocation; uint16 distributionIncentive; }',
+  'function updateSplit(Split _split)',
+]);
+
+export interface BuildUpdateSplitCalldataArgs {
+  splitAddress: string;
+  currentParams: SplitParams;
+  newRecipient: string;
+  newRecipientPercent: number; // 1–99
+}
+
+/**
+ * Encode `updateSplit(newSplitParams)` to add a new recipient to an existing
+ * PullSplit V2. Existing recipients are scaled down proportionally to make
+ * room for `newRecipientPercent`% going to `newRecipient`. The split owner
+ * (a Safe) must call this.
+ */
+export function buildUpdateSplitCalldata(
+  args: BuildUpdateSplitCalldataArgs,
+): { to: `0x${string}`; data: Hex } {
+  if (args.newRecipientPercent <= 0 || args.newRecipientPercent >= 100) {
+    throw new Error('newRecipientPercent must be between 1 and 99');
+  }
+  const SCALE = ALLOCATION_DENOMINATOR; // 1_000_000
+  const buybackAlloc = BigInt(Math.round(args.newRecipientPercent * 10_000));
+  const remainingScale = SCALE - buybackAlloc;
+  const currentSum = args.currentParams.allocations.reduce((a, b) => a + b, BigInt(0));
+  const scaled = args.currentParams.allocations.map(
+    (a) => (a * remainingScale) / currentSum,
+  );
+  // Absorb integer-division drift into the last existing recipient.
+  const scaledSum = scaled.reduce((a, b) => a + b, BigInt(0));
+  scaled[scaled.length - 1] += remainingScale - scaledSum;
+
+  const recipients = [
+    ...args.currentParams.recipients,
+    getAddress(args.newRecipient) as `0x${string}`,
+  ];
+  const allocations = [...scaled, buybackAlloc];
+
+  const data = encodeFunctionData({
+    abi: PULL_SPLIT_UPDATE_ABI,
+    functionName: 'updateSplit',
+    args: [
+      {
+        recipients,
+        allocations,
+        totalAllocation: ALLOCATION_DENOMINATOR,
+        distributionIncentive: args.currentParams.distributionIncentive,
+      },
+    ],
+  });
+
+  return { to: getAddress(args.splitAddress) as `0x${string}`, data };
+}
+
 // 0xSplits sentinel for native ETH (matches splitsWarehouse on backend).
 export const SPLITS_NATIVE_TOKEN =
   '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' as const;
