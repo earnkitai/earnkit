@@ -753,11 +753,45 @@ model SharedSplitBuybackConfig {
   slippageBps     Int      @default(500)  @map("slippage_bps")
   burnMode        BurnMode @default(DEAD_ADDRESS) @map("burn_mode")
 
-  turnkeySubOrgId String?  @unique @map("turnkey_sub_org_id")
-  turnkeyWalletId String?  @unique @map("turnkey_wallet_id")
-  walletAddress   String?  @unique @map("wallet_address")
-  policyId        String?  @map("policy_id")
-  recoveryAddress String   @map("recovery_address")
+  turnkeySubOrgId    String?  @unique @map("turnkey_sub_org_id")
+  turnkeyWalletId    String?  @unique @map("turnkey_wallet_id")
+  walletAddress      String?  @unique @map("wallet_address")
+  policyId           String?  @map("policy_id")
+  recoveryAddress    String   @map("recovery_address")
+  // Sub-org-local user IDs for the two stampers — stored at wallet-provision
+  // time so Phase 2 (policy attachment) can reference them without a Turnkey
+  // re-query. Only populated for the two-phase token creation flow.
+  parentAdminUserId  String?  @map("parent_admin_user_id")
+  coSignerUserId     String?  @map("co_signer_user_id")
+
+  // Phase 2 (activation) telemetry. Activation can fail transiently (RPC
+  // hiccup, token-safety probe edge cases, Turnkey timeout). We persist the
+  // last attempt's outcome here so:
+  //   (a) the admin UI can show the creator WHY their buyback is stuck
+  //   (b) the worker has a deterministic retry surface
+  //   (c) the SLA dashboard can count stuck configs
+  lastActivationError      String?   @map("last_activation_error")
+  lastActivationAttemptAt  DateTime? @map("last_activation_attempt_at")
+  activationAttempts       Int       @default(0) @map("activation_attempts")
+
+  // Pending token address — set at Phase 2 attempt time even if the policy
+  // attach fails, so the worker's retry loop knows what token to bind the
+  // policy to without needing a re-call from tokens.fun.
+  pendingTokenAddress      String?   @map("pending_token_address")
+
+  // Swap venue selection. Doppler tokens trade on Uniswap V4 multicurve via
+  // RehypeDopplerHook; legacy tokens trade on V3. The worker branches on this
+  // to construct the correct swap calldata + the policy is built to
+  // authorize the matching router. Defaults to V3 for backward compatibility
+  // with existing agent buyback flows.
+  swapVenue                String    @default("UNISWAP_V3") @map("swap_venue")
+
+  // V4-only pool info (mirrors what tokens.fun /api/pool-key returns).
+  // Populated by tokens.fun at activation time. Null for V3 configs.
+  v4PoolHook         String?  @map("v4_pool_hook")
+  v4PairedToken      String?  @map("v4_paired_token")
+  v4TickSpacing      Int?     @map("v4_tick_spacing")
+  v4FeeFlag          Int?     @map("v4_fee_flag")
 
   status          SharedSplitStatus @default(PROVISIONING)
 

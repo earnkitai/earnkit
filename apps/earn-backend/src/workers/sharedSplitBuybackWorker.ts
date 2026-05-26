@@ -24,6 +24,7 @@ import {
   UNISWAP_V3_SWAP_ROUTER_02,
   WETH_BASE,
 } from '../lib/uniswap';
+import * as V4 from '../lib/uniswapV4';
 import { DEAD_ADDRESS } from '../lib/tokenSafety';
 import { signTransaction } from '../services/turnkeyService';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
@@ -53,6 +54,13 @@ interface RunCtx {
   burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
   recoveryAddress: `0x${string}`;
   feeRateBps: number;
+  // Doppler tokens trade on V4 multicurve; legacy on V3. The swap step
+  // branches on this. V4 fields are required when swapVenue === 'UNISWAP_V4'.
+  swapVenue: 'UNISWAP_V3' | 'UNISWAP_V4';
+  v4PoolHook: `0x${string}` | null;
+  v4PairedToken: `0x${string}` | null;
+  v4TickSpacing: number | null;
+  v4FeeFlag: number | null;
 }
 
 function getTreasuryAddress(): `0x${string}` | null {
@@ -219,6 +227,83 @@ async function approveIfNeeded(ctx: RunCtx, token: `0x${string}`, amount: bigint
   await sendTurnkeySignedTx(ctx, token, data);
 }
 
+// V4-side approval dance: ERC20 -> Permit2 -> UniversalRouter.
+async function ensurePermit2ApprovedV4(
+  ctx: RunCtx,
+  token: `0x${string}`,
+  amount: bigint,
+): Promise<void> {
+  const client = getBasePublicClient();
+
+  // (1) ERC20.approve(PERMIT2, max) — set once per token. Permit2 then mediates
+  // all router approvals, so each Doppler token only ever requires one ERC-20
+  // approval from this wallet.
+  const erc20Allowance = (await client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [ctx.walletAddress, V4.PERMIT2_BASE],
+  })) as bigint;
+  if (erc20Allowance < amount) {
+    const data = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [V4.PERMIT2_BASE, BigInt(2) ** BigInt(256) - BigInt(1)],
+    });
+    await sendTurnkeySignedTx(ctx, token, data);
+  }
+
+  // (2) Permit2.approve(token, UniversalRouter, max, expiration) — refresh if
+  // amount or expiration are stale. Permit2 expirations are unix seconds in a
+  // uint48; we always renew if the current expiry is less than an hour out.
+  const permit2 = await V4.readPermit2Allowance({ owner: ctx.walletAddress, token, client });
+  const oneHourFromNow = Math.floor(Date.now() / 1000) + 3600;
+  if (permit2.amount < amount || permit2.expiration < oneHourFromNow) {
+    const tx = V4.encodePermit2Approve({ token });
+    await sendTurnkeySignedTx(ctx, tx.to, tx.data, tx.value);
+  }
+}
+
+// V4 swap path — for Doppler tokens that trade on Uniswap V4 multicurve via
+// RehypeDopplerHook. Constructs the UniversalRouter.execute() V4_SWAP call
+// using the pool key derived from config-stored hook + paired token.
+async function swapV4(
+  ctx: RunCtx,
+  inputCurrency: `0x${string}`,
+  amountIn: bigint,
+): Promise<string | null> {
+  if (!ctx.v4PoolHook || !ctx.v4PairedToken || ctx.v4TickSpacing == null || ctx.v4FeeFlag == null) {
+    throw new Error(
+      `V4 swap requested but config is missing pool details (hook/paired/tickSpacing/feeFlag). configId=${ctx.configId}`,
+    );
+  }
+  const client = getBasePublicClient();
+
+  const plan = V4.buildV4SwapPlan({
+    tokenAddress: ctx.tokenAddress,
+    pairedToken: ctx.v4PairedToken,
+    hook: ctx.v4PoolHook,
+    fee: ctx.v4FeeFlag,
+    tickSpacing: ctx.v4TickSpacing,
+    inputCurrency,
+  });
+
+  // Estimate output. If the pool isn't readable (sqrtPriceX96 = 0) we abort —
+  // sending a zero minOut would be open season for sandwich bots.
+  const estimated = await V4.estimateV4Output({ plan, amountIn, client });
+  if (estimated === BigInt(0)) {
+    throw new Error(
+      `V4 pool ${plan.poolId} not readable or has no liquidity — aborting swap to prevent front-running`,
+    );
+  }
+  const amountOutMinimum = applySlippage(estimated, ctx.slippageBps);
+
+  await ensurePermit2ApprovedV4(ctx, inputCurrency, amountIn);
+
+  const tx = V4.encodeV4SwapCall({ plan, amountIn, amountOutMinimum });
+  return sendTurnkeySignedTx(ctx, tx.to, tx.data, tx.value);
+}
+
 interface SwapNote {
   symbol: string;
   status: 'ok' | 'no_quote' | 'failed';
@@ -248,20 +333,36 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
   const ethBal = await client.getBalance({ address: ctx.walletAddress });
   const ethSwappable = ethBal > MIN_GAS_RESERVE_WEI ? ethBal - MIN_GAS_RESERVE_WEI : BigInt(0);
 
+  const isV4 = ctx.swapVenue === 'UNISWAP_V4';
+
   if (ethSwappable > BigInt(0)) {
     try {
-      const quote = await quoteBestPath({ tokenIn: WETH_BASE, tokenOut: ctx.tokenAddress, amountIn: ethSwappable, client });
-      if (!quote || quote.amountOut === BigInt(0)) {
-        await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'no_quote' });
-      } else {
-        const data = encodeExactInput({
-          path: quote.path,
-          recipient: ctx.walletAddress,
-          amountIn: ethSwappable,
-          amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
+      if (isV4) {
+        // Doppler tokens: V4 expects WETH input (not native ETH). Native ETH
+        // that lands in the wallet from gas drips etc. stays as gas reserve.
+        // The Doppler-fees-as-WETH case is handled by the SUPPORTED_TOKENS
+        // loop below; this branch only triggers if the user manually sent
+        // native ETH to the wallet. For now we skip it on V4 — the loop's
+        // WETH balance check will catch the WETH that Doppler distributes.
+        await recordSwapNote(ctx.executionId, {
+          symbol: 'ETH',
+          status: 'no_quote',
+          error: 'native ETH not routed for V4 venue (wrap to WETH first)',
         });
-        lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data, ethSwappable);
-        await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'ok', hash: lastSwapHash });
+      } else {
+        const quote = await quoteBestPath({ tokenIn: WETH_BASE, tokenOut: ctx.tokenAddress, amountIn: ethSwappable, client });
+        if (!quote || quote.amountOut === BigInt(0)) {
+          await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'no_quote' });
+        } else {
+          const data = encodeExactInput({
+            path: quote.path,
+            recipient: ctx.walletAddress,
+            amountIn: ethSwappable,
+            amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
+          });
+          lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data, ethSwappable);
+          await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'ok', hash: lastSwapHash });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -283,20 +384,44 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
     if (bal === BigInt(0)) continue;
 
     try {
-      const quote = await quoteBestPath({ tokenIn: tokenAddr, tokenOut: ctx.tokenAddress, amountIn: bal, client });
-      if (!quote || quote.amountOut === BigInt(0)) {
-        await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
-        continue;
+      if (isV4) {
+        // V4 only supports a direct pool between input and target (no
+        // multi-hop routing in our worker). For Doppler tokens that means
+        // the input MUST be the paired token (WETH). Skip other inputs
+        // clearly — they need to be converted to WETH first (future work).
+        if (
+          !ctx.v4PairedToken ||
+          tokenAddr.toLowerCase() !== ctx.v4PairedToken.toLowerCase()
+        ) {
+          await recordSwapNote(ctx.executionId, {
+            symbol: token.symbol,
+            status: 'no_quote',
+            error: `V4 swap only supports paired token (${ctx.v4PairedToken ?? 'unset'}) as input — convert ${token.symbol} to WETH first`,
+          });
+          continue;
+        }
+        lastSwapHash = await swapV4(ctx, tokenAddr, bal);
+        await recordSwapNote(ctx.executionId, {
+          symbol: token.symbol,
+          status: 'ok',
+          hash: lastSwapHash ?? undefined,
+        });
+      } else {
+        const quote = await quoteBestPath({ tokenIn: tokenAddr, tokenOut: ctx.tokenAddress, amountIn: bal, client });
+        if (!quote || quote.amountOut === BigInt(0)) {
+          await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
+          continue;
+        }
+        await approveIfNeeded(ctx, tokenAddr, bal);
+        const data = encodeExactInput({
+          path: quote.path,
+          recipient: ctx.walletAddress,
+          amountIn: bal,
+          amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
+        });
+        lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
+        await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash: lastSwapHash });
       }
-      await approveIfNeeded(ctx, tokenAddr, bal);
-      const data = encodeExactInput({
-        path: quote.path,
-        recipient: ctx.walletAddress,
-        amountIn: bal,
-        amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
-      });
-      lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
-      await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash: lastSwapHash });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[SharedSplitWorker] ${token.symbol} swap failed for ${ctx.executionId}:`, err);
@@ -375,6 +500,133 @@ async function checkPendingActivations(): Promise<void> {
       }
     } catch (err: unknown) {
       console.warn(`[SharedSplitWorker] Activation check failed for ${config.id}:`, err);
+    }
+  }
+}
+
+// ---------- Auto-retry PROVISIONING configs (Doppler token-creation flow) ----------
+//
+// Phase 2 of the per-token Doppler buyback flow (attach policy + flip ACTIVE)
+// can fail — for instance a transient Turnkey error or a token-safety probe
+// hiccup. tokens.fun makes that call non-blocking (the on-chain token already
+// exists; we can't roll back), so a single Phase 2 failure used to mean the
+// config was stuck in PROVISIONING forever.
+//
+// This pass picks up any config that:
+//   - is still in PROVISIONING
+//   - has a pendingTokenAddress (caller attempted Phase 2 at least once)
+//   - has a Turnkey wallet (Phase 1 completed)
+//   - hasn't been retried in the last 60s (backoff)
+// and re-runs activation. The runActivation logic is owned by the route
+// module — import it here so backend logic stays in one place.
+
+import { attachBuybackPolicy } from '../services/turnkeyService';
+import {
+  assertHasCode,
+  canReceiveDead,
+  detectBurnFunction,
+  getTokenMeta,
+  TokenSafetyError,
+} from '../lib/tokenSafety';
+import { SPLIT_NATIVE_TOKEN_ADDRESS as SPLIT_NATIVE } from '../lib/splitsWarehouse';
+
+const RETRY_BACKOFF_MS = 60_000;
+const RETRY_MAX_ATTEMPTS = 10; // 10 retries with backoff before we give up
+
+async function retryProvisioningActivations(): Promise<void> {
+  const cutoff = new Date(Date.now() - RETRY_BACKOFF_MS);
+  const stuck = await prisma.sharedSplitBuybackConfig.findMany({
+    where: {
+      status: 'PROVISIONING',
+      isActive: true,
+      walletAddress: { not: null },
+      turnkeySubOrgId: { not: null },
+      parentAdminUserId: { not: null },
+      coSignerUserId: { not: null },
+      pendingTokenAddress: { not: null },
+      activationAttempts: { lt: RETRY_MAX_ATTEMPTS },
+      OR: [
+        { lastActivationAttemptAt: null },
+        { lastActivationAttemptAt: { lt: cutoff } },
+      ],
+    },
+    take: 10,
+  });
+
+  for (const config of stuck) {
+    const tokenAddress = config.pendingTokenAddress as `0x${string}`;
+    console.log(`[SharedSplitWorker] Auto-retry activation for ${config.id} (attempt ${config.activationAttempts + 1}/${RETRY_MAX_ATTEMPTS}, token ${tokenAddress})`);
+
+    try {
+      // Mark the attempt — increments counter and updates lastActivationAttemptAt
+      // so concurrent workers don't double-attempt.
+      await prisma.sharedSplitBuybackConfig.update({
+        where: { id: config.id },
+        data: {
+          lastActivationAttemptAt: new Date(),
+          activationAttempts: { increment: 1 },
+        },
+      });
+
+      await assertHasCode(tokenAddress);
+      const meta = await getTokenMeta(tokenAddress);
+
+      const canDead = await canReceiveDead(tokenAddress);
+      let burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
+      if (canDead) {
+        burnMode = 'DEAD_ADDRESS';
+      } else {
+        const hasBurn = await detectBurnFunction(tokenAddress);
+        if (!hasBurn) {
+          throw new TokenSafetyError(
+            'no_burn_function',
+            `Token ${tokenAddress} cannot be auto-burned (no DEAD path, no burn() function)`,
+          );
+        }
+        burnMode = 'TOKEN_BURN_FN';
+      }
+
+      const allowedSwapInputTokens = [
+        SPLIT_NATIVE,
+        ...SUPPORTED_TOKENS.map((t) => t.address as `0x${string}`),
+      ];
+      const { policyId } = await attachBuybackPolicy({
+        subOrgId: config.turnkeySubOrgId!,
+        parentAdminUserId: config.parentAdminUserId!,
+        coSignerUserId: config.coSignerUserId!,
+        policyParams: {
+          userTokenAddress: tokenAddress,
+          allowedSwapInputTokens,
+          recoveryAddress: config.recoveryAddress as `0x${string}`,
+          swapVenue: (config.swapVenue as 'UNISWAP_V3' | 'UNISWAP_V4') ?? 'UNISWAP_V3',
+        },
+      });
+
+      await prisma.sharedSplitBuybackConfig.update({
+        where: { id: config.id },
+        data: {
+          tokenAddress,
+          tokenSymbol: meta.symbol,
+          tokenDecimals: meta.decimals,
+          burnMode,
+          policyId,
+          status: 'ACTIVE',
+          lastActivationError: null,
+        },
+      });
+      console.log(`[SharedSplitWorker] Auto-retry activation SUCCEEDED for ${config.id}`);
+    } catch (err: unknown) {
+      const reason =
+        err instanceof TokenSafetyError
+          ? `[${err.reason}] ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'unknown_retry_error';
+      await prisma.sharedSplitBuybackConfig.update({
+        where: { id: config.id },
+        data: { lastActivationError: reason.slice(0, 1000) },
+      });
+      console.warn(`[SharedSplitWorker] Auto-retry activation FAILED for ${config.id}:`, reason);
     }
   }
 }
@@ -464,6 +716,11 @@ async function processExecutions(): Promise<void> {
       burnMode: config.burnMode as 'DEAD_ADDRESS' | 'TOKEN_BURN_FN',
       recoveryAddress: config.recoveryAddress as `0x${string}`,
       feeRateBps: config.feeRateBps,
+      swapVenue: (config.swapVenue as 'UNISWAP_V3' | 'UNISWAP_V4') ?? 'UNISWAP_V3',
+      v4PoolHook: config.v4PoolHook as `0x${string}` | null,
+      v4PairedToken: config.v4PairedToken as `0x${string}` | null,
+      v4TickSpacing: config.v4TickSpacing,
+      v4FeeFlag: config.v4FeeFlag,
     };
 
     const attempt = exec.attempts + 1;
@@ -477,7 +734,12 @@ async function processExecutions(): Promise<void> {
       }
 
       // Hashes are persisted inside the helper; don't overwrite on retry.
-      await withdrawAllFromWarehouse(ctx);
+      // Skip warehouse withdrawal for configs without a Splits contract — in
+      // the Doppler token-creation flow fees land directly in the Turnkey
+      // wallet via StreamableFeesLockerV2, so there's nothing in the warehouse.
+      if (config.splitAddress) {
+        await withdrawAllFromWarehouse(ctx);
+      }
       await prisma.sharedSplitExecution.update({
         where: { id: exec.id },
         data: { status: 'SWAPPING' },
@@ -562,6 +824,7 @@ async function processExecutions(): Promise<void> {
 
 async function poll(): Promise<void> {
   await checkPendingActivations();
+  await retryProvisioningActivations();
   await scanActiveConfigs();
   await processExecutions();
 }

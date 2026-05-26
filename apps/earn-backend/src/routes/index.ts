@@ -11,6 +11,8 @@ import debugRoutes from './debug';
 import deploySplitRoutes from './internal/deploySplit';
 import buybackWalletsRoutes from './internal/buybackWallets';
 import provisionBuybackRoutes from './internal/provisionBuyback';
+import provisionTokenBuybackRoutes from './internal/provisionTokenBuyback';
+import tokenBuybackStatusRoutes from './internal/tokenBuybackStatus';
 import activateBuybackRoutes from './internal/activateBuyback';
 import buybackRoutes from './buyback';
 import sharedBuybackRoutes from './sharedBuyback';
@@ -66,6 +68,8 @@ const internalAuth = (req: Request, res: Response, next: NextFunction): void => 
 router.use('/internal/deploy-split', internalAuth, deploySplitRoutes);
 router.use('/internal/buyback-wallets', internalAuth, buybackWalletsRoutes);
 router.use('/internal/provision-buyback', internalAuth, provisionBuybackRoutes);
+router.use('/internal', internalAuth, provisionTokenBuybackRoutes);
+router.use('/internal', internalAuth, tokenBuybackStatusRoutes);
 router.use('/internal', internalAuth, activateBuybackRoutes);
 
 export default router;

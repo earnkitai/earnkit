@@ -4,6 +4,7 @@ import {
   SPLIT_WAREHOUSE_ADDRESS,
 } from './splitsWarehouse';
 import { UNISWAP_V3_SWAP_ROUTER_02 } from './uniswap';
+import { UNIVERSAL_ROUTER_BASE, PERMIT2_BASE } from './uniswapV4';
 import { DEAD_ADDRESS } from './tokenSafety';
 
 // Selectors the buyback flow ever needs the delegated key to sign.
@@ -15,6 +16,12 @@ const SELECTORS = {
   uniswapExactInputSingle: toFunctionSelector(
     'exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))',
   ),
+  // Uniswap V4 UniversalRouter — used for Doppler tokens.
+  universalRouterExecute: toFunctionSelector('execute(bytes,bytes[],uint256)'),
+  // Permit2.approve(token, spender, uint160 amount, uint48 expiration) — V4 swaps
+  // route their ERC-20 spend through Permit2 instead of approving the router
+  // directly.
+  permit2Approve: toFunctionSelector('approve(address,address,uint160,uint48)'),
   erc20Transfer: toFunctionSelector('transfer(address,uint256)'),
   erc20Approve: toFunctionSelector('approve(address,uint256)'),
   tokenBurn: toFunctionSelector('burn(uint256)'),
@@ -37,6 +44,10 @@ export interface BuybackPolicyParams {
   // input tokens and a plain ETH transfer to treasury — used to deduct the
   // swap fee before executing the buyback.
   treasuryAddress?: `0x${string}`;
+  // Swap venue — defaults to V3 for backward compatibility. When 'UNISWAP_V4'
+  // the policy additionally authorizes UniversalRouter.execute() and Permit2
+  // approvals (Doppler tokens trade on V4 multicurve and require Permit2).
+  swapVenue?: 'UNISWAP_V3' | 'UNISWAP_V4';
   // Parent-org user IDs of the two stampers required for every signing activity.
   // Both must approve before Turnkey executes the activity. parentAdminUserId
   // is the Railway-side admin (TURNKEY_PARENT_ADMIN_USER_ID); coSignerUserId
@@ -69,12 +80,15 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   condition: string;
   notes: string;
 } {
-  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, treasuryAddress, parentAdminUserId, coSignerUserId } = params;
+  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, treasuryAddress, swapVenue, parentAdminUserId, coSignerUserId } = params;
+  const isV4 = swapVenue === 'UNISWAP_V4';
 
   const lower = (s: string) => s.toLowerCase();
   const userToken = lower(userTokenAddress);
   const warehouse = lower(SPLIT_WAREHOUSE_ADDRESS);
   const router = lower(UNISWAP_V3_SWAP_ROUTER_02);
+  const universalRouter = lower(UNIVERSAL_ROUTER_BASE);
+  const permit2 = lower(PERMIT2_BASE);
   const dead = lower(DEAD_ADDRESS);
   const recovery = lower(recoveryAddress);
   const allowedInputsLower = allowedSwapInputTokens
@@ -110,6 +124,30 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
     conditions.push(
       `(${inSet('eth.tx.to', allowedInputsLower)} && ${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${router.slice(2)}')`,
     );
+  }
+
+  if (isV4) {
+    // UniversalRouter.execute(commands, inputs, deadline) — Doppler V4 swap entry point.
+    conditions.push(
+      `(${inSet('eth.tx.to', [universalRouter])} && ${selector} == '${sel('universalRouterExecute')}')`,
+    );
+    // Permit2.approve(token, UniversalRouter, max, expiration) — required so
+    // UniversalRouter can pull ERC-20s from the wallet during V4 swaps.
+    // First arg is the token; we don't constrain it here because the wallet
+    // may swap WETH or any other allowed input. The spender argument is
+    // checked at the smart contract level by Permit2, and the policy's
+    // overall conditions ensure the wallet can't transfer to arbitrary
+    // addresses anyway.
+    conditions.push(
+      `(${inSet('eth.tx.to', [permit2])} && ${selector} == '${sel('permit2Approve')}')`,
+    );
+    // The wallet also needs to be able to approve its ERC-20 holdings to
+    // Permit2 (one-time per token, instead of the V3 router).
+    if (allowedInputsLower.length > 0) {
+      conditions.push(
+        `(${inSet('eth.tx.to', allowedInputsLower)} && ${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${permit2.slice(2)}')`,
+      );
+    }
   }
   conditions.push(
     `(${inSet('eth.tx.to', [userToken])} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${dead.slice(2)}')`,

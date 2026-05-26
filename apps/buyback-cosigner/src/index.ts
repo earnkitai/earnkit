@@ -46,6 +46,9 @@ interface Env {
 // Worker has no runtime dependency on the backend for what's permitted.
 const SPLIT_WAREHOUSE_ADDRESS = '0x8fb66F38cF86A3d5e8768f8F1754A24A6c661Fb8'.toLowerCase();
 const UNISWAP_V3_SWAP_ROUTER_02 = '0x2626664c2603336E57B271c5C0b26F421741e481'.toLowerCase();
+// Uniswap V4 (used by Doppler tokens — see lib/uniswapV4.ts in earn-backend).
+const UNIVERSAL_ROUTER_BASE = '0x6ff5693b99212da76ad316178a184ab56d299b43'.toLowerCase();
+const PERMIT2_BASE = '0x000000000022D473030F116dDEE9F6B43aC78BA3'.toLowerCase();
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD'.toLowerCase();
 
 const SELECTORS = {
@@ -54,6 +57,8 @@ const SELECTORS = {
   uniswapExactInputSingle: toFunctionSelector(
     'exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))',
   ),
+  universalRouterExecute: toFunctionSelector('execute(bytes,bytes[],uint256)'),
+  permit2Approve: toFunctionSelector('approve(address,address,uint160,uint48)'),
   erc20Transfer: toFunctionSelector('transfer(address,uint256)'),
   erc20Approve: toFunctionSelector('approve(address,uint256)'),
   tokenBurn: toFunctionSelector('burn(uint256)'),
@@ -176,15 +181,39 @@ function validateUnsignedTx(
   ) {
     return { ok: true, reason: 'buyback' };
   }
+  // Uniswap V4 UniversalRouter — entry point for Doppler-token buybacks.
+  // The router itself enforces the V4 action stream is well-formed; we only
+  // gate access to the router selector here. The Turnkey policy further
+  // narrows by sub-org so a leaked stamper can't redirect.
+  if (to === UNIVERSAL_ROUTER_BASE && selector === SELECTORS.universalRouterExecute) {
+    return { ok: true, reason: 'buyback' };
+  }
+  // Permit2.approve(token, UniversalRouter, max, expiration) — required
+  // approval step before a V4 swap. Spender (2nd arg) is checked here.
+  if (to === PERMIT2_BASE && selector === SELECTORS.permit2Approve) {
+    try {
+      // Permit2.approve args layout: token(32) + spender(32) + amount(32) + expiration(32)
+      // Skip first 4 bytes (selector) + 32 (token padded) = 36; spender at 36..68 in bytes
+      // i.e. data[2 + 8 + 64 .. 2 + 8 + 128] in hex chars
+      const spender = `0x${data.slice(2 + 8 + 64 + 24, 2 + 8 + 128)}`;
+      if (spender === UNIVERSAL_ROUTER_BASE) {
+        return { ok: true, reason: 'buyback' };
+      }
+      return { ok: false, reason: `permit2 approve spender ${spender} is not the UniversalRouter` };
+    } catch {
+      return { ok: false, reason: 'Failed to decode permit2 approve args' };
+    }
+  }
   if (selector === SELECTORS.erc20Approve) {
-    // Approve must target the SwapRouter
+    // Approve must target either the V3 SwapRouter (legacy flow) or Permit2
+    // (V4 flow — Permit2 then mediates the spend to UniversalRouter).
     try {
       // first arg is the spender; bytes [4..36) of data
       const spender = `0x${data.slice(34, 74)}`;
-      if (spender === UNISWAP_V3_SWAP_ROUTER_02) {
+      if (spender === UNISWAP_V3_SWAP_ROUTER_02 || spender === PERMIT2_BASE) {
         return { ok: true, reason: 'buyback' };
       }
-      return { ok: false, reason: `approve spender ${spender} is not the SwapRouter` };
+      return { ok: false, reason: `approve spender ${spender} is not the SwapRouter or Permit2` };
     } catch {
       return { ok: false, reason: 'Failed to decode approve args' };
     }

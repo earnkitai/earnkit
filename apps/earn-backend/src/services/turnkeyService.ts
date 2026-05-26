@@ -69,32 +69,32 @@ export interface BuybackSubOrgResult {
   policyId: string;
 }
 
+// Returned by createBuybackSubOrgWallet — includes sub-org-local stamper user
+// IDs needed later to attach the policy (via attachBuybackPolicy).
+export interface BuybackSubOrgWalletResult {
+  subOrgId: string;
+  walletId: string;
+  walletAddress: `0x${string}`;
+  parentAdminUserId: string;
+  coSignerUserId: string;
+}
+
 /**
- * Provisions a Turnkey sub-organization for a single agent's buyback wallet.
- *
- * Architecture (post-Piece-1):
- *   - Sub-org has exactly one user: the customer (their email = root authenticator).
- *   - Signing is performed by parent-org users (parent-admin + co-signer) acting
- *     into the sub-org. Both stampers must approve every activity per the
- *     attached policy. There is no per-sub-org delegated key, no on-disk secret,
- *     and no DB-stored key material.
- *   - Customer can revoke our consensus at any time via Turnkey email auth by
- *     editing or removing the policy in their sub-org.
+ * Creates a Turnkey sub-org + wallet WITHOUT attaching a policy.
+ * Use this when the buyback target token is not yet known (e.g. token creation
+ * flow where the token address only exists after on-chain deployment).
+ * Call attachBuybackPolicy once the token address is available.
  */
-export async function createBuybackSubOrg(
-  params: CreateBuybackSubOrgParams,
-): Promise<BuybackSubOrgResult> {
+export async function createBuybackSubOrgWallet(params: {
+  agentId: string;
+  userEmail: string;
+}): Promise<BuybackSubOrgWalletResult> {
   const client = getApiClient();
   const { parentAdminPublicKey, coSignerPublicKey } = getStamperPublicKeys();
-  const { agentId, userEmail, policyParams } = params;
+  const { agentId, userEmail } = params;
 
   const subOrgName = `buyback-${agentId.slice(0, 8)}-${Date.now().toString(36)}`;
 
-  // Three root users: the customer (email auth, sole quorum holder) plus our
-  // two API-key-only stampers. The stamper users are registered IN the sub-org
-  // because Turnkey requires policy-consensus user IDs to belong to the same
-  // org as the activity. Quorum threshold = 1 means the customer can still
-  // unilaterally rotate keys / remove our stampers via root credential.
   const createResp = await client.createSubOrganization({
     subOrganizationName: subOrgName,
     rootUsers: [
@@ -158,18 +158,39 @@ export async function createBuybackSubOrg(
       `Turnkey createSubOrganization succeeded but response missing required fields: ${JSON.stringify(createResp)}`,
     );
   }
-  const walletAddress = wallet.addresses[0] as `0x${string}`;
-  // rootUserIds is returned in the same order as the rootUsers we sent.
-  const subOrgParentAdminUserId = rootUserIds[1];
-  const subOrgCosignerUserId = rootUserIds[2];
 
-  // Attach the buyback policy. Consensus references the sub-org-local user
-  // IDs of the parent-admin and cosigner — both are users IN this sub-org
-  // (registered above) so Turnkey can resolve their stamps locally.
+  return {
+    subOrgId,
+    walletId: wallet.walletId,
+    walletAddress: wallet.addresses[0] as `0x${string}`,
+    // rootUserIds order matches the rootUsers array above
+    parentAdminUserId: rootUserIds[1],
+    coSignerUserId: rootUserIds[2],
+  };
+}
+
+export interface AttachBuybackPolicyParams {
+  subOrgId: string;
+  parentAdminUserId: string;
+  coSignerUserId: string;
+  policyParams: Omit<BuybackPolicyParams, 'parentAdminUserId' | 'coSignerUserId'>;
+}
+
+/**
+ * Builds and attaches the buyback policy to an existing sub-org.
+ * Must be called after createBuybackSubOrgWallet once the target token address
+ * is known.
+ */
+export async function attachBuybackPolicy(
+  params: AttachBuybackPolicyParams,
+): Promise<{ policyId: string }> {
+  const client = getApiClient();
+  const { subOrgId, parentAdminUserId, coSignerUserId, policyParams } = params;
+
   const policy = buildBuybackPolicy({
     ...policyParams,
-    parentAdminUserId: subOrgParentAdminUserId,
-    coSignerUserId: subOrgCosignerUserId,
+    parentAdminUserId,
+    coSignerUserId,
   });
   const policyResp = await client.createPolicy({
     organizationId: subOrgId,
@@ -183,11 +204,38 @@ export async function createBuybackSubOrg(
   if (!policyId) {
     throw new Error(`createPolicy returned no policyId for sub-org ${subOrgId}`);
   }
+  return { policyId };
+}
+
+/**
+ * Provisions a Turnkey sub-organization for a single agent's buyback wallet.
+ *
+ * Architecture (post-Piece-1):
+ *   - Sub-org has exactly one user: the customer (their email = root authenticator).
+ *   - Signing is performed by parent-org users (parent-admin + co-signer) acting
+ *     into the sub-org. Both stampers must approve every activity per the
+ *     attached policy. There is no per-sub-org delegated key, no on-disk secret,
+ *     and no DB-stored key material.
+ *   - Customer can revoke our consensus at any time via Turnkey email auth by
+ *     editing or removing the policy in their sub-org.
+ */
+export async function createBuybackSubOrg(
+  params: CreateBuybackSubOrgParams,
+): Promise<BuybackSubOrgResult> {
+  const { agentId, userEmail, policyParams } = params;
+
+  const wallet = await createBuybackSubOrgWallet({ agentId, userEmail });
+  const { policyId } = await attachBuybackPolicy({
+    subOrgId: wallet.subOrgId,
+    parentAdminUserId: wallet.parentAdminUserId,
+    coSignerUserId: wallet.coSignerUserId,
+    policyParams,
+  });
 
   return {
-    subOrgId,
+    subOrgId: wallet.subOrgId,
     walletId: wallet.walletId,
-    walletAddress,
+    walletAddress: wallet.walletAddress,
     policyId,
   };
 }
