@@ -38,9 +38,9 @@ export const STATE_VIEW_BASE =
 export const WETH_BASE_V4 =
   '0x4200000000000000000000000000000000000006' as const;
 
-// V4Planner action codes (mirrors @uniswap/v4-sdk Actions enum)
+// V4Planner action codes (mirrors @uniswap/v4-sdk Actions enum).
 const ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
-const ACTION_SETTLE_ALL = 0x0c;
+const ACTION_SETTLE = 0x0b;
 const ACTION_TAKE_ALL = 0x0f;
 
 // UniversalRouter command code for V4_SWAP
@@ -210,14 +210,17 @@ export async function estimateV4Output({
 }
 
 /**
- * V4 hook data — Clanker / Doppler hooks expect (address referrer, bytes data).
- * No referrer = address(0) + empty bytes.
+ * V4 hook data — RehypeDopplerHook (the hook every Doppler-deployed token
+ * uses) expects empty bytes. This matches the production swap path in
+ * tokens.fun/app/lib/uniswap/baseSwap.ts:593 ("Doppler hooks use empty hook data").
+ * Clanker-style hooks would want abi-encoded (address referrer, bytes data),
+ * but our worker only ever swaps into tokens we deployed via Doppler, so
+ * empty bytes is correct.
  */
 export function noReferrerHookData(): `0x${string}` {
-  return encodeAbiParameters(
-    [{ type: 'address' }, { type: 'bytes' }],
-    [zeroAddress, '0x'],
-  );
+  // explicitly suppress unused import lint
+  void zeroAddress;
+  return '0x';
 }
 
 /**
@@ -265,13 +268,17 @@ function encodeV4Actions(args: {
     ],
   );
 
-  // SETTLE_ALL: (currency, maxAmount)
+  // SETTLE: (currency, amount, payerIsUser).
+  // payerIsUser=true because the buyback wallet (msg.sender) is paying via
+  // Permit2-mediated transfer; the router pulls from us, not from itself.
   const settleParams = encodeAbiParameters(
-    [{ type: 'address' }, { type: 'uint256' }],
-    [args.plan.inputCurrency, args.amountIn],
+    [{ type: 'address' }, { type: 'uint256' }, { type: 'bool' }],
+    [args.plan.inputCurrency, args.amountIn, true],
   );
 
-  // TAKE_ALL: (currency, minAmount)
+  // TAKE_ALL: (currency, minAmount). Sends the full output delta to msg.sender
+  // (the buyback wallet) — the worker then runs the burn step against that
+  // balance in a separate tx.
   const takeParams = encodeAbiParameters(
     [{ type: 'address' }, { type: 'uint256' }],
     [args.plan.outputCurrency, args.amountOutMinimum],
@@ -280,7 +287,7 @@ function encodeV4Actions(args: {
   // V4Planner format: (bytes actions, bytes[] params)
   const actions = encodePacked(
     ['uint8', 'uint8', 'uint8'],
-    [ACTION_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE_ALL, ACTION_TAKE_ALL],
+    [ACTION_SWAP_EXACT_IN_SINGLE, ACTION_SETTLE, ACTION_TAKE_ALL],
   );
   return encodeAbiParameters(
     [{ type: 'bytes' }, { type: 'bytes[]' }],
