@@ -37,6 +37,15 @@ const SUPPORTED_TOKENS: SupportedToken[] = [
     coingeckoPlatformId: 'base',
     logoUrl: 'https://assets.coingecko.com/coins/images/39824/small/MINIDEV.jpg',
   },
+  {
+    address: '0xf4d97f2da56e8c3098f3a8d538db630a2606a024',
+    symbol: 'DIEM',
+    name: 'Diem',
+    decimals: 18,
+    chainId: 8453,
+    coingeckoPlatformId: 'base',
+    logoUrl: 'https://assets.coingecko.com/coins/images/68436/standard/DIEM_SeaMid_-_200px.png?1755734213',
+  },
 ];
 
 /**

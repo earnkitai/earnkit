@@ -68,6 +68,12 @@ const DEFAULT_TOKEN_CONFIGS: AgentTokenConfig[] = [
     enabled: true,
     discountPercent: 0,
   },
+  {
+    tokenAddress: '0xf4d97f2da56e8c3098f3a8d538db630a2606a024',
+    tokenSymbol: 'DIEM',
+    enabled: true,
+    discountPercent: 0,
+  },
 ];
 
 export class TopUpService {
