@@ -16,8 +16,6 @@ import { FieldLabel } from '../ui/FieldBits';
 import { signBuybackAction } from '@/lib/buybackAuth';
 import {
   buildCreateSplitCalldata,
-  buildUpdateSplitCalldata,
-  getSplitParamsFromFactory,
   parseSplitCreatedFromReceipt,
   waitForSuccessReceipt,
 } from '@/lib/splitsFactoryV2';
@@ -31,18 +29,13 @@ import {
   findClankerV3PositionsForCreator,
   type ClankerV3Position,
 } from '@/lib/clankerV3';
-import {
-  proposeSafeTransaction,
-  getSafeTxExecution,
-} from '@/lib/safeUtils';
 
-type FlowType = 'token' | 'splits' | 'safe';
+type FlowType = 'token' | 'splits';
 type Step =
   | 'form'
   | 'provisioning'
   | 'deploying_split'
   | 'setting_split'
-  | 'pending_safe_exec'
   | 'ready';
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -75,19 +68,6 @@ const FLOW_OPTIONS = [
       'Add your existing splits contract and we handle everything else for the buyback.',
     image: '/images/landing/splits.jpg',
     imgtitle: 'Splits',
-  },
-  {
-    id: 'safe' as FlowType,
-    title: (
-      <img
-        src="/images/landing/safe-logo-wallet.svg"
-        className="h-[26px] brightness-0 invert-0"
-      />
-    ),
-    subtitle:
-      'Add your existing safe contract and we handle everything else for the buyback.',
-    image: '/images/landing/safe.jpg',
-    imgtitle: 'Safe',
   },
 ];
 
@@ -134,29 +114,6 @@ export default function CreateSection() {
     userEmail: '',
     thresholdUsd: '10',
   });
-
-  const [safeForm, setSafeForm] = useState({
-    safeAddress: '',
-    splitAddress: '',
-    targetToken: '',
-    recoveryAddress: '',
-    userEmail: '',
-    thresholdUsd: '10',
-    ownerPct: '90',
-    buybackPct: '10',
-  });
-
-  interface PendingSafeTx {
-    safeTxHash: string;
-    safeUiUrl: string;
-    subflow: 'existing-split' | 'new-split';
-    configId: string;
-    buybackWallet: string;
-    splitAddress: string;
-    safeAddress: string;
-  }
-  const [pendingSafeTx, setPendingSafeTx] = useState<PendingSafeTx | null>(null);
-  const [checkingActivation, setCheckingActivation] = useState(false);
 
   const [tokenForm, setTokenForm] = useState({
     tokenContractAddress: '',
@@ -215,8 +172,6 @@ export default function CreateSection() {
     setV3Positions([]);
     setV3SelectedKey(null);
     setV3UpdateTx(null);
-    setPendingSafeTx(null);
-    setCheckingActivation(false);
   };
 
   // Probe the Clanker v4 factory for this token. If it returns a locker, the
@@ -384,11 +339,6 @@ export default function CreateSection() {
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setSharedForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const handleSafeField =
-    (key: keyof typeof safeForm) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setSafeForm((f) => ({ ...f, [key]: e.target.value }));
-
   const handleTokenField =
     (key: keyof typeof tokenForm) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -482,286 +432,6 @@ export default function CreateSection() {
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Unexpected error');
       setStep('form');
-    }
-  };
-
-
-  const handleRegisterSafe = async () => {
-    if (!isAddress(safeForm.safeAddress))
-      return toast.error('Safe address is not a valid 0x address');
-    if (!isAddress(safeForm.targetToken))
-      return toast.error('Target token is not a valid 0x address');
-    if (!isAddress(safeForm.recoveryAddress))
-      return toast.error('Recovery address is not a valid 0x address');
-    if (!safeForm.userEmail.includes('@'))
-      return toast.error('Enter a valid email address');
-
-    const hasExistingSplit = isAddress(safeForm.splitAddress.trim());
-
-    if (hasExistingSplit) {
-      const bpct = Number(safeForm.buybackPct);
-      if (isNaN(bpct) || bpct <= 0 || bpct >= 100)
-        return toast.error('Buyback carve-out must be between 1 and 99%');
-    } else {
-      const ownerPct = Number(safeForm.ownerPct);
-      const buybackPct = Number(safeForm.buybackPct);
-      if ([ownerPct, buybackPct].some((v) => isNaN(v) || v < 0))
-        return toast.error('Percentages must be non-negative numbers');
-      if (Math.abs(ownerPct + buybackPct - 100) > 0.001)
-        return toast.error(`Percentages must sum to 100 (got ${(ownerPct + buybackPct).toFixed(2)})`);
-      if (buybackPct < 5)
-        return toast.error('Buyback share must be at least 5%');
-    }
-
-    const safeAddr = safeForm.safeAddress.trim();
-    const target = safeForm.targetToken.trim();
-    const recovery = safeForm.recoveryAddress.trim();
-
-    const wallet = wallets.find((w) => w.connectorType === 'injected');
-    if (!wallet)
-      return toast.error('Connect a wallet first — your EOA must sign to prove Safe ownership');
-
-    // ---- 1. Sign + register (or register-deferred) ----
-    let signed: { signature: string; signedAt: string };
-    try {
-      signed = await signBuybackAction({
-        wallet,
-        owner: safeAddr,
-        action: hasExistingSplit
-          ? {
-              kind: 'register',
-              splitAddress: safeForm.splitAddress.trim(),
-              tokenAddress: target,
-              recoveryAddress: recovery,
-            }
-          : {
-              kind: 'register-deferred',
-              tokenAddress: target,
-              recoveryAddress: recovery,
-            },
-      });
-    } catch (e: unknown) {
-      return toast.error(e instanceof Error ? e.message : 'Signature rejected');
-    }
-
-    setStep('provisioning');
-
-    let configId: string;
-    let buybackWallet: string;
-    try {
-      const res = await fetch('/api/shared-buyback/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ownerAddress: safeAddr,
-          splitAddress: hasExistingSplit ? safeForm.splitAddress.trim() : null,
-          targetToken: target,
-          recoveryAddress: recovery,
-          userEmail: safeForm.userEmail.trim(),
-          thresholdUsd: parseFloat(safeForm.thresholdUsd) || minThresholdUsd,
-          signature: signed.signature,
-          signedAt: signed.signedAt,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || 'Registration failed');
-        setStep('form');
-        return;
-      }
-      configId = data.configId;
-      buybackWallet = data.walletAddress;
-    } catch {
-      toast.error('Registration failed');
-      setStep('form');
-      return;
-    }
-
-    try {
-      const raw = localStorage.getItem(SHARED_STORAGE_KEY);
-      const existing: string[] = raw ? JSON.parse(raw) : [];
-      if (!existing.includes(configId)) {
-        localStorage.setItem(SHARED_STORAGE_KEY, JSON.stringify([...existing, configId]));
-      }
-    } catch {}
-
-    // ---- 2. Build Safe tx calldata ----
-    setStep('deploying_split');
-
-    const publicClient = getBasePublicClient();
-    let txTo: string;
-    let txData: `0x${string}`;
-
-    if (hasExistingSplit) {
-      const splitAddr = safeForm.splitAddress.trim();
-      const buybackPct = Number(safeForm.buybackPct);
-      const currentParams = await getSplitParamsFromFactory(
-        splitAddr,
-        publicClient as Parameters<typeof getSplitParamsFromFactory>[1],
-      );
-
-      if (!currentParams) {
-        // Split params not found (may be older than scan range) — show manual mode.
-        toast('Split params not found in factory logs — add the buyback wallet to your split manually, then click "Check Activation".', { duration: 9000 });
-        setPendingSafeTx({
-          safeTxHash: '',
-          safeUiUrl: `https://app.safe.global/transactions/queue?safe=base:${safeAddr}`,
-          subflow: 'existing-split',
-          configId,
-          buybackWallet,
-          splitAddress: splitAddr,
-          safeAddress: safeAddr,
-        });
-        setStep('pending_safe_exec');
-        return;
-      }
-
-      const built = buildUpdateSplitCalldata({
-        splitAddress: splitAddr,
-        currentParams,
-        newRecipient: buybackWallet,
-        newRecipientPercent: buybackPct,
-      });
-      txTo = built.to;
-      txData = built.data;
-    } else {
-      const ownerPct = Number(safeForm.ownerPct);
-      const buybackPct = Number(safeForm.buybackPct);
-      const built = buildCreateSplitCalldata({
-        recipients: [
-          { address: safeAddr, percent: ownerPct },
-          { address: buybackWallet, percent: buybackPct },
-        ],
-        owner: safeAddr,
-      });
-      txTo = built.to;
-      txData = built.data;
-    }
-
-    // ---- 3. Propose via Safe Transaction Service ----
-    try {
-      const { contractTransactionHash } = await proposeSafeTransaction({
-        safeAddress: safeAddr,
-        to: txTo,
-        data: txData,
-        wallet,
-      });
-      setPendingSafeTx({
-        safeTxHash: contractTransactionHash,
-        safeUiUrl: `https://app.safe.global/transactions/queue?safe=base:${safeAddr}`,
-        subflow: hasExistingSplit ? 'existing-split' : 'new-split',
-        configId,
-        buybackWallet,
-        splitAddress: hasExistingSplit ? safeForm.splitAddress.trim() : '',
-        safeAddress: safeAddr,
-      });
-      setStep('pending_safe_exec');
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Safe proposal failed');
-      setStep('form');
-    }
-  };
-
-  const handleCheckSafeExecution = async () => {
-    if (!pendingSafeTx) return;
-    const wallet = wallets.find((w) => w.connectorType === 'injected');
-    if (!wallet) return toast.error('Connect wallet first');
-
-    setCheckingActivation(true);
-    try {
-      if (pendingSafeTx.subflow === 'existing-split') {
-        const signed = await signBuybackAction({
-          wallet,
-          owner: pendingSafeTx.safeAddress,
-          action: { kind: 'check-activation', configId: pendingSafeTx.configId },
-        });
-        const res = await fetch(
-          `/api/shared-buyback/${pendingSafeTx.configId}/check-activation`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ signature: signed.signature, signedAt: signed.signedAt }),
-          },
-        );
-        const data = await res.json();
-        if (!res.ok || !data.activated) {
-          toast.error(
-            data.reason === 'not_in_split'
-              ? 'Buyback wallet not yet in the split — execute the Safe tx first, then try again.'
-              : data.reason === 'membership_unknown'
-                ? 'Membership unknown (RPC lag) — try again in a moment.'
-                : data.error || 'Not yet activated',
-          );
-          return;
-        }
-        setResult({
-          walletAddress: pendingSafeTx.buybackWallet,
-          splitAddress: pendingSafeTx.splitAddress,
-          configId: pendingSafeTx.configId,
-        });
-        setStep('ready');
-      } else {
-        // New-split subflow: poll for execution, then parse split address.
-        const execStatus = await getSafeTxExecution(pendingSafeTx.safeTxHash);
-        if (!execStatus.isExecuted || !execStatus.transactionHash) {
-          toast.error('Safe tx not yet executed — approve and execute it in Safe, then try again.');
-          return;
-        }
-
-        const publicClient = getBasePublicClient();
-        const receipt = await publicClient.waitForTransactionReceipt({
-          hash: execStatus.transactionHash as `0x${string}`,
-        });
-        if (receipt.status !== 'success') {
-          toast.error('Safe tx reverted on-chain — the split was not created.');
-          return;
-        }
-
-        let splitAddress: `0x${string}`;
-        try {
-          splitAddress = parseSplitCreatedFromReceipt(receipt);
-        } catch {
-          toast.error('Could not find the deployed split address — was the factory called?');
-          return;
-        }
-
-        setStep('setting_split');
-
-        const setSplitSig = await signBuybackAction({
-          wallet,
-          owner: pendingSafeTx.safeAddress,
-          action: { kind: 'set-split', configId: pendingSafeTx.configId, splitAddress },
-        });
-        const res = await fetch(
-          `/api/shared-buyback/${pendingSafeTx.configId}/set-split`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              splitAddress,
-              signature: setSplitSig.signature,
-              signedAt: setSplitSig.signedAt,
-            }),
-          },
-        );
-        const data = await res.json();
-        if (!res.ok) {
-          toast.error(data.error || 'Failed to attach split');
-          setStep('pending_safe_exec');
-          return;
-        }
-        setResult({
-          walletAddress: pendingSafeTx.buybackWallet,
-          splitAddress,
-          configId: pendingSafeTx.configId,
-        });
-        setStep('ready');
-      }
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Check failed');
-      setStep('pending_safe_exec');
-    } finally {
-      setCheckingActivation(false);
     }
   };
 
@@ -1004,9 +674,7 @@ export default function CreateSection() {
     step === 'provisioning'
       ? 'Setting up your Turnkey buyback wallet…'
       : step === 'deploying_split'
-        ? flowType === 'safe'
-          ? 'Building and proposing Safe transaction…'
-          : 'Waiting for split deploy tx — confirm in your wallet…'
+        ? 'Waiting for split deploy tx — confirm in your wallet…'
         : step === 'setting_split'
           ? 'Attaching the split to your buyback config…'
           : '';
@@ -1089,9 +757,7 @@ export default function CreateSection() {
                           ? `Connect your existing split to an automated buyback. A ${platformFeePercent}% platform fee applies per execution.`
                           : flowType === 'token'
                             ? `Provision a buyback wallet, deploy a fee-splitting contract, and route your token's revenue through it.`
-                            : flowType === 'safe'
-                              ? `Connect your Safe wallet to an automated buyback. A ${platformFeePercent}% platform fee applies per execution.`
-                              : currentFlow.subtitle}
+                            : currentFlow.subtitle}
                     </p>
                   </div>
                 </div>
@@ -1176,16 +842,6 @@ export default function CreateSection() {
                             on your token (or LP locker / airlock) manually.
                             Once the split receives its first fees, the
                             buyback activates automatically.
-                          </>
-                        ) : flowType === 'safe' ? (
-                          <>
-                            Direct any revenue stream at{' '}
-                            <span className="font-mono break-all">
-                              {result.splitAddress}
-                            </span>
-                            {' '}- LP fees, protocol rewards, direct deposits,
-                            or anything else. Once funds accumulate past the
-                            threshold, the buyback executes automatically.
                           </>
                         ) : (
                           <>
@@ -1503,235 +1159,6 @@ export default function CreateSection() {
                   </div>
                 )}
 
-                {/* Pending Safe execution — shown after a Safe tx is proposed */}
-                {step === 'pending_safe_exec' && pendingSafeTx && (
-                  <div className="space-y-5 animate-in zoom-in-95 duration-500">
-                    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
-                      <p className="text-base font-semibold text-blue-800 font-funnel-sans">
-                        {pendingSafeTx.safeTxHash
-                          ? 'Safe transaction proposed'
-                          : 'Buyback wallet provisioned'}
-                      </p>
-                      <p className="text-sm text-blue-900/70 font-funnel-sans mt-1">
-                        {pendingSafeTx.subflow === 'existing-split'
-                          ? pendingSafeTx.safeTxHash
-                            ? 'Execute the pending transaction in your Safe to add the buyback wallet as a recipient, then click "Check Activation".'
-                            : 'Manually add the buyback wallet below to your split, then click "Check Activation".'
-                          : 'Execute the pending transaction in your Safe to deploy the split, then click "Check & Complete Setup".'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-bold text-foreground uppercase">
-                        Buyback Wallet
-                      </p>
-                      <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3 border border-border">
-                        <span className="font-mono text-sm text-black flex-1 break-all">
-                          {pendingSafeTx.buybackWallet}
-                        </span>
-                        <button
-                          onClick={() => handleCopy(pendingSafeTx.buybackWallet, 'wallet')}
-                          className="shrink-0 p-2 rounded-lg hover:bg-black/10 transition-colors"
-                        >
-                          {copied === 'wallet' ? (
-                            <Check className="w-4 h-4 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-4 h-4 text-black/40" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {pendingSafeTx.safeTxHash && (
-                      <a
-                        href={pendingSafeTx.safeUiUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl border border-border bg-gray-50 text-sm font-medium hover:bg-gray-100 transition-colors"
-                      >
-                        Open Safe Queue <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )}
-
-                    <button
-                      onClick={handleCheckSafeExecution}
-                      disabled={checkingActivation}
-                      className="w-full py-4 text-xl bg-primary text-background rounded-full font-bold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-2"
-                    >
-                      {checkingActivation ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Checking…
-                        </>
-                      ) : pendingSafeTx.subflow === 'existing-split' ? (
-                        'Check Activation'
-                      ) : (
-                        'Check & Complete Setup'
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                {/* Safe form */}
-                {!isProvisioning && step !== 'ready' && step !== 'pending_safe_exec' && flowType === 'safe' && (
-                  <div className="space-y-6">
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Safe Wallet Address" required />
-                      <input
-                        type="text"
-                        placeholder="0x..."
-                        value={safeForm.safeAddress}
-                        onChange={handleSafeField('safeAddress')}
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        Your Gnosis Safe multisig on Base.
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Existing Split Address (optional)" />
-                      <input
-                        type="text"
-                        placeholder="0x... — leave blank to create a new split via Safe"
-                        value={safeForm.splitAddress}
-                        onChange={handleSafeField('splitAddress')}
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        {isAddress(safeForm.splitAddress.trim())
-                          ? 'Existing split detected — the buyback wallet will be added as a recipient via Safe tx.'
-                          : 'No split provided — a new split will be created via Safe transaction.'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Token to buy back & burn" required />
-                      <input
-                        type="text"
-                        placeholder="0x..."
-                        value={safeForm.targetToken}
-                        onChange={handleSafeField('targetToken')}
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        ERC-20 on Base. Revenue is swapped into this token and burned.
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Recovery address" required />
-                      <input
-                        type="text"
-                        placeholder="0x..."
-                        value={safeForm.recoveryAddress}
-                        onChange={handleSafeField('recoveryAddress')}
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        Emergency sweep destination — an EOA you control.
-                      </p>
-                    </div>
-
-                    {isAddress(safeForm.splitAddress.trim()) ? (
-                      <div className="space-y-1.5">
-                        <FieldLabel label="Buyback carve-out (%)" required />
-                        <input
-                          type="number"
-                          min="1"
-                          max="99"
-                          step="1"
-                          value={safeForm.buybackPct}
-                          onChange={handleSafeField('buybackPct')}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          className={INPUT_CLASS}
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                          Existing recipients are scaled down proportionally to make room.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <FieldLabel label="Revenue split (%)" required />
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={safeForm.ownerPct}
-                              onChange={handleSafeField('ownerPct')}
-                              onWheel={(e) => e.currentTarget.blur()}
-                              className={INPUT_CLASS}
-                            />
-                            <p className="text-xs text-gray-400 mt-1 text-center">
-                              Safe (owner)
-                            </p>
-                          </div>
-                          <div>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={safeForm.buybackPct}
-                              onChange={handleSafeField('buybackPct')}
-                              onWheel={(e) => e.currentTarget.blur()}
-                              className={INPUT_CLASS}
-                            />
-                            <p className="text-xs text-gray-400 mt-1 text-center">
-                              Buyback
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-400">
-                          Must sum to 100. Buyback share must be at least 5%.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Your email" required />
-                      <input
-                        type="email"
-                        placeholder="you@example.com"
-                        value={safeForm.userEmail}
-                        onChange={handleSafeField('userEmail')}
-                        className={INPUT_CLASS}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        Becomes the root authenticator on your Turnkey sub-org.
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <FieldLabel label="Trigger threshold (USD)" required />
-                      <input
-                        type="number"
-                        min="10"
-                        step="1"
-                        value={safeForm.thresholdUsd}
-                        onChange={handleSafeField('thresholdUsd')}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        className={INPUT_CLASS}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        Minimum accumulated value before a buyback executes.
-                      </p>
-                    </div>
-
-                    <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
-                      <p className="text-sm text-amber-800 font-funnel-sans">
-                        <span className="font-bold">One signature + one Safe tx.</span>{' '}
-                        Your connected EOA signs once to prove Safe ownership. We
-                        then propose the split transaction to your Safe — execute
-                        it in the Safe UI to complete setup.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 {/* Splits form */}
                 {!isProvisioning && step !== 'ready' && flowType === 'splits' && (
                   <div className="space-y-6">
@@ -1826,22 +1253,14 @@ export default function CreateSection() {
               </div>
 
               {/* Action button */}
-              {!isProvisioning && step !== 'ready' && step !== 'pending_safe_exec' && (
+              {!isProvisioning && step !== 'ready' && (
                 <button
                   onClick={
-                    flowType === 'token'
-                      ? handleRegisterToken
-                      : flowType === 'safe'
-                        ? handleRegisterSafe
-                        : handleRegisterShared
+                    flowType === 'token' ? handleRegisterToken : handleRegisterShared
                   }
                   className="w-full mt-10 py-4 text-xl bg-primary text-background rounded-full font-bold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
                 >
-                  {flowType === 'token'
-                    ? 'Provision & Deploy Split'
-                    : flowType === 'safe'
-                      ? 'Provision & Propose Safe Tx'
-                      : 'Setup Buyback'}
+                  {flowType === 'token' ? 'Provision & Deploy Split' : 'Setup Buyback'}
                 </button>
               )}
 
