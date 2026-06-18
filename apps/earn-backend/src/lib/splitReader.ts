@@ -121,6 +121,80 @@ export async function isWalletInSplit(
   return anyReadSucceeded ? false : null;
 }
 
+export interface OnChainSplitConfig {
+  recipients: `0x${string}`[];
+  allocations: bigint[];
+  totalAllocation: bigint;
+  distributionIncentive: number;
+}
+
+/**
+ * Read a split's EXACT on-chain config (recipients, allocations,
+ * totalAllocation, distributionIncentive) from the latest SplitUpdated event,
+ * with a getSplit() struct fallback. This is exactly the tuple distribute()
+ * recomputes its keccak256 hash from, so passing it straight back to
+ * distribute() can never revert on a recipient/order mismatch. Returns null if
+ * the config can't be read (so callers fail loud rather than guess).
+ */
+export async function readSplitConfig(
+  splitAddress: `0x${string}`,
+  client?: BasePublicClient,
+): Promise<OnChainSplitConfig | null> {
+  const publicClient = client ?? getBasePublicClient();
+
+  type RawSplit = {
+    recipients?: string[];
+    allocations?: bigint[];
+    totalAllocation?: bigint;
+    distributionIncentive?: number | bigint;
+  };
+  const shape = (s: RawSplit | undefined): OnChainSplitConfig | null => {
+    if (!s?.recipients?.length) return null;
+    return {
+      recipients: s.recipients as `0x${string}`[],
+      allocations: (s.allocations ?? []) as bigint[],
+      totalAllocation: s.totalAllocation ?? BigInt(0),
+      distributionIncentive: Number(s.distributionIncentive ?? 0),
+    };
+  };
+
+  // Attempt 1: latest SplitUpdated event (canonical V2 — recipients live in logs).
+  try {
+    const tip = await publicClient.getBlockNumber();
+    let toBlock = tip;
+    for (let i = 0; i < LOG_SCAN_MAX_CHUNKS; i++) {
+      const fromBlock =
+        toBlock > LOG_SCAN_CHUNK_BLOCKS ? toBlock - LOG_SCAN_CHUNK_BLOCKS : BigInt(0);
+      const logs = await publicClient.getLogs({
+        address: splitAddress,
+        event: SPLIT_UPDATED_EVENT,
+        fromBlock,
+        toBlock,
+      });
+      if (logs.length > 0) {
+        const s = (logs[logs.length - 1].args as { _split?: RawSplit })._split;
+        const out = shape(s);
+        if (out) return out;
+      }
+      if (fromBlock === BigInt(0)) break;
+      toBlock = fromBlock - BigInt(1);
+    }
+  } catch { /* try getSplit */ }
+
+  // Attempt 2: getSplit() struct ABI (older V2 deployments).
+  try {
+    const result = (await publicClient.readContract({
+      address: splitAddress,
+      abi: SPLIT_V2_STRUCT_ABI,
+      functionName: 'getSplit',
+    })) as unknown as RawSplit;
+    const out = shape(result);
+    if (out) return out;
+  } catch { /* unreadable */ }
+
+  return null;
+}
+
 async function hasWarehouseBalance(
   walletAddress: `0x${string}`,
   client: BasePublicClient,

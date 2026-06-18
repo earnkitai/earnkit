@@ -14,6 +14,7 @@ import provisionBuybackRoutes from './internal/provisionBuyback';
 import provisionTokenBuybackRoutes from './internal/provisionTokenBuyback';
 import tokenBuybackStatusRoutes from './internal/tokenBuybackStatus';
 import activateBuybackRoutes from './internal/activateBuyback';
+import splitInfoRoutes from './internal/splitInfo';
 import buybackRoutes from './buyback';
 import sharedBuybackRoutes from './sharedBuyback';
 import giftCodesRoutes from './giftCodes';
@@ -66,6 +67,7 @@ const internalAuth = (req: Request, res: Response, next: NextFunction): void => 
 };
 
 router.use('/internal/deploy-split', internalAuth, deploySplitRoutes);
+router.use('/internal/split-info', internalAuth, splitInfoRoutes);
 router.use('/internal/buyback-wallets', internalAuth, buybackWalletsRoutes);
 router.use('/internal/provision-buyback', internalAuth, provisionBuybackRoutes);
 router.use('/internal', internalAuth, provisionTokenBuybackRoutes);
