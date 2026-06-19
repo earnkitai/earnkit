@@ -76,7 +76,22 @@ router.post('/', async (req: Request, res: Response) => {
     // Safety pre-checks
     await assertHasCode(tokenAddress);
     const meta = await getTokenMeta(tokenAddress);
-    await assertNotHoneypot(tokenAddress);
+    // Honeypot check buys via Uniswap V3. A freshly-launched token (e.g. a V4/
+    // Doppler agent coin) legitimately has no V3 route yet — that's `no_liquidity`,
+    // not a honeypot. Don't block provisioning on it; the buyback worker re-checks
+    // a real buy route at execution time before swapping. Other honeypot reasons
+    // still hard-fail.
+    try {
+      await assertNotHoneypot(tokenAddress);
+    } catch (err) {
+      if (err instanceof TokenSafetyError && err.reason === 'no_liquidity') {
+        console.warn(
+          `[provision-buyback] ${tokenAddress} has no V3 route yet (fresh token) — skipping honeypot check; buyback executes once liquidity exists`,
+        );
+      } else {
+        throw err;
+      }
+    }
 
     const canDead = await canReceiveDead(tokenAddress);
     let burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
