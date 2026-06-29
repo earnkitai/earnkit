@@ -25,6 +25,7 @@ import {
   WETH_BASE,
 } from '../lib/uniswap';
 import * as V4 from '../lib/uniswapV4';
+import { discoverWalletErc20s, discoverWarehouseTokens, isSeedToken } from '../lib/tokenDiscovery';
 import { DEAD_ADDRESS } from '../lib/tokenSafety';
 import { signTransaction } from '../services/turnkeyService';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
@@ -54,6 +55,10 @@ interface RunCtx {
   burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';
   recoveryAddress: `0x${string}`;
   feeRateBps: number;
+  // Splits contract this buyback draws from (null for Doppler token-creation
+  // configs where fees land directly in the wallet). Used to discover which
+  // revenue tokens the warehouse may hold.
+  splitAddress: `0x${string}` | null;
   // Doppler tokens trade on V4 multicurve; legacy on V3. The swap step
   // branches on this. V4 fields are required when swapVenue === 'UNISWAP_V4'.
   swapVenue: 'UNISWAP_V3' | 'UNISWAP_V4';
@@ -135,7 +140,12 @@ async function withdrawAllFromWarehouse(ctx: RunCtx): Promise<string[]> {
     await persistHash(await sendTurnkeySignedTx(ctx, SPLIT_WAREHOUSE_ADDRESS, data));
   }
 
-  for (const token of SUPPORTED_TOKENS) {
+  // Discover every revenue token the warehouse may hold for this owner (not a
+  // hardcoded list — revenue is arbitrary), then withdraw the ones with a live
+  // balance. Seeded with WETH + SUPPORTED_TOKENS, so an Alchemy outage degrades
+  // to the previous static behaviour rather than skipping tokens.
+  const warehouseTokens = await discoverWarehouseTokens(ctx.splitAddress);
+  for (const token of warehouseTokens) {
     const bal = await readWarehouseBalance({ owner: ctx.walletAddress, token: token.address as `0x${string}`, client });
     if (bal === BigInt(0)) continue;
     const data = encodeWarehouseWithdraw({ owner: ctx.walletAddress, token: token.address as `0x${string}` });
@@ -143,6 +153,26 @@ async function withdrawAllFromWarehouse(ctx: RunCtx): Promise<string[]> {
   }
 
   return hashes;
+}
+
+// Liquidity / spam guard for arbitrary discovered tokens. Seed tokens (WETH +
+// SUPPORTED_TOKENS) are always processed; any other token must prove real
+// liquidity via a Uniswap V3 route to WETH before we spend gas skimming a fee
+// or swapping it. This works regardless of the buyback's own swap venue (a real
+// revenue token has a WETH route even on a V4/Doppler config) and stops
+// airdropped scam tokens from costing a signed transfer on every execution.
+async function isSellableToken(
+  tokenAddr: `0x${string}`,
+  amountIn: bigint,
+  client: ReturnType<typeof getBasePublicClient>,
+): Promise<boolean> {
+  if (isSeedToken(tokenAddr)) return true;
+  try {
+    const quote = await quoteBestPath({ tokenIn: tokenAddr, tokenOut: WETH_BASE, amountIn, client });
+    return !!quote && quote.amountOut > BigInt(0);
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Step 2: Deduct platform fee ----------
@@ -174,8 +204,10 @@ async function deductFees(ctx: RunCtx): Promise<{ hashes: string[]; feeUsd: numb
     }
   }
 
-  // ERC-20 fees
-  for (const token of SUPPORTED_TOKENS) {
+  // ERC-20 fees — skim feeRateBps from every ERC-20 actually in the wallet
+  // (WETH, USDC, arbitrary revenue tokens), discovered dynamically.
+  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
+  for (const token of walletTokens) {
     const tokenAddr = token.address as `0x${string}`;
     const isUserToken = tokenAddr.toLowerCase() === ctx.tokenAddress.toLowerCase();
     if (isUserToken) continue; // don't take fee from the token we're trying to buy back
@@ -188,6 +220,9 @@ async function deductFees(ctx: RunCtx): Promise<{ hashes: string[]; feeUsd: numb
     })) as bigint;
 
     if (bal === BigInt(0)) continue;
+    // Skip illiquid/spam tokens — no point taking (and gas-paying for) a fee in
+    // a token we can't sell.
+    if (!(await isSellableToken(tokenAddr, bal, client))) continue;
     const feeAmt = (bal * BigInt(ctx.feeRateBps)) / BigInt(10_000);
     if (feeAmt === BigInt(0)) continue;
 
@@ -196,7 +231,10 @@ async function deductFees(ctx: RunCtx): Promise<{ hashes: string[]; feeUsd: numb
       const hash = await sendTurnkeySignedTx(ctx, tokenAddr, data);
       hashes.push(hash);
       try {
-        const tokenPrice = await priceService.getTokenPriceUsd(tokenAddr);
+        const isWeth = tokenAddr.toLowerCase() === WETH_BASE.toLowerCase();
+        const tokenPrice = isWeth
+          ? await priceService.getEthPriceUsd()
+          : await priceService.getTokenPriceUsd(tokenAddr);
         feeUsd += Number(formatUnits(feeAmt, token.decimals)) * tokenPrice;
       } catch { /* best-effort */ }
     } catch (err: unknown) {
@@ -326,6 +364,29 @@ async function recordSwapNote(executionId: string, note: SwapNote): Promise<void
   });
 }
 
+// Single Uniswap V3 exact-in swap (tokenIn -> tokenOut), using the best
+// quoted path. Returns the tx hash, or null if there's no route. Used both to
+// swap directly into the user token (V3 configs) and to convert arbitrary
+// tokens into WETH before a V4 swap (V4/Doppler configs).
+async function swapV3ToToken(
+  ctx: RunCtx,
+  tokenIn: `0x${string}`,
+  tokenOut: `0x${string}`,
+  amountIn: bigint,
+  client: ReturnType<typeof getBasePublicClient>,
+): Promise<string | null> {
+  const quote = await quoteBestPath({ tokenIn, tokenOut, amountIn, client });
+  if (!quote || quote.amountOut === BigInt(0)) return null;
+  await approveIfNeeded(ctx, tokenIn, amountIn);
+  const data = encodeExactInput({
+    path: quote.path,
+    recipient: ctx.walletAddress,
+    amountIn,
+    amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
+  });
+  return sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
+}
+
 async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | null; tokenBalanceAfter: bigint }> {
   const client = getBasePublicClient();
   let lastSwapHash: string | null = null;
@@ -340,10 +401,10 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
       if (isV4) {
         // Doppler tokens: V4 expects WETH input (not native ETH). Native ETH
         // that lands in the wallet from gas drips etc. stays as gas reserve.
-        // The Doppler-fees-as-WETH case is handled by the SUPPORTED_TOKENS
-        // loop below; this branch only triggers if the user manually sent
-        // native ETH to the wallet. For now we skip it on V4 — the loop's
-        // WETH balance check will catch the WETH that Doppler distributes.
+        // The Doppler-fees-as-WETH case is handled by the FEE_SWAP_TOKENS loop
+        // below — WETH is its first entry and equals v4PairedToken, so it swaps
+        // directly via swapV4. This branch only fires for genuine native ETH,
+        // which we deliberately leave as gas reserve on V4.
         await recordSwapNote(ctx.executionId, {
           symbol: 'ETH',
           status: 'no_quote',
@@ -371,7 +432,11 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
     }
   }
 
-  for (const token of SUPPORTED_TOKENS) {
+  // Swap every ERC-20 in the wallet (WETH, USDC, arbitrary revenue tokens) into
+  // the user token. Tokens with no Uniswap route resolve to no_quote and are
+  // skipped — that also filters out spam/airdrop tokens that can't be sold.
+  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
+  for (const token of walletTokens) {
     const tokenAddr = token.address as `0x${string}`;
     if (tokenAddr.toLowerCase() === ctx.tokenAddress.toLowerCase()) continue;
 
@@ -382,50 +447,75 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
       args: [ctx.walletAddress],
     })) as bigint;
     if (bal === BigInt(0)) continue;
+    // Skip illiquid/spam tokens before attempting any swap or approval.
+    if (!(await isSellableToken(tokenAddr, bal, client))) {
+      await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
+      continue;
+    }
 
     try {
       if (isV4) {
-        // V4 only supports a direct pool between input and target (no
-        // multi-hop routing in our worker). For Doppler tokens that means
-        // the input MUST be the paired token (WETH). Skip other inputs
-        // clearly — they need to be converted to WETH first (future work).
-        if (
-          !ctx.v4PairedToken ||
-          tokenAddr.toLowerCase() !== ctx.v4PairedToken.toLowerCase()
-        ) {
+        // V4 routes only the paired token (WETH) directly into the user token.
+        // WETH itself is deferred to a single consolidated V4 swap AFTER the
+        // loop, so any arbitrary tokens we convert to WETH below are included.
+        if (!ctx.v4PairedToken) {
           await recordSwapNote(ctx.executionId, {
             symbol: token.symbol,
             status: 'no_quote',
-            error: `V4 swap only supports paired token (${ctx.v4PairedToken ?? 'unset'}) as input — convert ${token.symbol} to WETH first`,
+            error: 'v4PairedToken unset',
           });
           continue;
         }
-        lastSwapHash = await swapV4(ctx, tokenAddr, bal);
-        await recordSwapNote(ctx.executionId, {
-          symbol: token.symbol,
-          status: 'ok',
-          hash: lastSwapHash ?? undefined,
-        });
-      } else {
-        const quote = await quoteBestPath({ tokenIn: tokenAddr, tokenOut: ctx.tokenAddress, amountIn: bal, client });
-        if (!quote || quote.amountOut === BigInt(0)) {
+        if (tokenAddr.toLowerCase() === ctx.v4PairedToken.toLowerCase()) continue;
+        // Arbitrary (non-WETH) token: convert to WETH on V3 first. The resulting
+        // WETH is swept into the user token by the post-loop V4 consolidation.
+        const hash = await swapV3ToToken(ctx, tokenAddr, ctx.v4PairedToken, bal, client);
+        if (!hash) {
           await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
           continue;
         }
-        await approveIfNeeded(ctx, tokenAddr, bal);
-        const data = encodeExactInput({
-          path: quote.path,
-          recipient: ctx.walletAddress,
-          amountIn: bal,
-          amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
+        await recordSwapNote(ctx.executionId, {
+          symbol: token.symbol,
+          status: 'ok',
+          hash,
+          error: 'converted to WETH for V4 swap',
         });
-        lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
-        await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash: lastSwapHash });
+      } else {
+        const hash = await swapV3ToToken(ctx, tokenAddr, ctx.tokenAddress, bal, client);
+        if (!hash) {
+          await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
+          continue;
+        }
+        lastSwapHash = hash;
+        await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[SharedSplitWorker] ${token.symbol} swap failed for ${ctx.executionId}:`, err);
       await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'failed', error: msg.slice(0, 300) });
+    }
+  }
+
+  // V4 consolidation: by now every sellable token has been converted to WETH
+  // (the paired token). Swap the whole WETH balance into the user token in one
+  // V4 swap. This is what lets V4/Doppler configs absorb arbitrary revenue
+  // tokens, not just WETH.
+  if (isV4 && ctx.v4PairedToken) {
+    try {
+      const wethBal = (await client.readContract({
+        address: ctx.v4PairedToken,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [ctx.walletAddress],
+      })) as bigint;
+      if (wethBal > BigInt(0)) {
+        lastSwapHash = await swapV4(ctx, ctx.v4PairedToken, wethBal);
+        await recordSwapNote(ctx.executionId, { symbol: 'WETH', status: 'ok', hash: lastSwapHash ?? undefined });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[SharedSplitWorker] V4 WETH consolidation swap failed for ${ctx.executionId}:`, err);
+      await recordSwapNote(ctx.executionId, { symbol: 'WETH', status: 'failed', error: msg.slice(0, 300) });
     }
   }
 
@@ -716,6 +806,7 @@ async function processExecutions(): Promise<void> {
       burnMode: config.burnMode as 'DEAD_ADDRESS' | 'TOKEN_BURN_FN',
       recoveryAddress: config.recoveryAddress as `0x${string}`,
       feeRateBps: config.feeRateBps,
+      splitAddress: (config.splitAddress as `0x${string}` | null) ?? null,
       swapVenue: (config.swapVenue as 'UNISWAP_V3' | 'UNISWAP_V4') ?? 'UNISWAP_V3',
       v4PoolHook: config.v4PoolHook as `0x${string}` | null,
       v4PairedToken: config.v4PairedToken as `0x${string}` | null,

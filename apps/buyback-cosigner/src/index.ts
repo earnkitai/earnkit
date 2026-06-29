@@ -229,8 +229,10 @@ function validateUnsignedTx(
 
   // Recovery sweep paths
   const recovery = buyback!.recoveryAddress.toLowerCase();
-  // ERC-20 transfer to recoveryAddress (any token; the policy itself enforces
-  // which token addresses are permitted — Worker just confirms recipient).
+  // ERC-20 transfer to recoveryAddress on ANY token. The model is
+  // token-agnostic by design (revenue arrives as arbitrary ERC-20s): security
+  // comes from constraining the recipient, not from a token allowlist — both
+  // here and in the Turnkey policy.
   if (selector === SELECTORS.erc20Transfer) {
     const recipient = `0x${data.slice(34, 74)}`;
     if (recipient === recovery) return { ok: true, reason: 'buyback' };

@@ -21,10 +21,11 @@ import {
   encodeExactInput,
   quoteBestPath,
   UNISWAP_V3_SWAP_ROUTER_02,
+  WETH_BASE,
 } from '../lib/uniswap';
 import { DEAD_ADDRESS } from '../lib/tokenSafety';
+import { discoverWalletErc20s, discoverWarehouseTokens } from '../lib/tokenDiscovery';
 import { signTransaction } from '../services/turnkeyService';
-import { SUPPORTED_TOKENS } from '../services/tokenService';
 import { priceService } from '../services/priceService';
 import { ensureGasFunded } from '../lib/operatorGas';
 
@@ -119,8 +120,12 @@ async function withdrawAllFromWarehouse(ctx: RunCtx): Promise<string[]> {
     );
   }
 
-  // Each supported ERC-20
-  for (const token of SUPPORTED_TOKENS) {
+  // This config has no stored split address, so warehouse discovery falls back
+  // to the seed set (WETH + SUPPORTED_TOKENS). Arbitrary tokens that reach the
+  // wallet directly are picked up by the wallet-side discovery in the swap and
+  // sweep steps.
+  const warehouseTokens = await discoverWarehouseTokens(null);
+  for (const token of warehouseTokens) {
     const bal = await readWarehouseBalance({
       owner: ctx.walletAddress,
       token: token.address as `0x${string}`,
@@ -186,7 +191,9 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
   // Discover what's on the wallet (after warehouse withdraw step).
   const ethBal = await client.getBalance({ address: ctx.walletAddress });
   const tokenBalances: Array<{ address: `0x${string}`; amount: bigint; symbol: string; decimals: number }> = [];
-  for (const t of SUPPORTED_TOKENS) {
+  // Every ERC-20 actually in the wallet — WETH, USDC, arbitrary revenue tokens.
+  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
+  for (const t of walletTokens) {
     const bal = (await client.readContract({
       address: t.address as `0x${string}`,
       abi: erc20Abi,
@@ -215,7 +222,6 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
   // and the burn step proceeds with whatever userToken balance materialized.
   if (ethSwappable > BigInt(0)) {
     try {
-      const { WETH_BASE } = await import('../lib/uniswap');
       const quote = await quoteBestPath({
         tokenIn: WETH_BASE,
         tokenOut: ctx.tokenAddress,
@@ -364,10 +370,12 @@ async function sweepToRecoveryAddress(ctx: RunCtx): Promise<string[]> {
   // 1. Drain Splits Warehouse to the buyback wallet.
   hashes.push(...(await withdrawAllFromWarehouse(ctx)));
 
-  // 2. ERC-20 sweeps: every supported token + the userToken (in case there's
-  //    a stale post-swap balance from a previously-failed burn step).
+  // 2. ERC-20 sweeps: every ERC-20 in the wallet (WETH, USDC, arbitrary revenue
+  //    tokens — discovered dynamically) + the userToken (in case there's a stale
+  //    post-swap balance from a previously-failed burn step).
+  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
   const tokensToSweep: Array<{ address: `0x${string}`; symbol: string }> = [
-    ...SUPPORTED_TOKENS.map((t) => ({
+    ...walletTokens.map((t) => ({
       address: t.address as `0x${string}`,
       symbol: t.symbol,
     })),
