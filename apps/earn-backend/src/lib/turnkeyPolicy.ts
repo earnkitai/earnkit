@@ -1,8 +1,5 @@
 import { toFunctionSelector } from 'viem';
-import {
-  SPLIT_NATIVE_TOKEN_ADDRESS,
-  SPLIT_WAREHOUSE_ADDRESS,
-} from './splitsWarehouse';
+import { SPLIT_WAREHOUSE_ADDRESS } from './splitsWarehouse';
 import { UNISWAP_V3_SWAP_ROUTER_02 } from './uniswap';
 import { UNIVERSAL_ROUTER_BASE, PERMIT2_BASE } from './uniswapV4';
 import { DEAD_ADDRESS } from './tokenSafety';
@@ -30,14 +27,14 @@ const SELECTORS = {
 export interface BuybackPolicyParams {
   // The user-configured ERC-20 the buyback ultimately purchases & burns.
   userTokenAddress: `0x${string}`;
-  // The addresses on the swap input side we ever expect: ETH (sentinel) + every
-  // SUPPORTED_TOKEN we accept as a payment asset. Used so the policy permits
-  // approve() calls for those tokens to the SwapRouter.
-  allowedSwapInputTokens: readonly `0x${string}`[];
+  // DEPRECATED / IGNORED. The policy is now token-agnostic — revenue can arrive
+  // as any ERC-20, so approve()/transfer() are constrained by spender/recipient
+  // (router, permit2, dead, treasury, recovery) rather than by token address.
+  // Kept only so existing callers compile; the value is no longer read.
+  allowedSwapInputTokens?: readonly `0x${string}`[];
   // EOA the recovery flow is permitted to sweep funds to. Set at config-time
-  // = the user's connected dev wallet. The policy whitelists transfer(this, _)
-  // for both the user's burn token AND every allowed swap-input token (ETH is
-  // the only odd one out — sweeping ETH uses a plain native transfer).
+  // = the user's connected dev wallet. The policy permits transfer(this, _) on
+  // ANY token (ETH sweeps use a plain native transfer to this address).
   recoveryAddress: `0x${string}`;
   // Platform treasury address for fee collection (shared-split buyback only).
   // When set, the policy additionally permits transfer(treasury, _) on all
@@ -65,13 +62,18 @@ export interface BuybackPolicyParams {
  *
  * The conditions translate to:
  *   - To the Splits Warehouse: only `withdraw(address,address)`
- *   - To the Uniswap V3 SwapRouter: only `exactInput*` calls
- *   - To one of the allowed swap-input tokens: only `approve(SwapRouter, _)`
- *   - To the user's chosen burn token: only `transfer(0xdEaD, _)` or `burn(_)`
+ *   - To the Uniswap SwapRouter / UniversalRouter: only swap calls
+ *   - `approve(SwapRouter|Permit2, _)` on ANY token (revenue is arbitrary)
+ *   - `transfer(_, _)` only when the recipient is 0xdEaD, the treasury, or the
+ *     recovery EOA — the token can be anything, the destination cannot
+ *   - To the user's chosen burn token: also `burn(_)`
  *
- * Any other contract / function selector is denied. Even if our delegated API
- * key is leaked, an attacker cannot drain the wallet — they can only execute
- * the buyback flow we already authorized.
+ * The policy is token-agnostic by design (revenue arrives as any ERC-20), so
+ * security rests on the fixed set of permitted destinations, not a token
+ * allowlist. Any other contract / function selector — or a transfer to any
+ * other recipient — is denied. Even if our delegated API key is leaked, an
+ * attacker cannot drain the wallet to an address they control; they can only
+ * execute the buyback / recovery flow we already authorized.
  */
 export function buildBuybackPolicy(params: BuybackPolicyParams): {
   policyName: string;
@@ -80,7 +82,7 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   condition: string;
   notes: string;
 } {
-  const { userTokenAddress, allowedSwapInputTokens, recoveryAddress, treasuryAddress, swapVenue, parentAdminUserId, coSignerUserId } = params;
+  const { userTokenAddress, recoveryAddress, treasuryAddress, swapVenue, parentAdminUserId, coSignerUserId } = params;
   const isV4 = swapVenue === 'UNISWAP_V4';
 
   const lower = (s: string) => s.toLowerCase();
@@ -91,15 +93,6 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   const permit2 = lower(PERMIT2_BASE);
   const dead = lower(DEAD_ADDRESS);
   const recovery = lower(recoveryAddress);
-  const allowedInputsLower = allowedSwapInputTokens
-    .map(lower)
-    .filter((a) => a !== lower(SPLIT_NATIVE_TOKEN_ADDRESS));
-  // ERC-20s the recovery sweep is permitted to call transfer(recoveryAddress, _) on:
-  // every payment-input token PLUS the user's burn token (in case they want to
-  // pull tokens that already got swapped but never burned, e.g. burn step failed).
-  const recoverableTokens = Array.from(
-    new Set([...allowedInputsLower, userToken]),
-  );
 
   // Selector helpers — Turnkey gives us eth.tx.data as bytes; substring(0, 10) = "0x" + 4 bytes.
   const sel = (name: keyof typeof SELECTORS) => SELECTORS[name].toLowerCase();
@@ -107,64 +100,59 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   const inSet = (key: string, values: string[]) =>
     `${key} in [${values.map((v) => `'${v}'`).join(', ')}]`;
 
-  // Condition tree (CEL):
-  //   (to == Warehouse && selector == withdraw)
-  //   || (to == SwapRouter && selector in [exactInput, exactInputSingle])
-  //   || (to in allowed_input_tokens && selector == approve && first_arg == SwapRouter)
-  //   || (to == userToken && selector == transfer && first_arg == 0xdEaD)
-  //   || (to == userToken && selector == burn)
+  // Token-AGNOSTIC condition tree. Revenue flows into the split/wallet as any
+  // ERC-20 — WETH, USDC, or arbitrary tokens we can't enumerate at
+  // provisioning time — so we deliberately do NOT whitelist token addresses.
+  // Security instead comes from constraining the *destination* of every op to
+  // a fixed, safe address:
+  //   - approve  -> spender must be the SwapRouter (and Permit2 on V4)
+  //   - transfer -> recipient must be 0xdEaD (burn), the treasury (fee), or the
+  //                 recovery EOA — never an arbitrary address
+  //   - swaps    -> only the SwapRouter / UniversalRouter
+  //   - withdraw -> only the Splits Warehouse
+  // A leaked delegated key therefore still cannot move funds to any
+  // attacker-controlled address — it can only run the buyback / recovery flow.
+  // This matches how the off-host co-signer validates (it never checks the
+  // token address either, only selectors + spender/recipient args).
   const selector = 'eth.tx.function_signature';
   const firstArgAddress = 'eth.tx.data[34..74]'; // address sits in bytes 4..36, lowercased hex
 
   const conditions: string[] = [
     `(${inSet('eth.tx.to', [warehouse])} && ${selector} == '${sel('warehouseWithdraw')}')`,
     `(${inSet('eth.tx.to', [router])} && ${inSet(selector, [sel('uniswapExactInput'), sel('uniswapExactInputSingle')])})`,
+    // approve(SwapRouter, _) on ANY token — required before a V3 swap.
+    `(${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${router.slice(2)}')`,
   ];
-  if (allowedInputsLower.length > 0) {
+
+  if (isV4) {
     conditions.push(
-      `(${inSet('eth.tx.to', allowedInputsLower)} && ${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${router.slice(2)}')`,
+      // UniversalRouter.execute(commands, inputs, deadline) — Doppler V4 swap entry point.
+      `(${inSet('eth.tx.to', [universalRouter])} && ${selector} == '${sel('universalRouterExecute')}')`,
+      // Permit2.approve(token, UniversalRouter, max, expiration) — V4 routes
+      // ERC-20 spend through Permit2 instead of approving the router directly.
+      `(${inSet('eth.tx.to', [permit2])} && ${selector} == '${sel('permit2Approve')}')`,
+      // approve(Permit2, _) on ANY token — one-time per token, instead of the V3 router.
+      `(${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${permit2.slice(2)}')`,
     );
   }
 
-  if (isV4) {
-    // UniversalRouter.execute(commands, inputs, deadline) — Doppler V4 swap entry point.
-    conditions.push(
-      `(${inSet('eth.tx.to', [universalRouter])} && ${selector} == '${sel('universalRouterExecute')}')`,
-    );
-    // Permit2.approve(token, UniversalRouter, max, expiration) — required so
-    // UniversalRouter can pull ERC-20s from the wallet during V4 swaps.
-    // First arg is the token; we don't constrain it here because the wallet
-    // may swap WETH or any other allowed input. The spender argument is
-    // checked at the smart contract level by Permit2, and the policy's
-    // overall conditions ensure the wallet can't transfer to arbitrary
-    // addresses anyway.
-    conditions.push(
-      `(${inSet('eth.tx.to', [permit2])} && ${selector} == '${sel('permit2Approve')}')`,
-    );
-    // The wallet also needs to be able to approve its ERC-20 holdings to
-    // Permit2 (one-time per token, instead of the V3 router).
-    if (allowedInputsLower.length > 0) {
-      conditions.push(
-        `(${inSet('eth.tx.to', allowedInputsLower)} && ${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${permit2.slice(2)}')`,
-      );
-    }
-  }
   conditions.push(
+    // Burn: only ever the user's chosen burn token, via dead-transfer or burn().
     `(${inSet('eth.tx.to', [userToken])} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${dead.slice(2)}')`,
     `(${inSet('eth.tx.to', [userToken])} && ${selector} == '${sel('tokenBurn')}')`,
-    // Recovery: transfer of any whitelisted token TO the recoveryAddress.
-    `(${inSet('eth.tx.to', recoverableTokens)} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${recovery.slice(2)}')`,
+    // Recovery: transfer(recoveryAddress, _) on ANY token.
+    `(${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${recovery.slice(2)}')`,
     // Recovery: native ETH sweep — plain value transfer to recoveryAddress with empty data.
     `(${inSet('eth.tx.to', [recovery])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
   );
 
   // Fee collection: permitted only when a treasury address is configured
-  // (shared-split buyback). Allows transfer of any input token or the user
-  // token to the treasury — used to deduct the platform fee before swapping.
+  // (shared-split buyback). Allows transfer(treasury, _) on ANY token plus a
+  // plain ETH transfer — used to deduct the platform fee before swapping.
   if (treasuryAddress) {
     const treasury = lower(treasuryAddress);
     conditions.push(
-      `(${inSet('eth.tx.to', recoverableTokens)} && ${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${treasury.slice(2)}')`,
+      `(${selector} == '${sel('erc20Transfer')}' && ${firstArgAddress} == '${treasury.slice(2)}')`,
       `(${inSet('eth.tx.to', [treasury])} && (eth.tx.data == '0x' || eth.tx.data == ''))`,
     );
   }
