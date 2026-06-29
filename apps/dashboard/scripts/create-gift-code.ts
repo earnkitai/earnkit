@@ -10,6 +10,7 @@
  *   pnpm exec tsx scripts/create-gift-code.ts <agentId> 50 unlimited MINI20
  */
 
+import 'dotenv/config';
 import { randomBytes } from 'crypto';
 import { prisma } from '../lib/prisma';
 
