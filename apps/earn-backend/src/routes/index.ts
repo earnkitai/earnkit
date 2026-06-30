@@ -13,6 +13,7 @@ import buybackWalletsRoutes from './internal/buybackWallets';
 import provisionBuybackRoutes from './internal/provisionBuyback';
 import provisionTokenBuybackRoutes from './internal/provisionTokenBuyback';
 import tokenBuybackStatusRoutes from './internal/tokenBuybackStatus';
+import agentBuybackStatusRoutes from './internal/agentBuybackStatus';
 import activateBuybackRoutes from './internal/activateBuyback';
 import splitInfoRoutes from './internal/splitInfo';
 import buybackRoutes from './buyback';
@@ -72,6 +73,7 @@ router.use('/internal/buyback-wallets', internalAuth, buybackWalletsRoutes);
 router.use('/internal/provision-buyback', internalAuth, provisionBuybackRoutes);
 router.use('/internal', internalAuth, provisionTokenBuybackRoutes);
 router.use('/internal', internalAuth, tokenBuybackStatusRoutes);
+router.use('/internal', internalAuth, agentBuybackStatusRoutes);
 router.use('/internal', internalAuth, activateBuybackRoutes);
 
 export default router;
