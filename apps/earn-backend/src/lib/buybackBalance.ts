@@ -10,7 +10,7 @@ import { WETH_BASE } from './uniswap';
 
 // Must match buybackExecutorWorker — the executor never swaps this ETH, so
 // we must not count it toward the accumulated balance either.
-const MIN_GAS_RESERVE_WEI = parseUnits(process.env.BUYBACK_GAS_RESERVE_ETH || '0.002', 18);
+const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);
 
 /**
  * Reads the accumulated balance of a buyback wallet — both the Splits Warehouse

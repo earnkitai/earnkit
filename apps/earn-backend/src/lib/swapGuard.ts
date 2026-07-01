@@ -45,13 +45,6 @@ function guardPriceMaxAgeMs(): number {
   return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
 }
 
-// A market price is only trusted as a swap reference if its source pool has at
-// least this much liquidity — blocks pricing off a near-empty/manipulated pool.
-function guardMinLiquidityUsd(): number {
-  const raw = parseInt(process.env.BUYBACK_MIN_MARKET_LIQUIDITY_USD ?? '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 5_000;
-}
-
 export async function assertSwapValueVsMarket(args: {
   client: BasePublicClient;
   inputToken: `0x${string}`;
@@ -60,14 +53,13 @@ export async function assertSwapValueVsMarket(args: {
   expectedOut: bigint;
 }): Promise<void> {
   const maxAgeMs = guardPriceMaxAgeMs();
-  const minLiquidityUsd = guardMinLiquidityUsd();
   // WETH is priced off the ETH feed (it isn't in SUPPORTED_TOKENS); everything
-  // else by contract address, requiring both a FRESH price (<= maxAgeMs) AND a
-  // source pool with real liquidity. Any failure throws → fail closed.
+  // else by contract address. Both require a FRESH price (<= maxAgeMs) and throw
+  // otherwise → fail closed. A feed outage can never validate a bad swap.
   const priceOf = (token: `0x${string}`): Promise<number> =>
     token.toLowerCase() === WETH_BASE.toLowerCase()
       ? priceService.getEthPriceUsd(maxAgeMs)
-      : priceService.getTokenPriceUsd(token, maxAgeMs, minLiquidityUsd);
+      : priceService.getTokenPriceUsd(token, maxAgeMs);
 
   // Read decimals on-chain for both sides — never assume 18.
   const decimalsOf = async (token: `0x${string}`): Promise<number> =>
