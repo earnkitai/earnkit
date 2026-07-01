@@ -125,7 +125,11 @@ export async function snapshotBuybackBalance(
             Number(formatUnits(total, token.decimals)),
           );
         } else {
-          usd = await priceService.convertTokenToUsd(total.toString(), token.symbol);
+          // Price by ADDRESS, not the discovered symbol — symbols are spoofable,
+          // so a scam token calling itself "USDC" must not borrow USDC's price.
+          // getTokenPriceUsd throws for unknown addresses → caught → $0.
+          const price = await priceService.getTokenPriceUsd(tokenAddr);
+          usd = Number(formatUnits(total, token.decimals)) * price;
         }
       } catch (err) {
         console.error(
