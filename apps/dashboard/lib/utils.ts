@@ -71,3 +71,29 @@ export function generateApiKey(): string {
 export function extractUserId(privyUserId: string): string {
   return privyUserId.split(':').pop() || privyUserId;
 }
+
+/**
+ * Formats a raw on-chain token amount (base units) into a human-readable
+ * decimal string. Shared across the dashboard so the same raw amount renders
+ * identically everywhere. Fractional part is shown to up to 6 significant
+ * decimal places with trailing zeros trimmed.
+ * @param raw - The raw token amount in base units (as a string)
+ * @param decimals - The token's decimals
+ * @returns A formatted decimal string, or the original input if parsing fails
+ */
+export function formatRawTokenAmount(raw: string, decimals: number): string {
+  try {
+    const v = BigInt(raw);
+    const divisor = BigInt(10) ** BigInt(decimals);
+    const whole = v / divisor;
+    const frac = v % divisor;
+    const fracStr = frac
+      .toString()
+      .padStart(decimals, '0')
+      .slice(0, 6)
+      .replace(/0+$/, '');
+    return fracStr ? `${whole}.${fracStr}` : whole.toString();
+  } catch {
+    return raw;
+  }
+}

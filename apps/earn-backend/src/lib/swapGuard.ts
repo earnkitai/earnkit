@@ -16,10 +16,19 @@ import type { BasePublicClient } from './splitsWarehouse';
  * it throws and the swap is skipped (and retried later) rather than executed
  * blind. The deviation ceiling is policy config (env) — never a price literal.
  */
+// Absolute ceilings the operator env can NEVER exceed. Env may only make the
+// guard tighter (or loosen up to these hard caps) — it can never be widened to
+// the point of nullifying protection. Chosen so the worst a misconfigured/
+// hostile env can allow is a ~20% value loss, not a 99.99% one.
+const HARD_MAX_DEVIATION_BPS = 2000; // 20%
+const HARD_MAX_SLIPPAGE_BPS = 500; //  5%
+
 export function maxMarketDeviationBps(): number {
   const raw = parseInt(process.env.BUYBACK_MAX_MARKET_DEVIATION_BPS ?? '', 10);
-  // Default 15%. Clamp to an open interval so a bad env can't disable the guard.
-  return Number.isFinite(raw) && raw > 0 && raw < 10_000 ? raw : 1500;
+  // Default 15%. A valid env override is honored, but the effective value is
+  // hard-capped at HARD_MAX_DEVIATION_BPS so env can never disable the guard.
+  const configured = Number.isFinite(raw) && raw > 0 && raw < 10_000 ? raw : 1500;
+  return Math.min(configured, HARD_MAX_DEVIATION_BPS);
 }
 
 /**
@@ -30,7 +39,10 @@ export function maxMarketDeviationBps(): number {
  */
 export function clampSlippageBps(configuredBps: number): number {
   const raw = parseInt(process.env.BUYBACK_MAX_SLIPPAGE_BPS ?? '', 10);
-  const ceiling = Number.isFinite(raw) && raw > 0 && raw <= 10_000 ? raw : 150;
+  // Env ceiling is honored but itself capped at HARD_MAX_SLIPPAGE_BPS, so env
+  // can never drive minOut toward zero (which would leave only the market guard).
+  const envCeiling = Number.isFinite(raw) && raw > 0 && raw <= 10_000 ? raw : 150;
+  const ceiling = Math.min(envCeiling, HARD_MAX_SLIPPAGE_BPS);
   if (!Number.isFinite(configuredBps) || configuredBps <= 0) return ceiling;
   return Math.min(configuredBps, ceiling);
 }

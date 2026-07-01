@@ -306,6 +306,11 @@ router.post('/check', async (req: Request, res: Response) => {
       thresholdUsd: config.thresholdUsd,
     });
   } catch (err: any) {
+    // Lost the race to the one-in-flight-per-config unique index — another
+    // /check queued an execution concurrently. Treat as in-flight, not a 500.
+    if (err?.code === 'P2002') {
+      return res.json({ queued: false, reason: 'in_flight' });
+    }
     console.error('[buyback] check error:', err);
     return res.status(500).json({ error: err?.message ?? 'Internal error' });
   }
@@ -334,6 +339,10 @@ router.post('/recover', async (req: Request, res: Response) => {
     });
     return res.json({ ok: true, executionId: exec.id });
   } catch (err: any) {
+    // A buyback/recovery is already in flight for this config (unique index).
+    if (err?.code === 'P2002') {
+      return res.status(409).json({ ok: false, reason: 'in_flight' });
+    }
     console.error('[buyback] recover error:', err);
     return res.status(500).json({ error: err?.message ?? 'Internal error' });
   }

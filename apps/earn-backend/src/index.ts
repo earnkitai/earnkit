@@ -8,7 +8,6 @@ import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { startTopUpVerificationWorker, stopTopUpVerificationWorker } from './workers/topUpVerificationWorker';
 import { startPaymentIntentVerifierWorker, stopPaymentIntentVerifierWorker } from './workers/paymentIntentVerifierWorker';
-import { startWebhookDeliveryWorker, stopWebhookDeliveryWorker } from './workers/webhookDeliveryWorker';
 import { startBuybackExecutorWorker, stopBuybackExecutorWorker } from './workers/buybackExecutorWorker';
 import { startSharedSplitBuybackWorker, stopSharedSplitBuybackWorker } from './workers/sharedSplitBuybackWorker';
 import { logOperatorWalletStatus } from './lib/operatorGas';
@@ -91,7 +90,6 @@ const server = app.listen(PORT, () => {
   console.log(`EarnKit Backend API running on port ${PORT}`);
   startTopUpVerificationWorker();
   startPaymentIntentVerifierWorker();
-  startWebhookDeliveryWorker();
   startBuybackExecutorWorker();
   startSharedSplitBuybackWorker();
   logOperatorWalletStatus().catch(() => {});
@@ -109,7 +107,6 @@ async function shutdown(signal: string): Promise<void> {
   // Stop new work entering the workers.
   try { stopTopUpVerificationWorker(); } catch (e) { console.error('stop topUp:', e); }
   try { stopPaymentIntentVerifierWorker(); } catch (e) { console.error('stop PIVerifier:', e); }
-  try { stopWebhookDeliveryWorker(); } catch (e) { console.error('stop webhook:', e); }
   try { stopBuybackExecutorWorker(); } catch (e) { console.error('stop buyback exec:', e); }
   try { stopSharedSplitBuybackWorker(); } catch (e) { console.error('stop sharedSplit:', e); }
 

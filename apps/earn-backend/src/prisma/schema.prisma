@@ -8,33 +8,16 @@ datasource db {
 }
 
 model User {
-  id                  String               @id @unique
-  username            String?              @unique
-  email               String?              @unique
-  createdAt           DateTime             @default(now()) @map("created_at")
-  hasAcceptedTerms    Boolean              @default(false) @map("has_accepted_terms")
-  isGuest             Boolean              @default(false) @map("is_guest")
-  mfaMethods          String[]             @default([]) @map("mfa_methods")
-  apiKey              String?              @unique @map("api_key")        // stores SHA-256 hash
-  apiKeyPrefix        String?              @map("api_key_prefix")         // e.g. "ek_abcd1234"
+  id                  String          @id @unique
+  username            String?         @unique
+  email               String?         @unique
+  createdAt           DateTime        @default(now()) @map("created_at")
+  hasAcceptedTerms    Boolean         @default(false) @map("has_accepted_terms")
+  isGuest             Boolean         @default(false) @map("is_guest")
+  mfaMethods          String[]        @default([]) @map("mfa_methods")
+  apiKey              String?         @unique @map("api_key")        // stores SHA-256 hash
+  apiKeyPrefix        String?         @map("api_key_prefix")         // e.g. "ek_abcd1234"
   agents              Agent[]
-  appleAccounts       AppleAccount[]
-  crossAppAccounts    CrossAppAccount[]
-  customJwtAccounts   CustomJwtAccount[]
-  discordAccounts     DiscordAccount[]
-  emailAccounts       EmailAccount[]
-  farcasterAccounts   FarcasterAccount[]
-  githubAccounts      GithubAccount[]
-  googleAccounts      GoogleAccount[]
-  instagramAccounts   InstagramAccount[]
-  linkedinAccounts    LinkedInAccount[]
-  passkeyAccounts     PasskeyAccount[]
-  phoneAccounts       PhoneAccount[]
-  smartWalletAccounts SmartWalletAccount[]
-  spotifyAccounts     SpotifyAccount[]
-  telegramAccounts    TelegramAccount[]
-  tiktokAccounts      TiktokAccount[]
-  twitterAccounts     TwitterAccount[]
   walletAccounts      WalletAccount[]
 
   @@map("users")
@@ -55,233 +38,6 @@ model WalletAccount {
   user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("wallet_accounts")
-}
-
-model SmartWalletAccount {
-  id              String @id @default(uuid())
-  userId          String @map("user_id")
-  type            String @default("smart_wallet")
-  address         String
-  smartWalletType String @map("smart_wallet_type")
-  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("smart_wallet_accounts")
-}
-
-model EmailAccount {
-  id      String @id @default(uuid())
-  userId  String @map("user_id")
-  type    String @default("email")
-  address String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("email_accounts")
-}
-
-model PhoneAccount {
-  id     String @id @default(uuid())
-  userId String @map("user_id")
-  type   String @default("phone")
-  number String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("phone_accounts")
-}
-
-model GoogleAccount {
-  id      String  @id @default(uuid())
-  userId  String  @map("user_id")
-  type    String  @default("google_oauth")
-  subject String
-  email   String
-  name    String?
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("google_accounts")
-}
-
-model TwitterAccount {
-  id                String  @id @default(uuid())
-  userId            String  @map("user_id")
-  type              String  @default("twitter_oauth")
-  subject           String
-  username          String?
-  name              String?
-  profilePictureUrl String? @map("profile_picture_url")
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("twitter_accounts")
-}
-
-model DiscordAccount {
-  id       String  @id @default(uuid())
-  userId   String  @map("user_id")
-  type     String  @default("discord_oauth")
-  subject  String
-  username String?
-  email    String?
-  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("discord_accounts")
-}
-
-model GithubAccount {
-  id       String  @id @default(uuid())
-  userId   String  @map("user_id")
-  type     String  @default("github_oauth")
-  subject  String
-  username String?
-  name     String?
-  email    String?
-  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("github_accounts")
-}
-
-model SpotifyAccount {
-  id      String  @id @default(uuid())
-  userId  String  @map("user_id")
-  type    String  @default("spotify_oauth")
-  subject String
-  email   String?
-  name    String?
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("spotify_accounts")
-}
-
-model InstagramAccount {
-  id       String  @id @default(uuid())
-  userId   String  @map("user_id")
-  type     String  @default("instagram_oauth")
-  subject  String
-  username String?
-  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("instagram_accounts")
-}
-
-model TiktokAccount {
-  id       String  @id @default(uuid())
-  userId   String  @map("user_id")
-  type     String  @default("tiktok_oauth")
-  subject  String
-  username String?
-  name     String?
-  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("tiktok_accounts")
-}
-
-model LinkedInAccount {
-  id         String  @id @default(uuid())
-  userId     String  @map("user_id")
-  type       String  @default("linkedin_oauth")
-  subject    String
-  name       String?
-  email      String?
-  vanityName String? @map("vanity_name")
-  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("linkedin_accounts")
-}
-
-model AppleAccount {
-  id      String @id @default(uuid())
-  userId  String @map("user_id")
-  type    String @default("apple_oauth")
-  subject String
-  email   String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("apple_accounts")
-}
-
-model CustomJwtAccount {
-  id           String @id @default(uuid())
-  userId       String @map("user_id")
-  type         String @default("custom_auth")
-  customUserId String @map("custom_user_id")
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("custom_jwt_accounts")
-}
-
-model FarcasterAccount {
-  id              String  @id @default(uuid())
-  userId          String  @map("user_id")
-  type            String  @default("farcaster")
-  fid             Int?
-  ownerAddress    String  @map("owner_address")
-  username        String?
-  displayName     String? @map("display_name")
-  bio             String?
-  pfp             String?
-  url             String?
-  signerPublicKey String? @map("signer_public_key")
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("farcaster_accounts")
-}
-
-model PasskeyAccount {
-  id                 String  @id @default(uuid())
-  userId             String  @map("user_id")
-  type               String  @default("passkey")
-  credentialId       String  @map("credential_id")
-  enrolledInMfa      Boolean @default(false) @map("enrolled_in_mfa")
-  authenticatorName  String  @map("authenticator_name")
-  createdWithDevice  String  @map("created_with_device")
-  createdWithOs      String  @map("created_with_os")
-  createdWithBrowser String  @map("created_with_browser")
-  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("passkey_accounts")
-}
-
-model TelegramAccount {
-  id             String  @id @default(uuid())
-  userId         String  @map("user_id")
-  type           String  @default("telegram")
-  telegramUserId String  @map("telegram_user_id")
-  firstName      String? @map("first_name")
-  lastName       String? @map("last_name")
-  username       String?
-  photoUrl       String? @map("photo_url")
-  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("telegram_accounts")
-}
-
-model CrossAppAccount {
-  id              String           @id @default(uuid())
-  userId          String           @map("user_id")
-  type            String           @default("cross_app")
-  subject         String
-  providerApp     Json             @map("provider_app")
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  embeddedWallets EmbeddedWallet[]
-  smartWallets    SmartWallet[]
-
-  @@map("cross_app_accounts")
-}
-
-model EmbeddedWallet {
-  id                String          @id @default(uuid())
-  crossAppAccountId String          @map("cross_app_account_id")
-  address           String
-  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
-
-  @@map("embedded_wallets")
-}
-
-model SmartWallet {
-  id                String          @id @default(uuid())
-  crossAppAccountId String          @map("cross_app_account_id")
-  address           String
-  crossAppAccount   CrossAppAccount @relation(fields: [crossAppAccountId], references: [id], onDelete: Cascade)
-
-  @@map("smart_wallets")
 }
 
 model Agent {
@@ -306,7 +62,6 @@ model Agent {
   tokenConfigs        AgentTokenConfig[]
   paymentIntents      PaymentIntent[]
   ledgerEntries       LedgerEntry[]
-  webhookEndpoints    WebhookEndpoint[]
   giftCodes           GiftCode[]
   buybackConfig       BuybackConfig?
   splitAddress        String?            @map("split_address")
@@ -574,7 +329,6 @@ model PaymentIntent {
   updatedAt             DateTime            @updatedAt @map("updated_at")
   agent                 Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
   ledgerEntries         LedgerEntry[]
-  webhookDeliveries     WebhookDelivery[]
 
   @@index([agentId, status])
   @@index([customerWalletAddress])
@@ -610,48 +364,6 @@ model LedgerEntry {
   @@index([txHash])
   @@index([createdAt])
   @@map("ledger_entries")
-}
-
-model WebhookEndpoint {
-  id           String            @id @default(cuid())
-  agentId      String            @map("agent_id")
-  url          String
-  secret       String
-  enabled      Boolean           @default(true)
-  events       String[]          @default([])
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
-  agent        Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  deliveries   WebhookDelivery[]
-
-  @@index([agentId])
-  @@index([enabled])
-  @@map("webhook_endpoints")
-}
-
-model WebhookDelivery {
-  id              String                @id @default(cuid())
-  endpointId      String                @map("endpoint_id")
-  paymentIntentId String?               @map("payment_intent_id")
-  eventType       String                @map("event_type")
-  status          WebhookDeliveryStatus @default(PENDING)
-  payload         Json
-  responseStatus  Int?                  @map("response_status")
-  responseBody    String?               @map("response_body")
-  attempts        Int                   @default(0)
-  lastError       String?               @map("last_error")
-  nextAttemptAt   DateTime?             @map("next_attempt_at")
-  deliveredAt     DateTime?             @map("delivered_at")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  updatedAt       DateTime              @updatedAt @map("updated_at")
-  endpoint        WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
-  paymentIntent   PaymentIntent?        @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
-
-  @@index([endpointId, status])
-  @@index([paymentIntentId])
-  @@index([nextAttemptAt])
-  @@index([createdAt])
-  @@map("webhook_deliveries")
 }
 
 enum AgentStatus {
@@ -726,13 +438,6 @@ enum LedgerEntryStatus {
   POSTED
   REVERSED
   FAILED
-}
-
-enum WebhookDeliveryStatus {
-  PENDING
-  DELIVERED
-  FAILED
-  CANCELLED
 }
 
 model SharedSplitBuybackConfig {
@@ -849,3 +554,12 @@ enum SharedSplitStatus {
 // removed: the legacy single-recipient token-buyback flow is superseded by
 // the unified split-based flow on SharedSplitBuybackConfig (Token card on
 // /create now deploys a 0xSplits contract per launch).
+//
+// Privy linked-account mirror tables (apple/google/twitter/discord/github/
+// spotify/instagram/tiktok/linkedin/farcaster/telegram/phone/email/passkey/
+// custom_jwt/smart_wallet accounts, cross_app_accounts, embedded_wallets,
+// smart_wallets) removed: they were never written and the dashboard reads
+// linked accounts directly from the Privy SDK. Only wallet_accounts is kept.
+//
+// Webhook tables (webhook_endpoints, webhook_deliveries) removed along with
+// the unadopted outbound-webhook feature.

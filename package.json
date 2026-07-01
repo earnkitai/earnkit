@@ -51,7 +51,7 @@
     "deploy": "turbo run deploy",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "build:railway": "pnpm install && pnpm build:backend",
-    "build:earnbackend": "pnpm install && turbo run build --filter=earn-backend...",
+    "build:earnbackend": "pnpm install --prod=false && turbo run build --filter=earn-backend...",
     "build:agentbackend": "pnpm install && pnpm build:agent_backend",
     "migrate:database": "pnpm --filter backend migrate",
     "migrate:tables": "pnpm --filter backend migrate:tables",

@@ -92,10 +92,14 @@ async function sendTurnkeySignedTx(
     unsignedTx,
   });
   const txHash = await client.sendRawTransaction({ serializedTransaction: signed });
-  await client.waitForTransactionReceipt({
+  const receipt = await client.waitForTransactionReceipt({
     hash: txHash,
     timeout: TX_RECEIPT_TIMEOUT_MS,
   });
+  // A mined-but-reverted tx must NOT be treated as success — otherwise a
+  // reverted swap/burn gets recorded COMPLETED and we lose track of funds.
+  // (Mirrors the shared-split worker's guard.)
+  if (receipt.status === 'reverted') throw new Error(`tx_reverted:${txHash}`);
   return txHash;
 }
 
@@ -453,6 +457,54 @@ async function sweepToRecoveryAddress(ctx: RunCtx): Promise<string[]> {
 
 // ---------- Main loop ----------
 
+// Disable a config once it's clearly broken so client-driven /check calls can't
+// keep re-queuing a swap that can never succeed (wrong pool / no route), burning
+// gas each attempt. Mirrors the shared-split worker's BROKEN auto-pause.
+async function maybeDisableAfterFailures(configId: string): Promise<void> {
+  try {
+    const lastExecs = await prisma.buybackExecution.findMany({
+      where: { buybackConfigId: configId },
+      orderBy: { startedAt: 'desc' },
+      take: 3,
+      select: { status: true },
+    });
+    if (lastExecs.length >= 3 && lastExecs.every((e) => e.status === 'FAILED')) {
+      await prisma.buybackConfig.update({
+        where: { id: configId },
+        data: { isActive: false },
+      });
+      console.warn(
+        `[BuybackExecutor] Config ${configId} disabled after 3 consecutive failed executions — pausing to stop repeated bad swaps`,
+      );
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// Re-read the target-token balance a few times before trusting a 0 — a lagging
+// RPC node can report 0 immediately after a successful swap (read-after-write
+// lag), which would otherwise mark a healthy buyback FAILED. Mirrors the
+// shared-split worker's post-swap retry loop.
+async function confirmTargetBalance(
+  ctx: RunCtx,
+  initial: bigint,
+  hadSwapHash: boolean,
+): Promise<bigint> {
+  const client = getBasePublicClient();
+  let balance = initial;
+  for (let i = 0; balance === BigInt(0) && hadSwapHash && i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    balance = (await client.readContract({
+      address: ctx.tokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [ctx.walletAddress],
+    })) as bigint;
+  }
+  return balance;
+}
+
 async function processOne(): Promise<void> {
   const now = new Date();
 
@@ -558,17 +610,46 @@ async function processOne(): Promise<void> {
       // Use tokenBalanceAfter (not the delta) to decide whether to proceed to burn.
       // Fees can arrive already as the buyback token — in that case tokensOutAmount
       // is 0 (no swap ran) but tokenBalanceAfter > 0 and burn should still fire.
-      const allSwapsFailed = swap.notes.length > 0 && swap.notes.every((n) => !n.success);
-      if (allSwapsFailed || swap.tokenBalanceAfter === BigInt(0)) {
+      // Confirm a 0 across a few RPC reads first so read-after-write lag can't
+      // false-fail a healthy buyback.
+      const tokenBalanceAfter = await confirmTargetBalance(
+        ctx,
+        swap.tokenBalanceAfter,
+        Boolean(swap.swapHash),
+      );
+      // Decide purely on the resulting balance — if the buyback token is present
+      // (bought now, or fees arrived already denominated in it), burn it even if
+      // some other asset's swap leg failed. Never skip a burnable balance.
+      if (tokenBalanceAfter === BigInt(0)) {
+        if (!swap.swapHash) {
+          // No swap actually executed this attempt: every leg threw (fail-closed
+          // market guard on a stale price, a transient RPC/quote blip, or no
+          // route this poll). This is RETRYABLE — do NOT permanently disable a
+          // possibly-healthy config on one bad poll. Let the retry/backoff and
+          // the 3-consecutive-failure auto-disable handle persistence.
+          throw new Error(
+            `no_swap_executed: ${JSON.stringify(swap.notes).slice(0, 300)}`,
+          );
+        }
+        // A swap executed on-chain but yielded zero tokens (even after the RPC
+        // re-read) — a genuine wrong pool / venue / no-liquidity signal. Disable
+        // so client /check calls stop re-triggering the same bad swap.
         await prisma.buybackExecution.update({
           where: { id: exec.id },
           data: {
             status: 'FAILED',
-            swapHash: swap.swapHash ?? undefined,
-            lastError: `swap_all_failed: ${JSON.stringify(swap.notes).slice(0, 400)}`,
+            swapHash: swap.swapHash,
+            lastError: `swap_produced_no_tokens: ${JSON.stringify(swap.notes).slice(0, 300)}`,
             completedAt: new Date(),
           },
         });
+        await prisma.buybackConfig.update({
+          where: { id: config.id },
+          data: { isActive: false },
+        });
+        console.warn(
+          `[BuybackExecutor] Config ${config.id} disabled — swap produced no tokens (possible wrong pool/venue)`,
+        );
         continue;
       }
       await prisma.buybackExecution.update({
@@ -626,6 +707,7 @@ async function processOne(): Promise<void> {
         `[BuybackExecutor] Execution ${exec.id} attempt ${attempt} failed:`,
         reason,
       );
+      if (isFinal) await maybeDisableAfterFailures(config.id);
     }
   }
 }

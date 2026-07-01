@@ -176,73 +176,78 @@ async function isSellableToken(
   }
 }
 
-// ---------- Step 2: Deduct platform fee ----------
+// ---------- Step 2: Platform fee (reserve-then-charge-on-success) ----------
+//
+// The platform fee is a % of the revenue that flows in. It MUST NEVER be taken
+// on a buyback that doesn't succeed — charging up-front (the old deductFees)
+// donated a fee to the treasury on every failed/retried execution, bleeding
+// funds. Instead the fee portion of each input is RESERVED (held back, not
+// swapped) during the swap step, and only transferred to the treasury AFTER the
+// swap has actually produced target tokens. If the swap fails, the reserve
+// simply stays in the wallet and no fee is ever taken.
+//
+// A reserve is recorded ONLY for a swap leg that succeeded, so the fee is
+// collected strictly on revenue that was actually bought back.
+interface FeeReserve {
+  kind: 'NATIVE' | 'ERC20';
+  address: `0x${string}`; // for ERC20: the token; for NATIVE: unused (WETH placeholder)
+  amount: bigint;
+  symbol: string;
+  decimals: number;
+}
 
-async function deductFees(ctx: RunCtx): Promise<{ hashes: string[]; feeUsd: number }> {
+// Fee as a fraction of an input amount. Zero when fees are off (no treasury or
+// feeRateBps == 0) so the whole balance is swapped and nothing is held back.
+function feeReserveOf(ctx: RunCtx, amount: bigint): bigint {
   const treasury = getTreasuryAddress();
-  if (!treasury || ctx.feeRateBps === 0) return { hashes: [], feeUsd: 0 };
+  if (!treasury || ctx.feeRateBps <= 0) return BigInt(0);
+  return (amount * BigInt(ctx.feeRateBps)) / BigInt(10_000);
+}
 
-  const client = getBasePublicClient();
+// Transfer the reserved fee amounts to the treasury. Called ONLY after a
+// successful swap. Per-asset try/catch + best-effort USD accounting; a failed
+// transfer just leaves that reserve in the wallet (safe — never over-charges).
+async function collectReservedFees(
+  ctx: RunCtx,
+  reserves: FeeReserve[],
+): Promise<{ hashes: string[]; feeUsd: number }> {
+  const treasury = getTreasuryAddress();
+  if (!treasury || reserves.length === 0) return { hashes: [], feeUsd: 0 };
+
   const hashes: string[] = [];
   let feeUsd = 0;
-
-  // Native ETH fee
-  const ethBal = await client.getBalance({ address: ctx.walletAddress });
-  const ethSwappable = ethBal > MIN_GAS_RESERVE_WEI ? ethBal - MIN_GAS_RESERVE_WEI : BigInt(0);
-  if (ethSwappable > BigInt(0)) {
-    const feeWei = (ethSwappable * BigInt(ctx.feeRateBps)) / BigInt(10_000);
-    if (feeWei > BigInt(0)) {
-      try {
-        const hash = await sendTurnkeySignedTx(ctx, treasury, '0x', feeWei);
-        hashes.push(hash);
-        try {
-          const ethPrice = await priceService.getEthPriceUsd();
-          feeUsd += Number(formatUnits(feeWei, 18)) * ethPrice;
-        } catch { /* best-effort */ }
-      } catch (err: unknown) {
-        console.warn(`[SharedSplitWorker] ETH fee transfer failed for ${ctx.executionId}:`, err);
-      }
-    }
-  }
-
-  // ERC-20 fees — skim feeRateBps from every ERC-20 actually in the wallet
-  // (WETH, USDC, arbitrary revenue tokens), discovered dynamically.
-  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
-  for (const token of walletTokens) {
-    const tokenAddr = token.address as `0x${string}`;
-    const isUserToken = tokenAddr.toLowerCase() === ctx.tokenAddress.toLowerCase();
-    if (isUserToken) continue; // don't take fee from the token we're trying to buy back
-
-    const bal = (await client.readContract({
-      address: tokenAddr,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [ctx.walletAddress],
-    })) as bigint;
-
-    if (bal === BigInt(0)) continue;
-    // Skip illiquid/spam tokens — no point taking (and gas-paying for) a fee in
-    // a token we can't sell.
-    if (!(await isSellableToken(tokenAddr, bal, client))) continue;
-    const feeAmt = (bal * BigInt(ctx.feeRateBps)) / BigInt(10_000);
-    if (feeAmt === BigInt(0)) continue;
-
+  for (const r of reserves) {
+    if (r.amount <= BigInt(0)) continue;
     try {
-      const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [treasury, feeAmt] });
-      const hash = await sendTurnkeySignedTx(ctx, tokenAddr, data);
+      let hash: string;
+      if (r.kind === 'NATIVE') {
+        hash = await sendTurnkeySignedTx(ctx, treasury, '0x', r.amount);
+      } else {
+        const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [treasury, r.amount] });
+        hash = await sendTurnkeySignedTx(ctx, r.address, data);
+      }
+      // Persist EACH hash the instant it confirms. The caller's collection guard
+      // is "feeTransferHashes is empty" — so once the first transfer lands, a
+      // crash or DB error before the caller's write can no longer cause a retry
+      // to re-charge (the array is already non-empty). Worst case is a partial
+      // collection (remaining reserve stays in the wallet) — never a double-charge.
+      await prisma.sharedSplitExecution.update({
+        where: { id: ctx.executionId },
+        data: { feeTransferHashes: { push: hash } },
+      });
       hashes.push(hash);
       try {
-        const isWeth = tokenAddr.toLowerCase() === WETH_BASE.toLowerCase();
-        const tokenPrice = isWeth
+        const isEthLike =
+          r.kind === 'NATIVE' || r.address.toLowerCase() === WETH_BASE.toLowerCase();
+        const price = isEthLike
           ? await priceService.getEthPriceUsd()
-          : await priceService.getTokenPriceUsd(tokenAddr);
-        feeUsd += Number(formatUnits(feeAmt, token.decimals)) * tokenPrice;
-      } catch { /* best-effort */ }
+          : await priceService.getTokenPriceUsd(r.address);
+        feeUsd += Number(formatUnits(r.amount, r.decimals)) * price;
+      } catch { /* best-effort accounting */ }
     } catch (err: unknown) {
-      console.warn(`[SharedSplitWorker] ${token.symbol} fee transfer failed for ${ctx.executionId}:`, err);
+      console.warn(`[SharedSplitWorker] ${r.symbol} fee transfer failed for ${ctx.executionId}:`, err);
     }
   }
-
   return { hashes, feeUsd };
 }
 
@@ -408,9 +413,14 @@ async function swapV3ToToken(
   return sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data);
 }
 
-async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | null; tokenBalanceAfter: bigint }> {
+async function swapAllToUserToken(
+  ctx: RunCtx,
+): Promise<{ swapHash: string | null; tokenBalanceAfter: bigint; feeReserves: FeeReserve[] }> {
   const client = getBasePublicClient();
   let lastSwapHash: string | null = null;
+  // Fee held back from each SUCCESSFUL swap leg — transferred to treasury only
+  // after the swap produces tokens (see collectReservedFees).
+  const feeReserves: FeeReserve[] = [];
 
   const ethBal = await client.getBalance({ address: ctx.walletAddress });
   const ethSwappable = ethBal > MIN_GAS_RESERVE_WEI ? ethBal - MIN_GAS_RESERVE_WEI : BigInt(0);
@@ -432,25 +442,32 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
           error: 'native ETH not routed for V4 venue (wrap to WETH first)',
         });
       } else {
-        const quote = await quoteBestPath({ tokenIn: WETH_BASE, tokenOut: ctx.tokenAddress, amountIn: ethSwappable, client });
-        if (!quote || quote.amountOut === BigInt(0)) {
+        // Reserve the fee portion of the ETH before swapping; only swap the rest.
+        const ethFee = feeReserveOf(ctx, ethSwappable);
+        const ethToSwap = ethSwappable - ethFee;
+        const quote = await quoteBestPath({ tokenIn: WETH_BASE, tokenOut: ctx.tokenAddress, amountIn: ethToSwap, client });
+        if (ethToSwap <= BigInt(0) || !quote || quote.amountOut === BigInt(0)) {
           await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'no_quote' });
         } else {
           await assertSwapValueVsMarket({
             client,
             inputToken: WETH_BASE,
-            amountIn: ethSwappable,
+            amountIn: ethToSwap,
             outputToken: ctx.tokenAddress,
             expectedOut: quote.amountOut,
           });
           const data = encodeExactInput({
             path: quote.path,
             recipient: ctx.walletAddress,
-            amountIn: ethSwappable,
+            amountIn: ethToSwap,
             amountOutMinimum: applySlippage(quote.amountOut, ctx.slippageBps),
           });
-          lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data, ethSwappable);
+          lastSwapHash = await sendTurnkeySignedTx(ctx, UNISWAP_V3_SWAP_ROUTER_02, data, ethToSwap);
           await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'ok', hash: lastSwapHash });
+          // Swap succeeded — the fee on this ETH revenue is now collectible.
+          if (ethFee > BigInt(0)) {
+            feeReserves.push({ kind: 'NATIVE', address: WETH_BASE, amount: ethFee, symbol: 'ETH', decimals: 18 });
+          }
         }
       }
     } catch (err: unknown) {
@@ -509,13 +526,24 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
           error: 'converted to WETH for V4 swap',
         });
       } else {
-        const hash = await swapV3ToToken(ctx, tokenAddr, ctx.tokenAddress, bal, client);
+        // V3 direct: reserve the fee portion, swap only the remainder.
+        const fee = feeReserveOf(ctx, bal);
+        const toSwap = bal - fee;
+        if (toSwap <= BigInt(0)) {
+          await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
+          continue;
+        }
+        const hash = await swapV3ToToken(ctx, tokenAddr, ctx.tokenAddress, toSwap, client);
         if (!hash) {
           await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'no_quote' });
           continue;
         }
         lastSwapHash = hash;
         await recordSwapNote(ctx.executionId, { symbol: token.symbol, status: 'ok', hash });
+        // Swap succeeded — fee on this token's revenue is collectible.
+        if (fee > BigInt(0)) {
+          feeReserves.push({ kind: 'ERC20', address: tokenAddr, amount: fee, symbol: token.symbol, decimals: token.decimals });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -536,9 +564,18 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
         functionName: 'balanceOf',
         args: [ctx.walletAddress],
       })) as bigint;
-      if (wethBal > BigInt(0)) {
-        lastSwapHash = await swapV4(ctx, ctx.v4PairedToken, wethBal);
+      // All V4 revenue (direct WETH + arbitrary tokens converted above) is now
+      // WETH, so the fee is reserved here ONCE on the whole WETH balance —
+      // arbitrary tokens are converted at full balance to avoid double-charging.
+      const wethFee = feeReserveOf(ctx, wethBal);
+      const wethToSwap = wethBal - wethFee;
+      if (wethToSwap > BigInt(0)) {
+        lastSwapHash = await swapV4(ctx, ctx.v4PairedToken, wethToSwap);
         await recordSwapNote(ctx.executionId, { symbol: 'WETH', status: 'ok', hash: lastSwapHash ?? undefined });
+        // Swap succeeded — the reserved WETH fee is collectible.
+        if (wethFee > BigInt(0)) {
+          feeReserves.push({ kind: 'ERC20', address: ctx.v4PairedToken, amount: wethFee, symbol: 'WETH', decimals: 18 });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -564,7 +601,7 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
     tokenBalanceAfter = await readTargetBalance();
   }
 
-  return { swapHash: lastSwapHash, tokenBalanceAfter };
+  return { swapHash: lastSwapHash, tokenBalanceAfter, feeReserves };
 }
 
 // ---------- Step 4: Burn ----------
@@ -902,36 +939,51 @@ async function processExecutions(): Promise<void> {
         data: { status: 'SWAPPING' },
       });
 
-      // Skim the fee AT MOST ONCE per execution — a retry must never re-charge
-      // it. Re-running deductFees on every attempt was bleeding funds to the
-      // treasury each time the swap failed.
-      let feeUsd = exec.feeCollectedUsd ?? 0;
-      if (!exec.feeTransferHashes || exec.feeTransferHashes.length === 0) {
-        const { hashes: feeHashes, feeUsd: deducted } = await deductFees(ctx);
-        feeUsd = deducted;
-        await prisma.sharedSplitExecution.update({
-          where: { id: exec.id },
-          data: { feeTransferHashes: feeHashes, feeCollectedUsd: feeUsd },
-        });
-      }
-
-      const { swapHash, tokenBalanceAfter } = await swapAllToUserToken(ctx);
+      // Swap holds back the fee portion of each input (reserve-then-charge). The
+      // fee is transferred to the treasury ONLY below, after we confirm the swap
+      // produced tokens — a failed buyback reserves nothing and pays no fee.
+      const { swapHash, tokenBalanceAfter, feeReserves } = await swapAllToUserToken(ctx);
       if (tokenBalanceAfter === BigInt(0)) {
+        if (!swapHash) {
+          // No swap actually executed this attempt: every leg threw (fail-closed
+          // market guard on a stale price, a transient RPC/quote blip, or no
+          // route this poll). RETRYABLE — do NOT immediately mark the config
+          // BROKEN on one bad poll. The retry/backoff and the 3-consecutive-
+          // failure auto-pause (maybeMarkBrokenAfterFailures) handle persistence.
+          throw new Error('no_swap_executed_this_attempt');
+        }
+        // A swap executed on-chain but yielded zero tokens (even after the RPC
+        // re-read loop) — a genuine wrong pool / venue / no-route signal. Pause
+        // the config so the scanner can't re-queue the same broken swap.
         await prisma.sharedSplitExecution.update({
           where: { id: exec.id },
-          data: { status: 'FAILED', swapHash: swapHash ?? undefined, lastError: 'swap_produced_no_tokens', completedAt: new Date() },
+          data: { status: 'FAILED', swapHash, lastError: 'swap_produced_no_tokens', completedAt: new Date() },
         });
-        // The swap bought nothing (wrong pool / venue / no route). Pause the
-        // config NOW so the scanner can't re-queue and re-skim the fee next poll.
         await prisma.sharedSplitBuybackConfig.update({
           where: { id: config.id },
           data: { status: 'BROKEN' },
         });
         console.warn(
-          `[SharedSplitWorker] Config ${config.id} paused (BROKEN): swap produced no tokens — stopping to prevent fee bleed`,
+          `[SharedSplitWorker] Config ${config.id} paused (BROKEN): swap executed but produced no tokens`,
         );
         continue;
       }
+
+      // Collect the reserved fee now that tokens were bought. Idempotent: a retry
+      // that already collected (feeTransferHashes set) never re-charges.
+      let feeUsd = exec.feeCollectedUsd ?? 0;
+      if (!exec.feeTransferHashes || exec.feeTransferHashes.length === 0) {
+        // Hashes are persisted incrementally inside collectReservedFees; here we
+        // only record the USD total. The empty-check above + incremental persist
+        // make re-charging on retry impossible.
+        const { feeUsd: collected } = await collectReservedFees(ctx, feeReserves);
+        feeUsd = collected;
+        await prisma.sharedSplitExecution.update({
+          where: { id: exec.id },
+          data: { feeCollectedUsd: feeUsd },
+        });
+      }
+
       await prisma.sharedSplitExecution.update({
         where: { id: exec.id },
         data: { swapHash: swapHash ?? undefined, status: 'BURNING' },

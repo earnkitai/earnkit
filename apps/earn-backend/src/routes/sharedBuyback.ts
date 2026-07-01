@@ -371,6 +371,11 @@ router.post('/:id/check', async (req: Request, res: Response) => {
     if (err instanceof BuybackAuthError) {
       return res.status(401).json({ error: err.message, reason: err.reason });
     }
+    // Lost the race to the one-in-flight-per-config unique index — another
+    // execution was queued concurrently. Treat as in-flight, not an error.
+    if ((err as { code?: string })?.code === 'P2002') {
+      return res.json({ queued: false, reason: 'execution_in_flight' });
+    }
     const message = err instanceof Error ? err.message : 'Internal error';
     console.error('[shared-buyback/:id/check] error:', err);
     return res.status(500).json({ error: message });

@@ -115,7 +115,8 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
   // This matches how the off-host co-signer validates (it never checks the
   // token address either, only selectors + spender/recipient args).
   const selector = 'eth.tx.function_signature';
-  const firstArgAddress = 'eth.tx.data[34..74]'; // address sits in bytes 4..36, lowercased hex
+  const firstArgAddress = 'eth.tx.data[34..74]'; // arg0 address (word 0, right-aligned), lowercased hex
+  const secondArgAddress = 'eth.tx.data[98..138]'; // arg1 address (word 1, right-aligned), lowercased hex
 
   const conditions: string[] = [
     `(${inSet('eth.tx.to', [warehouse])} && ${selector} == '${sel('warehouseWithdraw')}')`,
@@ -130,7 +131,10 @@ export function buildBuybackPolicy(params: BuybackPolicyParams): {
       `(${inSet('eth.tx.to', [universalRouter])} && ${selector} == '${sel('universalRouterExecute')}')`,
       // Permit2.approve(token, UniversalRouter, max, expiration) — V4 routes
       // ERC-20 spend through Permit2 instead of approving the router directly.
-      `(${inSet('eth.tx.to', [permit2])} && ${selector} == '${sel('permit2Approve')}')`,
+      // Pin the SPENDER arg (word 1) to the UniversalRouter: without this a
+      // compromised worker could approve an attacker as a Permit2 spender and
+      // drain the wallet's ERC-20s out-of-band.
+      `(${inSet('eth.tx.to', [permit2])} && ${selector} == '${sel('permit2Approve')}' && ${secondArgAddress} == '${universalRouter.slice(2)}')`,
       // approve(Permit2, _) on ANY token — one-time per token, instead of the V3 router.
       `(${selector} == '${sel('erc20Approve')}' && ${firstArgAddress} == '${permit2.slice(2)}')`,
     );

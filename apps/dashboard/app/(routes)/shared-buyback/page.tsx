@@ -79,7 +79,7 @@ export default function SharedBuybackPage() {
             <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                     <Flame className="w-5 h-5 text-secondary-orange" />
-                    <h1 className="text-2xl font-semibold font-funnel-display text-black">Splits Buyback</h1>
+                    <h1 className="text-2xl font-semibold font-funnel-display text-black">Token Buyback</h1>
                 </div>
                 <Link
                     href="/create"

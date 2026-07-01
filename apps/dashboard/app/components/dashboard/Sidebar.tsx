@@ -179,13 +179,6 @@ export default function Sidebar() {
               icon: <House className="h-5 w-5 mr-0.5 shrink-0" />,
             },
             {
-              href: '/discover',
-              label: 'Discover',
-              icon: (
-                <Icons.newSidebarHomeMenuIcon className="h-7 w-7 shrink-0 !text-gray-400 group-hover:!text-black -ml-1" />
-              ),
-            },
-            {
               href: 'https://docs.earnkit.com/',
               label: 'Docs',
               icon: (

@@ -6,7 +6,6 @@ import balanceRoutes from './balance';
 import topUpDetailsRoutes from './topUpDetails';
 import tokenConfigRoutes from './tokenConfig';
 import paymentIntentRoutes from './paymentIntents';
-import webhookRoutes from './webhooks';
 import debugRoutes from './debug';
 import deploySplitRoutes from './internal/deploySplit';
 import buybackWalletsRoutes from './internal/buybackWallets';
@@ -43,7 +42,6 @@ router.use('/agents/:agentId/token-config', tokenConfigRoutes);
 router.use('/agents/:agentId/buyback', buybackRoutes);
 router.use('/shared-buyback', sharedBuybackRoutes);
 router.use('/gift-codes', giftCodesRoutes);
-router.use('/webhooks', webhookRoutes);
 
 // Debug routes — require ADMIN_API_KEY header regardless of environment
 const adminAuth = (req: Request, res: Response, next: NextFunction): void => {

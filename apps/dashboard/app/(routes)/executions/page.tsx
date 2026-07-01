@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/app/components/ui/badge';
 import { Button } from '@/app/components/ui/button';
 import { ExternalLink, History, RefreshCw } from 'lucide-react';
+import { formatRawTokenAmount } from '@/lib/utils';
 
 const STORAGE_KEY = 'earnkit_shared_buyback_configs';
 
@@ -30,19 +31,6 @@ interface Execution {
   completedAt: string | null;
   lastError: string | null;
   nextAttemptAt: string | null;
-}
-
-function formatTokenAmount(raw: string, decimals: number): string {
-  try {
-    const v = BigInt(raw);
-    const divisor = BigInt(10) ** BigInt(decimals);
-    const whole = v / divisor;
-    const frac = v % divisor;
-    const fracStr = frac.toString().padStart(decimals, '0').slice(0, 4).replace(/0+$/, '');
-    return fracStr ? `${whole}.${fracStr}` : whole.toString();
-  } catch {
-    return raw;
-  }
 }
 
 const statusStyle = (status: string) => {
@@ -210,7 +198,7 @@ export default function ExecutionsPage() {
             {executions.map((exec) => {
               const tokensOut =
                 exec.tokensOutAmount && exec.status === 'COMPLETED'
-                  ? formatTokenAmount(exec.tokensOutAmount, exec.tokenDecimals)
+                  ? formatRawTokenAmount(exec.tokensOutAmount, exec.tokenDecimals)
                   : null;
               const date = new Date(exec.startedAt);
 

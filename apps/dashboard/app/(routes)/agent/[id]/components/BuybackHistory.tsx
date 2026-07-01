@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
 import { Button } from "@/app/components/ui/button";
 import { ExternalLink, RefreshCw } from "lucide-react";
+import { formatRawTokenAmount } from "@/lib/utils";
 
 interface BuybackExecution {
     id: string;
@@ -28,19 +29,6 @@ interface BuybackConfig {
 
 interface BuybackHistoryProps {
     agentDbId: string;
-}
-
-function formatRawTokenAmount(raw: string, decimals: number): string {
-    try {
-        const v = BigInt(raw);
-        const divisor = BigInt(10) ** BigInt(decimals);
-        const whole = v / divisor;
-        const frac = v % divisor;
-        const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
-        return fracStr ? `${whole}.${fracStr}` : whole.toString();
-    } catch {
-        return raw;
-    }
 }
 
 export default function BuybackHistory({ agentDbId }: BuybackHistoryProps) {

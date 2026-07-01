@@ -3,7 +3,6 @@ import {
   encodeFunctionData,
   encodePacked,
   keccak256,
-  zeroAddress,
   type Abi,
 } from 'viem';
 import { getBasePublicClient, type BasePublicClient } from './splitsWarehouse';
@@ -35,8 +34,12 @@ export const PERMIT2_BASE =
   '0x000000000022D473030F116dDEE9F6B43aC78BA3' as const;
 export const STATE_VIEW_BASE =
   '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71' as const;
-export const WETH_BASE_V4 =
-  '0x4200000000000000000000000000000000000006' as const;
+// Canonical Uniswap V4Quoter on Base (developers.uniswap.org/contracts/v4/deployments).
+// quoteExactInputSingle runs the real swap under simulation (incl. the pool's
+// dynamic-fee hook) and reverts-to-return, so it prices fee + price-impact that
+// the raw sqrtPriceX96 spot math cannot see. Must be called via simulateContract.
+export const V4_QUOTER_BASE =
+  '0x0d5e0F971ED27FBfF6c2837bf31316121532048D' as const;
 
 // V4Planner action codes (mirrors @uniswap/v4-sdk Actions enum).
 const ACTION_SWAP_EXACT_IN_SINGLE = 0x06;
@@ -105,6 +108,44 @@ const STATE_VIEW_ABI = [
   },
 ] as const satisfies Abi;
 
+// V4Quoter.quoteExactInputSingle — nonpayable (revert-to-return); invoke via
+// simulateContract, never readContract.
+const V4_QUOTER_ABI = [
+  {
+    type: 'function',
+    name: 'quoteExactInputSingle',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'params',
+        type: 'tuple',
+        components: [
+          {
+            name: 'poolKey',
+            type: 'tuple',
+            components: [
+              { name: 'currency0', type: 'address' },
+              { name: 'currency1', type: 'address' },
+              { name: 'fee', type: 'uint24' },
+              { name: 'tickSpacing', type: 'int24' },
+              { name: 'hooks', type: 'address' },
+            ],
+          },
+          { name: 'zeroForOne', type: 'bool' },
+          { name: 'exactAmount', type: 'uint128' },
+          { name: 'hookData', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'amountOut', type: 'uint256' },
+      { name: 'gasEstimate', type: 'uint256' },
+    ],
+  },
+] as const;
+
+const UINT128_MAX = (BigInt(1) << BigInt(128)) - BigInt(1);
+
 export interface V4PoolKey {
   currency0: `0x${string}`;
   currency1: `0x${string}`;
@@ -171,11 +212,84 @@ export function buildV4SwapPlan(params: {
 }
 
 /**
- * Estimate the swap output from the pool's current sqrtPriceX96 (StateView).
- * This is a worst-case "if-the-pool-doesn't-move" estimate — used as the
- * floor for slippage protection. Returns 0n if the pool isn't readable or
- * has no liquidity yet, in which case the caller MUST abort the swap to
- * avoid front-running.
+ * On-chain V4Quoter output for an exact-input single-hop swap. Runs the real
+ * swap (incl. the pool's dynamic-fee hook) under simulation, so the returned
+ * amountOut already reflects the actual fee AND price impact — unlike the raw
+ * sqrtPriceX96 spot math. Returns 0n if the quoter reverts (no liquidity, hook
+ * rejects the sim, wrong pool key), so callers can fall back / fail closed.
+ * Must use simulateContract (the fn is nonpayable, revert-to-return).
+ */
+async function quoteV4ExactInput({
+  plan,
+  amountIn,
+  client,
+}: {
+  plan: V4SwapPlan;
+  amountIn: bigint;
+  client: BasePublicClient;
+}): Promise<bigint> {
+  if (amountIn <= BigInt(0) || amountIn > UINT128_MAX) return BigInt(0);
+  try {
+    const { result } = await client.simulateContract({
+      address: V4_QUOTER_BASE,
+      // Cast to generic Abi: viem's strict overload mis-infers the nested
+      // poolKey tuple as `never`; the ABI is correct at runtime.
+      abi: V4_QUOTER_ABI as Abi,
+      functionName: 'quoteExactInputSingle',
+      args: [
+        {
+          poolKey: plan.poolKey,
+          zeroForOne: plan.zeroForOne,
+          exactAmount: amountIn,
+          // Must match the hookData the actual swap uses (Doppler => '0x').
+          hookData: noReferrerHookData(),
+        },
+      ],
+    });
+    const [amountOut] = result as readonly [bigint, bigint];
+    return amountOut ?? BigInt(0);
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/** Pure sqrtPriceX96 spot estimate (no fee / no price impact) — fallback only. */
+async function spotEstimateV4Output({
+  plan,
+  amountIn,
+  client,
+}: {
+  plan: V4SwapPlan;
+  amountIn: bigint;
+  client: BasePublicClient;
+}): Promise<bigint> {
+  try {
+    const slot0 = (await client.readContract({
+      address: STATE_VIEW_BASE,
+      abi: STATE_VIEW_ABI,
+      functionName: 'getSlot0',
+      args: [plan.poolId],
+    })) as readonly [bigint, number, number, number];
+    const sqrtPriceX96 = slot0[0];
+    if (sqrtPriceX96 === BigInt(0)) return BigInt(0);
+    const Q96 = BigInt(2) ** BigInt(96);
+    if (plan.zeroForOne) {
+      return ((amountIn * sqrtPriceX96) / Q96) * sqrtPriceX96 / Q96;
+    } else {
+      return ((amountIn * Q96) / sqrtPriceX96) * Q96 / sqrtPriceX96;
+    }
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/**
+ * Expected V4 swap output used as the slippage floor AND the independent
+ * market-guard reference. Prefers the real on-chain V4Quoter (fee- and
+ * price-impact-accurate); if the quoter reverts (some hooks reject simulation),
+ * falls back to the sqrtPriceX96 spot estimate so pools that work today never
+ * regress. Returns 0n only if BOTH fail — then the caller MUST abort the swap
+ * (a zero minOut would be open season for sandwich bots).
  */
 export async function estimateV4Output({
   plan,
@@ -187,26 +301,11 @@ export async function estimateV4Output({
   client?: BasePublicClient;
 }): Promise<bigint> {
   const publicClient = client ?? getBasePublicClient();
-  try {
-    const slot0 = (await publicClient.readContract({
-      address: STATE_VIEW_BASE,
-      abi: STATE_VIEW_ABI,
-      functionName: 'getSlot0',
-      args: [plan.poolId],
-    })) as readonly [bigint, number, number, number];
-    const sqrtPriceX96 = slot0[0];
-    if (sqrtPriceX96 === BigInt(0)) return BigInt(0);
-    const Q96 = BigInt(2) ** BigInt(96);
-    if (plan.zeroForOne) {
-      // selling currency0 for currency1: output ≈ in * sqrt^2 / Q96^2
-      return ((amountIn * sqrtPriceX96) / Q96) * sqrtPriceX96 / Q96;
-    } else {
-      // selling currency1 for currency0: output ≈ in * Q96^2 / sqrt^2
-      return ((amountIn * Q96) / sqrtPriceX96) * Q96 / sqrtPriceX96;
-    }
-  } catch {
-    return BigInt(0);
-  }
+  const quoted = await quoteV4ExactInput({ plan, amountIn, client: publicClient });
+  if (quoted > BigInt(0)) return quoted;
+  // Quoter unavailable for this pool/hook — fall back to spot so we don't
+  // regress working pools. The market guard still cross-checks the result.
+  return spotEstimateV4Output({ plan, amountIn, client: publicClient });
 }
 
 /**
@@ -218,8 +317,6 @@ export async function estimateV4Output({
  * empty bytes is correct.
  */
 export function noReferrerHookData(): `0x${string}` {
-  // explicitly suppress unused import lint
-  void zeroAddress;
   return '0x';
 }
 

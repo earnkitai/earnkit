@@ -234,6 +234,29 @@ export async function getSubOrgStamperUserIds(
   return { parentAdminUserId: parentAdmin.userId, coSignerUserId: coSigner.userId };
 }
 
+/** List the policies attached to a sub-org (id, name, condition, consensus). */
+export async function listSubOrgPolicies(subOrgId: string): Promise<
+  Array<{ policyId: string; policyName: string; condition?: string; consensus?: string; notes?: string }>
+> {
+  const client = getApiClient();
+  const resp = (await client.getPolicies({ organizationId: subOrgId })) as {
+    policies?: Array<{ policyId?: string; policyName?: string; condition?: string; consensus?: string; notes?: string }>;
+  };
+  return (resp.policies ?? []).map((p) => ({
+    policyId: p.policyId ?? '',
+    policyName: p.policyName ?? '',
+    condition: p.condition,
+    consensus: p.consensus,
+    notes: p.notes,
+  }));
+}
+
+/** Delete a single policy from a sub-org (parent-admin-signed activity). */
+export async function deleteSubOrgPolicy(subOrgId: string, policyId: string): Promise<void> {
+  const client = getApiClient();
+  await client.deletePolicy({ organizationId: subOrgId, policyId });
+}
+
 /**
  * Provisions a Turnkey sub-organization for a single agent's buyback wallet.
  *

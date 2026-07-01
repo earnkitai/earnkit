@@ -151,7 +151,6 @@ export class TopUpService {
 
     // Get agent's token configurations
     const tokenConfigs = await this.getAgentTokenConfigs(internalAgentId);
-    console.log('Agent token configs:', tokenConfigs);
 
     // Get top-up packages from database
     const packages = await prisma.topUpPackage.findMany({
@@ -166,7 +165,6 @@ export class TopUpService {
 
     // Get current ETH price for conversion
     const ethPrice = await priceService.getEthPrice();
-    console.log('Current ETH price for top-up conversion:', ethPrice);
 
     // Define USD amounts and credits (from packages or defaults). Keep a
     // parallel packageIds array so emitted options can echo the chosen
@@ -254,7 +252,6 @@ export class TopUpService {
 
       try {
         const tokenPrice = await priceService.getTokenPrice(token.coingeckoPlatformId, token.address);
-        console.log(`${token.symbol} price for top-up conversion:`, tokenPrice);
 
         const tokenOptions: TokenPaymentOption[] = usdAmounts.map(
           (usdAmount, i) => {

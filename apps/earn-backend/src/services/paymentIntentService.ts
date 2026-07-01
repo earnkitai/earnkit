@@ -8,7 +8,6 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { parseUnits } from 'viem';
 import { prisma } from '../lib/prisma';
-import { WebhookService } from './webhookService';
 import { priceService } from './priceService';
 import { tokenService } from './tokenService';
 import { normalizeWalletOptional } from '../lib/wallet';
@@ -197,7 +196,6 @@ export class PaymentIntentService {
       input.customerWalletAddress,
     );
 
-    let isDuplicate = false;
     let paymentIntent;
     try {
       paymentIntent = await prisma.$transaction(async (tx) => {
@@ -235,7 +233,6 @@ export class PaymentIntentService {
       });
     } catch (err: unknown) {
       if ((err as { code?: string })?.code === 'P2002') {
-        isDuplicate = true;
         const existing = await prisma.paymentIntent.findUnique({
           where: { id: input.paymentIntentId },
         });
@@ -244,12 +241,6 @@ export class PaymentIntentService {
       } else {
         throw err;
       }
-    }
-
-    if (!isDuplicate) {
-      WebhookService.enqueuePaymentIntentEvent(paymentIntent, 'payment_intent.processing').catch((e) =>
-        console.error('[PaymentIntentService] Webhook enqueue failed (processing):', e),
-      );
     }
 
     return paymentIntent;
@@ -356,11 +347,6 @@ export class PaymentIntentService {
       }
       throw err;
     }
-
-    // Enqueue webhook outside the transaction — non-fatal if it fails
-    WebhookService.enqueuePaymentIntentEvent(confirmedPi, 'payment_intent.succeeded').catch((e) =>
-      console.error('[PaymentIntentService] Webhook enqueue failed (succeeded):', e),
-    );
 
     return confirmedPi;
   }

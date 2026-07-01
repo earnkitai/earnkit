@@ -266,7 +266,7 @@ export default function HomePage() {
                 </div>
                 <div>
                   <p className="font-semibold text-black font-funnel-sans text-sm">
-                    Splits Buyback
+                    Token Buyback
                   </p>
                   <p className="text-black/40 text-xs font-funnel-sans">
                     {sharedBuybackCount > 0
@@ -287,14 +287,14 @@ export default function HomePage() {
             FAQs
           </h2>
           <p className="text-black/40 text-sm font-funnel-sans mt-1">
-            Everything you need to know about Splits Buyback
+            Everything you need to know about Token Buyback
           </p>
         </div>
 
         <div className="space-y-8">
           <div>
             <h3 className="font-semibold text-black font-funnel-sans text-base mb-2">
-              How does the Splits Buyback work?
+              How does the Token Buyback work?
             </h3>
             <p className="text-black/40 text-sm font-funnel-sans leading-relaxed">
               You register your existing 0xSplits contract and EarnKit
@@ -420,12 +420,12 @@ function BuybackCard({ buyback }: { buyback: BuybackConfig }) {
                 ${buyback.totalBoughtBackUsd.toFixed(2)}
               </p>
               <p className="text-black/40 text-xs font-funnel-sans">
-                Total Bought Back
+                Total Volume
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm font-medium text-black/60 font-funnel-sans">
-                Splits Buyback
+                Token Buyback
               </p>
               <p className="text-black/30 text-xs font-funnel-sans">Type</p>
             </div>

@@ -147,7 +147,6 @@ export class PriceService {
 
     const cached = this.tokenCache.get(cacheKey);
     if (cached && now - cached.timestamp < freshnessWindow) {
-      console.log(`Using cached price for ${address}:`, cached.price);
       return cached.price;
     }
 
