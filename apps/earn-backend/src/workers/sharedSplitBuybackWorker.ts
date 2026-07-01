@@ -27,6 +27,7 @@ import {
 import * as V4 from '../lib/uniswapV4';
 import { discoverWalletErc20s, discoverWarehouseTokens, isSeedToken } from '../lib/tokenDiscovery';
 import { DEAD_ADDRESS } from '../lib/tokenSafety';
+import { assertSwapValueVsMarket, clampSlippageBps } from '../lib/swapGuard';
 import { signTransaction } from '../services/turnkeyService';
 import { SUPPORTED_TOKENS } from '../services/tokenService';
 import { priceService } from '../services/priceService';
@@ -336,6 +337,17 @@ async function swapV4(
   }
   const amountOutMinimum = applySlippage(estimated, ctx.slippageBps);
 
+  // Independent market check — the pool's own spot (via estimateV4Output) cannot
+  // be trusted as the slippage reference if the pool key is wrong/thin. Abort if
+  // the expected output is worth far less than the WETH going in.
+  await assertSwapValueVsMarket({
+    client,
+    inputToken: inputCurrency,
+    amountIn,
+    outputToken: ctx.tokenAddress,
+    expectedOut: estimated,
+  });
+
   await ensurePermit2ApprovedV4(ctx, inputCurrency, amountIn);
 
   const tx = V4.encodeV4SwapCall({ plan, amountIn, amountOutMinimum });
@@ -377,6 +389,15 @@ async function swapV3ToToken(
 ): Promise<string | null> {
   const quote = await quoteBestPath({ tokenIn, tokenOut, amountIn, client });
   if (!quote || quote.amountOut === BigInt(0)) return null;
+  // Guard EVERY swap against the market feed — the buyback leg AND intermediate
+  // token->WETH hops. Any leg could route through a thin/mispriced pool.
+  await assertSwapValueVsMarket({
+    client,
+    inputToken: tokenIn,
+    amountIn,
+    outputToken: tokenOut,
+    expectedOut: quote.amountOut,
+  });
   await approveIfNeeded(ctx, tokenIn, amountIn);
   const data = encodeExactInput({
     path: quote.path,
@@ -415,6 +436,13 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
         if (!quote || quote.amountOut === BigInt(0)) {
           await recordSwapNote(ctx.executionId, { symbol: 'ETH', status: 'no_quote' });
         } else {
+          await assertSwapValueVsMarket({
+            client,
+            inputToken: WETH_BASE,
+            amountIn: ethSwappable,
+            outputToken: ctx.tokenAddress,
+            expectedOut: quote.amountOut,
+          });
           const data = encodeExactInput({
             path: quote.path,
             recipient: ctx.walletAddress,
@@ -802,7 +830,7 @@ async function processExecutions(): Promise<void> {
       subOrgId: config.turnkeySubOrgId,
       tokenAddress: config.tokenAddress as `0x${string}`,
       tokenDecimals: config.tokenDecimals,
-      slippageBps: config.slippageBps,
+      slippageBps: clampSlippageBps(config.slippageBps),
       burnMode: config.burnMode as 'DEAD_ADDRESS' | 'TOKEN_BURN_FN',
       recoveryAddress: config.recoveryAddress as `0x${string}`,
       feeRateBps: config.feeRateBps,
@@ -857,13 +885,29 @@ async function processExecutions(): Promise<void> {
 
       const burn = await burnAcquiredTokens(ctx);
 
+      // USD value of the tokens ACTUALLY bought — price the received amount at
+      // market, not the pre-swap trigger estimate. triggerBalanceUsd reflects
+      // everything in the wallet before the swap (WETH + gas ETH + dust) and is
+      // wrong for "value bought"; copying it hid slippage entirely. Null when the
+      // price feed is unavailable — never record a fabricated number.
+      let tokensOutUsd: number | null = null;
+      try {
+        const price = await priceService.getTokenPriceUsd(ctx.tokenAddress);
+        tokensOutUsd = Number(formatUnits(burn.amount, ctx.tokenDecimals)) * price;
+      } catch (err) {
+        console.warn(
+          `[SharedSplitWorker] tokensOutUsd price unavailable for ${ctx.executionId}:`,
+          err,
+        );
+      }
+
       await prisma.sharedSplitExecution.update({
         where: { id: exec.id },
         data: {
           status: 'COMPLETED',
           burnHash: burn.burnHash,
           tokensOutAmount: burn.amount.toString(),
-          tokensOutUsd: exec.triggerBalanceUsd,
+          tokensOutUsd,
           completedAt: new Date(),
         },
       });

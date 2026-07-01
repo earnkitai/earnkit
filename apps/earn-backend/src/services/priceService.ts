@@ -44,10 +44,13 @@ export class PriceService {
    * Get current ETH price in USD
    * Uses caching to avoid excessive API calls
    */
-  async getEthPrice(): Promise<number> {
+  async getEthPrice(maxAgeMs?: number): Promise<number> {
     const now = Date.now();
+    // Callers that need a live price (e.g. the swap value guard) pass a tight
+    // maxAgeMs; the default keeps the normal 5-min cache for user-facing pricing.
+    const freshnessWindow = maxAgeMs ?? this.CACHE_DURATION;
 
-    if (this.cache && now - this.cache.timestamp < this.CACHE_DURATION) {
+    if (this.cache && now - this.cache.timestamp < freshnessWindow) {
       return this.cache.ethPrice;
     }
 
@@ -115,16 +118,18 @@ export class PriceService {
     }
 
     // --- Expired cache fallback ---
-    if (this.cache) {
+    // Never serve a stale price to a caller that demanded freshness (the swap
+    // guard). Fail closed instead so a feed outage can't validate a bad swap.
+    if (this.cache && maxAgeMs === undefined) {
       return this.cache.ethPrice;
     }
 
-    throw new Error(`ETH price unavailable (tried: ${errors.join(', ')}). No cached value.`);
+    throw new Error(`ETH price unavailable (tried: ${errors.join(', ')}). No fresh value.`);
   }
 
   /** Convenience alias used by workers */
-  async getEthPriceUsd(): Promise<number> {
-    return this.getEthPrice();
+  async getEthPriceUsd(maxAgeMs?: number): Promise<number> {
+    return this.getEthPrice(maxAgeMs);
   }
 
   /**
@@ -135,12 +140,13 @@ export class PriceService {
    * @param platformId  CoinGecko platform ID for the chain (e.g. "base", "ethereum")
    * @param address     Token contract address
    */
-  async getTokenPrice(platformId: string, address: string): Promise<number> {
+  async getTokenPrice(platformId: string, address: string, maxAgeMs?: number): Promise<number> {
     const now = Date.now();
     const cacheKey = `${platformId}:${address.toLowerCase()}`;
+    const freshnessWindow = maxAgeMs ?? this.TOKEN_CACHE_DURATION;
 
     const cached = this.tokenCache.get(cacheKey);
-    if (cached && now - cached.timestamp < this.TOKEN_CACHE_DURATION) {
+    if (cached && now - cached.timestamp < freshnessWindow) {
       console.log(`Using cached price for ${address}:`, cached.price);
       return cached.price;
     }
@@ -176,8 +182,19 @@ export class PriceService {
     }
 
     const dexData: any = await dexResponse.json();
-    // pairs are sorted by liquidity descending — first pair is the most liquid
-    const priceUsd = dexData?.pairs?.[0]?.priceUsd;
+    // Do NOT assume the API returns pairs liquidity-sorted. Explicitly pick the
+    // DEEPEST pair (on Base). Pricing off a thin/manipulated pair here would
+    // defeat the buyback swap guard, which trusts this as its independent market
+    // reference — the whole point is to not be fooled by a near-empty pool.
+    const allPairs: any[] = Array.isArray(dexData?.pairs) ? dexData.pairs : [];
+    const basePairs = allPairs.filter((p) => p?.chainId === 'base');
+    const candidates = basePairs.length ? basePairs : allPairs;
+    const deepest = candidates.reduce(
+      (best, p) =>
+        (Number(p?.liquidity?.usd) || 0) > (Number(best?.liquidity?.usd) || 0) ? p : best,
+      candidates[0],
+    );
+    const priceUsd = deepest?.priceUsd;
 
     if (priceUsd === undefined || priceUsd === null) {
       throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
@@ -204,17 +221,17 @@ export class PriceService {
    * Get token price by contract address
    * @param address The token contract address
    */
-  async getTokenPriceByAddress(address: string): Promise<number> {
+  async getTokenPriceByAddress(address: string, maxAgeMs?: number): Promise<number> {
     const token = tokenService.getTokenByAddress(address);
     if (!token) {
       throw new Error(`Token at ${address} is not supported`);
     }
-    return this.getTokenPrice(token.coingeckoPlatformId, token.address);
+    return this.getTokenPrice(token.coingeckoPlatformId, token.address, maxAgeMs);
   }
 
   /** Convenience alias used by workers */
-  async getTokenPriceUsd(address: string): Promise<number> {
-    return this.getTokenPriceByAddress(address);
+  async getTokenPriceUsd(address: string, maxAgeMs?: number): Promise<number> {
+    return this.getTokenPriceByAddress(address, maxAgeMs);
   }
 
   /**

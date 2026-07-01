@@ -365,8 +365,8 @@ model BuybackConfig {
   tokenDecimals     Int                @map("token_decimals")
 
   thresholdUsd      Float              @default(10) @map("threshold_usd")
-  // Slippage tolerance in basis points; 500 = 5%. UI clamps 100..2000 (1%..20%).
-  slippageBps       Int                @default(500) @map("slippage_bps")
+  // Slippage tolerance in basis points; 150 = 1.5%. UI clamps 100..2000 (1%..20%).
+  slippageBps       Int                @default(150) @map("slippage_bps")
   burnMode          BurnMode           @default(DEAD_ADDRESS) @map("burn_mode")
 
   // Turnkey identifiers — sub-org root is the end user, not us.
@@ -750,7 +750,7 @@ model SharedSplitBuybackConfig {
 
   feeRateBps      Int      @default(100)  @map("fee_rate_bps")
   thresholdUsd    Float    @default(10)   @map("threshold_usd")
-  slippageBps     Int      @default(500)  @map("slippage_bps")
+  slippageBps     Int      @default(150)  @map("slippage_bps")
   burnMode        BurnMode @default(DEAD_ADDRESS) @map("burn_mode")
 
   turnkeySubOrgId    String?  @unique @map("turnkey_sub_org_id")

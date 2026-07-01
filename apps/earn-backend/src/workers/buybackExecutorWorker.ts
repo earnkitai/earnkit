@@ -24,6 +24,7 @@ import {
   WETH_BASE,
 } from '../lib/uniswap';
 import { DEAD_ADDRESS } from '../lib/tokenSafety';
+import { assertSwapValueVsMarket, clampSlippageBps } from '../lib/swapGuard';
 import { discoverWalletErc20s, discoverWarehouseTokens } from '../lib/tokenDiscovery';
 import { signTransaction } from '../services/turnkeyService';
 import { priceService } from '../services/priceService';
@@ -231,6 +232,13 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
       if (!quote || quote.amountOut === BigInt(0)) {
         throw new Error('no_liquidity_eth_to_token');
       }
+      await assertSwapValueVsMarket({
+        client,
+        inputToken: WETH_BASE,
+        amountIn: ethSwappable,
+        outputToken: ctx.tokenAddress,
+        expectedOut: quote.amountOut,
+      });
       const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
       const data = encodeExactInput({
         path: quote.path,
@@ -274,6 +282,13 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<SwapStepResult> {
       if (!quote || quote.amountOut === BigInt(0)) {
         throw new Error(`no_liquidity_${t.symbol.toLowerCase()}_to_token`);
       }
+      await assertSwapValueVsMarket({
+        client,
+        inputToken: t.address,
+        amountIn: t.amount,
+        outputToken: ctx.tokenAddress,
+        expectedOut: quote.amountOut,
+      });
       await approveIfNeeded(ctx, t.address, t.amount);
       const minOut = applySlippage(quote.amountOut, ctx.slippageBps);
       const data = encodeExactInput({
@@ -490,7 +505,7 @@ async function processOne(): Promise<void> {
       subOrgId: config.turnkeySubOrgId,
       tokenAddress: config.tokenAddress as `0x${string}`,
       tokenDecimals: config.tokenDecimals,
-      slippageBps: config.slippageBps,
+      slippageBps: clampSlippageBps(config.slippageBps),
       burnMode: config.burnMode,
       recoveryAddress: config.recoveryAddress as `0x${string}`,
     };
