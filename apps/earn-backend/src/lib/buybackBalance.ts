@@ -5,7 +5,8 @@ import {
   SPLIT_NATIVE_TOKEN_ADDRESS,
 } from './splitsWarehouse';
 import { priceService } from '../services/priceService';
-import { SUPPORTED_TOKENS } from '../services/tokenService';
+import { discoverWalletErc20s } from './tokenDiscovery';
+import { WETH_BASE } from './uniswap';
 
 // Must match buybackExecutorWorker — the executor never swaps this ETH, so
 // we must not count it toward the accumulated balance either.
@@ -90,15 +91,23 @@ export async function snapshotBuybackBalance(
     }
   }
 
-  for (const token of SUPPORTED_TOKENS) {
+  // Every ERC-20 the wallet actually holds — WETH + SUPPORTED_TOKENS + any
+  // revenue token — discovered dynamically so the threshold check matches what
+  // the executor will actually swap (workers use the same discoverWalletErc20s).
+  // Without this, WETH-denominated fees (the common case for Uniswap/Clanker
+  // fee redirects) are invisible to the scanner and buybacks never trigger even
+  // though the executor can spend them.
+  const walletTokens = await discoverWalletErc20s(walletAddress);
+  for (const token of walletTokens) {
     try {
+      const tokenAddr = token.address;
       const wh = await readWarehouseBalance({
         owner: walletAddress,
-        token: token.address as `0x${string}`,
+        token: tokenAddr,
         client,
       });
       const onWallet = (await client.readContract({
-        address: token.address as `0x${string}`,
+        address: tokenAddr,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [walletAddress],
@@ -106,9 +115,18 @@ export async function snapshotBuybackBalance(
       const total = wh + onWallet;
       if (total === BigInt(0)) continue;
 
+      // Price best-effort. WETH is priced off the ETH feed; SUPPORTED_TOKENS by
+      // symbol. Unknown/spam tokens have no feed and fall back to $0 so they can
+      // never trip a threshold (fail-closed — see PAYMENTS.md).
       let usd = 0;
       try {
-        usd = await priceService.convertTokenToUsd(total.toString(), token.symbol);
+        if (tokenAddr.toLowerCase() === WETH_BASE.toLowerCase()) {
+          usd = await priceService.convertEthToUsd(
+            Number(formatUnits(total, token.decimals)),
+          );
+        } else {
+          usd = await priceService.convertTokenToUsd(total.toString(), token.symbol);
+        }
       } catch (err) {
         console.error(
           `[buybackBalance] ${token.symbol} price unavailable, treating as $0:`,
