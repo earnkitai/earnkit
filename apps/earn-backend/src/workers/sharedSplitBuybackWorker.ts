@@ -791,6 +791,31 @@ async function scanActiveConfigs(): Promise<void> {
 
 // ---------- Execute queued executions ----------
 
+// Pause a config once it's clearly broken so it can't keep re-queuing and
+// re-skimming the fee every poll. A swap that repeatedly produces no tokens
+// (wrong pool / venue / no route) means the buyback can't succeed — stop trying.
+async function maybeMarkBrokenAfterFailures(configId: string): Promise<void> {
+  try {
+    const lastExecs = await prisma.sharedSplitExecution.findMany({
+      where: { configId },
+      orderBy: { startedAt: 'desc' },
+      take: 3,
+      select: { status: true },
+    });
+    if (lastExecs.length >= 3 && lastExecs.every((e) => e.status === 'FAILED')) {
+      await prisma.sharedSplitBuybackConfig.update({
+        where: { id: configId },
+        data: { status: 'BROKEN' },
+      });
+      console.warn(
+        `[SharedSplitWorker] Config ${configId} marked BROKEN after 3 consecutive failed executions — pausing to stop fee bleed`,
+      );
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function processExecutions(): Promise<void> {
   const now = new Date();
   const due = await prisma.sharedSplitExecution.findMany({
@@ -867,11 +892,18 @@ async function processExecutions(): Promise<void> {
         data: { status: 'SWAPPING' },
       });
 
-      const { hashes: feeHashes, feeUsd } = await deductFees(ctx);
-      await prisma.sharedSplitExecution.update({
-        where: { id: exec.id },
-        data: { feeTransferHashes: feeHashes, feeCollectedUsd: feeUsd },
-      });
+      // Skim the fee AT MOST ONCE per execution — a retry must never re-charge
+      // it. Re-running deductFees on every attempt was bleeding funds to the
+      // treasury each time the swap failed.
+      let feeUsd = exec.feeCollectedUsd ?? 0;
+      if (!exec.feeTransferHashes || exec.feeTransferHashes.length === 0) {
+        const { hashes: feeHashes, feeUsd: deducted } = await deductFees(ctx);
+        feeUsd = deducted;
+        await prisma.sharedSplitExecution.update({
+          where: { id: exec.id },
+          data: { feeTransferHashes: feeHashes, feeCollectedUsd: feeUsd },
+        });
+      }
 
       const { swapHash, tokenBalanceAfter } = await swapAllToUserToken(ctx);
       if (tokenBalanceAfter === BigInt(0)) {
@@ -879,6 +911,15 @@ async function processExecutions(): Promise<void> {
           where: { id: exec.id },
           data: { status: 'FAILED', swapHash: swapHash ?? undefined, lastError: 'swap_produced_no_tokens', completedAt: new Date() },
         });
+        // The swap bought nothing (wrong pool / venue / no route). Pause the
+        // config NOW so the scanner can't re-queue and re-skim the fee next poll.
+        await prisma.sharedSplitBuybackConfig.update({
+          where: { id: config.id },
+          data: { status: 'BROKEN' },
+        });
+        console.warn(
+          `[SharedSplitWorker] Config ${config.id} paused (BROKEN): swap produced no tokens — stopping to prevent fee bleed`,
+        );
         continue;
       }
       await prisma.sharedSplitExecution.update({
@@ -936,23 +977,9 @@ async function processExecutions(): Promise<void> {
       });
       console.error(`[SharedSplitWorker] Execution ${exec.id} attempt ${attempt} failed:`, reason);
 
-      // After a final failure, check if the last 3 executions are all FAILED → mark BROKEN
+      // Pause the config if it's now repeatedly failing (stops fee bleed).
       if (isFinal) {
-        try {
-          const lastExecs = await prisma.sharedSplitExecution.findMany({
-            where:   { configId: config.id },
-            orderBy: { startedAt: 'desc' },
-            take:    3,
-            select:  { status: true },
-          });
-          if (lastExecs.length >= 3 && lastExecs.every((e) => e.status === 'FAILED')) {
-            await prisma.sharedSplitBuybackConfig.update({
-              where: { id: config.id },
-              data:  { status: 'BROKEN' },
-            });
-            console.warn(`[SharedSplitWorker] Config ${config.id} marked BROKEN after 3 consecutive failed executions`);
-          }
-        } catch { /* non-fatal */ }
+        await maybeMarkBrokenAfterFailures(config.id);
       }
     }
   }
