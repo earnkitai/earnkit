@@ -174,6 +174,10 @@ export interface AttachBuybackPolicyParams {
   parentAdminUserId: string;
   coSignerUserId: string;
   policyParams: Omit<BuybackPolicyParams, 'parentAdminUserId' | 'coSignerUserId'>;
+  // Optional name override. Turnkey requires policy names unique per org, so
+  // re-attaching a policy to an existing sub-org (e.g. a V3 -> V4 migration)
+  // must use a distinct name from the one already there.
+  policyName?: string;
 }
 
 /**
@@ -185,7 +189,7 @@ export async function attachBuybackPolicy(
   params: AttachBuybackPolicyParams,
 ): Promise<{ policyId: string }> {
   const client = getApiClient();
-  const { subOrgId, parentAdminUserId, coSignerUserId, policyParams } = params;
+  const { subOrgId, parentAdminUserId, coSignerUserId, policyParams, policyName } = params;
 
   const policy = buildBuybackPolicy({
     ...policyParams,
@@ -194,7 +198,7 @@ export async function attachBuybackPolicy(
   });
   const policyResp = await client.createPolicy({
     organizationId: subOrgId,
-    policyName: policy.policyName,
+    policyName: policyName ?? policy.policyName,
     effect: policy.effect,
     consensus: policy.consensus,
     condition: policy.condition,

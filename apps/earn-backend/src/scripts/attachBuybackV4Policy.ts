@@ -136,6 +136,8 @@ async function main(): Promise<void> {
     subOrgId: config.turnkeySubOrgId,
     parentAdminUserId,
     coSignerUserId,
+    // Distinct from the existing V3 policy name (Turnkey requires uniqueness).
+    policyName: `buyback_${target.slice(2, 12).toLowerCase()}_v4`,
     policyParams: {
       userTokenAddress: target,
       recoveryAddress: getAddress(config.recoveryAddress) as `0x${string}`,
