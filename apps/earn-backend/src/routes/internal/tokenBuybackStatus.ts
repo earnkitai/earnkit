@@ -40,6 +40,7 @@ router.get('/token-buyback-status', async (req: Request, res: Response) => {
       try {
         const snapshot = await snapshotBuybackBalance(
           config.walletAddress as `0x${string}`,
+          config.tokenAddress,
         );
         balance = { totalUsd: snapshot.totalUsd, assets: snapshot.assets };
       } catch (err) {

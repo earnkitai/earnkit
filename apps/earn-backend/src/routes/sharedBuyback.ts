@@ -266,7 +266,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     let balanceSnapshot = null;
     if (config.walletAddress && config.status === 'ACTIVE') {
       try {
-        balanceSnapshot = await snapshotBuybackBalance(config.walletAddress as `0x${string}`);
+        balanceSnapshot = await snapshotBuybackBalance(config.walletAddress as `0x${string}`, config.tokenAddress);
       } catch {
         // non-fatal — balance is best-effort
       }
@@ -335,7 +335,7 @@ router.post('/:id/check', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Wallet not yet provisioned' });
     }
 
-    const snapshot = await snapshotBuybackBalance(config.walletAddress as `0x${string}`);
+    const snapshot = await snapshotBuybackBalance(config.walletAddress as `0x${string}`, config.tokenAddress);
 
     await prisma.sharedSplitBuybackConfig.update({
       where: { id: config.id },

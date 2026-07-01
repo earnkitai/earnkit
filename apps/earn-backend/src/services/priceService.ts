@@ -140,7 +140,12 @@ export class PriceService {
    * @param platformId  CoinGecko platform ID for the chain (e.g. "base", "ethereum")
    * @param address     Token contract address
    */
-  async getTokenPrice(platformId: string, address: string, maxAgeMs?: number): Promise<number> {
+  async getTokenPrice(
+    platformId: string,
+    address: string,
+    maxAgeMs?: number,
+    minLiquidityUsd?: number,
+  ): Promise<number> {
     const now = Date.now();
     const cacheKey = `${platformId}:${address.toLowerCase()}`;
     const freshnessWindow = maxAgeMs ?? this.TOKEN_CACHE_DURATION;
@@ -200,6 +205,18 @@ export class PriceService {
       throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
     }
 
+    // A price is only trustworthy if it comes from a pool with real liquidity.
+    // Callers that use this as a safety reference (the swap guard) pass a floor;
+    // a price sourced from a near-empty pool is refused (fail closed).
+    if (minLiquidityUsd !== undefined) {
+      const deepestLiquidityUsd = Number(deepest?.liquidity?.usd) || 0;
+      if (deepestLiquidityUsd < minLiquidityUsd) {
+        throw new Error(
+          `DexScreener price for ${address} rejected: deepest pool liquidity $${deepestLiquidityUsd} < required $${minLiquidityUsd}`,
+        );
+      }
+    }
+
     const tokenPrice = Number(priceUsd);
     this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
     return tokenPrice;
@@ -221,17 +238,21 @@ export class PriceService {
    * Get token price by contract address
    * @param address The token contract address
    */
-  async getTokenPriceByAddress(address: string, maxAgeMs?: number): Promise<number> {
+  async getTokenPriceByAddress(
+    address: string,
+    maxAgeMs?: number,
+    minLiquidityUsd?: number,
+  ): Promise<number> {
     const token = tokenService.getTokenByAddress(address);
     if (!token) {
       throw new Error(`Token at ${address} is not supported`);
     }
-    return this.getTokenPrice(token.coingeckoPlatformId, token.address, maxAgeMs);
+    return this.getTokenPrice(token.coingeckoPlatformId, token.address, maxAgeMs, minLiquidityUsd);
   }
 
   /** Convenience alias used by workers */
-  async getTokenPriceUsd(address: string, maxAgeMs?: number): Promise<number> {
-    return this.getTokenPriceByAddress(address, maxAgeMs);
+  async getTokenPriceUsd(address: string, maxAgeMs?: number, minLiquidityUsd?: number): Promise<number> {
+    return this.getTokenPriceByAddress(address, maxAgeMs, minLiquidityUsd);
   }
 
   /**
