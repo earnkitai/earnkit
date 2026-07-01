@@ -208,6 +208,29 @@ export async function attachBuybackPolicy(
 }
 
 /**
+ * Fetch the parent-admin and co-signer stamper user IDs for an EXISTING buyback
+ * sub-org. These are sub-org root users created at provisioning (userNames
+ * 'platform-parent-admin' / 'platform-cosigner'). Needed to (re)build a policy's
+ * consensus for configs where these IDs were never persisted to the DB.
+ */
+export async function getSubOrgStamperUserIds(
+  subOrgId: string,
+): Promise<{ parentAdminUserId: string; coSignerUserId: string }> {
+  const client = getApiClient();
+  const resp = await client.getUsers({ organizationId: subOrgId });
+  const users = (resp.users ?? []) as Array<{ userId?: string; userName?: string }>;
+  const parentAdmin = users.find((u) => u.userName === 'platform-parent-admin');
+  const coSigner = users.find((u) => u.userName === 'platform-cosigner');
+  if (!parentAdmin?.userId || !coSigner?.userId) {
+    throw new Error(
+      `Could not find platform stamper users in sub-org ${subOrgId} ` +
+        `(found: ${users.map((u) => u.userName).join(', ')})`,
+    );
+  }
+  return { parentAdminUserId: parentAdmin.userId, coSignerUserId: coSigner.userId };
+}
+
+/**
  * Provisions a Turnkey sub-organization for a single agent's buyback wallet.
  *
  * Architecture (post-Piece-1):
