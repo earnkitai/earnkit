@@ -83,6 +83,7 @@ router.get('/status', async (req: Request, res: Response) => {
 
     const snapshot = await snapshotBuybackBalance(
       config.walletAddress as `0x${string}`,
+      config.tokenAddress,
     );
 
     const inFlight = await prisma.buybackExecution.findFirst({
@@ -272,6 +273,7 @@ router.post('/check', async (req: Request, res: Response) => {
 
     const snapshot = await snapshotBuybackBalance(
       config.walletAddress as `0x${string}`,
+      config.tokenAddress,
     );
 
     await prisma.buybackConfig.update({

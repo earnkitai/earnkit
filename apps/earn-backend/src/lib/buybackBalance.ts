@@ -10,7 +10,7 @@ import { WETH_BASE } from './uniswap';
 
 // Must match buybackExecutorWorker — the executor never swaps this ETH, so
 // we must not count it toward the accumulated balance either.
-const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);
+const MIN_GAS_RESERVE_WEI = parseUnits(process.env.BUYBACK_GAS_RESERVE_ETH || '0.002', 18);
 
 /**
  * Reads the accumulated balance of a buyback wallet — both the Splits Warehouse
@@ -39,6 +39,10 @@ export interface BuybackBalanceSnapshot {
 
 export async function snapshotBuybackBalance(
   walletAddress: `0x${string}`,
+  // The buyback TARGET token, excluded from "accumulated balance": it's the
+  // OUTPUT, not revenue-in. Counting it inflates the threshold check (spurious
+  // re-triggers) and the displayed accumulated USD.
+  excludeToken?: string,
 ): Promise<BuybackBalanceSnapshot> {
   const client = getBasePublicClient();
   const assets: BuybackAssetSnapshot[] = [];
@@ -101,6 +105,7 @@ export async function snapshotBuybackBalance(
   for (const token of walletTokens) {
     try {
       const tokenAddr = token.address;
+      if (excludeToken && tokenAddr.toLowerCase() === excludeToken.toLowerCase()) continue;
       const wh = await readWarehouseBalance({
         owner: walletAddress,
         token: tokenAddr,

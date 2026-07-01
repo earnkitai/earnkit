@@ -38,7 +38,7 @@ import { snapshotBuybackBalance } from '../lib/buybackBalance';
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS ?? String(5 * 60_000), 10);
 const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
-const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);
+const MIN_GAS_RESERVE_WEI = parseUnits(process.env.BUYBACK_GAS_RESERVE_ETH || '0.002', 18);
 const TX_RECEIPT_TIMEOUT_MS = 5 * 60_000;
 
 const BURN_FN_ABI = parseAbi(['function burn(uint256 amount)']) as Abi;
@@ -758,7 +758,10 @@ async function scanActiveConfigs(): Promise<void> {
 
   for (const config of active) {
     try {
-      const snapshot = await snapshotBuybackBalance(config.walletAddress! as `0x${string}`);
+      const snapshot = await snapshotBuybackBalance(
+        config.walletAddress! as `0x${string}`,
+        config.tokenAddress,
+      );
 
       await prisma.sharedSplitBuybackConfig.update({
         where: { id: config.id },
