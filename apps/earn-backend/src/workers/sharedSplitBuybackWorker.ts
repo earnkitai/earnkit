@@ -547,12 +547,22 @@ async function swapAllToUserToken(ctx: RunCtx): Promise<{ swapHash: string | nul
     }
   }
 
-  const tokenBalanceAfter = (await client.readContract({
-    address: ctx.tokenAddress,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [ctx.walletAddress],
-  })) as bigint;
+  const readTargetBalance = async (): Promise<bigint> =>
+    (await client.readContract({
+      address: ctx.tokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [ctx.walletAddress],
+    })) as bigint;
+
+  // Read the acquired balance. If a swap actually executed but this reads 0, the
+  // RPC node is lagging the just-mined block — a false 0 here would skip the burn
+  // and wrongly mark the buyback failed (and pause the config). Retry briefly.
+  let tokenBalanceAfter = await readTargetBalance();
+  for (let i = 0; tokenBalanceAfter === BigInt(0) && lastSwapHash && i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    tokenBalanceAfter = await readTargetBalance();
+  }
 
   return { swapHash: lastSwapHash, tokenBalanceAfter };
 }
