@@ -18,17 +18,34 @@ import type { BasePublicClient } from './splitsWarehouse';
  */
 // Absolute ceilings the operator env can NEVER exceed. Env may only make the
 // guard tighter (or loosen up to these hard caps) — it can never be widened to
-// the point of nullifying protection. Chosen so the worst a misconfigured/
-// hostile env can allow is a ~20% value loss, not a 99.99% one.
-const HARD_MAX_DEVIATION_BPS = 2000; // 20%
+// the point of nullifying protection. Tightened from 20% to 12% after a Clanker
+// V4 token bought back in the wrong pool: the wrong-pool swap still landed inside
+// the old 20% band. 12% is the moderate ceiling — tight enough that a wrong/thin
+// pool is refused, loose enough that a genuinely volatile token still executes.
+const HARD_MAX_DEVIATION_BPS = 1200; // 12%
 const HARD_MAX_SLIPPAGE_BPS = 500; //  5%
+
+// A swap can never legitimately return materially MORE market value than it puts
+// in (a real pool prices fees + impact against you, never for you). An inflated
+// "out" therefore means the OUTPUT token's reference price is wrong/manipulated
+// (e.g. a thin DexScreener pool) — exactly the case a low-deviation floor can't
+// catch. Reject it. Hard cap so env can only tighten.
+const HARD_MAX_UPSIDE_BPS = 1000; // 10%
 
 export function maxMarketDeviationBps(): number {
   const raw = parseInt(process.env.BUYBACK_MAX_MARKET_DEVIATION_BPS ?? '', 10);
-  // Default 15%. A valid env override is honored, but the effective value is
-  // hard-capped at HARD_MAX_DEVIATION_BPS so env can never disable the guard.
-  const configured = Number.isFinite(raw) && raw > 0 && raw < 10_000 ? raw : 1500;
+  // Default 10% (moderate). A valid env override is honored, but the effective
+  // value is hard-capped at HARD_MAX_DEVIATION_BPS so env can never disable the guard.
+  const configured = Number.isFinite(raw) && raw > 0 && raw < 10_000 ? raw : 1000;
   return Math.min(configured, HARD_MAX_DEVIATION_BPS);
+}
+
+// Upper deviation ceiling — how far ABOVE the input value the expected output may
+// sit before we treat the reference as manipulated and refuse the swap.
+export function maxMarketUpsideBps(): number {
+  const raw = parseInt(process.env.BUYBACK_MAX_MARKET_UPSIDE_BPS ?? '', 10);
+  const configured = Number.isFinite(raw) && raw > 0 && raw < 10_000 ? raw : 800; // default 8%
+  return Math.min(configured, HARD_MAX_UPSIDE_BPS);
 }
 
 /**
@@ -101,6 +118,19 @@ export async function assertSwapValueVsMarket(args: {
     throw new Error(
       `swap_value_guard: expected out ~$${outUsd.toFixed(4)} for in ~$${inUsd.toFixed(2)} ` +
         `(floor $${minOutUsd.toFixed(2)} at ${bps}bps) — refusing swap into a wrong/mispriced pool`,
+    );
+  }
+
+  // Upper band: a swap returning far MORE value than it puts in means the output
+  // token's reference price is inflated/manipulated (a thin pool the guard would
+  // otherwise trust), so the "out" is not real. Fail closed rather than swap into
+  // a pool whose favourable print we can't trust.
+  const upBps = maxMarketUpsideBps();
+  const maxOutUsd = (inUsd * (10_000 + upBps)) / 10_000;
+  if (outUsd > maxOutUsd) {
+    throw new Error(
+      `swap_value_guard: expected out ~$${outUsd.toFixed(4)} for in ~$${inUsd.toFixed(2)} ` +
+        `(ceiling $${maxOutUsd.toFixed(2)} at +${upBps}bps) — output reference looks manipulated, refusing swap`,
     );
   }
 }

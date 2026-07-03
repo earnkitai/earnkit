@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useWallets } from "@privy-io/react-auth";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
 import { Badge } from "@/app/components/ui/badge";
 import { toast } from "sonner";
+import { signBuybackAction, type BuybackAction } from "@/lib/buybackAuth";
 
 interface BuybackConfig {
     id: string;
@@ -16,6 +18,7 @@ interface BuybackConfig {
     slippageBps: number;
     burnMode: "DEAD_ADDRESS" | "TOKEN_BURN_FN";
     walletAddress: string;
+    recoveryAddress: string;
     isActive: boolean;
     lastCheckedAt: string | null;
     lastTriggeredAt: string | null;
@@ -46,6 +49,7 @@ interface BuybackPanelProps {
 }
 
 export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
+    const { wallets } = useWallets();
     const [config, setConfig] = useState<BuybackConfig | null>(null);
     const [status, setStatus] = useState<BuybackStatus | null>(null);
     const [minThresholdUsd, setMinThresholdUsd] = useState(10);
@@ -137,11 +141,33 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
         }
     };
 
+    // Owner-signed proof for agent-recover / agent-disable. The connected wallet
+    // must be the config's recoveryAddress (the dev wallet). Returns the request
+    // body { signature, signedAt } the backend verifies.
+    const signOwnerAction = useCallback(
+        async (action: BuybackAction): Promise<{ signature: string; signedAt: string }> => {
+            if (!config?.recoveryAddress) throw new Error("Missing recovery address");
+            const wallet = wallets.find((w) => w.connectorType === "injected") ?? wallets[0];
+            if (!wallet) throw new Error("No wallet connected");
+            if (wallet.address.toLowerCase() !== config.recoveryAddress.toLowerCase()) {
+                throw new Error("Connect your recovery (dev) wallet to authorize this action");
+            }
+            return signBuybackAction({ wallet, owner: config.recoveryAddress, action });
+        },
+        [config?.recoveryAddress, wallets],
+    );
+
     const handleDisable = async () => {
         if (!confirm("Disable auto-buyback? Any accumulated funds will remain in the buyback wallet — you can recover them later.")) return;
+        if (!config) return;
         setSaving(true);
         try {
-            const r = await fetch(`/api/agents/${agentDbId}/buyback`, { method: "DELETE" });
+            const body = await signOwnerAction({ kind: "agent-disable", configId: config.id });
+            const r = await fetch(`/api/agents/${agentDbId}/buyback`, {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
             if (r.ok) {
                 toast.success("Buyback disabled");
                 await fetchConfig();
@@ -149,6 +175,8 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
                 const d = await r.json();
                 toast.error(d.error || "Failed to disable");
             }
+        } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Failed to disable");
         } finally {
             setSaving(false);
         }
@@ -179,8 +207,14 @@ export default function BuybackPanel({ agentDbId }: BuybackPanelProps) {
 
     const handleRecover = async () => {
         if (!confirm("Recover stranded funds? This will withdraw everything from the Splits Warehouse and transfer all token balances from the buyback wallet back to your configured recovery address (your dev wallet). ETH gas reserve stays behind to cover the sweep transactions.")) return;
+        if (!config) return;
         try {
-            const r = await fetch(`/api/agents/${agentDbId}/buyback/recover`, { method: "POST" });
+            const body = await signOwnerAction({ kind: "agent-recover", configId: config.id });
+            const r = await fetch(`/api/agents/${agentDbId}/buyback/recover`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
             const d = await r.json();
             if (r.ok) {
                 toast.success("Recovery queued — check execution history shortly");

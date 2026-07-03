@@ -40,10 +40,19 @@ const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
 const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18);
 const TX_RECEIPT_TIMEOUT_MS = 5 * 60_000;
+// See BuybackExecutor reaper note — re-drive rows abandoned in a transitional
+// state by a crashed worker so the one-in-flight unique index can't wedge a config.
+const STUCK_EXECUTION_TIMEOUT_MS = parseInt(
+  process.env.BUYBACK_STUCK_TIMEOUT_MS ?? String(30 * 60_000),
+  10,
+);
+const TRANSITIONAL_STATUSES = ['WITHDRAWING', 'SWAPPING', 'BURNING'] as const;
 
 const BURN_FN_ABI = parseAbi(['function burn(uint256 amount)']) as Abi;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+// Guards against overlapping poll ticks (see startSharedSplitBuybackWorker).
+let isPolling = false;
 
 interface RunCtx {
   configId: string;
@@ -114,7 +123,29 @@ async function sendTurnkeySignedTx(
     unsignedTx,
   });
   const txHash = await client.sendRawTransaction({ serializedTransaction: signed });
-  const receipt = await client.waitForTransactionReceipt({ hash: txHash, timeout: TX_RECEIPT_TIMEOUT_MS });
+  // Log the broadcast hash BEFORE awaiting the receipt so a receipt-wait timeout
+  // never loses the on-chain reference (reconciliation + avoids a blind
+  // re-broadcast being untraceable on retry).
+  console.log(`[SharedSplitWorker] broadcast ${txHash} to ${to} (exec ${ctx.executionId})`);
+  // Heartbeat the claim lease on every on-chain action so the stuck-execution
+  // reaper never re-drives a still-progressing execution (even a slow one with
+  // many swap legs) a second time on the same wallet. Best-effort — a DB blip
+  // must not fail a broadcast.
+  try {
+    await prisma.sharedSplitExecution.update({
+      where: { id: ctx.executionId },
+      data: { claimedAt: new Date() },
+    });
+  } catch {
+    /* heartbeat is best-effort */
+  }
+  let receipt;
+  try {
+    receipt = await client.waitForTransactionReceipt({ hash: txHash, timeout: TX_RECEIPT_TIMEOUT_MS });
+  } catch {
+    // The tx may still confirm later; surface the hash so it isn't lost.
+    throw new Error(`receipt_timeout:${txHash}`);
+  }
   if (receipt.status === 'reverted') throw new Error(`tx_reverted:${txHash}`);
   return txHash;
 }
@@ -836,6 +867,62 @@ async function scanActiveConfigs(): Promise<void> {
   }
 }
 
+// ---------- Recovery (sweep funds back to the config's recoveryAddress) ----------
+
+// Drains the Splits Warehouse (if any) and sweeps every wallet balance (ERC-20s
+// + the target token + native ETH, less a gas reserve) to the config's
+// recoveryAddress. Every transfer is permitted by the Turnkey policy (recovery
+// address is whitelisted at provision time). Per-asset best-effort so one stuck
+// token can't block the rest. Used to rescue funds from a BROKEN/PAUSED config.
+async function sweepToRecoveryAddress(ctx: RunCtx): Promise<string[]> {
+  const client = getBasePublicClient();
+  const hashes: string[] = [];
+
+  if (ctx.splitAddress) {
+    try {
+      hashes.push(...(await withdrawAllFromWarehouse(ctx)));
+    } catch (err: unknown) {
+      console.warn(`[SharedSplitWorker] recovery warehouse drain failed for ${ctx.executionId}:`, err);
+    }
+  }
+
+  const walletTokens = await discoverWalletErc20s(ctx.walletAddress);
+  const toSweep: Array<{ address: `0x${string}`; symbol: string }> = [
+    ...walletTokens.map((t) => ({ address: t.address as `0x${string}`, symbol: t.symbol })),
+    { address: ctx.tokenAddress, symbol: 'TARGET' },
+  ];
+  const seen = new Set<string>();
+  for (const t of toSweep) {
+    const key = t.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const bal = (await client.readContract({
+        address: t.address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [ctx.walletAddress],
+      })) as bigint;
+      if (bal === BigInt(0)) continue;
+      const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [ctx.recoveryAddress, bal] });
+      hashes.push(await sendTurnkeySignedTx(ctx, t.address, data));
+    } catch (err: unknown) {
+      console.warn(`[SharedSplitWorker] recovery sweep ${t.symbol} failed for ${ctx.executionId}:`, err);
+    }
+  }
+
+  try {
+    const ethBal = await client.getBalance({ address: ctx.walletAddress });
+    if (ethBal > MIN_GAS_RESERVE_WEI) {
+      hashes.push(await sendTurnkeySignedTx(ctx, ctx.recoveryAddress, '0x', ethBal - MIN_GAS_RESERVE_WEI));
+    }
+  } catch (err: unknown) {
+    console.warn(`[SharedSplitWorker] recovery ETH sweep failed for ${ctx.executionId}:`, err);
+  }
+
+  return hashes;
+}
+
 // ---------- Execute queued executions ----------
 
 // Pause a config once it's clearly broken so it can't keep re-queuing and
@@ -876,7 +963,15 @@ async function processExecutions(): Promise<void> {
 
   for (const exec of due) {
     const config = exec.config;
-    if (!config.isActive || config.status !== 'ACTIVE') {
+    // A recovery sweep must run even on a BROKEN/PAUSED config — that's exactly
+    // when funds get stranded — so it deliberately bypasses the active check.
+    const isRecovery =
+      !!exec.assetsIn &&
+      typeof exec.assetsIn === 'object' &&
+      !Array.isArray(exec.assetsIn) &&
+      (exec.assetsIn as { intent?: string }).intent === 'recover';
+
+    if (!isRecovery && (!config.isActive || config.status !== 'ACTIVE')) {
       await prisma.sharedSplitExecution.update({
         where: { id: exec.id },
         data: { status: 'FAILED', lastError: 'config_disabled', completedAt: new Date() },
@@ -894,7 +989,7 @@ async function processExecutions(): Promise<void> {
 
     const claim = await prisma.sharedSplitExecution.updateMany({
       where: { id: exec.id, attempts: exec.attempts },
-      data: { attempts: exec.attempts + 1, status: 'WITHDRAWING', nextAttemptAt: null },
+      data: { attempts: exec.attempts + 1, status: 'WITHDRAWING', nextAttemptAt: null, claimedAt: new Date() },
     });
     if (claim.count === 0) continue;
 
@@ -925,6 +1020,25 @@ async function processExecutions(): Promise<void> {
         await ensureGasFunded(ctx.walletAddress);
       } catch (err: unknown) {
         throw new Error(`gas_drip_failed: ${err instanceof Error ? err.message : err}`);
+      }
+
+      // Recovery sweep: drain the warehouse + every wallet balance to the
+      // config's recoveryAddress, then complete. No swap/burn/fee. Runs even for
+      // BROKEN/PAUSED configs so stranded funds always have an exit.
+      if (isRecovery) {
+        const sweepHashes = await sweepToRecoveryAddress(ctx);
+        await prisma.sharedSplitExecution.update({
+          where: { id: exec.id },
+          data: {
+            status: 'COMPLETED',
+            warehouseWithdrawHashes: sweepHashes,
+            completedAt: new Date(),
+          },
+        });
+        console.log(
+          `[SharedSplitWorker] Recovery sweep completed for ${exec.id}: ${sweepHashes.length} transfers to ${ctx.recoveryAddress}`,
+        );
+        continue;
       }
 
       // Hashes are persisted inside the helper; don't overwrite on retry.
@@ -1047,9 +1161,40 @@ async function processExecutions(): Promise<void> {
   }
 }
 
+// Re-drive executions abandoned in a transitional state by a dead worker (see
+// the per-agent reaper note). Safe to re-drive: every step re-reads live
+// balances and the fee is idempotent, so no double-spend.
+async function reapStuckExecutions(): Promise<void> {
+  const cutoff = new Date(Date.now() - STUCK_EXECUTION_TIMEOUT_MS);
+  const stuck = await prisma.sharedSplitExecution.findMany({
+    where: {
+      status: { in: [...TRANSITIONAL_STATUSES] },
+      OR: [{ claimedAt: { lt: cutoff } }, { claimedAt: null, startedAt: { lt: cutoff } }],
+    },
+    take: 20,
+  });
+  for (const exec of stuck) {
+    const isFinal = exec.attempts >= MAX_ATTEMPTS;
+    await prisma.sharedSplitExecution.update({
+      where: { id: exec.id },
+      data: {
+        status: isFinal ? 'FAILED' : 'RETRYING',
+        lastError: `reaped_stuck_${exec.status.toLowerCase()}`,
+        nextAttemptAt: isFinal ? null : new Date(),
+        completedAt: isFinal ? new Date() : null,
+      },
+    });
+    console.warn(
+      `[SharedSplitWorker] Reaped stuck execution ${exec.id} (was ${exec.status}, claimedAt=${exec.claimedAt?.toISOString() ?? 'null'}) -> ${isFinal ? 'FAILED' : 'RETRYING'}`,
+    );
+    if (isFinal) await maybeMarkBrokenAfterFailures(exec.configId);
+  }
+}
+
 // ---------- Main poll loop ----------
 
 async function poll(): Promise<void> {
+  await reapStuckExecutions();
   await checkPendingActivations();
   await retryProvisioningActivations();
   await scanActiveConfigs();
@@ -1059,9 +1204,21 @@ async function poll(): Promise<void> {
 export function startSharedSplitBuybackWorker(): void {
   if (intervalHandle) return;
   console.log(`[SharedSplitWorker] Starting — polling every ${POLL_INTERVAL_MS / 1000}s`);
-  poll().catch((e) => console.error('[SharedSplitWorker] Initial run error:', e));
+  // Re-entrancy guard: skip a tick if the previous one is still running (a slow
+  // execution holding the loop past POLL_INTERVAL_MS). Without it, setInterval
+  // fires overlapping polls that drive the same execution concurrently.
+  const guardedPoll = async (): Promise<void> => {
+    if (isPolling) return;
+    isPolling = true;
+    try {
+      await poll();
+    } finally {
+      isPolling = false;
+    }
+  };
+  guardedPoll().catch((e) => console.error('[SharedSplitWorker] Initial run error:', e));
   intervalHandle = setInterval(() => {
-    poll().catch((e) => console.error('[SharedSplitWorker] Poll error:', e));
+    guardedPoll().catch((e) => console.error('[SharedSplitWorker] Poll error:', e));
   }, POLL_INTERVAL_MS);
 }
 

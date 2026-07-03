@@ -175,6 +175,10 @@ model BuybackExecution {
   gasSpentEth             String?        @map("gas_spent_eth")
 
   startedAt               DateTime       @default(now()) @map("started_at")
+  // Set each time a worker claims the row into a transitional state. Lets the
+  // reaper detect a row wedged in WITHDRAWING/SWAPPING/BURNING by a crashed
+  // worker (started_at is unreliable — it never moves across retries).
+  claimedAt               DateTime?      @map("claimed_at")
   completedAt             DateTime?      @map("completed_at")
 
   @@index([buybackConfigId, status])
@@ -535,6 +539,9 @@ model SharedSplitExecution {
   tokensOutUsd    Float?   @map("tokens_out_usd")
 
   startedAt   DateTime  @default(now()) @map("started_at")
+  // Set each time a worker claims the row into a transitional state — see the
+  // reaper note on BuybackExecution.claimedAt.
+  claimedAt   DateTime? @map("claimed_at")
   completedAt DateTime? @map("completed_at")
 
   @@index([configId, status])

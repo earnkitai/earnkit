@@ -37,15 +37,8 @@ import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../../lib/splitsWarehouse';
 const router: Router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
-  const internalSecret = process.env.INTERNAL_API_SECRET;
-  if (!internalSecret) {
-    return res.status(500).json({ error: 'INTERNAL_API_SECRET is not configured' });
-  }
-  const provided = req.header('x-internal-secret');
-  if (provided !== internalSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
+  // Auth is enforced by the `internalAuth` middleware at mount time
+  // (routes/index.ts) with a constant-time secret compare — no duplicate check here.
   try {
     const {
       agentId,

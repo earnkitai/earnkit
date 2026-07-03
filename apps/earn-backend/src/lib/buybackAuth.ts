@@ -34,7 +34,15 @@ export type BuybackAction =
   | { kind: 'patch'; configId: string; thresholdUsd: number }
   | { kind: 'delete'; configId: string }
   | { kind: 'check'; configId: string }
-  | { kind: 'check-activation'; configId: string };
+  | { kind: 'check-activation'; configId: string }
+  // Sweep all funds from the buyback wallet back to the config's recoveryAddress.
+  | { kind: 'recover'; configId: string }
+  // Reset a BROKEN/PAUSED config back to ACTIVE.
+  | { kind: 'reactivate'; configId: string }
+  // Per-agent buyback: owner-signed sweep / disable. Owner = the config's
+  // recoveryAddress (the dev wallet set at provision time).
+  | { kind: 'agent-recover'; configId: string }
+  | { kind: 'agent-disable'; configId: string };
 
 // See docs/06_RELIABILITY_FIXES_2026_05_14.md §1 for the auth model.
 // Keep this in sync with apps/dashboard/lib/buybackAuth.ts buildAuthMessage.
@@ -86,6 +94,18 @@ export function buildAuthMessage(args: {
       break;
     case 'check-activation':
       lines.push('action: check-activation', `config: ${args.action.configId}`);
+      break;
+    case 'recover':
+      lines.push('action: recover', `config: ${args.action.configId}`);
+      break;
+    case 'reactivate':
+      lines.push('action: reactivate', `config: ${args.action.configId}`);
+      break;
+    case 'agent-recover':
+      lines.push('action: agent-recover', `config: ${args.action.configId}`);
+      break;
+    case 'agent-disable':
+      lines.push('action: agent-disable', `config: ${args.action.configId}`);
       break;
   }
   return lines.join('\n');

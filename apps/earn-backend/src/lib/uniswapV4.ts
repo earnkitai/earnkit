@@ -410,7 +410,10 @@ export function encodeV4SwapCall(args: {
     hookData,
   });
   const commands = encodePacked(['uint8'], [COMMAND_V4_SWAP]);
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + (args.deadlineSec ?? 3600));
+  // Keep the on-chain deadline tight so a signed swap can't sit mempool-pending
+  // and execute after the pool has moved (was 3600s — an hour is far too long
+  // for an automated swap whose quote/guard was evaluated seconds earlier).
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + (args.deadlineSec ?? 300));
   const data = encodeFunctionData({
     abi: UNIVERSAL_ROUTER_ABI,
     functionName: 'execute',

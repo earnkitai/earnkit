@@ -26,6 +26,7 @@
 
 import { Turnkey } from '@turnkey/sdk-server';
 import {
+  decodeAbiParameters,
   decodeFunctionData,
   toFunctionSelector,
   type Hex,
@@ -63,6 +64,74 @@ const SELECTORS = {
   erc20Approve: toFunctionSelector('approve(address,uint256)'),
   tokenBurn: toFunctionSelector('burn(uint256)'),
 };
+
+// Minimal ABIs to decode the SwapRouter02 recipient so we can pin swap output to
+// the buyback wallet itself. A legitimate buyback always swaps into its own
+// wallet; anything else is an exfiltration attempt.
+const V3_SWAP_ABI = [
+  {
+    type: 'function',
+    name: 'exactInput',
+    stateMutability: 'payable',
+    inputs: [
+      {
+        name: 'params',
+        type: 'tuple',
+        components: [
+          { name: 'path', type: 'bytes' },
+          { name: 'recipient', type: 'address' },
+          { name: 'amountIn', type: 'uint256' },
+          { name: 'amountOutMinimum', type: 'uint256' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'exactInputSingle',
+    stateMutability: 'payable',
+    inputs: [
+      {
+        name: 'params',
+        type: 'tuple',
+        components: [
+          { name: 'tokenIn', type: 'address' },
+          { name: 'tokenOut', type: 'address' },
+          { name: 'fee', type: 'uint24' },
+          { name: 'recipient', type: 'address' },
+          { name: 'amountIn', type: 'uint256' },
+          { name: 'amountOutMinimum', type: 'uint256' },
+          { name: 'sqrtPriceLimitX96', type: 'uint160' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+  },
+] as const;
+
+// UniversalRouter.execute — decoded to verify the V4 swap command/action stream.
+const UNIVERSAL_ROUTER_ABI = [
+  {
+    type: 'function',
+    name: 'execute',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'commands', type: 'bytes' },
+      { name: 'inputs', type: 'bytes[]' },
+      { name: 'deadline', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+] as const;
+
+// The exact stream the buyback worker emits (see earn-backend/src/lib/uniswapV4.ts):
+//   commands = 0x10  (a single V4_SWAP command)
+//   actions  = 0x06 0x0b 0x0f  (SWAP_EXACT_IN_SINGLE, SETTLE, TAKE_ALL)
+// TAKE_ALL sends output to msg.sender with no recipient arg, so this pattern
+// cannot redirect funds. Anything else is rejected.
+const V4_ALLOWED_COMMANDS = '0x10';
+const V4_ALLOWED_ACTIONS = '0x060b0f';
 
 interface BuybackWalletEntry {
   walletAddress: string;
@@ -179,14 +248,51 @@ function validateUnsignedTx(
     to === UNISWAP_V3_SWAP_ROUTER_02 &&
     (selector === SELECTORS.uniswapExactInput || selector === SELECTORS.uniswapExactInputSingle)
   ) {
-    return { ok: true, reason: 'buyback' };
+    // Pin the swap RECIPIENT to the buyback wallet. Selector+router alone is not
+    // enough: exactInput/exactInputSingle carry a `recipient` field, and a
+    // compromised backend could set it to an attacker to exfiltrate the swap
+    // output. A real buyback always swaps into its own wallet.
+    try {
+      const decoded = decodeFunctionData({ abi: V3_SWAP_ABI, data: data as Hex });
+      const recipient = (decoded.args[0] as { recipient: string }).recipient.toLowerCase();
+      if (recipient !== fromAddress.toLowerCase()) {
+        return { ok: false, reason: `swap recipient ${recipient} must be the buyback wallet` };
+      }
+      return { ok: true, reason: 'buyback' };
+    } catch {
+      return { ok: false, reason: 'Failed to decode swap recipient' };
+    }
   }
   // Uniswap V4 UniversalRouter — entry point for Doppler-token buybacks.
-  // The router itself enforces the V4 action stream is well-formed; we only
-  // gate access to the router selector here. The Turnkey policy further
-  // narrows by sub-org so a leaked stamper can't redirect.
+  // Selector+router is NOT enough: execute(commands, inputs, deadline) can carry
+  // SWEEP/TRANSFER commands (or a TAKE with an arbitrary recipient) that pull the
+  // wallet's tokens — through its max Permit2 allowance — to an attacker. So we
+  // decode the command + action stream and allow ONLY the exact pattern the
+  // buyback worker emits: a single V4_SWAP command whose actions are
+  // SWAP_EXACT_IN_SINGLE + SETTLE + TAKE_ALL. TAKE_ALL sends output to msg.sender
+  // (the wallet) with no recipient field, so funds cannot be redirected.
   if (to === UNIVERSAL_ROUTER_BASE && selector === SELECTORS.universalRouterExecute) {
-    return { ok: true, reason: 'buyback' };
+    try {
+      const decoded = decodeFunctionData({ abi: UNIVERSAL_ROUTER_ABI, data: data as Hex });
+      const commands = (decoded.args[0] as string).toLowerCase();
+      const inputs = decoded.args[1] as readonly Hex[];
+      if (commands !== V4_ALLOWED_COMMANDS) {
+        return { ok: false, reason: `execute commands ${commands} != allowed V4_SWAP` };
+      }
+      if (inputs.length !== 1) {
+        return { ok: false, reason: `execute must carry exactly one input` };
+      }
+      const [actions] = decodeAbiParameters(
+        [{ type: 'bytes' }, { type: 'bytes[]' }],
+        inputs[0],
+      ) as [string, unknown];
+      if (actions.toLowerCase() !== V4_ALLOWED_ACTIONS) {
+        return { ok: false, reason: `execute actions ${actions} != allowed swap pattern` };
+      }
+      return { ok: true, reason: 'buyback' };
+    } catch {
+      return { ok: false, reason: 'Failed to decode execute() V4 swap' };
+    }
   }
   // Permit2.approve(token, UniversalRouter, max, expiration) — required
   // approval step before a V4 swap. Spender (2nd arg) is checked here.

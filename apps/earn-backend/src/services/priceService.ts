@@ -1,6 +1,14 @@
 import { tokenService, SupportedToken } from './tokenService';
 import { parseUnits, formatUnits } from 'viem';
 
+// Minimum liquidity (USD) a DexScreener pool must have before we'll price a token
+// off it. Below this the pool is cheap to manipulate, so the swap value guard
+// would be validating against a reference an attacker controls. Env-tunable.
+const DEXSCREENER_MIN_LIQUIDITY_USD = (() => {
+  const raw = parseInt(process.env.PRICE_MIN_POOL_LIQUIDITY_USD ?? '', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 25_000;
+})();
+
 interface PriceCache {
   ethPrice: number;
   timestamp: number;
@@ -199,7 +207,26 @@ export class PriceService {
       throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
     }
 
+    // Fail CLOSED on a thin reference pool. When the guard falls back to
+    // DexScreener (CoinGecko miss), the reference must come from a pool deep
+    // enough that it can't be cheaply manipulated in lockstep with the swap pool —
+    // otherwise the "independent" check isn't independent. Below the floor we
+    // throw so the buyback skips (funds stay safe) rather than validate against a
+    // manipulable price. Floor is env-tunable so ops can adjust without a deploy.
+    const deepestLiquidityUsd = Number(deepest?.liquidity?.usd) || 0;
+    if (deepestLiquidityUsd < DEXSCREENER_MIN_LIQUIDITY_USD) {
+      throw new Error(
+        `Token ${address}: deepest DexScreener pool has only $${deepestLiquidityUsd.toFixed(0)} liquidity ` +
+          `(floor $${DEXSCREENER_MIN_LIQUIDITY_USD}) — refusing to price off a thin/manipulable pool`,
+      );
+    }
+
     const tokenPrice = Number(priceUsd);
+    // Reject a garbled feed value (units bug, NaN, non-positive) rather than let
+    // it flow into the swap value guard as a real price.
+    if (!Number.isFinite(tokenPrice) || tokenPrice <= 0) {
+      throw new Error(`Token ${address}: DexScreener returned a non-positive/invalid price (${priceUsd})`);
+    }
     this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
     return tokenPrice;
   }

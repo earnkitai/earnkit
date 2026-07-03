@@ -35,10 +35,22 @@ const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000]; // 1m, 5m, 30m, 2h, 12h
 const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18); // ~$0.30 worth on Base
 const TX_RECEIPT_TIMEOUT_MS = 5 * 60_000;
+// A row stuck in a transitional state (WITHDRAWING/SWAPPING/BURNING) longer than
+// this was almost certainly abandoned by a crashed/redeployed worker — every
+// await in the flow either progresses in seconds or throws on its own timeout,
+// so a live worker never holds a transitional row this long. The reaper re-drives
+// it. Well above the max realistic execution wall-clock to avoid racing a live run.
+const STUCK_EXECUTION_TIMEOUT_MS = parseInt(
+  process.env.BUYBACK_STUCK_TIMEOUT_MS ?? String(30 * 60_000),
+  10,
+);
+const TRANSITIONAL_STATUSES = ['WITHDRAWING', 'SWAPPING', 'BURNING'] as const;
 
 const BURN_FN_ABI = parseAbi(['function burn(uint256 amount)']) as Abi;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+// Guards against overlapping poll ticks (see startBuybackExecutorWorker).
+let isTicking = false;
 
 interface RunCtx {
   configId: string;
@@ -92,10 +104,31 @@ async function sendTurnkeySignedTx(
     unsignedTx,
   });
   const txHash = await client.sendRawTransaction({ serializedTransaction: signed });
-  const receipt = await client.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: TX_RECEIPT_TIMEOUT_MS,
-  });
+  // Log the broadcast hash BEFORE awaiting the receipt so a receipt-wait timeout
+  // never loses the on-chain reference.
+  console.log(`[BuybackExecutor] broadcast ${txHash} to ${to} (exec ${ctx.executionId})`);
+  // Heartbeat the claim lease on every on-chain action. The reaper only re-drives
+  // a transitional row whose claimedAt is older than STUCK_EXECUTION_TIMEOUT_MS, so
+  // refreshing it here (each step signs at least one tx) guarantees a still-running
+  // execution — even a slow one with many swap legs — is never reaped and driven a
+  // second time on the same wallet. Best-effort: a DB blip must not fail a broadcast.
+  try {
+    await prisma.buybackExecution.update({
+      where: { id: ctx.executionId },
+      data: { claimedAt: new Date() },
+    });
+  } catch {
+    /* heartbeat is best-effort */
+  }
+  let receipt;
+  try {
+    receipt = await client.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: TX_RECEIPT_TIMEOUT_MS,
+    });
+  } catch {
+    throw new Error(`receipt_timeout:${txHash}`);
+  }
   // A mined-but-reverted tx must NOT be treated as success — otherwise a
   // reverted swap/burn gets recorded COMPLETED and we lose track of funds.
   // (Mirrors the shared-split worker's guard.)
@@ -537,6 +570,7 @@ async function processOne(): Promise<void> {
         attempts: exec.attempts + 1,
         status: 'WITHDRAWING',
         nextAttemptAt: null,
+        claimedAt: new Date(),
       },
     });
     if (claim.count === 0) {
@@ -712,16 +746,60 @@ async function processOne(): Promise<void> {
   }
 }
 
+// Re-drive executions abandoned in a transitional state by a dead worker. Moves
+// them back to RETRYING (or FAILED if attempts are exhausted). Every step of the
+// re-driven execution re-reads live balances (withdraw skips zero balances, swap
+// re-quotes, fee is idempotent via feeTransferHashes, burn re-reads), so a
+// re-drive cannot double-spend. Without this, the one-in-flight unique index
+// would leave the config permanently wedged.
+async function reapStuckExecutions(): Promise<void> {
+  const cutoff = new Date(Date.now() - STUCK_EXECUTION_TIMEOUT_MS);
+  const stuck = await prisma.buybackExecution.findMany({
+    where: {
+      status: { in: [...TRANSITIONAL_STATUSES] },
+      OR: [{ claimedAt: { lt: cutoff } }, { claimedAt: null, startedAt: { lt: cutoff } }],
+    },
+    take: 20,
+  });
+  for (const exec of stuck) {
+    const isFinal = exec.attempts >= MAX_ATTEMPTS;
+    await prisma.buybackExecution.update({
+      where: { id: exec.id },
+      data: {
+        status: isFinal ? 'FAILED' : 'RETRYING',
+        lastError: `reaped_stuck_${exec.status.toLowerCase()}`,
+        nextAttemptAt: isFinal ? null : new Date(),
+        completedAt: isFinal ? new Date() : null,
+      },
+    });
+    console.warn(
+      `[BuybackExecutor] Reaped stuck execution ${exec.id} (was ${exec.status}, claimedAt=${exec.claimedAt?.toISOString() ?? 'null'}) -> ${isFinal ? 'FAILED' : 'RETRYING'}`,
+    );
+    if (isFinal) await maybeDisableAfterFailures(exec.buybackConfigId);
+  }
+}
+
 export function startBuybackExecutorWorker(): void {
   if (intervalHandle) return;
   console.log(
     `[BuybackExecutor] Starting — polling every ${POLL_INTERVAL_MS / 1000}s`,
   );
-  processOne().catch((e) =>
-    console.error('[BuybackExecutor] Initial run error:', e),
-  );
+  const tick = async (): Promise<void> => {
+    // Re-entrancy guard: if a previous tick is still running (a slow execution
+    // holds the loop past POLL_INTERVAL_MS), skip this one. Without it, setInterval
+    // fires overlapping ticks that drive the same execution concurrently.
+    if (isTicking) return;
+    isTicking = true;
+    try {
+      await reapStuckExecutions();
+      await processOne();
+    } finally {
+      isTicking = false;
+    }
+  };
+  tick().catch((e) => console.error('[BuybackExecutor] Initial run error:', e));
   intervalHandle = setInterval(() => {
-    processOne().catch((e) => console.error('[BuybackExecutor] Poll error:', e));
+    tick().catch((e) => console.error('[BuybackExecutor] Poll error:', e));
   }, POLL_INTERVAL_MS);
 }
 

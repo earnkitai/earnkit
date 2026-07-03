@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { snapshotBuybackBalance } from '../lib/buybackBalance';
+import { BuybackAuthError, requireBuybackAuth } from '../lib/buybackAuth';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -50,6 +51,10 @@ router.get('/', async (req: Request, res: Response) => {
         slippageBps: config.slippageBps,
         burnMode: config.burnMode,
         walletAddress: config.walletAddress,
+        // Exposed so the dashboard can build the owner-signed message for
+        // recover/disable (owner = recoveryAddress). Not sensitive — it's the
+        // user's own dev wallet.
+        recoveryAddress: config.recoveryAddress,
         isActive: config.isActive,
         lastCheckedAt: config.lastCheckedAt,
         lastTriggeredAt: config.lastTriggeredAt,
@@ -192,12 +197,21 @@ router.delete('/', async (req: Request, res: Response) => {
     if (!agent.buybackConfig) {
       return res.json({ ok: true, message: 'No buyback config to disable' });
     }
+    // Owner-signed: only the recovery-address owner can disable the buyback.
+    await requireBuybackAuth({
+      owner: agent.buybackConfig.recoveryAddress as `0x${string}`,
+      action: { kind: 'agent-disable', configId: agent.buybackConfig.id },
+      body: req.body,
+    });
     await prisma.buybackConfig.update({
       where: { id: agent.buybackConfig.id },
       data: { isActive: false },
     });
     return res.json({ ok: true });
   } catch (err: any) {
+    if (err instanceof BuybackAuthError) {
+      return res.status(401).json({ error: err.message, reason: err.reason });
+    }
     console.error('[buyback] DELETE error:', err);
     return res.status(500).json({ error: err?.message ?? 'Internal error' });
   }
@@ -329,6 +343,13 @@ router.post('/recover', async (req: Request, res: Response) => {
     if (!agent.buybackConfig) {
       return res.status(400).json({ error: 'No buyback config exists for this agent' });
     }
+    // Owner-signed: the recovery sweep moves ALL wallet funds, so require a
+    // signature from the recovery-address owner.
+    await requireBuybackAuth({
+      owner: agent.buybackConfig.recoveryAddress as `0x${string}`,
+      action: { kind: 'agent-recover', configId: agent.buybackConfig.id },
+      body: req.body,
+    });
     const exec = await prisma.buybackExecution.create({
       data: {
         buybackConfigId: agent.buybackConfig.id,
@@ -339,6 +360,9 @@ router.post('/recover', async (req: Request, res: Response) => {
     });
     return res.json({ ok: true, executionId: exec.id });
   } catch (err: any) {
+    if (err instanceof BuybackAuthError) {
+      return res.status(401).json({ error: err.message, reason: err.reason });
+    }
     // A buyback/recovery is already in flight for this config (unique index).
     if (err?.code === 'P2002') {
       return res.status(409).json({ ok: false, reason: 'in_flight' });
