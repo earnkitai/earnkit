@@ -1,13 +1,16 @@
 import { tokenService, SupportedToken } from './tokenService';
 import { parseUnits, formatUnits } from 'viem';
 
-// Minimum liquidity (USD) a DexScreener pool must have before we'll price a token
-// off it. Below this the pool is cheap to manipulate, so the swap value guard
-// would be validating against a reference an attacker controls. Env-tunable.
-const DEXSCREENER_MIN_LIQUIDITY_USD = (() => {
-  const raw = parseInt(process.env.PRICE_MIN_POOL_LIQUIDITY_USD ?? '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 25_000;
-})();
+// Reference price + the depth of the pool it came from, so the swap value guard
+// can size its liquidity requirement to the trade (a big trade needs a deeper
+// reference than a tiny one). liquidityUsd is null when the price came from a
+// source that doesn't expose pool depth (CoinGecko) — those are already
+// broad-market references, so the guard treats them as adequately deep.
+export interface ReferencePrice {
+  priceUsd: number;
+  liquidityUsd: number | null;
+  source: 'coingecko' | 'dexscreener';
+}
 
 interface PriceCache {
   ethPrice: number;
@@ -180,55 +183,80 @@ export class PriceService {
       }
     } catch { /* fall through to DexScreener */ }
 
-    // Fallback: DexScreener — works for any token with DEX liquidity, no API key needed
-    const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${address.toLowerCase()}`;
-    const dexResponse = await fetch(dexUrl, { method: 'GET', headers: { accept: 'application/json' } });
-
-    if (!dexResponse.ok) {
-      throw new Error(`DexScreener API error: ${dexResponse.status} ${dexResponse.statusText}`);
+    // Fallback: DexScreener — works for any token with DEX liquidity, no API key.
+    // No liquidity floor here — this method just returns a usable price; the swap
+    // value guard applies a trade-proportional depth check via getReferencePrice.
+    const dex = await this.fetchDexScreenerBase(address);
+    if (!dex) {
+      throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
     }
+    this.tokenCache.set(cacheKey, { price: dex.priceUsd, timestamp: now });
+    return dex.priceUsd;
+  }
 
-    const dexData: any = await dexResponse.json();
+  /**
+   * DexScreener price + deepest-Base-pool liquidity for a token. Returns null if
+   * there's no usable Base pair / price. Non-positive/garbled prices are rejected
+   * so a broken feed value never reaches the swap guard.
+   */
+  private async fetchDexScreenerBase(
+    address: string,
+  ): Promise<{ priceUsd: number; liquidityUsd: number } | null> {
+    const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${address.toLowerCase()}`;
+    let dexData: any;
+    try {
+      const dexResponse = await fetch(dexUrl, { method: 'GET', headers: { accept: 'application/json' } });
+      if (!dexResponse.ok) return null;
+      dexData = await dexResponse.json();
+    } catch {
+      return null;
+    }
     // Do NOT assume the API returns pairs liquidity-sorted. Explicitly pick the
-    // DEEPEST pair (on Base). Pricing off a thin/manipulated pair here would
-    // defeat the buyback swap guard, which trusts this as its independent market
-    // reference — the whole point is to not be fooled by a near-empty pool.
+    // DEEPEST Base pair — pricing off a thin pair would defeat the guard.
     const allPairs: any[] = Array.isArray(dexData?.pairs) ? dexData.pairs : [];
     const basePairs = allPairs.filter((p) => p?.chainId === 'base');
     const candidates = basePairs.length ? basePairs : allPairs;
+    if (!candidates.length) return null;
     const deepest = candidates.reduce(
-      (best, p) =>
-        (Number(p?.liquidity?.usd) || 0) > (Number(best?.liquidity?.usd) || 0) ? p : best,
+      (best, p) => ((Number(p?.liquidity?.usd) || 0) > (Number(best?.liquidity?.usd) || 0) ? p : best),
       candidates[0],
     );
-    const priceUsd = deepest?.priceUsd;
+    const priceUsd = Number(deepest?.priceUsd);
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+    return { priceUsd, liquidityUsd: Number(deepest?.liquidity?.usd) || 0 };
+  }
 
-    if (priceUsd === undefined || priceUsd === null) {
-      throw new Error(`No price data found for ${address} from CoinGecko or DexScreener`);
+  /**
+   * Reference price for the swap value guard — works for ANY token, not just the
+   * SUPPORTED_TOKENS registry. Prefers CoinGecko (broad-market, pool-independent),
+   * falls back to the deepest Base DexScreener pool. Returns that pool's depth when
+   * the price is DEX-derived so the guard can require liquidity proportional to the
+   * trade size. Throws (fail-closed) when no price is available at all — a token we
+   * cannot price independently is never swapped.
+   */
+  async getReferencePrice(address: string): Promise<ReferencePrice> {
+    const registry = tokenService.getTokenByAddress(address);
+    const platformId = registry?.coingeckoPlatformId ?? 'base';
+    try {
+      const headers: Record<string, string> = { accept: 'application/json' };
+      if (this.COINGECKO_API_KEY) headers['x-cg-pro-api-key'] = this.COINGECKO_API_KEY;
+      const url = `${this.COINGECKO_API_URL}/simple/token_price/${platformId}?contract_addresses=${address.toLowerCase()}&vs_currencies=usd`;
+      const response = await fetch(url, { method: 'GET', headers });
+      if (response.ok) {
+        const data: any = await response.json();
+        const price = Number(data[address.toLowerCase()]?.usd);
+        if (Number.isFinite(price) && price > 0) {
+          return { priceUsd: price, liquidityUsd: null, source: 'coingecko' };
+        }
+      }
+    } catch {
+      /* fall through to DexScreener */
     }
-
-    // Fail CLOSED on a thin reference pool. When the guard falls back to
-    // DexScreener (CoinGecko miss), the reference must come from a pool deep
-    // enough that it can't be cheaply manipulated in lockstep with the swap pool —
-    // otherwise the "independent" check isn't independent. Below the floor we
-    // throw so the buyback skips (funds stay safe) rather than validate against a
-    // manipulable price. Floor is env-tunable so ops can adjust without a deploy.
-    const deepestLiquidityUsd = Number(deepest?.liquidity?.usd) || 0;
-    if (deepestLiquidityUsd < DEXSCREENER_MIN_LIQUIDITY_USD) {
-      throw new Error(
-        `Token ${address}: deepest DexScreener pool has only $${deepestLiquidityUsd.toFixed(0)} liquidity ` +
-          `(floor $${DEXSCREENER_MIN_LIQUIDITY_USD}) — refusing to price off a thin/manipulable pool`,
-      );
+    const dex = await this.fetchDexScreenerBase(address);
+    if (!dex) {
+      throw new Error(`No reference price for ${address} (CoinGecko + DexScreener both empty)`);
     }
-
-    const tokenPrice = Number(priceUsd);
-    // Reject a garbled feed value (units bug, NaN, non-positive) rather than let
-    // it flow into the swap value guard as a real price.
-    if (!Number.isFinite(tokenPrice) || tokenPrice <= 0) {
-      throw new Error(`Token ${address}: DexScreener returned a non-positive/invalid price (${priceUsd})`);
-    }
-    this.tokenCache.set(cacheKey, { price: tokenPrice, timestamp: now });
-    return tokenPrice;
+    return { priceUsd: dex.priceUsd, liquidityUsd: dex.liquidityUsd, source: 'dexscreener' };
   }
 
   /**
