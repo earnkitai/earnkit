@@ -130,7 +130,15 @@ export async function createBuybackSubOrgWallet(params: {
         oauthProviders: [],
       },
     ],
-    rootQuorumThreshold: 1,
+    // 2-of-3 root quorum: no SINGLE key can authorize a signing/root activity.
+    // Normal buyback signing = parent-admin (submits) + co-signer (approves) = 2
+    // stamps, which meets the threshold; the customer is the 3rd root user for
+    // self-recovery. Critically, the backend's parent-admin key ALONE is only 1
+    // stamp, so a Railway compromise can no longer sign anything or alter the
+    // quorum/policy — it always needs the off-host co-signer, which validates the
+    // operation shape. (Was 1, which let the parent-admin key act unilaterally
+    // and bypass both the policy and the co-signer.)
+    rootQuorumThreshold: 2,
     wallet: {
       walletName: 'buyback-wallet',
       accounts: [
@@ -255,6 +263,33 @@ export async function listSubOrgPolicies(subOrgId: string): Promise<
 export async function deleteSubOrgPolicy(subOrgId: string, policyId: string): Promise<void> {
   const client = getApiClient();
   await client.deletePolicy({ organizationId: subOrgId, policyId });
+}
+
+/** All users in a sub-org (id + name). */
+export async function getSubOrgUsers(
+  subOrgId: string,
+): Promise<Array<{ userId: string; userName: string }>> {
+  const client = getApiClient();
+  const resp = await client.getUsers({ organizationId: subOrgId });
+  const users = (resp.users ?? []) as Array<{ userId?: string; userName?: string }>;
+  return users
+    .filter((u) => !!u.userId)
+    .map((u) => ({ userId: u.userId as string, userName: u.userName ?? '' }));
+}
+
+/**
+ * Set the sub-org's root quorum threshold over the given user set. Used to raise
+ * legacy 1-of-N sub-orgs to 2-of-N so the backend's parent-admin key can no
+ * longer act unilaterally. While the current threshold is still 1, this activity
+ * needs only the parent-admin stamp; after it lands, everything needs 2.
+ */
+export async function setRootQuorum(
+  subOrgId: string,
+  threshold: number,
+  userIds: string[],
+): Promise<void> {
+  const client = getApiClient();
+  await client.updateRootQuorum({ organizationId: subOrgId, threshold, userIds });
 }
 
 /**

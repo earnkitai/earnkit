@@ -600,6 +600,89 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/shared-buyback/:id/recover
+ * Owner-signed. Queues a recovery execution that sweeps all funds from the
+ * buyback wallet back to the config's recoveryAddress. Works on any status
+ * (including BROKEN/PAUSED) — that's exactly when funds get stranded.
+ */
+router.post('/:id/recover', async (req: Request, res: Response) => {
+  try {
+    const config = await prisma.sharedSplitBuybackConfig.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!config) return res.status(404).json({ error: 'Not found' });
+
+    await requireBuybackAuth({
+      owner: config.ownerAddress as `0x${string}`,
+      action: { kind: 'recover', configId: config.id },
+      body: req.body,
+    });
+
+    if (!config.walletAddress || !config.turnkeySubOrgId) {
+      return res.status(400).json({ error: 'Wallet not provisioned — nothing to recover' });
+    }
+
+    const execution = await prisma.sharedSplitExecution.create({
+      data: {
+        configId: config.id,
+        triggerBalanceUsd: 0,
+        assetsIn: { intent: 'recover' },
+      },
+    });
+    return res.json({ ok: true, executionId: execution.id });
+  } catch (err: unknown) {
+    if (err instanceof BuybackAuthError) {
+      return res.status(401).json({ error: err.message, reason: err.reason });
+    }
+    // A buyback/recovery is already in flight for this config (unique index).
+    if ((err as { code?: string })?.code === 'P2002') {
+      return res.status(409).json({ ok: false, reason: 'in_flight' });
+    }
+    const message = err instanceof Error ? err.message : 'Internal error';
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/shared-buyback/:id/reactivate
+ * Owner-signed. Resets a BROKEN/PAUSED config back to ACTIVE (e.g. after fixing
+ * pool config or recovering funds). Only valid from BROKEN/PAUSED.
+ */
+router.post('/:id/reactivate', async (req: Request, res: Response) => {
+  try {
+    const config = await prisma.sharedSplitBuybackConfig.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!config) return res.status(404).json({ error: 'Not found' });
+
+    await requireBuybackAuth({
+      owner: config.ownerAddress as `0x${string}`,
+      action: { kind: 'reactivate', configId: config.id },
+      body: req.body,
+    });
+
+    if (config.status !== 'BROKEN' && config.status !== 'PAUSED') {
+      return res.status(400).json({ error: `Config is not BROKEN/PAUSED (status: ${config.status})` });
+    }
+    if (!config.walletAddress) {
+      return res.status(400).json({ error: 'Wallet not yet provisioned' });
+    }
+
+    await prisma.sharedSplitBuybackConfig.update({
+      where: { id: config.id },
+      data: { status: 'ACTIVE', isActive: true },
+    });
+    return res.json({ ok: true });
+  } catch (err: unknown) {
+    if (err instanceof BuybackAuthError) {
+      return res.status(401).json({ error: err.message, reason: err.reason });
+    }
+    const message = err instanceof Error ? err.message : 'Internal error';
+    return res.status(500).json({ error: message });
+  }
+});
+
+/**
  * GET /api/shared-buyback/:id/executions
  * Last 20 executions.
  */

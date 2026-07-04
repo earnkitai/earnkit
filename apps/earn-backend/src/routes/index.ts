@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { createHash, timingSafeEqual } from 'crypto';
 import trackRoutes from './track';
 import captureRoutes from './capture';
 import releaseRoutes from './release';
@@ -43,10 +44,20 @@ router.use('/agents/:agentId/buyback', buybackRoutes);
 router.use('/shared-buyback', sharedBuybackRoutes);
 router.use('/gift-codes', giftCodesRoutes);
 
+// Constant-time secret comparison — avoids a timing side-channel that a
+// byte-by-byte `!==` leaks. Both sides are SHA-256'd first so lengths always
+// match (timingSafeEqual requires equal-length buffers) and the header length
+// isn't leaked either. Missing/empty secret fails closed.
+function secretMatches(provided: unknown, expected: string | undefined): boolean {
+  if (!expected || typeof provided !== 'string') return false;
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 // Debug routes — require ADMIN_API_KEY header regardless of environment
 const adminAuth = (req: Request, res: Response, next: NextFunction): void => {
-  const adminKey = process.env.ADMIN_API_KEY;
-  if (!adminKey || req.headers['x-admin-key'] !== adminKey) {
+  if (!secretMatches(req.headers['x-admin-key'], process.env.ADMIN_API_KEY)) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }
@@ -57,8 +68,7 @@ router.use('/debug', adminAuth, debugRoutes);
 
 // Internal routes — require INTERNAL_API_SECRET header; not exposed publicly
 const internalAuth = (req: Request, res: Response, next: NextFunction): void => {
-  const secret = process.env.INTERNAL_API_SECRET;
-  if (!secret || req.headers['x-internal-secret'] !== secret) {
+  if (!secretMatches(req.headers['x-internal-secret'], process.env.INTERNAL_API_SECRET)) {
     res.status(403).json({ error: 'Forbidden' });
     return;
   }

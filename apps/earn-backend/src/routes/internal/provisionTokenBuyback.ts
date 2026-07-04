@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { isAddress, getAddress } from 'viem';
+import { isAddress, getAddress, erc20Abi, parseUnits } from 'viem';
 import {
   createBuybackSubOrgWallet,
   attachBuybackPolicy,
@@ -12,8 +12,55 @@ import {
   TokenSafetyError,
 } from '../../lib/tokenSafety';
 import { SUPPORTED_TOKENS } from '../../services/tokenService';
-import { SPLIT_NATIVE_TOKEN_ADDRESS } from '../../lib/splitsWarehouse';
+import { SPLIT_NATIVE_TOKEN_ADDRESS, getBasePublicClient } from '../../lib/splitsWarehouse';
+import { buildV4SwapPlan, estimateV4Output } from '../../lib/uniswapV4';
 import { prisma } from '../../lib/prisma';
+
+// Fail CLOSED at activation: verify the supplied V4 pool key resolves to a real,
+// tradable pool BEFORE the config goes ACTIVE. This is the direct fix for the
+// Clanker wrong-pool incident — a wrong hook / fee / tickSpacing (or params copied
+// from a different token) yields a poolId with no liquidity, so the probe returns
+// 0 and we refuse to activate rather than let the worker swap into that pool.
+// Protocol-agnostic: it checks the exact pool key the worker will swap against, so
+// Clanker, Doppler, and vanilla-V4 tokens are all covered without special-casing.
+async function assertV4PoolTradable(p: {
+  tokenAddress: `0x${string}`;
+  pairedToken: `0x${string}`;
+  hook: `0x${string}`;
+  fee: number;
+  tickSpacing: number;
+}): Promise<void> {
+  const client = getBasePublicClient();
+  let decimals = 18;
+  try {
+    decimals = Number(
+      await client.readContract({ address: p.pairedToken, abi: erc20Abi, functionName: 'decimals' }),
+    );
+  } catch {
+    /* default 18 — a decimals read failure shouldn't block; the probe amount is nominal */
+  }
+  const plan = buildV4SwapPlan({
+    tokenAddress: p.tokenAddress,
+    pairedToken: p.pairedToken,
+    hook: p.hook,
+    fee: p.fee,
+    tickSpacing: p.tickSpacing,
+    inputCurrency: p.pairedToken,
+  });
+  const out = await estimateV4Output({
+    plan,
+    amountIn: parseUnits('0.001', decimals),
+    client,
+  });
+  if (out <= BigInt(0)) {
+    throw new TokenSafetyError(
+      'v4_pool_not_tradable',
+      `No live Uniswap V4 pool for token=${p.tokenAddress} with hook=${p.hook} fee=${p.fee} ` +
+        `tickSpacing=${p.tickSpacing} paired=${p.pairedToken}. Refusing to activate — these params ` +
+        `would swap into a wrong/empty pool.`,
+    );
+  }
+}
 
 /**
  * Two-phase provisioning for Doppler token-creation buyback.
@@ -131,31 +178,6 @@ async function runActivation(
   }
   const tokenAddress = getAddress(rawToken) as `0x${string}`;
 
-  const swapVenue = body.swapVenue ?? 'UNISWAP_V3';
-  let v4PoolHook: `0x${string}` | null = null;
-  let v4PairedToken: `0x${string}` | null = null;
-  let v4TickSpacing: number | null = null;
-  let v4FeeFlag: number | null = null;
-
-  if (swapVenue === 'UNISWAP_V4') {
-    if (!body.v4PoolHook || !isAddress(body.v4PoolHook)) {
-      return { ok: false, status: 400, error: 'v4PoolHook is required for UNISWAP_V4 venue' };
-    }
-    if (!body.v4PairedToken || !isAddress(body.v4PairedToken)) {
-      return { ok: false, status: 400, error: 'v4PairedToken is required for UNISWAP_V4 venue' };
-    }
-    if (typeof body.v4TickSpacing !== 'number') {
-      return { ok: false, status: 400, error: 'v4TickSpacing is required for UNISWAP_V4 venue' };
-    }
-    if (typeof body.v4FeeFlag !== 'number') {
-      return { ok: false, status: 400, error: 'v4FeeFlag is required for UNISWAP_V4 venue' };
-    }
-    v4PoolHook = getAddress(body.v4PoolHook) as `0x${string}`;
-    v4PairedToken = getAddress(body.v4PairedToken) as `0x${string}`;
-    v4TickSpacing = body.v4TickSpacing;
-    v4FeeFlag = body.v4FeeFlag;
-  }
-
   const config = await prisma.sharedSplitBuybackConfig.findUnique({ where: { id: configId } });
   if (!config) {
     return { ok: false, status: 404, error: `config ${configId} not found` };
@@ -178,6 +200,57 @@ async function runActivation(
     };
   }
 
+  // Resolve the swap venue with DOWNGRADE PROTECTION. A config that already
+  // carries valid V4 pool params must never be silently flipped back to V3 — a
+  // retry/re-activate that omitted swapVenue would otherwise null the pool key
+  // and route the buyback down the wrong-pool V3 path. When the venue is left
+  // unspecified we keep whatever the config already is.
+  const storedIsV4 =
+    config.swapVenue === 'UNISWAP_V4' &&
+    !!config.v4PoolHook &&
+    !!config.v4PairedToken &&
+    config.v4TickSpacing != null &&
+    config.v4FeeFlag != null;
+  const swapVenue: 'UNISWAP_V3' | 'UNISWAP_V4' =
+    body.swapVenue ?? (storedIsV4 ? 'UNISWAP_V4' : 'UNISWAP_V3');
+  if (storedIsV4 && swapVenue !== 'UNISWAP_V4') {
+    return {
+      ok: false,
+      status: 400,
+      error: `config ${configId} is already UNISWAP_V4; refusing to downgrade to ${swapVenue}. Re-send with swapVenue=UNISWAP_V4 and the pool params.`,
+    };
+  }
+
+  let v4PoolHook: `0x${string}` | null = null;
+  let v4PairedToken: `0x${string}` | null = null;
+  let v4TickSpacing: number | null = null;
+  let v4FeeFlag: number | null = null;
+
+  if (swapVenue === 'UNISWAP_V4') {
+    // Prefer explicitly-supplied params; fall back to already-stored ones so a
+    // retry that keeps venue V4 but omits the params still works.
+    const hook = body.v4PoolHook ?? config.v4PoolHook ?? undefined;
+    const paired = body.v4PairedToken ?? config.v4PairedToken ?? undefined;
+    const tick = body.v4TickSpacing ?? config.v4TickSpacing ?? undefined;
+    const feeFlag = body.v4FeeFlag ?? config.v4FeeFlag ?? undefined;
+    if (!hook || !isAddress(hook)) {
+      return { ok: false, status: 400, error: 'v4PoolHook is required for UNISWAP_V4 venue' };
+    }
+    if (!paired || !isAddress(paired)) {
+      return { ok: false, status: 400, error: 'v4PairedToken is required for UNISWAP_V4 venue' };
+    }
+    if (typeof tick !== 'number') {
+      return { ok: false, status: 400, error: 'v4TickSpacing is required for UNISWAP_V4 venue' };
+    }
+    if (typeof feeFlag !== 'number') {
+      return { ok: false, status: 400, error: 'v4FeeFlag is required for UNISWAP_V4 venue' };
+    }
+    v4PoolHook = getAddress(hook) as `0x${string}`;
+    v4PairedToken = getAddress(paired) as `0x${string}`;
+    v4TickSpacing = tick;
+    v4FeeFlag = feeFlag;
+  }
+
   // Persist attempt metadata BEFORE the attempt so a hard crash mid-attempt
   // still leaves a trail. pendingTokenAddress is the canonical address we'll
   // retry with on subsequent calls.
@@ -198,6 +271,19 @@ async function runActivation(
   try {
     await assertHasCode(tokenAddress);
     const meta = await getTokenMeta(tokenAddress);
+
+    // Fail closed: a V4 config only goes ACTIVE if its pool key is actually
+    // tradable on-chain. Prevents wrong-pool metadata (the Clanker incident) from
+    // ever reaching the swap path.
+    if (swapVenue === 'UNISWAP_V4') {
+      await assertV4PoolTradable({
+        tokenAddress,
+        pairedToken: v4PairedToken!,
+        hook: v4PoolHook!,
+        fee: v4FeeFlag!,
+        tickSpacing: v4TickSpacing!,
+      });
+    }
 
     const canDead = await canReceiveDead(tokenAddress);
     let burnMode: 'DEAD_ADDRESS' | 'TOKEN_BURN_FN';

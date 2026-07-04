@@ -26,7 +26,8 @@ export class TokenSafetyError extends Error {
       | 'no_liquidity'
       | 'honeypot'
       | 'cannot_receive_dead'
-      | 'no_burn_function',
+      | 'no_burn_function'
+      | 'v4_pool_not_tradable',
     message: string,
   ) {
     super(message);

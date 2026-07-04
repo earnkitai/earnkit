@@ -23,7 +23,12 @@ export type BuybackAction =
   | { kind: 'patch'; configId: string; thresholdUsd: number }
   | { kind: 'delete'; configId: string }
   | { kind: 'check'; configId: string }
-  | { kind: 'check-activation'; configId: string };
+  | { kind: 'check-activation'; configId: string }
+  | { kind: 'recover'; configId: string }
+  | { kind: 'reactivate'; configId: string }
+  // Per-agent buyback owner-signed actions (owner = recoveryAddress).
+  | { kind: 'agent-recover'; configId: string }
+  | { kind: 'agent-disable'; configId: string };
 
 export function buildAuthMessage(args: {
   owner: string;
@@ -73,6 +78,18 @@ export function buildAuthMessage(args: {
       break;
     case 'check-activation':
       lines.push('action: check-activation', `config: ${args.action.configId}`);
+      break;
+    case 'recover':
+      lines.push('action: recover', `config: ${args.action.configId}`);
+      break;
+    case 'reactivate':
+      lines.push('action: reactivate', `config: ${args.action.configId}`);
+      break;
+    case 'agent-recover':
+      lines.push('action: agent-recover', `config: ${args.action.configId}`);
+      break;
+    case 'agent-disable':
+      lines.push('action: agent-disable', `config: ${args.action.configId}`);
       break;
   }
   return lines.join('\n');

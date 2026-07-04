@@ -44,8 +44,12 @@ export async function POST(req: NextRequest, { params }: { params: Params }) {
 export async function DELETE(_req: NextRequest, { params }: { params: Params }) {
   try {
     const agentId = (await params).id;
+    // Forward the owner-signature body (agent-disable is owner-signed).
+    const body = await _req.text();
     const response = await fetch(`${backendUrl}/api/agents/${agentId}/buyback`, {
       method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: body || '{}',
     });
     const data = await response.json();
     return NextResponse.json(data, { status: response.status });
