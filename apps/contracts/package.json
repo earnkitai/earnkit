@@ -1,9 +1,0 @@
-{
-  "name": "@earnkit/contracts",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Canonical EarnKit smart contract sources and ABI publishing boundary",
-  "files": [
-    "contracts"
-  ]
-}
