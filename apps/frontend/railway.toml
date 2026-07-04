@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+buildCommand = "pnpm install && pnpm build:frontend"
+watchPatterns = ["/apps/frontend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
+
+[deploy]
+startCommand = "pnpm start:frontend"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+

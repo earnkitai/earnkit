@@ -1,0 +1,127 @@
+# EarnKit
+
+EarnKit is a monetization toolkit for AI agents. It lets developers add usage-based billing and automatically convert a portion of that revenue into buy pressure for their token — on-chain, with zero manual steps.
+
+Platform fee: 0%. Developers keep 100% of revenue (minus whatever they allocate to buyback).
+
+---
+
+## Getting Credentials
+
+Before writing any code, you need an `agentId` and `apiKey` from the EarnKit dashboard.
+
+1. Go to **https://app.earnkit.com** and sign up or log in.
+2. Click **"Create Agent"** and fill in:
+   - Agent name
+   - Price per call (in credits)
+   - Buyback % and token address (optional — can skip for now)
+3. After creating the agent, open it and go to the **API Keys** tab.
+4. Copy your **Agent ID** and **API Key**.
+5. Add them to your environment:
+
+```
+EARNKIT_AGENT_ID=your_agent_id_here
+EARNKIT_API_KEY=your_api_key_here
+```
+
+---
+
+## Installation
+
+```
+npm install earnkit-sdk
+```
+
+---
+
+## Initialization
+
+```typescript
+import { EarnKit } from 'earnkit-sdk';
+
+const agent = new EarnKit({
+  agentId: process.env.EARNKIT_AGENT_ID!,
+  apiKey:  process.env.EARNKIT_API_KEY!,
+});
+```
+
+Both `agentId` and `apiKey` are obtained from the EarnKit dashboard after creating an agent.
+
+---
+
+## Core Billing Pattern: track / capture / release
+
+EarnKit uses a hold-then-settle model so users are never charged for a failed AI response.
+
+```typescript
+async function run(prompt: string, walletAddress: string) {
+  // 1. Hold credits before the AI call
+  const { eventId } = await agent.track({ walletAddress });
+
+  try {
+    // 2. Run your AI
+    const result = await yourAIModel(prompt);
+
+    // 3. Settle the charge on success
+    await agent.capture({ eventId });
+
+    return result;
+  } catch (err) {
+    // 4. Refund the hold on failure
+    await agent.release({ eventId });
+    throw err;
+  }
+}
+```
+
+### Method reference
+
+**`agent.track({ walletAddress })`**
+Reserves credits for the upcoming AI call. Returns `{ eventId }`.
+
+**`agent.capture({ eventId })`**
+Finalises the charge. Call this after a successful AI response.
+
+**`agent.release({ eventId })`**
+Cancels the hold and refunds the credits. Call this if the AI call fails or errors.
+
+---
+
+## Auto Buyback & Burn
+
+EarnKit's flagship feature. A configurable percentage of every top-up is automatically routed to an on-chain wallet that swaps accumulated fees to the developer's token and burns them via Uniswap V3 on Base.
+
+- Configured at agent creation time in the dashboard (not in code)
+- Set a **buyback %**, **token address** (any ERC-20 on Base), and **USD threshold**
+- Once accumulated fees cross the threshold, EarnKit executes: withdraw → swap → burn
+- Burn is done by calling `burn()` on the token contract, or transferring to `0x000...dEaD` if `burn()` is not implemented
+- The split contract is immutable — the wallet address is baked in at deploy time and cannot be changed
+
+### Revenue split example (10% buyback)
+
+```
+$100 in user top-ups
+  ├── $90  → developer wallet (instant)
+  └── $10  → buyback wallet → swapped to token → burned
+```
+
+---
+
+## Payments
+
+Users top up with ETH, USDC, or MINIDEV on Base. Payment logic is server-side; the client signs a standard transaction. Credits are stored off-chain for instant, gas-free per-prompt billing.
+
+---
+
+## Environment Variables
+
+| Variable             | Description                              |
+|----------------------|------------------------------------------|
+| `EARNKIT_AGENT_ID`   | Agent ID from the EarnKit dashboard      |
+| `EARNKIT_API_KEY`    | API key from the EarnKit dashboard       |
+
+---
+
+## Full Documentation
+
+https://docs.earnkit.com
