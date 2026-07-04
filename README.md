@@ -8,15 +8,13 @@ land in their balance; developers withdraw to any wallet.
 
 ```
 apps/
-  earn-backend/     API server (track/capture/release, top-up, payment intents,
-                    verification worker). Read PAYMENTS.md before changing
-                    money-handling code.
-  dashboard/        Next.js dev dashboard. Mints EIP-712 withdrawal sigs.
-  contracts/        EarnKitEscrow.sol — per-agent ETH + ERC-20 custody.
-  packages/earn/    The @earnkit/earn npm SDK (TypeScript).
-  agent-backend/    Agent runtime (separate concern from billing).
-  earny-app/, earny-home/, blogs/, frontend/   Marketing + apps.
-scripts/            One-shot operational scripts. All take secrets via env.
+  earn-backend/       API server (track/capture/release, top-up, payment intents,
+                      verification worker + buyback). On-chain escrow lives in
+                      contract/earnkit.sol.
+  dashboard/          Next.js dev dashboard. Mints EIP-712 withdrawal sigs.
+  buyback-cosigner/   Cloudflare Worker holding the second Turnkey stamper key
+                      for the auto-buyback two-stamper policy.
+  packages/earn/      The @earnkit/earn npm SDK (TypeScript, published).
 ```
 
 ## Where to start
@@ -24,11 +22,9 @@ scripts/            One-shot operational scripts. All take secrets via env.
 | If you're… | Read |
 |---|---|
 | Integrating the SDK | [`apps/packages/earn/README.md`](apps/packages/earn/README.md) |
-| Touching anything that moves money | **[`apps/earn-backend/PAYMENTS.md`](apps/earn-backend/PAYMENTS.md)** |
-| Working on the API server | [`apps/earn-backend/README.md`](apps/earn-backend/README.md) |
-| Working on the dashboard | [`apps/dashboard/README.md`](apps/dashboard/README.md) |
-| Deploying / configuring envs | [`apps/DEPLOY.md`](apps/DEPLOY.md) |
-| Reading the on-chain logic | [`apps/contracts/contracts/EarnKitEscrow.sol`](apps/contracts/contracts/EarnKitEscrow.sol) |
+| Working on the API server / SDK flow | [`apps/earn-backend/SDK_FEATURES_AND_FLOW.md`](apps/earn-backend/SDK_FEATURES_AND_FLOW.md) |
+| Working on the buyback co-signer | [`apps/buyback-cosigner/README.md`](apps/buyback-cosigner/README.md) |
+| Reading the on-chain logic | [`apps/earn-backend/contract/earnkit.sol`](apps/earn-backend/contract/earnkit.sol) |
 
 ## Local setup
 
