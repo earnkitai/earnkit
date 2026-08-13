@@ -12,7 +12,7 @@ import { PaymentIntentService } from '../services/paymentIntentService';
 
 // Poll cadence — the top-up modal is interactive, so we want first attempt
 // within ~10s of recordPaymentSeen rather than the legacy worker's 30s.
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = parseInt(process.env.PI_VERIFIER_POLL_INTERVAL_MS ?? String(10_000), 10);
 const BATCH_LIMIT = 50;
 
 const publicClient = createPublicClient({

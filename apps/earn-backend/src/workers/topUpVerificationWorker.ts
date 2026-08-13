@@ -2,7 +2,7 @@ import { prisma } from '../lib/prisma';
 import { BalanceService } from '../services/balanceService';
 import { TopUpService } from '../services/topUpService';
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = parseInt(process.env.TOPUP_POLL_INTERVAL_MS ?? String(30_000), 10);
 const MAX_ATTEMPTS = 10;
 // Retry back-off: attempt N waits N * BASE_DELAY_MS before next attempt
 const BASE_DELAY_MS = 15_000;

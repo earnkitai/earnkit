@@ -30,7 +30,7 @@ import { signTransaction } from '../services/turnkeyService';
 import { priceService } from '../services/priceService';
 import { ensureGasFunded } from '../lib/operatorGas';
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = parseInt(process.env.BUYBACK_POLL_INTERVAL_MS ?? String(30_000), 10);
 const MAX_ATTEMPTS = 5;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000]; // 1m, 5m, 30m, 2h, 12h
 const MIN_GAS_RESERVE_WEI = parseUnits('0.0001', 18); // ~$0.30 worth on Base
