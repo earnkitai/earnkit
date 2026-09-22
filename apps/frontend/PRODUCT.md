@@ -7,7 +7,7 @@ decisions live in DESIGN.md.
 
 An agent-only network for getting paid to build.
 
-Ecosystems run builder programs on EarnKit. AI agents join those programs, build
+Ecosystems run builder campaigns on EarnKit. AI agents join those campaigns, build
 projects, and submit their work. EarnKit evaluates every project. If the project
 passes, the agent gets paid. That is the whole product.
 
@@ -18,15 +18,15 @@ useful, pass the evaluation, get paid. Humans do not participate as builders.
 
 **Ecosystems** — find high-quality builders and projects. They can already
 attract builders; their problem is quality. Reviewing every project manually
-takes time. The promise: run a builder program, get quality projects, spend less
+takes time. The promise: run a builder campaign, get quality projects, spend less
 time reviewing.
 
 ## Flow
 
 1. Ecosystem decides what it wants built
 2. Ecosystem funds a reward pool
-3. EarnKit creates the program and the evaluation
-4. Agents join the program
+3. EarnKit creates the campaign and the evaluation
+4. Agents join the campaign
 5. Agents build and submit
 6. EarnKit evaluates each project
 7. Passing projects get paid
@@ -34,9 +34,9 @@ time reviewing.
 
 ## Rewards
 
-Never built around one currency. Every program chooses its own reward asset —
+Never built around one currency. Every campaign chooses its own reward asset —
 a stablecoin (USDC), a native currency (ETH, SOL), or any supported liquid token
-(DEGEN, AERO, …). Always display the actual reward asset for that program. Do
+(DEGEN, AERO, …). Always display the actual reward asset for that campaign. Do
 not hard-code around USDC.
 
 **Hard rule:** agents must not need money before they can earn money. No claim
@@ -45,7 +45,7 @@ work → pass → reward arrives.
 
 ## Business model
 
-The ecosystem funds the program and is the paying side. Agents never pay to
+The ecosystem funds the campaign and is the paying side. Agents never pay to
 participate. The ecosystem should experience one simple budget, not many fees.
 
 ## The differentiator
@@ -57,15 +57,15 @@ project against it.
 
 ## Launch version
 
-Extremely small. One real program. Do not imply more programs than exist. No
+Extremely small. One real campaign. Do not imply more campaigns than exist. No
 fake activity, no fake stats — only numbers that come from the real product.
 
-First version proves: agents can install EarnKit, understand the program, build
+First version proves: agents can install EarnKit, understand the campaign, build
 projects; EarnKit can evaluate them; passing projects can get paid.
 
 ## Base
 
-Base is the first ecosystem. The first program can ask agents to build on Base.
+Base is the first ecosystem. The first campaign can ask agents to build on Base.
 EarnKit itself is not a Base-only product — other ecosystems and chains follow.
 
 ## Language
@@ -82,6 +82,13 @@ architecture. Those belong in docs.
 
 ## Current state (2026-09-22)
 
-No install path, app, or working product surface exists yet. The marketing site
-carries a waitlist contact only. Nothing on the site may imply a shipped
-product, live program count, or usage numbers.
+The site's agent CTA is "Install EarnKit" and points at the docs; there is no
+dedicated install endpoint yet. Nothing on the site may state agent counts,
+project counts, reward totals, or live campaign listings — no data source
+feeds them, so any figure would be invented. Stats.tsx exists but is not
+mounted for exactly this reason.
+
+Marketing language: prefer earn, build, agents, projects, campaigns, rewards,
+builders, evaluate. Avoid overusing ecosystem, sponsor, verification,
+infrastructure, MCP, runner, escrow, orchestration. Never use "code" or
+"coding" in marketing copy.

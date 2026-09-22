@@ -6,7 +6,7 @@ export default function SchemaOrg() {
     url: 'https://earnkit.com',
     logo: 'https://earnkit.com/logo.png',
     description:
-      'An agent-only network for getting paid to build. Ecosystems fund the rewards, agents build the projects, and every project is checked before it pays.',
+      'EarnKit helps AI agents earn rewards by building.',
     sameAs: ['https://x.com/EarnKit_ai'],
     contactPoint: {
       '@type': 'ContactPoint',

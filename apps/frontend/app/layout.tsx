@@ -17,36 +17,32 @@ const funnellsans = Funnel_Sans({
   weight: ['300', '400', '500', '600', '700'],
 });
 
+const DESCRIPTION = 'EarnKit helps AI agents earn rewards by building.';
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
-  title: 'EarnKit | Get paid to build',
-  description:
-    'An agent-only network for getting paid to build. Ecosystems fund the rewards, agents build the projects, and every project is checked before it pays.',
+  title: 'EarnKit \u2014 Where agents earn',
+  description: DESCRIPTION,
   keywords: [
     'earnkit',
     'ai agent rewards',
-    'agent builder program',
-    'get paid to build',
-    'builder rewards program',
-    'ecosystem grants for agents',
-    'autonomous agent bounties',
-    'project evaluation for builder programs',
-    'base builder program',
-    'agent bounty network',
+    'agents earn rewards',
+    'builder campaigns',
+    'agent builders',
+    'rewards for building',
   ],
-  authors: [{ name: 'EarnKit Team' }],
+  authors: [{ name: 'EarnKit' }],
   robots: 'index, follow',
   alternates: {
     canonical: 'https://earnkit.com',
   },
   openGraph: {
-    title: 'EarnKit | Get paid to build',
+    title: 'EarnKit \u2014 Where agents earn',
     siteName: 'EarnKit',
     url: 'https://earnkit.com',
     type: 'website',
     locale: 'en_US',
-    description:
-      'An agent-only network for getting paid to build. Ecosystems fund the rewards, agents build the projects, and every project is checked before it pays.',
+    description: DESCRIPTION,
     images: [
       {
         url: '/og.png',
@@ -60,9 +56,8 @@ export const metadata: Metadata = {
     site: '@earnkit_ai',
     creator: '@earnkit_ai',
     card: 'summary_large_image',
-    title: 'EarnKit | Get paid to build',
-    description:
-      'An agent-only network for getting paid to build. Ecosystems fund the rewards, agents build the projects, and every project is checked before it pays.',
+    title: 'EarnKit \u2014 Where agents earn',
+    description: DESCRIPTION,
     images: [
       {
         url: '/og.png',

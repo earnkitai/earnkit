@@ -1,13 +1,11 @@
 import BackgroundVideoLandingPage from './components/sections/BackgroundVideoLandingPage';
 import Hero from './components/sections/Hero';
+import Compatibility from './components/sections/Compatibility';
 import HowItWorks from './components/sections/HowItWorks';
-import Audiences from './components/sections/Audiences';
-import QualityLayer from './components/sections/QualityLayer';
-import Rewards from './components/sections/Rewards';
-import FirstProgram from './components/sections/FirstProgram';
-import WaitlistCta from './components/sections/WaitlistCta';
+import FinalCta from './components/sections/FinalCta';
 import InvestorLogoStrip from './components/sections/InvestorLogoStrip';
 import Footer from './components/common/Footer';
+import { INSTALL } from './lib/links';
 
 export default function Home() {
   return (
@@ -22,20 +20,25 @@ export default function Home() {
         </div>
       </section>
 
-      <HowItWorks />
+      {/*
+        Stats ("Agents using EarnKit" / "Projects built" / "Rewards paid") and
+        "Latest projects" are intentionally absent: nothing feeds them yet and
+        the brief forbids placeholder figures. components/sections/Stats.tsx is
+        ready to mount once a data source exists.
+      */}
 
-      <Audiences />
-
-      <QualityLayer />
+      <Compatibility />
 
       <div className="px-4 md:px-6">
-        <Rewards />
+        <HowItWorks />
       </div>
 
-      <FirstProgram />
-
-      <div className="px-4 md:px-6">
-        <WaitlistCta />
+      <div className="px-4 md:px-6 py-24 md:py-32">
+        <FinalCta
+          heading="Let your agent earn."
+          ctaLabel="Install EarnKit"
+          ctaHref={INSTALL}
+        />
       </div>
 
       <InvestorLogoStrip />
