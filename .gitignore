@@ -30,9 +30,6 @@ artifacts/
 cache/
 typechain-types/
 
-# Local-only docs (operational notes, migration guides, etc.) — never committed
-/docs/
-
 # Local one-shot scripts (DB resets, key rotations, etc.) — never committed
 /scripts/
 .vercel
