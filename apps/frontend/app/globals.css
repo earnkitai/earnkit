@@ -3,8 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --background: rgba(29, 38, 63, 1);
-  --foreground: #171717;
+  --background: #1a2238;
+  --foreground: #e5eefc;
+
+  /* Brand system — see DESIGN.md */
+  --ek-base: #1a2238;
+  --ek-black: #0a0b1a;
+  --ek-navy-deep: #0f1839;
+  --ek-navy: #112969;
+  --ek-blue: #2e70ea;
+  --ek-blue-bright: #579dff;
+  --ek-blue-soft: #a3c5fe;
+  --ek-blue-light: #e5eefc;
 }
 
 /* add the code bellow */
@@ -40,9 +50,54 @@
 }
 
 body {
-  color: white;
-  background: #1d263f;
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ek-blue-light);
+  background: var(--ek-base);
+  font-family: var(--font-funnel-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Browser surfaces are part of the design, not defaults. */
+::selection {
+  background: var(--ek-blue-bright);
+  color: var(--ek-navy-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ek-blue-bright);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+html {
+  scrollbar-color: var(--ek-navy) var(--ek-base);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ek-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ek-navy);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ek-blue-deep, #0d3991);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 .primary-btn {
   background-color: #2563e4;

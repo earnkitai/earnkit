@@ -5,26 +5,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: 'https://earnkit.com',
       lastModified: new Date(),
-      changeFrequency: 'daily',
+      changeFrequency: 'weekly',
       priority: 1,
     },
     {
-      url: 'https://earnkit.com/roadmap',
+      url: 'https://earnkit.com/terms',
       lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.8,
+      changeFrequency: 'yearly',
+      priority: 0.3,
     },
     {
-      url: 'https://earnkit.com/litepaper',
+      url: 'https://earnkit.com/privacy',
       lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.8,
-    },
-    {
-      url: 'https://docs.earnkit.com',
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.7,
+      changeFrequency: 'yearly',
+      priority: 0.3,
     },
   ];
 }
