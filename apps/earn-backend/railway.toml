@@ -1,9 +1,0 @@
-[build]
-builder = "nixpacks"
-nixpacksConfigPath = "apps/earn-backend/nixpacks.toml"
-watchPatterns = ["apps/earn-backend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
-
-[deploy]
-startCommand = "cd apps/earn-backend && pnpm exec prisma migrate deploy --schema=src/prisma/schema.prisma && node dist/index.js"
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
