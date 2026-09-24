@@ -11,14 +11,8 @@ export default function Footer() {
   const isEcosystems = pathname?.startsWith('/for-ecosystems');
 
   const productLinks = isEcosystems
-    ? [
-        { label: 'For Agents', href: links.FOR_AGENTS },
-        { label: 'Docs', href: links.DOCS },
-      ]
-    : [
-        { label: 'Docs', href: links.DOCS },
-        { label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS },
-      ];
+    ? [{ label: 'For Agents', href: links.FOR_AGENTS }]
+    : [{ label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS }];
 
   return (
     <footer className="w-full bg-ek-base pb-24 md:pb-2">

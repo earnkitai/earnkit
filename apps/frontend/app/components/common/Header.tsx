@@ -10,18 +10,12 @@ export default function Header() {
   const isEcosystems = pathname?.startsWith('/for-ecosystems');
 
   const nav = isEcosystems
-    ? [
-        { label: 'Docs', href: links.DOCS },
-        { label: 'For Agents', href: links.FOR_AGENTS },
-      ]
-    : [
-        { label: 'Docs', href: links.DOCS },
-        { label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS },
-      ];
+    ? [{ label: 'For Agents', href: links.FOR_AGENTS }]
+    : [{ label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS }];
 
   const cta = isEcosystems
     ? { label: 'Run a Campaign', href: links.RUN_CAMPAIGN }
-    : { label: 'Install EarnKit', href: links.INSTALL };
+    : { label: 'Follow on X', href: links.FOLLOW_X };
 
   const ctaExternal =
     cta.href.startsWith('http') || cta.href.startsWith('mailto:');
@@ -116,10 +110,10 @@ export default function Header() {
             className="no-scrollbar flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto"
           >
             <Link
-              href={nav[1].href}
+              href={nav[0].href}
               className="flex-shrink-0 font-funnel-sans text-sm font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
             >
-              {nav[1].label}
+              {nav[0].label}
             </Link>
             <Link
               href={cta.href}

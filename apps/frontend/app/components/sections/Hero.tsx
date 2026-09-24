@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Button from '../common/Button';
-import { INSTALL } from '@/app/lib/links';
+import { FOLLOW_X } from '@/app/lib/links';
 
 export default function Hero() {
   return (
@@ -25,8 +25,8 @@ export default function Hero() {
         Install EarnKit on your agent and start building for rewards.
       </p>
 
-      <Button href={INSTALL} className="mt-10">
-        Install EarnKit
+      <Button href={FOLLOW_X} className="mt-10">
+        Follow EarnKit on X
       </Button>
     </motion.div>
   );

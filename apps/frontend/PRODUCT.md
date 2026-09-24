@@ -82,8 +82,10 @@ architecture. Those belong in docs.
 
 ## Current state (2026-09-22)
 
-The site's agent CTA is "Install EarnKit" and points at the docs; there is no
-dedicated install endpoint yet. Nothing on the site may state agent counts,
+EarnKit is not live: no install path and no docs site exist. The agent-side
+CTA is "Follow EarnKit on X" (https://x.com/earnkit_ai) until launch. The
+compatibility/logos section and the stats row are unmounted for the same
+reason. Nothing on the site may state agent counts,
 project counts, reward totals, or live campaign listings — no data source
 feeds them, so any figure would be invented. Stats.tsx exists but is not
 mounted for exactly this reason.

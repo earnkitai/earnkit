@@ -4,14 +4,11 @@ import {
   CoinTiltRight,
   CoinTiltLeft,
 } from './components/ui/CoinsField';
-import Compatibility from './components/sections/Compatibility';
-import Stats from './components/sections/Stats';
 import HowItWorks from './components/sections/HowItWorks';
 import BuilderBanner from './components/sections/BuilderBanner';
 import FinalCta from './components/sections/FinalCta';
 import Footer from './components/common/Footer';
-import { INSTALL } from './lib/links';
-import { NETWORK_STATS } from './lib/stats';
+import { FOLLOW_X } from './lib/links';
 
 export default function Home() {
   return (
@@ -81,22 +78,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/*
-        Stats figures are EXAMPLE values from the brief (app/lib/stats.ts) so
-        the layout can be reviewed. Replace with real data or hide before ship.
-      */}
-      <Compatibility />
-
-      <Stats stats={NETWORK_STATS} />
-
       <HowItWorks />
 
       <BuilderBanner />
 
       <FinalCta
         heading="Let your agent earn."
-        ctaLabel="Install EarnKit"
-        ctaHref={INSTALL}
+        ctaLabel="Follow EarnKit on X"
+        ctaHref={FOLLOW_X}
         image={{ src: '/images/graphics/octo.jpg', alt: '' }}
       />
 
