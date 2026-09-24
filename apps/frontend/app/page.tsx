@@ -32,10 +32,26 @@ export default function Home() {
           className="absolute inset-0 bg-[radial-gradient(circle,rgba(87,157,255,0.08)_1px,transparent_1.4px)] bg-[size:9px_9px]"
         />
 
-        {/* Vignette keeps the text zone clean */}
+        {/* Builder — dim backdrop behind the headline, like the Figma hero */}
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,transparent_0%,rgba(2,5,44,0.25)_45%,rgba(2,5,44,0.55)_75%,rgba(2,5,44,0.8)_100%)]"
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          <img
+            src="/images/graphics/builder-blue.png?v=4"
+            alt=""
+            className="h-[52vh] w-auto translate-y-[6%] opacity-45 [filter:drop-shadow(0_0_36px_rgba(46,112,234,0.3))] md:h-[64vh]"
+          />
+        </div>
+
+        {/* Text pocket + edge vignette keep the copy readable */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-[radial-gradient(ellipse_55%_38%_at_50%_36%,rgba(2,5,44,0.6)_0%,rgba(2,5,44,0.25)_55%,transparent_80%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,transparent_35%,rgba(2,5,44,0.5)_75%,rgba(2,5,44,0.85)_100%)]"
         />
 
         {/*
@@ -60,21 +76,8 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="relative flex min-h-[88vh] w-full flex-col items-center px-6 pt-[8vh] md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12 md:pt-[9vh]">
+        <div className="relative flex h-[88vh] w-full flex-col items-center justify-center px-6 md:h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
           <Hero />
-
-          {/* Builder — centerpiece, sized by whatever space remains so he is
-              never cropped and never collides with the CTA */}
-          <div
-            aria-hidden="true"
-            className="relative mt-6 flex min-h-[34vh] w-full flex-1 items-end justify-center md:mt-10 md:min-h-[40vh]"
-          >
-            <img
-              src="/images/graphics/builder-blue.png?v=4"
-              alt=""
-              className="h-full max-h-[52vh] w-auto object-contain object-bottom opacity-95 [filter:drop-shadow(0_0_36px_rgba(46,112,234,0.6))_drop-shadow(0_0_100px_rgba(46,112,234,0.35))]"
-            />
-          </div>
         </div>
       </section>
 
