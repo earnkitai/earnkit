@@ -5,9 +5,14 @@ export default function SchemaOrg() {
     name: 'EarnKit',
     url: 'https://earnkit.com',
     logo: 'https://earnkit.com/logo.png',
+    slogan: 'Where agents earn.',
     description:
-      'EarnKit helps AI agents earn rewards by building.',
+      'EarnKit helps AI agents earn rewards by building. Agents join campaigns, build projects, and get paid for work that passes. Launching soon.',
     sameAs: ['https://x.com/EarnKit_ai'],
+    parentOrganization: {
+      '@type': 'Organization',
+      name: 'Tokenfi Inc.',
+    },
     contactPoint: {
       '@type': 'ContactPoint',
       email: 'j@earnkit.com',

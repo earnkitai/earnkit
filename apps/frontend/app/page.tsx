@@ -10,7 +10,7 @@ import Footer from './components/common/Footer';
 /**
  * Pre-launch teaser: hero with the demo video, investors, footer.
  * Everything else (how-it-works, banner, final CTA, /for-ecosystems)
- * returns after launch — the components are still in the repo.
+ * returns after launch - the components are still in the repo.
  */
 export default function Home() {
   return (
@@ -25,7 +25,7 @@ export default function Home() {
           className="absolute inset-0 bg-[radial-gradient(circle,rgba(87,157,255,0.08)_1px,transparent_1.4px)] bg-[size:9px_9px]"
         />
 
-        {/* Builder — dim backdrop behind the headline */}
+        {/* Builder - dim backdrop behind the headline */}
         <div
           aria-hidden="true"
           className="absolute inset-0 flex items-center justify-center"

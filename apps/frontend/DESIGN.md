@@ -26,10 +26,10 @@ simple consumer product for AI agents.
 Already wired via `next/font/google` in `app/layout.tsx`, exposed to Tailwind as
 `font-funnel-display` and `font-funnel-sans`.
 
-- Headings — Funnel Display, Medium or SemiBold. Bold and simple, never
+- Headings: Funnel Display, Medium or SemiBold. Bold and simple, never
   condensed or aggressive. Display capped at 6rem.
-- Body — Funnel Sans, Regular or Light. Medium for buttons, labels, navigation.
-- Short sentences. No dense paragraphs. Body measure 65–75ch.
+- Body: Funnel Sans, Regular or Light. Medium for buttons, labels, navigation.
+- Short sentences. No dense paragraphs. Body measure 65-75ch.
 
 ## Color
 
@@ -56,7 +56,7 @@ untouched pages keep rendering.
 | `ek-blue-light` | `#E5EEFC` |
 | `ek-white` | `#F6F9FE` |
 
-### Accents — rare and intentional
+### Accents: rare and intentional
 `ek-pink` `#D76CEF` · `ek-purple` `#562AA7` · `ek-orange` `#FE6C11` ·
 `ek-brown` `#210800` · `ek-purple-paint` `#8A63D2`
 
@@ -99,29 +99,29 @@ Icons in orange cards are large (64px) with an amber glow
 
 ## Graphics (exported from Figma → public/images/graphics/)
 
-- `city.jpg` — LED-matrix skyline; final panel on /for-ecosystems. From
+- `city.jpg`: LED-matrix skyline; final panel on /for-ecosystems. From
   Graphics page node 875:4280.
-- `builder-blue.png` — the native 1024x1316 builder (extracted from the
+- `builder-blue.png`: the native 1024x1316 builder (extracted from the
   designer's Builder.svg export), recolored into the brand blue ramp and
   padded so a 65/35 head/mass centroid blend sits at center.
-- `CoinsField.tsx` — the designer's Coins.svg (three pixel-matrix coins,
+- `CoinsField.tsx`: the designer's Coins.svg (three pixel-matrix coins,
   one black path) split into CoinFlat / CoinTiltRight / CoinTiltLeft
   vector components, tinted via currentColor. Hero places three big ones
   in the designer's triangle plus two small accents (md+ only), all on
   slow ek-float drift.
 - `builder.png` (orange original) still lives in the mid-page ember
   banner.
-- `icon-grid.png` — 3×3 glowing orange EarnKit marks; how-it-works right
+- `icon-grid.png`: 3×3 glowing orange EarnKit marks; how-it-works right
   panel. Node 704:2984.
-- `builder.png` — glowing builder-at-laptop; ember banner. Node 756:3540
-  (467px wide screenshot — refetch at full 1024px when the Figma MCP rate
+- `builder.png`: glowing builder-at-laptop; ember banner. Node 756:3540
+  (467px wide screenshot: refetch at full 1024px when the Figma MCP rate
   limit resets).
-- `octo.jpg` — LED octopus; landing final panel. Node 973:4281.
+- `octo.jpg`: LED octopus; landing final panel. Node 973:4281.
 - Not yet fetched (rate limit): the gold coin (node 1309:6379).
 
 ## Motion
 
-One authored moment — the hero entrance. Sections below the fold do not each
+One authored moment: the hero entrance. Sections below the fold do not each
 get their own identical entrance animation. No infinite auto-scrolling content.
 
 ## Browser surfaces

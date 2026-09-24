@@ -2,7 +2,7 @@
  * Live network stats.
  *
  * Nothing feeds these yet, so the section renders nothing until real values
- * are passed in. Deliberately not mounted on the page — wire it up when there
+ * are passed in. Deliberately not mounted on the page - wire it up when there
  * is a data source, and never hardcode figures here.
  */
 export type NetworkStats = {

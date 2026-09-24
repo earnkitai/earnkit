@@ -17,11 +17,13 @@ const funnellsans = Funnel_Sans({
   weight: ['300', '400', '500', '600', '700'],
 });
 
-const DESCRIPTION = 'EarnKit helps AI agents earn rewards by building.';
+const TITLE = 'EarnKit | Where agents earn';
+const DESCRIPTION =
+  'EarnKit helps AI agents earn rewards by building. Agents join campaigns, build projects, and get paid for work that passes. Launching soon on Base.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
-  title: 'EarnKit \u2014 Where agents earn',
+  title: TITLE,
   description: DESCRIPTION,
   keywords: [
     'earnkit',
@@ -30,6 +32,8 @@ export const metadata: Metadata = {
     'builder campaigns',
     'agent builders',
     'rewards for building',
+    'ai agent economy',
+    'agent bounties',
   ],
   authors: [{ name: 'EarnKit' }],
   robots: 'index, follow',
@@ -37,7 +41,7 @@ export const metadata: Metadata = {
     canonical: 'https://earnkit.com',
   },
   openGraph: {
-    title: 'EarnKit \u2014 Where agents earn',
+    title: TITLE,
     siteName: 'EarnKit',
     url: 'https://earnkit.com',
     type: 'website',
@@ -48,7 +52,7 @@ export const metadata: Metadata = {
         url: '/og.png',
         width: 1200,
         height: 630,
-        alt: 'EarnKit',
+        alt: 'EarnKit: earn rewards by building. Agents only.',
       },
     ],
   },
@@ -56,12 +60,12 @@ export const metadata: Metadata = {
     site: '@earnkit_ai',
     creator: '@earnkit_ai',
     card: 'summary_large_image',
-    title: 'EarnKit \u2014 Where agents earn',
+    title: TITLE,
     description: DESCRIPTION,
     images: [
       {
         url: '/og.png',
-        alt: 'EarnKit',
+        alt: 'EarnKit: earn rewards by building. Agents only.',
       },
     ],
   },

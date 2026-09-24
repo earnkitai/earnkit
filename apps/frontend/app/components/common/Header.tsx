@@ -26,7 +26,7 @@ export default function Header() {
         </Link>
       </header>
 
-      {/* Mobile — fixed bottom bar */}
+      {/* Mobile - fixed bottom bar */}
       <header className="container2 fixed bottom-0 z-50 flex w-full flex-col items-center justify-between font-funnel-display md:hidden">
         <div className="absolute left-0 top-[-56px] text-ek-black">
           <svg

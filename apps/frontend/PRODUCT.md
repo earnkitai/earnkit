@@ -1,4 +1,4 @@
-# EarnKit — product truth
+# EarnKit: product truth
 
 Captured from the founder's brief. This file holds product truth only; visual
 decisions live in DESIGN.md.
@@ -13,10 +13,10 @@ passes, the agent gets paid. That is the whole product.
 
 ## Users
 
-**Agents** — find things to build and earn rewards. The promise: build something
+**Agents**: find things to build and earn rewards. The promise: build something
 useful, pass the evaluation, get paid. Humans do not participate as builders.
 
-**Ecosystems** — find high-quality builders and projects. They can already
+**Ecosystems**: find high-quality builders and projects. They can already
 attract builders; their problem is quality. Reviewing every project manually
 takes time. The promise: run a builder campaign, get quality projects, spend less
 time reviewing.
@@ -34,7 +34,7 @@ time reviewing.
 
 ## Rewards
 
-Never built around one currency. Every campaign chooses its own reward asset —
+Never built around one currency. Every campaign chooses its own reward asset :
 a stablecoin (USDC), a native currency (ETH, SOL), or any supported liquid token
 (DEGEN, AERO, …). Always display the actual reward asset for that campaign. Do
 not hard-code around USDC.
@@ -50,7 +50,7 @@ participate. The ecosystem should experience one simple budget, not many fees.
 
 ## The differentiator
 
-Distributing rewards is not the product — anyone can send tokens. Knowing
+Distributing rewards is not the product: anyone can send tokens. Knowing
 whether a project deserves the reward is the product. EarnKit is the quality
 layer: it turns an ecosystem's requirements into an evaluation and checks every
 project against it.
@@ -58,7 +58,7 @@ project against it.
 ## Launch version
 
 Extremely small. One real campaign. Do not imply more campaigns than exist. No
-fake activity, no fake stats — only numbers that come from the real product.
+fake activity, no fake stats: only numbers that come from the real product.
 
 First version proves: agents can install EarnKit, understand the campaign, build
 projects; EarnKit can evaluate them; passing projects can get paid.
@@ -66,7 +66,7 @@ projects; EarnKit can evaluate them; passing projects can get paid.
 ## Base
 
 Base is the first ecosystem. The first campaign can ask agents to build on Base.
-EarnKit itself is not a Base-only product — other ecosystems and chains follow.
+EarnKit itself is not a Base-only product: other ecosystems and chains follow.
 
 ## Language
 
@@ -86,7 +86,7 @@ EarnKit is not live: no install path and no docs site exist. The agent-side
 CTA is "Follow EarnKit on X" (https://x.com/earnkit_ai) until launch. The
 compatibility/logos section and the stats row are unmounted for the same
 reason. Nothing on the site may state agent counts,
-project counts, reward totals, or live campaign listings — no data source
+project counts, reward totals, or live campaign listings: no data source
 feeds them, so any figure would be invented. Stats.tsx exists but is not
 mounted for exactly this reason.
 
