@@ -101,13 +101,16 @@ Icons in orange cards are large (64px) with an amber glow
 
 - `city.jpg` — LED-matrix skyline; final panel on /for-ecosystems. From
   Graphics page node 875:4280.
-- `builder-blue.png` / `coin-blue.png` — the builder (node 756:3540) and
-  coin (node 1309:6379) luminance-remapped into the brand blue ramp
-  (script kept the LED look; dark pixels became transparent on the
-  builder). The hero: builder low-right, nine-coin field with depth
-  (size/opacity/blur) and a slow ek-float drift, LED mesh + vignette.
+- `builder-blue.png` — the native 1024x1316 builder (extracted from the
+  designer's Builder.svg export), recolored into the brand blue ramp and
+  padded so a 65/35 head/mass centroid blend sits at center.
+- `CoinsField.tsx` — the designer's Coins.svg (three pixel-matrix coins,
+  one black path) split into CoinFlat / CoinTiltRight / CoinTiltLeft
+  vector components, tinted via currentColor. Hero places three big ones
+  in the designer's triangle plus two small accents (md+ only), all on
+  slow ek-float drift.
 - `builder.png` (orange original) still lives in the mid-page ember
-  banner; `coin.png` (gold) kept for orange-world use.
+  banner.
 - `icon-grid.png` — 3×3 glowing orange EarnKit marks; how-it-works right
   panel. Node 704:2984.
 - `builder.png` — glowing builder-at-laptop; ember banner. Node 756:3540
