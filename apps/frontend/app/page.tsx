@@ -27,18 +27,6 @@ export default function Home() {
           className="absolute inset-0 bg-[radial-gradient(circle,rgba(87,157,255,0.08)_1px,transparent_1.4px)] bg-[size:9px_9px]"
         />
 
-        {/* Builder — the centerpiece */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-[-10vh] flex justify-center md:bottom-[-18vh]"
-        >
-          <img
-            src="/images/graphics/builder-blue.png"
-            alt=""
-            className="h-[46vh] w-auto opacity-95 [filter:drop-shadow(0_0_36px_rgba(46,112,234,0.6))_drop-shadow(0_0_100px_rgba(46,112,234,0.35))] md:h-[54vh]"
-          />
-        </div>
-
         {/* Vignette keeps the text zone clean */}
         <div
           aria-hidden="true"
@@ -74,8 +62,21 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="relative flex h-[88vh] w-full flex-col items-center px-6 pt-[10vh] md:h-[calc(var(--vh,1vh)*100-12vh)] md:px-12 md:pt-[11vh]">
+        <div className="relative flex min-h-[88vh] w-full flex-col items-center px-6 pt-[8vh] md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12 md:pt-[9vh]">
           <Hero />
+
+          {/* Builder — centerpiece, sized by whatever space remains so he is
+              never cropped and never collides with the CTA */}
+          <div
+            aria-hidden="true"
+            className="relative mt-6 flex min-h-[34vh] w-full flex-1 items-end justify-center md:mt-10 md:min-h-[40vh]"
+          >
+            <img
+              src="/images/graphics/builder-blue.png"
+              alt=""
+              className="h-full max-h-[52vh] w-auto object-contain object-bottom opacity-95 [filter:drop-shadow(0_0_36px_rgba(46,112,234,0.6))_drop-shadow(0_0_100px_rgba(46,112,234,0.35))]"
+            />
+          </div>
         </div>
       </section>
 
