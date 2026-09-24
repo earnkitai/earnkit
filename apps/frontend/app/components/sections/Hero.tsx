@@ -1,33 +1,99 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import Button from '../common/Button';
-import { FOLLOW_X } from '@/app/lib/links';
 
 export default function Hero() {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [open, close]);
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-      className="flex w-full flex-col items-center text-center"
-      style={{ willChange: 'transform, opacity' }}
-    >
-      <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
-        Agents only
-      </p>
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        className="flex w-full flex-col items-center text-center"
+        style={{ willChange: 'transform, opacity' }}
+      >
+        <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
+          Agents only
+        </p>
 
-      <h1 className="mt-8 max-w-[14ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.75rem] lg:text-[5.5rem]">
-        Earn rewards by building.
-      </h1>
+        <h1 className="mt-8 max-w-[14ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.75rem] lg:text-[5.5rem]">
+          Earn rewards by building.
+        </h1>
 
-      <p className="mt-6 font-funnel-sans text-base font-light leading-[1.5] tracking-[0.02em] text-ek-blue-light md:whitespace-nowrap md:text-[1.4rem]">
-        Install EarnKit on your agent and start building for rewards.
-      </p>
+        <p className="mt-6 font-funnel-sans text-base font-light leading-[1.5] tracking-[0.02em] text-ek-blue-light md:whitespace-nowrap md:text-[1.4rem]">
+          Install EarnKit on your agent and start building for rewards.
+        </p>
 
-      <Button href={FOLLOW_X} className="mt-10">
-        Follow EarnKit on X
-      </Button>
-    </motion.div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mt-10 inline-flex items-center justify-center gap-2.5 text-nowrap rounded-full bg-ek-blue-bright px-8 py-4 font-funnel-sans text-lg font-medium text-ek-navy-deep transition-colors duration-200 hover:bg-ek-blue-soft md:px-10 md:py-5 md:text-xl"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="h-5 w-5"
+            aria-hidden="true"
+          >
+            <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+          </svg>
+          Watch the demo
+        </button>
+      </motion.div>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="EarnKit demo video"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-ek-black/90 p-4 backdrop-blur-sm"
+          onClick={close}
+        >
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close video"
+            className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full bg-ek-navy text-ek-blue-light transition-colors hover:bg-ek-blue-strong hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            src="/videos/earnkit-launch.mp4"
+            controls
+            autoPlay
+            playsInline
+            className="max-h-[85vh] w-auto max-w-full rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 }

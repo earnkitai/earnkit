@@ -4,21 +4,17 @@ import {
   CoinTiltRight,
   CoinTiltLeft,
 } from './components/ui/CoinsField';
-import HowItWorks from './components/sections/HowItWorks';
-import BuilderBanner from './components/sections/BuilderBanner';
-import FinalCta from './components/sections/FinalCta';
+import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
-import { FOLLOW_X } from './lib/links';
 
+/**
+ * Pre-launch teaser: hero with the demo video, investors, footer.
+ * Everything else (how-it-works, banner, final CTA, /for-ecosystems)
+ * returns after launch — the components are still in the repo.
+ */
 export default function Home() {
   return (
     <div className="w-full">
-      {/*
-        Hero — the LED builder at his laptop, low in the frame, under a sky
-        of drifting EarnKit-blue coins. Builder and coins are recolored LED
-        assets from the Figma Graphics page; mesh + vignette carry the same
-        sky treatment as the Figma hero.
-      */}
       <section
         aria-label="EarnKit"
         className="relative flex overflow-hidden rounded-[40px] bg-[#02052c] md:rounded-[80px]"
@@ -29,7 +25,7 @@ export default function Home() {
           className="absolute inset-0 bg-[radial-gradient(circle,rgba(87,157,255,0.08)_1px,transparent_1.4px)] bg-[size:9px_9px]"
         />
 
-        {/* Builder — dim backdrop behind the headline, like the Figma hero */}
+        {/* Builder — dim backdrop behind the headline */}
         <div
           aria-hidden="true"
           className="absolute inset-0 flex items-center justify-center"
@@ -41,7 +37,7 @@ export default function Home() {
           />
         </div>
 
-        {/* Text pocket + edge vignette keep the copy readable */}
+        {/* Text pocket + edge vignette */}
         <div
           aria-hidden="true"
           className="absolute inset-0 bg-[radial-gradient(ellipse_55%_38%_at_50%_36%,rgba(2,5,44,0.6)_0%,rgba(2,5,44,0.25)_55%,transparent_80%)]"
@@ -51,10 +47,7 @@ export default function Home() {
           className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,transparent_35%,rgba(2,5,44,0.5)_75%,rgba(2,5,44,0.85)_100%)]"
         />
 
-        {/*
-          The designer's three pixel coins — a few big, a couple small,
-          placed around the center. Each drifts on its own phase.
-        */}
+        {/* The designer's coins */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 text-ek-blue-bright">
           <div className="coin-float absolute left-[-12%] top-[6%] w-36 opacity-[0.25] md:left-[3%] md:top-[8%] md:w-64 md:opacity-[0.34]" style={{ animationDuration: '9s' }}>
             <CoinFlat className="h-auto w-full" />
@@ -78,16 +71,9 @@ export default function Home() {
         </div>
       </section>
 
-      <HowItWorks />
-
-      <BuilderBanner />
-
-      <FinalCta
-        heading="Let your agent earn."
-        ctaLabel="Follow EarnKit on X"
-        ctaHref={FOLLOW_X}
-        image={{ src: '/images/graphics/octo.jpg', alt: '' }}
-      />
+      <div className="py-14 md:py-16">
+        <BackedBy />
+      </div>
 
       <Footer />
     </div>

@@ -1,68 +1,32 @@
-'use client';
-
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Wordmark, Mark } from '../ui/Logo';
-import * as links from '@/app/lib/links';
+import { FOLLOW_X } from '@/app/lib/links';
 
 export default function Header() {
-  const pathname = usePathname();
-  const isEcosystems = pathname?.startsWith('/for-ecosystems');
-
-  const nav = isEcosystems
-    ? [{ label: 'For Agents', href: links.FOR_AGENTS }]
-    : [{ label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS }];
-
-  const cta = isEcosystems
-    ? { label: 'Run a Campaign', href: links.RUN_CAMPAIGN }
-    : { label: 'Follow on X', href: links.FOLLOW_X };
-
-  const ctaExternal =
-    cta.href.startsWith('http') || cta.href.startsWith('mailto:');
-
   return (
     <>
-      {/* Desktop — same two-pill layout as the original header */}
+      {/* Desktop */}
       <header className="hidden h-[12vh] w-full items-center justify-between font-funnel-display md:flex">
         <div className="flex min-h-full flex-1 items-center rounded-[56px] bg-ek-navy px-[5rem]">
           <Link
             href="/"
-            className="logoSVG ml-4 mr-10 flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
+            className="logoSVG ml-4 flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
           >
             <Wordmark />
           </Link>
-
-          <nav
-            aria-label="Main"
-            className="flex w-full flex-row items-center justify-start font-funnel-sans text-xl font-medium 2xl:text-[1.2rem]"
-          >
-            {nav.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="mx-6 text-ek-blue-bright transition-colors hover:text-white"
-                {...(item.href.startsWith('http')
-                  ? { target: '_blank', rel: 'noopener noreferrer' }
-                  : {})}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
         </div>
 
         <Link
-          href={cta.href}
+          href={FOLLOW_X}
+          target="_blank"
+          rel="noopener noreferrer"
           className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]"
-          {...(ctaExternal
-            ? { target: '_blank', rel: 'noopener noreferrer' }
-            : {})}
         >
-          {cta.label}
+          Follow on X
         </Link>
       </header>
 
-      {/* Mobile — fixed bottom bar, same shell as the original */}
+      {/* Mobile — fixed bottom bar */}
       <header className="container2 fixed bottom-0 z-50 flex w-full flex-col items-center justify-between font-funnel-display md:hidden">
         <div className="absolute left-0 top-[-56px] text-ek-black">
           <svg
@@ -97,34 +61,21 @@ export default function Header() {
           </svg>
         </div>
 
-        <div className="mobile-header-bg z-30 flex h-[10dvh] w-full max-w-full flex-row items-center gap-3 overflow-hidden bg-ek-black px-5">
+        <div className="mobile-header-bg z-30 flex h-[10dvh] w-full max-w-full flex-row items-center justify-between gap-3 bg-ek-black px-5">
           <Link
             href="/"
             className="flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
           >
             <Mark />
           </Link>
-
-          <nav
-            aria-label="Main"
-            className="no-scrollbar flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto"
+          <Link
+            href={FOLLOW_X}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
           >
-            <Link
-              href={nav[0].href}
-              className="flex-shrink-0 font-funnel-sans text-sm font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
-            >
-              {nav[0].label}
-            </Link>
-            <Link
-              href={cta.href}
-              className="flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
-              {...(ctaExternal
-                ? { target: '_blank', rel: 'noopener noreferrer' }
-                : {})}
-            >
-              {cta.label}
-            </Link>
-          </nav>
+            Follow on X
+          </Link>
         </div>
       </header>
     </>
