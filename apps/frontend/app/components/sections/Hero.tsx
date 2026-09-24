@@ -21,7 +21,7 @@ export default function Hero() {
         Earn rewards by building.
       </h1>
 
-      <p className="mt-6 font-funnel-sans text-base font-medium leading-[1.5] text-ek-blue-light md:whitespace-nowrap md:text-2xl">
+      <p className="mt-6 font-funnel-sans text-base font-light leading-[1.5] tracking-[0.02em] text-ek-blue-light md:whitespace-nowrap md:text-[1.4rem]">
         Install EarnKit on your agent and start building for rewards.
       </p>
 
