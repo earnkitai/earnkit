@@ -9,76 +9,97 @@ export default function Footer() {
   const pathname = usePathname();
   const isEcosystems = pathname?.startsWith('/for-ecosystems');
 
-  const nav = isEcosystems
+  const productLinks = isEcosystems
     ? [
         { label: 'For Agents', href: links.FOR_AGENTS },
         { label: 'Docs', href: links.DOCS },
-        { label: 'X', href: links.X },
       ]
     : [
         { label: 'Docs', href: links.DOCS },
         { label: 'For Ecosystems', href: links.FOR_ECOSYSTEMS },
-        { label: 'X', href: links.X },
       ];
 
   return (
-    <footer className="w-full bg-ek-base px-6 pb-28 pt-16 md:px-16 md:pb-10 md:pt-24">
-      <div className="flex flex-col gap-12 border-t border-ek-navy pt-12 md:flex-row md:items-start md:justify-between">
-        <div>
-          <Link
-            href="/"
-            className="inline-block text-ek-blue-light transition-colors hover:text-ek-white"
-          >
-            <Wordmark />
-          </Link>
-          <p className="mt-4 font-funnel-sans text-lg font-light text-ek-blue-soft">
-            Where agents earn.
-          </p>
+    <footer className="w-full bg-ek-base pb-24 md:pb-2">
+      <section className="mt-10 w-full rounded-[56px]">
+        <div className="mx-auto flex flex-col-reverse justify-between gap-4 md:flex-row">
+          {/* Brand block */}
+          <div className="flex flex-1 flex-col items-center justify-center gap-16 rounded-[56px] bg-ek-blue-strong py-16 pl-0 md:flex-row md:justify-start md:py-24 md:pl-24">
+            <div className="flex flex-col items-center md:items-start">
+              <Link href="/" className="flex-shrink-0 text-ek-blue-light">
+                <Wordmark className="h-8 w-auto" />
+              </Link>
+              <p className="mt-4 font-funnel-sans text-lg text-ek-blue-light">
+                Where agents earn.
+              </p>
+            </div>
+          </div>
+
+          {/* Links block */}
+          <div className="grid grid-cols-2 gap-x-10 gap-y-8 rounded-[56px] bg-ek-navy-deep p-10 md:gap-x-24 md:px-20">
+            <div>
+              <h3 className="mb-4 text-left font-funnel-display font-semibold text-ek-blue-bright">
+                EarnKit
+              </h3>
+              <ul className="space-y-3">
+                {productLinks.map((item) => (
+                  <li key={item.label} className="text-left">
+                    <Link
+                      href={item.href}
+                      className="font-funnel-sans text-ek-blue-bright transition-colors hover:text-white"
+                      {...(item.href.startsWith('http')
+                        ? { target: '_blank', rel: 'noopener noreferrer' }
+                        : {})}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="mb-4 text-left font-funnel-display font-semibold text-ek-blue-bright">
+                Socials
+              </h3>
+              <ul className="space-y-3">
+                <li className="text-left">
+                  <Link
+                    href={links.X}
+                    className="font-funnel-sans text-ek-blue-bright transition-colors hover:text-white"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="EarnKit on X"
+                  >
+                    X
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
 
-        <nav aria-label="Footer">
-          <ul className="flex flex-wrap gap-x-8 gap-y-3">
-            {nav.map((item) => (
-              <li key={item.label}>
-                <Link
-                  href={item.href}
-                  className="font-funnel-sans text-ek-blue-soft transition-colors hover:text-ek-white"
-                  {...(item.href.startsWith('http')
-                    ? {
-                        target: '_blank',
-                        rel: 'noopener noreferrer',
-                        'aria-label':
-                          item.label === 'X' ? 'EarnKit on X' : undefined,
-                      }
-                    : {})}
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-            <li>
-              <Link
-                href="/terms"
-                className="font-funnel-sans text-ek-blue-soft transition-colors hover:text-ek-white"
-              >
-                Terms
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/privacy"
-                className="font-funnel-sans text-ek-blue-soft transition-colors hover:text-ek-white"
-              >
-                Privacy
-              </Link>
-            </li>
-          </ul>
-        </nav>
-      </div>
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-center gap-6 px-4 py-4 md:flex-row">
+          <div className="flex items-center gap-6 font-funnel-sans text-sm text-ek-white">
+            <Link
+              href="/terms"
+              className="transition-colors hover:text-ek-blue-bright"
+            >
+              Terms
+            </Link>
+            <Link
+              href="/privacy"
+              className="transition-colors hover:text-ek-blue-bright"
+            >
+              Privacy
+            </Link>
+          </div>
+        </div>
 
-      <p className="mt-12 font-funnel-sans text-sm text-ek-blue-soft">
-        &copy; {new Date().getFullYear()} EarnKit
-      </p>
+        <div className="flex w-full items-center justify-center pb-4 text-center font-funnel-sans text-sm text-ek-white">
+          &copy; {new Date().getFullYear()} EarnKit
+        </div>
+      </section>
     </footer>
   );
 }

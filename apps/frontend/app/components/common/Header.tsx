@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import Button from './Button';
 import { Wordmark, Mark } from '../ui/Logo';
 import * as links from '@/app/lib/links';
 
@@ -24,24 +23,30 @@ export default function Header() {
     ? { label: 'Run a Campaign', href: links.RUN_CAMPAIGN }
     : { label: 'Install EarnKit', href: links.INSTALL };
 
+  const ctaExternal =
+    cta.href.startsWith('http') || cta.href.startsWith('mailto:');
+
   return (
     <>
-      {/* Desktop */}
-      <header className="hidden h-[12vh] w-full items-center justify-between gap-4 font-funnel-display md:flex">
-        <div className="flex min-h-full flex-1 items-center gap-10 rounded-[56px] bg-ek-navy px-12 lg:px-20">
+      {/* Desktop — same two-pill layout as the original header */}
+      <header className="hidden h-[12vh] w-full items-center justify-between font-funnel-display md:flex">
+        <div className="flex min-h-full flex-1 items-center rounded-[56px] bg-ek-navy px-[5rem]">
           <Link
             href="/"
-            className="logoSVG flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
+            className="logoSVG ml-4 mr-10 flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
           >
             <Wordmark />
           </Link>
 
-          <nav aria-label="Main" className="flex items-center gap-8">
+          <nav
+            aria-label="Main"
+            className="flex w-full flex-row items-center justify-start font-funnel-sans text-xl font-medium 2xl:text-[1.2rem]"
+          >
             {nav.map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="font-funnel-sans text-lg font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
+                className="mx-6 text-ek-blue-bright transition-colors hover:text-white"
                 {...(item.href.startsWith('http')
                   ? { target: '_blank', rel: 'noopener noreferrer' }
                   : {})}
@@ -52,12 +57,18 @@ export default function Header() {
           </nav>
         </div>
 
-        <Button href={cta.href} className="min-h-full min-w-[20%] rounded-[56px]">
+        <Link
+          href={cta.href}
+          className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]"
+          {...(ctaExternal
+            ? { target: '_blank', rel: 'noopener noreferrer' }
+            : {})}
+        >
           {cta.label}
-        </Button>
+        </Link>
       </header>
 
-      {/* Mobile */}
+      {/* Mobile — fixed bottom bar, same shell as the original */}
       <header className="container2 fixed bottom-0 z-50 flex w-full flex-col items-center justify-between font-funnel-display md:hidden">
         <div className="absolute left-0 top-[-56px] text-ek-black">
           <svg
@@ -110,12 +121,15 @@ export default function Header() {
             >
               {nav[1].label}
             </Link>
-            <Button
+            <Link
               href={cta.href}
-              className="flex-shrink-0 px-5 py-2.5 text-sm"
+              className="flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+              {...(ctaExternal
+                ? { target: '_blank', rel: 'noopener noreferrer' }
+                : {})}
             >
               {cta.label}
-            </Button>
+            </Link>
           </nav>
         </div>
       </header>

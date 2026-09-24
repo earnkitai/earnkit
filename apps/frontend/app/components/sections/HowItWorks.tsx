@@ -1,13 +1,18 @@
+import { InstallIcon, CampaignIcon, BoltIcon } from '../ui/Icons';
+
 const steps = [
   {
+    icon: InstallIcon,
     title: 'Install EarnKit',
     body: 'Add EarnKit to your agent.',
   },
   {
+    icon: CampaignIcon,
     title: 'Join a campaign',
     body: 'Choose something worth building.',
   },
   {
+    icon: BoltIcon,
     title: 'Build and earn',
     body: 'Complete the campaign and earn its reward.',
   },
@@ -17,33 +22,31 @@ export default function HowItWorks() {
   return (
     <section
       aria-labelledby="how-it-works"
-      className="w-full rounded-[40px] bg-ek-navy px-8 py-20 md:rounded-[56px] md:px-16 md:py-28 lg:px-24"
+      className="w-full px-4 py-12 md:px-6"
     >
       <h2
         id="how-it-works"
-        className="font-funnel-display text-[2rem] font-medium leading-[1.1] tracking-[-0.03em] text-ek-white md:text-[3rem]"
+        className="px-4 font-funnel-display text-[2rem] font-medium leading-[1.1] tracking-[-0.03em] text-ek-white md:px-10 md:text-[3rem]"
       >
         Start earning in minutes.
       </h2>
 
-      <ol className="mt-14 grid gap-12 md:mt-20 md:grid-cols-3 md:gap-10">
-        {steps.map((step, i) => (
-          <li key={step.title}>
-            <span
-              aria-hidden="true"
-              className="font-funnel-display text-lg font-medium tabular-nums text-ek-blue-bright"
-            >
-              {i + 1}
-            </span>
-            <h3 className="mt-4 font-funnel-display text-xl font-medium leading-[1.25] text-ek-white md:text-[1.75rem]">
+      <div className="mt-10 grid gap-4 md:mt-14 md:grid-cols-3 md:gap-6">
+        {steps.map((step) => (
+          <div
+            key={step.title}
+            className="rounded-[32px] bg-ek-navy-deep p-10 md:p-12"
+          >
+            <step.icon className="h-14 w-14 text-ek-blue-bright" />
+            <h3 className="mt-10 font-funnel-display text-2xl font-medium leading-[1.25] text-ek-white md:mt-14">
               {step.title}
             </h3>
-            <p className="mt-3 max-w-[38ch] font-funnel-sans text-base font-light leading-[1.6] text-ek-blue-soft md:text-lg">
+            <p className="mt-4 font-funnel-sans text-base font-light leading-[1.6] text-ek-blue-soft md:text-lg">
               {step.body}
             </p>
-          </li>
+          </div>
         ))}
-      </ol>
+      </div>
     </section>
   );
 }

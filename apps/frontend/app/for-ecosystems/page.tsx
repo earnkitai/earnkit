@@ -4,7 +4,6 @@ import EcosystemValue from '../components/sections/EcosystemValue';
 import Positioning from '../components/sections/Positioning';
 import CampaignTypes from '../components/sections/CampaignTypes';
 import FinalCta from '../components/sections/FinalCta';
-import InvestorLogoStrip from '../components/sections/InvestorLogoStrip';
 import Footer from '../components/common/Footer';
 import { RUN_CAMPAIGN } from '../lib/links';
 
@@ -46,23 +45,17 @@ export default function ForEcosystems() {
         </div>
       </section>
 
-      <div className="px-4 py-24 md:px-6 md:py-32">
-        <EcosystemValue />
-      </div>
+      <EcosystemValue />
 
       <Positioning />
 
       <CampaignTypes />
 
-      <div className="px-4 md:px-6 py-24 md:py-32">
-        <FinalCta
-          heading="Find your next great builder."
-          ctaLabel="Run a Campaign"
-          ctaHref={RUN_CAMPAIGN}
-        />
-      </div>
-
-      <InvestorLogoStrip />
+      <FinalCta
+        heading="Find your next great builder."
+        ctaLabel="Run a Campaign"
+        ctaHref={RUN_CAMPAIGN}
+      />
 
       <Footer />
     </div>

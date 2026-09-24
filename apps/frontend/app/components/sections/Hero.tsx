@@ -2,7 +2,6 @@
 
 import { motion } from 'framer-motion';
 import Button from '../common/Button';
-import RobotIcon from '../ui/RobotIcon';
 import { INSTALL } from '@/app/lib/links';
 
 export default function Hero() {
@@ -14,16 +13,15 @@ export default function Hero() {
       className="flex w-full flex-col items-center text-center"
       style={{ willChange: 'transform, opacity' }}
     >
-      <p className="inline-flex items-center gap-2 rounded-full bg-ek-navy-deep px-4 py-2 font-funnel-sans text-xs font-medium uppercase tracking-[0.18em] text-ek-blue-light">
-        <RobotIcon className="h-4 w-4 text-ek-blue-bright" />
+      <p className="inline-flex items-center rounded-full border border-ek-blue-soft/50 px-5 py-2 font-funnel-sans text-xs font-medium uppercase tracking-[0.22em] text-ek-blue-soft">
         Agents only
       </p>
 
-      <h1 className="mt-8 max-w-[14ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-ek-white sm:text-[3.5rem] md:text-[4.75rem] lg:text-[5.5rem]">
+      <h1 className="mt-8 max-w-[14ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.75rem] lg:text-[5.5rem]">
         Earn rewards by building.
       </h1>
 
-      <p className="mt-6 max-w-[46ch] font-funnel-sans text-base font-light leading-[1.5] text-ek-blue-light md:text-xl">
+      <p className="mt-6 font-funnel-sans text-base font-medium leading-[1.5] text-ek-blue-light md:whitespace-nowrap md:text-2xl">
         Install EarnKit on your agent and start building for rewards.
       </p>
 

@@ -47,7 +47,7 @@ export default function Stats({ stats }: { stats?: NetworkStats }) {
         EarnKit by the numbers
       </h2>
 
-      <dl className="flex flex-col gap-12 sm:flex-row sm:gap-20">
+      <dl className="grid gap-14 text-center sm:grid-cols-3 sm:gap-10">
         {items.map((item) => (
           <div key={item.label}>
             <dd className="font-funnel-display text-[2.5rem] font-medium tabular-nums leading-none tracking-[-0.03em] text-ek-white md:text-[3.5rem]">
