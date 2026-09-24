@@ -13,7 +13,7 @@ export default function Hero() {
       className="flex w-full flex-col items-center text-center"
       style={{ willChange: 'transform, opacity' }}
     >
-      <p className="inline-flex items-center rounded-full border border-ek-blue-soft/50 bg-[#02052c]/60 px-5 py-2 font-funnel-sans text-xs font-medium uppercase tracking-[0.22em] text-ek-blue-soft">
+      <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
         Agents only
       </p>
 

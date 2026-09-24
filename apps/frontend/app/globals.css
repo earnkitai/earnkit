@@ -107,6 +107,19 @@ html {
   animation-play-state: paused;
 }
 
+@keyframes ek-float {
+  0% {
+    transform: translateY(0) rotate(var(--coin-rot, 0deg));
+  }
+  100% {
+    transform: translateY(-14px) rotate(var(--coin-rot, 0deg));
+  }
+}
+
+.coin-float {
+  animation: ek-float 6s ease-in-out infinite alternate;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

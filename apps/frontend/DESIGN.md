@@ -101,10 +101,13 @@ Icons in orange cards are large (64px) with an amber glow
 
 - `city.jpg` — LED-matrix skyline; final panel on /for-ecosystems. From
   Graphics page node 875:4280.
-- The agent hero is the Figma hero motif rebuilt in code: the Mark SVG
-  under a dot-grid CSS mask with layered drop-shadow glow — no bitmap.
-- `coin.png` — gold coin, chroma-keyed from node 1309:6379's capture;
-  floats faintly in the hero sky.
+- `builder-blue.png` / `coin-blue.png` — the builder (node 756:3540) and
+  coin (node 1309:6379) luminance-remapped into the brand blue ramp
+  (script kept the LED look; dark pixels became transparent on the
+  builder). The hero: builder low-right, nine-coin field with depth
+  (size/opacity/blur) and a slow ek-float drift, LED mesh + vignette.
+- `builder.png` (orange original) still lives in the mid-page ember
+  banner; `coin.png` (gold) kept for orange-world use.
 - `icon-grid.png` — 3×3 glowing orange EarnKit marks; how-it-works right
   panel. Node 704:2984.
 - `builder.png` — glowing builder-at-laptop; ember banner. Node 756:3540
