@@ -20,7 +20,7 @@ export default function BackedBy() {
         Backed by
       </p>
 
-      <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-navy-deep before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-navy-deep after:to-transparent">
+      <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-base before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-base after:to-transparent">
         <ul className="flex w-fit animate-marquee items-center gap-16 px-8 md:gap-24">
           {/* Doubled for the seamless loop; the copies are decorative */}
           {[...investorLogos, ...investorLogos].map((logo, index) => (

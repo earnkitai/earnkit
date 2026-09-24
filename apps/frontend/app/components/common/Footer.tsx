@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Wordmark } from '../ui/Logo';
+import BackedBy from '../sections/BackedBy';
 import * as links from '@/app/lib/links';
 
 export default function Footer() {
@@ -96,9 +97,12 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="flex w-full items-center justify-center pb-4 text-center font-funnel-sans text-sm text-ek-white">
+        <div className="flex w-full items-center justify-center pb-10 text-center font-funnel-sans text-sm text-ek-white">
           &copy; {new Date().getFullYear()} EarnKit
         </div>
+
+        {/* Investors sit at the very bottom, as in the Figma landing */}
+        <BackedBy />
       </section>
     </footer>
   );

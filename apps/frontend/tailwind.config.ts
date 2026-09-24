@@ -31,6 +31,12 @@ export default {
         'ek-brown': '#210800',
         'ek-purple-paint': '#8A63D2',
 
+        /* Orange world — sampled from the Figma landing (sections 2-4) */
+        'ek-ember': '#140300',
+        'ek-card-brown': '#210800',
+        'ek-amber': '#FC9E19',
+        'ek-cream': '#FDF1DF',
+
         /* Legacy aliases — kept so untouched pages keep rendering */
         color1: '#2E70EA',
         color2: '#0A4EC2',

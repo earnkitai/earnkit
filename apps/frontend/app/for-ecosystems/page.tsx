@@ -55,6 +55,7 @@ export default function ForEcosystems() {
         heading="Find your next great builder."
         ctaLabel="Run a Campaign"
         ctaHref={RUN_CAMPAIGN}
+        image={{ src: '/images/graphics/city.jpg', alt: '' }}
       />
 
       <Footer />

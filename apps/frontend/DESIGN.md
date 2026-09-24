@@ -83,6 +83,32 @@ Measured, all ≥ 4.5:1. Use these; do not improvise text/background pairs.
 Known failures from the previous design, now retired: `#0D3991` on `#579DFF`
 (3.8:1), `#E5EEFC` on `#2E70EA` (3.9:1), `#2E70EA` on `#0F1839` (3.8:1).
 
+## Orange world (from the Figma landing, source of truth)
+
+The page alternates blue and orange worlds for rhythm. Orange sections use:
+
+| Token | Hex | Use |
+|---|---|---|
+| `ek-ember` | `#140300` | Orange-section panel background |
+| `ek-card-brown` | `#210800` | Cards inside orange sections |
+| `ek-amber` | `#FC9E19` | Orange headings, icons |
+| `ek-cream` | `#FDF1DF` | Body text on ember/brown |
+
+Icons in orange cards are large (64px) with an amber glow
+(`drop-shadow(0 0 14px rgba(252,158,25,0.55))`).
+
+## Graphics (exported from Figma → public/images/graphics/)
+
+- `city.jpg` — LED-matrix skyline; hero background (agents), final panel
+  (ecosystems). From Graphics page node 875:4280.
+- `icon-grid.png` — 3×3 glowing orange EarnKit marks; how-it-works right
+  panel. Node 704:2984.
+- `builder.png` — glowing builder-at-laptop; ember banner. Node 756:3540
+  (467px wide screenshot — refetch at full 1024px when the Figma MCP rate
+  limit resets).
+- `octo.jpg` — LED octopus; landing final panel. Node 973:4281.
+- Not yet fetched (rate limit): the gold coin (node 1309:6379).
+
 ## Motion
 
 One authored moment — the hero entrance. Sections below the fold do not each
