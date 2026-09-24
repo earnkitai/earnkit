@@ -12,49 +12,43 @@ export default function Home() {
   return (
     <div className="w-full">
       {/*
-        Hero — headline in the open sky, LED skyline as a bottom band.
-        #02052c is sampled from the skyline image's own sky so panel and
-        image blend seamlessly.
+        Hero — full-bleed LED skyline, faded into solid sky (#02052c, sampled
+        from the image itself) over the top half so the headline sits in clear
+        sky and rooftops emerge organically below. No hard seams.
       */}
       <section
         aria-label="EarnKit"
         className="relative flex overflow-hidden rounded-[40px] bg-[#02052c] md:rounded-[80px]"
       >
-        {/* Skyline band */}
         <div
           aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-[34%] bg-[url(/images/graphics/city.jpg)] bg-cover bg-bottom md:h-[46%]"
+          className="absolute inset-0 bg-[url(/images/graphics/city.jpg)] bg-cover bg-bottom opacity-60 md:opacity-70 md:bg-[position:center_bottom_-38vh]"
         />
         <div
           aria-hidden="true"
-          className="absolute inset-x-0 bottom-[24%] h-[18%] bg-gradient-to-b from-[#02052c] to-transparent md:bottom-[30%] md:h-[22%]"
+          className="absolute inset-0 bg-[linear-gradient(to_bottom,#02052c_0%,#02052c_44%,rgba(2,5,44,0.7)_56%,rgba(2,5,44,0.35)_70%,rgba(2,5,44,0.05)_100%)] md:bg-[linear-gradient(to_bottom,#02052c_0%,#02052c_36%,rgba(2,5,44,0.75)_48%,rgba(2,5,44,0.4)_62%,rgba(2,5,44,0.05)_100%)]"
         />
 
-        {/* Floating coins in the sky */}
+        {/* Floating coins, sky zone only */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0">
           <img
             src="/images/graphics/coin.png"
             alt=""
-            className="absolute left-[8%] top-[14%] w-14 -rotate-[18deg] opacity-45 md:w-20"
+            className="absolute left-[9%] top-[16%] w-12 -rotate-[18deg] opacity-35 md:w-16"
           />
           <img
             src="/images/graphics/coin.png"
             alt=""
-            className="absolute right-[10%] top-[10%] w-10 rotate-[24deg] opacity-30 blur-[1px] md:w-14"
+            className="absolute right-[11%] top-[12%] w-9 rotate-[24deg] opacity-25 blur-[1px] md:w-12"
           />
           <img
             src="/images/graphics/coin.png"
             alt=""
-            className="absolute left-[16%] top-[58%] w-8 rotate-[40deg] opacity-25 blur-[1.5px] md:w-12"
-          />
-          <img
-            src="/images/graphics/coin.png"
-            alt=""
-            className="absolute right-[14%] top-[52%] w-16 -rotate-[8deg] opacity-40 md:w-24"
+            className="absolute right-[22%] top-[34%] w-7 rotate-[45deg] opacity-20 blur-[1.5px] md:w-9"
           />
         </div>
 
-        <div className="relative flex h-[88vh] w-full flex-col items-center px-6 pt-[16vh] md:h-[calc(var(--vh,1vh)*100-12vh)] md:px-12 md:pt-[14vh]">
+        <div className="relative flex h-[88vh] w-full flex-col items-center px-6 pt-[15vh] md:h-[calc(var(--vh,1vh)*100-12vh)] md:px-12"> 
           <Hero />
         </div>
       </section>
