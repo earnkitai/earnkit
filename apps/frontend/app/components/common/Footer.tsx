@@ -5,9 +5,9 @@ import { X } from '@/app/lib/links';
 export default function Footer() {
   return (
     <footer className="w-full bg-ek-base pb-24 md:pb-4">
-      <div className="mt-4 flex flex-col-reverse justify-between gap-4 md:flex-row md:items-stretch">
+      <div className="mt-4 flex flex-col-reverse overflow-hidden rounded-[40px] md:flex-row md:items-stretch md:rounded-[56px]">
         {/* Brand */}
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-[40px] bg-ek-blue-strong px-8 py-12 md:items-start md:rounded-[56px] md:px-20 md:py-14">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-ek-blue-strong px-8 py-12 md:items-start md:px-20 md:py-14">
           <Link href="/" className="flex-shrink-0 text-ek-blue-light">
             <Wordmark className="h-7 w-auto" />
           </Link>
@@ -17,7 +17,7 @@ export default function Footer() {
         </div>
 
         {/* Links */}
-        <div className="flex items-center justify-center rounded-[40px] bg-ek-navy-deep px-10 py-12 md:rounded-[56px] md:px-16 md:py-14">
+        <div className="flex items-center justify-center bg-ek-navy-deep px-10 py-12 md:px-16 md:py-14">
           <nav aria-label="Footer">
             <ul className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
               <li>

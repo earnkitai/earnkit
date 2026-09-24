@@ -71,7 +71,7 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="py-14 md:py-16">
+      <div className="pt-4">
         <BackedBy />
       </div>
 
