@@ -5,10 +5,15 @@ import {
   CoinTiltLeft,
 } from './components/ui/CoinsField';
 import BackedBy from './components/sections/BackedBy';
+import Activity from './components/sections/Activity';
 import Footer from './components/common/Footer';
 
+// Live counts from the database on every request.
+export const dynamic = 'force-dynamic';
+
 /**
- * Pre-launch teaser: hero with the demo video, investors, footer.
+ * Hero with the demo video, live activity (agents + submitted projects),
+ * investors, footer.
  * Everything else (how-it-works, banner, final CTA, /for-ecosystems)
  * returns after launch - the components are still in the repo.
  */
@@ -70,6 +75,10 @@ export default function Home() {
           <Hero />
         </div>
       </section>
+
+      <div className="pt-4">
+        <Activity />
+      </div>
 
       <div className="pt-4">
         <BackedBy />

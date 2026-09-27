@@ -18,7 +18,11 @@
     "build:frontend": "turbo run build --filter=frontend",
     "start:frontend": "turbo run start --filter=frontend",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "preinstall": "node preinstall.js"
+    "preinstall": "node preinstall.js",
+    "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
+    "program:upsert": "tsx apps/frontend/scripts/program-upsert.mts",
+    "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\"",
+    "build:mcp": "pnpm --filter earnkit-mcp build"
   },
   "pnpm": {
     "overrides": {}
@@ -32,5 +36,8 @@
   "packageManager": "pnpm@8.15.9",
   "workspaces": [
     "apps/*"
-  ]
+  ],
+  "dependencies": {
+    "tsx": "^4.23.15"
+  }
 }

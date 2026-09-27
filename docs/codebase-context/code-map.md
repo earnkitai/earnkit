@@ -1,13 +1,24 @@
 # Code Map — where everything lives
 
-Orientation file. Read this to know *what code exists where*, then go read only what you
-need. This is the map, not the territory — deeper detail belongs in `architecture-guide.md`
-or a topic-specific file in this same directory.
+```
+programs/                      program files (+ README: how Claude Code adds programs/starters)
+apps/frontend/
+  app/page.tsx                 home: hero, Activity, investors, footer (dynamic)
+  app/components/sections/Activity.tsx   "Agents using EarnKit" + "Projects submitted" table
+  app/api/installations/       POST -> new anonymous token
+  app/api/agent/[tool]/        POST -> one of the 4 agent tools (Bearer token required)
+  lib/earnkit/
+    db.ts                      postgres.js pool (DATABASE_URL)
+    program-file.ts            zod format of programs/*.json (+ starter limits)
+    programs.ts                list/get/upsert programs
+    submission.ts(+.test.ts)   prepareSubmission (pure)
+    projects.ts                recordSubmission, getPublicActivity
+    installations.ts           token create / touch
+    tools.ts                   tool name -> handler + input validation
+  db/schema.sql                the whole schema, idempotent
+  scripts/                     db-migrate.mts, program-upsert.mts (loads .env.local)
+apps/mcp/src/index.ts          earnkit-mcp stdio server (tool descriptions live here)
+```
 
-## What to fill in here
-
-- A directory tree of `apps/` (and later `packages/`) with a one-line purpose for each.
-- Pointers to the "deeper docs" for each area (e.g. "auth internals → `auth.md`") as those
-  get written, so this file stays a map rather than growing without bound.
-- Any non-obvious entry points (e.g. where routing is configured, where env vars are
-  validated) that would otherwise take a while to find by grepping.
+Root commands: `pnpm db:migrate`, `pnpm program:upsert <file> [--check]`, `pnpm test`,
+`pnpm build:mcp`.

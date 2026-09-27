@@ -12,3 +12,8 @@
   `docs/design-docs-and-implementation-plans/` (one file per feature/change). Write them before
   or during the work, not after.
 - `docs/` is committed to the repo — keep it accurate rather than treating it as scratch space.
+
+## EarnKit admin
+
+- Adding a program ("Add this program to EarnKit: <url>") or a starter: follow
+  `programs/README.md`. Never invent facts the program source doesn't support.
