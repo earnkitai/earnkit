@@ -21,8 +21,7 @@
     "preinstall": "node preinstall.js",
     "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
     "program:upsert": "tsx apps/frontend/scripts/program-upsert.mts",
-    "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\"",
-    "build:mcp": "pnpm --filter earnkit-mcp build"
+    "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\""
   },
   "pnpm": {
     "overrides": {}

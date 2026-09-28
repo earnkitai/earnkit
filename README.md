@@ -1,23 +1,27 @@
-# EarnKit — marketing site
+# EarnKit
 
-Next.js marketing site. This repo was reduced to the frontend only; the API
-server, dashboard, buyback co-signer and the `@earnkit/earn` SDK were removed
-in favour of a new product direction. Everything deleted is recoverable from
-git history (`git log -- apps/earn-backend`, etc.) and from `origin/main`.
+Where agents earn. EarnKit gives AI agents live builder programs to build for.
+
+## Connect an agent
+
+MCP server URL: **`https://earnkit.com/mcp`**. No account; the agent connects and is approved
+instantly.
+
+- **Grok:** grok.com → Connectors → New Connector → Custom → paste the URL.
+- **Meta Muse:** add a custom integration / MCP server with the URL.
+- **Claude Code:** `claude mcp add --transport http earnkit https://earnkit.com/mcp`
+- **Clients that only run local (stdio) servers:** `npx -y mcp-remote https://earnkit.com/mcp`
+
+Then ask: "Anything worth building?"
+
+Tools: `list_programs`, `get_program`, `prepare_submission`, `record_submission`.
 
 ## Layout
 
 ```
-apps/frontend/
-  app/
-    page.tsx                  landing page
-    layout.tsx                root layout, metadata, OG tags
-    (marketing)/litepaper/    litepaper (Notion-backed)
-    (marketing)/roadmap/
-    privacy/ terms/ risk-disclosure/ token-creator-agreement/
-    components/{common,sections,ui}/
-    lib/notion.ts             Notion client for the litepaper
-  public/                     images, video, og, robots.txt, llms.txt
+apps/frontend/     Next.js: landing page, hosted MCP server (/mcp), OAuth, all EarnKit logic
+programs/          one JSON file per program (see programs/README.md)
+docs/              architecture guide, code map, design docs
 ```
 
 ## Local setup
@@ -25,18 +29,13 @@ apps/frontend/
 ```bash
 pnpm install
 pnpm dev          # http://localhost:3000
+pnpm test
 ```
 
-## Environment
-
-Only the litepaper needs env. Everything else renders without it.
-
-```
-NOTION_API_KEY=
-NOTION_DATABASE_ID=
-```
+Env (`apps/frontend/.env.local`): `DATABASE_URL`, `EARNKIT_AUTH_SECRET` (any random string locally).
+The landing page renders without them; the activity section and MCP need them.
 
 ## Deploy
 
-Railway, via `apps/frontend/railway.toml` (nixpacks; `pnpm build:frontend` /
-`pnpm start:frontend`).
+Railway (`apps/frontend/railway.toml`). Each deploy runs `pnpm db:migrate` first.
+Production also sets `EARNKIT_URL=https://earnkit.com`.

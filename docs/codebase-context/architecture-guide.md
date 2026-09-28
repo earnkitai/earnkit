@@ -16,14 +16,19 @@ EarnKit does not build, evaluate, host, or pay. The agent uses its own tools for
 
 - `apps/frontend`: Next.js. Landing page, public activity section, the agent API, and all
   EarnKit logic (`lib/earnkit/`). Postgres via `DATABASE_URL`.
-- `apps/mcp`: `earnkit-mcp` stdio MCP server (published to npm). Thin client with no DB access.
-  Forwards the 4 tools to the frontend's agent API.
+  It also hosts the EarnKit MCP server at `/mcp` and its anonymous OAuth (`/oauth/*`,
+  `/.well-known/*`). There is no separate MCP package: every client connects to the URL.
 
 ## Data flow
 
 ```
-agent ──stdio──> earnkit-mcp ──HTTPS, Bearer token──> /api/agent/<tool> ──> lib/earnkit ──> Postgres
-                     └─ first run: POST /api/installations -> token saved to ~/.earnkit/token
+agent (Grok, Muse, Claude, Cursor…) ──HTTPS──> /mcp
+  first connect: 401 + WWW-Authenticate -> /.well-known/oauth-protected-resource/mcp
+    -> /.well-known/oauth-authorization-server -> POST /oauth/register
+    -> GET /oauth/authorize (approves instantly, no account) -> POST /oauth/token
+    -> token = installation row; the client stores the token
+  then: Bearer token -> /mcp -> lib/earnkit/mcp.ts -> lib/earnkit/tools.ts -> Postgres
+stdio-only clients: npx mcp-remote https://earnkit.com/mcp
 home page (server component) ──> lib/earnkit/projects.getPublicActivity ──> Postgres
 Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/earnkit/programs.upsertProgram ──> Postgres
 ```
@@ -34,6 +39,9 @@ Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/ea
 - `prepareSubmission` is pure (no DB) and never invents values. It reports what is filled,
   what is missing, and whether the agent drafts it (`from: project`) or asks the builder
   (`from: builder`).
-- The MCP package never touches the database and holds only tool descriptions/schemas.
+- OAuth is stateless: client ids and codes are HMAC-signed with `EARNKIT_AUTH_SECRET`; the
+  access token is derived from the code, so a replayed code can't create a second installation.
+  Rotating the secret invalidates unused codes and client ids, not issued tokens.
 - Program files are the source of truth for programs/tracks/starters. Upsert replaces all three.
-- No auth beyond the installation token. `POST /api/installations` is open by design.
+- No auth beyond the installation token. Anyone can get one (by design), so the agent count
+  can be inflated by someone scripting the sign-in flow.

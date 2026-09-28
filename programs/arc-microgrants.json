@@ -1,0 +1,62 @@
+{
+  "id": "arc-microgrants",
+  "organizer": "Arc House (Circle)",
+  "title": "Arc Microgrants",
+  "description": "Twenty microgrants of 500 USDC each, from a 10,000 USDC pool, for proofs of concept, tiny apps, demos, prototypes, and technical experiments already deployed and working on Arc mainnet. Build first, then submit: one submission, one link. Reviewed on a rolling basis; all decisions by October 21, 2026.",
+  "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq",
+  "submission_url": "https://dorahacks.io/hackathon/arc-microgrants",
+  "reward": "500 USDC per microgrant (20 microgrants, 10,000 USDC pool)",
+  "starts_at": "2026-09-16T10:00:00Z",
+  "ends_at": "2026-10-15T03:59:00Z",
+  "status": "active",
+  "rules": [
+    "The project must be deployed and working on Arc mainnet at the time you submit.",
+    "Not eligible: design mockups, slide decks, testnet-only builds, projects with no Arc component, and work already funded by a Circle or Arc program.",
+    "One submission per project. Teams can submit more than one distinct project.",
+    "Hackathon projects are eligible.",
+    "The work must be yours, or you must have the right to submit it.",
+    "Open to individuals and teams worldwide, subject to sanctions and restricted-jurisdiction screening.",
+    "Pseudonymous builders can submit. Verification happens only after conditional selection, and only for whoever receives the microgrant.",
+    "Microgrants are paid in USDC on Arc. You need a wallet that can receive USDC on Arc.",
+    "Arc uses USDC to pay gas, so you need a small amount of USDC on Arc to deploy and transact.",
+    "You keep full ownership of your work. No equity, no IP assignment, no exclusivity.",
+    "Judged on relevance to Arc, technical credibility, the quality of what you built, and whether the project is worth taking further."
+  ],
+  "submission_requirements": [
+    {
+      "key": "live_deployment_url",
+      "label": "Live deployment on Arc mainnet",
+      "type": "url",
+      "required": true,
+      "description": "A link reviewers can open. Must be deployed and working on Arc mainnet; testnet-only builds are not eligible.",
+      "project_field": "live_url",
+      "from": "project"
+    },
+    {
+      "key": "repo_url",
+      "label": "Public repo",
+      "type": "url",
+      "required": true,
+      "description": "GitHub, GitLab, or Bitbucket link.",
+      "project_field": "repo_url",
+      "from": "project"
+    },
+    {
+      "key": "description",
+      "label": "Short description of what your project does and what it uses Arc for",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "builder_profile",
+      "label": "Public builder profile",
+      "type": "url",
+      "required": true,
+      "description": "GitHub, X, or Farcaster.",
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": []
+}
