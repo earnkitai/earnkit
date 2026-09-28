@@ -78,14 +78,19 @@ export function createMcpServer() {
     'list_programs',
     {
       description:
-        'List open builder programs with rewards. Use when the builder asks what is worth building, or ' +
-        'what their existing projects can earn or qualify for (see ELIGIBILITY in the server instructions). Returns id, title, organizer, reward, deadline (or "rolling"), ' +
-        'key_requirement, existing_work ("allowed" = already-built projects can be submitted, ' +
-        '"new_work_only" = only work done during the program counts, "unknown"), builder_steps (what only ' +
-        'the builder can do), verified_at, and track names.',
+        'List open builder programs with rewards. Use when the builder asks what is worth building or ' +
+        'what their projects can earn. Returns show_to_builder: show it to the builder exactly as written, ' +
+        'with no extra summary or advice. Use the programs data only for follow-up questions.',
+      inputSchema: {
+        agent_can_build: z
+          .boolean()
+          .describe(
+            'true only if you yourself can write code, deploy, and use a web browser in this session',
+          ),
+      },
       annotations: { readOnlyHint: true },
     },
-    () => run('list_programs'),
+    (input) => run('list_programs', input),
   );
 
   server.registerTool(

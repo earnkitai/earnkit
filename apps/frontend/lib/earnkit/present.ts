@@ -1,0 +1,46 @@
+/**
+ * The builder-facing text for list_programs. Built on the server because many MCP clients
+ * never show the model the server instructions; a ready-made result gets shown as written.
+ */
+export type Card = {
+  title: string;
+  summary: string;
+  tag: string | null;
+  builder_steps: { kind: string; detail: string; each_entry?: true }[];
+};
+
+function youLine(card: Card) {
+  const everyTime = card.builder_steps
+    .filter((s) => s.each_entry)
+    .map((s) => s.detail);
+  return everyTime.length === 0
+    ? 'approve'
+    : `approve, plus ${everyTime.join(' and ')}`;
+}
+
+/** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
+function rank(card: Card) {
+  return (
+    (card.tag ? 2 : 0) + (card.builder_steps.some((s) => s.each_entry) ? 1 : 0)
+  );
+}
+
+export function presentPrograms(cards: Card[], agentCanBuild: boolean) {
+  if (cards.length === 0) return 'No open programs right now. Check back soon.';
+
+  const lines = [...cards]
+    .sort((a, b) => rank(a) - rank(b))
+    .map((c) => {
+      const head = `**${c.title}**: ${c.summary}${c.tag ? ` · ${c.tag}` : ''}`;
+      const split = agentCanBuild
+        ? `Me: build, deploy, submit · You: ${youLine(c)}`
+        : 'Me: the plan and every answer · You: build, deploy, submit';
+      return `${head}\n${split}`;
+    });
+
+  const footer = agentCanBuild
+    ? "Pick one and I'll start. The first time on a platform, I'll need one quick setup from you."
+    : "I can't build or deploy from here. Add EarnKit to a coding agent (Claude Code, Cursor, Codex) and it does the work for you.";
+
+  return [...lines, footer].join('\n\n');
+}

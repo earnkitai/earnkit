@@ -19,10 +19,12 @@
     },
     {
       "kind": "info",
-      "detail": "business details and the milestones you will commit to",
+      "detail": "business details and milestones",
       "each_entry": true
     }
   ],
+  "summary": "milestone-based USDC grants · rolling",
+  "tag": "needs a live product",
   "rules": [
     "Rolling: Circle 2026 Cohort 2 is open on the grants portal. No closing date is stated.",
     "Arc must be core to your flow of value, liquidity, or settlement, and Circle products (e.g. USDC, Wallets, CCTP, Nanopayments, Gateway) must be meaningful building blocks.",

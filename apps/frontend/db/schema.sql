@@ -29,6 +29,10 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS verified_at date;
 -- The steps only the builder can do (GitHub, hosting, wallet, logins, videos, personal info).
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS builder_steps jsonb NOT NULL DEFAULT '[]';
 
+-- Builder-facing card: short reward + deadline line, and an optional tag.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS summary text NOT NULL DEFAULT '';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS tag text;
+
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
   program_id   text NOT NULL REFERENCES programs(id) ON DELETE CASCADE,

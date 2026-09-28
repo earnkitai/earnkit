@@ -14,9 +14,12 @@ export const RecordSubmissionInput = z
   .strict();
 
 /** Stores a project after it was actually submitted to the external program. */
-export async function recordSubmission(input: z.infer<typeof RecordSubmissionInput>) {
+export async function recordSubmission(
+  input: z.infer<typeof RecordSubmissionInput>,
+) {
   await getProgramRow(input.program_id);
-  const { name, description, repo_url, live_url, demo_url, token_url } = input.project;
+  const { name, description, repo_url, live_url, demo_url, token_url } =
+    input.project;
 
   return sql().begin(async (tx) => {
     const [project] = await tx<{ id: number; submitted_at: Date }[]>`
@@ -34,6 +37,10 @@ export async function recordSubmission(input: z.infer<typeof RecordSubmissionInp
       submission_data: tx.json(input.submission_data as never),
       external_submission_url: input.external_submission_url ?? null,
     })}`;
-    return { recorded: true, project_id: project.id, submitted_at: project.submitted_at.toISOString() };
+    return {
+      recorded: true,
+      project_id: project.id,
+      submitted_at: project.submitted_at.toISOString(),
+    };
   });
 }

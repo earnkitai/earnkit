@@ -34,6 +34,7 @@
       "detail": "your public GitHub, X, or Farcaster profile"
     }
   ],
+  "summary": "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET",
   "rules": [
     "The project must be deployed and working on Arc mainnet at the time you submit.",
     "Not eligible: design mockups, slide decks, testnet-only builds, projects with no Arc component, and work already funded by a Circle or Arc program.",

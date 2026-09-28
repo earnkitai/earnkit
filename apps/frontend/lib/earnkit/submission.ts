@@ -29,7 +29,8 @@ const isUrl = (v: string) => {
 
 function problemWith(req: SubmissionRequirement, value: string): string | null {
   if (req.type === 'url' && !isUrl(value)) return 'Not a valid http(s) link.';
-  if (req.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Not a valid email.';
+  if (req.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
+    return 'Not a valid email.';
   if (req.type === 'choice' && req.options && !req.options.includes(value)) {
     return `Must be one of: ${req.options.join(', ')}.`;
   }
@@ -48,7 +49,12 @@ export function prepareSubmission(
   const answers = known.answers ?? {};
   const project = known.project ?? {};
 
-  const complete: { key: string; label: string; value: string; filled_from: 'answer' | ProjectField }[] = [];
+  const complete: {
+    key: string;
+    label: string;
+    value: string;
+    filled_from: 'answer' | ProjectField;
+  }[] = [];
   const missing: {
     key: string;
     label: string;
@@ -62,7 +68,9 @@ export function prepareSubmission(
 
   for (const req of requirements) {
     const fromAnswer = answers[req.key]?.trim();
-    const fromProject = req.project_field ? project[req.project_field]?.trim() : undefined;
+    const fromProject = req.project_field
+      ? project[req.project_field]?.trim()
+      : undefined;
     const value = fromAnswer || fromProject;
     const problem = value ? problemWith(req, value) : null;
 

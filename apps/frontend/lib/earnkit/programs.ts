@@ -24,7 +24,9 @@ type ProgramRow = {
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   /** verified_at as YYYY-MM-DD text (read via to_char so time zones can't shift the day). */
   verified_on: string | null;
-  builder_steps: { kind: string; detail: string }[];
+  builder_steps: { kind: string; detail: string; each_entry?: true }[];
+  summary: string;
+  tag: string | null;
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -44,10 +46,12 @@ export async function listPrograms() {
       | 'existing_work'
       | 'verified_on'
       | 'builder_steps'
+      | 'summary'
+      | 'tag'
     >[]
   >`
     SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work,
-      to_char(verified_at, 'YYYY-MM-DD') AS verified_on, builder_steps
+      to_char(verified_at, 'YYYY-MM-DD') AS verified_on, builder_steps, summary, tag
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -66,6 +70,8 @@ export async function listPrograms() {
     existing_work: p.existing_work,
     verified_at: p.verified_on,
     builder_steps: p.builder_steps,
+    summary: p.summary,
+    tag: p.tag,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -150,6 +156,8 @@ export async function upsertProgram(p: ProgramFile) {
       existing_work: p.existing_work,
       verified_at: p.verified_at,
       builder_steps: tx.json(p.builder_steps),
+      summary: p.summary,
+      tag: p.tag ?? null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,

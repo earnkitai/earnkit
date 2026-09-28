@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { sql } from './db';
 
-const hash = (token: string) => createHash('sha256').update(token).digest('hex');
+const hash = (token: string) =>
+  createHash('sha256').update(token).digest('hex');
 
 /** Records the installation for a newly issued token. Idempotent for replays. */
 export async function saveInstallation(token: string) {

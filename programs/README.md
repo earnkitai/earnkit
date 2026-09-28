@@ -36,7 +36,11 @@ The file is the source of truth. Edit it, then upsert again.
    (e.g. `wallet` / "about $1 of USDC on Arc", `login` / "DoraHacks"). Add `"each_entry": true`
    only for steps needed every time (a pitch video, program-specific answers); everything else is
    one-time setup that carries over. The agent drops what's already done, so keep details short.
-5. `submission_requirements` must mirror the real submission form, field by field:
+5. `summary`: one short line the builder sees, reward + deadline as the organizer states it
+   (e.g. "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET", or "· rolling"). `tag` (optional):
+   `"long shot"` when few prizes go to many judged entries, `"needs a live product"` when the
+   program only suits builders who already shipped.
+6. `submission_requirements` must mirror the real submission form, field by field:
    - `key`: snake_case, stable
    - `label`: the question as the form asks it
    - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`
@@ -46,8 +50,8 @@ The file is the source of truth. Edit it, then upsert again.
      `description`, `repo_url`, `live_url`, `demo_url`, or `token_url`
    - `from`: `project` if the agent can draft it from the project itself,
      `builder` for personal info (name, email, wallet, socials, team, country…)
-6. Do not add starters. The owner decides those.
-7. Run `--check`, fix any errors, then upsert.
+7. Do not add starters. The owner decides those.
+8. Run `--check`, fix any errors, then upsert.
 
 Rolling programs (no deadline, e.g. cohort-based grants) use `"ends_at": null`.
 Dates are ISO 8601 with a timezone (`2026-10-31T23:59:00Z`). Convert the organizer's
@@ -86,6 +90,7 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
     { "kind": "login", "detail": "the submission platform" },
     { "kind": "github", "detail": "a public repo" }
   ],
+  "summary": "$50K across tracks · closes Nov 15, 11:59 PM UTC",
   "rules": ["Open source", "Built during the program"],
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },

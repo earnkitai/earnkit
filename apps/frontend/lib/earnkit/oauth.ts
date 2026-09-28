@@ -1,4 +1,9 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 
 /**
  * Anonymous OAuth for the hosted MCP endpoint.
@@ -14,7 +19,13 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 
 export class OAuthError extends Error {
   constructor(
-    public code: 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unsupported_grant_type' | 'invalid_redirect_uri' | 'invalid_client_metadata',
+    public code:
+      | 'invalid_request'
+      | 'invalid_client'
+      | 'invalid_grant'
+      | 'unsupported_grant_type'
+      | 'invalid_redirect_uri'
+      | 'invalid_client_metadata',
     message: string,
   ) {
     super(message);
@@ -28,7 +39,10 @@ function secret() {
 }
 
 const b64 = (data: Buffer | string) => Buffer.from(data).toString('base64url');
-const mac = (purpose: string, data: string) => createHmac('sha256', secret()).update(`${purpose}:${data}`).digest('base64url');
+const mac = (purpose: string, data: string) =>
+  createHmac('sha256', secret())
+    .update(`${purpose}:${data}`)
+    .digest('base64url');
 
 function sign(purpose: string, payload: object) {
   const body = b64(JSON.stringify(payload));
@@ -40,7 +54,8 @@ function verify<T>(purpose: string, value: string): T | null {
   if (!body || !sig) return null;
   const expected = Buffer.from(mac(purpose, body));
   const given = Buffer.from(sig);
-  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  if (expected.length !== given.length || !timingSafeEqual(expected, given))
+    return null;
   try {
     return JSON.parse(Buffer.from(body, 'base64url').toString()) as T;
   } catch {
@@ -60,7 +75,8 @@ export function isAllowedRedirectUri(uri: string) {
   }
   if (url.hash) return false;
   if (url.protocol === 'https:') return true;
-  if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol === 'http:')
+    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   return !BLOCKED_SCHEMES.includes(url.protocol);
 }
 
@@ -68,19 +84,35 @@ type ClientPayload = { r: string[] };
 type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
 
 /** RFC 7591 dynamic client registration. The client id carries its redirect URIs. */
-export function registerClient(metadata: { redirect_uris?: unknown; client_name?: unknown }) {
+export function registerClient(metadata: {
+  redirect_uris?: unknown;
+  client_name?: unknown;
+}) {
   const uris = metadata.redirect_uris;
-  if (!Array.isArray(uris) || uris.length === 0 || !uris.every((u) => typeof u === 'string')) {
-    throw new OAuthError('invalid_redirect_uri', 'redirect_uris must be a non-empty list of URIs');
+  if (
+    !Array.isArray(uris) ||
+    uris.length === 0 ||
+    !uris.every((u) => typeof u === 'string')
+  ) {
+    throw new OAuthError(
+      'invalid_redirect_uri',
+      'redirect_uris must be a non-empty list of URIs',
+    );
   }
   const bad = uris.find((u) => !isAllowedRedirectUri(u));
-  if (bad) throw new OAuthError('invalid_redirect_uri', `redirect_uri not allowed: ${bad}`);
+  if (bad)
+    throw new OAuthError(
+      'invalid_redirect_uri',
+      `redirect_uri not allowed: ${bad}`,
+    );
 
   return {
     client_id: sign('client', { r: uris } satisfies ClientPayload),
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: uris,
-    ...(typeof metadata.client_name === 'string' && { client_name: metadata.client_name }),
+    ...(typeof metadata.client_name === 'string' && {
+      client_name: metadata.client_name,
+    }),
     grant_types: ['authorization_code'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
@@ -96,17 +128,32 @@ export function authorize(params: URLSearchParams) {
   const clientId = params.get('client_id') ?? '';
   const redirectUri = params.get('redirect_uri') ?? '';
   const client = verify<ClientPayload>('client', clientId);
-  if (!client) throw new OAuthError('invalid_client', 'Unknown client_id. Register first.');
-  if (!client.r.includes(redirectUri)) throw new OAuthError('invalid_redirect_uri', 'redirect_uri was not registered');
+  if (!client)
+    throw new OAuthError(
+      'invalid_client',
+      'Unknown client_id. Register first.',
+    );
+  if (!client.r.includes(redirectUri))
+    throw new OAuthError(
+      'invalid_redirect_uri',
+      'redirect_uri was not registered',
+    );
 
   const back = new URL(redirectUri);
   const state = params.get('state');
   if (state) back.searchParams.set('state', state);
 
   const challenge = params.get('code_challenge');
-  if (params.get('response_type') !== 'code' || !challenge || params.get('code_challenge_method') !== 'S256') {
+  if (
+    params.get('response_type') !== 'code' ||
+    !challenge ||
+    params.get('code_challenge_method') !== 'S256'
+  ) {
     back.searchParams.set('error', 'invalid_request');
-    back.searchParams.set('error_description', 'Requires response_type=code and a PKCE S256 code_challenge');
+    back.searchParams.set(
+      'error_description',
+      'Requires response_type=code and a PKCE S256 code_challenge',
+    );
     return back;
   }
 
@@ -129,16 +176,22 @@ export function authorize(params: URLSearchParams) {
  */
 export function exchangeCode(form: URLSearchParams) {
   if (form.get('grant_type') !== 'authorization_code') {
-    throw new OAuthError('unsupported_grant_type', 'Only authorization_code is supported');
+    throw new OAuthError(
+      'unsupported_grant_type',
+      'Only authorization_code is supported',
+    );
   }
   const code = form.get('code') ?? '';
   const payload = verify<CodePayload>('code', code);
-  if (!payload || payload.e < Date.now()) throw new OAuthError('invalid_grant', 'Code is invalid or expired');
+  if (!payload || payload.e < Date.now())
+    throw new OAuthError('invalid_grant', 'Code is invalid or expired');
 
   const clientId = form.get('client_id');
-  if (clientId && clientId !== payload.c) throw new OAuthError('invalid_grant', 'Code was issued to another client');
+  if (clientId && clientId !== payload.c)
+    throw new OAuthError('invalid_grant', 'Code was issued to another client');
   const redirectUri = form.get('redirect_uri');
-  if (redirectUri && redirectUri !== payload.r) throw new OAuthError('invalid_grant', 'redirect_uri does not match');
+  if (redirectUri && redirectUri !== payload.r)
+    throw new OAuthError('invalid_grant', 'redirect_uri does not match');
 
   const verifier = form.get('code_verifier') ?? '';
   if (b64(createHash('sha256').update(verifier).digest()) !== payload.ch) {

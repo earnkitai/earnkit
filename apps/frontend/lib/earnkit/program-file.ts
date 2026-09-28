@@ -91,6 +91,10 @@ export const ProgramFile = z
     /** Date every fact in this file was last checked against the official sources (YYYY-MM-DD). */
     verified_at: z.string().date(),
     builder_steps: z.array(BuilderStep),
+    /** One short line the builder sees: reward + deadline as the organizer states it. */
+    summary: z.string().min(1).max(90),
+    /** Shown next to the title so the builder isn't misled about effort or odds. */
+    tag: z.enum(['long shot', 'needs a live product']).optional(),
     rules: z.array(z.string().min(1)),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z
