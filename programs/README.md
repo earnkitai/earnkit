@@ -31,6 +31,9 @@ The file is the source of truth. Edit it, then upsert again.
    projects can be submitted, `new_work_only` if only work done during the program counts,
    `unknown` if the source doesn't say. `verified_at`: today's date (YYYY-MM-DD). Update it
    whenever you re-check the file against the official sources, even if nothing changed.
+   `chains`: which of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use (used to
+   match builders' repos). For new-work-only programs, set `starts_at` to the start of the build
+   window so matching can check commit dates.
 4. `builder_steps`: only what the builder must do themselves, from the forms and rules:
    `{ "kind": "github" | "hosting" | "wallet" | "login" | "video" | "info", "detail": "a few words" }`
    (e.g. `wallet` / "about $1 of USDC on Arc", `login` / "DoraHacks"). Add `"each_entry": true`
@@ -85,6 +88,7 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
   "status": "active",
   "key_requirement": "Deployed on Example mainnet",
   "existing_work": "allowed",
+  "chains": ["base"],
   "verified_at": "2026-09-28",
   "builder_steps": [
     { "kind": "login", "detail": "the submission platform" },

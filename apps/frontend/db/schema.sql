@@ -33,6 +33,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS builder_steps jsonb NOT NULL DEFAU
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS summary text NOT NULL DEFAULT '';
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS tag text;
 
+-- Chains a project must use to count; used to match a builder's repos.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEFAULT '{}';
+
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
   program_id   text NOT NULL REFERENCES programs(id) ON DELETE CASCADE,

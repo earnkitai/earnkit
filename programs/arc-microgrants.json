@@ -11,6 +11,9 @@
   "status": "active",
   "key_requirement": "Deployed and working on Arc mainnet",
   "existing_work": "allowed",
+  "chains": [
+    "arc"
+  ],
   "verified_at": "2026-09-27",
   "builder_steps": [
     {

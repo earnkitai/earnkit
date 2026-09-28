@@ -11,6 +11,9 @@
   "status": "active",
   "key_requirement": "Live product on Base with real usage and Builder Codes integrated",
   "existing_work": "allowed",
+  "chains": [
+    "base"
+  ],
   "verified_at": "2026-09-28",
   "builder_steps": [
     {

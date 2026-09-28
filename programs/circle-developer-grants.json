@@ -11,6 +11,9 @@
   "status": "active",
   "key_requirement": "Arc is core to your product and Circle products are real building blocks; paid per agreed milestone",
   "existing_work": "allowed",
+  "chains": [
+    "arc"
+  ],
   "verified_at": "2026-09-28",
   "builder_steps": [
     {

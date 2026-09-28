@@ -6,11 +6,15 @@
   "source_url": "https://colosseum.com/worldsfair",
   "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
   "reward": "Tempo track $100,000 across 10 products; Base track $25,000 across 5; plus overall awards ($30,000 grand prize, $15,000 each for the next 20 teams)",
-  "starts_at": null,
+  "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
   "status": "active",
   "key_requirement": "New startup product built during Sep 14 to Oct 12 that integrates the track's chain",
   "existing_work": "new_work_only",
+  "chains": [
+    "base",
+    "tempo"
+  ],
   "verified_at": "2026-09-28",
   "builder_steps": [
     {

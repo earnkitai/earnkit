@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CHAINS } from './chains';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -91,6 +92,8 @@ export const ProgramFile = z
     /** Date every fact in this file was last checked against the official sources (YYYY-MM-DD). */
     verified_at: z.string().date(),
     builder_steps: z.array(BuilderStep),
+    /** Chains a project must use to count (for matching a builder's repos). */
+    chains: z.array(z.enum(CHAINS)).min(1),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /** Shown next to the title so the builder isn't misled about effort or odds. */

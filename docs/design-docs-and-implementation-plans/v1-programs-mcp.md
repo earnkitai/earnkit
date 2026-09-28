@@ -27,3 +27,11 @@ Reason to install beyond starters: "your existing projects already qualify". Eac
 carries `existing_work` and a one-line `key_requirement`, returned by `list_programs`. The
 server instructions tell the agent to compare the builder's projects against programs that
 accept existing work and say what's missing. No new tool; no builder data stored.
+
+## match_projects (5th tool, added after testing)
+
+Testing in Grok showed the expensive part of "what can my projects earn?" is the agent reading
+~200 repos. match_projects does it server-side from a GitHub username: detects chains from chain
+IDs/RPC hosts in config files, checks commit dates against build windows (starts_at), and
+returns likely / after one step / no per repo x program, with ready-to-show text. It works in
+chat-only clients (Grok), where building doesn't. Uses one server-side GITHUB_TOKEN.

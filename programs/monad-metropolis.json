@@ -6,11 +6,14 @@
   "source_url": "https://monad.xyz/developers/hackathons/metropolis",
   "submission_url": "https://hackathon.monad.xyz/",
   "reward": "$250,000+ prize pool: $30,000 per track (split evenly between 3 teams), $25,000 grand champion, plus sponsor prizes and bounties",
-  "starts_at": null,
+  "starts_at": "2026-09-01T00:00:00Z",
   "ends_at": "2026-10-14T03:59:00Z",
   "status": "active",
   "key_requirement": "Built on Monad during the six-week build window (1 Sep to 13 Oct)",
   "existing_work": "new_work_only",
+  "chains": [
+    "monad"
+  ],
   "verified_at": "2026-09-28",
   "builder_steps": [
     {

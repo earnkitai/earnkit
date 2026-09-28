@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
+import { GitHubError } from './github';
 import { NotFoundError } from './programs';
 import { type ToolName, tools } from './tools';
 
@@ -21,7 +22,11 @@ async function run(tool: ToolName, input: unknown = {}) {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
   } catch (err) {
-    if (err instanceof ZodError || err instanceof NotFoundError) {
+    if (
+      err instanceof ZodError ||
+      err instanceof NotFoundError ||
+      err instanceof GitHubError
+    ) {
       const text =
         err instanceof ZodError
           ? `Invalid input: ${JSON.stringify(err.issues)}`
@@ -63,11 +68,10 @@ export function createMcpServer() {
         "only for what is missing. Confirm once before the final submit, submit on the program's own",
         'site, then call record_submission. If the entry would be weak, say so instead of submitting.',
         '',
-        'EXISTING PROJECTS: when asked what their projects can earn, check their projects against',
-        'programs whose existing_work is "allowed" using real evidence (deployments, live URL, chain).',
-        'Answer per project: eligible, eligible after one step (name it), or not eligible. Never claim',
-        'eligibility you cannot verify. Offer to prepare all eligible applications at once, asking each',
-        'personal detail only once. "new_work_only" programs only count work done during the program.',
+        'EXISTING PROJECTS: when the builder asks what their projects can earn, call match_projects',
+        'with their GitHub username (or repo links) and show its show_to_builder as written. Confirm',
+        'each "check" before submitting. Offer to prepare every qualifying application at once, asking',
+        'each personal detail only once. Private repos are not included; check those yourself if you can.',
         '',
         'EarnKit does not build, judge, or pay out.',
       ].join('\n'),
@@ -126,6 +130,26 @@ export function createMcpServer() {
       annotations: { readOnlyHint: true },
     },
     (input) => run('prepare_submission', input),
+  );
+
+  server.registerTool(
+    'match_projects',
+    {
+      description:
+        "Check what a builder's existing projects can earn. Give their GitHub username (or up to 30 " +
+        'repo links). EarnKit reads their public repos, detects which chains each uses, and returns per ' +
+        'repo and program: likely qualifies, qualifies after one step, or no. Returns show_to_builder: ' +
+        'show it exactly as written.',
+      inputSchema: {
+        github_user: z.string().optional().describe('GitHub username'),
+        repos: z
+          .array(z.string())
+          .optional()
+          .describe('"owner/repo" or github.com links'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    (input) => run('match_projects', input),
   );
 
   server.registerTool(

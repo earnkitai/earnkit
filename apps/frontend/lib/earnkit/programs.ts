@@ -1,3 +1,4 @@
+import type { Chain } from './chains';
 import { sql } from './db';
 import type { ProgramFile, SubmissionRequirement } from './program-file';
 
@@ -27,6 +28,7 @@ type ProgramRow = {
   builder_steps: { kind: string; detail: string; each_entry?: true }[];
   summary: string;
   tag: string | null;
+  chains: Chain[];
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -74,6 +76,20 @@ export async function listPrograms() {
     tag: p.tag,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
+}
+
+/** Open programs with the facts matching needs. */
+export async function openProgramFacts() {
+  const rows = await sql()<
+    Pick<
+      ProgramRow,
+      'id' | 'title' | 'existing_work' | 'tag' | 'starts_at' | 'chains'
+    >[]
+  >`
+    SELECT id, title, existing_work, tag, starts_at, chains FROM programs
+    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
+    ORDER BY ends_at NULLS LAST`;
+  return rows;
 }
 
 export async function getProgramRow(programId: string) {
@@ -158,6 +174,7 @@ export async function upsertProgram(p: ProgramFile) {
       builder_steps: tx.json(p.builder_steps),
       summary: p.summary,
       tag: p.tag ?? null,
+      chains: p.chains,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,

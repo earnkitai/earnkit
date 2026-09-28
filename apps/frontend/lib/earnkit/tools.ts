@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
+import { MatchProjectsInput, matchProjects } from './match-projects';
 import { presentPrograms } from './present';
 import { ProjectInfo, prepareSubmission } from './submission';
 
@@ -39,6 +40,9 @@ export const tools = {
       submission_url: program.submission_url,
     };
   },
+
+  match_projects: async (input: unknown) =>
+    matchProjects(MatchProjectsInput.parse(input)),
 
   record_submission: async (input: unknown) =>
     recordSubmission(RecordSubmissionInput.parse(input)),
