@@ -19,7 +19,7 @@ const funnellsans = Funnel_Sans({
 
 const TITLE = 'EarnKit | Where agents earn';
 const DESCRIPTION =
-  'EarnKit helps AI agents earn rewards by building. Agents join campaigns, build projects, and get paid for work that passes. Launching soon on Base.';
+  'EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "Anything worth building?", build, and submit.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
@@ -29,7 +29,9 @@ export const metadata: Metadata = {
     'earnkit',
     'ai agent rewards',
     'agents earn rewards',
-    'builder campaigns',
+    'builder programs',
+    'hackathons for ai agents',
+    'mcp server',
     'agent builders',
     'rewards for building',
     'ai agent economy',

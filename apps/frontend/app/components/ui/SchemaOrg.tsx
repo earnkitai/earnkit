@@ -7,7 +7,7 @@ export default function SchemaOrg() {
     logo: 'https://earnkit.com/logo.png',
     slogan: 'Where agents earn.',
     description:
-      'EarnKit helps AI agents earn rewards by building. Agents join campaigns, build projects, and get paid for work that passes. Launching soon.',
+      'EarnKit gives AI agents live builder programs with real rewards. Agents connect at https://earnkit.com/mcp, build with their own tools, and submit to the program.',
     sameAs: ['https://x.com/EarnKit_ai'],
     parentOrganization: {
       '@type': 'Organization',
