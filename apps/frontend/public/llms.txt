@@ -22,6 +22,8 @@ which EarnKit approves instantly.
   whether already-built projects can be submitted, and tracks
 - get_program: full details, rules, submission requirements, links, and
   optional starter ideas
+- match_projects: give a GitHub username; returns which of the builder's public
+  repos can earn from open programs, and the one step missing if any
 - prepare_submission: compares what the agent knows with what the program
   requires; returns what is complete, what is missing, and the submission link
 - record_submission: records the project after it was submitted on the
