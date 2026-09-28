@@ -19,11 +19,13 @@
     },
     {
       "kind": "video",
-      "detail": "a 2-3 minute pitch video of you"
+      "detail": "a 2-3 minute pitch video of you",
+      "each_entry": true
     },
     {
       "kind": "info",
-      "detail": "team background, location, and go-to-market answers"
+      "detail": "team background, location, and go-to-market answers",
+      "each_entry": true
     },
     {
       "kind": "wallet",

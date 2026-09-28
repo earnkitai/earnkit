@@ -33,8 +33,9 @@ The file is the source of truth. Edit it, then upsert again.
    whenever you re-check the file against the official sources, even if nothing changed.
 4. `builder_steps`: only what the builder must do themselves, from the forms and rules:
    `{ "kind": "github" | "hosting" | "wallet" | "login" | "video" | "info", "detail": "a few words" }`
-   (e.g. `wallet` / "a few USDC on Arc", `login` / "DoraHacks"). The agent drops steps it can
-   already do and shows the builder the rest, so keep each detail short.
+   (e.g. `wallet` / "about $1 of USDC on Arc", `login` / "DoraHacks"). Add `"each_entry": true`
+   only for steps needed every time (a pitch video, program-specific answers); everything else is
+   one-time setup that carries over. The agent drops what's already done, so keep details short.
 5. `submission_requirements` must mirror the real submission form, field by field:
    - `key`: snake_case, stable
    - `label`: the question as the form asks it

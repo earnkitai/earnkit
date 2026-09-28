@@ -53,6 +53,12 @@ const BuilderStep = z
     kind: z.enum(['github', 'hosting', 'wallet', 'login', 'video', 'info']),
     /** A few words, e.g. "a few USDC on Arc" or "DoraHacks". */
     detail: z.string().min(1).max(120),
+    /**
+     * true = needed for every entry (a pitch video, program-specific answers).
+     * Omitted = one-time setup that carries over to later entries (GitHub, a host, a login,
+     * a funded wallet, a profile link).
+     */
+    each_entry: z.literal(true).optional(),
   })
   .strict();
 

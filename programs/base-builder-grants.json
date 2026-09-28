@@ -15,11 +15,13 @@
   "builder_steps": [
     {
       "kind": "info",
-      "detail": "contacts, team, usage numbers, revenue, and 3-month GTM plan"
+      "detail": "contacts, team, usage numbers, revenue, and 3-month GTM plan",
+      "each_entry": true
     },
     {
       "kind": "video",
-      "detail": "a Loom product demo"
+      "detail": "a Loom product demo",
+      "each_entry": true
     }
   ],
   "rules": [

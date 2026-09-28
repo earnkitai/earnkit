@@ -15,7 +15,7 @@
   "builder_steps": [
     {
       "kind": "wallet",
-      "detail": "a few USDC on Arc (gas is paid in USDC)"
+      "detail": "about $1 of USDC on Arc (gas is paid in USDC)"
     },
     {
       "kind": "github",

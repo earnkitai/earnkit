@@ -19,7 +19,8 @@
     },
     {
       "kind": "info",
-      "detail": "business details and the milestones you will commit to"
+      "detail": "business details and the milestones you will commit to",
+      "each_entry": true
     }
   ],
   "rules": [
