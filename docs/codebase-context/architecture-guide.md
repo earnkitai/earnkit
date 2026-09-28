@@ -38,6 +38,9 @@ Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/ea
 ## Separation of concerns
 
 - Business logic lives only in `apps/frontend/lib/earnkit/`. Routes, scripts, and the page call it.
+- match_projects reads only public GitHub data with one server-side token; nothing about the
+  builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
+  homepage); anything unconfirmed is labeled "check".
 - `prepareSubmission` is pure (no DB) and never invents values. It reports what is filled,
   what is missing, and whether the agent drafts it (`from: project`) or asks the builder
   (`from: builder`).
