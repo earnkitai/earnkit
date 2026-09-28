@@ -6,28 +6,21 @@
   "source_url": "https://www.circle.com/grant",
   "submission_url": "https://circle.questbook.app/",
   "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $204K available)",
+  "summary": "milestone-based USDC grants · rolling",
+  "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
   "status": "active",
-  "key_requirement": "Arc is core to your product and Circle products are real building blocks; paid per agreed milestone",
   "existing_work": "allowed",
   "chains": [
     "arc"
   ],
-  "verified_at": "2026-09-28",
-  "builder_steps": [
-    {
-      "kind": "login",
-      "detail": "circle.questbook.app"
-    },
-    {
-      "kind": "info",
-      "detail": "business details and milestones",
-      "each_entry": true
-    }
+  "setup": [
+    "sign in to circle.questbook.app"
   ],
-  "summary": "milestone-based USDC grants · rolling",
-  "tag": "needs a live product",
+  "each_time": [
+    "business details and milestones"
+  ],
   "rules": [
     "Rolling: Circle 2026 Cohort 2 is open on the grants portal. No closing date is stated.",
     "Arc must be core to your flow of value, liquidity, or settlement, and Circle products (e.g. USDC, Wallets, CCTP, Nanopayments, Gateway) must be meaningful building blocks.",

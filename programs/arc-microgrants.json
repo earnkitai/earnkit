@@ -6,38 +6,22 @@
   "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq",
   "submission_url": "https://dorahacks.io/hackathon/arc-microgrants",
   "reward": "500 USDC per microgrant (20 microgrants, 10,000 USDC pool)",
+  "summary": "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET",
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
   "status": "active",
-  "key_requirement": "Deployed and working on Arc mainnet",
   "existing_work": "allowed",
   "chains": [
     "arc"
   ],
-  "verified_at": "2026-09-27",
-  "builder_steps": [
-    {
-      "kind": "wallet",
-      "detail": "about $1 of USDC on Arc (gas is paid in USDC)"
-    },
-    {
-      "kind": "github",
-      "detail": "a public repo"
-    },
-    {
-      "kind": "hosting",
-      "detail": "a live link reviewers can open"
-    },
-    {
-      "kind": "login",
-      "detail": "DoraHacks"
-    },
-    {
-      "kind": "info",
-      "detail": "your public GitHub, X, or Farcaster profile"
-    }
+  "setup": [
+    "send about $1 of USDC on Arc to a deploy wallet",
+    "a public GitHub repo",
+    "a host for a live link",
+    "log in to DoraHacks",
+    "your public GitHub, X, or Farcaster profile"
   ],
-  "summary": "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET",
+  "each_time": [],
   "rules": [
     "The project must be deployed and working on Arc mainnet at the time you submit.",
     "Not eligible: design mockups, slide decks, testnet-only builds, projects with no Arc component, and work already funded by a Circle or Arc program.",

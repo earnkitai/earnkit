@@ -6,31 +6,21 @@
   "source_url": "https://monad.xyz/developers/hackathons/metropolis",
   "submission_url": "https://hackathon.monad.xyz/",
   "reward": "$250,000+ prize pool: $30,000 per track (split evenly between 3 teams), $25,000 grand champion, plus sponsor prizes and bounties",
+  "summary": "$250K+ prize pool · closes Oct 13, 11:59 PM ET",
+  "tag": "long shot",
   "starts_at": "2026-09-01T00:00:00Z",
   "ends_at": "2026-10-14T03:59:00Z",
   "status": "active",
-  "key_requirement": "Built on Monad during the six-week build window (1 Sep to 13 Oct)",
   "existing_work": "new_work_only",
   "chains": [
     "monad"
   ],
-  "verified_at": "2026-09-28",
-  "builder_steps": [
-    {
-      "kind": "login",
-      "detail": "hackathon.monad.xyz (GitHub, Google, or Discord)"
-    },
-    {
-      "kind": "wallet",
-      "detail": "gas on Monad"
-    },
-    {
-      "kind": "github",
-      "detail": "a link to the code"
-    }
+  "setup": [
+    "log in to hackathon.monad.xyz (GitHub, Google, or Discord)",
+    "gas on Monad",
+    "a GitHub repo"
   ],
-  "summary": "$250K+ prize pool · closes Oct 13, 11:59 PM ET",
-  "tag": "long shot",
+  "each_time": [],
   "rules": [
     "Submissions open on the platform on 2 Oct and close 13 Oct 2026 at 23:59 ET (per the application platform, hackathon.monad.xyz).",
     "The project must be a product built on Monad.",

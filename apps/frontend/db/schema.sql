@@ -1,40 +1,25 @@
--- EarnKit v1 schema. Idempotent: safe to run on every deploy (`pnpm db:migrate`).
+-- EarnKit schema. Idempotent: runs before every deploy (`pnpm predeploy`).
 
 CREATE TABLE IF NOT EXISTS programs (
-  id                      text PRIMARY KEY,           -- slug, e.g. "base-batches-002"
+  id                      text PRIMARY KEY,           -- slug, e.g. "arc-microgrants"
   organizer               text NOT NULL,
   title                   text NOT NULL,
   description             text NOT NULL,
   source_url              text NOT NULL,
   submission_url          text NOT NULL,
   reward                  text NOT NULL,
+  summary                 text NOT NULL,              -- short reward + deadline line builders see
+  tag                     text,                       -- "long shot" | "needs a live product"
   starts_at               timestamptz,
-  ends_at                 timestamptz NOT NULL,
+  ends_at                 timestamptz,                -- NULL = rolling
   status                  text NOT NULL CHECK (status IN ('active', 'closed')),
+  existing_work           text NOT NULL CHECK (existing_work IN ('allowed', 'new_work_only', 'unknown')),
+  chains                  text[] NOT NULL DEFAULT '{}',
+  setup                   text[] NOT NULL DEFAULT '{}', -- one-time builder-only steps
+  each_time               text[] NOT NULL DEFAULT '{}', -- builder-only steps for every entry
   rules                   text[] NOT NULL DEFAULT '{}',
   submission_requirements jsonb NOT NULL DEFAULT '[]'
 );
-
--- Rolling programs (no deadline) have ends_at NULL.
-ALTER TABLE programs ALTER COLUMN ends_at DROP NOT NULL;
-
--- Added after v1 launch: what decides fit, and whether already-built projects can be submitted.
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS key_requirement text NOT NULL DEFAULT '';
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAULT 'unknown'
-  CHECK (existing_work IN ('allowed', 'new_work_only', 'unknown'));
-
--- When the program's facts were last checked against official sources.
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS verified_at date;
-
--- The steps only the builder can do (GitHub, hosting, wallet, logins, videos, personal info).
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS builder_steps jsonb NOT NULL DEFAULT '[]';
-
--- Builder-facing card: short reward + deadline line, and an optional tag.
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS summary text NOT NULL DEFAULT '';
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS tag text;
-
--- Chains a project must use to count; used to match a builder's repos.
-ALTER TABLE programs ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
@@ -80,3 +65,15 @@ CREATE TABLE IF NOT EXISTS submissions (
   external_submission_url text,
   created_at              timestamptz NOT NULL DEFAULT now()
 );
+
+-- Upgrades for the database created before 2026-09-28 (no-ops on a fresh one).
+ALTER TABLE programs ALTER COLUMN ends_at DROP NOT NULL;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS summary text NOT NULL DEFAULT '';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS tag text;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAULT 'unknown';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEFAULT '{}';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS setup text[] NOT NULL DEFAULT '{}';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS each_time text[] NOT NULL DEFAULT '{}';
+ALTER TABLE programs DROP COLUMN IF EXISTS key_requirement;
+ALTER TABLE programs DROP COLUMN IF EXISTS verified_at;
+ALTER TABLE programs DROP COLUMN IF EXISTS builder_steps;

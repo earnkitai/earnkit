@@ -4,75 +4,53 @@ One file per builder program: `programs/<slug>.json`. Claude Code is the admin i
 The format is defined and validated by `apps/frontend/lib/earnkit/program-file.ts`.
 
 ```sh
-pnpm program:upsert programs/<slug>.json --check   # validate only
-pnpm program:upsert programs/<slug>.json           # validate + write to the database
+pnpm programs:check    # validate every program file
 ```
 
-Publishing: every deploy runs `pnpm predeploy` (migrate + `pnpm programs:sync`), which writes
-all program files to the database, and a change under `programs/` triggers a deploy. So merging
-to `main` is how a program change goes live. To write immediately without a deploy (Railway
-CLI, repo linked to the EarnKit project):
-
-```sh
-railway run -s Postgres -- sh -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" pnpm program:upsert programs/<slug>.json'
-```
-
-Upsert replaces the program, its tracks, and its starters with what is in the file.
-The file is the source of truth. Edit it, then upsert again.
+To publish, push to `main`. Every deploy writes all program files to the database
+(`pnpm predeploy`), and changes under `programs/` trigger a deploy. The files are the source of
+truth: a program's tracks and starters are replaced with what's in its file. Programs drop out
+of `list_programs` on their own after `ends_at`.
 
 ## "Add this program to EarnKit: <url>"
 
-1. Read the official program pages (overview, rules, FAQ, the submission form itself).
-2. Write `programs/<slug>.json` using only facts the source supports. If something is
-   not stated (e.g. no start date), use `null` or leave it out. Never guess a reward,
-   deadline, or requirement.
-3. `key_requirement`: the one requirement that decides fit, in a few words
-   (e.g. "Deployed and working on Arc mainnet"). `existing_work`: `allowed` if already-built
-   projects can be submitted, `new_work_only` if only work done during the program counts,
-   `unknown` if the source doesn't say. `verified_at`: today's date (YYYY-MM-DD). Update it
-   whenever you re-check the file against the official sources, even if nothing changed.
-   `chains`: which of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use (used to
-   match builders' repos). For new-work-only programs, set `starts_at` to the start of the build
-   window so matching can check commit dates.
-4. `builder_steps`: only what the builder must do themselves, from the forms and rules:
-   `{ "kind": "github" | "hosting" | "wallet" | "login" | "video" | "info", "detail": "a few words" }`
-   (e.g. `wallet` / "about $1 of USDC on Arc", `login` / "DoraHacks"). Add `"each_entry": true`
-   only for steps needed every time (a pitch video, program-specific answers); everything else is
-   one-time setup that carries over. The agent drops what's already done, so keep details short.
-5. `summary`: one short line the builder sees, reward + deadline as the organizer states it
-   (e.g. "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET", or "· rolling"). `tag` (optional):
-   `"long shot"` when few prizes go to many judged entries, `"needs a live product"` when the
-   program only suits builders who already shipped.
-6. `submission_requirements` must mirror the real submission form, field by field:
-   - `key`: snake_case, stable
-   - `label`: the question as the form asks it
-   - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`
-   - `required`: as the form marks it
-   - `description`: limits or format notes from the form (optional)
-   - `project_field`: set when the answer is simply the project's `name`,
-     `description`, `repo_url`, `live_url`, `demo_url`, or `token_url`
-   - `from`: `project` if the agent can draft it from the project itself,
-     `builder` for personal info (name, email, wallet, socials, team, country…)
-7. Do not add starters. The owner decides those.
-8. Run `--check`, fix any errors, then upsert.
+Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
 
-Rolling programs (no deadline, e.g. cohort-based grants) use `"ends_at": null`.
-Dates are ISO 8601 with a timezone (`2026-10-31T23:59:00Z`). Convert the organizer's
-stated timezone. Set `"status": "closed"` to hide a program early.
+1. Read the official pages: overview, rules, FAQ, and the submission form itself.
+2. Write `programs/<slug>.json` using only facts the source supports. If something isn't
+   stated, use `null` or leave it out. Never guess a reward, deadline, or requirement.
+3. Fill in:
+   - `summary`: one short line builders see, reward + deadline as the organizer states it
+     (e.g. `"500 USDC × 20 grants · closes Oct 14, 11:59 PM ET"`, or `"· rolling"`).
+   - `tag` (optional): `"long shot"` when few prizes go to many judged entries;
+     `"needs a live product"` when it only suits builders who already shipped.
+   - `ends_at`: ISO 8601 with timezone, converted from the organizer's timezone.
+     `null` for rolling programs.
+   - `starts_at`: for new-work-only programs, the start of the build window (matching
+     checks commit dates against it). Otherwise `null` unless stated.
+   - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
+   - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use.
+   - `setup`: one-time steps only the builder can do, a few words each
+     (e.g. `"log in to DoraHacks"`, `"send about $1 of USDC on Arc to a deploy wallet"`).
+   - `each_time`: what the builder must provide for every entry (e.g. `"a 2-3 min pitch video"`).
+   - `submission_requirements`: mirror the real form field by field:
+     - `key`: snake_case; `label`: the question as the form asks it
+     - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`; `required`
+     - `description` (optional): limits or format notes from the form
+     - `project_field` (optional): `name`, `description`, `repo_url`, `live_url`, `demo_url`,
+       or `token_url` when the answer is simply that
+     - `from`: `project` if the agent can draft it from the project, `builder` for personal info
+4. Do not add starters. The owner decides those.
+5. Run `pnpm programs:check`, then push.
 
 ## "Add this starter to the <Track> track: <idea>"
 
-Starters are optional ideas, never required. Turn the owner's one-line idea into:
+Starters are optional ideas. Turn the owner's one-line idea into `title`, `what_to_build`
+(2-4 plain sentences), `requirements` (copied from the program/track), and `build_context`
+(`{ "label", "url"? }` links to the program's own docs). With tracks: at most 1 starter per
+track, and each names its `track` slug. Without tracks: at most 2.
 
-- `title`: short
-- `what_to_build`: 2-4 plain sentences
-- `requirements`: the program/track requirements this idea must satisfy (copied from the file)
-- `build_context`: `{ "label", "url"? }` links to the program's own docs, APIs, or examples
-
-Limits (enforced by validation): with tracks, at most 1 starter per track, and
-every starter names its `track` slug. Without tracks, at most 2 starters.
-
-## Example shape
+## Example
 
 ```json
 {
@@ -83,27 +61,21 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
   "source_url": "https://example.com/program",
   "submission_url": "https://example.com/submit",
   "reward": "$50,000 across tracks",
+  "summary": "$50K across tracks · closes Nov 15, 11:59 PM UTC",
   "starts_at": null,
   "ends_at": "2026-11-15T23:59:00Z",
   "status": "active",
-  "key_requirement": "Deployed on Example mainnet",
   "existing_work": "allowed",
   "chains": ["base"],
-  "verified_at": "2026-09-28",
-  "builder_steps": [
-    { "kind": "login", "detail": "the submission platform" },
-    { "kind": "github", "detail": "a public repo" }
-  ],
-  "summary": "$50K across tracks · closes Nov 15, 11:59 PM UTC",
-  "rules": ["Open source", "Built during the program"],
+  "setup": ["log in to the submission platform", "a public GitHub repo"],
+  "each_time": [],
+  "rules": ["Open source", "Deployed on Base mainnet"],
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
     { "key": "github", "label": "GitHub repository", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
     { "key": "contact_email", "label": "Email", "type": "email", "required": true, "from": "builder" }
   ],
-  "tracks": [
-    { "slug": "payments", "name": "Payments", "description": "…", "requirements": ["…"] }
-  ],
+  "tracks": [],
   "starters": []
 }
 ```

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectChains, pickFiles } from './chains';
+import { detectChains, pickFiles } from './match';
 import {
   matchRepo,
   presentMatches,

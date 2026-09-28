@@ -6,23 +6,18 @@ export type Card = {
   title: string;
   summary: string;
   tag: string | null;
-  builder_steps: { kind: string; detail: string; each_entry?: true }[];
+  each_time: string[];
 };
 
 function youLine(card: Card) {
-  const everyTime = card.builder_steps
-    .filter((s) => s.each_entry)
-    .map((s) => s.detail);
-  return everyTime.length === 0
+  return card.each_time.length === 0
     ? 'approve'
-    : `approve, plus ${everyTime.join('; ')}`;
+    : `approve, plus ${card.each_time.join('; ')}`;
 }
 
 /** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
 function rank(card: Card) {
-  return (
-    (card.tag ? 2 : 0) + (card.builder_steps.some((s) => s.each_entry) ? 1 : 0)
-  );
+  return (card.tag ? 2 : 0) + (card.each_time.length > 0 ? 1 : 0);
 }
 
 export function presentPrograms(cards: Card[], agentCanBuild: boolean) {

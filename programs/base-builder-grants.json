@@ -6,29 +6,20 @@
   "source_url": "https://docs.base.org/get-started/builders",
   "submission_url": "https://forms.gle/urqjBJYJjR6Vqqre6",
   "reward": "Up to $5,000 in grants, plus GTM and product support",
+  "summary": "up to $5,000 · rolling",
+  "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
   "status": "active",
-  "key_requirement": "Live product on Base with real usage and Builder Codes integrated",
   "existing_work": "allowed",
   "chains": [
     "base"
   ],
-  "verified_at": "2026-09-28",
-  "builder_steps": [
-    {
-      "kind": "info",
-      "detail": "usage, revenue, and team answers",
-      "each_entry": true
-    },
-    {
-      "kind": "video",
-      "detail": "a Loom demo",
-      "each_entry": true
-    }
+  "setup": [],
+  "each_time": [
+    "usage, revenue, and team answers",
+    "a Loom demo"
   ],
-  "summary": "up to $5,000 · rolling",
-  "tag": "needs a live product",
   "rules": [
     "Rolling: apply to be included in the next cohort. No deadline is stated.",
     "The Base team provides grants very selectively. The first step to be eligible is to integrate Builder Codes.",

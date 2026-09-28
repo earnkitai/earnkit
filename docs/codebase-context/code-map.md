@@ -18,17 +18,15 @@ apps/frontend/
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts                     MCP server: the 5 tools, their descriptions and schemas
     present.ts(+test)          builder-facing text for list_programs (Me / You lines)
-    chains.ts                  chain IDs + RPC hosts; detects chains in a repo's files
-    github.ts                  public GitHub reads with EarnKit's token (GITHUB_TOKEN)
-    match.ts(+test)            repo x program verdicts + builder-facing text (pure)
-    match-projects.ts          match_projects: fetch repos, detect chains, match
+    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts, text
+    match-projects.ts          match_projects: public GitHub reads (GITHUB_TOKEN) + orchestration
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation
   db/schema.sql                the whole schema, idempotent
-  scripts/                     db-migrate.mts, program-upsert.mts, programs-sync.mts (load .env.local)
+  scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
 ```
 
-Root commands: `pnpm db:migrate`, `pnpm program:upsert <file> [--check]`, `pnpm programs:sync`
-(all files), `pnpm predeploy` (migrate + sync; Railway runs it before every deploy), `pnpm test`.
+Root commands: `pnpm programs:check` (validate program files), `pnpm test`. Railway runs
+`pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
 `GITHUB_TOKEN` (one server-side read-only token for match_projects).

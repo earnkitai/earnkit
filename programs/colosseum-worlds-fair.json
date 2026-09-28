@@ -6,42 +6,25 @@
   "source_url": "https://colosseum.com/worldsfair",
   "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
   "reward": "Tempo track $100,000 across 10 products; Base track $25,000 across 5; plus overall awards ($30,000 grand prize, $15,000 each for the next 20 teams)",
+  "summary": "Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT",
+  "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
   "status": "active",
-  "key_requirement": "New startup product built during Sep 14 to Oct 12 that integrates the track's chain",
   "existing_work": "new_work_only",
   "chains": [
     "base",
     "tempo"
   ],
-  "verified_at": "2026-09-28",
-  "builder_steps": [
-    {
-      "kind": "login",
-      "detail": "colosseum.com (every team member registers)"
-    },
-    {
-      "kind": "video",
-      "detail": "a 2-3 min pitch video",
-      "each_entry": true
-    },
-    {
-      "kind": "info",
-      "detail": "team and go-to-market answers",
-      "each_entry": true
-    },
-    {
-      "kind": "wallet",
-      "detail": "gas on Base or Tempo"
-    },
-    {
-      "kind": "github",
-      "detail": "a repo (private is fine if shared with Colosseum)"
-    }
+  "setup": [
+    "register on colosseum.com (every teammate)",
+    "gas on Base or Tempo",
+    "a GitHub repo (private is fine if shared with Colosseum)"
   ],
-  "summary": "Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT",
-  "tag": "long shot",
+  "each_time": [
+    "a 2-3 min pitch video",
+    "team and go-to-market answers"
+  ],
   "rules": [
     "Every member must register on colosseum.com and the team leader must upload the Project Submission before 11:59pm PT on October 12, 2026.",
     "Teams may begin development before the hackathon, but products are judged only on the work completed between the competition's start and end dates.",

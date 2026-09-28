@@ -7,21 +7,19 @@ const cards: Card[] = [
     title: 'Big Hack',
     summary: '$100K · closes Oct 12',
     tag: 'long shot',
-    builder_steps: [
-      { kind: 'video', detail: 'a pitch video', each_entry: true },
-    ],
+    each_time: ['a pitch video'],
   },
   {
     title: 'Grant',
     summary: 'up to $5K · rolling',
     tag: 'needs a live product',
-    builder_steps: [],
+    each_time: [],
   },
   {
     title: 'Micro',
     summary: '500 USDC × 20 · closes Oct 14',
     tag: null,
-    builder_steps: [{ kind: 'login', detail: 'DoraHacks' }],
+    each_time: [],
   },
 ];
 

@@ -4,9 +4,10 @@
 
 - **Program**: a live builder program run by someone else (hackathon, grant, bounty). Has a
   reward, a deadline, rules, and submission requirements. Curated by hand in `programs/*.json`.
-- **existing_work / key_requirement**: per-program facts that let an agent match a builder's
-  already-built projects to programs (`allowed` / `new_work_only` / `unknown`). The agent does the
-  matching with its own access to the builder's repos; EarnKit never stores or scans them.
+- **existing_work / chains / starts_at**: per-program facts match_projects uses to match a
+  builder's public repos (`allowed` / `new_work_only` / `unknown`).
+- **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
+  is the agent's job. list_programs turns this into short "Me / You" lines on the server.
 - **Track**: a category inside a program with its own requirements.
 - **Starter**: an optional idea to start quickly. Max 1 per track, or 2 when there are no tracks.
   Which starter a builder used is never tracked.
@@ -32,7 +33,7 @@ agent (Grok, Muse, Claude, Cursor…) ──HTTPS──> /mcp
     -> token = installation row; the client stores the token
   then: Bearer token -> /mcp -> lib/earnkit/mcp.ts -> lib/earnkit/tools.ts -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
-Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/earnkit/programs.upsertProgram ──> Postgres
+Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm programs:sync ──> Postgres
 ```
 
 ## Separation of concerns
@@ -48,8 +49,7 @@ Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/ea
   access token is derived from the code, so a replayed code can't create a second installation.
   Rotating the secret invalidates unused codes and client ids, not issued tokens.
 - Program files in git are the source of truth for programs/tracks/starters. Every deploy syncs
-  them to the database (upsert replaces all three). Each file carries `verified_at`, the date its
-  facts were checked against official sources when added. Programs drop out of list_programs
+  them to the database (upsert replaces all three). Programs drop out of list_programs
   automatically after ends_at; there is no scheduled re-check.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.

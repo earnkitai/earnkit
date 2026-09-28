@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { CHAINS } from './chains';
+import { CHAINS } from './match';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
- * program is added. `pnpm program:upsert` validates against this before
- * touching the database.
+ * program is added. `pnpm programs:check` validates against this; every deploy validates
+ * again and syncs the files to the database.
  */
 
 const slug = z
@@ -45,24 +45,6 @@ export const SubmissionRequirement = z
   });
 export type SubmissionRequirement = z.infer<typeof SubmissionRequirement>;
 
-/**
- * Something only the builder can do. The agent skips any step it can already do itself
- * (e.g. GitHub or a host already connected) and asks for the rest.
- */
-const BuilderStep = z
-  .object({
-    kind: z.enum(['github', 'hosting', 'wallet', 'login', 'video', 'info']),
-    /** A few words, e.g. "a few USDC on Arc" or "DoraHacks". */
-    detail: z.string().min(1).max(120),
-    /**
-     * true = needed for every entry (a pitch video, program-specific answers).
-     * Omitted = one-time setup that carries over to later entries (GitHub, a host, a login,
-     * a funded wallet, a profile link).
-     */
-    each_entry: z.literal(true).optional(),
-  })
-  .strict();
-
 const BuildContext = z
   .object({ label: z.string().min(1), url: z.string().url().optional() })
   .strict();
@@ -80,24 +62,23 @@ export const ProgramFile = z
     /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
     ends_at: z.string().datetime({ offset: true }).nullable(),
     status: z.enum(['active', 'closed']),
-    /** Program-wide rules and requirements every project must meet. */
-    /** The one requirement that decides fit, in a few words (e.g. "Deployed on Arc mainnet"). */
-    key_requirement: z.string().min(1).max(120),
     /**
      * Can a builder submit something they already built?
      * "allowed": yes. "new_work_only": only work done during the program counts.
      * "unknown": the source doesn't say. Never guess.
      */
     existing_work: z.enum(['allowed', 'new_work_only', 'unknown']),
-    /** Date every fact in this file was last checked against the official sources (YYYY-MM-DD). */
-    verified_at: z.string().date(),
-    builder_steps: z.array(BuilderStep),
+    /** What only the builder can do, a few words each. setup carries over to later entries. */
+    setup: z.array(z.string().min(1).max(80)),
+    /** Needed again for every entry (a pitch video, program-specific answers). */
+    each_time: z.array(z.string().min(1).max(80)),
     /** Chains a project must use to count (for matching a builder's repos). */
     chains: z.array(z.enum(CHAINS)).min(1),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /** Shown next to the title so the builder isn't misled about effort or odds. */
     tag: z.enum(['long shot', 'needs a live product']).optional(),
+    /** Program-wide rules and requirements every project must meet. */
     rules: z.array(z.string().min(1)),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z

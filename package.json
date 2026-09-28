@@ -20,10 +20,10 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "preinstall": "node preinstall.js",
     "db:migrate": "tsx apps/frontend/scripts/db-migrate.mts",
-    "program:upsert": "tsx apps/frontend/scripts/program-upsert.mts",
     "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\"",
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
-    "predeploy": "pnpm db:migrate && pnpm programs:sync"
+    "predeploy": "pnpm db:migrate && pnpm programs:sync",
+    "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check"
   },
   "pnpm": {
     "overrides": {}
