@@ -3,6 +3,12 @@ import type { ProgramFile, SubmissionRequirement } from './program-file';
 
 export class NotFoundError extends Error {}
 
+/** ISO timestamp, or "rolling" for programs without a deadline. */
+const deadline = (endsAt: Date | null) => endsAt?.toISOString() ?? 'rolling';
+
+export const isOpen = (p: { status: string; ends_at: Date | null }) =>
+  p.status === 'active' && (p.ends_at === null || p.ends_at > new Date());
+
 type ProgramRow = {
   id: string;
   organizer: string;
@@ -12,7 +18,7 @@ type ProgramRow = {
   submission_url: string;
   reward: string;
   starts_at: Date | null;
-  ends_at: Date;
+  ends_at: Date | null;
   status: 'active' | 'closed';
   key_requirement: string;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
@@ -27,8 +33,8 @@ export async function listPrograms() {
     Pick<ProgramRow, 'id' | 'title' | 'organizer' | 'reward' | 'ends_at' | 'key_requirement' | 'existing_work'>[]
   >`
     SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work FROM programs
-    WHERE status = 'active' AND ends_at > now()
-    ORDER BY ends_at`;
+    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
+    ORDER BY ends_at NULLS LAST`;
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
     SELECT id, program_id, name FROM tracks
     WHERE program_id IN ${db(programs.map((p) => p.id).concat(''))}
@@ -39,7 +45,7 @@ export async function listPrograms() {
     title: p.title,
     organizer: p.organizer,
     reward: p.reward,
-    deadline: p.ends_at.toISOString(),
+    deadline: deadline(p.ends_at),
     key_requirement: p.key_requirement,
     existing_work: p.existing_work,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
@@ -73,8 +79,8 @@ export async function getProgram(programId: string) {
     key_requirement: program.key_requirement,
     existing_work: program.existing_work,
     starts_at: program.starts_at?.toISOString() ?? null,
-    deadline: program.ends_at.toISOString(),
-    open: program.status === 'active' && program.ends_at > new Date(),
+    deadline: deadline(program.ends_at),
+    open: isOpen(program),
     rules: program.rules,
     tracks: tracks.map(({ name, description, requirements }) => ({ name, description, requirements })),
     submission_requirements: program.submission_requirements,

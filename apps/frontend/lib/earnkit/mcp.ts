@@ -51,7 +51,7 @@ export function createMcpServer() {
     {
       description:
         'List open builder programs with rewards. Use when the builder asks what is worth building, or ' +
-        'whether any of their existing projects could earn. Returns id, title, organizer, reward, deadline, ' +
+        'whether any of their existing projects could earn. Returns id, title, organizer, reward, deadline (or "rolling"), ' +
         'key_requirement, existing_work ("allowed" = already-built projects can be submitted, ' +
         '"new_work_only" = only work done during the program counts, "unknown"), and track names.',
       annotations: { readOnlyHint: true },

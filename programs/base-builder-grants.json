@@ -1,0 +1,153 @@
+{
+  "id": "base-builder-grants",
+  "organizer": "Base",
+  "title": "Base Builder Grant Program",
+  "description": "Grants of up to $5,000, plus GTM and product support, for teams actively building on Base with a live product that is getting used. Categories: prediction markets, token launchpads, DeFi 2.0, agents (commerce, x402, autonomous trading), new asset creation, and consumer apps focused on transaction growth. Reviewed in cohorts.",
+  "source_url": "https://docs.base.org/get-started/builders",
+  "submission_url": "https://forms.gle/urqjBJYJjR6Vqqre6",
+  "reward": "Up to $5,000 in grants, plus GTM and product support",
+  "starts_at": null,
+  "ends_at": null,
+  "status": "active",
+  "key_requirement": "Live product on Base with real usage and Builder Codes integrated",
+  "existing_work": "allowed",
+  "rules": [
+    "Rolling: apply to be included in the next cohort. No deadline is stated.",
+    "The Base team provides grants very selectively. The first step to be eligible is to integrate Builder Codes.",
+    "For builders exclusively building on Base right now.",
+    "You're past the idea stage, with a live product that's getting used.",
+    "For teams that need product, GTM, and launch help more than capital.",
+    "Categories: prediction markets; token launchpads; DeFi 2.0 (lending, borrowing, looping, yield generation, vaults, tokenized equities); agents (commerce, x402 implementations, autonomous trading); new asset creation; consumer apps focused on transaction growth.",
+    "Accepted teams unlock the Builder Stack: a pool of tools and credits (LLM inference, cloud, other dev infrastructure)."
+  ],
+  "submission_requirements": [
+    {
+      "key": "full_name",
+      "label": "Full name",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "email",
+      "label": "Email",
+      "type": "email",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "x_handle",
+      "label": "X (Twitter) handle",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "telegram",
+      "label": "Telegram username",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "project_name_description",
+      "label": "Project name + one-line description of what it does",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "founding_team",
+      "label": "Tell us about the founding team",
+      "type": "text",
+      "required": true,
+      "description": "Prior companies/exits, funding raised, and relevant domain expertise.",
+      "from": "builder"
+    },
+    {
+      "key": "live_product_url",
+      "label": "Link to your live product",
+      "type": "url",
+      "required": true,
+      "project_field": "live_url",
+      "from": "project"
+    },
+    {
+      "key": "demo_loom",
+      "label": "Link to a Product Demo (Loom)",
+      "type": "url",
+      "required": true,
+      "project_field": "demo_url",
+      "from": "project"
+    },
+    {
+      "key": "contract_address",
+      "label": "Contract address on Base",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "track",
+      "label": "Which track best fits what you're building?",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "Trading",
+        "Payments / Stable coins",
+        "Agents / Agentic Commerce",
+        "Lending / Yield",
+        "Tokenization",
+        "RWA",
+        "Consumer Social / App"
+      ],
+      "from": "project"
+    },
+    {
+      "key": "usage_numbers",
+      "label": "Share your key usage numbers",
+      "type": "text",
+      "required": true,
+      "description": "All-time users onboarded, current DAU, current WAU, all-time volume processed, and last-30-day volume processed.",
+      "from": "builder"
+    },
+    {
+      "key": "revenue",
+      "label": "How does your product make money today?",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "gtm_plan",
+      "label": "What's your GTM plan for the next 3 months?",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "builder_code",
+      "label": "What's your Base Builder Code?",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "primary_challenge",
+      "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?",
+      "type": "text",
+      "required": true,
+      "description": "Pick one or more: User acquisition, Go-to-market strategy, Smart contract security/auditing, Liquidity bootstrapping, UI/UX improvements, Regulatory compliance guidance.",
+      "from": "builder"
+    },
+    {
+      "key": "credits",
+      "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": []
+}

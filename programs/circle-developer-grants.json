@@ -1,0 +1,55 @@
+{
+  "id": "circle-developer-grants",
+  "organizer": "Circle",
+  "title": "Circle Developer Grants",
+  "description": "Grants for teams building on Arc and the Circle Developer Platform: milestone-based USDC funding, co-marketing, technical guidance, and Circle ecosystem access. Focus areas: agentic economic activity, stablecoin FX, peer-to-peer payments, treasury management, prediction markets, and lending and borrowing. The current round is Circle 2026 Cohort 2.",
+  "source_url": "https://www.circle.com/grant",
+  "submission_url": "https://circle.questbook.app/",
+  "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $204K available)",
+  "starts_at": null,
+  "ends_at": null,
+  "status": "active",
+  "key_requirement": "Arc is core to your product and Circle products are real building blocks; paid per agreed milestone",
+  "existing_work": "allowed",
+  "rules": [
+    "Rolling: Circle 2026 Cohort 2 is open on the grants portal. No closing date is stated.",
+    "Arc must be core to your flow of value, liquidity, or settlement, and Circle products (e.g. USDC, Wallets, CCTP, Nanopayments, Gateway) must be meaningful building blocks.",
+    "Circle prioritizes teams with proven shipping ability and evidence of usage, pilots, partnerships, revenue, or a credible path to get there.",
+    "Payments are released as agreed milestones are met and approved, not up front.",
+    "Process: application, initial review, finalist technical review (with screenings), milestone design, then disbursement.",
+    "Selective: as of Sep 28, 2026 the Cohort 2 portal showed 824 proposals and 14 accepted.",
+    "Qualifying Arc builders can also get security audit funding through Developer Grants."
+  ],
+  "submission_requirements": [
+    {
+      "key": "business",
+      "label": "Details on your business",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "integrations",
+      "label": "Your Circle and Arc integrations",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "roadmap",
+      "label": "Product roadmap",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "milestones",
+      "label": "Proposed grant milestones",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    }
+  ],
+  "tracks": [],
+  "starters": []
+}

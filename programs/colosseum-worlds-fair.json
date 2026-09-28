@@ -1,0 +1,121 @@
+{
+  "id": "colosseum-worlds-fair",
+  "organizer": "Colosseum",
+  "title": "Crypto World's Fair Hackathon",
+  "description": "Colosseum's online hackathon (Sep 14 to Oct 12) for builders and founders across all crypto ecosystems to launch startups. $840,000 in prizes across overall awards and ecosystem tracks, including dedicated Tempo and Base tracks. Winners are considered for Colosseum's accelerator ($250,000 pre-seed).",
+  "source_url": "https://colosseum.com/worldsfair",
+  "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
+  "reward": "Tempo track $100,000 across 10 products; Base track $25,000 across 5; plus overall awards ($30,000 grand prize, $15,000 each for the next 20 teams)",
+  "starts_at": null,
+  "ends_at": "2026-10-13T06:59:00Z",
+  "status": "active",
+  "key_requirement": "New startup product built during Sep 14 to Oct 12 that integrates the track's chain",
+  "existing_work": "new_work_only",
+  "rules": [
+    "Every member must register on colosseum.com and the team leader must upload the Project Submission before 11:59pm PT on October 12, 2026.",
+    "Teams may begin development before the hackathon, but products are judged only on the work completed between the competition's start and end dates.",
+    "Builders may use pre-existing code, but teams must disclose all relevant past development work in the submission form.",
+    "For new startups that haven't raised significant outside capital, not established companies.",
+    "Each person may be on one team; a team may submit one project at a time.",
+    "Age of majority or 18+; sanctioned countries and persons are excluded (see the official rules).",
+    "Judged on functionality, potential impact, novelty, UX, open-source, and business plan. The portal is treated as a pitch to Colosseum's venture fund.",
+    "Track prizes are in addition to the overall awards. Winners are announced on or about December 5, 2026.",
+    "All winners are interviewed and considered for Colosseum's accelerator ($250,000 pre-seed, 12 weeks in San Francisco)."
+  ],
+  "submission_requirements": [
+    {
+      "key": "product_name_description",
+      "label": "Product name and a brief description",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "chains_and_tools",
+      "label": "Which blockchains and tools are being integrated",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "team",
+      "label": "All teammates, with context on their backgrounds and previous experience",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "team_location",
+      "label": "Where the team is located",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "logo",
+      "label": "A product logo or graphic",
+      "type": "file",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "github_repo",
+      "label": "A GitHub repository link",
+      "type": "url",
+      "required": true,
+      "description": "Open source is encouraged; private repos are allowed if access is granted to hackathon@colosseum.com.",
+      "project_field": "repo_url",
+      "from": "project"
+    },
+    {
+      "key": "presentation_video",
+      "label": "A two-to-three-minute presentation video",
+      "type": "url",
+      "required": true,
+      "description": "One of the first things judges review; clear, concise, high quality.",
+      "from": "builder"
+    },
+    {
+      "key": "demo_video",
+      "label": "A product-demo video of no more than three minutes explaining how the product works",
+      "type": "url",
+      "required": true,
+      "project_field": "demo_url",
+      "from": "project"
+    },
+    {
+      "key": "gtm",
+      "label": "Go-to-market strategy, demand validation, and plans for developing distribution",
+      "type": "text",
+      "required": true,
+      "from": "builder"
+    },
+    {
+      "key": "past_development",
+      "label": "Disclosure of all relevant past development work",
+      "type": "text",
+      "required": true,
+      "description": "Required if any code predates the hackathon. Misrepresenting development history can mean disqualification.",
+      "from": "project"
+    }
+  ],
+  "tracks": [
+    {
+      "slug": "base",
+      "name": "Base",
+      "description": "$25,000 awarded across 5 of the best products that integrate with the Base blockchain.",
+      "requirements": [
+        "Integrates with the Base blockchain."
+      ]
+    },
+    {
+      "slug": "tempo",
+      "name": "Tempo",
+      "description": "$100,000 awarded across 10 of the best products that integrate with the Tempo blockchain.",
+      "requirements": [
+        "Integrates with the Tempo blockchain."
+      ]
+    }
+  ],
+  "starters": []
+}

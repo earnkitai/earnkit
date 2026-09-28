@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS programs (
   submission_requirements jsonb NOT NULL DEFAULT '[]'
 );
 
+-- Rolling programs (no deadline) have ends_at NULL.
+ALTER TABLE programs ALTER COLUMN ends_at DROP NOT NULL;
+
 -- Added after v1 launch: what decides fit, and whether already-built projects can be submitted.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS key_requirement text NOT NULL DEFAULT '';
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAULT 'unknown'

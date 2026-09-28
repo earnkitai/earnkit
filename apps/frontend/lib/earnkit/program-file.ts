@@ -56,7 +56,8 @@ export const ProgramFile = z
     submission_url: z.string().url(),
     reward: z.string().min(1),
     starts_at: z.string().datetime({ offset: true }).nullable(),
-    ends_at: z.string().datetime({ offset: true }),
+    /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
+    ends_at: z.string().datetime({ offset: true }).nullable(),
     status: z.enum(['active', 'closed']),
     /** Program-wide rules and requirements every project must meet. */
     /** The one requirement that decides fit, in a few words (e.g. "Deployed on Arc mainnet"). */
@@ -121,7 +122,7 @@ export const ProgramFile = z
       if (p.starters.length > 2) issue(`${p.starters.length} starters (max 2 for a program without tracks)`);
     }
 
-    if (p.starts_at && Date.parse(p.starts_at) >= Date.parse(p.ends_at)) {
+    if (p.starts_at && p.ends_at && Date.parse(p.starts_at) >= Date.parse(p.ends_at)) {
       issue('starts_at must be before ends_at');
     }
   });

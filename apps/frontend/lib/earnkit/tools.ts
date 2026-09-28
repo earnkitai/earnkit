@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getProgram, getProgramRow, listPrograms } from './programs';
+import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
 import { ProjectInfo, prepareSubmission } from './submission';
 
@@ -19,7 +19,7 @@ export const tools = {
   prepare_submission: async (input: unknown) => {
     const { program_id, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
-    const open = program.status === 'active' && program.ends_at > new Date();
+    const open = isOpen(program);
     return {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
