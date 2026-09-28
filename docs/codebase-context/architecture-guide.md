@@ -45,6 +45,9 @@ Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/ea
 - OAuth is stateless: client ids and codes are HMAC-signed with `EARNKIT_AUTH_SECRET`; the
   access token is derived from the code, so a replayed code can't create a second installation.
   Rotating the secret invalidates unused codes and client ids, not issued tokens.
-- Program files are the source of truth for programs/tracks/starters. Upsert replaces all three.
+- Program files in git are the source of truth for programs/tracks/starters. Every deploy syncs
+  them to the database (upsert replaces all three). Each file carries `verified_at`, the date its
+  facts were last checked against official sources; a weekly cloud routine re-checks them and
+  opens a PR.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.

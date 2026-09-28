@@ -20,8 +20,9 @@ apps/frontend/
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation
   db/schema.sql                the whole schema, idempotent
-  scripts/                     db-migrate.mts, program-upsert.mts (loads .env.local)
+  scripts/                     db-migrate.mts, program-upsert.mts, programs-sync.mts (load .env.local)
 ```
 
-Root commands: `pnpm db:migrate`, `pnpm program:upsert <file> [--check]`, `pnpm test`.
+Root commands: `pnpm db:migrate`, `pnpm program:upsert <file> [--check]`, `pnpm programs:sync`
+(all files), `pnpm predeploy` (migrate + sync; Railway runs it before every deploy), `pnpm test`.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only).

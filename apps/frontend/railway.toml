@@ -1,10 +1,10 @@
 [build]
 builder = "nixpacks"
 buildCommand = "pnpm install && pnpm build:frontend"
-watchPatterns = ["/apps/frontend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json"]
+watchPatterns = ["/apps/frontend/**/*", "turbo.json", "pnpm-lock.yaml", "package.json", "/programs/**/*"]
 
 [deploy]
-preDeployCommand = ["pnpm db:migrate"]
+preDeployCommand = ["pnpm predeploy"]
 startCommand = "pnpm start:frontend"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

@@ -8,7 +8,10 @@ pnpm program:upsert programs/<slug>.json --check   # validate only
 pnpm program:upsert programs/<slug>.json           # validate + write to the database
 ```
 
-Against the live database (Railway CLI, repo linked to the EarnKit project):
+Publishing: every deploy runs `pnpm predeploy` (migrate + `pnpm programs:sync`), which writes
+all program files to the database, and a change under `programs/` triggers a deploy. So merging
+to `main` is how a program change goes live. To write immediately without a deploy (Railway
+CLI, repo linked to the EarnKit project):
 
 ```sh
 railway run -s Postgres -- sh -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" pnpm program:upsert programs/<slug>.json'
