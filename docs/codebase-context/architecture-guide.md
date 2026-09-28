@@ -26,7 +26,7 @@ EarnKit does not build, evaluate, host, or pay. The agent uses its own tools for
 ## Data flow
 
 ```
-agent (Grok, Muse, Claude, Cursor…) ──HTTPS──> /mcp
+agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
   first connect: 401 + WWW-Authenticate -> /.well-known/oauth-protected-resource/mcp
     -> /.well-known/oauth-authorization-server -> POST /oauth/register
     -> GET /oauth/authorize (approves instantly, no account) -> POST /oauth/token

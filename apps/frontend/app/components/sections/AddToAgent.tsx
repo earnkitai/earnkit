@@ -12,10 +12,9 @@ type Agent = {
 
 const AGENTS: Agent[] = [
   {
-    name: 'Grok',
+    name: 'Grok Bot',
     steps: [
-      'Open grok.com and go to Connectors.',
-      'Choose New Connector, then Custom.',
+      'Add an MCP connector in Grok Bot.',
       'Paste the EarnKit link and save.',
     ],
   },

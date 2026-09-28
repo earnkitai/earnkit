@@ -5,7 +5,7 @@ with its own tools -> prepare submission -> agent submits externally -> EarnKit 
 
 Decisions:
 - Postgres (Railway) + postgres.js, one `schema.sql`. No ORM, no queues, no workers.
-- MCP is hosted at `https://earnkit.com/mcp`. Hosted agents (Grok, Meta Muse) only accept a
+- MCP is hosted at `https://earnkit.com/mcp`. Hosted agents (Grok Bot, Meta Muse) only accept a
   public HTTPS MCP URL, so a local stdio package can't serve them. Local agents connect to the
   same URL. (A stdio npm package was built first and removed in favor of this.)
 - Installation identity uses the MCP authorization spec (OAuth 2.1 + PKCE + dynamic client
@@ -30,8 +30,8 @@ accept existing work and say what's missing. No new tool; no builder data stored
 
 ## match_projects (5th tool, added after testing)
 
-Testing in Grok showed the expensive part of "what can my projects earn?" is the agent reading
+Testing in Grok Bot showed the expensive part of "what can my projects earn?" is the agent reading
 ~200 repos. match_projects does it server-side from a GitHub username: detects chains from chain
 IDs/RPC hosts in config files, checks commit dates against build windows (starts_at), and
 returns likely / after one step / no per repo x program, with ready-to-show text. It works in
-chat-only clients (Grok), where building doesn't. Uses one server-side GITHUB_TOKEN.
+any client, including ones that can't build. Uses one server-side GITHUB_TOKEN.

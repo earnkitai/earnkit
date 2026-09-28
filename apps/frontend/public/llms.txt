@@ -10,7 +10,7 @@ EarnKit is an MCP server: https://earnkit.com/mcp
 It is free and needs no account. Clients connect with standard MCP OAuth,
 which EarnKit approves instantly.
 
-- Grok: grok.com > Connectors > New Connector > Custom > paste the URL
+- Grok Bot, Muse, and other agents: add the URL as an MCP connector
 - Claude Code: claude mcp add --transport http earnkit https://earnkit.com/mcp
 - Cursor: add {"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}
 - Other clients: add the URL as a remote MCP server, or for stdio-only
