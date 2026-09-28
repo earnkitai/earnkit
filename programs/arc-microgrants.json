@@ -9,6 +9,8 @@
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
   "status": "active",
+  "key_requirement": "Deployed and working on Arc mainnet",
+  "existing_work": "allowed",
   "rules": [
     "The project must be deployed and working on Arc mainnet at the time you submit.",
     "Not eligible: design mockups, slide decks, testnet-only builds, projects with no Arc component, and work already funded by a Circle or Arc program.",

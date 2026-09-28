@@ -4,6 +4,9 @@
 
 - **Program**: a live builder program run by someone else (hackathon, grant, bounty). Has a
   reward, a deadline, rules, and submission requirements. Curated by hand in `programs/*.json`.
+- **existing_work / key_requirement**: per-program facts that let an agent match a builder's
+  already-built projects to programs (`allowed` / `new_work_only` / `unknown`). The agent does the
+  matching with its own access to the builder's repos; EarnKit never stores or scans them.
 - **Track**: a category inside a program with its own requirements.
 - **Starter**: an optional idea to start quickly. Max 1 per track, or 2 when there are no tracks.
   Which starter a builder used is never tracked.

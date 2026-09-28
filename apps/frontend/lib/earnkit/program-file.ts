@@ -59,6 +59,14 @@ export const ProgramFile = z
     ends_at: z.string().datetime({ offset: true }),
     status: z.enum(['active', 'closed']),
     /** Program-wide rules and requirements every project must meet. */
+    /** The one requirement that decides fit, in a few words (e.g. "Deployed on Arc mainnet"). */
+    key_requirement: z.string().min(1).max(120),
+    /**
+     * Can a builder submit something they already built?
+     * "allowed": yes. "new_work_only": only work done during the program counts.
+     * "unknown": the source doesn't say. Never guess.
+     */
+    existing_work: z.enum(['allowed', 'new_work_only', 'unknown']),
     rules: z.array(z.string().min(1)),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z

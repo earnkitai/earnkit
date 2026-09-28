@@ -14,6 +14,8 @@ type ProgramRow = {
   starts_at: Date | null;
   ends_at: Date;
   status: 'active' | 'closed';
+  key_requirement: string;
+  existing_work: 'allowed' | 'new_work_only' | 'unknown';
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -21,8 +23,10 @@ type ProgramRow = {
 /** Open programs: marked active and the deadline hasn't passed. */
 export async function listPrograms() {
   const db = sql();
-  const programs = await db<Pick<ProgramRow, 'id' | 'title' | 'organizer' | 'reward' | 'ends_at'>[]>`
-    SELECT id, title, organizer, reward, ends_at FROM programs
+  const programs = await db<
+    Pick<ProgramRow, 'id' | 'title' | 'organizer' | 'reward' | 'ends_at' | 'key_requirement' | 'existing_work'>[]
+  >`
+    SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work FROM programs
     WHERE status = 'active' AND ends_at > now()
     ORDER BY ends_at`;
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -36,6 +40,8 @@ export async function listPrograms() {
     organizer: p.organizer,
     reward: p.reward,
     deadline: p.ends_at.toISOString(),
+    key_requirement: p.key_requirement,
+    existing_work: p.existing_work,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -64,6 +70,8 @@ export async function getProgram(programId: string) {
     organizer: program.organizer,
     description: program.description,
     reward: program.reward,
+    key_requirement: program.key_requirement,
+    existing_work: program.existing_work,
     starts_at: program.starts_at?.toISOString() ?? null,
     deadline: program.ends_at.toISOString(),
     open: program.status === 'active' && program.ends_at > new Date(),
@@ -95,6 +103,8 @@ export async function upsertProgram(p: ProgramFile) {
       source_url: p.source_url,
       submission_url: p.submission_url,
       reward: p.reward,
+      key_requirement: p.key_requirement,
+      existing_work: p.existing_work,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,

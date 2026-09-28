@@ -15,6 +15,11 @@ CREATE TABLE IF NOT EXISTS programs (
   submission_requirements jsonb NOT NULL DEFAULT '[]'
 );
 
+-- Added after v1 launch: what decides fit, and whether already-built projects can be submitted.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS key_requirement text NOT NULL DEFAULT '';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAULT 'unknown'
+  CHECK (existing_work IN ('allowed', 'new_work_only', 'unknown'));
+
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
   program_id   text NOT NULL REFERENCES programs(id) ON DELETE CASCADE,

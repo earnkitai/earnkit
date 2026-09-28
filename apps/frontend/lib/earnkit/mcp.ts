@@ -34,6 +34,10 @@ export function createMcpServer() {
     {
       instructions:
         'EarnKit: where agents earn. It lists live builder programs with rewards. ' +
+        'If the builder already has projects (local repos, GitHub), check them against open programs whose ' +
+        'existing_work is "allowed": for each close match, say what already qualifies and what is missing ' +
+        '(e.g. "deploy to Arc mainnet"), then continue the normal flow. Programs marked "new_work_only" ' +
+        'only count work done during the program. ' +
         'Flow: list_programs -> builder picks one -> get_program -> build with your own tools ' +
         '(starters are optional ideas) -> when the builder says "submit this", call prepare_submission, ' +
         "ask the builder only for what is missing, submit on the program's own site with your own " +
@@ -46,8 +50,10 @@ export function createMcpServer() {
     'list_programs',
     {
       description:
-        'List open builder programs with rewards. Use when the builder asks what is worth building. ' +
-        'Returns id, title, organizer, reward, deadline, and track names.',
+        'List open builder programs with rewards. Use when the builder asks what is worth building, or ' +
+        'whether any of their existing projects could earn. Returns id, title, organizer, reward, deadline, ' +
+        'key_requirement, existing_work ("allowed" = already-built projects can be submitted, ' +
+        '"new_work_only" = only work done during the program counts, "unknown"), and track names.',
       annotations: { readOnlyHint: true },
     },
     () => run('list_programs'),

@@ -1,0 +1,91 @@
+{
+  "id": "monad-metropolis",
+  "organizer": "Monad",
+  "title": "Monad Metropolis Hackathon",
+  "description": "Metropolis is Monad's six-week online global hackathon (1 Sep to 13 Oct) to build the next generation of startups on Monad. Four tracks, $250,000+ in prizes, sponsor bounties, and a residency invite for top teams. Open to everyone, solo or teams, crypto-native or not.",
+  "source_url": "https://monad.xyz/developers/hackathons/metropolis",
+  "submission_url": "https://hackathon.monad.xyz/",
+  "reward": "$250,000+ prize pool: $30,000 per track (split evenly between 3 teams), $25,000 grand champion, plus sponsor prizes and bounties",
+  "starts_at": null,
+  "ends_at": "2026-10-13T00:00:00Z",
+  "status": "active",
+  "key_requirement": "Built on Monad during the six-week build window (1 Sep to 13 Oct)",
+  "existing_work": "new_work_only",
+  "rules": [
+    "Submission deadline: 13 Oct 2026 (no time of day is given on the official page; confirm on the application platform).",
+    "The project must be a product built on Monad.",
+    "Existing projects are allowed only if the work you submit is new: what you show on 13 Oct should have been built during the six weeks.",
+    "Open sourcing is encouraged but not required. Judges need to be able to verify what you built during the six weeks.",
+    "Teams and solo builders are both welcome. No prior onchain experience or fundraising needed.",
+    "Online and open globally. Any eligibility restrictions are listed in the official rules on the application platform.",
+    "You choose one track when you apply. Projects are judged per track from 14 to 27 Oct; winners are announced on 3 Nov.",
+    "Top teams get ecosystem support and an invite to a residency program."
+  ],
+  "submission_requirements": [
+    {
+      "key": "track",
+      "label": "Track",
+      "type": "choice",
+      "required": true,
+      "options": [
+        "Onchain Finance & Trading",
+        "Consumer Products & Payments",
+        "Social, Attention & Culture",
+        "Trust, Identity & AI Infrastructure"
+      ],
+      "from": "project"
+    },
+    {
+      "key": "demo",
+      "label": "Demo",
+      "type": "url",
+      "required": true,
+      "description": "A demo of the working product.",
+      "project_field": "demo_url",
+      "from": "project"
+    },
+    {
+      "key": "write_up",
+      "label": "Short write-up",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "code_url",
+      "label": "Link to the code",
+      "type": "url",
+      "required": true,
+      "description": "Judges must be able to verify what was built during the six weeks.",
+      "project_field": "repo_url",
+      "from": "project"
+    }
+  ],
+  "tracks": [
+    {
+      "slug": "onchain-finance-trading",
+      "name": "Onchain Finance & Trading",
+      "description": "Fast settlement makes new financial instruments and fully onchain markets more practical. Best fit: teams who have shipped a trading, lending, or market-making product before. $30,000, split evenly between 3 teams.",
+      "requirements": []
+    },
+    {
+      "slug": "consumer-products-payments",
+      "name": "Consumer Products & Payments",
+      "description": "Onchain rails can make financial products feel instant, programmable, and invisible to the end user. Best fit: product teams who care more about a user's first five minutes than the architecture underneath. $30,000, split evenly between 3 teams.",
+      "requirements": []
+    },
+    {
+      "slug": "social-attention-culture",
+      "name": "Social, Attention & Culture",
+      "description": "Open social graphs, programmable incentives, and fast settlement can change how communities create and capture value. Best fit: teams who have grown a community, not only built one. $30,000, split evenly between 3 teams.",
+      "requirements": []
+    },
+    {
+      "slug": "trust-identity-ai-infrastructure",
+      "name": "Trust, Identity & AI Infrastructure",
+      "description": "AI has made identity, provenance, data ownership, and agent trust urgent infrastructure problems. Best fit: teams comfortable with cryptography, protocol design, or agent frameworks. $30,000, split evenly between 3 teams.",
+      "requirements": []
+    }
+  ],
+  "starters": []
+}

@@ -19,3 +19,10 @@ Decisions:
 
 Not built (on purpose): accounts, admin UI, program pages, evaluation, rewards, scraping.
 Known gap: anyone can complete the anonymous sign-in, so the agent count can be inflated.
+
+## Existing projects -> programs (added after launch)
+
+Reason to install beyond starters: "your existing projects already qualify". Each program
+carries `existing_work` and a one-line `key_requirement`, returned by `list_programs`. The
+server instructions tell the agent to compare the builder's projects against programs that
+accept existing work and say what's missing. No new tool; no builder data stored.

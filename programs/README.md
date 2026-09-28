@@ -23,7 +23,11 @@ The file is the source of truth. Edit it, then upsert again.
 2. Write `programs/<slug>.json` using only facts the source supports. If something is
    not stated (e.g. no start date), use `null` or leave it out. Never guess a reward,
    deadline, or requirement.
-3. `submission_requirements` must mirror the real submission form, field by field:
+3. `key_requirement`: the one requirement that decides fit, in a few words
+   (e.g. "Deployed and working on Arc mainnet"). `existing_work`: `allowed` if already-built
+   projects can be submitted, `new_work_only` if only work done during the program counts,
+   `unknown` if the source doesn't say.
+4. `submission_requirements` must mirror the real submission form, field by field:
    - `key`: snake_case, stable
    - `label`: the question as the form asks it
    - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`
@@ -33,8 +37,8 @@ The file is the source of truth. Edit it, then upsert again.
      `description`, `repo_url`, `live_url`, `demo_url`, or `token_url`
    - `from`: `project` if the agent can draft it from the project itself,
      `builder` for personal info (name, email, wallet, socials, team, country…)
-4. Do not add starters. The owner decides those.
-5. Run `--check`, fix any errors, then upsert.
+5. Do not add starters. The owner decides those.
+6. Run `--check`, fix any errors, then upsert.
 
 Dates are ISO 8601 with a timezone (`2026-10-31T23:59:00Z`). Convert the organizer's
 stated timezone. Set `"status": "closed"` to hide a program early.
@@ -65,6 +69,8 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
   "starts_at": null,
   "ends_at": "2026-11-15T23:59:00Z",
   "status": "active",
+  "key_requirement": "Deployed on Example mainnet",
+  "existing_work": "allowed",
   "rules": ["Open source", "Built during the program"],
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
