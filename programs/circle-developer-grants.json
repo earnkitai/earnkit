@@ -11,6 +11,7 @@
   "status": "active",
   "key_requirement": "Arc is core to your product and Circle products are real building blocks; paid per agreed milestone",
   "existing_work": "allowed",
+  "verified_at": "2026-09-28",
   "rules": [
     "Rolling: Circle 2026 Cohort 2 is open on the grants portal. No closing date is stated.",
     "Arc must be core to your flow of value, liquidity, or settlement, and Circle products (e.g. USDC, Wallets, CCTP, Nanopayments, Gateway) must be meaningful building blocks.",

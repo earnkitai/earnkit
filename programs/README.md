@@ -26,7 +26,8 @@ The file is the source of truth. Edit it, then upsert again.
 3. `key_requirement`: the one requirement that decides fit, in a few words
    (e.g. "Deployed and working on Arc mainnet"). `existing_work`: `allowed` if already-built
    projects can be submitted, `new_work_only` if only work done during the program counts,
-   `unknown` if the source doesn't say.
+   `unknown` if the source doesn't say. `verified_at`: today's date (YYYY-MM-DD). Update it
+   whenever you re-check the file against the official sources, even if nothing changed.
 4. `submission_requirements` must mirror the real submission form, field by field:
    - `key`: snake_case, stable
    - `label`: the question as the form asks it
@@ -40,6 +41,7 @@ The file is the source of truth. Edit it, then upsert again.
 5. Do not add starters. The owner decides those.
 6. Run `--check`, fix any errors, then upsert.
 
+Rolling programs (no deadline, e.g. cohort-based grants) use `"ends_at": null`.
 Dates are ISO 8601 with a timezone (`2026-10-31T23:59:00Z`). Convert the organizer's
 stated timezone. Set `"status": "closed"` to hide a program early.
 
@@ -71,6 +73,7 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
   "status": "active",
   "key_requirement": "Deployed on Example mainnet",
   "existing_work": "allowed",
+  "verified_at": "2026-09-28",
   "rules": ["Open source", "Built during the program"],
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },

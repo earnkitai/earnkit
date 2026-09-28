@@ -23,6 +23,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS key_requirement text NOT NULL DEFA
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAULT 'unknown'
   CHECK (existing_work IN ('allowed', 'new_work_only', 'unknown'));
 
+-- When the program's facts were last checked against official sources.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS verified_at date;
+
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
   program_id   text NOT NULL REFERENCES programs(id) ON DELETE CASCADE,

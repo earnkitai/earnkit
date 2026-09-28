@@ -6,7 +6,9 @@ import { z } from 'zod';
  * touching the database.
  */
 
-const slug = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'use a lowercase slug like "my-program"');
+const slug = z
+  .string()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'use a lowercase slug like "my-program"');
 
 export const PROJECT_FIELDS = [
   'name',
@@ -68,6 +70,8 @@ export const ProgramFile = z
      * "unknown": the source doesn't say. Never guess.
      */
     existing_work: z.enum(['allowed', 'new_work_only', 'unknown']),
+    /** Date every fact in this file was last checked against the official sources (YYYY-MM-DD). */
+    verified_at: z.string().date(),
     rules: z.array(z.string().min(1)),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z
@@ -99,30 +103,44 @@ export const ProgramFile = z
   })
   .strict()
   .superRefine((p, ctx) => {
-    const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    const issue = (message: string) =>
+      ctx.addIssue({ code: 'custom', message });
 
     const keys = p.submission_requirements.map((r) => r.key);
-    if (new Set(keys).size !== keys.length) issue('submission requirement keys must be unique');
+    if (new Set(keys).size !== keys.length)
+      issue('submission requirement keys must be unique');
 
     const trackSlugs = p.tracks.map((t) => t.slug);
-    if (new Set(trackSlugs).size !== trackSlugs.length) issue('track slugs must be unique');
+    if (new Set(trackSlugs).size !== trackSlugs.length)
+      issue('track slugs must be unique');
 
     if (p.tracks.length > 0) {
       const perTrack = new Map<string, number>();
       for (const s of p.starters) {
-        if (!s.track) issue(`starter "${s.title}" needs a track (this program has tracks)`);
-        else if (!trackSlugs.includes(s.track)) issue(`starter "${s.title}" names unknown track "${s.track}"`);
+        if (!s.track)
+          issue(`starter "${s.title}" needs a track (this program has tracks)`);
+        else if (!trackSlugs.includes(s.track))
+          issue(`starter "${s.title}" names unknown track "${s.track}"`);
         else perTrack.set(s.track, (perTrack.get(s.track) ?? 0) + 1);
       }
       for (const [track, n] of perTrack) {
-        if (n > 1) issue(`track "${track}" has ${n} starters (max 1 per track)`);
+        if (n > 1)
+          issue(`track "${track}" has ${n} starters (max 1 per track)`);
       }
     } else {
-      if (p.starters.some((s) => s.track)) issue('starters cannot name a track: this program has no tracks');
-      if (p.starters.length > 2) issue(`${p.starters.length} starters (max 2 for a program without tracks)`);
+      if (p.starters.some((s) => s.track))
+        issue('starters cannot name a track: this program has no tracks');
+      if (p.starters.length > 2)
+        issue(
+          `${p.starters.length} starters (max 2 for a program without tracks)`,
+        );
     }
 
-    if (p.starts_at && p.ends_at && Date.parse(p.starts_at) >= Date.parse(p.ends_at)) {
+    if (
+      p.starts_at &&
+      p.ends_at &&
+      Date.parse(p.starts_at) >= Date.parse(p.ends_at)
+    ) {
       issue('starts_at must be before ends_at');
     }
   });

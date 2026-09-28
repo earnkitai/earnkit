@@ -22,6 +22,8 @@ type ProgramRow = {
   status: 'active' | 'closed';
   key_requirement: string;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
+  /** verified_at as YYYY-MM-DD text (read via to_char so time zones can't shift the day). */
+  verified_on: string | null;
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -30,9 +32,21 @@ type ProgramRow = {
 export async function listPrograms() {
   const db = sql();
   const programs = await db<
-    Pick<ProgramRow, 'id' | 'title' | 'organizer' | 'reward' | 'ends_at' | 'key_requirement' | 'existing_work'>[]
+    Pick<
+      ProgramRow,
+      | 'id'
+      | 'title'
+      | 'organizer'
+      | 'reward'
+      | 'ends_at'
+      | 'key_requirement'
+      | 'existing_work'
+      | 'verified_on'
+    >[]
   >`
-    SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work FROM programs
+    SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work,
+      to_char(verified_at, 'YYYY-MM-DD') AS verified_on
+    FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -48,27 +62,41 @@ export async function listPrograms() {
     deadline: deadline(p.ends_at),
     key_requirement: p.key_requirement,
     existing_work: p.existing_work,
+    verified_at: p.verified_on,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
 
 export async function getProgramRow(programId: string) {
-  const [program] = await sql()<ProgramRow[]>`SELECT * FROM programs WHERE id = ${programId}`;
-  if (!program) throw new NotFoundError(`No program with id "${programId}". Call list_programs for current ids.`);
+  const [program] = await sql()<ProgramRow[]>`
+    SELECT *, to_char(verified_at, 'YYYY-MM-DD') AS verified_on FROM programs WHERE id = ${programId}`;
+  if (!program)
+    throw new NotFoundError(
+      `No program with id "${programId}". Call list_programs for current ids.`,
+    );
   return program;
 }
 
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
-  const tracks = await db<{ id: string; name: string; description: string; requirements: string[] }[]>`
+  const tracks = await db<
+    { id: string; name: string; description: string; requirements: string[] }[]
+  >`
     SELECT id, name, description, requirements FROM tracks WHERE program_id = ${programId} ORDER BY id`;
   const starters = await db<
-    { track_id: string | null; title: string; what_to_build: string; requirements: string[]; build_context: unknown }[]
+    {
+      track_id: string | null;
+      title: string;
+      what_to_build: string;
+      requirements: string[];
+      build_context: unknown;
+    }[]
   >`SELECT track_id, title, what_to_build, requirements, build_context FROM starters
     WHERE program_id = ${programId} ORDER BY id`;
 
-  const trackName = (id: string | null) => tracks.find((t) => t.id === id)?.name ?? null;
+  const trackName = (id: string | null) =>
+    tracks.find((t) => t.id === id)?.name ?? null;
 
   return {
     id: program.id,
@@ -78,11 +106,16 @@ export async function getProgram(programId: string) {
     reward: program.reward,
     key_requirement: program.key_requirement,
     existing_work: program.existing_work,
+    verified_at: program.verified_on,
     starts_at: program.starts_at?.toISOString() ?? null,
     deadline: deadline(program.ends_at),
     open: isOpen(program),
     rules: program.rules,
-    tracks: tracks.map(({ name, description, requirements }) => ({ name, description, requirements })),
+    tracks: tracks.map(({ name, description, requirements }) => ({
+      name,
+      description,
+      requirements,
+    })),
     submission_requirements: program.submission_requirements,
     source_url: program.source_url,
     submission_url: program.submission_url,
@@ -111,6 +144,7 @@ export async function upsertProgram(p: ProgramFile) {
       reward: p.reward,
       key_requirement: p.key_requirement,
       existing_work: p.existing_work,
+      verified_at: p.verified_at,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,
