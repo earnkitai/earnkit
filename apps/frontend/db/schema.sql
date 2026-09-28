@@ -26,6 +26,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS existing_work text NOT NULL DEFAUL
 -- When the program's facts were last checked against official sources.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS verified_at date;
 
+-- The steps only the builder can do (GitHub, hosting, wallet, logins, videos, personal info).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS builder_steps jsonb NOT NULL DEFAULT '[]';
+
 CREATE TABLE IF NOT EXISTS tracks (
   id           text PRIMARY KEY,                      -- "<program_id>/<track slug>"
   program_id   text NOT NULL REFERENCES programs(id) ON DELETE CASCADE,

@@ -12,6 +12,28 @@
   "key_requirement": "Deployed and working on Arc mainnet",
   "existing_work": "allowed",
   "verified_at": "2026-09-27",
+  "builder_steps": [
+    {
+      "kind": "wallet",
+      "detail": "a few USDC on Arc (gas is paid in USDC)"
+    },
+    {
+      "kind": "github",
+      "detail": "a public repo"
+    },
+    {
+      "kind": "hosting",
+      "detail": "a live link reviewers can open"
+    },
+    {
+      "kind": "login",
+      "detail": "DoraHacks"
+    },
+    {
+      "kind": "info",
+      "detail": "your public GitHub, X, or Farcaster profile"
+    }
+  ],
   "rules": [
     "The project must be deployed and working on Arc mainnet at the time you submit.",
     "Not eligible: design mockups, slide decks, testnet-only builds, projects with no Arc component, and work already funded by a Circle or Arc program.",

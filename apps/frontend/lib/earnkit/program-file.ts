@@ -44,6 +44,18 @@ export const SubmissionRequirement = z
   });
 export type SubmissionRequirement = z.infer<typeof SubmissionRequirement>;
 
+/**
+ * Something only the builder can do. The agent skips any step it can already do itself
+ * (e.g. GitHub or a host already connected) and asks for the rest.
+ */
+const BuilderStep = z
+  .object({
+    kind: z.enum(['github', 'hosting', 'wallet', 'login', 'video', 'info']),
+    /** A few words, e.g. "a few USDC on Arc" or "DoraHacks". */
+    detail: z.string().min(1).max(120),
+  })
+  .strict();
+
 const BuildContext = z
   .object({ label: z.string().min(1), url: z.string().url().optional() })
   .strict();
@@ -72,6 +84,7 @@ export const ProgramFile = z
     existing_work: z.enum(['allowed', 'new_work_only', 'unknown']),
     /** Date every fact in this file was last checked against the official sources (YYYY-MM-DD). */
     verified_at: z.string().date(),
+    builder_steps: z.array(BuilderStep),
     rules: z.array(z.string().min(1)),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z

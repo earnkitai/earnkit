@@ -31,7 +31,11 @@ The file is the source of truth. Edit it, then upsert again.
    projects can be submitted, `new_work_only` if only work done during the program counts,
    `unknown` if the source doesn't say. `verified_at`: today's date (YYYY-MM-DD). Update it
    whenever you re-check the file against the official sources, even if nothing changed.
-4. `submission_requirements` must mirror the real submission form, field by field:
+4. `builder_steps`: only what the builder must do themselves, from the forms and rules:
+   `{ "kind": "github" | "hosting" | "wallet" | "login" | "video" | "info", "detail": "a few words" }`
+   (e.g. `wallet` / "a few USDC on Arc", `login` / "DoraHacks"). The agent drops steps it can
+   already do and shows the builder the rest, so keep each detail short.
+5. `submission_requirements` must mirror the real submission form, field by field:
    - `key`: snake_case, stable
    - `label`: the question as the form asks it
    - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`
@@ -41,8 +45,8 @@ The file is the source of truth. Edit it, then upsert again.
      `description`, `repo_url`, `live_url`, `demo_url`, or `token_url`
    - `from`: `project` if the agent can draft it from the project itself,
      `builder` for personal info (name, email, wallet, socials, team, country…)
-5. Do not add starters. The owner decides those.
-6. Run `--check`, fix any errors, then upsert.
+6. Do not add starters. The owner decides those.
+7. Run `--check`, fix any errors, then upsert.
 
 Rolling programs (no deadline, e.g. cohort-based grants) use `"ends_at": null`.
 Dates are ISO 8601 with a timezone (`2026-10-31T23:59:00Z`). Convert the organizer's
@@ -77,6 +81,10 @@ every starter names its `track` slug. Without tracks, at most 2 starters.
   "key_requirement": "Deployed on Example mainnet",
   "existing_work": "allowed",
   "verified_at": "2026-09-28",
+  "builder_steps": [
+    { "kind": "login", "detail": "the submission platform" },
+    { "kind": "github", "detail": "a public repo" }
+  ],
   "rules": ["Open source", "Built during the program"],
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },

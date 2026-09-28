@@ -24,6 +24,7 @@ type ProgramRow = {
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   /** verified_at as YYYY-MM-DD text (read via to_char so time zones can't shift the day). */
   verified_on: string | null;
+  builder_steps: { kind: string; detail: string }[];
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -42,10 +43,11 @@ export async function listPrograms() {
       | 'key_requirement'
       | 'existing_work'
       | 'verified_on'
+      | 'builder_steps'
     >[]
   >`
     SELECT id, title, organizer, reward, ends_at, key_requirement, existing_work,
-      to_char(verified_at, 'YYYY-MM-DD') AS verified_on
+      to_char(verified_at, 'YYYY-MM-DD') AS verified_on, builder_steps
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -63,6 +65,7 @@ export async function listPrograms() {
     key_requirement: p.key_requirement,
     existing_work: p.existing_work,
     verified_at: p.verified_on,
+    builder_steps: p.builder_steps,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -107,6 +110,7 @@ export async function getProgram(programId: string) {
     key_requirement: program.key_requirement,
     existing_work: program.existing_work,
     verified_at: program.verified_on,
+    builder_steps: program.builder_steps,
     starts_at: program.starts_at?.toISOString() ?? null,
     deadline: deadline(program.ends_at),
     open: isOpen(program),
@@ -145,6 +149,7 @@ export async function upsertProgram(p: ProgramFile) {
       key_requirement: p.key_requirement,
       existing_work: p.existing_work,
       verified_at: p.verified_at,
+      builder_steps: tx.json(p.builder_steps),
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,
