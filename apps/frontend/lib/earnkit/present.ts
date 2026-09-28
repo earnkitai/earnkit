@@ -15,7 +15,7 @@ function youLine(card: Card) {
     .map((s) => s.detail);
   return everyTime.length === 0
     ? 'approve'
-    : `approve, plus ${everyTime.join(' and ')}`;
+    : `approve, plus ${everyTime.join('; ')}`;
 }
 
 /** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
@@ -32,9 +32,13 @@ export function presentPrograms(cards: Card[], agentCanBuild: boolean) {
     .sort((a, b) => rank(a) - rank(b))
     .map((c) => {
       const head = `**${c.title}**: ${c.summary}${c.tag ? ` · ${c.tag}` : ''}`;
+      // Grants for live products are applications, not builds.
+      const isApplication = c.tag === 'needs a live product';
       const split = agentCanBuild
-        ? `Me: build, deploy, submit · You: ${youLine(c)}`
-        : 'Me: the plan and every answer · You: build, deploy, submit';
+        ? `Me: ${isApplication ? 'fill in and submit the application' : 'build, deploy, submit'} · You: ${youLine(c)}`
+        : isApplication
+          ? 'Me: every answer · You: paste and submit'
+          : 'Me: the plan and every answer · You: build, deploy, submit';
       return `${head}\n${split}`;
     });
 

@@ -37,6 +37,10 @@ test('coding agent: approve-only programs first, one-time setup never listed per
     /\*\*Big Hack\*\*: \$100K · closes Oct 12 · long shot\nMe: build, deploy, submit · You: approve, plus a pitch video/,
   );
   assert.ok(!text.includes('DoraHacks'));
+  assert.match(
+    text,
+    /\*\*Grant\*\*.*\nMe: fill in and submit the application · You: approve/,
+  );
   assert.match(text, /one quick setup/);
 });
 
@@ -48,6 +52,10 @@ test('chat-only agent is honest about who builds', () => {
   );
   assert.ok(!text.includes('Me: build, deploy, submit'));
   assert.match(text, /coding agent/);
+  assert.match(
+    text,
+    /\*\*Grant\*\*.*\nMe: every answer · You: paste and submit/,
+  );
 });
 
 test('empty list', () => {
