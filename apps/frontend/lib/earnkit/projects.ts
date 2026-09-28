@@ -37,14 +37,3 @@ export async function recordSubmission(input: z.infer<typeof RecordSubmissionInp
     return { recorded: true, project_id: project.id, submitted_at: project.submitted_at.toISOString() };
   });
 }
-
-/** Public numbers for the website. Real rows only. */
-export async function getPublicActivity() {
-  const db = sql();
-  const [{ count }] = await db<{ count: number }[]>`SELECT count(*)::int AS count FROM installations`;
-  const projects = await db<{ id: number; name: string; program: string; submitted_at: Date }[]>`
-    SELECT p.id, p.name, pr.title AS program, p.submitted_at
-    FROM projects p JOIN programs pr ON pr.id = p.program_id
-    ORDER BY p.submitted_at DESC LIMIT 100`;
-  return { agents: count, projects };
-}

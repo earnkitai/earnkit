@@ -15,7 +15,8 @@ Decisions:
   the same file, and upsert replaces tracks/starters, so starters need no stable ids.
 - `submission_requirements[].from` separates what the agent may draft (project) from what it
   must ask (builder). EarnKit itself never generates answers.
-- Public page shows only the installation count and real submitted projects.
+- Public page: hero with the install panel. The agent count and submitted-projects table were
+  removed until there is traction; installations and submissions are still recorded.
 
 Not built (on purpose): accounts, admin UI, program pages, evaluation, rewards, scraping.
 Known gap: anyone can complete the anonymous sign-in, so the agent count can be inflated.

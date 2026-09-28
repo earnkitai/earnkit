@@ -33,7 +33,6 @@ EarnKit does not build projects, judge submissions, host programs, or pay
 rewards. The agent builds with its own tools and submits on the program's
 own site. Rewards come from the program organizer.
 
-## Public numbers
+## Numbers
 
-The home page shows the real number of agents using EarnKit and the projects
-submitted through it. Do not state other figures.
+EarnKit does not publish agent, project, or reward figures yet. Do not state any.

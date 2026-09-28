@@ -32,7 +32,6 @@ agent (Grok, Muse, Claude, Cursor…) ──HTTPS──> /mcp
     -> token = installation row; the client stores the token
   then: Bearer token -> /mcp -> lib/earnkit/mcp.ts -> lib/earnkit/tools.ts -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
-home page (server component) ──> lib/earnkit/projects.getPublicActivity ──> Postgres
 Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/earnkit/programs.upsertProgram ──> Postgres
 ```
 
@@ -47,7 +46,7 @@ Claude Code ──> programs/<slug>.json ──pnpm program:upsert──> lib/ea
   Rotating the secret invalidates unused codes and client ids, not issued tokens.
 - Program files in git are the source of truth for programs/tracks/starters. Every deploy syncs
   them to the database (upsert replaces all three). Each file carries `verified_at`, the date its
-  facts were last checked against official sources; a weekly cloud routine re-checks them and
-  opens a PR.
+  facts were checked against official sources when added. Programs drop out of list_programs
+  automatically after ends_at; there is no scheduled re-check.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.

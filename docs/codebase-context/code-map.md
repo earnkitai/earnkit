@@ -3,8 +3,8 @@
 ```
 programs/                      program files (+ README: how Claude Code adds programs/starters)
 apps/frontend/
-  app/page.tsx                 home: hero, Activity, investors, footer (dynamic)
-  app/components/sections/Activity.tsx   "Agents using EarnKit" + "Projects submitted" table
+  app/page.tsx                 home: hero, investors, footer
+  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (opened from the hero)
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/.well-known/             OAuth discovery metadata
@@ -13,7 +13,7 @@ apps/frontend/
     program-file.ts            zod format of programs/*.json (+ starter limits)
     programs.ts                list/get/upsert programs
     submission.ts(+.test.ts)   prepareSubmission (pure)
-    projects.ts                recordSubmission, getPublicActivity
+    projects.ts                recordSubmission
     installations.ts           save / touch installation by token hash
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts                     MCP server: the 4 tools, their descriptions and schemas
