@@ -4,6 +4,32 @@ import type { ProgramFile, SubmissionRequirement } from './program-file';
 
 export class NotFoundError extends Error {}
 
+const KITS = 'https://github.com/earnkitai/chain-kits/tree/main';
+const AGENT_SERVICE_STARTER = {
+  use: 'Starting point for a service other agents pay per call in USDC (x402) on Arc or Base',
+  url: 'https://github.com/earnkitai/starter-agent-service',
+};
+
+/** Tested, EarnKit-maintained help for the chains a program uses. Read before building. */
+function buildHelp(chains: Chain[]) {
+  const help: { use: string; url: string }[] = [];
+  if (chains.includes('arc')) {
+    help.push({
+      use: 'Deploy + verify on Arc; USDC gas, 18 vs 6 decimals, 20 gwei floor',
+      url: `${KITS}/arc`,
+    });
+  }
+  if (chains.includes('base')) {
+    help.push({
+      use: 'Base Builder Codes (needed for Base grants): get one, attach it, check it',
+      url: `${KITS}/base`,
+    });
+  }
+  if (chains.includes('arc') || chains.includes('base'))
+    help.push(AGENT_SERVICE_STARTER);
+  return help;
+}
+
 /** ISO timestamp, or "rolling" for programs without a deadline. */
 const deadline = (endsAt: Date | null) => endsAt?.toISOString() ?? 'rolling';
 
@@ -139,15 +165,18 @@ export async function getProgram(programId: string) {
     submission_requirements: program.submission_requirements,
     source_url: program.source_url,
     submission_url: program.submission_url,
-    starters: starters.map((s) => ({
-      track: trackName(s.track_id),
-      title: s.title,
-      what_to_build: s.what_to_build,
-      requirements: s.requirements,
-      build_context: s.build_context,
-    })),
-    starters_note:
-      'Starters are optional ideas to get going quickly. The builder can build anything that meets the requirements.',
+    build_help: buildHelp(program.chains),
+    ...(starters.length > 0 && {
+      starters: starters.map((s) => ({
+        track: trackName(s.track_id),
+        title: s.title,
+        what_to_build: s.what_to_build,
+        requirements: s.requirements,
+        build_context: s.build_context,
+      })),
+      starters_note:
+        'Starters are optional ideas. The builder can build anything that meets the requirements.',
+    }),
   };
 }
 

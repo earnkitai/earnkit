@@ -72,10 +72,10 @@ test('explicit answer wins over project field', () => {
   assert.equal(r.complete.find((c) => c.key === 'project_name')?.value, 'New');
 });
 
-test('personal info is never guessed and says to ask the builder', () => {
+test('personal info is never guessed: use what is known for sure, otherwise ask', () => {
   const r = prepareSubmission(reqs, { project: { name: 'X' } });
   const email = r.missing.find((m) => m.key === 'email');
-  assert.match(email!.next_step, /Ask the builder/);
+  assert.match(email!.next_step, /otherwise ask. Never guess/);
   assert.equal(
     r.complete.some((c) => c.key === 'email'),
     false,

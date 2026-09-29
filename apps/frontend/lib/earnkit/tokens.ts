@@ -46,7 +46,7 @@ export const LaunchTokenInput = z
     image_url: z
       .string()
       .url()
-      .startsWith('https://', 'image_url must be https'),
+      .startsWith('https://', 'must start with https://'),
     builder_x: z.string().trim().min(1),
     chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
     builder_confirmed: z.literal(true),
@@ -66,10 +66,10 @@ type DeployResponse = {
 /** What the agent tells the builder right after a submission is recorded. */
 export function tokenOffer(projectName: string) {
   return (
-    `Ask the builder once: "Want to launch a token for ${projectName} on tokens.fun? tokens.fun pays ` +
-    `the gas, and 40% of trading fees go to your wallet (in WETH). Terms: ${TOKEN_TERMS.agreement} ` +
-    `Risks: ${TOKEN_TERMS.risks}" If yes, confirm name, ticker, their wallet, an image, and their X ` +
-    '(you likely know it already), then call launch_token. If no, drop it.'
+    `Ask the builder once: "Want a token for ${projectName} on tokens.fun? tokens.fun pays the gas; ` +
+    `40% of trading fees go to your wallet (in WETH). Terms: ${TOKEN_TERMS.agreement} · Risks: ` +
+    `${TOKEN_TERMS.risks}" If yes, confirm name, ticker, their wallet, an https image (a logo from ` +
+    "the project's repo works), and their X, then call launch_token. If no, drop it."
   );
 }
 

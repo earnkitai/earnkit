@@ -94,7 +94,7 @@ export function prepareSubmission(
       ...(problem && { problem }),
       next_step:
         req.from === 'builder'
-          ? 'Ask the builder. Do not guess.'
+          ? 'Use what you know for sure about the builder (e.g. their GitHub or X); otherwise ask. Never guess.'
           : 'Draft this from the project, then confirm it with the builder.',
     });
   }

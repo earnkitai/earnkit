@@ -11,7 +11,7 @@ apps/frontend/
   lib/earnkit/
     db.ts                      postgres.js pool (DATABASE_URL)
     program-file.ts            zod format of programs/*.json (+ starter limits)
-    programs.ts                list/get/upsert programs
+    programs.ts                list/get/upsert programs; get_program adds build_help (kits/starter by chain)
     submission.ts(+.test.ts)   prepareSubmission (pure)
     projects.ts                recordSubmission
     installations.ts           save / touch installation by token hash

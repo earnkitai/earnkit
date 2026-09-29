@@ -31,7 +31,7 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
     ) {
       const text =
         err instanceof ZodError
-          ? `Invalid input: ${JSON.stringify(err.issues)}`
+          ? `Invalid input: ${err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`
           : err.message;
       return { content: [{ type: 'text' as const, text }], isError: true };
     }
