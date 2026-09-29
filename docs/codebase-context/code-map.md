@@ -21,7 +21,8 @@ apps/frontend/
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts, text
     match-projects.ts          match_projects: public GitHub reads (GITHUB_TOKEN) + orchestration
     http.ts                    CORS + small response helpers
-    tools.ts                   tool name -> handler + input validation
+    tools.ts                   tool name -> handler + input validation (+ caller's installation)
+    tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)
   db/schema.sql                the whole schema, idempotent
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
 ```
@@ -29,4 +30,5 @@ apps/frontend/
 Root commands: `pnpm programs:check` (validate program files), `pnpm test`. Railway runs
 `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
-`GITHUB_TOKEN` (one server-side read-only token for match_projects).
+`GITHUB_TOKEN` (one server-side read-only token for match_projects), `TOKENSFUN_DEPLOY_API_KEY`
+(tokens.fun deploy key for launch_token; `TOKENSFUN_API_URL` overrides the host for tests).

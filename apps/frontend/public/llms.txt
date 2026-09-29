@@ -27,7 +27,10 @@ which EarnKit approves instantly.
 - prepare_submission: compares what the agent knows with what the program
   requires; returns what is complete, what is missing, and the submission link
 - record_submission: records the project after it was submitted on the
-  program's own site
+  program's own site, and offers the builder a token for it
+- launch_token: launches a token for a submitted project on tokens.fun, only
+  after the builder says yes (tokens.fun pays gas; 40% of trading fees to the
+  builder's wallet)
 
 ## What EarnKit does not do
 

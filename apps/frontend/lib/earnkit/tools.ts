@@ -4,6 +4,10 @@ import { RecordSubmissionInput, recordSubmission } from './projects';
 import { MatchProjectsInput, matchProjects } from './match-projects';
 import { presentPrograms } from './present';
 import { ProjectInfo, prepareSubmission } from './submission';
+import { LaunchTokenInput, launchToken } from './tokens';
+
+/** Who is calling: the installation behind the MCP connection. */
+export type ToolContext = { installationId: number };
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
 
@@ -44,9 +48,15 @@ export const tools = {
   match_projects: async (input: unknown) =>
     matchProjects(MatchProjectsInput.parse(input)),
 
-  record_submission: async (input: unknown) =>
-    recordSubmission(RecordSubmissionInput.parse(input)),
-} satisfies Record<string, (input: unknown) => Promise<unknown>>;
+  record_submission: async (input: unknown, ctx: ToolContext) =>
+    recordSubmission(RecordSubmissionInput.parse(input), ctx.installationId),
+
+  launch_token: async (input: unknown, ctx: ToolContext) =>
+    launchToken(LaunchTokenInput.parse(input), ctx.installationId),
+} satisfies Record<
+  string,
+  (input: unknown, ctx: ToolContext) => Promise<unknown>
+>;
 
 export type ToolName = keyof typeof tools;
 export const isToolName = (name: string): name is ToolName =>

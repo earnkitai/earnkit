@@ -9,10 +9,10 @@ export async function saveInstallation(token: string) {
   await sql()`INSERT INTO installations (token_hash) VALUES (${hash(token)}) ON CONFLICT (token_hash) DO NOTHING`;
 }
 
-/** True if the token belongs to an installation; marks it as seen. */
+/** The installation's id for this token (and marks it as seen), or null if unknown. */
 export async function touchInstallation(token: string) {
-  const rows = await sql()`
+  const [row] = await sql()<{ id: number }[]>`
     UPDATE installations SET last_seen_at = now()
     WHERE token_hash = ${hash(token)} RETURNING id`;
-  return rows.length > 0;
+  return row?.id ?? null;
 }

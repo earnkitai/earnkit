@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
-import { type ToolName, tools } from './tools';
+import { LaunchError } from './tokens';
+import { type ToolContext, type ToolName, tools } from './tools';
 
 const project = z
   .object({
@@ -15,9 +16,9 @@ const project = z
   })
   .describe('What you know about the project so far.');
 
-async function run(tool: ToolName, input: unknown = {}) {
+async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
   try {
-    const result = await tools[tool](input);
+    const result = await tools[tool](input, ctx);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
@@ -25,7 +26,8 @@ async function run(tool: ToolName, input: unknown = {}) {
     if (
       err instanceof ZodError ||
       err instanceof NotFoundError ||
-      err instanceof GitHubError
+      err instanceof GitHubError ||
+      err instanceof LaunchError
     ) {
       const text =
         err instanceof ZodError
@@ -37,8 +39,8 @@ async function run(tool: ToolName, input: unknown = {}) {
   }
 }
 
-/** The EarnKit MCP server: the four agent tools and nothing else. */
-export function createMcpServer() {
+/** The EarnKit MCP server for one connected agent (installation). */
+export function createMcpServer(ctx: ToolContext) {
   const server = new McpServer(
     { name: 'earnkit', version: '1.0.0' },
     {
@@ -47,7 +49,8 @@ export function createMcpServer() {
         'When a tool returns show_to_builder, show it exactly as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself,',
         "confirm once before the final submit, and submit on the program's own site. Call",
-        'record_submission only after it was really submitted. Never invent personal details.',
+        'record_submission only after it was really submitted, then follow its `next`. Never invent',
+        'personal details, and never launch a token without the builder saying yes.',
       ].join('\n'),
     },
   );
@@ -68,7 +71,7 @@ export function createMcpServer() {
       },
       annotations: { readOnlyHint: true },
     },
-    (input) => run('list_programs', input),
+    (input) => run(ctx, 'list_programs', input),
   );
 
   server.registerTool(
@@ -82,7 +85,7 @@ export function createMcpServer() {
       inputSchema: { program_id: z.string() },
       annotations: { readOnlyHint: true },
     },
-    (input) => run('get_program', input),
+    (input) => run(ctx, 'get_program', input),
   );
 
   server.registerTool(
@@ -104,7 +107,7 @@ export function createMcpServer() {
       },
       annotations: { readOnlyHint: true },
     },
-    (input) => run('prepare_submission', input),
+    (input) => run(ctx, 'prepare_submission', input),
   );
 
   server.registerTool(
@@ -124,7 +127,7 @@ export function createMcpServer() {
       },
       annotations: { readOnlyHint: true },
     },
-    (input) => run('match_projects', input),
+    (input) => run(ctx, 'match_projects', input),
   );
 
   server.registerTool(
@@ -132,7 +135,8 @@ export function createMcpServer() {
     {
       description:
         "Record the project on EarnKit. Only call AFTER the project was actually submitted on the program's " +
-        'own site (by you or by the builder). Pass the final answers that were submitted.',
+        'own site (by you or by the builder). Pass the final answers that were submitted. Returns ' +
+        'project_id and `next`: offer the builder a tokens.fun token for the project (launch_token).',
       inputSchema: {
         program_id: z.string(),
         project: project.extend({ name: z.string() }),
@@ -145,7 +149,39 @@ export function createMcpServer() {
           .describe('Link to the submission, if the site gave one.'),
       },
     },
-    (input) => run('record_submission', input),
+    (input) => run(ctx, 'record_submission', input),
+  );
+
+  server.registerTool(
+    'launch_token',
+    {
+      description:
+        'Launch a token for a project you recorded with record_submission, on tokens.fun. tokens.fun ' +
+        "pays the gas; 40% of trading fees go to the builder's wallet. Only call after the builder " +
+        'explicitly said yes and confirmed the name, ticker, wallet, and image. One token per project; ' +
+        'launches are public and permanent.',
+      inputSchema: {
+        project_id: z
+          .number()
+          .int()
+          .describe('project_id returned by record_submission'),
+        name: z.string().describe('Token name, up to 50 characters'),
+        symbol: z.string().describe('Ticker, up to 10 letters or digits'),
+        creator_wallet: z
+          .string()
+          .describe("The builder's wallet that receives creator fees"),
+        image_url: z.string().describe('https URL of the token image'),
+        builder_x: z.string().describe("The builder's X handle or profile URL"),
+        chain: z
+          .enum(['base', 'robinhood', 'arbitrum'])
+          .optional()
+          .describe('Default base'),
+        builder_confirmed: z
+          .literal(true)
+          .describe('The builder explicitly said yes to this launch'),
+      },
+    },
+    (input) => run(ctx, 'launch_token', input),
   );
 
   return server;

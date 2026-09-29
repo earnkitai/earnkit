@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { sql } from './db';
 import { getProgramRow } from './programs';
 import { ProjectInfo } from './submission';
+import { tokenOffer } from './tokens';
 
 export const RecordSubmissionInput = z
   .object({
@@ -16,6 +17,7 @@ export const RecordSubmissionInput = z
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
+  installationId: number,
 ) {
   await getProgramRow(input.program_id);
   const { name, description, repo_url, live_url, demo_url, token_url } =
@@ -31,6 +33,7 @@ export async function recordSubmission(
         live_url: live_url ?? null,
         demo_url: demo_url ?? null,
         token_url: token_url ?? null,
+        installation_id: installationId,
       })} RETURNING id, submitted_at`;
     await tx`INSERT INTO submissions ${tx({
       project_id: project.id,
@@ -41,6 +44,7 @@ export async function recordSubmission(
       recorded: true,
       project_id: project.id,
       submitted_at: project.submitted_at.toISOString(),
+      ...(!token_url && { next: tokenOffer(name) }),
     };
   });
 }

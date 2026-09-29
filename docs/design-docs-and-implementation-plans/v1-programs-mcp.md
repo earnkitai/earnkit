@@ -35,3 +35,12 @@ Testing in Grok Bot showed the expensive part of "what can my projects earn?" is
 IDs/RPC hosts in config files, checks commit dates against build windows (starts_at), and
 returns likely / after one step / no per repo x program, with ready-to-show text. It works in
 any client, including ones that can't build. Uses one server-side GITHUB_TOKEN.
+
+## launch_token (tokens.fun, added 2026-09-29)
+
+After record_submission the agent offers the builder a token for the project. launch_token calls
+tokens.fun `POST /api/v1/deploy` (the X bot's route) with EarnKit's deploy key: tokens.fun's gas
+wallet pays, the builder's wallet is the creator (40% of trading fees in WETH). The builder's X
+comes from the agent and is shown on the token page. Tested live once on Base (test token
+removed from tokens.fun afterwards); every failure path tested against a mock of the API.
+tokens.fun rate-limits by IP (5/hour, 20/day), which covers all EarnKit launches combined.

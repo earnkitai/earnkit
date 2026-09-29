@@ -42,6 +42,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - match_projects reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".
+- launch_token calls tokens.fun's deploy API server-side (tokens.fun pays gas). It only works on
+  a project the same installation recorded (projects.installation_id), once per project: the
+  project is claimed atomically (token_url='pending') and the claim is kept if tokens.fun's
+  response is lost, so a retry can never mint a second token. Requires builder_confirmed=true.
 - `prepareSubmission` is pure (no DB) and never invents values. It reports what is filled,
   what is missing, and whether the agent drafts it (`from: project`) or asks the builder
   (`from: builder`).

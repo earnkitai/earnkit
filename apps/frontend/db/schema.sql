@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS projects (
   repo_url     text,
   live_url     text,
   demo_url     text,
-  token_url    text,
+  token_url    text,                                 -- tokens.fun page once a token is launched
+  installation_id integer REFERENCES installations(id), -- the agent that recorded it
   submitted_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -77,3 +78,4 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS each_time text[] NOT NULL DEFAULT 
 ALTER TABLE programs DROP COLUMN IF EXISTS key_requirement;
 ALTER TABLE programs DROP COLUMN IF EXISTS verified_at;
 ALTER TABLE programs DROP COLUMN IF EXISTS builder_steps;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES installations(id);
