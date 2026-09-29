@@ -7,7 +7,35 @@ export type Card = {
   summary: string;
   tag: string | null;
   each_time: string[];
+  /** Added since the builder's last check. */
+  is_new?: boolean;
+  /** Whole days until the deadline, when it's 3 or fewer. */
+  closes_in_days?: number | null;
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Days until a deadline if it's within 3 days, else null. */
+export function closesInDays(endsAt: Date | null, now = new Date()) {
+  if (!endsAt) return null;
+  const days = Math.floor((endsAt.getTime() - now.getTime()) / DAY_MS);
+  return days <= 3 ? Math.max(days, 0) : null;
+}
+
+const soon = (days: number) =>
+  days === 0 ? 'closes today' : `closes in ${days} day${days === 1 ? '' : 's'}`;
+
+/** "Since you last checked" line ("Heads up" on a first check), or null when nothing to flag. */
+export function presentSinceLastCheck(cards: Card[], firstCheck = false) {
+  const parts = [
+    ...cards.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
+    ...cards
+      .filter((c) => c.closes_in_days != null)
+      .map((c) => `${c.title} ${soon(c.closes_in_days!)}`),
+  ];
+  if (parts.length === 0) return null;
+  return `${firstCheck ? 'Heads up' : 'Since you last checked'}: ${parts.join(' · ')}`;
+}
 
 function youLine(card: Card) {
   return card.each_time.length === 0
@@ -26,7 +54,12 @@ export function presentPrograms(cards: Card[], agentCanBuild: boolean) {
   const lines = [...cards]
     .sort((a, b) => rank(a) - rank(b))
     .map((c) => {
-      const head = `**${c.title}**: ${c.summary}${c.tag ? ` · ${c.tag}` : ''}`;
+      const flags = [
+        c.is_new && 'new',
+        c.closes_in_days != null && soon(c.closes_in_days),
+        c.tag,
+      ].filter(Boolean);
+      const head = `**${c.title}**: ${c.summary}${flags.map((f) => ` · ${f}`).join('')}`;
       // Grants for live products are applications, not builds.
       const isApplication = c.tag === 'needs a live product';
       const split = agentCanBuild

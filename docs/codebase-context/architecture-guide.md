@@ -4,8 +4,11 @@
 
 - **Program**: a live builder program run by someone else (hackathon, grant, bounty). Has a
   reward, a deadline, rules, and submission requirements. Curated by hand in `programs/*.json`.
-- **existing_work / chains / starts_at**: per-program facts match_projects uses to match a
+- **existing_work / chains / starts_at**: per-program facts list_programs uses to match a
   builder's public repos (`allowed` / `new_work_only` / `unknown`).
+- **Alerts**: EarnKit can't message anyone, so list_programs opens with "Since you last checked"
+  (new programs by programs.created_at vs installations.programs_checked_at, and deadlines within
+  3 days), and asks the agent to offer a recurring check with its own scheduler.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
 - **Track**: a category inside a program with its own requirements.
@@ -39,7 +42,7 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 ## Separation of concerns
 
 - Business logic lives only in `apps/frontend/lib/earnkit/`. Routes, scripts, and the page call it.
-- match_projects reads only public GitHub data with one server-side token; nothing about the
+- Repo matching (list_programs with github_user) reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".
 - launch_token calls tokens.fun's deploy API server-side (tokens.fun pays gas). It only works on

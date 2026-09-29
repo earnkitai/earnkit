@@ -154,7 +154,10 @@ function fullName(ref: string) {
 }
 
 /** Checks a builder's public repos against open programs and returns verdicts plus ready-to-show text. */
-export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
+export async function matchProjects(
+  input: z.infer<typeof MatchProjectsInput>,
+  standalone = true,
+) {
   const programs = await openProgramFacts();
   const repos: Repo[] = input.repos?.length
     ? await Promise.all(input.repos.map((r) => repoByName(fullName(r))))
@@ -188,6 +191,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
       input.repos?.length ? null : input.github_user!,
       repos.length,
       results,
+      standalone,
     ),
     note: 'Show show_to_builder to the builder exactly as written. Verdicts are from public code; confirm each "check" before submitting.',
     matches: results

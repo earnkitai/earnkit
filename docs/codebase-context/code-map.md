@@ -17,9 +17,9 @@ apps/frontend/
     installations.ts           save / touch installation by token hash
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts                     MCP server: the 5 tools, their descriptions and schemas
-    present.ts(+test)          builder-facing text for list_programs (Me / You lines)
+    present.ts(+test)          builder-facing text for list_programs (Me / You, new, closing soon)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts, text
-    match-projects.ts          match_projects: public GitHub reads (GITHUB_TOKEN) + orchestration
+    match-projects.ts          repo matching for list_programs: public GitHub reads (GITHUB_TOKEN)
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation)
     tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)
@@ -30,5 +30,5 @@ apps/frontend/
 Root commands: `pnpm programs:check` (validate program files), `pnpm test`. Railway runs
 `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
-`GITHUB_TOKEN` (one server-side read-only token for match_projects), `TOKENSFUN_DEPLOY_API_KEY`
+`GITHUB_TOKEN` (one server-side read-only token for repo matching), `TOKENSFUN_DEPLOY_API_KEY`
 (tokens.fun deploy key for launch_token; `TOKENSFUN_API_URL` overrides the host for tests).

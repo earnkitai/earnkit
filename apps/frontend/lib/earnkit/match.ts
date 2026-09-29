@@ -238,6 +238,8 @@ export function presentMatches(
   user: string | null,
   checked: number,
   results: { repo: RepoFacts; verdicts: Verdict[] }[],
+  /** false when embedded in list_programs' answer: no closing question. */
+  standalone = true,
 ) {
   const who = user ? ` by @${user}` : '';
   const order = { likely: 0, after_step: 1, no: 2 };
@@ -255,6 +257,8 @@ export function presentMatches(
     );
 
   if (earning.length === 0) {
+    if (!standalone)
+      return `None of the ${checked} public repos${who} I checked can earn as-is yet.`;
     return (
       `None of the ${checked} public repos${who} I checked can earn from an open program as-is.\n\n` +
       'Want me to build something for one instead?'
@@ -277,8 +281,17 @@ export function presentMatches(
     return [`**${repo.name}** (${nets})`, ...lines].join('\n');
   });
 
+  const summary = `Checked ${checked} public repos${who}. ${earning.length} could earn:`;
+  if (!standalone) {
+    // Embedded in the one answer: keep it short.
+    const more =
+      blocks.length > 5
+        ? [`…and ${blocks.length - 5} more repos. Ask to see them all.`]
+        : [];
+    return [summary, ...blocks.slice(0, 5), ...more].join('\n\n');
+  }
   return [
-    `Checked ${checked} public repos${who}. ${earning.length} could earn:`,
+    summary,
     ...blocks,
     "Want me to prepare the ones that qualify? I'll ask each personal detail once. (Private repos aren't included.)",
   ].join('\n\n');

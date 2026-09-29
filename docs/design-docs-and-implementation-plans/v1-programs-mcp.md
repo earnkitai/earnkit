@@ -44,3 +44,11 @@ wallet pays, the builder's wallet is the creator (40% of trading fees in WETH). 
 comes from the agent and is shown on the token page. Tested live once on Base (test token
 removed from tokens.fun afterwards); every failure path tested against a mock of the API.
 tokens.fun rate-limits by IP (5/hour, 20/day), which covers all EarnKit launches combined.
+
+## One answer + alerts (2026-09-29)
+
+Builders ask "what can I earn?", so list_programs is the one entry point: with the builder's GitHub
+it shows their matching projects first (top 5), then open programs. match_projects was folded in
+and removed as a tool. Each answer opens with "Since you last checked" (new programs, deadlines
+within 3 days); the agent is asked to offer a recurring check via its own scheduler, since MCP
+can't push. Email/Telegram push was deferred: it needs contact details (no accounts).

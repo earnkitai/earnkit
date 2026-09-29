@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS programs (
   setup                   text[] NOT NULL DEFAULT '{}', -- one-time builder-only steps
   each_time               text[] NOT NULL DEFAULT '{}', -- builder-only steps for every entry
   rules                   text[] NOT NULL DEFAULT '{}',
-  submission_requirements jsonb NOT NULL DEFAULT '[]'
+  submission_requirements jsonb NOT NULL DEFAULT '[]',
+  created_at              timestamptz NOT NULL DEFAULT now() -- when EarnKit added it ("new" alerts)
 );
 
 CREATE TABLE IF NOT EXISTS tracks (
@@ -43,7 +44,8 @@ CREATE TABLE IF NOT EXISTS installations (
   id           serial PRIMARY KEY,
   token_hash   text NOT NULL UNIQUE,
   created_at   timestamptz NOT NULL DEFAULT now(),
-  last_seen_at timestamptz NOT NULL DEFAULT now()
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  programs_checked_at timestamptz                   -- last list_programs, for "since you last checked"
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -78,4 +80,6 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS each_time text[] NOT NULL DEFAULT 
 ALTER TABLE programs DROP COLUMN IF EXISTS key_requirement;
 ALTER TABLE programs DROP COLUMN IF EXISTS verified_at;
 ALTER TABLE programs DROP COLUMN IF EXISTS builder_steps;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS programs_checked_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES installations(id);

@@ -59,14 +59,24 @@ export function createMcpServer(ctx: ToolContext) {
     'list_programs',
     {
       description:
-        'List open builder programs with rewards. Use when the builder asks what is worth building or ' +
-        'what their projects can earn. Returns show_to_builder: show it to the builder exactly as written, ' +
-        'with no extra summary or advice. Use the programs data only for follow-up questions.',
+        'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
+        "Pass the builder's GitHub username (or repo links) when you know it: their existing projects " +
+        'that can claim rewards come first, then open programs. Returns show_to_builder: show it exactly ' +
+        'as written, with no extra summary or advice.',
       inputSchema: {
+        github_user: z
+          .string()
+          .optional()
+          .describe("The builder's GitHub username"),
+        repos: z
+          .array(z.string())
+          .optional()
+          .describe('Or specific "owner/repo" or github.com links'),
         agent_can_build: z
           .boolean()
+          .optional()
           .describe(
-            'true only if you yourself can write code, deploy, and use a web browser in this session',
+            'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
       },
       annotations: { readOnlyHint: true },
@@ -108,26 +118,6 @@ export function createMcpServer(ctx: ToolContext) {
       annotations: { readOnlyHint: true },
     },
     (input) => run(ctx, 'prepare_submission', input),
-  );
-
-  server.registerTool(
-    'match_projects',
-    {
-      description:
-        "Check what a builder's existing projects can earn. Give their GitHub username (or up to 30 " +
-        'repo links). EarnKit reads their public repos, detects which chains each uses, and returns per ' +
-        'repo and program: likely qualifies, qualifies after one step, or no. Returns show_to_builder: ' +
-        'show it exactly as written.',
-      inputSchema: {
-        github_user: z.string().optional().describe('GitHub username'),
-        repos: z
-          .array(z.string())
-          .optional()
-          .describe('"owner/repo" or github.com links'),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    (input) => run(ctx, 'match_projects', input),
   );
 
   server.registerTool(

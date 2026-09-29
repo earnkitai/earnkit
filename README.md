@@ -13,7 +13,8 @@ instantly.
 
 Then ask: "Anything worth building?"
 
-Tools: `list_programs`, `get_program`, `match_projects`, `prepare_submission`, `record_submission`,
+Tools: `list_programs` ("what can I earn?": the builder's matching projects + open programs),
+`get_program`, `prepare_submission`, `record_submission`,
 `launch_token` (optional tokens.fun token for a submitted project).
 
 ## Layout

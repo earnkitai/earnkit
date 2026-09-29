@@ -18,12 +18,12 @@ which EarnKit approves instantly.
 
 ## Tools
 
-- list_programs: open programs with reward, deadline, key requirement,
-  whether already-built projects can be submitted, and tracks
-- get_program: full details, rules, submission requirements, links, and
-  optional starter ideas
-- match_projects: give a GitHub username; returns which of the builder's public
-  repos can earn from open programs, and the one step missing if any
+- list_programs: "what can I earn?" in one answer. Give the builder's GitHub
+  username: their public repos that can claim rewards come first, then open
+  programs. Opens with what changed since the last check (new programs,
+  deadlines within 3 days)
+- get_program: full details, rules, submission requirements, links, and tested
+  build help for the program's chains
 - prepare_submission: compares what the agent knows with what the program
   requires; returns what is complete, what is missing, and the submission link
 - record_submission: records the project after it was submitted on the

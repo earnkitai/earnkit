@@ -9,6 +9,15 @@ export async function saveInstallation(token: string) {
   await sql()`INSERT INTO installations (token_hash) VALUES (${hash(token)}) ON CONFLICT (token_hash) DO NOTHING`;
 }
 
+/** When this installation last listed programs (null the first time); records now as the new time. */
+export async function checkPrograms(installationId: number) {
+  const [row] = await sql()<{ prev: Date | null }[]>`
+    UPDATE installations i SET programs_checked_at = now()
+    FROM (SELECT id, programs_checked_at AS prev FROM installations WHERE id = ${installationId}) o
+    WHERE i.id = o.id RETURNING o.prev`;
+  return row?.prev ?? null;
+}
+
 /** The installation's id for this token (and marks it as seen), or null if unknown. */
 export async function touchInstallation(token: string) {
   const [row] = await sql()<{ id: number }[]>`

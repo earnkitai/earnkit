@@ -53,6 +53,7 @@ type ProgramRow = {
   summary: string;
   tag: string | null;
   chains: Chain[];
+  created_at: Date;
   rules: string[];
   submission_requirements: SubmissionRequirement[];
 };
@@ -73,9 +74,10 @@ export async function listPrograms() {
       | 'each_time'
       | 'summary'
       | 'tag'
+      | 'created_at'
     >[]
   >`
-    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag
+    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -95,6 +97,8 @@ export async function listPrograms() {
     each_time: p.each_time,
     summary: p.summary,
     tag: p.tag,
+    ends_at: p.ends_at,
+    created_at: p.created_at,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
