@@ -1,3 +1,4 @@
+import type { CampaignConfig } from './campaigns';
 import type { Chain } from './match';
 import { sql } from './db';
 import type { ProgramFile, SubmissionRequirement } from './program-file';
@@ -53,6 +54,7 @@ type ProgramRow = {
   summary: string;
   tag: string | null;
   chains: Chain[];
+  campaign: CampaignConfig | null;
   created_at: Date;
   rules: string[];
   submission_requirements: SubmissionRequirement[];
@@ -170,6 +172,17 @@ export async function getProgram(programId: string) {
     source_url: program.source_url,
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
+    ...(program.campaign && {
+      campaign: {
+        by: 'EarnKit',
+        prize: `${Number(program.campaign.amount_each).toLocaleString('en-US')} ${program.campaign.prize.symbol} each to ${program.campaign.winners} winners, sent to their payout wallet on Base`,
+        judged_by:
+          'unique wallets (with onchain history before the campaign) that used your contracts during the campaign; a human approves winners',
+        min_score: program.campaign.min_score,
+        how_to_submit:
+          'Submit to EarnKit: call record_submission with the answers. There is no external site.',
+      },
+    }),
     ...(starters.length > 0 && {
       starters: starters.map((s) => ({
         track: trackName(s.track_id),
@@ -201,6 +214,7 @@ export async function upsertProgram(p: ProgramFile) {
       summary: p.summary,
       tag: p.tag ?? null,
       chains: p.chains,
+      campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,

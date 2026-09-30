@@ -23,7 +23,8 @@
     "test": "tsx --test \"apps/frontend/lib/**/*.test.ts\"",
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
-    "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check"
+    "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
+    "campaign": "tsx apps/frontend/scripts/campaign.mts"
   },
   "pnpm": {
     "overrides": {}

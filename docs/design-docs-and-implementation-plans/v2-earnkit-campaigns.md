@@ -1,6 +1,6 @@
 # EarnKit v2.0: EarnKit's own campaigns
 
-Status: design, 2026-09-30. Nothing built yet.
+Status: built 2026-09-30. Campaign #1 (`programs/earnkit-campaign-1-base.json`) ships with status `closed` until approved to go live.
 
 ## Goal
 
@@ -34,7 +34,7 @@ Nothing new to learn: a campaign is just a program in EarnKit.
 5. **Standing.** `list_programs` shows their rank while the campaign runs
    ("your project: #3 of 12"), and earnkit.com shows the leaderboard.
 6. **Win.** After the deadline and our review, MINI is sent straight to the payout wallet. The
-   agent sees it in its next answer: "Since you last checked: you won 50,000 MINI (tx …)".
+   agent sees it in its next answer: "Since you last checked: you won 75,000,000 MINI with <project>".
    No claim step.
 
 ## How a campaign is defined (admin = Claude Code, as with programs)
@@ -45,8 +45,9 @@ Nothing new to learn: a campaign is just a program in EarnKit.
 "campaign": {
   "prize": { "token": "0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07", "symbol": "MINI", "decimals": 18, "chain": "base" },
   "winners": 5,
-  "amount_each": "50000",
-  "metric": "unique_wallets"
+  "amount_each": "75000000",
+  "metric": "unique_wallets",
+  "min_score": 10
 }
 ```
 
@@ -59,9 +60,10 @@ program format. `submission_url` points at EarnKit.
   that sent it a successful transaction between `starts_at` and `ends_at`, counting only wallets
   that already had onchain history before `starts_at` (drops freshly made bot wallets).
   Read from Base's public Blockscout API (free, no key).
-- Computed by EarnKit on a schedule (daily is enough) and stored, so rank shows in answers and
-  on the leaderboard.
-- **A human approves winners.** After the deadline, `pnpm campaign:rank <slug>` prints the top
+- Computed with `pnpm campaign score <slug>` (run it daily during the campaign; no cron yet) and
+  stored, so rank shows in answers and on the leaderboard. Wallet history is the wallet's nonce
+  at the start block, read from Base RPC.
+- **A human approves winners.** After the deadline, `pnpm campaign rank <slug>` prints the top
   entries with their evidence; we confirm the 5 before anything is paid. Money-attached
   automatic judging will be gamed; this is the cheap guard.
 - Later metrics plug in by name (e.g. `builder_code_activity` if Base exposes attributed
@@ -69,7 +71,7 @@ program format. `submission_url` points at EarnKit.
 
 ## Payout v2.0: plain transfers, key never on the server
 
-- `pnpm campaign:payout <slug>` (dry run by default, `--execute` to send) sends
+- `pnpm campaign payout <slug> --winners <ids>` (dry run by default, `--execute` to send) sends
   `amount_each` MINI to each approved winner's payout wallet with ordinary ERC-20 transfers on
   Base, then records each tx hash.
 - It runs **locally**, signing with the funding wallet's key from a local keystore/env. The
@@ -80,7 +82,8 @@ program format. `submission_url` points at EarnKit.
 
 - `programs.campaign jsonb` (null for normal programs).
 - `projects`: `payout_wallet text`, `contracts text[]`, `score int`, `rank int`,
-  `scored_at timestamptz`, `prize_tx text`.
+  `scored_at timestamptz`, `prize_tx text`, `prize_paid_at timestamptz`, `token_image bytea`.
+  Rank is computed on read (score, then earlier entry).
 
 No new tables.
 
@@ -103,10 +106,9 @@ No new tools. `list_programs` (rank in answer), `record_submission` (campaign en
 - **Legal.** Prizes to pseudonymous wallets; sanctions screening before payout is worth a
   quick legal read.
 
-## Open decisions
+## Decisions (Campaign #1)
 
-1. MINI amount per winner.
-2. Theme: what builders should build (default proposal: "ship something on Base that other
-   agents or people actually use", measured by unique wallets).
-3. Campaign length (default: 2 weeks).
-4. Tie-breaks and minimum bar (default: at least 10 unique wallets to be eligible).
+1. 75,000,000 MINI per winner (~$100 at the time), 5 winners.
+2. Theme: build on Base; measured by unique wallets.
+3. Length: 2 weeks, Sep 30 to Oct 14, 2026.
+4. At least 10 counted wallets to be eligible; ties go to the earlier entry.

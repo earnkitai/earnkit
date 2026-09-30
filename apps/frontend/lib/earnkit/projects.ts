@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sql } from './db';
-import { getProgramRow } from './programs';
+import { EntryError, validateEntry } from './campaigns';
+import { getProgramRow, isOpen } from './programs';
 import { ProjectInfo } from './submission';
 import { tokenOffer } from './tokens';
 
@@ -19,9 +20,21 @@ export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
   installationId: number,
 ) {
-  await getProgramRow(input.program_id);
+  const program = await getProgramRow(input.program_id);
   const { name, description, repo_url, live_url, demo_url, token_url } =
     input.project;
+
+  // EarnKit campaigns: this call *is* the entry, so check it before storing anything.
+  let entry: { contracts: string[]; payoutWallet: string } | null = null;
+  if (program.campaign) {
+    if (!isOpen(program)) throw new EntryError('This campaign is closed.');
+    entry = await validateEntry(input.submission_data, program);
+    const [taken] = await sql()<{ name: string }[]>`
+      SELECT name FROM projects
+      WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
+    if (taken)
+      throw new EntryError(`contracts: already entered by "${taken.name}".`);
+  }
 
   return sql().begin(async (tx) => {
     const [project] = await tx<{ id: number; submitted_at: Date }[]>`
@@ -34,6 +47,8 @@ export async function recordSubmission(
         demo_url: demo_url ?? null,
         token_url: token_url ?? null,
         installation_id: installationId,
+        payout_wallet: entry?.payoutWallet ?? null,
+        contracts: entry?.contracts ?? null,
       })} RETURNING id, submitted_at`;
     await tx`INSERT INTO submissions ${tx({
       project_id: project.id,
@@ -44,6 +59,14 @@ export async function recordSubmission(
       recorded: true,
       project_id: project.id,
       submitted_at: project.submitted_at.toISOString(),
+      ...(entry &&
+        program.campaign && {
+          campaign_entry:
+            `Entered ${program.title}. Scored on unique wallets using ${entry.contracts.join(', ')} until ` +
+            `${program.ends_at?.toISOString()}; at least ${program.campaign.min_score} to be eligible. ` +
+            `If you win, ${Number(program.campaign.amount_each).toLocaleString('en-US')} ${program.campaign.prize.symbol} ` +
+            `goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure your agent controls that wallet.`,
+        }),
       ...(!token_url && { next: tokenOffer(name) }),
     };
   });

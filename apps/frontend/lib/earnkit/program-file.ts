@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { CHAINS } from './match';
 
 /**
@@ -80,6 +81,8 @@ export const ProgramFile = z
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     /** Program-wide rules and requirements every project must meet. */
     rules: z.array(z.string().min(1)),
+    /** Present only for EarnKit's own campaigns: builders submit to EarnKit and we pay winners. */
+    campaign: CampaignConfig.optional(),
     submission_requirements: z.array(SubmissionRequirement).min(1),
     tracks: z
       .array(
@@ -114,6 +117,14 @@ export const ProgramFile = z
       ctx.addIssue({ code: 'custom', message });
 
     const keys = p.submission_requirements.map((r) => r.key);
+    if (p.campaign) {
+      for (const k of Object.values(CAMPAIGN_KEYS)) {
+        if (!keys.includes(k))
+          issue(`campaign programs need a "${k}" submission requirement`);
+      }
+      if (!p.starts_at || !p.ends_at)
+        issue('campaigns need starts_at and ends_at (the scoring window)');
+    }
     if (new Set(keys).size !== keys.length)
       issue('submission requirement keys must be unique');
 

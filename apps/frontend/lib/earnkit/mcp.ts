@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
+import { EntryError } from './campaigns';
 import { LaunchError } from './tokens';
 import { type ToolContext, type ToolName, tools } from './tools';
 
@@ -27,7 +28,8 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
       err instanceof ZodError ||
       err instanceof NotFoundError ||
       err instanceof GitHubError ||
-      err instanceof LaunchError
+      err instanceof LaunchError ||
+      err instanceof EntryError
     ) {
       const text =
         err instanceof ZodError
@@ -125,7 +127,8 @@ export function createMcpServer(ctx: ToolContext) {
     {
       description:
         "Record the project on EarnKit. Only call AFTER the project was actually submitted on the program's " +
-        'own site (by you or by the builder). Pass the final answers that were submitted. Returns ' +
+        'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet). ' +
+        'Pass the final answers that were submitted. Returns ' +
         'project_id and `next`: offer the builder a tokens.fun token for the project (launch_token).',
       inputSchema: {
         program_id: z.string(),
@@ -160,7 +163,16 @@ export function createMcpServer(ctx: ToolContext) {
         creator_wallet: z
           .string()
           .describe("The builder's wallet that receives creator fees"),
-        image_url: z.string().describe('https URL of the token image'),
+        image_url: z
+          .string()
+          .optional()
+          .describe('https URL of the token image'),
+        image_data: z
+          .string()
+          .optional()
+          .describe(
+            'Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.',
+          ),
         builder_x: z.string().describe("The builder's X handle or profile URL"),
         chain: z
           .enum(['base', 'robinhood', 'arbitrum'])

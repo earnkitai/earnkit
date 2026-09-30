@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
+import { presentYourEntries, type YourEntry } from './campaigns';
+import { sql } from './db';
 import { checkPrograms } from './installations';
 import {
   GitHubError,
@@ -74,9 +76,27 @@ export const tools = {
       }
     }
 
-    const since = presentSinceLastCheck(cards, lastCheck === null);
+    // The builder's entries in EarnKit campaigns: rank while running, prize once paid.
+    const yourEntries = await sql()<YourEntry[]>`
+      SELECT e.name, e.campaign_title, e.campaign, e.score, e.rank, e.entries, e.prize_tx, e.prize_paid_at
+      FROM (
+        SELECT p.name, p.installation_id, p.score, p.prize_tx, p.prize_paid_at, pr.title AS campaign_title,
+          pr.campaign, row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,
+          count(*) OVER (PARTITION BY p.program_id)::int AS entries
+        FROM projects p JOIN programs pr ON pr.id = p.program_id
+        WHERE pr.campaign IS NOT NULL AND p.contracts IS NOT NULL
+      ) e
+      WHERE e.installation_id = ${ctx.installationId}`;
+    const entries = presentYourEntries(yourEntries, lastCheck);
+
+    const since = presentSinceLastCheck(
+      cards,
+      lastCheck === null,
+      entries.wins,
+    );
     const sections = [
       since,
+      entries.section,
       yourProjects && `**Your projects**\n\n${yourProjects}`,
       `${yourProjects ? '**Worth building**\n\n' : ''}${presentPrograms(cards, agent_can_build)}`,
     ].filter(Boolean);
@@ -104,7 +124,12 @@ export const tools = {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       ...prepareSubmission(program.submission_requirements, known),
-      submission_url: program.submission_url,
+      ...(program.campaign
+        ? {
+            how_to_submit:
+              'This is an EarnKit campaign: when ready, submit by calling record_submission.',
+          }
+        : { submission_url: program.submission_url }),
     };
   },
 

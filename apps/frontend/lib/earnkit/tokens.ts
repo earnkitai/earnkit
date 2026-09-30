@@ -46,12 +46,46 @@ export const LaunchTokenInput = z
     image_url: z
       .string()
       .url()
-      .startsWith('https://', 'must start with https://'),
+      .startsWith('https://', 'must start with https://')
+      .optional(),
+    /** Or the image itself as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB); EarnKit hosts it. */
+    image_data: z.string().optional(),
     builder_x: z.string().trim().min(1),
     chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
     builder_confirmed: z.literal(true),
   })
-  .strict();
+  .strict()
+  .refine((i) => Boolean(i.image_url) !== Boolean(i.image_data), {
+    message: 'give image_url (https) or image_data (a data URL), not both',
+    path: ['image_url'],
+  });
+
+const IMAGE_TYPES: Record<string, (b: Buffer) => boolean> = {
+  'image/png': (b) =>
+    b
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8,
+  'image/gif': (b) => b.subarray(0, 4).toString('latin1') === 'GIF8',
+  'image/webp': (b) =>
+    b.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    b.subarray(8, 12).toString('latin1') === 'WEBP',
+};
+
+/** Decodes and checks an uploaded token image: an allowed type whose bytes match it, up to 1 MB. */
+export function decodeImage(dataUrl: string) {
+  const m = dataUrl.match(/^data:(image\/[a-z]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  const check = m && IMAGE_TYPES[m[1]];
+  if (!m || !check)
+    throw new LaunchError(
+      'image_data must be a base64 data URL of a PNG, JPEG, WebP, or GIF.',
+    );
+  const bytes = Buffer.from(m[2], 'base64');
+  if (bytes.length > 1_000_000)
+    throw new LaunchError('image_data is over 1 MB.');
+  if (!check(bytes)) throw new LaunchError(`image_data isn't a valid ${m[1]}.`);
+  return { bytes, type: m[1] };
+}
 
 type DeployResponse = {
   success?: boolean;
@@ -68,8 +102,8 @@ export function tokenOffer(projectName: string) {
   return (
     `Ask the builder once: "Want a token for ${projectName} on tokens.fun? tokens.fun pays the gas; ` +
     `40% of trading fees go to your wallet (in WETH). Terms: ${TOKEN_TERMS.agreement} · Risks: ` +
-    `${TOKEN_TERMS.risks}" If yes, confirm name, ticker, their wallet, an https image (a logo from ` +
-    "the project's repo works), and their X, then call launch_token. If no, drop it."
+    `${TOKEN_TERMS.risks}" If yes, confirm name, ticker, their wallet, an image (generate one or use the project's ` +
+    'logo), and their X, then call launch_token. If no, drop it.'
   );
 }
 
@@ -81,6 +115,13 @@ export async function launchToken(
   if (!key)
     throw new LaunchError('Token launches are not available right now.');
   const twitter = xProfileUrl(input.builder_x);
+  const image = input.image_data ? decodeImage(input.image_data) : null;
+  const origin = (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(
+    /\/$/,
+    '',
+  );
+  const imageUrl =
+    input.image_url ?? `${origin}/api/projects/${input.project_id}/image`;
 
   // Claim the project atomically: only this installation's project, only if it has no token.
   // The claim stays if the outcome is unknown, so a lost response can't lead to a second token.
@@ -92,7 +133,7 @@ export async function launchToken(
       live_url: string | null;
     }[]
   >`
-    UPDATE projects SET token_url = 'pending'
+    UPDATE projects SET token_url = 'pending', token_image = ${image?.bytes ?? null}, token_image_type = ${image?.type ?? null}
     WHERE id = ${input.project_id} AND installation_id = ${installationId} AND token_url IS NULL
     RETURNING name, description, repo_url, live_url`;
   if (!project) {
@@ -128,8 +169,8 @@ export async function launchToken(
         name: input.name,
         symbol: input.symbol,
         creatorWallet: input.creator_wallet,
-        tokenURI: input.image_url,
-        imageUrl: input.image_url,
+        tokenURI: imageUrl,
+        imageUrl,
         description:
           project.description ?? `${project.name}, built with EarnKit.`,
         ...(website && { website, appUrl: project.live_url ?? undefined }),

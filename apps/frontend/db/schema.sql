@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS programs (
   each_time               text[] NOT NULL DEFAULT '{}', -- builder-only steps for every entry
   rules                   text[] NOT NULL DEFAULT '{}',
   submission_requirements jsonb NOT NULL DEFAULT '[]',
+  campaign                jsonb,                       -- EarnKit's own campaigns only (prize, winners, metric)
   created_at              timestamptz NOT NULL DEFAULT now() -- when EarnKit added it ("new" alerts)
 );
 
@@ -58,6 +59,15 @@ CREATE TABLE IF NOT EXISTS projects (
   demo_url     text,
   token_url    text,                                 -- tokens.fun page once a token is launched
   installation_id integer REFERENCES installations(id), -- the agent that recorded it
+  -- EarnKit campaigns only:
+  payout_wallet text,                                   -- where the prize goes
+  contracts    text[],                                  -- Base contracts that are scored
+  score        integer,                                 -- latest metric value
+  scored_at    timestamptz,
+  prize_tx     text,                                    -- payout transaction once paid
+  prize_paid_at timestamptz,
+  token_image  bytea,                                   -- image uploaded for launch_token
+  token_image_type text,
   submitted_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -82,4 +92,13 @@ ALTER TABLE programs DROP COLUMN IF EXISTS verified_at;
 ALTER TABLE programs DROP COLUMN IF EXISTS builder_steps;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS programs_checked_at timestamptz;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS campaign jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_wallet text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contracts text[];
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS score integer;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS scored_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_tx text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_paid_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image bytea;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image_type text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES installations(id);

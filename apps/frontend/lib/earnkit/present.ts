@@ -26,8 +26,13 @@ const soon = (days: number) =>
   days === 0 ? 'closes today' : `closes in ${days} day${days === 1 ? '' : 's'}`;
 
 /** "Since you last checked" line ("Heads up" on a first check), or null when nothing to flag. */
-export function presentSinceLastCheck(cards: Card[], firstCheck = false) {
+export function presentSinceLastCheck(
+  cards: Card[],
+  firstCheck = false,
+  news: string[] = [],
+) {
   const parts = [
+    ...news,
     ...cards.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
     ...cards
       .filter((c) => c.closes_in_days != null)
