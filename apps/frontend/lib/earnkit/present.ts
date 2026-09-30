@@ -104,7 +104,7 @@ export function presentPrograms(
     }
     if (repos.fits.length > MAX_REPOS)
       sections.push(
-        `…and ${repos.fits.length - MAX_REPOS} more repos. Ask to see them all.`,
+        `…and ${repos.fits.length - MAX_REPOS} more repos. Name any repo and I'll check it.`,
       );
   }
 
