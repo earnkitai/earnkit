@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { detectChains, pickFiles } from './match';
 import {
   matchRepo,
-  presentMatches,
   type ProgramFacts,
   type RepoFacts,
 } from './match';
@@ -92,7 +91,7 @@ test('arc testnet repo without a live link: one step away, names both steps', ()
       program_id: 'arc-micro',
       program: 'Arc Microgrants',
       status: 'after_step',
-      note: 'deploy to Arc mainnet + a live link',
+      note: 'needs a deploy on Arc mainnet and a live link',
     },
   );
   assert.equal(v.find((x) => x.program_id === 'circle')!.status, 'after_step');
@@ -124,39 +123,9 @@ test('new-work-only programs: active repos need new work, stale ones are out', (
     programs,
   )[0];
   assert.equal(active.status, 'after_step');
-  assert.match(active.note!, /new work since Sep 1/);
+  assert.equal(active.note, 'only new work since Sep 1 counts');
 });
 
-test('summary hides "no" verdicts and repos that only have them', () => {
-  const chains = { monad: { mainnet: false, testnet: true, evidence: 'x' } };
-  const stale = repo({
-    name: 'stale',
-    chains,
-    commits_in_window: { monad: false },
-  });
-  const live = repo({
-    name: 'live',
-    homepage: 'https://x.app',
-    chains: { arc: { mainnet: true, testnet: false, evidence: 'x' } },
-  });
-  const text = presentMatches(
-    'dev',
-    2,
-    [stale, live].map((r) => ({ repo: r, verdicts: matchRepo(r, programs) })),
-  );
-  assert.match(text, /1 could earn/);
-  assert.match(
-    text,
-    /\*\*live\*\* \(Arc mainnet\)\nArc Microgrants: likely qualifies · check: working on Arc mainnet/,
-  );
-  assert.ok(!text.includes('stale'));
-  assert.ok(!text.includes('no commits'));
-});
-
-test('repos on no program chain produce no verdicts, and the summary says so', () => {
+test('repos on no program chain produce no verdicts', () => {
   assert.deepEqual(matchRepo(repo({}), programs), []);
-  assert.match(
-    presentMatches('dev', 12, [{ repo: repo({}), verdicts: [] }]),
-    /None of the 12 public repos by @dev I checked can earn/,
-  );
 });

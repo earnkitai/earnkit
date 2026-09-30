@@ -3,7 +3,6 @@ import {
   detectChains,
   matchRepo,
   pickFiles,
-  presentMatches,
   type Detection,
   type RepoFacts,
 } from './match';
@@ -153,10 +152,9 @@ function fullName(ref: string) {
   return m[1];
 }
 
-/** Checks a builder's public repos against open programs and returns verdicts plus ready-to-show text. */
+/** Checks a builder's public repos against open programs; list_programs turns this into text. */
 export async function matchProjects(
   input: z.infer<typeof MatchProjectsInput>,
-  standalone = true,
 ) {
   const programs = await openProgramFacts();
   const repos: Repo[] = input.repos?.length
@@ -186,21 +184,17 @@ export async function matchProjects(
     return { repo: facts, verdicts: matchRepo(facts, programs) };
   });
 
-  return {
-    show_to_builder: presentMatches(
-      input.repos?.length ? null : input.github_user!,
-      repos.length,
-      results,
-      standalone,
-    ),
-    note: 'Show show_to_builder to the builder exactly as written. Verdicts are from public code; confirm each "check" before submitting.',
-    matches: results
-      .filter((r) => r.verdicts.length > 0)
-      .map((r) => ({
-        repo: r.repo.url,
-        homepage: r.repo.homepage,
-        chains: r.repo.chains,
-        verdicts: r.verdicts,
-      })),
-  };
+  // Builders want what can earn: "no" verdicts and repos with only those are left out.
+  const fits = results
+    .map((r) => ({
+      repo: r.repo.name,
+      verdicts: r.verdicts.filter((v) => v.status !== 'no'),
+    }))
+    .filter((r) => r.verdicts.length > 0)
+    .sort(
+      (a, b) =>
+        Number(!a.verdicts.some((v) => v.status === 'likely')) -
+        Number(!b.verdicts.some((v) => v.status === 'likely')),
+    );
+  return { checked: repos.length, fits };
 }

@@ -1,8 +1,11 @@
+import type { Verdict } from './match';
+
 /**
  * The builder-facing text for list_programs. Built on the server because many MCP clients
  * never show the model the server instructions; a ready-made result gets shown as written.
  */
 export type Card = {
+  id: string;
   title: string;
   summary: string;
   tag: string | null;
@@ -42,42 +45,83 @@ export function presentSinceLastCheck(
   return `${firstCheck ? 'Heads up' : 'Since you last checked'}: ${parts.join(' · ')}`;
 }
 
-function youLine(card: Card) {
-  return card.each_time.length === 0
-    ? 'approve'
-    : `approve, plus ${card.each_time.join('; ')}`;
-}
+/** The builder's repos checked against open programs (only verdicts that can earn), or why not. */
+export type YourRepos =
+  | { checked: number; fits: { repo: string; verdicts: Verdict[] }[] }
+  | { error: string };
 
 /** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
 function rank(card: Card) {
   return (card.tag ? 2 : 0) + (card.each_time.length > 0 ? 1 : 0);
 }
 
-export function presentPrograms(cards: Card[], agentCanBuild: boolean) {
-  if (cards.length === 0) return 'No open programs right now. Check back soon.';
+/** One line per program: title, reward and deadline, flags, then what it needs from this repo. */
+function line(c: Card, note?: string | null) {
+  const flags = [
+    c.is_new && 'new',
+    c.closes_in_days != null && soon(c.closes_in_days),
+    // The note already says a repo needs a live product.
+    !(note && c.tag === 'needs a live product') && c.tag,
+    note,
+  ].filter(Boolean);
+  return `- **${c.title}** · ${c.summary}${flags.map((f) => ` · ${f}`).join('')}`;
+}
 
-  const lines = [...cards]
-    .sort((a, b) => rank(a) - rank(b))
-    .map((c) => {
-      const flags = [
-        c.is_new && 'new',
-        c.closes_in_days != null && soon(c.closes_in_days),
-        c.tag,
-      ].filter(Boolean);
-      const head = `**${c.title}**: ${c.summary}${flags.map((f) => ` · ${f}`).join('')}`;
-      // Grants for live products are applications, not builds.
-      const isApplication = c.tag === 'needs a live product';
-      const split = agentCanBuild
-        ? `Me: ${isApplication ? 'fill in and submit the application' : 'build, deploy, submit'} · You: ${youLine(c)}`
-        : isApplication
-          ? 'Me: every answer · You: paste and submit'
-          : 'Me: the plan and every answer · You: build, deploy, submit';
-      return `${head}\n${split}`;
-    });
+const MAX_REPOS = 5;
 
-  const footer = agentCanBuild
-    ? "Pick one and I'll start. The first time on a platform, I'll need one quick setup from you."
-    : "I can't build or deploy from here. Add EarnKit to a coding agent (Claude Code, Cursor, Codex) and it does the work for you.";
+/**
+ * The one answer: each of the builder's repos with the programs it fits, then every other open
+ * program, then who does what, said once.
+ */
+export function presentPrograms(
+  cards: Card[],
+  agentCanBuild: boolean,
+  repos?: YourRepos | null,
+) {
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const shown = new Set<string>();
+  const sections: string[] = [];
 
-  return [...lines, footer].join('\n\n');
+  if (repos && 'error' in repos) {
+    sections.push(`Couldn't read your repos: ${repos.error}`);
+  } else if (repos && repos.fits.length === 0) {
+    sections.push(
+      `None of your ${repos.checked} public repos fits an open program yet.`,
+    );
+  } else if (repos) {
+    for (const fit of repos.fits.slice(0, MAX_REPOS)) {
+      const lines = [...fit.verdicts]
+        .sort((a, b) => (a.status === 'likely' ? 0 : 1) - (b.status === 'likely' ? 0 : 1))
+        .flatMap((v) => {
+          const card = byId.get(v.program_id);
+          if (!card) return [];
+          shown.add(card.id);
+          return [line(card, v.note)];
+        });
+      if (lines.length === 0) continue;
+      const n = `${lines.length} program${lines.length === 1 ? '' : 's'}`;
+      sections.push(`**Your ${fit.repo} fits ${n}**\n${lines.join('\n')}`);
+    }
+    if (repos.fits.length > MAX_REPOS)
+      sections.push(
+        `…and ${repos.fits.length - MAX_REPOS} more repos. Ask to see them all.`,
+      );
+  }
+
+  const rest = cards
+    .filter((c) => !shown.has(c.id))
+    .sort((a, b) => rank(a) - rank(b));
+  if (rest.length > 0)
+    sections.push(
+      `${shown.size > 0 ? '**Also open**\n' : ''}${rest.map((c) => line(c)).join('\n')}`,
+    );
+  if (cards.length === 0)
+    sections.push('No open programs right now. Check back soon.');
+  else
+    sections.push(
+      agentCanBuild
+        ? "Pick one and I'll build, deploy, and submit it. You approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video."
+        : "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).",
+    );
+  return sections.join('\n\n');
 }

@@ -13,6 +13,7 @@ import {
   closesInDays,
   presentPrograms,
   presentSinceLastCheck,
+  type YourRepos,
 } from './present';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { LaunchTokenInput, launchToken } from './tokens';
@@ -58,21 +59,15 @@ export const tools = {
       closes_in_days: closesInDays(p.ends_at),
     }));
 
-    let yourProjects: string | null = null;
+    let yourRepos: YourRepos | null = null;
     if (github_user || repos?.length) {
       try {
-        const matched = await matchProjects(
+        yourRepos = await matchProjects(
           MatchProjectsInput.parse({ github_user, repos }),
-          false,
         );
-        yourProjects = matched.show_to_builder;
       } catch (err) {
-        yourProjects =
-          err instanceof GitHubError
-            ? `Couldn't read those projects: ${err.message}`
-            : null;
-        if (!(err instanceof GitHubError))
-          console.error('[list_programs] matching failed:', err);
+        if (err instanceof GitHubError) yourRepos = { error: err.message };
+        else console.error('[list_programs] matching failed:', err);
       }
     }
 
@@ -97,8 +92,7 @@ export const tools = {
     const sections = [
       since,
       entries.section,
-      yourProjects && `**Your projects**\n\n${yourProjects}`,
-      `${yourProjects ? '**Worth building**\n\n' : ''}${presentPrograms(cards, agent_can_build)}`,
+      presentPrograms(cards, agent_can_build, yourRepos),
     ].filter(Boolean);
 
     return {

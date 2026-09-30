@@ -178,7 +178,7 @@ export type Verdict = {
   program_id: string;
   program: string;
   status: 'likely' | 'after_step' | 'no';
-  /** What still has to happen (after_step) or be confirmed (likely), in a few words. */
+  /** Shown to the builder as is: what still has to happen, or what to confirm, in a few words. */
   note: string | null;
 };
 
@@ -207,92 +207,29 @@ export function matchRepo(
       const since = p.starts_at ? ` since ${day(p.starts_at)}` : '';
       if (p.starts_at && !repo.commits_in_window[p.id])
         v('no', `no commits${since}; only new work counts`);
-      else v('after_step', `new work${since} (only that counts)`);
+      else v('after_step', `only new work${since} counts`);
       continue;
     }
 
     if (p.tag === 'needs a live product') {
-      if (!repo.homepage) v('after_step', 'a live product with users');
-      else v('likely', 'check: it has real users');
+      if (!repo.homepage) v('after_step', 'needs a live product with real users');
+      else v('likely', 'looks eligible if it has real users');
       continue;
     }
 
     // Existing work allowed and the project must be live on the chain.
     const steps = [
-      !signal.mainnet && `deploy to ${name} mainnet`,
+      !signal.mainnet && `a deploy on ${name} mainnet`,
       !repo.homepage && 'a live link',
     ].filter(Boolean) as string[];
-    if (steps.length > 0) v('after_step', steps.join(' + '));
+    if (steps.length > 0) v('after_step', `needs ${steps.join(' and ')}`);
     else
       v(
         'likely',
         p.existing_work === 'unknown'
-          ? 'check: existing work is allowed'
-          : `check: working on ${name} mainnet`,
+          ? 'looks eligible; confirm existing work is allowed'
+          : 'looks eligible',
       );
   }
   return verdicts;
-}
-
-export function presentMatches(
-  user: string | null,
-  checked: number,
-  results: { repo: RepoFacts; verdicts: Verdict[] }[],
-  /** false when embedded in list_programs' answer: no closing question. */
-  standalone = true,
-) {
-  const who = user ? ` by @${user}` : '';
-  const order = { likely: 0, after_step: 1, no: 2 };
-  // Builders want what can earn; "no" verdicts stay in the data but not in the text.
-  const earning = results
-    .map((r) => ({
-      ...r,
-      verdicts: r.verdicts.filter((v) => v.status !== 'no'),
-    }))
-    .filter((r) => r.verdicts.length > 0)
-    .sort(
-      (a, b) =>
-        Math.min(...a.verdicts.map((v) => order[v.status])) -
-        Math.min(...b.verdicts.map((v) => order[v.status])),
-    );
-
-  if (earning.length === 0) {
-    if (!standalone)
-      return `None of the ${checked} public repos${who} I checked can earn as-is yet.`;
-    return (
-      `None of the ${checked} public repos${who} I checked can earn from an open program as-is.\n\n` +
-      'Want me to build something for one instead?'
-    );
-  }
-
-  const blocks = earning.map(({ repo, verdicts }) => {
-    const nets = Object.entries(repo.chains)
-      .map(
-        ([c, s]) =>
-          `${CHAIN_NAMES[c as Chain]} ${s!.mainnet ? 'mainnet' : 'testnet'}`,
-      )
-      .join(', ');
-    const lines = [...verdicts]
-      .sort((a, b) => order[a.status] - order[b.status])
-      .map(
-        (v) =>
-          `${v.program}: ${v.status === 'likely' ? `likely qualifies${v.note ? ` · ${v.note}` : ''}` : `after one step: ${v.note}`}`,
-      );
-    return [`**${repo.name}** (${nets})`, ...lines].join('\n');
-  });
-
-  const summary = `Checked ${checked} public repos${who}. ${earning.length} could earn:`;
-  if (!standalone) {
-    // Embedded in the one answer: keep it short.
-    const more =
-      blocks.length > 5
-        ? [`…and ${blocks.length - 5} more repos. Ask to see them all.`]
-        : [];
-    return [summary, ...blocks.slice(0, 5), ...more].join('\n\n');
-  }
-  return [
-    summary,
-    ...blocks,
-    "Want me to prepare the ones that qualify? I'll ask each personal detail once. (Private repos aren't included.)",
-  ].join('\n\n');
 }

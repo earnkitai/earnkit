@@ -6,21 +6,25 @@ import {
   presentSinceLastCheck,
   type Card,
 } from './present';
+import type { Verdict } from './match';
 
 const cards: Card[] = [
   {
+    id: 'big',
     title: 'Big Hack',
     summary: '$100K · closes Oct 12',
     tag: 'long shot',
     each_time: ['a pitch video'],
   },
   {
+    id: 'grant',
     title: 'Grant',
     summary: 'up to $5K · rolling',
     tag: 'needs a live product',
     each_time: [],
   },
   {
+    id: 'micro',
     title: 'Micro',
     summary: '500 USDC × 20 · closes Oct 14',
     tag: null,
@@ -28,37 +32,63 @@ const cards: Card[] = [
   },
 ];
 
-test('coding agent: approve-only programs first, one-time setup never listed per program', () => {
+test('no repos: one line per program, approve-only first, who-does-what said once', () => {
   const text = presentPrograms(cards, true);
-  assert.ok(
-    text.startsWith(
-      '**Micro**: 500 USDC × 20 · closes Oct 14\nMe: build, deploy, submit · You: approve\n',
-    ),
-  );
-  assert.match(
+  assert.equal(
     text,
-    /\*\*Big Hack\*\*: \$100K · closes Oct 12 · long shot\nMe: build, deploy, submit · You: approve, plus a pitch video/,
+    [
+      '- **Micro** · 500 USDC × 20 · closes Oct 14\n' +
+        '- **Grant** · up to $5K · rolling · needs a live product\n' +
+        '- **Big Hack** · $100K · closes Oct 12 · long shot',
+      "Pick one and I'll build, deploy, and submit it. You approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
+    ].join('\n\n'),
   );
-  assert.ok(!text.includes('DoraHacks'));
-  assert.match(
-    text,
-    /\*\*Grant\*\*.*\nMe: fill in and submit the application · You: approve/,
-  );
-  assert.match(text, /one quick setup/);
+  assert.ok(!text.includes('Me:'));
 });
 
 test('chat-only agent is honest about who builds', () => {
   const text = presentPrograms(cards, false);
-  assert.match(
-    text,
-    /Me: the plan and every answer · You: build, deploy, submit/,
-  );
-  assert.ok(!text.includes('Me: build, deploy, submit'));
+  assert.match(text, /can't build or deploy from here/);
   assert.match(text, /coding agent/);
-  assert.match(
-    text,
-    /\*\*Grant\*\*.*\nMe: every answer · You: paste and submit/,
+});
+
+const v = (program_id: string, status: Verdict['status'], note: string): Verdict => ({
+  program_id,
+  program: program_id,
+  status,
+  note,
+});
+
+test('repo fits: listed under the repo with what it needs, never repeated under Also open', () => {
+  const text = presentPrograms(cards, true, {
+    checked: 1,
+    fits: [
+      {
+        repo: 'tipjar',
+        verdicts: [
+          v('grant', 'after_step', 'needs a live product with real users'),
+          v('micro', 'likely', 'looks eligible'),
+        ],
+      },
+    ],
+  });
+  assert.ok(
+    text.startsWith(
+      '**Your tipjar fits 2 programs**\n' +
+        '- **Micro** · 500 USDC × 20 · closes Oct 14 · looks eligible\n' +
+        '- **Grant** · up to $5K · rolling · needs a live product with real users\n\n' +
+        '**Also open**\n- **Big Hack** · $100K · closes Oct 12 · long shot\n\n',
+    ),
   );
+  assert.equal(text.match(/\*\*Grant\*\*/g)!.length, 1);
+});
+
+test('no repo fits, or GitHub failed: say so in one line, then the programs', () => {
+  const none = presentPrograms(cards, true, { checked: 3, fits: [] });
+  assert.match(none, /^None of your 3 public repos fits an open program yet\.\n\n- \*\*Micro\*\*/);
+  assert.ok(!none.includes('Also open'));
+  const err = presentPrograms(cards, true, { error: 'no such user' });
+  assert.match(err, /^Couldn't read your repos: no such user\n\n- /);
 });
 
 test('empty list', () => {
@@ -81,15 +111,16 @@ test('closing soon: within 3 days only, never negative', () => {
 
 test('since-last-check line and per-program flags', () => {
   const list: Card[] = [
-    { title: 'Fresh', summary: 's', tag: null, each_time: [], is_new: true },
+    { id: 'f', title: 'Fresh', summary: 's', tag: null, each_time: [], is_new: true },
     {
+      id: 'u',
       title: 'Urgent',
       summary: 's',
       tag: 'long shot',
       each_time: [],
       closes_in_days: 1,
     },
-    { title: 'Quiet', summary: 's', tag: null, each_time: [] },
+    { id: 'q', title: 'Quiet', summary: 's', tag: null, each_time: [] },
   ];
   assert.equal(
     presentSinceLastCheck(list),
@@ -98,6 +129,6 @@ test('since-last-check line and per-program flags', () => {
   assert.equal(presentSinceLastCheck([list[2]]), null);
   assert.match(presentSinceLastCheck(list, true)!, /^Heads up: /);
   const text = presentPrograms(list, true);
-  assert.match(text, /\*\*Fresh\*\*: s · new\n/);
-  assert.match(text, /\*\*Urgent\*\*: s · closes in 1 day · long shot\n/);
+  assert.match(text, /- \*\*Fresh\*\* · s · new\n/);
+  assert.match(text, /- \*\*Urgent\*\* · s · closes in 1 day · long shot/);
 });

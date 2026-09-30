@@ -20,8 +20,9 @@ apps/frontend/
     installations.ts           save / touch installation by token hash
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts                     MCP server: the 5 tools, their descriptions and schemas
-    present.ts(+test)          builder-facing text for list_programs (Me / You, new, closing soon)
-    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts, text
+    present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
+                               one line per program, who-does-what said once
+    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs: public GitHub reads (GITHUB_TOKEN)
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation)
