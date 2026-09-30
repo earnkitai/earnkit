@@ -174,10 +174,32 @@ export type ProgramFacts = {
   starts_at: Date | null;
 };
 
+/** What still stands between a repo and a program, as keys agents can act on. */
+export type Missing = 'live_url' | 'mainnet_deploy' | 'new_work' | 'real_users';
+export type Effort = 'none' | 'minutes' | 'hours' | 'days' | 'weeks';
+
+/** Rough time for each missing piece, for the agent's own plan (and "fastest" in the answer). */
+const EFFORT: Record<Missing, Effort> = {
+  live_url: 'minutes',
+  mainnet_deploy: 'hours', // needs gas funded by the builder
+  new_work: 'days',
+  real_users: 'weeks',
+};
+export const EFFORT_ORDER: Effort[] = [
+  'none',
+  'minutes',
+  'hours',
+  'days',
+  'weeks',
+];
+
 export type Verdict = {
   program_id: string;
   program: string;
   status: 'likely' | 'after_step' | 'no';
+  missing: Missing[];
+  /** The slowest missing piece. */
+  effort: Effort;
   /** Shown to the builder as is: what still has to happen, or what to confirm, in a few words. */
   note: string | null;
 };
@@ -199,30 +221,59 @@ export function matchRepo(
     if (!chain) continue;
     const signal = repo.chains[chain]!;
     const name = CHAIN_NAMES[chain];
-    const v = (status: Verdict['status'], note: string | null) =>
-      verdicts.push({ program_id: p.id, program: p.title, status, note });
+    const v = (
+      status: Verdict['status'],
+      note: string | null,
+      missing: Missing[] = [],
+    ) =>
+      verdicts.push({
+        program_id: p.id,
+        program: p.title,
+        status,
+        missing,
+        effort: missing.reduce<Effort>(
+          (max, m) =>
+            EFFORT_ORDER.indexOf(EFFORT[m]) > EFFORT_ORDER.indexOf(max)
+              ? EFFORT[m]
+              : max,
+          'none',
+        ),
+        note,
+      });
 
     if (p.existing_work === 'new_work_only') {
       // Existing code doesn't count here; an active repo can only enter with new work.
       const since = p.starts_at ? ` since ${day(p.starts_at)}` : '';
       if (p.starts_at && !repo.commits_in_window[p.id])
-        v('no', `no commits${since}; only new work counts`);
-      else v('after_step', `only new work${since} counts`);
+        v('no', `no commits${since}; only new work counts`, ['new_work']);
+      else v('after_step', `only new work${since} counts`, ['new_work']);
       continue;
     }
 
     if (p.tag === 'needs a live product') {
-      if (!repo.homepage) v('after_step', 'needs a live product with real users');
+      if (!repo.homepage)
+        v('after_step', 'needs a live product with real users', [
+          'live_url',
+          'real_users',
+        ]);
       else v('likely', 'looks eligible if it has real users');
       continue;
     }
 
     // Existing work allowed and the project must be live on the chain.
-    const steps = [
-      !signal.mainnet && `a deploy on ${name} mainnet`,
-      !repo.homepage && 'a live link',
-    ].filter(Boolean) as string[];
-    if (steps.length > 0) v('after_step', `needs ${steps.join(' and ')}`);
+    const missing: Missing[] = [];
+    if (!signal.mainnet) missing.push('mainnet_deploy');
+    if (!repo.homepage) missing.push('live_url');
+    const words = {
+      mainnet_deploy: `a deploy on ${name} mainnet`,
+      live_url: 'a live link',
+    };
+    if (missing.length > 0)
+      v(
+        'after_step',
+        `needs ${missing.map((m) => words[m as keyof typeof words]).join(' and ')}`,
+        missing,
+      );
     else
       v(
         'likely',

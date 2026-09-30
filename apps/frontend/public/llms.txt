@@ -21,9 +21,11 @@ which EarnKit approves instantly.
 - list_programs: "what can I earn?" in one answer. Give the builder's GitHub
   username: their public repos that can claim rewards come first, then open
   programs. Opens with what changed since the last check (new programs,
-  deadlines within 3 days, prizes won) and the builder's campaign entries
+  deadlines within 3 days, prizes won) and the builder's campaign entries.
+  EarnKit remembers the builder's GitHub and what they're working on
 - get_program: full details, rules, submission requirements, links, and tested
-  build help for the program's chains
+  build help for the program's chains (with a one-line start command). Pass a
+  repo to check whether it is eligible and what it is missing
 - prepare_submission: compares what the agent knows with what the program
   requires; returns what is complete, what is missing, and where to submit
 - record_submission: records the project after it was submitted on the

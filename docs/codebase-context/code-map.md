@@ -14,16 +14,18 @@ apps/frontend/
   lib/earnkit/
     db.ts                      postgres.js pool (DATABASE_URL)
     program-file.ts            zod format of programs/*.json (+ starter limits)
-    programs.ts                list/get/upsert programs; get_program adds build_help (kits/starter by chain)
+    programs.ts(+test)         list/get/upsert programs; build_help (kits/starter + one start command),
+                               trust() (verified_at: skip re-reading sources within 7 days)
     submission.ts(+.test.ts)   prepareSubmission (pure)
     projects.ts                recordSubmission
-    installations.ts           save / touch installation by token hash
+    installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts                     MCP server: the 5 tools, their descriptions and schemas
     present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
                                one line per program, who-does-what said once
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
-    match-projects.ts          repo matching for list_programs: public GitHub reads (GITHUB_TOKEN)
+    match-projects.ts          repo matching for list_programs + get_program's eligibility check
+                               (public GitHub reads, GITHUB_TOKEN)
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation)
     tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)

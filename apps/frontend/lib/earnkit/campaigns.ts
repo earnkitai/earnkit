@@ -166,7 +166,10 @@ export async function walletsUsing(contract: string, from: Date, to: Date) {
 }
 
 /** Base RPC. BASE_RPC_URL overrides the public endpoint (e.g. a local fork for tests). */
-const baseRpc = createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) });
+const baseRpc = createPublicClient({
+  chain: base,
+  transport: http(process.env.BASE_RPC_URL),
+});
 
 /** The Base block at (or just before) `at`. Base makes exactly one block every 2 seconds. */
 export async function baseBlockAt(at: Date) {

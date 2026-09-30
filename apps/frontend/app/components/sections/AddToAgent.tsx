@@ -6,6 +6,8 @@ const MCP_URL = 'https://earnkit.com/mcp';
 
 type Agent = {
   name: string;
+  /** One-click install deep link, when the agent supports one. */
+  install?: string;
   steps: string[];
   code?: string;
 };
@@ -32,12 +34,20 @@ const AGENTS: Agent[] = [
   },
   {
     name: 'Cursor',
-    steps: ['Open Settings, then MCP, and add this to your config:'],
+    install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${btoa(JSON.stringify({ url: MCP_URL }))}`,
+    steps: ['Or open Settings, then MCP, and add this to your config:'],
     code: JSON.stringify(
       { mcpServers: { earnkit: { url: MCP_URL } } },
       null,
       2,
     ),
+  },
+  {
+    name: 'VS Code',
+    install: `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name: 'earnkit', type: 'http', url: MCP_URL }))}`,
+    steps: [
+      'Or run MCP: Add Server from the Command Palette and paste the EarnKit link.',
+    ],
   },
   {
     name: 'Other agents',
@@ -163,6 +173,14 @@ export default function AddToAgent({ onClose }: { onClose: () => void }) {
           role="tabpanel"
           className="mt-5 font-funnel-sans text-base text-ek-blue-light"
         >
+          {agent.install && (
+            <a
+              href={agent.install}
+              className="mb-4 inline-flex rounded-full bg-ek-blue-bright px-5 py-2.5 font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+            >
+              Add to {agent.name}
+            </a>
+          )}
           <ol className="list-decimal space-y-1.5 pl-5 font-light">
             {agent.steps.map((step) => (
               <li key={step}>{step}</li>

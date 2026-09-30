@@ -40,7 +40,7 @@ test('no repos: one line per program, approve-only first, who-does-what said onc
       '- **Micro** · 500 USDC × 20 · closes Oct 14\n' +
         '- **Grant** · up to $5K · rolling · needs a live product\n' +
         '- **Big Hack** · $100K · closes Oct 12 · long shot',
-      "Pick one and I'll build, deploy, and submit it. You approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
+      "Pick one and I'll start. I build, deploy, and submit; you approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
     ].join('\n\n'),
   );
   assert.ok(!text.includes('Me:'));
@@ -52,40 +52,75 @@ test('chat-only agent is honest about who builds', () => {
   assert.match(text, /coding agent/);
 });
 
-const v = (program_id: string, status: Verdict['status'], note: string): Verdict => ({
+const v = (
+  program_id: string,
+  status: Verdict['status'],
+  note: string,
+  effort: Verdict['effort'] = 'none',
+): Verdict => ({
   program_id,
-  program: program_id,
+  program: program_id === 'micro' ? 'Micro' : program_id,
   status,
+  missing: [],
+  effort,
   note,
 });
 
-test('repo fits: listed under the repo with what it needs, never repeated under Also open', () => {
-  const text = presentPrograms(cards, true, {
-    checked: 1,
-    fits: [
-      {
-        repo: 'tipjar',
-        verdicts: [
-          v('grant', 'after_step', 'needs a live product with real users'),
-          v('micro', 'likely', 'looks eligible'),
-        ],
-      },
-    ],
-  });
-  assert.ok(
-    text.startsWith(
-      '**Your tipjar fits 2 programs**\n' +
-        '- **Micro** · 500 USDC × 20 · closes Oct 14 · looks eligible\n' +
-        '- **Grant** · up to $5K · rolling · needs a live product with real users\n\n' +
-        '**Also open**\n- **Big Hack** · $100K · closes Oct 12 · long shot\n\n',
-    ),
+const tipjar = {
+  checked: 1,
+  fits: [
+    {
+      repo: 'tipjar',
+      repo_url: 'https://github.com/dev/tipjar',
+      verdicts: [
+        v(
+          'grant',
+          'after_step',
+          'needs a live product with real users',
+          'weeks',
+        ),
+        v('micro', 'after_step', 'needs a live link', 'minutes'),
+      ],
+    },
+  ],
+};
+
+test('repo fits: money headline with the fastest, repo linked, one offer, nothing repeated', () => {
+  const text = presentPrograms(cards, true, tipjar);
+  assert.equal(
+    text,
+    [
+      'Your repos can enter 2 programs. Fastest: **Micro** with tipjar (needs a live link).',
+      '**[tipjar](https://github.com/dev/tipjar)**\n' +
+        '- **Micro** · 500 USDC × 20 · closes Oct 14 · needs a live link\n' +
+        '- **Grant** · up to $5K · rolling · needs a live product with real users',
+      '**Also open**\n- **Big Hack** · $100K · closes Oct 12 · long shot',
+      "Want me to start on Micro? I build, deploy, and submit; you approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
+    ].join('\n\n'),
+  );
+});
+
+test('working on: shown first with its note, not repeated, and the offer is to keep going', () => {
+  const text = presentPrograms(cards, true, tipjar, ['grant']);
+  assert.match(
+    text,
+    /\n\n\*\*You're working on\*\*\n- \*\*Grant\*\* · up to \$5K · rolling · needs a live product with real users\n\n/,
   );
   assert.equal(text.match(/\*\*Grant\*\*/g)!.length, 1);
+  assert.match(text, /Want me to keep going on Grant\?/);
+  const onFastest = presentPrograms(cards, true, tipjar, ['micro']);
+  assert.match(
+    onFastest,
+    /^Your repos can enter 2 programs\.\n\n\*\*You're working on\*\*/,
+  );
 });
 
 test('no repo fits, or GitHub failed: say so in one line, then the programs', () => {
   const none = presentPrograms(cards, true, { checked: 3, fits: [] });
-  assert.match(none, /^None of your 3 public repos fits an open program yet\.\n\n- \*\*Micro\*\*/);
+  assert.match(
+    none,
+    /^None of your 3 public repos fits an open program yet\.\n\n- \*\*Micro\*\*/,
+  );
   assert.ok(!none.includes('Also open'));
   const err = presentPrograms(cards, true, { error: 'no such user' });
   assert.match(err, /^Couldn't read your repos: no such user\n\n- /);
@@ -111,7 +146,14 @@ test('closing soon: within 3 days only, never negative', () => {
 
 test('since-last-check line and per-program flags', () => {
   const list: Card[] = [
-    { id: 'f', title: 'Fresh', summary: 's', tag: null, each_time: [], is_new: true },
+    {
+      id: 'f',
+      title: 'Fresh',
+      summary: 's',
+      tag: null,
+      each_time: [],
+      is_new: true,
+    },
     {
       id: 'u',
       title: 'Urgent',
@@ -131,4 +173,21 @@ test('since-last-check line and per-program flags', () => {
   const text = presentPrograms(list, true);
   assert.match(text, /- \*\*Fresh\*\* · s · new\n/);
   assert.match(text, /- \*\*Urgent\*\* · s · closes in 1 day · long shot/);
+});
+
+test('repos that only fit programs already shown are named in one line, not hidden', () => {
+  const twin = (repo: string) => ({
+    repo,
+    repo_url: `https://github.com/dev/${repo}`,
+    verdicts: [v('micro', 'after_step', 'needs a live link', 'minutes')],
+  });
+  const text = presentPrograms(cards, true, {
+    checked: 5,
+    fits: [twin('a'), twin('b'), twin('c'), twin('d'), twin('e')],
+  });
+  assert.equal(text.match(/\*\*Micro\*\*/g)!.length, 2); // headline + one line
+  assert.match(
+    text,
+    /More of your repos fit too: b, c, d, \+1 more\. Name one/,
+  );
 });

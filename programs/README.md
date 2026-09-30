@@ -29,6 +29,8 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
    - `starts_at`: for new-work-only programs, the start of the build window (matching
      checks commit dates against it). Otherwise `null` unless stated.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
+   - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and
+     skip re-reading the source, so update it whenever you re-check a program against its source.
    - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use.
    - `setup`: one-time steps only the builder can do, a few words each
      (e.g. `"log in to DoraHacks"`, `"send about $1 of USDC on Arc to a deploy wallet"`).
@@ -64,6 +66,7 @@ track, and each names its `track` slug. Without tracks: at most 2.
   "summary": "$50K across tracks · closes Nov 15, 11:59 PM UTC",
   "starts_at": null,
   "ends_at": "2026-11-15T23:59:00Z",
+  "verified_at": "2026-09-30",
   "status": "active",
   "existing_work": "allowed",
   "chains": ["base"],

@@ -10,6 +10,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
+  "verified_at": "2026-09-28",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [

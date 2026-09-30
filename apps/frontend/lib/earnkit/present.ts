@@ -1,4 +1,4 @@
-import type { Verdict } from './match';
+import { EFFORT_ORDER, type Verdict } from './match';
 
 /**
  * The builder-facing text for list_programs. Built on the server because many MCP clients
@@ -47,7 +47,10 @@ export function presentSinceLastCheck(
 
 /** The builder's repos checked against open programs (only verdicts that can earn), or why not. */
 export type YourRepos =
-  | { checked: number; fits: { repo: string; verdicts: Verdict[] }[] }
+  | {
+      checked: number;
+      fits: { repo: string; repo_url: string; verdicts: Verdict[] }[];
+    }
   | { error: string };
 
 /** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
@@ -69,43 +72,97 @@ function line(c: Card, note?: string | null) {
 
 const MAX_REPOS = 5;
 
+/** likely before after_step, then the least effort. */
+const quickness = (v: Verdict) =>
+  (v.status === 'likely' ? 0 : 10) + EFFORT_ORDER.indexOf(v.effort);
+
 /**
- * The one answer: each of the builder's repos with the programs it fits, then every other open
- * program, then who does what, said once.
+ * The one answer. Opens with the money (how many programs their repos can enter and the fastest
+ * one), then what they're already working on, each repo with the programs it fits, every other
+ * open program, and a single offer for the next step.
  */
 export function presentPrograms(
   cards: Card[],
   agentCanBuild: boolean,
   repos?: YourRepos | null,
+  /** Program ids this installation is preparing a submission for. */
+  workingOn: string[] = [],
 ) {
+  if (cards.length === 0) return 'No open programs right now. Check back soon.';
   const byId = new Map(cards.map((c) => [c.id, c]));
-  const shown = new Set<string>();
-  const sections: string[] = [];
+  const fits = repos && 'fits' in repos ? repos.fits : [];
+  const noteFor = (id: string) =>
+    fits
+      .flatMap((f) => f.verdicts)
+      .filter((v) => v.program_id === id)
+      .sort((a, b) => quickness(a) - quickness(b))[0]?.note;
 
-  if (repos && 'error' in repos) {
+  const sections: string[] = [];
+  const shown = new Set<string>();
+
+  // Headline: the money first.
+  const fitIds = new Set(
+    fits
+      .flatMap((f) => f.verdicts.map((v) => v.program_id))
+      .filter((id) => byId.has(id)),
+  );
+  const fastest = fits
+    .flatMap((f) => f.verdicts.map((v) => ({ repo: f.repo, v })))
+    .filter(({ v }) => byId.has(v.program_id))
+    .sort((a, b) => quickness(a.v) - quickness(b.v))[0];
+  if (repos && 'error' in repos)
     sections.push(`Couldn't read your repos: ${repos.error}`);
-  } else if (repos && repos.fits.length === 0) {
+  else if (repos && fitIds.size === 0)
     sections.push(
       `None of your ${repos.checked} public repos fits an open program yet.`,
     );
-  } else if (repos) {
-    for (const fit of repos.fits.slice(0, MAX_REPOS)) {
-      const lines = [...fit.verdicts]
-        .sort((a, b) => (a.status === 'likely' ? 0 : 1) - (b.status === 'likely' ? 0 : 1))
-        .flatMap((v) => {
-          const card = byId.get(v.program_id);
-          if (!card) return [];
-          shown.add(card.id);
-          return [line(card, v.note)];
-        });
-      if (lines.length === 0) continue;
-      const n = `${lines.length} program${lines.length === 1 ? '' : 's'}`;
-      sections.push(`**Your ${fit.repo} fits ${n}**\n${lines.join('\n')}`);
+  else if (fastest)
+    sections.push(
+      `Your repos can enter ${fitIds.size} program${fitIds.size === 1 ? '' : 's'}.` +
+        // Skip "fastest" when they're already on it; "You're working on" says it.
+        (workingOn.includes(fastest.v.program_id)
+          ? ''
+          : ` Fastest: **${fastest.v.program}** with ${fastest.repo} (${fastest.v.note}).`),
+    );
+
+  const working = workingOn
+    .map((id) => byId.get(id))
+    .filter((c) => c !== undefined);
+  if (working.length > 0) {
+    working.forEach((c) => shown.add(c.id));
+    sections.push(
+      `**You're working on**\n${working.map((c) => line(c, noteFor(c.id))).join('\n')}`,
+    );
+  }
+
+  // Each program once, under its first repo; repos that add nothing new are just named.
+  const others: string[] = [];
+  let repoSections = 0;
+  for (const fit of fits) {
+    const lines =
+      repoSections < MAX_REPOS
+        ? [...fit.verdicts]
+            .sort((a, b) => quickness(a) - quickness(b))
+            .flatMap((v) => {
+              const card = byId.get(v.program_id);
+              if (!card || shown.has(card.id)) return [];
+              shown.add(card.id);
+              return [line(card, v.note)];
+            })
+        : [];
+    if (lines.length === 0) {
+      others.push(fit.repo);
+      continue;
     }
-    if (repos.fits.length > MAX_REPOS)
-      sections.push(
-        `…and ${repos.fits.length - MAX_REPOS} more repos. Name any repo and I'll check it.`,
-      );
+    repoSections++;
+    sections.push(`**[${fit.repo}](${fit.repo_url})**\n${lines.join('\n')}`);
+  }
+  if (others.length > 0) {
+    const named = others.slice(0, 3).join(', ');
+    const more = others.length > 3 ? `, +${others.length - 3} more` : '';
+    sections.push(
+      `More of your repos fit too: ${named}${more}. Name one and I'll check it.`,
+    );
   }
 
   const rest = cards
@@ -115,13 +172,17 @@ export function presentPrograms(
     sections.push(
       `${shown.size > 0 ? '**Also open**\n' : ''}${rest.map((c) => line(c)).join('\n')}`,
     );
-  if (cards.length === 0)
-    sections.push('No open programs right now. Check back soon.');
-  else
-    sections.push(
-      agentCanBuild
-        ? "Pick one and I'll build, deploy, and submit it. You approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video."
-        : "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).",
-    );
+
+  // One offer, not five equal options.
+  const next = working[0]
+    ? `Want me to keep going on ${working[0].title}?`
+    : fastest
+      ? `Want me to start on ${fastest.v.program}?`
+      : "Pick one and I'll start.";
+  sections.push(
+    agentCanBuild
+      ? `${next} I build, deploy, and submit; you approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.`
+      : "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).",
+  );
   return sections.join('\n\n');
 }

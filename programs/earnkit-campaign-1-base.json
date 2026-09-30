@@ -9,6 +9,7 @@
   "summary": "75M MINI × 5 winners · closes Oct 14, 11:59 PM UTC",
   "starts_at": "2026-09-30T00:00:00Z",
   "ends_at": "2026-10-14T23:59:00Z",
+  "verified_at": "2026-09-30",
   "status": "closed",
   "existing_work": "new_work_only",
   "chains": ["base"],

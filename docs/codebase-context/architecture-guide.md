@@ -11,6 +11,11 @@
   3 days), and asks the agent to offer a recurring check with its own scheduler.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
+- **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos given and
+  `working_on` (programs passed to prepare_submission, cleared by record_submission), so
+  list_programs needs no arguments later and leads with "You're working on".
+- **verified_at**: the day a program's facts were last checked against its source. Within 7 days
+  agents are told not to re-read the source.
 - **Track**: a category inside a program with its own requirements.
 - **Starter**: an optional idea to start quickly. Max 1 per track, or 2 when there are no tracks.
   Which starter a builder used is never tracked.
@@ -46,6 +51,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 ## Separation of concerns
 
 - Business logic lives only in `apps/frontend/lib/earnkit/`. Routes, scripts, and the page call it.
+- Matching returns keys as well as words: each verdict has `missing` (live_url, mainnet_deploy,
+  new_work, real_users) and `effort` (none to weeks); list_programs returns them as `matches`, and
+  get_program(repo) as `eligibility`. The text leads with the count and the fastest win, then one
+  offer.
 - Repo matching (list_programs with github_user) reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".

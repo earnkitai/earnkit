@@ -1,11 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectChains, pickFiles } from './match';
-import {
-  matchRepo,
-  type ProgramFacts,
-  type RepoFacts,
-} from './match';
+import { matchRepo, type ProgramFacts, type RepoFacts } from './match';
 
 test('detects chains from ids, rpc hosts, and viem imports; ignores stray numbers', () => {
   const d = detectChains([
@@ -91,6 +87,8 @@ test('arc testnet repo without a live link: one step away, names both steps', ()
       program_id: 'arc-micro',
       program: 'Arc Microgrants',
       status: 'after_step',
+      missing: ['mainnet_deploy', 'live_url'],
+      effort: 'hours',
       note: 'needs a deploy on Arc mainnet and a live link',
     },
   );

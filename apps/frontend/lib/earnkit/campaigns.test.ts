@@ -51,10 +51,7 @@ test('rejects bad entries with a clear reason', async () => {
   await bad({ contracts: 'nope', payout_wallet: W });
   await bad({ contracts: A, payout_wallet: 'nope' });
   await bad({ contracts: A, payout_wallet: W }, async () => 'not_contract'); // not a contract
-  await bad(
-    { contracts: A, payout_wallet: W },
-    async () => 'before_start',
-  ); // deployed before start
+  await bad({ contracts: A, payout_wallet: W }, async () => 'before_start'); // deployed before start
   await bad({
     contracts: Array.from(
       { length: 6 },

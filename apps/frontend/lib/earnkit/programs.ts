@@ -9,26 +9,41 @@ const KITS = 'https://github.com/earnkitai/chain-kits/tree/main';
 const AGENT_SERVICE_STARTER = {
   use: 'Starting point for a service other agents pay per call in USDC (x402) on Arc or Base',
   url: 'https://github.com/earnkitai/starter-agent-service',
+  start: 'npx degit earnkitai/starter-agent-service my-service',
 };
 
 /** Tested, EarnKit-maintained help for the chains a program uses. Read before building. */
 function buildHelp(chains: Chain[]) {
-  const help: { use: string; url: string }[] = [];
+  const help: { use: string; url: string; start: string }[] = [];
   if (chains.includes('arc')) {
     help.push({
       use: 'Deploy + verify on Arc; USDC gas, 18 vs 6 decimals, 20 gwei floor',
       url: `${KITS}/arc`,
+      start: 'npx degit earnkitai/chain-kits/arc/example arc-kit',
     });
   }
   if (chains.includes('base')) {
     help.push({
       use: 'Base Builder Codes (needed for Base grants): get one, attach it, check it',
       url: `${KITS}/base`,
+      start: 'npx degit earnkitai/chain-kits/base/example base-kit',
     });
   }
   if (chains.includes('arc') || chains.includes('base'))
     help.push(AGENT_SERVICE_STARTER);
   return help;
+}
+
+/** When the facts were last checked against the source, and whether the agent can skip re-checking. */
+export function trust(verifiedAt: Date | null, now = new Date()) {
+  if (!verifiedAt) return { verified_at: null };
+  const days = Math.floor((now.getTime() - verifiedAt.getTime()) / 86_400_000);
+  return {
+    verified_at: verifiedAt.toISOString().slice(0, 10),
+    ...(days <= 7 && {
+      verified_note: `EarnKit checked these facts against source_url ${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`}; no need to re-read it.`,
+    }),
+  };
 }
 
 /** ISO timestamp, or "rolling" for programs without a deadline. */
@@ -48,6 +63,7 @@ type ProgramRow = {
   starts_at: Date | null;
   ends_at: Date | null;
   status: 'active' | 'closed';
+  verified_at: Date | null;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   setup: string[];
   each_time: string[];
@@ -77,9 +93,10 @@ export async function listPrograms() {
       | 'summary'
       | 'tag'
       | 'created_at'
+      | 'verified_at'
     >[]
   >`
-    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at
+    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at, verified_at
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -101,6 +118,7 @@ export async function listPrograms() {
     tag: p.tag,
     ends_at: p.ends_at,
     created_at: p.created_at,
+    verified_at: p.verified_at,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -170,6 +188,7 @@ export async function getProgram(programId: string) {
     })),
     submission_requirements: program.submission_requirements,
     source_url: program.source_url,
+    ...trust(program.verified_at),
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
     ...(program.campaign && {
@@ -218,6 +237,7 @@ export async function upsertProgram(p: ProgramFile) {
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,
+      verified_at: p.verified_at,
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),
     };

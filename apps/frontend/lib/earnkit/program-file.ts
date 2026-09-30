@@ -63,6 +63,8 @@ export const ProgramFile = z
     /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
     ends_at: z.string().datetime({ offset: true }).nullable(),
     status: z.enum(['active', 'closed']),
+    /** The day these facts were last checked against source_url (YYYY-MM-DD). */
+    verified_at: z.string().date(),
     /**
      * Can a builder submit something they already built?
      * "allowed": yes. "new_work_only": only work done during the program counts.

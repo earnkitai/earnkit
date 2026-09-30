@@ -3,10 +3,11 @@ import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
 import { presentYourEntries, type YourEntry } from './campaigns';
 import { sql } from './db';
-import { checkPrograms } from './installations';
+import { checkPrograms, setWorkingOn } from './installations';
 import {
   GitHubError,
   MatchProjectsInput,
+  checkEligibility,
   matchProjects,
 } from './match-projects';
 import {
@@ -22,6 +23,11 @@ import { LaunchTokenInput, launchToken } from './tokens';
 export type ToolContext = { installationId: number };
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
+
+const GetProgramInput = ProgramId.extend({
+  /** "owner/repo" or a github.com link: adds an eligibility check for that repo. */
+  repo: z.string().optional(),
+}).strict();
 
 const PrepareSubmissionInput = ProgramId.extend({
   project: ProjectInfo.optional(),
@@ -49,10 +55,20 @@ export const tools = {
     const { agent_can_build, github_user, repos } = ListProgramsInput.parse(
       input ?? {},
     );
-    const [lastCheck, programs] = await Promise.all([
-      checkPrograms(ctx.installationId),
+    const [memory, programs] = await Promise.all([
+      checkPrograms(ctx.installationId, { github_user, repos }),
       listPrograms(),
     ]);
+    const { lastCheck } = memory;
+    // Remembered from an earlier call when not given now.
+    const user =
+      github_user ??
+      (repos?.length ? undefined : (memory.github_user ?? undefined));
+    const repoList = repos?.length
+      ? repos
+      : github_user
+        ? undefined
+        : (memory.repos ?? undefined);
     const cards = programs.map((p) => ({
       ...p,
       is_new: lastCheck !== null && p.created_at > lastCheck,
@@ -60,10 +76,10 @@ export const tools = {
     }));
 
     let yourRepos: YourRepos | null = null;
-    if (github_user || repos?.length) {
+    if (user || repoList?.length) {
       try {
         yourRepos = await matchProjects(
-          MatchProjectsInput.parse({ github_user, repos }),
+          MatchProjectsInput.parse({ github_user: user, repos: repoList }),
         );
       } catch (err) {
         if (err instanceof GitHubError) yourRepos = { error: err.message };
@@ -92,28 +108,66 @@ export const tools = {
     const sections = [
       since,
       entries.section,
-      presentPrograms(cards, agent_can_build, yourRepos),
+      presentPrograms(cards, agent_can_build, yourRepos, memory.working_on),
     ].filter(Boolean);
 
     return {
       show_to_builder: sections.join('\n\n'),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
-        (github_user || repos?.length
-          ? ''
+        (user || repoList?.length
+          ? 'EarnKit remembers their GitHub for next time. '
           : "Pass the builder's GitHub username if you know it; their projects show first. ") +
+        'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them. ' +
         ALERTS_OFFER,
-      programs,
+      // For planning: what each repo still needs, per program. Details: get_program.
+      matches:
+        yourRepos && 'fits' in yourRepos
+          ? yourRepos.fits.flatMap((f) =>
+              f.verdicts.map((v) => ({
+                repo: f.repo,
+                repo_url: f.repo_url,
+                program_id: v.program_id,
+                status: v.status,
+                missing: v.missing,
+                effort: v.effort,
+              })),
+            )
+          : [],
+      working_on: memory.working_on,
+      programs: programs.map((p) => ({
+        id: p.id,
+        title: p.title,
+        summary: p.summary,
+        deadline: p.deadline,
+        tag: p.tag,
+        verified_at: p.verified_at?.toISOString().slice(0, 10) ?? null,
+      })),
     };
   },
 
-  get_program: async (input: unknown) =>
-    getProgram(ProgramId.parse(input).program_id),
+  get_program: async (input: unknown) => {
+    const { program_id, repo } = GetProgramInput.parse(input);
+    const program = await getProgram(program_id);
+    if (!repo) return program;
+    // Eligibility dry run for one repo: pass/fail plus what's missing.
+    try {
+      return {
+        ...program,
+        eligibility: await checkEligibility(repo, program_id),
+      };
+    } catch (err) {
+      if (!(err instanceof GitHubError)) throw err;
+      return { ...program, eligibility: { error: err.message } };
+    }
+  },
 
-  prepare_submission: async (input: unknown) => {
+  prepare_submission: async (input: unknown, ctx: ToolContext) => {
     const { program_id, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     const open = isOpen(program);
+    // Remember it, so list_programs leads with "You're working on".
+    if (open) await setWorkingOn(ctx.installationId, program_id, true);
     return {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
@@ -127,8 +181,12 @@ export const tools = {
     };
   },
 
-  record_submission: async (input: unknown, ctx: ToolContext) =>
-    recordSubmission(RecordSubmissionInput.parse(input), ctx.installationId),
+  record_submission: async (input: unknown, ctx: ToolContext) => {
+    const parsed = RecordSubmissionInput.parse(input);
+    const result = await recordSubmission(parsed, ctx.installationId);
+    await setWorkingOn(ctx.installationId, parsed.program_id, false);
+    return result;
+  },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
     launchToken(LaunchTokenInput.parse(input), ctx.installationId),

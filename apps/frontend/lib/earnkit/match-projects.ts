@@ -4,6 +4,7 @@ import {
   matchRepo,
   pickFiles,
   type Detection,
+  type ProgramFacts,
   type RepoFacts,
 } from './match';
 import { openProgramFacts } from './programs';
@@ -152,42 +153,43 @@ function fullName(ref: string) {
   return m[1];
 }
 
+/** One repo's facts and its verdicts against the given programs. */
+async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
+  const chains = await repoChains(repo);
+  const commits_in_window: Record<string, boolean> = {};
+  for (const p of programs) {
+    if (
+      p.existing_work === 'new_work_only' &&
+      p.starts_at &&
+      p.chains.some((c) => chains[c])
+    ) {
+      commits_in_window[p.id] = await hasCommitsSince(repo, p.starts_at);
+    }
+  }
+  const facts: RepoFacts = {
+    name: repo.name,
+    url: repo.html_url,
+    homepage: repo.homepage || null,
+    created_at: repo.created_at,
+    chains,
+    commits_in_window,
+  };
+  return { repo: facts, verdicts: matchRepo(facts, programs) };
+}
+
 /** Checks a builder's public repos against open programs; list_programs turns this into text. */
-export async function matchProjects(
-  input: z.infer<typeof MatchProjectsInput>,
-) {
+export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
   const programs = await openProgramFacts();
   const repos: Repo[] = input.repos?.length
     ? await Promise.all(input.repos.map((r) => repoByName(fullName(r))))
     : await userRepos(input.github_user!, REPO_LIMIT);
 
-  const results = await mapLimit(repos, 6, async (repo) => {
-    const chains = await repoChains(repo);
-    const commits_in_window: Record<string, boolean> = {};
-    for (const p of programs) {
-      if (
-        p.existing_work === 'new_work_only' &&
-        p.starts_at &&
-        p.chains.some((c) => chains[c])
-      ) {
-        commits_in_window[p.id] = await hasCommitsSince(repo, p.starts_at);
-      }
-    }
-    const facts: RepoFacts = {
-      name: repo.name,
-      url: repo.html_url,
-      homepage: repo.homepage || null,
-      created_at: repo.created_at,
-      chains,
-      commits_in_window,
-    };
-    return { repo: facts, verdicts: matchRepo(facts, programs) };
-  });
-
+  const results = await mapLimit(repos, 6, (repo) => checkRepo(repo, programs));
   // Builders want what can earn: "no" verdicts and repos with only those are left out.
   const fits = results
     .map((r) => ({
       repo: r.repo.name,
+      repo_url: r.repo.url,
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
     }))
     .filter((r) => r.verdicts.length > 0)
@@ -197,4 +199,27 @@ export async function matchProjects(
         Number(!b.verdicts.some((v) => v.status === 'likely')),
     );
   return { checked: repos.length, fits };
+}
+
+/** get_program's eligibility check: one repo against one open program. */
+export async function checkEligibility(ref: string, programId: string) {
+  const program = (await openProgramFacts()).find((p) => p.id === programId);
+  if (!program) return null;
+  const { verdicts } = await checkRepo(await repoByName(fullName(ref)), [
+    program,
+  ]);
+  const [v] = verdicts;
+  if (!v)
+    return {
+      status: 'no' as const,
+      missing: [],
+      effort: null,
+      note: `no ${program.chains.join(' or ')} code found in this repo`,
+    };
+  return {
+    status: v.status,
+    missing: v.missing,
+    effort: v.effort,
+    note: v.note,
+  };
 }
