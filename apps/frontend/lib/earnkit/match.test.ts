@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectChains, pickFiles } from './match';
-import { matchRepo, type ProgramFacts, type RepoFacts } from './match';
+import {
+  matchRepo,
+  reportedFacts,
+  type ProgramFacts,
+  type RepoFacts,
+} from './match';
 
 test('detects chains from ids, rpc hosts, and viem imports; ignores stray numbers', () => {
   const d = detectChains([
@@ -126,4 +131,45 @@ test('new-work-only programs: active repos need new work, stale ones are out', (
 
 test('repos on no program chain produce no verdicts', () => {
   assert.deepEqual(matchRepo(repo({}), programs), []);
+});
+
+test('agent-reported repos match like public ones, without reading any code', () => {
+  const live = reportedFacts(
+    {
+      name: 'private-tipjar',
+      chains: [{ chain: 'arc', mainnet: true }],
+      live_url: 'https://tipjar.app',
+    },
+    programs,
+  );
+  assert.equal(live.homepage, 'https://tipjar.app');
+  assert.equal(
+    matchRepo(live, programs).find((x) => x.program_id === 'arc-micro')!.status,
+    'likely',
+  );
+
+  const testnetOnly = reportedFacts(
+    { name: 'wip', chains: [{ chain: 'arc', mainnet: false }] },
+    programs,
+  );
+  assert.deepEqual(
+    matchRepo(testnetOnly, programs).find((x) => x.program_id === 'arc-micro')!
+      .missing,
+    ['mainnet_deploy', 'live_url'],
+  );
+
+  // Last commit before a new-work-only program started: out. Unknown date: still a candidate.
+  const monad = [{ chain: 'monad' as const, mainnet: false }];
+  const stale = reportedFacts(
+    { name: 's', chains: monad, last_commit_at: '2020-01-01T00:00:00Z' },
+    programs,
+  );
+  assert.equal(matchRepo(stale, programs)[0].status, 'no');
+  assert.equal(
+    matchRepo(
+      reportedFacts({ name: 'u', chains: monad }, programs),
+      programs,
+    )[0].status,
+    'after_step',
+  );
 });

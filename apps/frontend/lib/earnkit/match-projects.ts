@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
+  CHAINS,
   detectChains,
   matchRepo,
+  reportedFacts,
   pickFiles,
   type Detection,
   type ProgramFacts,
@@ -47,17 +49,58 @@ export type Repo = {
   archived: boolean;
 };
 
-/** Most recently pushed original (non-fork, non-archived) public repos. */
+const CONTRIBUTED_LIMIT = 10;
+
+/**
+ * Most recently pushed original (non-fork, non-archived) public repos: the user's own, plus
+ * public repos owned by others (e.g. their orgs) they committed to in the last year.
+ */
 export async function userRepos(user: string, limit: number) {
-  const repos: Repo[] = [];
-  for (let page = 1; page <= 3 && repos.length < limit * 2; page++) {
+  const own: Repo[] = [];
+  for (let page = 1; page <= 3 && own.length < limit * 2; page++) {
     const batch = await gh<Repo[]>(
       `/users/${encodeURIComponent(user)}/repos?per_page=100&sort=pushed&page=${page}`,
     );
-    repos.push(...batch);
+    own.push(...batch);
     if (batch.length < 100) break;
   }
-  return repos.filter((r) => !r.fork && !r.archived).slice(0, limit);
+  const names = new Set(own.map((r) => r.full_name.toLowerCase()));
+  const repos = [...own, ...(await contributedRepos(user, names))];
+  return repos
+    .filter((r) => !r.fork && !r.archived)
+    .sort((a, b) => Date.parse(b.pushed_at) - Date.parse(a.pushed_at))
+    .slice(0, limit);
+}
+
+/** Public repos owned by someone else that `user` authored commits in during the last year. */
+async function contributedRepos(user: string, skip: Set<string>) {
+  const since = new Date(Date.now() - 365 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const q = encodeURIComponent(`author:${user} author-date:>${since}`);
+  let found: { items: { repository: { full_name: string } }[] };
+  try {
+    found = await gh(
+      `/search/commits?q=${q}&sort=author-date&order=desc&per_page=100`,
+    );
+  } catch (err) {
+    // The user's own repos still match; this only adds org/other repos.
+    console.error('[match] commit search failed:', err);
+    return [];
+  }
+  const names = [
+    ...new Set(found.items.map((i) => i.repository.full_name)),
+  ].filter(
+    (n) =>
+      !skip.has(n.toLowerCase()) &&
+      n.split('/')[0].toLowerCase() !== user.toLowerCase(),
+  );
+  const repos = await Promise.all(
+    names
+      .slice(0, CONTRIBUTED_LIMIT)
+      .map((n) => repoByName(n).catch(() => null)),
+  );
+  return repos.filter((r) => r !== null);
 }
 
 export const repoByName = (fullName: string) => gh<Repo>(`/repos/${fullName}`);
@@ -121,6 +164,18 @@ export async function mapLimit<T, R>(
 
 const REPO_LIMIT = 30;
 
+export const ReportedRepoInput = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    /** Chains the code targets, and whether it's on mainnet (else testnet only). */
+    chains: z
+      .array(z.object({ chain: z.enum(CHAINS), mainnet: z.boolean() }).strict())
+      .max(CHAINS.length),
+    live_url: z.string().url().optional(),
+    last_commit_at: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
 export const MatchProjectsInput = z
   .object({
     github_user: z
@@ -129,10 +184,12 @@ export const MatchProjectsInput = z
       .optional(),
     /** "owner/repo" or a github.com URL. */
     repos: z.array(z.string()).max(REPO_LIMIT).optional(),
+    /** Private or local repos, as the agent sees them. */
+    local_repos: z.array(ReportedRepoInput).max(20).optional(),
   })
   .strict()
-  .refine((i) => i.github_user || i.repos?.length, {
-    message: 'Give a github_user or repos',
+  .refine((i) => i.github_user || i.repos?.length || i.local_repos?.length, {
+    message: 'Give a github_user, repos, or local_repos',
   });
 
 function fullName(ref: string) {
@@ -177,19 +234,28 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
   return { repo: facts, verdicts: matchRepo(facts, programs) };
 }
 
-/** Checks a builder's public repos against open programs; list_programs turns this into text. */
+/** Checks a builder's repos (public on GitHub, or reported by the agent) against open programs. */
 export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
   const programs = await openProgramFacts();
   const repos: Repo[] = input.repos?.length
     ? await Promise.all(input.repos.map((r) => repoByName(fullName(r))))
-    : await userRepos(input.github_user!, REPO_LIMIT);
+    : input.github_user
+      ? await userRepos(input.github_user, REPO_LIMIT)
+      : [];
+  const local = input.local_repos ?? [];
 
-  const results = await mapLimit(repos, 6, (repo) => checkRepo(repo, programs));
+  const results = [
+    ...(await mapLimit(repos, 6, (repo) => checkRepo(repo, programs))),
+    ...local.map((r) => {
+      const facts = reportedFacts(r, programs);
+      return { repo: facts, verdicts: matchRepo(facts, programs) };
+    }),
+  ];
   // Builders want what can earn: "no" verdicts and repos with only those are left out.
   const fits = results
     .map((r) => ({
       repo: r.repo.name,
-      repo_url: r.repo.url,
+      repo_url: r.repo.url || null,
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
     }))
     .filter((r) => r.verdicts.length > 0)
@@ -198,7 +264,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
         Number(!a.verdicts.some((v) => v.status === 'likely')) -
         Number(!b.verdicts.some((v) => v.status === 'likely')),
     );
-  return { checked: repos.length, fits };
+  return { checked: results.length, fits };
 }
 
 /** get_program's eligibility check: one repo against one open program. */

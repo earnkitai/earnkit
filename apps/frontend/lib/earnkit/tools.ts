@@ -7,6 +7,7 @@ import { checkPrograms, setWorkingOn } from './installations';
 import {
   GitHubError,
   MatchProjectsInput,
+  ReportedRepoInput,
   checkEligibility,
   matchProjects,
 } from './match-projects';
@@ -39,6 +40,7 @@ const ListProgramsInput = z
     agent_can_build: z.boolean().default(true),
     github_user: z.string().optional(),
     repos: z.array(z.string()).optional(),
+    local_repos: z.array(ReportedRepoInput).max(20).optional(),
   })
   .strict();
 
@@ -52,11 +54,10 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos } = ListProgramsInput.parse(
-      input ?? {},
-    );
+    const { agent_can_build, github_user, repos, local_repos } =
+      ListProgramsInput.parse(input ?? {});
     const [memory, programs] = await Promise.all([
-      checkPrograms(ctx.installationId, { github_user, repos }),
+      checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
     ]);
     const { lastCheck } = memory;
@@ -69,6 +70,9 @@ export const tools = {
       : github_user
         ? undefined
         : (memory.repos ?? undefined);
+    const local = local_repos?.length
+      ? local_repos
+      : (memory.local_repos ?? undefined);
     const cards = programs.map((p) => ({
       ...p,
       is_new: lastCheck !== null && p.created_at > lastCheck,
@@ -76,10 +80,14 @@ export const tools = {
     }));
 
     let yourRepos: YourRepos | null = null;
-    if (user || repoList?.length) {
+    if (user || repoList?.length || local?.length) {
       try {
         yourRepos = await matchProjects(
-          MatchProjectsInput.parse({ github_user: user, repos: repoList }),
+          MatchProjectsInput.parse({
+            github_user: user,
+            repos: repoList,
+            local_repos: local,
+          }),
         );
       } catch (err) {
         if (err instanceof GitHubError) yourRepos = { error: err.message };
@@ -115,7 +123,7 @@ export const tools = {
       show_to_builder: sections.join('\n\n'),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
-        (user || repoList?.length
+        (user || repoList?.length || local?.length
           ? 'EarnKit remembers their GitHub for next time. '
           : "Pass the builder's GitHub username if you know it; their projects show first. ") +
         'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them. ' +

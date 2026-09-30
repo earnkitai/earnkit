@@ -19,10 +19,12 @@ which EarnKit approves instantly.
 ## Tools
 
 - list_programs: "what can I earn?" in one answer. Give the builder's GitHub
-  username: their public repos that can claim rewards come first, then open
+  username: their public repos (including org repos they commit to) that can
+  claim rewards come first, then open
   programs. Opens with what changed since the last check (new programs,
   deadlines within 3 days, prizes won) and the builder's campaign entries.
-  EarnKit remembers the builder's GitHub and what they're working on
+  EarnKit remembers the builder's GitHub and what they're working on. For
+  private repos, the agent reports what it sees; EarnKit never reads that code
 - get_program: full details, rules, submission requirements, links, and tested
   build help for the program's chains (with a one-line start command). Pass a
   repo to check whether it is eligible and what it is missing

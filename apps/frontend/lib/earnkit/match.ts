@@ -211,6 +211,40 @@ const day = (d: Date) =>
     timeZone: 'UTC',
   });
 
+/** A private or local repo as the builder's agent describes it (EarnKit never reads its code). */
+export type ReportedRepo = {
+  name: string;
+  chains: { chain: Chain; mainnet: boolean }[];
+  live_url?: string;
+  last_commit_at?: string;
+};
+
+/** Turns an agent's report into the same facts matching uses for public repos. */
+export function reportedFacts(
+  r: ReportedRepo,
+  programs: ProgramFacts[],
+): RepoFacts {
+  const chains: Detection = {};
+  for (const c of r.chains)
+    chains[c.chain] = {
+      mainnet: c.mainnet,
+      testnet: !c.mainnet,
+      evidence: 'reported by the agent',
+    };
+  const last = r.last_commit_at ? new Date(r.last_commit_at) : null;
+  return {
+    name: r.name,
+    url: '',
+    homepage: r.live_url ?? null,
+    created_at: '',
+    chains,
+    // Unknown commit dates count as active; the verdict still says only new work counts.
+    commits_in_window: Object.fromEntries(
+      programs.map((p) => [p.id, !last || !p.starts_at || last >= p.starts_at]),
+    ),
+  };
+}
+
 export function matchRepo(
   repo: RepoFacts,
   programs: ProgramFacts[],

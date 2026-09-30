@@ -119,7 +119,7 @@ test('no repo fits, or GitHub failed: say so in one line, then the programs', ()
   const none = presentPrograms(cards, true, { checked: 3, fits: [] });
   assert.match(
     none,
-    /^None of your 3 public repos fits an open program yet\.\n\n- \*\*Micro\*\*/,
+    /^None of your 3 repos fits an open program yet\.\n\n- \*\*Micro\*\*/,
   );
   assert.ok(!none.includes('Also open'));
   const err = presentPrograms(cards, true, { error: 'no such user' });
@@ -190,4 +190,18 @@ test('repos that only fit programs already shown are named in one line, not hidd
     text,
     /More of your repos fit too: b, c, d, \+1 more\. Name one/,
   );
+});
+
+test('reported (private) repos have no link', () => {
+  const text = presentPrograms(cards, true, {
+    checked: 1,
+    fits: [
+      {
+        repo: 'secret',
+        repo_url: null,
+        verdicts: [v('micro', 'likely', 'looks eligible')],
+      },
+    ],
+  });
+  assert.match(text, /\n\n\*\*secret\*\*\n- \*\*Micro\*\*/);
 });

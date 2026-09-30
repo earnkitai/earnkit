@@ -95,6 +95,7 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS programs_checked_at timestamp
 -- v1.5 memory: the builder's GitHub (so later checks don't need it) and programs being prepared.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS github_user text;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS repos text[];
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS local_repos jsonb;  -- private/local repos as the agent reported them
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS working_on text[] NOT NULL DEFAULT '{}';
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS verified_at date;   -- facts last checked against source_url
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS campaign jsonb;

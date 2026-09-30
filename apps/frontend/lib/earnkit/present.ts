@@ -49,7 +49,8 @@ export function presentSinceLastCheck(
 export type YourRepos =
   | {
       checked: number;
-      fits: { repo: string; repo_url: string; verdicts: Verdict[] }[];
+      /** repo_url is null for private/local repos the agent reported. */
+      fits: { repo: string; repo_url: string | null; verdicts: Verdict[] }[];
     }
   | { error: string };
 
@@ -114,7 +115,7 @@ export function presentPrograms(
     sections.push(`Couldn't read your repos: ${repos.error}`);
   else if (repos && fitIds.size === 0)
     sections.push(
-      `None of your ${repos.checked} public repos fits an open program yet.`,
+      `None of your ${repos.checked} repos fits an open program yet.`,
     );
   else if (fastest)
     sections.push(
@@ -155,7 +156,9 @@ export function presentPrograms(
       continue;
     }
     repoSections++;
-    sections.push(`**[${fit.repo}](${fit.repo_url})**\n${lines.join('\n')}`);
+    sections.push(
+      `**${fit.repo_url ? `[${fit.repo}](${fit.repo_url})` : fit.repo}**\n${lines.join('\n')}`,
+    );
   }
   if (others.length > 0) {
     const named = others.slice(0, 3).join(', ');

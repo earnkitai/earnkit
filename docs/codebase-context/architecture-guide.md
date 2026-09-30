@@ -11,7 +11,8 @@
   3 days), and asks the agent to offer a recurring check with its own scheduler.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
-- **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos given and
+- **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos and
+  agent-reported local_repos given, and
   `working_on` (programs passed to prepare_submission, cleared by record_submission), so
   list_programs needs no arguments later and leads with "You're working on".
 - **verified_at**: the day a program's facts were last checked against its source. Within 7 days
@@ -55,6 +56,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   new_work, real_users) and `effort` (none to weeks); list_programs returns them as `matches`, and
   get_program(repo) as `eligibility`. The text leads with the count and the fastest win, then one
   offer.
+- Which repos count as the builder's: their own public repos plus public repos owned by others
+  (orgs) they committed to in the last year (GitHub commit search). Private or local repos are
+  never read: the agent reports what it sees (`local_repos`: chains + mainnet, live link, last
+  commit) and EarnKit matches those facts the same way.
 - Repo matching (list_programs with github_user) reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".

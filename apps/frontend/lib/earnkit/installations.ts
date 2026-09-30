@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { ReportedRepo } from './match';
 import { sql } from './db';
 
 const hash = (token: string) =>
@@ -14,6 +15,7 @@ export type Memory = {
   lastCheck: Date | null;
   github_user: string | null;
   repos: string[] | null;
+  local_repos: ReportedRepo[] | null;
   working_on: string[];
 };
 
@@ -23,26 +25,35 @@ export type Memory = {
  */
 export async function checkPrograms(
   installationId: number,
-  given: { github_user?: string; repos?: string[] } = {},
+  given: {
+    github_user?: string;
+    repos?: string[];
+    local_repos?: ReportedRepo[];
+  } = {},
 ): Promise<Memory> {
+  const db = sql();
   const saving = Boolean(given.github_user || given.repos?.length);
-  const [row] = await sql()<
+  const savingLocal = Boolean(given.local_repos?.length);
+  const [row] = await db<
     {
       prev: Date | null;
       github_user: string | null;
       repos: string[] | null;
+      local_repos: ReportedRepo[] | null;
       working_on: string[];
     }[]
   >`
     UPDATE installations i SET programs_checked_at = now(),
+      local_repos = CASE WHEN ${savingLocal} THEN ${savingLocal ? db.json(given.local_repos!) : null} ELSE i.local_repos END,
       github_user = CASE WHEN ${saving} THEN ${given.github_user ?? null} ELSE i.github_user END,
       repos = CASE WHEN ${saving} THEN ${given.repos?.length ? given.repos : null}::text[] ELSE i.repos END
     FROM (SELECT id, programs_checked_at AS prev FROM installations WHERE id = ${installationId}) o
-    WHERE i.id = o.id RETURNING o.prev, i.github_user, i.repos, i.working_on`;
+    WHERE i.id = o.id RETURNING o.prev, i.github_user, i.repos, i.local_repos, i.working_on`;
   return {
     lastCheck: row?.prev ?? null,
     github_user: row?.github_user ?? null,
     repos: row?.repos ?? null,
+    local_repos: row?.local_repos ?? null,
     working_on: row?.working_on ?? [],
   };
 }

@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
+import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
@@ -64,7 +65,7 @@ export function createMcpServer(ctx: ToolContext) {
         'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
         "Pass the builder's GitHub username (or repo links) when you know it: their existing projects " +
         'that can claim rewards come first, then open programs. EarnKit remembers it for later calls. ' +
-        'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
+        'For private or local repos you can read, pass local_repos. Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
         'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
         'real_users) and the effort (minutes to weeks), for your own plan.',
       inputSchema: {
@@ -76,6 +77,28 @@ export function createMcpServer(ctx: ToolContext) {
           .array(z.string())
           .optional()
           .describe('Or specific "owner/repo" or github.com links'),
+        local_repos: z
+          .array(
+            z.object({
+              name: z.string(),
+              chains: z
+                .array(
+                  z.object({
+                    chain: z.enum(CHAINS),
+                    mainnet: z.boolean(),
+                  }),
+                )
+                .describe(
+                  'Chains the code targets; mainnet false = testnet only',
+                ),
+              live_url: z.string().optional(),
+              last_commit_at: z.string().optional().describe('ISO 8601'),
+            }),
+          )
+          .optional()
+          .describe(
+            'Private or local repos you can see: report what you find. EarnKit never needs their code.',
+          ),
         agent_can_build: z
           .boolean()
           .optional()
@@ -103,7 +126,9 @@ export function createMcpServer(ctx: ToolContext) {
         repo: z
           .string()
           .optional()
-          .describe('"owner/repo" or a github.com link to check eligibility for'),
+          .describe(
+            '"owner/repo" or a github.com link to check eligibility for',
+          ),
       },
       annotations: { readOnlyHint: true },
     },
