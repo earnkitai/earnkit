@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic';
 
 const count = (n: string | number) =>
   new Intl.NumberFormat('en-US').format(Number(n));
+/** Builder-supplied links: only http(s) becomes a link (no javascript: or data: URLs). */
 const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
-    href={href}
+    href={/^https?:\/\//i.test(href) ? href : undefined}
     target="_blank"
     rel="noopener noreferrer"
     className="text-ek-white underline underline-offset-4"
