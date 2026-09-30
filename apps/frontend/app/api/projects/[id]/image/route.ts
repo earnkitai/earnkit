@@ -18,6 +18,8 @@ export async function GET(
       'Content-Type': row.token_image_type,
       'Cache-Control': 'public, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
+      // Types are allowlisted and byte-checked on upload (decodeImage); this is a second guard.
+      'Content-Security-Policy': "default-src 'none'; sandbox",
     },
   });
 }
