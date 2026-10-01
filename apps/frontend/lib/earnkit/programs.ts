@@ -1,3 +1,4 @@
+import type postgres from 'postgres';
 import { prizeText, type CampaignConfig } from './campaigns';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
@@ -232,12 +233,20 @@ export async function getProgram(programId: string) {
   };
 }
 
-/** Replaces the program, its tracks, and its starters with the file's contents. */
+/**
+ * Replaces the program, its tracks, and its starters with the file's contents.
+ *
+ * `db` lets a caller that already holds a transaction (e.g. sponsor.ts's `confirmFunding`, which
+ * must publish the program and flip the campaign's state atomically) reuse it instead of this
+ * function opening its own `begin` — so the whole thing commits or rolls back together. When
+ * omitted (the default, used by `programs:sync`), this opens its own transaction as before.
+ */
 export async function upsertProgram(
   p: ProgramFile,
   source: 'file' | 'sponsor' = 'file',
+  db?: postgres.Sql | postgres.TransactionSql,
 ) {
-  await sql().begin(async (tx) => {
+  const run = async (tx: postgres.Sql | postgres.TransactionSql) => {
     const row = {
       id: p.id,
       organizer: p.organizer,
@@ -286,5 +295,7 @@ export async function upsertProgram(
         build_context: tx.json(s.build_context),
       })}`;
     }
-  });
+  };
+  if (db) await run(db);
+  else await sql().begin(run);
 }

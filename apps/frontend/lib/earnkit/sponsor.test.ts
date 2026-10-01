@@ -6,7 +6,7 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { campaignsAbi } from './escrow-abi';
-import { fundingFromReceipt } from './sponsor';
+import { confirmableState, fundingFromReceipt } from './sponsor';
 
 // escrowConfig() (used by fundingFromReceipt via readCreated) reads these lazily per call, not
 // at module load, so setting them here (after imports, which are hoisted) is sufficient — see
@@ -93,4 +93,15 @@ test('rejects a reverted tx, another ref, another amount, or another contract', 
       ),
     /isn't the funding/,
   );
+});
+
+test('confirmableState: draft and expired publish, live is idempotent, terminal states refuse', () => {
+  assert.equal(confirmableState('draft'), 'publish');
+  // A lazily-expired draft is rescued by confirmFunding when the receipt proves it was funded —
+  // see the comment on confirmableState.
+  assert.equal(confirmableState('expired'), 'publish');
+  assert.equal(confirmableState('live'), 'already_live');
+  assert.equal(confirmableState('awarded'), 'refuse');
+  assert.equal(confirmableState('refunded'), 'refuse');
+  assert.equal(confirmableState('taken_down'), 'refuse');
 });

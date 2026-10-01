@@ -130,45 +130,81 @@ export function fundingFromReceipt(
   };
 }
 
-/** Confirms the deposit and publishes the campaign. Idempotent. */
+/**
+ * Whether `confirmFunding` should publish the campaign, treat it as already live, or refuse,
+ * given the row's current `state`. Pure; exported for tests (the DB-backed paths around it are
+ * exercised by the Task 10 end-to-end script).
+ *
+ * - `draft` or `expired` → `publish`. A draft expires lazily after 7 days (`loadCampaign`), but
+ *   a deposit that lands after that still counts: `confirmFunding` only reaches `publish` once
+ *   `fundingFromReceipt` has verified the receipt is this campaign's exact funding, so an
+ *   `expired` row is rescued rather than lost.
+ * - `live` → `already_live`. Publishing already happened; return the same result again
+ *   (idempotent, no error, no double publish).
+ * - `awarded`, `refunded`, `taken_down` → `refuse`. Terminal states; funding cannot reopen them.
+ */
+export function confirmableState(
+  state: SponsorRow['state'],
+): 'publish' | 'already_live' | 'refuse' {
+  if (state === 'draft' || state === 'expired') return 'publish';
+  if (state === 'live') return 'already_live';
+  return 'refuse';
+}
+
+/**
+ * Confirms the deposit and publishes the campaign. Idempotent, and race-safe under concurrent
+ * confirms for the same ref: the row is locked (`FOR UPDATE`) for the duration of the publish,
+ * so a second confirm that arrives while the first is still running waits, then sees the row
+ * already `live` and returns the same result rather than publishing twice.
+ */
 export async function confirmFunding(ref: string, tx: `0x${string}`) {
-  const row = await loadCampaign(ref);
-  if (row.state !== 'draft') {
-    if (row.program_id)
+  // Fetch the receipt before opening the transaction: it's a network round-trip, and must not
+  // run while holding the row lock below.
+  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
+
+  return sql().begin(async (db) => {
+    const [row] = await db<SponsorRow[]>`
+      SELECT * FROM sponsor_campaigns WHERE ref = ${ref} FOR UPDATE`;
+    if (!row) throw new NotFoundError(`No sponsor campaign "${ref}".`);
+
+    const decision = confirmableState(row.state);
+    if (decision === 'refuse')
+      throw new SponsorError(`This campaign is ${row.state}.`);
+    if (decision === 'already_live')
       return {
-        program_id: row.program_id,
+        program_id: row.program_id as string,
         campaign_url: `${baseUrl()}/campaigns/${row.program_id}`,
       };
-    throw new SponsorError(`This campaign is ${row.state}.`);
-  }
-  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
-  const { escrow, sponsor } = fundingFromReceipt(row, receipt);
-  const token = {
-    symbol: row.token_symbol,
-    address: row.token as `0x${string}`,
-    decimals: row.token_decimals,
-  };
-  const file = sponsorProgramFile({
-    ref,
-    draft: row.draft,
-    token,
-    amountUnits: parseUnits(row.amount, row.token_decimals),
-    chainId: row.chain_id,
-    escrow,
-    baseUrl: baseUrl(),
-    now: new Date(),
+
+    // decision === 'publish': a draft, or a lazily-expired draft this receipt proves was
+    // actually funded. Verify the receipt matches this campaign's declared terms exactly.
+    const { escrow, sponsor } = fundingFromReceipt(row, receipt);
+    const token = {
+      symbol: row.token_symbol,
+      address: row.token as `0x${string}`,
+      decimals: row.token_decimals,
+    };
+    const file = sponsorProgramFile({
+      ref,
+      draft: row.draft,
+      token,
+      amountUnits: parseUnits(row.amount, row.token_decimals),
+      chainId: row.chain_id,
+      escrow,
+      baseUrl: baseUrl(),
+      now: new Date(),
+    });
+    // Published in the same transaction as the state flip, so the two can't diverge.
+    await upsertProgram(file, 'sponsor', db);
+    // Note: even if draft.ends_at has already passed by now, this still goes live — the receipt
+    // just proved the deposit happened, so the sponsor can award right away.
+    await db`
+      UPDATE sponsor_campaigns SET state = 'live', program_id = ${file.id},
+        escrow_address = ${escrow}, sponsor_wallet = ${sponsor}, fund_tx = ${tx}, funded_at = now()
+      WHERE ref = ${ref}`;
+    return {
+      program_id: file.id,
+      campaign_url: `${baseUrl()}/campaigns/${file.id}`,
+    };
   });
-  await upsertProgram(file, 'sponsor');
-  const [updated] = await sql()<{ ref: string }[]>`
-    UPDATE sponsor_campaigns SET state = 'live', program_id = ${file.id}, escrow_address = ${escrow.toLowerCase()},
-      sponsor_wallet = ${sponsor.toLowerCase()}, fund_tx = ${tx}, funded_at = now()
-    WHERE ref = ${ref} AND state = 'draft' RETURNING ref`;
-  if (!updated)
-    throw new SponsorError(
-      'This campaign changed while confirming; check status again.',
-    );
-  return {
-    program_id: file.id,
-    campaign_url: `${baseUrl()}/campaigns/${file.id}`,
-  };
 }
