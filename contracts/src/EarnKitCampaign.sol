@@ -6,11 +6,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-interface IEarnKitCampaigns {
-    function operator() external view returns (address);
-    function treasury() external view returns (address);
-}
-
 /// @title One EarnKit campaign's prize pool (deployed as a clone by EarnKitCampaigns)
 /// @notice Money leaves only by `award` (whole prize to winners + fee to the treasury) or
 ///         `refund` (everything back to the sponsor), once, under the time rules below.
@@ -37,6 +32,10 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     uint256 public fee;
     uint64 public endsAt;
     State public state;
+    /// Snapshotted from the factory at creation time: later factory rotations never affect an
+    /// already-funded campaign, so the factory owner can't redirect its payouts or fees.
+    address public operator;
+    address public treasury;
 
     event Awarded(address[] winners, uint256[] amounts, uint256 fee);
     event Refunded(address indexed by, uint256 amount);
@@ -54,13 +53,24 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     }
 
     /// @dev Called once by the factory right after cloning, before it moves the funds in.
-    function initialize(address sponsor_, IERC20 token_, uint256 amount, uint64 endsAt_) external initializer {
+    ///      `operator_`/`treasury_` are snapshotted as-of creation; later factory rotations only
+    ///      apply to campaigns created afterwards.
+    function initialize(
+        address sponsor_,
+        IERC20 token_,
+        uint256 amount,
+        uint64 endsAt_,
+        address operator_,
+        address treasury_
+    ) external initializer {
         if (msg.sender != factory) revert NotFactory();
         sponsor = sponsor_;
         token = token_;
         fee = amount / 10;
         prize = amount - amount / 10;
         endsAt = endsAt_;
+        operator = operator_;
+        treasury = treasury_;
         state = State.Funded;
     }
 
@@ -70,8 +80,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
         if (state != State.Funded) revert NotFunded();
         if (block.timestamp < endsAt) revert NotEnded();
         bool bySponsor = msg.sender == sponsor;
-        bool byOperator = msg.sender == IEarnKitCampaigns(factory).operator()
-            && block.timestamp >= uint256(endsAt) + AWARD_GRACE;
+        bool byOperator = msg.sender == operator && block.timestamp >= uint256(endsAt) + AWARD_GRACE;
         if (!bySponsor && !byOperator) revert NotAllowed();
 
         uint256 n = winners.length;
@@ -87,7 +96,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
         for (uint256 i; i < n; ++i) {
             token.safeTransfer(winners[i], amounts[i]);
         }
-        token.safeTransfer(IEarnKitCampaigns(factory).treasury(), fee);
+        token.safeTransfer(treasury, fee);
         emit Awarded(winners, amounts, fee);
     }
 
@@ -96,7 +105,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     ///      `endsAt + RECLAIM_AFTER`, so funds are never stuck if EarnKit disappears.
     function refund() external nonReentrant {
         if (state != State.Funded) revert NotFunded();
-        bool byOperator = msg.sender == IEarnKitCampaigns(factory).operator();
+        bool byOperator = msg.sender == operator;
         bool bySponsor = msg.sender == sponsor && block.timestamp >= uint256(endsAt) + RECLAIM_AFTER;
         if (!byOperator && !bySponsor) revert NotAllowed();
 

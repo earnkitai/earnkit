@@ -77,7 +77,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
         campaign = Clones.clone(implementation);
         campaignOf[msg.sender][ref] = campaign;
-        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt);
+        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt, operator, treasury);
 
         uint256 before = token.balanceOf(campaign);
         token.safeTransferFrom(msg.sender, campaign, amount);

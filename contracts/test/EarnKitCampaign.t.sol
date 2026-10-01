@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 import {EarnKitCampaign} from "../src/EarnKitCampaign.sol";
 
@@ -142,14 +143,61 @@ contract EarnKitCampaignTest is BaseTest {
         c.refund();
     }
 
-    function test_operatorRotation_appliesToExistingCampaigns() public {
-        vm.prank(owner);
+    function test_operatorAndTreasuryRotation_onlyAffectNewCampaigns() public {
+        // A second campaign created before the rotation, so we can check refund on an
+        // untouched, still-Funded campaign after `c` has been awarded below.
+        vm.prank(sponsor);
+        address c2Addr =
+            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days));
+        EarnKitCampaign c2 = EarnKitCampaign(c2Addr);
+
+        vm.startPrank(owner);
         factory.setOperator(bob);
+        factory.setTreasury(bob);
+        vm.stopPrank();
+
+        // The old operator can still award the pre-rotation campaign, and its fee still goes
+        // to the old treasury, not bob.
+        vm.warp(endsAt + 7 days);
         vm.prank(operator);
+        c.award(one(alice), oneAmt(900e6));
+        assertEq(usdc.balanceOf(treasury), 100e6);
+        assertEq(usdc.balanceOf(bob), 0);
+
+        // The new operator (bob) cannot touch the pre-rotation campaign; the old operator still can.
+        vm.prank(bob);
+        vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+        c2.refund();
+        vm.prank(operator);
+        c2.refund();
+
+        // A campaign created after the rotation uses bob for both operator and treasury.
+        vm.prank(sponsor);
+        address c3Addr =
+            factory.createCampaign(keccak256("ref-3"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days));
+        EarnKitCampaign c3 = EarnKitCampaign(c3Addr);
+        assertEq(c3.operator(), bob);
+        assertEq(c3.treasury(), bob);
+    }
+
+    function test_ownerCannotHijackOperatorOrTreasury_onExistingCampaign() public {
+        // Regression for the admin-key-compromise scenario: the owner making itself the
+        // operator/treasury must not let it touch funds already escrowed in `c`.
+        vm.startPrank(owner);
+        factory.setOperator(owner);
+        factory.setTreasury(owner);
+        vm.stopPrank();
+
+        vm.warp(endsAt + 7 days);
+        vm.prank(owner);
+        vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+        c.award(one(alice), oneAmt(900e6));
+
+        vm.prank(owner);
         vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
         c.refund();
-        vm.prank(bob);
-        c.refund();
+
+        assertEq(usdc.balanceOf(address(c)), 1000e6);
     }
 
     function test_strayTokensSentToTheClone_doNotChangePayouts() public {
