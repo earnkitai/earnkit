@@ -1,19 +1,27 @@
 import { randomBytes } from 'node:crypto';
-import { parseUnits, type TransactionReceipt } from 'viem';
+import type postgres from 'postgres';
+import { formatUnits, parseUnits, type TransactionReceipt } from 'viem';
+import { z } from 'zod';
+import { scoreEntry } from './campaigns';
 import { sql } from './db';
 import {
+  awardTx,
   capOf,
   escrowClient,
   escrowConfig,
   findToken,
   fundTxs,
+  readAwarded,
   readCreated,
   type RawTx,
 } from './escrow';
 import { NotFoundError, upsertProgram } from './programs';
 import {
+  AwardWinner,
   SponsorError,
   checkDraft,
+  matchAwardToPlan,
+  planAward,
   sponsorProgramFile,
   splitUnits,
   type Draft,
@@ -205,6 +213,202 @@ export async function confirmFunding(ref: string, tx: `0x${string}`) {
     return {
       program_id: file.id,
       campaign_url: `${baseUrl()}/campaigns/${file.id}`,
+    };
+  });
+}
+
+const SCORE_MAX_AGE_MS = 6 * 3_600_000;
+
+type EntryRow = {
+  id: number;
+  name: string;
+  live_url: string | null;
+  repo_url: string | null;
+  payout_wallet: string;
+  contracts: string[];
+  score: number | null;
+  scored_at: Date | null;
+};
+
+/** Entries with a payout wallet for `programId`. `db` reuses a caller's transaction, if any. */
+async function entriesOf(
+  programId: string,
+  db: postgres.Sql | postgres.TransactionSql = sql(),
+) {
+  return db<EntryRow[]>`
+    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at FROM projects
+    WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
+}
+
+/** Re-scores entries with Base contracts when the last score is over 6 hours old (chain 8453 only). */
+async function refreshScores(row: SponsorRow, entries: EntryRow[]) {
+  if (row.chain_id !== 8453) return;
+  const from = new Date(row.draft.starts_at ?? row.created_at);
+  const until = new Date(Math.min(Date.now(), Date.parse(row.draft.ends_at)));
+  for (const e of entries) {
+    if (e.contracts.length === 0) continue;
+    if (e.scored_at && Date.now() - e.scored_at.getTime() < SCORE_MAX_AGE_MS)
+      continue;
+    const r = await scoreEntry(e.contracts, from, until);
+    await sql()`UPDATE projects SET score = ${r.score}, scored_at = now() WHERE id = ${e.id}`;
+    e.score = r.score;
+  }
+}
+
+/** Whether `installationId` can award `row` right now. Pure; exported for tests. */
+export function assertCanAward(
+  row: Pick<SponsorRow, 'state' | 'installation_id'> & {
+    draft: { ends_at: string };
+  },
+  installationId: number,
+  now: Date,
+) {
+  if (row.installation_id !== installationId)
+    throw new SponsorError(
+      'Only the agent that created this campaign can award it.',
+    );
+  if (row.state !== 'live')
+    throw new SponsorError(`This campaign is ${row.state}.`);
+  if (now.getTime() < Date.parse(row.draft.ends_at))
+    throw new SponsorError(
+      `Awards open after the campaign ends (${row.draft.ends_at}).`,
+    );
+}
+
+export async function sponsorStatus(ref: string, installationId: number) {
+  const row = await loadCampaign(ref);
+  const units = parseUnits(row.amount, row.token_decimals);
+  const prize = formatUnits(splitUnits(units).prize, row.token_decimals);
+  const base = {
+    state: row.state,
+    title: row.draft.title,
+    pool: `${row.amount} ${row.token_symbol}`,
+    prize: `${prize} ${row.token_symbol}`,
+    ends_at: row.draft.ends_at,
+  };
+  if (row.state === 'draft')
+    return { ...base, fund_url: `${baseUrl()}/fund/${ref}`, entries: [] };
+  if (!row.program_id) return { ...base, entries: [] };
+  const entries = await entriesOf(row.program_id);
+  if (row.installation_id === installationId) await refreshScores(row, entries);
+  return {
+    ...base,
+    campaign_url: `${baseUrl()}/campaigns/${row.program_id}`,
+    ...(row.award_plan &&
+      row.state === 'live' && { award_url: `${baseUrl()}/award/${ref}` }),
+    entries: entries.map((e) => ({
+      entry_id: e.id,
+      name: e.name,
+      live_url: e.live_url,
+      repo_url: e.repo_url,
+      score: e.score,
+    })),
+  };
+}
+
+export async function prepareAward(
+  ref: string,
+  installationId: number,
+  winners: z.infer<typeof AwardWinner>[],
+) {
+  const row = await loadCampaign(ref);
+  assertCanAward(row, installationId, new Date());
+  const entries = await entriesOf(row.program_id!);
+  const { prize } = splitUnits(parseUnits(row.amount, row.token_decimals));
+  const { wallets, amountsUnits, plan } = planAward({
+    winners,
+    entries,
+    prizeUnits: prize,
+    decimals: row.token_decimals,
+  });
+  await sql()`UPDATE sponsor_campaigns SET award_plan = ${sql().json(plan as never)} WHERE ref = ${ref}`;
+  return {
+    award_url: `${baseUrl()}/award/${ref}`,
+    transaction: awardTx(
+      row.escrow_address as `0x${string}`,
+      wallets,
+      amountsUnits,
+    ),
+    plan,
+  };
+}
+
+/**
+ * Records an onchain award against the stored plan. Idempotent, and race-safe under concurrent
+ * confirms for the same ref, following `confirmFunding`'s pattern: the receipt is fetched before
+ * opening the transaction (a network round-trip must not run while holding the row lock), then
+ * the row is locked (`FOR UPDATE`) for the duration of the award, so a second confirm that arrives
+ * while the first is still running waits, then sees the row already `awarded` and returns the same
+ * result rather than recording twice.
+ */
+export async function confirmAward(ref: string, tx: `0x${string}`) {
+  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
+
+  return sql().begin(async (db) => {
+    const [row] = await db<SponsorRow[]>`
+      SELECT * FROM sponsor_campaigns WHERE ref = ${ref} FOR UPDATE`;
+    if (!row) throw new NotFoundError(`No sponsor campaign "${ref}".`);
+    if (row.state === 'awarded') return { paid: row.award_plan?.length ?? 0 };
+    if (row.state !== 'live' || !row.escrow_address)
+      throw new SponsorError('This campaign is not live.');
+
+    if (receipt.status !== 'success')
+      throw new SponsorError('That transaction failed onchain.');
+    const ev = readAwarded(receipt, row.escrow_address);
+    if (!ev)
+      throw new SponsorError("That transaction isn't this campaign's award.");
+
+    let matched: { entry_id: number; amount: string; reason: string }[];
+    let offPlan:
+      | { wallet: string; amount: string; entry_id: number | null }[]
+      | null = null;
+    try {
+      matched = matchAwardToPlan(
+        row.award_plan ?? [],
+        ev.winners,
+        ev.amounts,
+        row.token_decimals,
+      );
+    } catch {
+      // Paid outside EarnKit's plan (e.g. straight to the contract): record what happened onchain
+      // and flag any winner that isn't an entry's payout wallet. The leaderboard shows these publicly.
+      const entries = await entriesOf(row.program_id!, db);
+      const used = new Set<number>();
+      offPlan = ev.winners.map((w, i) => {
+        const e = entries.find(
+          (x) =>
+            !used.has(x.id) &&
+            x.payout_wallet.toLowerCase() === w.toLowerCase(),
+        );
+        if (e) used.add(e.id);
+        return {
+          wallet: w.toLowerCase(),
+          amount: formatUnits(ev.amounts[i], row.token_decimals),
+          entry_id: e?.id ?? null,
+        };
+      });
+      matched = offPlan
+        .filter((o) => o.entry_id !== null)
+        .map((o) => ({
+          entry_id: o.entry_id!,
+          amount: o.amount,
+          reason: 'Paid by the sponsor (no reason given)',
+        }));
+    }
+
+    for (const m of matched) {
+      await db`UPDATE projects SET prize_tx = ${tx}, prize_paid_at = now(), prize_amount = ${m.amount},
+        prize_reason = ${m.reason} WHERE id = ${m.entry_id}`;
+    }
+    await db`UPDATE sponsor_campaigns SET state = 'awarded', award_tx = ${tx}, awarded_at = now(),
+      award_onchain = ${offPlan ? db.json(offPlan as never) : null} WHERE ref = ${ref}`;
+    await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
+
+    return {
+      paid: matched.length,
+      ...(offPlan && {
+        flagged: offPlan.filter((o) => o.entry_id === null).length,
+      }),
     };
   });
 }

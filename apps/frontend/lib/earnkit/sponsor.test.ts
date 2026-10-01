@@ -6,7 +6,11 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { campaignsAbi } from './escrow-abi';
-import { confirmableState, fundingFromReceipt } from './sponsor';
+import {
+  assertCanAward,
+  confirmableState,
+  fundingFromReceipt,
+} from './sponsor';
 
 // escrowConfig() (used by fundingFromReceipt via readCreated) reads these lazily per call, not
 // at module load, so setting them here (after imports, which are hoisted) is sufficient — see
@@ -104,4 +108,32 @@ test('confirmableState: draft and expired publish, live is idempotent, terminal 
   assert.equal(confirmableState('awarded'), 'refuse');
   assert.equal(confirmableState('refunded'), 'refuse');
   assert.equal(confirmableState('taken_down'), 'refuse');
+});
+
+test('award plan rejected before end and from another installation', () => {
+  const live = {
+    state: 'live',
+    installation_id: 7,
+    draft: { ends_at: '2026-10-15T00:00:00Z' },
+  } as const;
+  assert.throws(
+    () => assertCanAward(live, 7, new Date('2026-10-14T23:59:59Z')),
+    /after the campaign ends/,
+  );
+  assert.throws(
+    () => assertCanAward(live, 8, new Date('2026-10-16T00:00:00Z')),
+    /agent that created/,
+  );
+  assert.throws(
+    () =>
+      assertCanAward(
+        { ...live, state: 'awarded' },
+        7,
+        new Date('2026-10-16T00:00:00Z'),
+      ),
+    /awarded/,
+  );
+  assert.doesNotThrow(() =>
+    assertCanAward(live, 7, new Date('2026-10-15T00:00:00Z')),
+  );
 });
