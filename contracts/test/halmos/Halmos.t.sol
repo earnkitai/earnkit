@@ -2,24 +2,29 @@
 pragma solidity 0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-// WORKAROUND (see README "Analyzer notes" / task-2-report.md): importing EarnKitCampaigns and
+// WORKAROUND (see README.md "Analyzer notes" for the full writeup): importing EarnKitCampaigns and
 // EarnKitCampaign from their real paths under src/ (two separate files, one name a prefix of the
 // other) makes Halmos 0.3.3 fail every check with "HalmosException: No successful path found in
 // setUp()" / "Unsupported cheat code: deployCode(...)" while constructing either contract — a
 // Halmos build-resolution bug, not a contract bug (confirmed by bisection: byte-identical copies
 // of the same two contracts, flattened into one file, execute under Halmos with no changes to any
 // contract logic). EarnKitCampaignsFlat.sol is a mechanical `forge flatten` of src/EarnKitCampaigns.sol
-// (which pulls in src/EarnKitCampaign.sol) and must be regenerated with:
+// (which pulls in src/EarnKitCampaign.sol).
+//
+// STALENESS GUARD: this flattened copy can drift from src/ if src/ changes and nobody
+// regenerates it. `test/halmos/check-flat.sh` re-flattens src/ into a temp file and diffs it
+// against this file, failing loudly if they differ. There is NO automatic diff run by this test
+// file itself — always run the guard script immediately before Halmos:
+//   ./test/halmos/check-flat.sh && halmos --contract HalmosTest --solver-timeout-assertion 0
+// To regenerate after a legitimate src/ change:
 //   forge flatten src/EarnKitCampaigns.sol -o test/halmos/EarnKitCampaignsFlat.sol
-// whenever either source file changes. A content diff against both src files before every Halmos
-// run (see task-2-report.md) confirms the flattened contract bodies are byte-for-byte identical to
-// the real src/ contracts other than import/pragma lines. IERC20 is imported from the same
-// flattened file (not from @openzeppelin/... directly) so it's the same type the flattened
-// contracts use.
+// IERC20 is imported from the same flattened file (not from @openzeppelin/... directly) so it's
+// the same type the flattened contracts use.
 import {EarnKitCampaigns, EarnKitCampaign, IERC20} from "./EarnKitCampaignsFlat.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
-/// Run with `halmos --contract HalmosTest`. Parameters are symbolic: proofs hold for ALL values.
+/// Run `./test/halmos/check-flat.sh` first, then `halmos --contract HalmosTest`. Parameters are
+/// symbolic: proofs hold for ALL values.
 contract HalmosTest is Test {
     EarnKitCampaigns factory;
     MockERC20 usdc;
@@ -173,7 +178,15 @@ contract HalmosTest is Test {
             try c.award(w2, a2) {
                 assert(usdc.balanceOf(TREASURY) == fee);
                 assert(usdc.balanceOf(OWNER) == 0);
-            } catch {}
+            } catch {
+                // Every precondition for success already holds here (Funded, past endsAt, a
+                // valid single winner, caller == sponsor): the owner's rotation must never be
+                // able to make an otherwise-legitimate sponsor award fail. A silent `catch {}`
+                // here would make this check vacuously pass even if rotation introduced a DoS
+                // on sponsor funds (e.g. a future change reading factory.treasury() and
+                // reverting), so a failure here is asserted as a hard failure.
+                assert(false);
+            }
         }
     }
 }
