@@ -8,7 +8,11 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
-import { scoreEntry, type CampaignConfig } from '../lib/earnkit/campaigns';
+import {
+  minScore,
+  scoreEntry,
+  type CampaignConfig,
+} from '../lib/earnkit/campaigns';
 import { sql } from '../lib/earnkit/db';
 
 /**
@@ -43,6 +47,8 @@ const [program] = await db<
 if (!program?.campaign)
   fail('Usage: pnpm campaign <score|rank|payout> <campaign slug>');
 const campaign = program.campaign;
+if (campaign.kind !== 'earnkit' && (command === 'payout' || command === 'rank'))
+  fail('Sponsor campaigns: use award/refund/sync (see --help).');
 
 type Entry = {
   id: number;
@@ -69,16 +75,19 @@ if (command === 'score') {
 } else if (command === 'rank') {
   const list = await entries();
   console.log(
-    `${program.title}: ${list.length} entries, top ${campaign.winners} win, min ${campaign.min_score}\n`,
+    `${program.title}: ${list.length} entries, top ${campaign.winners} win, min ${minScore(campaign)}\n`,
   );
   list.forEach((e, i) =>
     console.log(
-      `#${i + 1}  id ${e.id}  ${e.name}  score ${e.score ?? '-'}${(e.score ?? 0) < campaign.min_score ? ' (below min)' : ''}` +
+      `#${i + 1}  id ${e.id}  ${e.name}  score ${e.score ?? '-'}${(e.score ?? 0) < minScore(campaign) ? ' (below min)' : ''}` +
         `${e.prize_tx ? `  PAID ${e.prize_tx}` : ''}\n      contracts ${e.contracts.join(', ')}  payout ${e.payout_wallet}` +
         `\n      ${[e.live_url, e.repo_url].filter(Boolean).join('  ')}`,
     ),
   );
 } else if (command === 'payout') {
+  // Guarded above for non-'earnkit' kinds; re-checked here so TS narrows `campaign` below.
+  if (campaign.kind !== 'earnkit')
+    fail('Sponsor campaigns: use award/refund/sync (see --help).');
   const ids = (flag('winners') ?? '').split(',').map(Number).filter(Boolean);
   if (ids.length === 0)
     fail('Name the approved winners: --winners <project id>,<project id>,...');
@@ -94,16 +103,19 @@ if (command === 'score') {
       fail(`Project ${id} isn't an entry in ${program.id}.`),
   );
   for (const w of winners) {
-    if ((w.score ?? 0) < campaign.min_score)
+    if ((w.score ?? 0) < minScore(campaign))
       fail(
-        `${w.name} scored ${w.score ?? 0}, below the minimum ${campaign.min_score}.`,
+        `${w.name} scored ${w.score ?? 0}, below the minimum ${minScore(campaign)}.`,
       );
     if (w.prize_tx) fail(`${w.name} was already paid: ${w.prize_tx}`);
   }
 
   const amount = parseUnits(campaign.amount_each, campaign.prize.decimals);
   const token = campaign.prize.token as `0x${string}`;
-  const reader = createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) });
+  const reader = createPublicClient({
+    chain: base,
+    transport: http(process.env.BASE_RPC_URL),
+  });
   console.log(
     `Paying ${campaign.amount_each} ${campaign.prize.symbol} each on Base:`,
   );
@@ -142,7 +154,7 @@ if (command === 'score') {
       const receipt = await reader.waitForTransactionReceipt({ hash });
       if (receipt.status !== 'success')
         fail(`Transfer to ${w.name} failed: ${hash}`);
-      await db`UPDATE projects SET prize_tx = ${hash}, prize_paid_at = now() WHERE id = ${w.id}`;
+      await db`UPDATE projects SET prize_tx = ${hash}, prize_paid_at = now(), prize_amount = ${campaign.amount_each} WHERE id = ${w.id}`;
       console.log(`  paid ${w.name}: ${hash}`);
     }
   }

@@ -97,13 +97,13 @@ export const tools = {
 
     // The builder's entries in EarnKit campaigns: rank while running, prize once paid.
     const yourEntries = await sql()<YourEntry[]>`
-      SELECT e.name, e.campaign_title, e.campaign, e.score, e.rank, e.entries, e.prize_tx, e.prize_paid_at
+      SELECT e.name, e.campaign_title, e.campaign, e.score, e.rank, e.entries, e.prize_tx, e.prize_paid_at, e.prize_amount
       FROM (
-        SELECT p.name, p.installation_id, p.score, p.prize_tx, p.prize_paid_at, pr.title AS campaign_title,
+        SELECT p.name, p.installation_id, p.score, p.prize_tx, p.prize_paid_at, p.prize_amount, pr.title AS campaign_title,
           pr.campaign, row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,
           count(*) OVER (PARTITION BY p.program_id)::int AS entries
         FROM projects p JOIN programs pr ON pr.id = p.program_id
-        WHERE pr.campaign IS NOT NULL AND p.contracts IS NOT NULL
+        WHERE pr.campaign IS NOT NULL AND p.payout_wallet IS NOT NULL
       ) e
       WHERE e.installation_id = ${ctx.installationId}`;
     const entries = presentYourEntries(yourEntries, lastCheck);

@@ -88,7 +88,6 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEFAULT '{}
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS setup text[] NOT NULL DEFAULT '{}';
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS each_time text[] NOT NULL DEFAULT '{}';
 ALTER TABLE programs DROP COLUMN IF EXISTS key_requirement;
-ALTER TABLE programs DROP COLUMN IF EXISTS verified_at;
 ALTER TABLE programs DROP COLUMN IF EXISTS builder_steps;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS programs_checked_at timestamptz;
@@ -108,3 +107,32 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_paid_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image bytea;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image_type text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES installations(id);
+
+-- v2.1 sponsor campaigns
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'file'; -- 'file' | 'sponsor'
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_amount text;  -- what this winner got, token units
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_reason text;  -- the sponsor's public reason
+CREATE TABLE IF NOT EXISTS sponsor_campaigns (
+  ref             text PRIMARY KEY,                 -- 0x + 64 hex; bytes32 used onchain
+  program_id      text REFERENCES programs(id),     -- set when live
+  installation_id integer NOT NULL REFERENCES installations(id),
+  sponsor_name    text NOT NULL,
+  sponsor_url     text,
+  draft           jsonb NOT NULL,                   -- title, theme, criteria, chains, winners, existing_work, starts_at, ends_at
+  token           text NOT NULL,
+  token_symbol    text NOT NULL,
+  token_decimals  integer NOT NULL,
+  amount          text NOT NULL,                    -- decimal string in token units
+  chain_id        integer NOT NULL,
+  escrow_address  text,
+  sponsor_wallet  text,
+  fund_tx         text,
+  state           text NOT NULL DEFAULT 'draft'
+                  CHECK (state IN ('draft', 'live', 'awarded', 'refunded', 'expired', 'taken_down')),
+  award_plan      jsonb,                            -- [{entry_id, wallet, amount, reason}] as the sponsor sent it
+  award_onchain   jsonb,                            -- [{wallet, amount, entry_id|null}] when the onchain award differs from the plan
+  award_tx        text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  funded_at       timestamptz,
+  awarded_at      timestamptz
+);

@@ -11,16 +11,20 @@ import { z } from 'zod';
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x address');
 
-export const CampaignConfig = z
+const EarnKitPrize = z
   .object({
-    prize: z
-      .object({
-        token: address,
-        symbol: z.string().min(1),
-        decimals: z.number().int().min(0).max(36),
-        chain: z.literal('base'),
-      })
-      .strict(),
+    token: address,
+    symbol: z.string().min(1),
+    decimals: z.number().int().min(0).max(36),
+    chain: z.literal('base'),
+  })
+  .strict();
+
+/** EarnKit-funded campaign (Campaign #1): fixed amount per winner, top scores win. */
+export const EarnKitCampaign = z
+  .object({
+    kind: z.literal('earnkit'),
+    prize: EarnKitPrize,
     winners: z.number().int().min(1).max(50),
     /** Whole tokens per winner, as a string (e.g. "75000000"). */
     amount_each: z.string().regex(/^\d+$/),
@@ -29,7 +33,56 @@ export const CampaignConfig = z
     min_score: z.number().int().min(0),
   })
   .strict();
+
+/** Sponsor-funded campaign (v2.1): pool in an escrow clone; the sponsor picks winners. */
+export const SponsorCampaign = z
+  .object({
+    kind: z.literal('sponsor'),
+    prize: z
+      .object({
+        token: address,
+        symbol: z.string().min(1),
+        decimals: z.number().int().min(0).max(36),
+        chain_id: z.number().int().positive(),
+      })
+      .strict(),
+    /** The deposit, in token units ("5000"); 10% of it is EarnKit's fee on payout. */
+    pool: z.string().regex(/^\d+(\.\d+)?$/),
+    /** What winners share: pool minus the fee, exact ("4500"). */
+    prize_total: z.string().regex(/^\d+(\.\d+)?$/),
+    winners: z.number().int().min(1).max(50),
+    metric: z.literal('unique_wallets'),
+    sponsor: z
+      .object({ name: z.string().min(1), url: z.string().url().optional() })
+      .strict(),
+    criteria: z.string().min(1),
+    /** The campaign's escrow clone. */
+    escrow: address,
+    /** The bytes32 ref used onchain and in /fund/<ref>. */
+    ref: z.string().regex(/^0x[0-9a-f]{64}$/),
+  })
+  .strict();
+
+export const CampaignConfig = z.discriminatedUnion('kind', [
+  EarnKitCampaign,
+  SponsorCampaign,
+]);
 export type CampaignConfig = z.infer<typeof CampaignConfig>;
+
+const fmt = (n: string) =>
+  Number(n).toLocaleString('en-US', { maximumFractionDigits: 18 });
+
+export const minScore = (c: CampaignConfig) =>
+  c.kind === 'earnkit' ? c.min_score : 0;
+
+export const prizeText = (c: CampaignConfig) =>
+  c.kind === 'earnkit'
+    ? `${fmt(c.amount_each)} ${c.prize.symbol} each to ${c.winners} winners`
+    : `${fmt(c.pool)} ${c.prize.symbol} pool (${fmt(c.prize_total)} to winners)`;
+
+/** What one winner got: the recorded amount, else the fixed amount (EarnKit kind). */
+export const wonText = (c: CampaignConfig, prizeAmount: string | null) =>
+  `${fmt(prizeAmount ?? (c.kind === 'earnkit' ? c.amount_each : c.prize_total))} ${c.prize.symbol}`;
 
 /** Submission keys every campaign needs. */
 export const CAMPAIGN_KEYS = {
@@ -101,20 +154,30 @@ export async function deploymentStatus(
 
 /**
  * Checks a campaign entry: 1–5 Base contracts deployed during the campaign, and a payout wallet.
- * `deployedAt` is injectable for tests.
+ * Sponsor campaigns may skip contracts (`requireContracts: false`); EarnKit campaigns require
+ * them. `status` is injectable for tests.
  */
 export async function validateEntry(
   data: Record<string, unknown>,
   window: { starts_at: Date | null; ends_at: Date | null },
-  status: (contract: string) => Promise<Deployment> = async (c) =>
-    deploymentStatus(c, await baseBlockAt(window.starts_at ?? new Date(0))),
+  opts: {
+    requireContracts?: boolean;
+    status?: (contract: string) => Promise<Deployment>;
+  } = {},
 ) {
+  const requireContracts = opts.requireContracts ?? true;
+  const status =
+    opts.status ??
+    (async (c: string) =>
+      deploymentStatus(c, await baseBlockAt(window.starts_at ?? new Date(0))));
   const contracts = parseAddresses(data[CAMPAIGN_KEYS.contracts]);
   const payout = String(data[CAMPAIGN_KEYS.payoutWallet] ?? '').trim();
 
-  if (contracts.length === 0 || contracts.length > 5) {
+  if (contracts.length > 5 || (requireContracts && contracts.length === 0)) {
     throw new EntryError(
-      'contracts: give 1 to 5 Base contract addresses that people use.',
+      requireContracts
+        ? 'contracts: give 1 to 5 Base contract addresses that people use.'
+        : 'contracts: at most 5 Base contract addresses.',
     );
   }
   const bad = contracts.find((c) => !/^0x[0-9a-f]{40}$/.test(c));
@@ -214,18 +277,18 @@ export type YourEntry = {
   entries: number;
   prize_tx: string | null;
   prize_paid_at: Date | null;
+  prize_amount: string | null;
 };
 
 /** "Your campaign entries" lines, plus "you won" notices for the since-last-check line. */
 export function presentYourEntries(list: YourEntry[], lastCheck: Date | null) {
   const lines = list.map((e) => {
-    const prize = `${Number(e.campaign.amount_each).toLocaleString('en-US')} ${e.campaign.prize.symbol}`;
     if (e.prize_tx)
-      return `${e.name}: you won ${prize} in ${e.campaign_title} (tx ${e.prize_tx})`;
+      return `${e.name}: you won ${wonText(e.campaign, e.prize_amount)} in ${e.campaign_title} (tx ${e.prize_tx})`;
     const score =
       e.score == null
         ? 'not scored yet'
-        : `${e.score} wallets (min ${e.campaign.min_score})`;
+        : `${e.score} wallets${minScore(e.campaign) ? ` (min ${minScore(e.campaign)})` : ''}`;
     return `${e.name}: #${e.rank} of ${e.entries} in ${e.campaign_title} · ${score}`;
   });
   const wins = list
@@ -233,8 +296,7 @@ export function presentYourEntries(list: YourEntry[], lastCheck: Date | null) {
       (e) => e.prize_paid_at && (!lastCheck || e.prize_paid_at > lastCheck),
     )
     .map(
-      (e) =>
-        `you won ${Number(e.campaign.amount_each).toLocaleString('en-US')} ${e.campaign.prize.symbol} with ${e.name}`,
+      (e) => `you won ${wonText(e.campaign, e.prize_amount)} with ${e.name}`,
     );
   return {
     section: lines.length

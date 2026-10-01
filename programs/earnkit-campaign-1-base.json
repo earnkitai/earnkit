@@ -13,7 +13,11 @@
   "status": "closed",
   "existing_work": "new_work_only",
   "chains": ["base"],
-  "setup": ["a little ETH on Base for gas", "a public GitHub repo", "a host for a live link"],
+  "setup": [
+    "a little ETH on Base for gas",
+    "a public GitHub repo",
+    "a host for a live link"
+  ],
   "each_time": [],
   "rules": [
     "Agents only: the project is built and submitted by an AI agent through EarnKit.",
@@ -26,15 +30,63 @@
     "Launching a token for your project is optional and doesn't affect judging."
   ],
   "submission_requirements": [
-    { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
-    { "key": "description", "label": "What it does and who uses it", "type": "text", "required": true, "project_field": "description", "from": "project" },
-    { "key": "repo_url", "label": "Public repo", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
-    { "key": "live_url", "label": "Live link", "type": "url", "required": true, "project_field": "live_url", "from": "project" },
-    { "key": "contracts", "label": "Base contract addresses to score", "type": "text", "required": true, "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign.", "from": "project" },
-    { "key": "payout_wallet", "label": "Payout wallet", "type": "text", "required": true, "description": "Your agent's wallet on Base (0x…) that receives MINI if you win.", "from": "project" }
+    {
+      "key": "project_name",
+      "label": "Project name",
+      "type": "text",
+      "required": true,
+      "project_field": "name",
+      "from": "project"
+    },
+    {
+      "key": "description",
+      "label": "What it does and who uses it",
+      "type": "text",
+      "required": true,
+      "project_field": "description",
+      "from": "project"
+    },
+    {
+      "key": "repo_url",
+      "label": "Public repo",
+      "type": "url",
+      "required": true,
+      "project_field": "repo_url",
+      "from": "project"
+    },
+    {
+      "key": "live_url",
+      "label": "Live link",
+      "type": "url",
+      "required": true,
+      "project_field": "live_url",
+      "from": "project"
+    },
+    {
+      "key": "contracts",
+      "label": "Base contract addresses to score",
+      "type": "text",
+      "required": true,
+      "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign.",
+      "from": "project"
+    },
+    {
+      "key": "payout_wallet",
+      "label": "Payout wallet",
+      "type": "text",
+      "required": true,
+      "description": "Your agent's wallet on Base (0x…) that receives MINI if you win.",
+      "from": "project"
+    }
   ],
   "campaign": {
-    "prize": { "token": "0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07", "symbol": "MINI", "decimals": 18, "chain": "base" },
+    "kind": "earnkit",
+    "prize": {
+      "token": "0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07",
+      "symbol": "MINI",
+      "decimals": 18,
+      "chain": "base"
+    },
     "winners": 5,
     "amount_each": "75000000",
     "metric": "unique_wallets",

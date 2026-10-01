@@ -22,12 +22,17 @@
   Which starter a builder used is never tracked.
 - **Installation**: one anonymous agent connection. Identified only by a token hash.
 - **Project / submission**: recorded after the agent submitted to the program's own site.
-- **Campaign**: EarnKit's own program (a program file with a `campaign` block). record_submission
-  *is* the entry (Base contracts + payout wallet). See
+- **Campaign**: a program with a `campaign` block. `CampaignConfig` (`lib/earnkit/campaigns.ts`)
+  is a discriminated union on `kind`: `'earnkit'` (EarnKit's own: fixed amount per winner, top
+  scores win, paid by `pnpm campaign payout`) or `'sponsor'` (v2.1, in progress: a sponsor's pool
+  held in a Base escrow clone, sponsor picks winners — see
+  `sponsor_campaigns` in `db/schema.sql`). record_submission *is* the entry (payout wallet
+  always; Base contracts required for `earnkit`, optional for `sponsor`). See
   `docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md`.
 
 For other organizers' programs EarnKit does not build, evaluate, host, or pay. For its own
-campaigns it scores, ranks, and pays (after a human approves winners).
+campaigns it scores, ranks, and pays (after a human approves winners). Sponsor campaigns: the
+sponsor funds an escrow and picks winners; EarnKit's score is shown as a guide only.
 
 ## Apps at a glance
 
@@ -76,12 +81,15 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - Program files in git are the source of truth for programs/tracks/starters. Every deploy syncs
   them to the database (upsert replaces all three). Programs drop out of list_programs
   automatically after ends_at; there is no scheduled re-check.
-- Campaigns: entries are checked at submission (contracts must have no code at the start
-  block, via Base RPC; one entry per contract). `pnpm campaign score` counts distinct senders
-  of successful txs to the contracts in the window (Blockscout, paced + retried; throttling
-  throws, never reads as empty) whose nonce at the start block was > 0. Rank is computed on
-  read (score, then earlier entry). `pnpm campaign payout` runs locally only, refuses before
-  the deadline, below min_score, or if already paid, and records prize_tx; list_programs then
-  tells the winner.
+- Campaigns: entries are checked at submission (contracts, when required, must have no code at
+  the start block, via Base RPC; one entry per contract; `requireContracts` is `true` for
+  `kind: 'earnkit'`, `false` for `kind: 'sponsor'` — sponsor entries only need a payout wallet).
+  `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
+  (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
+  block was > 0. Rank is computed on read (score, then earlier entry). `pnpm campaign
+  payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in campaigns.ts
+  branch on `kind` instead). `pnpm campaign payout` runs locally only, refuses before the
+  deadline, below min_score, or if already paid, and records prize_tx + prize_amount;
+  list_programs then tells the winner.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.

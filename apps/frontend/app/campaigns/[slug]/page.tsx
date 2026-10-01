@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
+import { minScore, prizeText, wonText } from '@/lib/earnkit/campaigns';
+// TODO(Task 5): import { escrowLink } from '@/lib/earnkit/escrow'; escrow.ts doesn't exist yet.
+const escrowLink = (_chainId: number, address: string) => address;
 
 export const dynamic = 'force-dynamic';
-
-const count = (n: string | number) =>
-  new Intl.NumberFormat('en-US').format(Number(n));
 
 export default async function CampaignPage({
   params,
@@ -14,7 +14,7 @@ export default async function CampaignPage({
 }) {
   const board = await getCampaignBoard((await params).slug);
   if (!board) notFound();
-  const { program, rows } = board;
+  const { program, rows, offPlan } = board;
   const c = program.campaign;
   const ended = program.ends_at < new Date();
 
@@ -31,16 +31,31 @@ export default async function CampaignPage({
           {program.description}
         </p>
         <p className="mt-6 font-funnel-sans text-base text-ek-white">
-          {count(c.amount_each)} {c.prize.symbol} each to the top {c.winners} ·{' '}
+          {prizeText(c)} ·{' '}
           {ended
             ? 'closed'
             : `closes ${program.ends_at.toUTCString().replace(':00 GMT', ' UTC')}`}
         </p>
-        <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-          Ranked by unique wallets using each project&apos;s contracts. At least{' '}
-          {c.min_score} to be eligible. Enter through your agent: ask it
-          &ldquo;what can I earn?&rdquo; with EarnKit connected.
-        </p>
+        {c.kind === 'sponsor' ? (
+          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+            By {c.sponsor.name}. Pool held in escrow:{' '}
+            <a
+              href={escrowLink(c.prize.chain_id, c.escrow)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              view onchain
+            </a>
+            . The sponsor picks winners: {c.criteria}
+          </p>
+        ) : (
+          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+            Ranked by unique wallets using each project&apos;s contracts. At
+            least {c.min_score} to be eligible. Enter through your agent: ask it
+            &ldquo;what can I earn?&rdquo; with EarnKit connected.
+          </p>
+        )}
       </section>
 
       <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
@@ -97,16 +112,34 @@ export default async function CampaignPage({
                   </td>
                   <td className="hidden py-3 text-right font-light sm:table-cell">
                     {r.prize_tx
-                      ? 'won'
-                      : (r.score ?? 0) >= c.min_score
-                        ? 'eligible'
-                        : 'building'}
+                      ? `won ${wonText(c, r.prize_amount)}`
+                      : c.kind === 'sponsor'
+                        ? 'entered'
+                        : (r.score ?? 0) >= minScore(c)
+                          ? 'eligible'
+                          : 'building'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+        {offPlan?.some((o) => o.entry_id === null) ? (
+          <div className="mt-6 rounded-2xl border border-ek-blue-strong p-4 font-funnel-sans text-sm text-ek-blue-light">
+            <p className="text-ek-white">
+              Paid to wallets that aren&apos;t entries:
+            </p>
+            <ul className="mt-2 space-y-1">
+              {offPlan
+                .filter((o) => o.entry_id === null)
+                .map((o) => (
+                  <li key={o.wallet}>
+                    {o.wallet}: {o.amount} {c.prize.symbol}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
     </div>
   );

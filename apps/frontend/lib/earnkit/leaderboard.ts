@@ -8,7 +8,12 @@ export type BoardRow = {
   rank: number;
   token_url: string | null;
   prize_tx: string | null;
+  payout_wallet: string;
+  prize_amount: string | null;
+  prize_reason: string | null;
 };
+
+type OffPlanAward = { wallet: string; amount: string; entry_id: number | null };
 
 /** A campaign and its ranked entries (public; campaigns only). */
 export async function getCampaignBoard(slug: string) {
@@ -25,11 +30,17 @@ export async function getCampaignBoard(slug: string) {
   >`SELECT id, title, description, summary, ends_at, campaign, rules FROM programs WHERE id = ${slug}`;
   if (!program?.campaign) return null;
   const rows = await sql()<BoardRow[]>`
-    SELECT id, name, score, token_url, prize_tx,
+    SELECT id, name, score, token_url, prize_tx, payout_wallet, prize_amount, prize_reason,
       row_number() OVER (ORDER BY score DESC NULLS LAST, submitted_at)::int AS rank
-    FROM projects WHERE program_id = ${slug} AND contracts IS NOT NULL
+    FROM projects WHERE program_id = ${slug} AND payout_wallet IS NOT NULL
     ORDER BY score DESC NULLS LAST, submitted_at`;
-  return { program: { ...program, campaign: program.campaign }, rows };
+  const [sponsorRow] = await sql()<{ award_onchain: OffPlanAward[] | null }[]>`
+    SELECT award_onchain FROM sponsor_campaigns WHERE program_id = ${slug}`;
+  return {
+    program: { ...program, campaign: program.campaign },
+    rows,
+    offPlan: sponsorRow?.award_onchain ?? null,
+  };
 }
 
 /** One campaign entry's public page. */
@@ -46,6 +57,8 @@ export async function getProjectPage(id: number) {
       score: number | null;
       scored_at: Date | null;
       prize_tx: string | null;
+      prize_amount: string | null;
+      prize_reason: string | null;
       submitted_at: Date;
       program_id: string;
       program_title: string;
@@ -56,11 +69,12 @@ export async function getProjectPage(id: number) {
   >`
     SELECT * FROM (
       SELECT p.id, p.name, p.description, p.repo_url, p.live_url, p.token_url, p.contracts, p.score,
-        p.scored_at, p.prize_tx, p.submitted_at, p.program_id, pr.title AS program_title, pr.campaign,
+        p.scored_at, p.prize_tx, p.prize_amount, p.prize_reason, p.submitted_at, p.program_id,
+        pr.title AS program_title, pr.campaign,
         row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,
         count(*) OVER (PARTITION BY p.program_id)::int AS entries
       FROM projects p JOIN programs pr ON pr.id = p.program_id
-      WHERE pr.campaign IS NOT NULL AND p.contracts IS NOT NULL
+      WHERE pr.campaign IS NOT NULL AND p.payout_wallet IS NOT NULL
     ) x WHERE x.id = ${id}`;
   return row ?? null;
 }

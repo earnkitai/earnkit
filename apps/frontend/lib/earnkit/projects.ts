@@ -28,12 +28,16 @@ export async function recordSubmission(
   let entry: { contracts: string[]; payoutWallet: string } | null = null;
   if (program.campaign) {
     if (!isOpen(program)) throw new EntryError('This campaign is closed.');
-    entry = await validateEntry(input.submission_data, program);
-    const [taken] = await sql()<{ name: string }[]>`
-      SELECT name FROM projects
-      WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
-    if (taken)
-      throw new EntryError(`contracts: already entered by "${taken.name}".`);
+    entry = await validateEntry(input.submission_data, program, {
+      requireContracts: program.campaign.kind === 'earnkit',
+    });
+    if (entry.contracts.length > 0) {
+      const [taken] = await sql()<{ name: string }[]>`
+        SELECT name FROM projects
+        WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
+      if (taken)
+        throw new EntryError(`contracts: already entered by "${taken.name}".`);
+    }
   }
 
   return sql().begin(async (tx) => {
@@ -62,10 +66,12 @@ export async function recordSubmission(
       ...(entry &&
         program.campaign && {
           campaign_entry:
-            `Entered ${program.title}. Scored on unique wallets using ${entry.contracts.join(', ')} until ` +
-            `${program.ends_at?.toISOString()}; at least ${program.campaign.min_score} to be eligible. ` +
-            `If you win, ${Number(program.campaign.amount_each).toLocaleString('en-US')} ${program.campaign.prize.symbol} ` +
-            `goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure your agent controls that wallet.`,
+            `Entered ${program.title}. ` +
+            (program.campaign.kind === 'earnkit'
+              ? `Scored on unique wallets using ${entry.contracts.join(', ')} until ${program.ends_at?.toISOString()}; ` +
+                `at least ${program.campaign.min_score} to be eligible. `
+              : `The sponsor picks winners after ${program.ends_at?.toISOString()}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
+            `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure your agent controls that wallet.`,
         }),
       ...(!token_url && { next: tokenOffer(name) }),
     };

@@ -29,7 +29,8 @@ apps/frontend/
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation)
     tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)
-    campaigns.ts(+test)        EarnKit campaigns: config schema, entry checks, unique_wallets scoring
+    campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'), minScore/prizeText/wonText,
+                               entry checks (contracts optional for 'sponsor'), unique_wallets scoring
                                (Base Blockscout + Base RPC), "Your campaign entries" text
     leaderboard.ts             data for the leaderboard and entry pages
   db/schema.sql                the whole schema, idempotent

@@ -1,11 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProjectPage } from '@/lib/earnkit/leaderboard';
+import { minScore, wonText } from '@/lib/earnkit/campaigns';
 
 export const dynamic = 'force-dynamic';
-
-const count = (n: string | number) =>
-  new Intl.NumberFormat('en-US').format(Number(n));
 /** Builder-supplied links: only http(s) becomes a link (no javascript: or data: URLs). */
 const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
@@ -63,13 +61,18 @@ export default async function ProjectPage({
             <dt className="text-sm text-ek-blue-soft">Prize</dt>
             <dd className="mt-1 text-2xl text-ek-white">
               {p.prize_tx
-                ? `Won ${count(c.amount_each)} ${c.prize.symbol}`
-                : (p.score ?? 0) >= c.min_score
-                  ? 'Eligible'
-                  : 'Building'}
+                ? `Won ${wonText(c, p.prize_amount)}`
+                : c.kind === 'sponsor'
+                  ? 'Entered'
+                  : (p.score ?? 0) >= minScore(c)
+                    ? 'Eligible'
+                    : 'Building'}
             </dd>
           </div>
         </dl>
+        {p.prize_reason ? (
+          <p className="mt-2 text-sm text-ek-blue-soft">{p.prize_reason}</p>
+        ) : null}
 
         <ul className="mt-8 space-y-2 font-funnel-sans text-base text-ek-blue-light">
           {p.live_url ? (

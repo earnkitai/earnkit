@@ -1,7 +1,10 @@
-import type { CampaignConfig } from './campaigns';
+import { prizeText, type CampaignConfig } from './campaigns';
 import type { Chain } from './match';
 import { sql } from './db';
 import type { ProgramFile, SubmissionRequirement } from './program-file';
+
+// TODO(Task 5): import { escrowLink } from './escrow'; escrow.ts doesn't exist yet.
+const escrowLink = (_chainId: number, address: string) => address;
 
 export class NotFoundError extends Error {}
 
@@ -192,15 +195,30 @@ export async function getProgram(programId: string) {
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
     ...(program.campaign && {
-      campaign: {
-        by: 'EarnKit',
-        prize: `${Number(program.campaign.amount_each).toLocaleString('en-US')} ${program.campaign.prize.symbol} each to ${program.campaign.winners} winners, sent to their payout wallet on Base`,
-        judged_by:
-          'unique wallets (with onchain history before the campaign) that used your contracts during the campaign; a human approves winners',
-        min_score: program.campaign.min_score,
-        how_to_submit:
-          'Submit to EarnKit: call record_submission with the answers. There is no external site.',
-      },
+      campaign:
+        program.campaign.kind === 'earnkit'
+          ? {
+              by: 'EarnKit',
+              prize: `${prizeText(program.campaign)}, sent to their payout wallet on Base`,
+              judged_by:
+                'unique wallets (with onchain history before the campaign) that used your contracts during the campaign; a human approves winners',
+              min_score: program.campaign.min_score,
+              how_to_submit:
+                'Submit to EarnKit: call record_submission with the answers. There is no external site.',
+            }
+          : {
+              by: program.campaign.sponsor,
+              pool: prizeText(program.campaign),
+              escrow: escrowLink(
+                program.campaign.prize.chain_id,
+                program.campaign.escrow,
+              ),
+              criteria: program.campaign.criteria,
+              judged_by:
+                "the sponsor, using EarnKit's score as a guide; picks and reasons are public",
+              how_to_submit:
+                'Submit to EarnKit: call record_submission with the answers (contracts optional). There is no external site.',
+            },
     }),
     ...(starters.length > 0 && {
       starters: starters.map((s) => ({
@@ -217,7 +235,10 @@ export async function getProgram(programId: string) {
 }
 
 /** Replaces the program, its tracks, and its starters with the file's contents. */
-export async function upsertProgram(p: ProgramFile) {
+export async function upsertProgram(
+  p: ProgramFile,
+  source: 'file' | 'sponsor' = 'file',
+) {
   await sql().begin(async (tx) => {
     const row = {
       id: p.id,
@@ -240,6 +261,7 @@ export async function upsertProgram(p: ProgramFile) {
       verified_at: p.verified_at,
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),
+      source,
     };
     await tx`
       INSERT INTO programs ${tx(row)}

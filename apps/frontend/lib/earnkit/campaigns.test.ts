@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CampaignConfig as CampaignSchema,
   EntryError,
+  minScore,
   parseAddresses,
   presentYourEntries,
+  prizeText,
   validateEntry,
+  wonText,
   type CampaignConfig,
 } from './campaigns';
 
@@ -28,11 +32,9 @@ test('parses comma, space, and array forms; dedupes; lowercases', () => {
 
 test('valid entry', async () => {
   assert.deepEqual(
-    await validateEntry(
-      { contracts: `${A},${B}`, payout_wallet: W },
-      window,
-      during,
-    ),
+    await validateEntry({ contracts: `${A},${B}`, payout_wallet: W }, window, {
+      status: during,
+    }),
     {
       contracts: [A, B],
       payoutWallet: W,
@@ -46,7 +48,11 @@ test('rejects bad entries with a clear reason', async () => {
     deployed: (
       c: string,
     ) => Promise<'not_contract' | 'before_start' | 'during'> = during,
-  ) => assert.rejects(validateEntry(data, window, deployed), EntryError);
+  ) =>
+    assert.rejects(
+      validateEntry(data, window, { status: deployed }),
+      EntryError,
+    );
   await bad({ payout_wallet: W }); // no contracts
   await bad({ contracts: 'nope', payout_wallet: W });
   await bad({ contracts: A, payout_wallet: 'nope' });
@@ -62,12 +68,55 @@ test('rejects bad entries with a clear reason', async () => {
 });
 
 const campaign: CampaignConfig = {
+  kind: 'earnkit',
   prize: { token: A, symbol: 'MINI', decimals: 18, chain: 'base' },
   winners: 5,
   amount_each: '75000000',
   metric: 'unique_wallets',
   min_score: 10,
 };
+
+const sponsored: CampaignConfig = {
+  kind: 'sponsor',
+  prize: { token: A, symbol: 'USDC', decimals: 6, chain_id: 8453 },
+  pool: '5000',
+  prize_total: '4500',
+  winners: 3,
+  metric: 'unique_wallets',
+  sponsor: { name: 'Acme', url: 'https://acme.xyz' },
+  criteria: 'Most useful x402 service, judged on usage and code quality.',
+  escrow: A,
+  ref: '0x' + '1'.repeat(64),
+};
+
+test('both campaign kinds parse; a campaign without kind is rejected', () => {
+  assert.equal(CampaignSchema.parse(campaign).kind, 'earnkit');
+  assert.equal(CampaignSchema.parse(sponsored).kind, 'sponsor');
+  const { kind: _drop, ...noKind } = campaign;
+  assert.throws(() => CampaignSchema.parse(noKind));
+});
+
+test('prize and win text per kind', () => {
+  assert.equal(prizeText(campaign), '75,000,000 MINI each to 5 winners');
+  assert.equal(prizeText(sponsored), '5,000 USDC pool (4,500 to winners)');
+  assert.equal(wonText(campaign, null), '75,000,000 MINI');
+  assert.equal(wonText(sponsored, '1500.5'), '1,500.5 USDC');
+  assert.equal(minScore(campaign), 10);
+  assert.equal(minScore(sponsored), 0);
+});
+
+test('sponsor entries may skip contracts but still need a payout wallet', async () => {
+  const window = { starts_at: new Date(0), ends_at: new Date() };
+  const r = await validateEntry({ payout_wallet: W }, window, {
+    requireContracts: false,
+    status: async () => 'during',
+  });
+  assert.deepEqual(r, { contracts: [], payoutWallet: W.toLowerCase() });
+  await assert.rejects(
+    validateEntry({}, window, { requireContracts: false }),
+    /payout_wallet/,
+  );
+});
 
 test('entries show rank while running and the prize once paid; wins announce once', () => {
   const lastCheck = new Date('2026-10-15T00:00:00Z');
@@ -82,6 +131,7 @@ test('entries show rank while running and the prize once paid; wins announce onc
         entries: 12,
         prize_tx: null,
         prize_paid_at: null,
+        prize_amount: null,
       },
       {
         name: 'Beta',
@@ -92,6 +142,7 @@ test('entries show rank while running and the prize once paid; wins announce onc
         entries: 12,
         prize_tx: '0xabc',
         prize_paid_at: new Date('2026-10-16T00:00:00Z'),
+        prize_amount: null,
       },
       {
         name: 'Gamma',
@@ -102,6 +153,7 @@ test('entries show rank while running and the prize once paid; wins announce onc
         entries: 12,
         prize_tx: null,
         prize_paid_at: null,
+        prize_amount: null,
       },
     ],
     lastCheck,
