@@ -40,6 +40,28 @@ export type Draft = z.infer<typeof DraftInput>;
 
 const DAY = 86_400_000;
 
+/**
+ * Parses a decimal amount string into token units, rejecting anything with more fraction digits
+ * than the token allows instead of letting viem's `parseUnits` silently round it away. `field`
+ * names the bad input in the thrown `SponsorError`; `symbol` is included in the message when
+ * known.
+ */
+export function toUnits(
+  field: string,
+  value: string,
+  decimals: number,
+  symbol?: string,
+): bigint {
+  const places = value.split('.')[1]?.length ?? 0;
+  if (places > decimals)
+    throw new SponsorError(
+      symbol
+        ? `${field}: ${symbol} has ${decimals} decimals; "${value}" has ${places}.`
+        : `${field}: amounts have at most ${decimals} decimals; "${value}" has ${places}.`,
+    );
+  return parseUnits(value, decimals);
+}
+
 export function checkDraft(
   d: Draft,
   token: TokenInfo | null,
@@ -50,12 +72,7 @@ export function checkDraft(
     throw new SponsorError(
       `token: "${d.token}" isn't allowed. Use USDC or an allowlisted token.`,
     );
-  const places = d.amount.split('.')[1]?.length ?? 0;
-  if (places > token.decimals)
-    throw new SponsorError(
-      `amount: ${token.symbol} has ${token.decimals} decimals; "${d.amount}" has ${places}.`,
-    );
-  const amountUnits = parseUnits(d.amount, token.decimals);
+  const amountUnits = toUnits('amount', d.amount, token.decimals, token.symbol);
   if (amountUnits <= 0n) throw new SponsorError('amount: must be more than 0.');
   if (amountUnits > cap)
     throw new SponsorError(
@@ -231,7 +248,7 @@ export function planAward(a: {
   decimals: number;
 }) {
   const seen = new Set<number>();
-  const plan: PlanItem[] = a.winners.map((w) => {
+  const items = a.winners.map((w) => {
     if (seen.has(w.entry_id))
       throw new SponsorError(
         `winners: entry ${w.entry_id} is listed more than once.`,
@@ -242,21 +259,24 @@ export function planAward(a: {
       throw new SponsorError(
         `winners: ${w.entry_id} isn't an entry in this campaign.`,
       );
-    return {
-      entry_id: e.id,
-      wallet: e.payout_wallet,
-      amount: w.amount,
-      reason: w.reason,
-    };
+    const units = toUnits('winners', w.amount, a.decimals);
+    return { entry_id: e.id, wallet: e.payout_wallet, units, reason: w.reason };
   });
-  const amountsUnits = plan.map((p) => parseUnits(p.amount, a.decimals));
-  if (amountsUnits.some((u) => u <= 0n))
+  if (items.some((p) => p.units <= 0n))
     throw new SponsorError('winners: every amount must be more than 0.');
+  const amountsUnits = items.map((p) => p.units);
   const total = amountsUnits.reduce((s, u) => s + u, 0n);
   if (total !== a.prizeUnits)
     throw new SponsorError(
       `winners: amounts must add up to ${formatUnits(a.prizeUnits, a.decimals)} exactly (got ${formatUnits(total, a.decimals)}).`,
     );
+  // Normalized to the exact onchain value, so the stored/public record matches what gets paid.
+  const plan: PlanItem[] = items.map((p) => ({
+    entry_id: p.entry_id,
+    wallet: p.wallet,
+    amount: formatUnits(p.units, a.decimals),
+    reason: p.reason,
+  }));
   return { wallets: plan.map((p) => p.wallet), amountsUnits, plan };
 }
 

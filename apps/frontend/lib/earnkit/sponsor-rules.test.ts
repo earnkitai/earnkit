@@ -90,7 +90,7 @@ test("prize is exact for pools that don't divide by 10", () => {
   });
 });
 
-test('the program file is valid and says how judging and the fee work', () => {
+test('the program file is valid and states the judging rule and requirements', () => {
   const p = sponsorProgramFile({
     ref: '0x' + 'a'.repeat(64),
     draft,
@@ -169,6 +169,50 @@ test('award plan must use real entries and add up exactly to the prize', () => {
         decimals: 6,
       }),
     /once/,
+  );
+});
+
+test("rejects award amounts finer than the token's decimals", () => {
+  assert.throws(
+    () =>
+      planAward({
+        winners: [{ entry_id: 11, amount: '4499.9999995', reason: 'x x x' }],
+        entries,
+        prizeUnits: 4_500_000_000n,
+        decimals: 6,
+      }),
+    /6 decimals/,
+  );
+});
+
+test('an uneven prize needs an exact award, not just a close one', () => {
+  const prizeUnits = splitUnits(100_000_001n).prize; // 90_000_001n
+  const ok = planAward({
+    winners: [{ entry_id: 11, amount: '90.000001', reason: 'Exactly right' }],
+    entries,
+    prizeUnits,
+    decimals: 6,
+  });
+  assert.deepEqual(ok.amountsUnits, [90_000_001n]);
+  assert.throws(
+    () =>
+      planAward({
+        winners: [{ entry_id: 11, amount: '90.000002', reason: 'x x x' }],
+        entries,
+        prizeUnits,
+        decimals: 6,
+      }),
+    /add up to 90.000001/,
+  );
+  assert.throws(
+    () =>
+      planAward({
+        winners: [{ entry_id: 11, amount: '90', reason: 'x x x' }],
+        entries,
+        prizeUnits,
+        decimals: 6,
+      }),
+    /add up to 90.000001/,
   );
 });
 
