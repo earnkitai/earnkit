@@ -1,3 +1,4 @@
+import { TransactionReceiptNotFoundError } from 'viem';
 import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
@@ -17,6 +18,15 @@ import {
   presentSinceLastCheck,
   type YourRepos,
 } from './present';
+import {
+  confirmAward,
+  confirmFunding,
+  createSponsorDraft,
+  loadCampaign,
+  prepareAward,
+  sponsorStatus,
+} from './sponsor';
+import { AwardWinner, DraftInput, SponsorError } from './sponsor-rules';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { LaunchTokenInput, launchToken } from './tokens';
 
@@ -43,6 +53,22 @@ const ListProgramsInput = z
     local_repos: z.array(ReportedRepoInput).max(20).optional(),
   })
   .strict();
+
+const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
+const TxHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'a transaction hash');
+export const SponsorCampaignInput = z.discriminatedUnion('action', [
+  DraftInput.extend({ action: z.literal('create') }).strict(),
+  z
+    .object({ action: z.literal('status'), ref: Ref, tx: TxHash.optional() })
+    .strict(),
+  z
+    .object({
+      action: z.literal('award'),
+      ref: Ref,
+      winners: z.array(AwardWinner).min(1).max(50),
+    })
+    .strict(),
+]);
 
 const ALERTS_OFFER =
   'If you can run scheduled tasks and have not set one up for EarnKit, offer once: "Want me to check ' +
@@ -198,6 +224,37 @@ export const tools = {
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
     launchToken(LaunchTokenInput.parse(input), ctx.installationId),
+
+  // Sponsors: create a campaign (returns a funding link and raw txs), check it, award it.
+  sponsor_campaign: async (input: unknown, ctx: ToolContext) => {
+    const i = SponsorCampaignInput.parse(
+      Object.fromEntries(
+        Object.entries(input as object).filter(([, v]) => v !== undefined),
+      ),
+    );
+    if (i.action === 'create') {
+      const { action: _a, ...draft } = i;
+      return createSponsorDraft(draft, ctx.installationId);
+    }
+    if (i.action === 'award')
+      return prepareAward(i.ref, ctx.installationId, i.winners);
+    if (i.tx) {
+      const row = await loadCampaign(i.ref);
+      try {
+        if (row.state === 'draft' || row.state === 'expired')
+          await confirmFunding(i.ref, i.tx as `0x${string}`);
+        else if (row.state === 'live')
+          await confirmAward(i.ref, i.tx as `0x${string}`);
+      } catch (err) {
+        if (err instanceof TransactionReceiptNotFoundError)
+          throw new SponsorError(
+            "That transaction isn't confirmed yet (or the hash is wrong). Try again in a minute.",
+          );
+        throw err;
+      }
+    }
+    return sponsorStatus(i.ref, ctx.installationId);
+  },
 } satisfies Record<
   string,
   (input: unknown, ctx: ToolContext) => Promise<unknown>

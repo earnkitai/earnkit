@@ -4,6 +4,7 @@ import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
+import { SponsorError } from './sponsor-rules';
 import { LaunchError } from './tokens';
 import { type ToolContext, type ToolName, tools } from './tools';
 
@@ -30,7 +31,8 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
       err instanceof NotFoundError ||
       err instanceof GitHubError ||
       err instanceof LaunchError ||
-      err instanceof EntryError
+      err instanceof EntryError ||
+      err instanceof SponsorError
     ) {
       const text =
         err instanceof ZodError
@@ -219,6 +221,70 @@ export function createMcpServer(ctx: ToolContext) {
       },
     },
     (input) => run(ctx, 'launch_token', input),
+  );
+
+  server.registerTool(
+    'sponsor_campaign',
+    {
+      description:
+        'For sponsors: run a builder campaign on EarnKit. action=create drafts it and returns fund_url ' +
+        '(a page where the sponsor deposits the pool from their wallet) plus raw transactions if you hold ' +
+        "the sponsor's wallet. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, " +
+        'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status (pass ' +
+        'tx after sending a transaction) shows entries and scores. After the end, action=award with ' +
+        'winners [{entry_id, amount, reason}] adding up to the prize returns award_url and the transaction. ' +
+        'Confirm amounts and wording with the sponsor before create and award.',
+      inputSchema: {
+        action: z.enum(['create', 'status', 'award']),
+        ref: z
+          .string()
+          .optional()
+          .describe('From create; needed for status and award'),
+        tx: z
+          .string()
+          .optional()
+          .describe('status: hash of a funding or award transaction you sent'),
+        sponsor_name: z.string().optional(),
+        sponsor_url: z.string().optional(),
+        title: z.string().optional().describe('Up to 80 characters'),
+        theme: z
+          .string()
+          .optional()
+          .describe('What builders should build (up to 1,000 characters)'),
+        criteria: z
+          .string()
+          .optional()
+          .describe(
+            'How the sponsor will pick winners (up to 1,000 characters)',
+          ),
+        chains: z.array(z.enum(CHAINS)).optional(),
+        token: z
+          .string()
+          .optional()
+          .describe('USDC, or another allowlisted token'),
+        amount: z
+          .string()
+          .optional()
+          .describe('Pool size in tokens, e.g. "5000"'),
+        winners: z
+          .union([
+            z.number().int(),
+            z.array(
+              z.object({
+                entry_id: z.number().int(),
+                amount: z.string(),
+                reason: z.string(),
+              }),
+            ),
+          ])
+          .optional()
+          .describe('create: planned number of winners; award: the picks'),
+        existing_work: z.enum(['allowed', 'new_work_only']).optional(),
+        starts_at: z.string().optional(),
+        ends_at: z.string().optional().describe('ISO 8601, 3 to 90 days out'),
+      },
+    },
+    (input) => run(ctx, 'sponsor_campaign', input),
   );
 
   return server;
