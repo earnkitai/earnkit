@@ -1,0 +1,3 @@
+root = "."
+src = "src"
+exclude = ["test", "script", "lib"]
