@@ -280,6 +280,45 @@ export function planAward(a: {
   return { wallets: plan.map((p) => p.wallet), amountsUnits, plan };
 }
 
+/**
+ * Maps an onchain award that doesn't match the stored plan (e.g. the sponsor called the contract
+ * directly) back to entries, by payout wallet. A repeated onchain wallet is given to a distinct
+ * entry that shares it, in entry order, so it isn't double-counted against one entry. A winner
+ * that isn't any entry's payout wallet is flagged with `entry_id: null` and left out of `matched`.
+ * Pure; exported for tests.
+ */
+export function mapOffPlanAward(
+  entries: { id: number; payout_wallet: string }[],
+  winners: string[],
+  amounts: bigint[],
+  decimals: number,
+): {
+  offPlan: { wallet: string; amount: string; entry_id: number | null }[];
+  matched: { entry_id: number; amount: string; reason: string }[];
+} {
+  const used = new Set<number>();
+  const offPlan = winners.map((w, i) => {
+    const e = entries.find(
+      (x) =>
+        !used.has(x.id) && x.payout_wallet.toLowerCase() === w.toLowerCase(),
+    );
+    if (e) used.add(e.id);
+    return {
+      wallet: w.toLowerCase(),
+      amount: formatUnits(amounts[i], decimals),
+      entry_id: e?.id ?? null,
+    };
+  });
+  const matched = offPlan
+    .filter((o): o is typeof o & { entry_id: number } => o.entry_id !== null)
+    .map((o) => ({
+      entry_id: o.entry_id,
+      amount: o.amount,
+      reason: 'Paid by the sponsor (no reason given)',
+    }));
+  return { offPlan, matched };
+}
+
 /** Maps the onchain Awarded event back to entries, in plan order. Throws if they differ. */
 export function matchAwardToPlan(
   plan: PlanItem[],

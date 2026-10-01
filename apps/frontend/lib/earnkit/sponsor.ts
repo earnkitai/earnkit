@@ -20,6 +20,7 @@ import {
   AwardWinner,
   SponsorError,
   checkDraft,
+  mapOffPlanAward,
   matchAwardToPlan,
   planAward,
   sponsorProgramFile,
@@ -290,12 +291,24 @@ export async function sponsorStatus(ref: string, installationId: number) {
     return { ...base, fund_url: `${baseUrl()}/fund/${ref}`, entries: [] };
   if (!row.program_id) return { ...base, entries: [] };
   const entries = await entriesOf(row.program_id);
-  if (row.installation_id === installationId) await refreshScores(row, entries);
+  let scoresNote: string | undefined;
+  if (row.installation_id === installationId) {
+    try {
+      await refreshScores(row, entries);
+    } catch (err) {
+      // A scoring RPC failure must not fail the whole status call: fall back to the last stored
+      // scores (already on `entries`, since `refreshScores` mutates in place only on success).
+      console.error('[sponsor] rescoring failed:', err);
+      scoresNote =
+        'Scores could not be refreshed just now; showing the last known scores.';
+    }
+  }
   return {
     ...base,
     campaign_url: `${baseUrl()}/campaigns/${row.program_id}`,
     ...(row.award_plan &&
       row.state === 'live' && { award_url: `${baseUrl()}/award/${ref}` }),
+    ...(scoresNote && { scores_note: scoresNote }),
     entries: entries.map((e) => ({
       entry_id: e.id,
       name: e.name,
@@ -321,7 +334,14 @@ export async function prepareAward(
     prizeUnits: prize,
     decimals: row.token_decimals,
   });
-  await sql()`UPDATE sponsor_campaigns SET award_plan = ${sql().json(plan as never)} WHERE ref = ${ref}`;
+  // Conditional on state and ownership so a plan written while a confirm is in flight (or after
+  // the campaign stopped being this installation's live campaign) can't overwrite the plan that
+  // was actually awarded — see assertCanAward's unlocked read above.
+  const res =
+    await sql()`UPDATE sponsor_campaigns SET award_plan = ${sql().json(plan as never)}
+    WHERE ref = ${ref} AND state = 'live' AND installation_id = ${installationId}`;
+  if (res.count === 0)
+    throw new SponsorError('This campaign changed; check status again.');
   return {
     award_url: `${baseUrl()}/award/${ref}`,
     transaction: awardTx(
@@ -373,27 +393,12 @@ export async function confirmAward(ref: string, tx: `0x${string}`) {
       // Paid outside EarnKit's plan (e.g. straight to the contract): record what happened onchain
       // and flag any winner that isn't an entry's payout wallet. The leaderboard shows these publicly.
       const entries = await entriesOf(row.program_id!, db);
-      const used = new Set<number>();
-      offPlan = ev.winners.map((w, i) => {
-        const e = entries.find(
-          (x) =>
-            !used.has(x.id) &&
-            x.payout_wallet.toLowerCase() === w.toLowerCase(),
-        );
-        if (e) used.add(e.id);
-        return {
-          wallet: w.toLowerCase(),
-          amount: formatUnits(ev.amounts[i], row.token_decimals),
-          entry_id: e?.id ?? null,
-        };
-      });
-      matched = offPlan
-        .filter((o) => o.entry_id !== null)
-        .map((o) => ({
-          entry_id: o.entry_id!,
-          amount: o.amount,
-          reason: 'Paid by the sponsor (no reason given)',
-        }));
+      ({ offPlan, matched } = mapOffPlanAward(
+        entries,
+        ev.winners,
+        ev.amounts,
+        row.token_decimals,
+      ));
     }
 
     for (const m of matched) {

@@ -4,6 +4,7 @@ import {
   DraftInput,
   SponsorError,
   checkDraft,
+  mapOffPlanAward,
   matchAwardToPlan,
   planAward,
   splitUnits,
@@ -247,4 +248,32 @@ test('matches award to entries by plan order, even with a repeated wallet', () =
       ),
     SponsorError,
   );
+});
+
+test('off-plan award: case-insensitive matching, a shared wallet mapped to distinct entries in order, and an unknown wallet flagged', () => {
+  const wallet1 = entries[0].payout_wallet; // also entries[2]'s wallet (entries 11 and 13)
+  const unknown = '0x' + '9'.repeat(40);
+  const { offPlan, matched } = mapOffPlanAward(
+    entries,
+    [wallet1.toUpperCase(), wallet1, unknown],
+    [1_000_000n, 2_000_000n, 500_000n],
+    6,
+  );
+  assert.deepEqual(offPlan, [
+    { wallet: wallet1.toLowerCase(), amount: '1', entry_id: 11 },
+    { wallet: wallet1.toLowerCase(), amount: '2', entry_id: 13 },
+    { wallet: unknown, amount: '0.5', entry_id: null },
+  ]);
+  assert.deepEqual(matched, [
+    {
+      entry_id: 11,
+      amount: '1',
+      reason: 'Paid by the sponsor (no reason given)',
+    },
+    {
+      entry_id: 13,
+      amount: '2',
+      reason: 'Paid by the sponsor (no reason given)',
+    },
+  ]);
 });
