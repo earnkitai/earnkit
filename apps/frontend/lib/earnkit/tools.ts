@@ -1,10 +1,10 @@
-import { TransactionReceiptNotFoundError } from 'viem';
 import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
 import { presentYourEntries, type YourEntry } from './campaigns';
 import { sql } from './db';
 import { checkPrograms, setWorkingOn } from './installations';
+import { receiptNotFoundMessage } from './receipt-error';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -246,10 +246,8 @@ export const tools = {
         else if (row.state === 'live')
           await confirmAward(i.ref, i.tx as `0x${string}`);
       } catch (err) {
-        if (err instanceof TransactionReceiptNotFoundError)
-          throw new SponsorError(
-            "That transaction isn't confirmed yet (or the hash is wrong). Try again in a minute.",
-          );
+        const msg = receiptNotFoundMessage(err);
+        if (msg) throw new SponsorError(msg);
         throw err;
       }
     }
