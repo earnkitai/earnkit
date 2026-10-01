@@ -1,10 +1,8 @@
 import { prizeText, type CampaignConfig } from './campaigns';
+import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
 import type { ProgramFile, SubmissionRequirement } from './program-file';
-
-// TODO(Task 5): import { escrowLink } from './escrow'; escrow.ts doesn't exist yet.
-const escrowLink = (_chainId: number, address: string) => address;
 
 export class NotFoundError extends Error {}
 

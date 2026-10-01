@@ -2,8 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { minScore, prizeText, wonText } from '@/lib/earnkit/campaigns';
-// TODO(Task 5): import { escrowLink } from '@/lib/earnkit/escrow'; escrow.ts doesn't exist yet.
-const escrowLink = (_chainId: number, address: string) => address;
+import { escrowLink } from '@/lib/earnkit/escrow';
 
 export const dynamic = 'force-dynamic';
 
