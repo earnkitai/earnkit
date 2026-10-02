@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProjectPage } from '@/lib/earnkit/leaderboard';
-import { minScore, wonText } from '@/lib/earnkit/campaigns';
+import { entryStatus } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,8 @@ const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
   </a>
 );
 
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export default async function ProjectPage({
   params,
 }: {
@@ -26,6 +28,8 @@ export default async function ProjectPage({
   const p = Number.isInteger(id) ? await getProjectPage(id) : null;
   if (!p) notFound();
   const c = p.campaign;
+  // Sponsor campaigns are picked by the sponsor: no rank until something is scored.
+  const ranked = c.kind === 'earnkit' || p.any_scored;
 
   return (
     <div className="w-full pt-4">
@@ -46,28 +50,28 @@ export default async function ProjectPage({
         ) : null}
 
         <dl className="mt-8 grid gap-6 font-funnel-sans sm:grid-cols-3">
+          {ranked ? (
+            <>
+              <div>
+                <dt className="text-sm text-ek-blue-soft">Rank</dt>
+                <dd className="mt-1 text-2xl text-ek-white">
+                  #{p.rank} of {p.entries}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm text-ek-blue-soft">Unique wallets</dt>
+                <dd className="mt-1 text-2xl tabular-nums text-ek-white">
+                  {p.score ?? '–'}
+                </dd>
+              </div>
+            </>
+          ) : null}
           <div>
-            <dt className="text-sm text-ek-blue-soft">Rank</dt>
+            <dt className="text-sm text-ek-blue-soft">
+              {ranked ? 'Prize' : 'Status'}
+            </dt>
             <dd className="mt-1 text-2xl text-ek-white">
-              #{p.rank} of {p.entries}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm text-ek-blue-soft">Unique wallets</dt>
-            <dd className="mt-1 text-2xl tabular-nums text-ek-white">
-              {p.score ?? '–'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm text-ek-blue-soft">Prize</dt>
-            <dd className="mt-1 text-2xl text-ek-white">
-              {p.prize_tx
-                ? `Won ${wonText(c, p.prize_amount)}`
-                : c.kind === 'sponsor'
-                  ? 'Entered'
-                  : (p.score ?? 0) >= minScore(c)
-                    ? 'Eligible'
-                    : 'Building'}
+              {capitalize(entryStatus(c, p, p.sponsor_state))}
             </dd>
           </div>
         </dl>

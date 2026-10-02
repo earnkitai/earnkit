@@ -1,6 +1,7 @@
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import { z } from 'zod';
+import { formatDeadline } from './dates';
 
 /**
  * EarnKit's own campaigns (v2.0): a program with a `campaign` block. Builders submit to
@@ -295,10 +296,46 @@ export async function scoreEntry(contracts: string[], from: Date, to: Date) {
   return { score: counted.length, wallets: counted, seen: all.size };
 }
 
+/** sponsor_campaigns.state; null for EarnKit's own campaigns. */
+export type SponsorState =
+  | 'draft'
+  | 'live'
+  | 'awarded'
+  | 'refunded'
+  | 'expired'
+  | 'taken_down';
+
+/**
+ * One entry's public status (leaderboard and entry page). Sponsor campaigns: "entered" while
+ * live, "won <amount>", "not picked" once awarded, "no winners — sponsor refunded" once refunded.
+ * EarnKit campaigns: "won", "eligible" or "building".
+ */
+export function entryStatus(
+  c: CampaignConfig,
+  e: {
+    prize_tx: string | null;
+    prize_amount: string | null;
+    score: number | null;
+  },
+  sponsorState: SponsorState | null,
+) {
+  if (e.prize_tx) return `won ${wonText(c, e.prize_amount)}`;
+  if (c.kind === 'sponsor') {
+    if (sponsorState === 'awarded') return 'not picked';
+    if (sponsorState === 'refunded') return 'no winners — sponsor refunded';
+    return 'entered';
+  }
+  return (e.score ?? 0) >= minScore(c) ? 'eligible' : 'building';
+}
+
 export type YourEntry = {
   name: string;
   campaign_title: string;
   campaign: CampaignConfig;
+  /** The campaign's deadline (programs.ends_at). */
+  ends_at: Date | null;
+  /** sponsor_campaigns.state; null for EarnKit campaigns. */
+  sponsor_state: SponsorState | null;
   score: number | null;
   rank: number;
   entries: number;
@@ -307,11 +344,26 @@ export type YourEntry = {
   prize_amount: string | null;
 };
 
+/** One sponsor-campaign entry's line, after the name. Never a rank unless it has a score. */
+function sponsorEntryText(e: YourEntry) {
+  if (e.sponsor_state === 'taken_down')
+    return 'removed by EarnKit; the sponsor was refunded';
+  if (e.sponsor_state === 'refunded')
+    return 'no winners; the sponsor was refunded';
+  if (e.sponsor_state === 'awarded') return 'not picked this time';
+  const after = `winners picked after ${e.ends_at ? formatDeadline(e.ends_at) : 'the deadline'}`;
+  return e.score != null
+    ? `#${e.rank} of ${e.entries} · ${e.score} wallets · ${after}`
+    : `entered · ${after}`;
+}
+
 /** "Your campaign entries" lines, plus "you won" notices for the since-last-check line. */
 export function presentYourEntries(list: YourEntry[], lastCheck: Date | null) {
   const lines = list.map((e) => {
     if (e.prize_tx)
       return `${e.name}: you won ${wonText(e.campaign, e.prize_amount)} in ${e.campaign_title} (tx ${e.prize_tx})`;
+    if (e.campaign.kind === 'sponsor')
+      return `${e.name} in ${e.campaign_title}: ${sponsorEntryText(e)}`;
     const score =
       e.score == null
         ? 'not scored yet'

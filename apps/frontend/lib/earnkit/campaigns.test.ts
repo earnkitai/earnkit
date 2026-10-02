@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CampaignConfig as CampaignSchema,
   EntryError,
+  entryStatus,
   minScore,
   normalizeRepoUrl,
   parseAddresses,
@@ -12,6 +13,7 @@ import {
   validateEntry,
   wonText,
   type CampaignConfig,
+  type YourEntry,
 } from './campaigns';
 
 const A = '0x' + 'a'.repeat(40);
@@ -128,6 +130,8 @@ test('entries show rank while running and the prize once paid; wins announce onc
         name: 'Alpha',
         campaign_title: 'C1',
         campaign,
+        ends_at: null,
+        sponsor_state: null,
         score: 41,
         rank: 3,
         entries: 12,
@@ -139,6 +143,8 @@ test('entries show rank while running and the prize once paid; wins announce onc
         name: 'Beta',
         campaign_title: 'C1',
         campaign,
+        ends_at: null,
+        sponsor_state: null,
         score: 90,
         rank: 1,
         entries: 12,
@@ -150,6 +156,8 @@ test('entries show rank while running and the prize once paid; wins announce onc
         name: 'Gamma',
         campaign_title: 'C1',
         campaign,
+        ends_at: null,
+        sponsor_state: null,
         score: null,
         rank: 12,
         entries: 12,
@@ -195,4 +203,72 @@ test('sameRepoEntry finds the entry with the same normalized repo, ignoring entr
     2,
   );
   assert.equal(sameRepoEntry('https://github.com/x/c', entries), undefined);
+});
+
+const yours = (over: Partial<YourEntry>): YourEntry => ({
+  name: 'Alpha',
+  campaign_title: 'S1',
+  campaign: sponsored,
+  ends_at: new Date('2026-10-06T06:51:00Z'),
+  sponsor_state: 'live',
+  score: null,
+  rank: 2,
+  entries: 3,
+  prize_tx: null,
+  prize_paid_at: null,
+  prize_amount: null,
+  ...over,
+});
+
+test('sponsor entries: no rank unless scored; status by campaign state', () => {
+  const lines = presentYourEntries(
+    [
+      yours({}),
+      yours({ name: 'Beta', score: 7 }),
+      yours({ name: 'Gamma', sponsor_state: 'awarded' }),
+      yours({ name: 'Delta', sponsor_state: 'refunded' }),
+      yours({ name: 'Eps', sponsor_state: 'taken_down' }),
+      yours({
+        name: 'Zeta',
+        sponsor_state: 'awarded',
+        prize_tx: '0xabc',
+        prize_amount: '60',
+      }),
+    ],
+    null,
+  )
+    .section!.split('\n')
+    .slice(2);
+  assert.deepEqual(lines, [
+    'Alpha in S1: entered · winners picked after Oct 6, 2026, 06:51 UTC',
+    'Beta in S1: #2 of 3 · 7 wallets · winners picked after Oct 6, 2026, 06:51 UTC',
+    'Gamma in S1: not picked this time',
+    'Delta in S1: no winners; the sponsor was refunded',
+    'Eps in S1: removed by EarnKit; the sponsor was refunded',
+    'Zeta: you won 60 USDC in S1 (tx 0xabc)',
+  ]);
+});
+
+test('entryStatus: sponsor states and EarnKit eligibility', () => {
+  const e = { prize_tx: null, prize_amount: null, score: null };
+  assert.equal(entryStatus(sponsored, e, 'live'), 'entered');
+  assert.equal(entryStatus(sponsored, e, 'awarded'), 'not picked');
+  assert.equal(
+    entryStatus(sponsored, e, 'refunded'),
+    'no winners — sponsor refunded',
+  );
+  assert.equal(
+    entryStatus(
+      sponsored,
+      { ...e, prize_tx: '0x1', prize_amount: '60' },
+      'awarded',
+    ),
+    'won 60 USDC',
+  );
+  assert.equal(entryStatus(campaign, { ...e, score: 10 }, null), 'eligible');
+  assert.equal(entryStatus(campaign, { ...e, score: 9 }, null), 'building');
+  assert.equal(
+    entryStatus(campaign, { ...e, prize_tx: '0x1' }, null),
+    'won 75,000,000 MINI',
+  );
 });
