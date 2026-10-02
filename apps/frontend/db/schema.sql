@@ -163,3 +163,16 @@ CREATE TABLE IF NOT EXISTS rate_windows (
   count           integer NOT NULL,
   PRIMARY KEY (key, window_start)
 );
+
+-- v2.2 §3: sponsor domain verification, cached per (host, wallet): a pass for 24 h, a failure for
+-- 1 h (lib/earnkit/sponsor-verify.ts). note says why a check failed (shown to the sponsor).
+CREATE TABLE IF NOT EXISTS sponsor_verifications (
+  host            text NOT NULL,                    -- sponsor_url's host, lowercase
+  wallet          text NOT NULL,                    -- the sponsor wallet, lowercase
+  verified        boolean NOT NULL,
+  checked_at      timestamptz NOT NULL,
+  note            text,
+  PRIMARY KEY (host, wallet)
+);
+-- Track records are counted per sponsor wallet.
+CREATE INDEX IF NOT EXISTS sponsor_campaigns_wallet ON sponsor_campaigns (sponsor_wallet);
