@@ -63,6 +63,10 @@ export type SponsorRow = {
     | { entry_id: number; wallet: string; amount: string; reason: string }[]
     | null;
   award_tx: string | null;
+  /** Set when the onchain award differs from the plan: every onchain winner, entry or not. */
+  award_onchain:
+    | { wallet: string; amount: string; entry_id: number | null }[]
+    | null;
   created_at: Date;
 };
 
@@ -500,7 +504,9 @@ export async function sponsorStatus(ref: string, installationId: number) {
     }
   }
   facts.entries = entries.length;
-  facts.paid = entries.filter((e) => e.prize_tx).length;
+  // An off-plan award can pay wallets that aren't entries; they count as paid winners too.
+  facts.paid =
+    row.award_onchain?.length ?? entries.filter((e) => e.prize_tx).length;
   return {
     ...base,
     campaign_url: facts.campaignUrl,
