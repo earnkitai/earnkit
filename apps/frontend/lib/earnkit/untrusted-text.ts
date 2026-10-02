@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Text written by sponsors or builders reaches other people's agents. One sanitizer for all of
- * it: plain words only, no links, markup or hidden characters, within a fixed length. Where it is
+ * it: an allowlist of plain characters, no links or markup, within a fixed length. Where it is
  * shown, it is either a quoted single-line name (`quoted`) or data inside an envelope that says
  * who wrote it (`get_program.sponsor_content`, `sponsor_campaign` `entries`).
  */
@@ -30,50 +30,116 @@ export const SAFETY_LINES = [
 ];
 export const SAFETY_TEXT = SAFETY_LINES.join(' ');
 
-// Zero-width (U+200B–U+200F, U+2060–U+2064, U+FEFF) and bidi controls (U+202A–U+202E, U+2066–U+2069).
-const INVISIBLE =
-  /[\u200B-\u200F\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g;
-// C0/C1 controls other than \n (whitespace controls become spaces first).
-const CONTROL = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
-const TLDS =
-  'com|org|net|io|xyz|ai|app|dev|co|gg|fun|me|so|sh|link|site|online|info|biz|ly|to|cc|tv|finance|money|cash|wallet|claims?|exchange|network|pro|vip|top|click|live|world|tech|us|uk|eu|de|fr|ru|cn|in|eth|sol|base';
+const LETTER = /\p{L}/u;
+const KEEP = /[\p{L}\p{N} .,:;!?'()&+\-/#@%$*=\u2013\u2014]/u;
+const PICTO = /\p{Extended_Pictographic}/u;
+const MARK = /\p{M}/u;
+const ZWJ = '\u200D';
+// Letters and marks that render as nothing: Hangul fillers, Khmer inherent vowels, combining
+// grapheme joiner, variation selectors (incl. Mongolian).
+const BLANK =
+  /[\u115F\u1160\u3164\uFFA0\u17B4\u17B5\u034F\u180B-\u180F\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
+// Every quotation mark (ASCII, curly, low-9, guillemets, CJK, fullwidth, backtick) becomes '.
+const QUOTES =
+  /["`\p{Pi}\p{Pf}\u201A\u201B\u201E\u201F\u275D-\u2760\u300C-\u300F\u301D-\u301F\uFF02\uFF07]/gu;
+// Confusable dots and defanged dots, mapped to "." so a hidden domain is still seen as one.
+const DOTS =
+  /[\u3002\uFF61\uFE52]|\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)/giu;
 
-/** What gets a field rejected, with the word used in the error. */
-const REJECT: [RegExp, string][] = [
-  [/!?\[[^\]\n]*\]\([^)\n]*\)/, 'markdown links'],
-  [/https?:\/\/|\bwww\./i, 'links'],
-  [/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\//i, 'links'],
+/**
+ * The allowlist: after NFKC, keeps letters, numbers, spaces (and newlines when multi-line), a
+ * fixed punctuation set, en/em dashes, emoji (a ZWJ only between two of them), and up to two
+ * combining marks right after a letter. Everything else is dropped.
+ */
+function allow(value: string, singleLine: boolean) {
+  const cs = [
+    ...value
+      .normalize('NFKC')
+      .replace(QUOTES, "'")
+      .replace(DOTS, '.')
+      .replace(/\r\n?|[\u2028\u2029\u0085]/g, '\n')
+      .replace(singleLine ? /[\p{Zs}\t\v\f\n]/gu : /[\p{Zs}\t\v\f]/gu, ' '),
+  ];
+  let out = '';
+  let prev = '';
+  let marks = 0;
+  cs.forEach((c, i) => {
+    let keep = false;
+    if (BLANK.test(c)) keep = false;
+    else if (MARK.test(c)) keep = LETTER.test(prev) && marks < 2;
+    else if (c === ZWJ) keep = PICTO.test(prev) && PICTO.test(cs[i + 1] ?? '');
+    else keep = KEEP.test(c) || PICTO.test(c) || (c === '\n' && !singleLine);
+    if (!keep) return;
+    out += c;
+    if (MARK.test(c)) marks++;
+    else {
+      prev = c;
+      marks = 0;
+    }
+  });
+  return out
+    .replace(/ {2,}/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Library names that look like domains but are normal in a brief. */
+const TECH_WORDS = new Set([
+  'node.js',
+  'next.js',
+  'vue.js',
+  'nuxt.js',
+  'three.js',
+  'd3.js',
+  'express.js',
+  'socket.io',
+  'ethers.js',
+  'web3.js',
+  'viem.sh',
+]);
+
+const isIpv6 = (s: string) =>
   [
-    new RegExp(`\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:${TLDS})\\b`, 'i'),
+    ...s.matchAll(/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi),
+  ].some(([m]) => m.includes('::') || m.split(':').length > 5);
+
+const hasDomain = (s: string) =>
+  [...s.matchAll(/([\p{L}\p{N}-]+)\.(\p{L}{2,24})(?![\p{L}\p{N}])/gu)].some(
+    ([m]) => !TECH_WORDS.has(m.toLowerCase()),
+  );
+
+/** What gets cleaned text rejected, with the word used in the error. */
+const REJECT: [(s: string) => boolean, string][] = [
+  [(s) => /[a-z][a-z0-9+.-]*:\/\/|\bwww\./i.test(s), 'links'],
+  [(s) => /\bh[tx]{2}ps?:/i.test(s), 'links'],
+  [(s) => /\b(?:javascript|vbscript|mailto|file):/i.test(s), 'links'],
+  [(s) => /\bdata:[a-z]+\/|\bdata:,/i.test(s), 'links'],
+  [(s) => /(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)/.test(s), 'links'],
+  [isIpv6, 'links'],
+  [
+    (s) =>
+      /\b[a-z0-9-]+ dot (?:[a-z]{2,24}\/|(?:com|org|net|io|xyz|ai|app|dev|lol|zip|fun)\b)/i.test(
+        s,
+      ),
     'links',
   ],
-  [/`/, 'code (backticks)'],
-  [/<\/?[a-z!?][^>]*>/i, 'HTML tags'],
+  [hasDomain, 'links'],
+  [(s) => /&#?[a-z0-9]+;/i.test(s), 'HTML entities'],
 ];
 
 /**
- * Cleans third-party text, or throws an error naming the field: NFKC, hidden and control
- * characters removed, spaces collapsed (newlines too when `singleLine`), then rejected if it holds
- * a link, markdown link, backtick or HTML tag, or is longer than `max` after cleaning.
+ * Cleans third-party text, or throws an error naming the field: the allowlist (`allow`), then
+ * rejected if it holds a link (incl. defanged forms, bare domains, IP literals, URI schemes) or an
+ * HTML entity, or is longer than `max` after cleaning.
  */
 export function cleanText(
   value: string,
   { max, singleLine = false, field = 'text' }: TextRule & { field?: string },
 ) {
-  let s = value
-    .normalize('NFKC')
-    .replace(INVISIBLE, '')
-    .replace(/\r\n?|[\u2028\u2029\u0085]/g, '\n')
-    .replace(/[\t\v\f]/g, ' ')
-    .replace(CONTROL, '');
-  if (singleLine) s = s.replace(/\n/g, ' ');
-  s = s
-    .replace(/ {2,}/g, ' ')
-    .replace(/ *\n */g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  for (const [re, what] of REJECT)
-    if (re.test(s))
+  const s = allow(value, singleLine);
+  for (const [bad, what] of REJECT)
+    if (bad(s))
       throw new UntrustedTextError(
         `${field}: ${what} aren't allowed; this text is shown to other people's agents. Use plain words.`,
       );
@@ -89,6 +155,7 @@ export function cleanText(
 export const untrusted = (rule: TextRule, min = 1) =>
   z
     .string()
+    .max(rule.max * 4)
     .transform((v, ctx) => {
       try {
         return cleanText(v, rule);
@@ -104,16 +171,49 @@ export const untrusted = (rule: TextRule, min = 1) =>
     .pipe(z.string().min(min));
 
 /**
- * A third-party name or title, quoted on one line, for EarnKit's own sentences. Also safe for rows
- * stored before the sanitizer: whitespace collapses and inner double quotes become single ones.
+ * A third-party name or title, quoted on one line, for EarnKit's own sentences: the allowlist, no
+ * quote characters but the outer pair, and no markdown characters. Also safe for rows stored
+ * before the sanitizer.
  */
 export const quoted = (s: string) =>
-  `"${s
-    .replace(INVISIBLE, '')
-    .replace(/\s+/g, ' ')
-    .replace(/"/g, "'")
-    .trim()
-    .slice(0, 80)}"`;
+  `"${[
+    ...allow(s, true)
+      .replace(/[*_~|#>[\]]/g, '')
+      .replace(/ {2,}/g, ' ')
+      .trim(),
+  ]
+    .slice(0, 80)
+    .join('')
+    .trim()}"`;
+
+const IP_HOST = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[.*\])$/;
+
+/**
+ * The sponsor's link: https only, at most 100 characters, a plain host (no userinfo, IP literal or
+ * punycode), no query or fragment, and a short plain path.
+ */
+export const SponsorUrl = z
+  .string()
+  .max(100)
+  .url()
+  .superRefine((v, ctx) => {
+    const u = new URL(v);
+    const problem =
+      u.protocol !== 'https:'
+        ? 'must start with https://'
+        : u.username || u.password || v.includes('@')
+          ? 'no user or password in the link'
+          : IP_HOST.test(u.hostname)
+            ? 'use a domain name, not an IP address'
+            : u.hostname.split('.').some((l) => l.startsWith('xn--'))
+              ? 'no punycode (xn--) domains'
+              : u.search || u.hash || /[?#]/.test(v)
+                ? 'no query (?) or fragment (#)'
+                : !/^[A-Za-z0-9/._-]{0,40}$/.test(u.pathname)
+                  ? 'the path may only use letters, digits, / . _ - (up to 40 characters)'
+                  : null;
+    if (problem) ctx.addIssue({ code: 'custom', message: problem });
+  });
 
 /** A campaign entry's project name and description, cleaned (other fields untouched). */
 export function cleanProject<P extends { name?: string; description?: string }>(

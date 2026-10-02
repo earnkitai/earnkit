@@ -156,15 +156,19 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   onchain before signing (fallback award only after `endsAt + 7 days`; refund only a Funded
   escrow, naming who receives it).
 - **Third-party text is data** (v2.2 §2): anything a sponsor or builder writes reaches other
-  people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: plain words,
-  no links/markdown/backticks/HTML, per-field limits) at the input boundary: `DraftInput`
+  people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
+  an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,
+  bidi and markup characters are dropped; then links in any form and HTML entities are rejected;
+  per-field limits) at the input boundary; `sponsor_url` is https, at most 100 characters, a plain
+  host, no query or fragment (`SponsorUrl`): `DraftInput`
   (sponsor_name, title, theme, criteria), `AwardWinner.reason`, and campaign entries' project
   name/description (`cleanProject` in record_submission and prepare_submission; other programs'
   projects go only to the builder's own submission, so they are not restricted). Where it is
   shown, it is either quoted single-line (`quoted()`: list lines, "Fastest", get_program
   title/organizer, show_to_sponsor) or inside an envelope that says who wrote it:
   `get_program.sponsor_content` (theme, criteria, sponsor_url) and `sponsor_campaign` `entries`
-  with `note`. Sponsor programs' description, summary and rules are EarnKit's words only, rebuilt
+  with `note`; award reasons come back in prepareAward's `sponsor_content.reasons`. Errors refer
+  to other entries by number only, never by name. Sponsor programs' description, summary and rules are EarnKit's words only, rebuilt
   at read time (`programCard`/`programDetails`), so rows published before v2.2 read the same; the
   theme is stored in `campaign.what_to_build` (legacy rows: `description`) for the campaign page.
   `SAFETY_LINES` go in the server instructions and the descriptions of list_programs,

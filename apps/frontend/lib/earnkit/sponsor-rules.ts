@@ -5,7 +5,7 @@ import { formatExact } from './format-units';
 import { CHAINS } from './match';
 import type { ProgramFile } from './program-file';
 import type { TokenInfo } from './escrow';
-import { TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
+import { SponsorUrl, TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 /**
  * Pure rules for sponsor campaigns (v2.1): what a sponsor may create, how the pool splits, the
@@ -14,15 +14,10 @@ import { TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 export class SponsorError extends Error {}
 
-const httpsUrl = z
-  .string()
-  .url()
-  .refine((u) => /^https?:\/\//i.test(u), 'an http(s) link');
-
 export const DraftInput = z
   .object({
     sponsor_name: untrusted(TEXT_LIMITS.sponsor_name),
-    sponsor_url: httpsUrl.optional(),
+    sponsor_url: SponsorUrl.optional(),
     title: untrusted(TEXT_LIMITS.title, 5),
     theme: untrusted(TEXT_LIMITS.theme, 20),
     criteria: untrusted(TEXT_LIMITS.criteria, 10),

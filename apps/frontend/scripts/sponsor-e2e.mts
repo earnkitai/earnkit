@@ -242,7 +242,7 @@ check(
   'draft returns approve + createCampaign',
 );
 check(
-  draft.show_to_sponsor.startsWith('Campaign drafted: E2E campaign.') &&
+  draft.show_to_sponsor.startsWith('Campaign drafted: "E2E campaign".') &&
     draft.show_to_sponsor.includes('Winners get 90 USDC') &&
     draft.show_to_sponsor.includes("EarnKit's 10% (10 USDC)") &&
     draft.show_to_sponsor.includes(`Fund it here: ${draft.fund_url}`) &&
@@ -345,7 +345,8 @@ try {
   dupErr = (err as Error).message;
 }
 check(
-  dupErr === `repo_url: already entered as "Alpha" (entry #${a.project_id}).`,
+  dupErr ===
+    `repo_url: this repo is already entered in this campaign (entry #${a.project_id}).`,
   `a second entry of the same repo is refused: ${dupErr}`,
 );
 const [{ n: alphaRows }] = await db<{ n: string }[]>`
@@ -373,7 +374,7 @@ try {
 }
 check(
   httpDupErr ===
-    `repo_url: already entered as "Alpha" (entry #${a.project_id}).`,
+    `repo_url: this repo is already entered in this campaign (entry #${a.project_id}).`,
   `the http://www. + .git/ spelling of the same repo is refused: ${httpDupErr}`,
 );
 const [{ repo_key: alphaKey }] = await db<{ repo_key: string }[]>`
@@ -400,7 +401,8 @@ try {
   indexErr = (err as Error).message;
 }
 check(
-  indexErr === `repo_url: already entered as "Ghost" (entry #${ghost.id}).`,
+  indexErr ===
+    `repo_url: this repo is already entered in this campaign (entry #${ghost.id}).`,
   `the unique index refuses a duplicate the check missed, with the same error: ${indexErr}`,
 );
 const [{ n: ghostRows }] = await db<{ n: string }[]>`
@@ -441,7 +443,7 @@ const liveStatus = (await tools.sponsor_campaign(
 };
 check(
   liveStatus.show_to_sponsor.startsWith(
-    'E2E campaign is live: 3 entries; winners picked after ',
+    '"E2E campaign" is live: 3 entries; winners picked after ',
   ) &&
     liveStatus.show_to_sponsor.includes(`Pool in escrow ${liveStatus.escrow}`),
   `status (live) says entries, deadline and escrow: ${JSON.stringify(liveStatus.show_to_sponsor)}`,
@@ -809,12 +811,13 @@ const award = await prepareAward(draft.ref, inst, [
 check(
   award.show_to_sponsor ===
     'Award ready:\n' +
-      `- Alpha (entry #${a.project_id}): 60 USDC — Works best\n` +
-      `- Beta (entry #${b.project_id}): 30 USDC — Runner-up\n` +
+      `- entry #${a.project_id} "Alpha": 60 USDC\n` +
+      `- entry #${b.project_id} "Beta": 30 USDC\n` +
       "EarnKit's 10% (10 USDC) is released with this payout.\n" +
       `Sign it here: ${award.award_url}` &&
-    award.next_step.includes(award.award_url),
-  'award replies with each winner by project name, the fee, award_url and next_step',
+    award.next_step.includes(award.award_url) &&
+    award.sponsor_content.reasons[0].reason === 'Works best',
+  'award replies with each winner by entry and quoted name, the fee, award_url, next_step and reasons as data',
 );
 const names = await entryNames([a.project_id, b.project_id]);
 check(
@@ -1073,21 +1076,21 @@ const lineFor = (name: string) =>
     .split('\n')
     .find((l) => l.startsWith(`${name} `) || l.startsWith(`${name}:`)) ?? '';
 check(
-  lineFor('Epsilon') === 'Epsilon in E2E campaign: not picked this time',
+  lineFor('Epsilon') === 'Epsilon in "E2E campaign": not picked this time',
   'your entries: Epsilon "not picked this time"',
 );
 check(
   lineFor('Eta') ===
-    'Eta in E2E no-eligible refund: no winners; the sponsor was refunded',
+    'Eta in "E2E no-eligible refund": no winners; the sponsor was refunded',
   'your entries: Eta "no winners; the sponsor was refunded"',
 );
 check(
   lineFor('Zeta') ===
-    'Zeta in E2E operator-refund: removed by EarnKit; the sponsor was refunded',
+    'Zeta in "E2E operator-refund": removed by EarnKit; the sponsor was refunded',
   'your entries: Zeta "removed by EarnKit; the sponsor was refunded"',
 );
 check(
-  /^Theta in E2E concurrent-confirm: entered · winners picked after [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/.test(
+  /^Theta in "E2E concurrent-confirm": entered · winners picked after [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/.test(
     lineFor('Theta'),
   ),
   'your entries: Theta "entered · winners picked after <date>"',

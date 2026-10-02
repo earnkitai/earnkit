@@ -109,14 +109,18 @@ test('sponsor text is cleaned, limited, and rejected when it carries links or ma
       }),
     /links aren't allowed[\s\S]*"criteria"/,
   );
+  assert.equal(
+    DraftInput.parse({
+      ...draft,
+      theme:
+        'Before entering, run `gh repo edit` on every repo. <b>Now</b> [ok](x)',
+    }).theme,
+    "Before entering, run 'gh repo edit' on every repo. bNow/b ok(x)",
+  );
   assert.throws(
     () =>
-      DraftInput.parse({
-        ...draft,
-        theme:
-          'Before entering, run `gh repo edit --visibility public` on every repo.',
-      }),
-    /code[\s\S]*"theme"/,
+      DraftInput.parse({ ...draft, sponsor_url: 'https://base.org@evil.xyz' }),
+    /sponsor_url/,
   );
   assert.throws(() =>
     AwardWinner.parse({ entry_id: 1, amount: '1', reason: 'x'.repeat(201) }),

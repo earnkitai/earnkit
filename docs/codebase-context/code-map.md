@@ -54,9 +54,10 @@ apps/frontend/
     projects.ts                recordSubmission (campaigns: one entry per repo and per contract,
                                checked under a per-campaign advisory lock; stores repo_key, backed
                                by the unique index projects_campaign_repo_key)
-    untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, strip
-                               control/zero-width/bidi, collapse spaces, reject links/markdown/
-                               backticks/HTML, TEXT_LIMITS), untrusted() (zod), cleanProject
+    untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, then an
+                               allowlist of letters/numbers/fixed punctuation/emoji, quotes -> ',
+                               reject links incl. defanged/IP/confusable-dot/bare domains and HTML
+                               entities, TEXT_LIMITS), SponsorUrl, untrusted() (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions)
     sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED) and the

@@ -45,9 +45,10 @@ export async function recordSubmission(
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
   const repoKey = (entry && repo_url && normalizeRepoUrl(repo_url)) || null;
-  const alreadyEntered = (same: { id: number; name: string }) =>
+  // Other entries are referred to by number only: never repeat another builder's text.
+  const alreadyEntered = (same: { id: number }) =>
     new EntryError(
-      `repo_url: already entered as "${same.name}" (entry #${same.id}).`,
+      `repo_url: this repo is already entered in this campaign (entry #${same.id}).`,
     );
 
   return sql()
@@ -59,19 +60,19 @@ export async function recordSubmission(
         if (repo_url) {
           const same = sameRepoEntry(
             repo_url,
-            await tx<{ id: number; name: string; repo_url: string | null }[]>`
-            SELECT id, name, repo_url FROM projects
+            await tx<{ id: number; repo_url: string | null }[]>`
+            SELECT id, repo_url FROM projects
             WHERE program_id = ${program.id} AND repo_url IS NOT NULL`,
           );
           if (same) throw alreadyEntered(same);
         }
         if (entry.contracts.length > 0) {
-          const [taken] = await tx<{ name: string }[]>`
-          SELECT name FROM projects
+          const [taken] = await tx<{ id: number }[]>`
+          SELECT id FROM projects
           WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
           if (taken)
             throw new EntryError(
-              `contracts: already entered by "${taken.name}".`,
+              `contracts: already used by entry #${taken.id}.`,
             );
         }
       }
@@ -119,8 +120,8 @@ export async function recordSubmission(
         (err as { constraint_name?: string }).constraint_name ===
           'projects_campaign_repo_key'
       ) {
-        const [same] = await sql()<{ id: number; name: string }[]>`
-          SELECT id, name FROM projects WHERE program_id = ${program.id} AND repo_key = ${repoKey}`;
+        const [same] = await sql()<{ id: number }[]>`
+          SELECT id FROM projects WHERE program_id = ${program.id} AND repo_key = ${repoKey}`;
         if (same) throw alreadyEntered(same);
       }
       throw err;
