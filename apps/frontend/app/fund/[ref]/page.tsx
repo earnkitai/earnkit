@@ -3,7 +3,7 @@ import { parseUnits } from 'viem';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
-import { expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
+import { checkChain, expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import FundClient from './FundClient';
 
@@ -17,10 +17,15 @@ export default async function FundPage({
   const { ref } = await params;
   // No escrow configured on this deployment (sponsor campaigns not open yet): nothing to fund.
   if (!escrowEnabled()) notFound();
-  const row = /^0x[0-9a-f]{64}$/.test(ref)
-    ? await loadCampaign(ref).catch(() => null)
-    : null;
-  if (!row) notFound();
+  if (!/^0x[0-9a-f]{64}$/.test(ref)) notFound();
+  const found = await loadCampaign(ref).catch(() => null);
+  if (!found) notFound();
+  // A deposit from the bound wallet may already be onchain: publish it before rendering.
+  const { fundingProblem } = await checkChain(found).catch((err) => {
+    console.error('[fund] chain check failed:', err);
+    return { fundingProblem: null };
+  });
+  const row = await loadCampaign(ref);
   // Sign exactly the token the draft stored (and that confirmFunding verifies against), never a
   // token looked up from the current config.
   const token = {
@@ -76,7 +81,17 @@ export default async function FundPage({
           within 7 days, EarnKit pays the top entries. If nobody qualifies,
           everything comes back to you, fee included.
         </p>
-        {row.state === 'draft' && !sameChain ? (
+        <p className="mt-4 font-funnel-sans text-sm text-ek-blue-soft">
+          Deposit from the campaign&apos;s wallet:{' '}
+          <span className="text-ek-white">{row.sponsor_wallet}</span>. A deposit
+          from any other wallet doesn&apos;t count.
+        </p>
+        {fundingProblem ? (
+          <p className="mt-8 font-funnel-sans text-base text-ek-white">
+            {fundingProblem[0].toUpperCase()}
+            {fundingProblem.slice(1)} Contact EarnKit to have it refunded.
+          </p>
+        ) : row.state === 'draft' && !sameChain ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
             This draft was made for another network; ask your agent to create a
             new one.
@@ -84,6 +99,7 @@ export default async function FundPage({
         ) : row.state === 'draft' ? (
           <FundClient
             ref_={ref}
+            sponsorWallet={row.sponsor_wallet}
             endsAt={Date.parse(row.draft.ends_at)}
             txs={fundTxs(
               ref as `0x${string}`,

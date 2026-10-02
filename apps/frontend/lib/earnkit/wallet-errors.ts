@@ -2,7 +2,7 @@ import { BaseError, UserRejectedRequestError } from 'viem';
 
 /**
  * Walks `err`'s `cause` chain (not just `BaseError`'s own chain, so this also sees through a
- * plain wrapper like `SendAllError` in app/components/wallet.ts) looking for a user rejection:
+ * plain `Error` wrapper) looking for a user rejection:
  * either viem's `UserRejectedRequestError`, or any cause carrying RPC error code 4001.
  */
 function isRejection(err: unknown): boolean {

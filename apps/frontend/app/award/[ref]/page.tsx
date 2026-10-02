@@ -4,7 +4,7 @@ import { awardTx, escrowEnabled } from '@/lib/earnkit/escrow';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { entryNames } from '@/lib/earnkit/leaderboard';
-import { loadCampaign } from '@/lib/earnkit/sponsor';
+import { checkChain, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import AwardClient from './AwardClient';
 
@@ -18,10 +18,15 @@ export default async function AwardPage({
   const { ref } = await params;
   // No escrow configured on this deployment (sponsor campaigns not open yet): nothing to award.
   if (!escrowEnabled()) notFound();
-  const row = /^0x[0-9a-f]{64}$/.test(ref)
-    ? await loadCampaign(ref).catch(() => null)
-    : null;
-  if (!row || !row.award_plan || !row.escrow_address) notFound();
+  if (!/^0x[0-9a-f]{64}$/.test(ref)) notFound();
+  const found = await loadCampaign(ref).catch(() => null);
+  if (!found) notFound();
+  // The award may already be onchain: record it before rendering.
+  await checkChain(found).catch((err) =>
+    console.error('[award] chain check failed:', err),
+  );
+  const row = await loadCampaign(ref);
+  if (!row.award_plan || !row.escrow_address) notFound();
   // Computed once: the amount shown for each winner must be the exact amount signed, not a
   // separately-rounded display of the same decimal string (see format-units.ts).
   const amountsUnits = row.award_plan.map((p) =>
@@ -69,11 +74,10 @@ export default async function AwardPage({
           </span>
         </p>
         <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
-          Your wallet must be the one that funded this campaign (
-          {row.sponsor_wallet}).
+          Sign with the campaign&apos;s wallet: {row.sponsor_wallet}.
         </p>
         {row.state === 'live' ? (
-          <AwardClient ref_={ref} tx={tx} />
+          <AwardClient ref_={ref} tx={tx} sponsorWallet={row.sponsor_wallet} />
         ) : (
           <p className="mt-8 text-ek-white">This campaign is {row.state}.</p>
         )}

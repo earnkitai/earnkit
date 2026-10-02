@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import { createWalletClient, custom, publicActions, type Chain } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import type { RawTx } from '@/lib/earnkit/escrow';
@@ -8,6 +9,11 @@ declare global {
   interface Window {
     ethereum?: {
       request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+      on?(event: 'accountsChanged', fn: (accounts: string[]) => void): void;
+      removeListener?(
+        event: 'accountsChanged',
+        fn: (accounts: string[]) => void,
+      ): void;
     };
   }
 }
@@ -18,54 +24,65 @@ const CHAINS: Record<number, Chain> = {
   31337: foundry,
 };
 
-/**
- * Thrown by `sendAll` when the sequence doesn't complete. Carries every hash the wallet actually
- * returned (`sent`, in order), so a caller can tell a step that never reached the chain at all
- * from one whose outcome is merely unknown (e.g. the server's RPC node lagging the wallet's) —
- * see `decideRetry` in `lib/earnkit/send-retry.ts`, which turns this into a retry decision.
- */
-export class SendAllError extends Error {
-  /** Hashes submitted to the wallet so far, in order (`sendTransaction` resolved for each). */
-  readonly sent: `0x${string}`[];
-  /** `sent.at(-1)`, or `null` if nothing was submitted yet. */
-  readonly lastHash: `0x${string}` | null;
-  /**
-   * Whether `lastHash`'s transaction is known, for a fact, to have reverted onchain. `false`
-   * when its outcome is unknown (waiting for the receipt itself errored) rather than confirmed
-   * failed — an unknown outcome must not be treated the same as a safe-to-retry revert.
-   */
-  readonly reverted: boolean;
+const NO_WALLET =
+  'No browser wallet found. Install MetaMask, Coinbase Wallet, or Rabby.';
 
-  constructor(
-    message: string,
-    opts: { cause?: unknown; sent: `0x${string}`[]; reverted: boolean },
-  ) {
-    super(
-      message,
-      opts.cause !== undefined ? { cause: opts.cause } : undefined,
-    );
-    this.name = 'SendAllError';
-    this.sent = opts.sent;
-    this.lastHash = opts.sent.at(-1) ?? null;
-    this.reverted = opts.reverted;
-  }
+/** "0xABCD…1234": how the pages name the campaign's bound wallet. */
+export const shortWallet = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/**
+ * The browser wallet's connected account (lowercase), read without a prompt on load and kept up to
+ * date when the user switches accounts; `connect` asks the wallet to connect.
+ */
+export function useAccount() {
+  const [account, setAccount] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!eth) return;
+    const set = (accounts: string[]) =>
+      setAccount(accounts[0]?.toLowerCase() ?? null);
+    eth
+      .request({ method: 'eth_accounts' })
+      .then((a) => set(a as string[]))
+      .catch(() => undefined);
+    eth.on?.('accountsChanged', set);
+    return () => eth.removeListener?.('accountsChanged', set);
+  }, []);
+  const connect = useCallback(async () => {
+    setError('');
+    if (!window.ethereum) return setError(NO_WALLET);
+    try {
+      const a = (await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      })) as string[];
+      setAccount(a[0]?.toLowerCase() ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+  return { account, connect, error };
 }
 
-/** Connects the browser wallet, switches chain, sends each tx in order, waits for each. */
+/**
+ * Sends each tx in order from `from` (the campaign's bound wallet). Every step but the last waits
+ * for its receipt (createCampaign needs the approval mined); the last returns once submitted —
+ * the page then polls EarnKit, which reads the outcome from the chain.
+ */
 export async function sendAll(
   txs: RawTx[],
+  from: string,
   onStep: (msg: string) => void,
-): Promise<`0x${string}`> {
-  if (!window.ethereum)
-    throw new Error(
-      'No browser wallet found. Install MetaMask, Coinbase Wallet, or Rabby.',
-    );
+): Promise<void> {
+  if (!window.ethereum) throw new Error(NO_WALLET);
   const chain = CHAINS[txs[0].chain_id];
   const wallet = createWalletClient({
     chain,
     transport: custom(window.ethereum),
   }).extend(publicActions);
   const [account] = await wallet.requestAddresses();
+  if (account.toLowerCase() !== from.toLowerCase())
+    throw new Error(`Switch your wallet to ${shortWallet(from)} first.`);
   if ((await wallet.getChainId()) !== chain.id) {
     onStep(`Switching your wallet to ${chain.name}…`);
     await wallet.switchChain({ id: chain.id }).catch(async () => {
@@ -73,45 +90,47 @@ export async function sendAll(
       await wallet.switchChain({ id: chain.id });
     });
   }
-  const sent: `0x${string}`[] = [];
   for (const [i, tx] of txs.entries()) {
     onStep(
       `Step ${i + 1} of ${txs.length}: ${tx.description}. Confirm in your wallet…`,
     );
-    let hash: `0x${string}`;
-    try {
-      hash = await wallet.sendTransaction({
-        account,
-        to: tx.to,
-        data: tx.data,
-        chain,
-      });
-    } catch (err) {
-      // Never reached the chain (e.g. the wallet rejected signing): `sent` doesn't grow.
-      throw new SendAllError(`Step ${i + 1} could not be sent.`, {
-        cause: err,
-        sent,
-        reverted: false,
-      });
-    }
-    sent.push(hash);
+    const hash = await wallet.sendTransaction({
+      account,
+      to: tx.to,
+      data: tx.data,
+      chain,
+    });
+    if (i === txs.length - 1) return;
     onStep(`Waiting for step ${i + 1} to confirm…`);
-    // The tx was submitted, but if waiting for its receipt itself errors (e.g. the server's RPC
-    // node lags the wallet's), its outcome couldn't be learned — it may yet land, so that must
-    // not be treated the same as a confirmed, safe-to-retry revert.
-    const receipt = await wallet
-      .waitForTransactionReceipt({ hash })
-      .catch((err) => {
-        throw new SendAllError(
-          `Step ${i + 1} was sent but couldn't be confirmed yet (${hash}).`,
-          { cause: err, sent, reverted: false },
-        );
-      });
+    const receipt = await wallet.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success')
-      throw new SendAllError(`Step ${i + 1} failed onchain (${hash}).`, {
-        sent,
-        reverted: true,
-      });
+      throw new Error(`Step ${i + 1} failed onchain. Try again.`);
   }
-  return sent[sent.length - 1];
+}
+
+export type CheckResult = {
+  state?: string;
+  campaign_url?: string;
+  paid?: number;
+  problem?: string;
+  error?: string;
+};
+
+/**
+ * Asks EarnKit to read the chain for this campaign every 3 seconds, for up to 2 minutes, until
+ * `done` says so. Returns the last answer, or null if it never came.
+ */
+export async function pollCheck(
+  ref: string,
+  done: (r: CheckResult) => boolean,
+): Promise<CheckResult | null> {
+  const until = Date.now() + 120_000;
+  while (Date.now() < until) {
+    const r = (await fetch(`/api/sponsor/${ref}/check`, { method: 'POST' })
+      .then((res) => res.json())
+      .catch(() => ({}))) as CheckResult;
+    if (done(r) || r.problem) return r;
+    await new Promise((ok) => setTimeout(ok, 3_000));
+  }
+  return null;
 }

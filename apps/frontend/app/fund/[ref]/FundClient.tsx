@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
-import { SendAllError, sendAll } from '@/app/components/wallet';
-import { decideRetry } from '@/lib/earnkit/send-retry';
+import { pollCheck, sendAll } from '@/app/components/wallet';
+import WalletGate from '@/app/components/WalletGate';
 import {
   DEADLINE_MARGIN_MS,
   DEADLINE_PASSED,
@@ -14,20 +14,21 @@ export default function FundClient({
   ref_,
   txs,
   endsAt,
+  sponsorWallet,
 }: {
   ref_: string;
   txs: RawTx[];
   /** The draft's deadline (ms). A deposit needs to land before endsAt - 10 minutes. */
   endsAt: number;
+  /** The wallet bound at create: the only one whose deposit counts. */
+  sponsorWallet: string;
 }) {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Once the deposit is sent, the page only waits for EarnKit to read it from the chain. Sending
+  // again is harmless (the same wallet can't fund a ref twice) but pointless, so it's not offered.
+  const [sent, setSent] = useState(false);
   const [msg, setMsg] = useState('');
-  // Set only once `sendAll` has returned a hash, i.e. the deposit is already onchain. Once set,
-  // the only control offered re-POSTs this same hash — never re-sending the approve/create
-  // transactions, which would waste gas (same wallet) or fund a second, untracked escrow
-  // (a different wallet).
-  const [sentTx, setSentTx] = useState<`0x${string}` | null>(null);
   // An open page re-checks the deadline: the server only checked when it rendered. Starts false
   // (the server rendered this only for a fundable draft), so hydration matches.
   const [tooLate, setTooLate] = useState(false);
@@ -38,28 +39,6 @@ export default function FundClient({
     return () => clearInterval(t);
   }, [endsAt]);
 
-  async function confirm(tx: `0x${string}`) {
-    setBusy(true);
-    setMsg('Confirming with EarnKit…');
-    try {
-      const res = await fetch(`/api/sponsor/${ref_}/confirm`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tx }),
-      });
-      const body = (await res.json()) as {
-        campaign_url?: string;
-        error?: string;
-      };
-      if (!res.ok || !body.campaign_url)
-        throw new Error(body.error ?? 'Could not confirm.');
-      window.location.href = body.campaign_url;
-    } catch (err) {
-      setMsg(walletErrorMessage(err));
-      setBusy(false);
-    }
-  }
-
   async function fund() {
     if (Date.now() > endsAt - DEADLINE_MARGIN_MS) {
       setTooLate(true);
@@ -68,70 +47,69 @@ export default function FundClient({
     setBusy(true);
     setMsg('');
     try {
-      const tx = await sendAll(txs, setMsg);
-      setSentTx(tx);
-      await confirm(tx);
+      await sendAll(txs, sponsorWallet, setMsg);
     } catch (err) {
-      // sendAll failed partway through. If the LAST transaction's hash was submitted and isn't
-      // a confirmed revert, its outcome is unknown (it may have landed) — the only safe move is
-      // to let the sponsor retry confirming that same hash, never resend createCampaign.
-      if (err instanceof SendAllError) {
-        const decision = decideRetry(err.sent, txs.length, err.reverted);
-        if (decision.action === 'confirm') setSentTx(decision.hash);
-      }
       setMsg(walletErrorMessage(err));
       setBusy(false);
+      return;
     }
+    setSent(true);
+    setMsg('Deposit sent. Waiting for EarnKit to see it onchain…');
+    const r = await pollCheck(
+      ref_,
+      (c) => c.state === 'live' || c.state === 'awarded',
+    );
+    if (r?.campaign_url) window.location.href = r.campaign_url;
+    else
+      setMsg(
+        r?.problem
+          ? `${r.problem[0].toUpperCase()}${r.problem.slice(1)} Contact EarnKit to have it refunded.`
+          : "EarnKit hasn't seen the deposit onchain yet. Reload this page in a minute: it checks again.",
+      );
+    setBusy(false);
   }
 
   return (
-    <div className="mt-8 font-funnel-sans">
-      {!sentTx ? (
-        <>
-          <label className="flex items-start gap-3 text-sm text-ek-blue-light">
-            <input
-              type="checkbox"
-              checked={agreed}
-              onChange={(e) => setAgreed(e.target.checked)}
-              className="mt-1"
-            />
-            <span>
-              I agree to the{' '}
-              <a href="/sponsor-terms" target="_blank" className="underline">
-                sponsor terms
-              </a>
-              .
-            </span>
-          </label>
-          <button
-            type="button"
-            disabled={!agreed || busy || tooLate}
-            onClick={fund}
-            className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
-          >
-            {busy ? 'Working…' : 'Connect wallet and deposit'}
-          </button>
-          {tooLate ? (
-            <p className="mt-4 text-sm text-ek-white" role="status">
-              {DEADLINE_PASSED}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => confirm(sentTx)}
-          className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
-        >
-          {busy ? 'Working…' : 'Retry confirmation'}
-        </button>
-      )}
-      {msg ? (
-        <p className="mt-4 text-sm text-ek-blue-light" role="status">
-          {msg}
-        </p>
-      ) : null}
-    </div>
+    <WalletGate wallet={sponsorWallet}>
+      <div className="mt-8 font-funnel-sans">
+        {sent ? null : (
+          <>
+            <label className="flex items-start gap-3 text-sm text-ek-blue-light">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                I agree to the{' '}
+                <a href="/sponsor-terms" target="_blank" className="underline">
+                  sponsor terms
+                </a>
+                .
+              </span>
+            </label>
+            <button
+              type="button"
+              disabled={!agreed || busy || tooLate}
+              onClick={fund}
+              className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
+            >
+              {busy ? 'Working…' : 'Deposit the pool'}
+            </button>
+            {tooLate ? (
+              <p className="mt-4 text-sm text-ek-white" role="status">
+                {DEADLINE_PASSED}
+              </p>
+            ) : null}
+          </>
+        )}
+        {msg ? (
+          <p className="mt-4 text-sm text-ek-blue-light" role="status">
+            {msg}
+          </p>
+        ) : null}
+      </div>
+    </WalletGate>
   );
 }
