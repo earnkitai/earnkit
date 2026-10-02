@@ -84,12 +84,69 @@ contract InvariantsTest is StdInvariant, BaseTest {
         }
     }
 
-    /// No award/refund ever succeeded for a caller/time the contract's own rules should have
+    /// No award/propose/veto/refund ever succeeded for a caller/time the contract's own rules should have
     /// rejected. This is the direct fix for the mutation check in the task review: a mutant that
     /// lets any caller refund, or any caller award, bumps `unauthorizedSuccesses` in the handler
     /// (see Handler.sol for why that's a ghost counter checked here, rather than a reverting
     /// assertion inside the handler call itself).
     function invariant_noUnauthorizedSuccess() public view {
-        assertEq(handler.unauthorizedSuccesses(), 0, "an award/refund succeeded for a disallowed caller/time");
+        assertEq(
+            handler.unauthorizedSuccesses(), 0, "an award/propose/veto/refund succeeded for a disallowed caller/time"
+        );
+    }
+
+    /// No address that an award path must exclude ever received prize money from a clone.
+    /// (The treasury is excluded as a winner but still gets the fee: `invariant_treasuryOnlyGetsFees`.
+    /// The sponsor only ever gets refunds: `invariant_sponsorsWhole`. Settled clones hold 0 and
+    /// the factory holds 0: `invariant_conservation`/`invariant_factoryHoldsNothing`.)
+    function invariant_excludedNeverPaid() public view {
+        assertEq(handler.excludedPaid(), 0, "an award/fallback with an excluded winner succeeded");
+        for (uint256 k; k < 4; ++k) {
+            assertEq(usdc.balanceOf(handler.roleKeys(k)), 0, "an operator/guardian key received funds");
+        }
+        assertEq(usdc.balanceOf(address(usdc)), 0, "token contract received funds");
+        assertEq(usdc.balanceOf(factory.implementation()), 0, "implementation received funds");
+    }
+
+    /// A fallback only ever executes with the exact proposed payload, at or after proposal + 72 h,
+    /// and every pending proposal the contract reports matches the handler's own record.
+    function invariant_fallbackOnlyAfterDelay() public view {
+        assertEq(handler.badFallbackExecutions(), 0, "fallback executed early, unproposed, or with another payload");
+        uint256 n = handler.campaignCount();
+        for (uint256 i; i < n; ++i) {
+            EarnKitCampaign c = handler.campaigns(i);
+            assertEq(c.fallbackHash(), handler.ghostProposedHash(address(c)), "pending hash matches handler");
+            assertEq(c.fallbackAt(), handler.ghostProposedAt(address(c)), "pending time matches handler");
+            if (c.state() != EarnKitCampaign.State.Funded) {
+                assertEq(c.fallbackHash(), bytes32(0), "settled => no proposal");
+            }
+        }
+    }
+
+    /// A veto is sticky: once vetoed, a campaign never again has a pending proposal, and the
+    /// contract's veto flag matches the handler's record.
+    function invariant_noProposalAfterVeto() public view {
+        uint256 n = handler.campaignCount();
+        for (uint256 i; i < n; ++i) {
+            EarnKitCampaign c = handler.campaigns(i);
+            assertEq(c.fallbackVetoed(), handler.ghostVetoed(address(c)), "veto flag matches handler");
+            if (c.fallbackVetoed()) assertEq(c.fallbackHash(), bytes32(0), "proposal exists after a veto");
+        }
+    }
+
+    /// The guardian (pauser) is never the operator: not at the factory after any rotation, and not
+    /// in any campaign's snapshot (which also matches the handler's model of the factory then).
+    function invariant_guardianNeverOperator() public view {
+        assertEq(handler.configViolations(), 0, "a rotation made pauser == operator");
+        assertTrue(factory.pauser() != factory.operator(), "factory pauser == operator");
+        assertEq(factory.operator(), handler.curOperator(), "factory operator matches model");
+        assertEq(factory.pauser(), handler.curPauser(), "factory pauser matches model");
+        uint256 n = handler.campaignCount();
+        for (uint256 i; i < n; ++i) {
+            EarnKitCampaign c = handler.campaigns(i);
+            assertTrue(c.guardian() != c.operator(), "campaign guardian == operator");
+            assertEq(c.operator(), handler.ghostOperatorOf(address(c)), "operator snapshot");
+            assertEq(c.guardian(), handler.ghostGuardianOf(address(c)), "guardian snapshot");
+        }
     }
 }

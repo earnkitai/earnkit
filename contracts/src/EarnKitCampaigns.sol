@@ -16,11 +16,14 @@ import {EarnKitCampaign} from "./EarnKitCampaign.sol";
 contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    uint256 public constant MIN_DURATION = 1 days;
     uint256 public constant MAX_DURATION = 180 days;
 
     address public immutable implementation;
     address public operator;
     address public treasury;
+    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian,
+    /// so it must never be the operator (the veto would then protect nothing).
     address public pauser;
     /// Max amount per campaign for each allowed token (0 = not allowed).
     mapping(address token => uint256 cap) public capOf;
@@ -43,6 +46,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     error AmountMismatch();
     error NotPauser();
     error RenounceDisabled();
+    error GuardianIsOperator();
 
     constructor(
         address owner_,
@@ -72,12 +76,12 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 cap = capOf[address(token)];
         if (cap == 0) revert TokenNotAllowed();
         if (amount == 0 || amount > cap) revert BadAmount();
-        if (endsAt <= block.timestamp || endsAt > block.timestamp + MAX_DURATION) revert BadEndsAt();
+        if (endsAt < block.timestamp + MIN_DURATION || endsAt > block.timestamp + MAX_DURATION) revert BadEndsAt();
         if (campaignOf[msg.sender][ref] != address(0)) revert RefUsed();
 
         campaign = Clones.clone(implementation);
         campaignOf[msg.sender][ref] = campaign;
-        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt, operator, treasury);
+        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt, operator, treasury, pauser);
 
         uint256 before = token.balanceOf(campaign);
         token.safeTransferFrom(msg.sender, campaign, amount);
@@ -125,6 +129,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setOperator(address operator_) private {
         if (operator_ == address(0)) revert ZeroAddress();
+        if (operator_ == pauser) revert GuardianIsOperator();
         operator = operator_;
         emit OperatorSet(operator_);
     }
@@ -137,6 +142,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setPauser(address pauser_) private {
         if (pauser_ == address(0)) revert ZeroAddress();
+        if (pauser_ == operator) revert GuardianIsOperator();
         pauser = pauser_;
         emit PauserSet(pauser_);
     }

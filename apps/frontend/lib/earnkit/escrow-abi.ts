@@ -51,6 +51,19 @@ export const campaignsAbi = [
   },
   {
     type: 'function',
+    name: 'MIN_DURATION',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'uint256',
+        internalType: 'uint256',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'acceptOwnership',
     inputs: [],
     outputs: [],
@@ -512,6 +525,11 @@ export const campaignsAbi = [
   },
   {
     type: 'error',
+    name: 'GuardianIsOperator',
+    inputs: [],
+  },
+  {
+    type: 'error',
     name: 'InsufficientBalance',
     inputs: [
       {
@@ -616,6 +634,19 @@ export const campaignAbi = [
   },
   {
     type: 'function',
+    name: 'FALLBACK_DELAY',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'uint64',
+        internalType: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'MAX_WINNERS',
     inputs: [],
     outputs: [
@@ -673,6 +704,24 @@ export const campaignAbi = [
   },
   {
     type: 'function',
+    name: 'executeFallback',
+    inputs: [
+      {
+        name: 'winners',
+        type: 'address[]',
+        internalType: 'address[]',
+      },
+      {
+        name: 'amounts',
+        type: 'uint256[]',
+        internalType: 'uint256[]',
+      },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'factory',
     inputs: [],
     outputs: [
@@ -686,6 +735,45 @@ export const campaignAbi = [
   },
   {
     type: 'function',
+    name: 'fallbackAt',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'uint64',
+        internalType: 'uint64',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'fallbackHash',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'bytes32',
+        internalType: 'bytes32',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'fallbackVetoed',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'bool',
+        internalType: 'bool',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'fee',
     inputs: [],
     outputs: [
@@ -693,6 +781,19 @@ export const campaignAbi = [
         name: '',
         type: 'uint256',
         internalType: 'uint256',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'guardian',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'address',
+        internalType: 'address',
       },
     ],
     stateMutability: 'view',
@@ -731,6 +832,11 @@ export const campaignAbi = [
         type: 'address',
         internalType: 'address',
       },
+      {
+        name: 'guardian_',
+        type: 'address',
+        internalType: 'address',
+      },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -760,6 +866,24 @@ export const campaignAbi = [
       },
     ],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'proposeFallback',
+    inputs: [
+      {
+        name: 'winners',
+        type: 'address[]',
+        internalType: 'address[]',
+      },
+      {
+        name: 'amounts',
+        type: 'uint256[]',
+        internalType: 'uint256[]',
+      },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -821,6 +945,13 @@ export const campaignAbi = [
     stateMutability: 'view',
   },
   {
+    type: 'function',
+    name: 'vetoFallback',
+    inputs: [],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
     type: 'event',
     name: 'Awarded',
     inputs: [
@@ -843,6 +974,31 @@ export const campaignAbi = [
         internalType: 'uint256',
       },
     ],
+    anonymous: false,
+  },
+  {
+    type: 'event',
+    name: 'FallbackProposed',
+    inputs: [
+      {
+        name: 'winners',
+        type: 'address[]',
+        indexed: false,
+        internalType: 'address[]',
+      },
+      {
+        name: 'amounts',
+        type: 'uint256[]',
+        indexed: false,
+        internalType: 'uint256[]',
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: 'event',
+    name: 'FallbackVetoed',
+    inputs: [],
     anonymous: false,
   },
   {
@@ -884,7 +1040,32 @@ export const campaignAbi = [
   },
   {
     type: 'error',
+    name: 'ExcludedWinner',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'FallbackClosed',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'FallbackMismatch',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'FallbackNotReady',
+    inputs: [],
+  },
+  {
+    type: 'error',
     name: 'InvalidInitialization',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'NoFallback',
     inputs: [],
   },
   {

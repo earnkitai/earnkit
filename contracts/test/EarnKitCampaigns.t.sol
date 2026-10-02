@@ -29,6 +29,8 @@ contract EarnKitCampaignsTest is BaseTest {
         assertEq(c.factory(), address(factory));
         assertEq(c.operator(), operator);
         assertEq(c.treasury(), treasury);
+        assertEq(c.guardian(), pauser);
+        assertEq(c.fallbackHash(), bytes32(0));
     }
 
     function test_create_roundsTheFeeDown() public {
@@ -40,7 +42,8 @@ contract EarnKitCampaignsTest is BaseTest {
     function test_create_eachCampaignIsItsOwnAddress() public {
         EarnKitCampaign a = create(10e6, uint64(block.timestamp + 1 days));
         vm.prank(sponsor);
-        address b = factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 20e6, uint64(block.timestamp + 1 days));
+        address b =
+            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 20e6, uint64(block.timestamp + 1 days));
         assertTrue(address(a) != b);
         assertEq(usdc.balanceOf(address(a)), 10e6);
         assertEq(usdc.balanceOf(b), 20e6);
@@ -69,6 +72,27 @@ contract EarnKitCampaignsTest is BaseTest {
         vm.expectRevert(EarnKitCampaigns.BadEndsAt.selector);
         factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 180 days + 1));
         vm.stopPrank();
+    }
+
+    function test_create_minDurationBoundary() public {
+        vm.startPrank(sponsor);
+        vm.expectRevert(EarnKitCampaigns.BadEndsAt.selector);
+        factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 1 days - 1));
+        factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 1 days));
+        factory.createCampaign(keccak256("max"), IERC20(address(usdc)), 1e6, uint64(block.timestamp + 180 days));
+        vm.stopPrank();
+    }
+
+    function test_create_snapshotsPauserAsGuardian_rotationOnlyAffectsNewCampaigns() public {
+        EarnKitCampaign a = create(10e6, uint64(block.timestamp + 1 days));
+        vm.prank(owner);
+        factory.setPauser(bob);
+        vm.prank(sponsor);
+        EarnKitCampaign b = EarnKitCampaign(
+            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 10e6, uint64(block.timestamp + 1 days))
+        );
+        assertEq(a.guardian(), pauser);
+        assertEq(b.guardian(), bob);
     }
 
     function test_create_reverts_refReusedBySameSponsor_butNotByOthers() public {
@@ -147,12 +171,12 @@ contract EarnKitCampaignsTest is BaseTest {
         factory.setPauser(address(0));
         factory.setOperator(bob);
         factory.setTreasury(bob);
-        factory.setPauser(bob);
+        factory.setPauser(alice);
         factory.setCap(address(usdc), 0);
         vm.stopPrank();
         assertEq(factory.operator(), bob);
         assertEq(factory.treasury(), bob);
-        assertEq(factory.pauser(), bob);
+        assertEq(factory.pauser(), alice);
         assertEq(factory.capOf(address(usdc)), 0);
     }
 
@@ -166,17 +190,25 @@ contract EarnKitCampaignsTest is BaseTest {
         address[] memory tokens = new address[](1);
         tokens[0] = address(usdc);
         uint256[] memory caps = new uint256[](0);
-        vm.expectRevert(EarnKitCampaigns.LengthMismatch.selector);
-        new EarnKitCampaigns(owner, operator, treasury, pauser, tokens, caps);
+        // try/catch, not expectRevert: with this forge, an expected revert on `new` ends the test
+        // function, so a second check after it would silently never run.
+        try new EarnKitCampaigns(owner, operator, treasury, pauser, tokens, caps) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.LengthMismatch.selector);
+        }
         uint256[] memory oneCap = new uint256[](1);
-        vm.expectRevert(EarnKitCampaigns.ZeroAddress.selector);
-        new EarnKitCampaigns(owner, address(0), treasury, pauser, tokens, oneCap);
+        try new EarnKitCampaigns(owner, address(0), treasury, pauser, tokens, oneCap) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.ZeroAddress.selector);
+        }
     }
 
     function test_implementation_cannotBeInitialized() public {
         EarnKitCampaign impl = EarnKitCampaign(factory.implementation());
         vm.expectRevert();
-        impl.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        impl.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
     }
 
     function test_initialize_reverts_whenCalledDirectlyNotByFactory() public {
@@ -184,7 +216,7 @@ contract EarnKitCampaignsTest is BaseTest {
         // lets the call through, so this exercises the explicit `msg.sender != factory` check.
         EarnKitCampaign rawClone = EarnKitCampaign(Clones.clone(factory.implementation()));
         vm.expectRevert(EarnKitCampaign.NotFactory.selector);
-        rawClone.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        rawClone.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
     }
 
     function test_setCap_reverts_zeroAddress() public {
@@ -197,6 +229,33 @@ contract EarnKitCampaignsTest is BaseTest {
         EarnKitCampaign c = create(1e6, uint64(block.timestamp + 1 days));
         vm.prank(address(factory));
         vm.expectRevert();
-        c.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        c.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
+    }
+
+    /// Regression for review M-01: guardian (pauser) == operator would make the fallback veto
+    /// worthless, so the factory refuses it in the constructor and both setters.
+    function test_guardianCannotBeOperator_constructorAndSetters() public {
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(usdc);
+        uint256[] memory caps = new uint256[](1);
+        caps[0] = CAP;
+        // try/catch rather than expectRevert on `new` (see test_constructor_reverts_onBadConfig).
+        try new EarnKitCampaigns(owner, operator, treasury, operator, tokens, caps) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.GuardianIsOperator.selector);
+        }
+
+        vm.startPrank(owner);
+        vm.expectRevert(EarnKitCampaigns.GuardianIsOperator.selector);
+        factory.setPauser(operator);
+        vm.expectRevert(EarnKitCampaigns.GuardianIsOperator.selector);
+        factory.setOperator(pauser);
+        vm.stopPrank();
+        assertEq(factory.operator(), operator);
+        assertEq(factory.pauser(), pauser);
+
+        EarnKitCampaign c = create(1000e6, uint64(block.timestamp + 1 days));
+        assertTrue(c.guardian() != c.operator());
     }
 }
