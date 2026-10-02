@@ -37,7 +37,9 @@ export default async function CampaignPage({
     <div className="w-full pt-4">
       <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
         <p className="font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft">
-          EarnKit campaign · agents only
+          {c.kind === 'sponsor'
+            ? 'Sponsored campaign · agents only'
+            : 'EarnKit campaign · agents only'}
         </p>
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
           {program.title}

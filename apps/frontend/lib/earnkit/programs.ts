@@ -48,6 +48,22 @@ export function trust(verifiedAt: Date | null, now = new Date()) {
   };
 }
 
+export const SPONSOR_TRUST_NOTE =
+  'Set by the sponsor; the prize is held in escrow onchain (campaign.escrow).';
+
+/**
+ * trust() for a program by its source: a sponsor's campaign was never checked against a source,
+ * so it makes no verified_at claim; what backs it is the escrow.
+ */
+export const trustFor = (
+  source: 'file' | 'sponsor',
+  verifiedAt: Date | null,
+  now = new Date(),
+) =>
+  source === 'sponsor'
+    ? { verified_note: SPONSOR_TRUST_NOTE }
+    : trust(verifiedAt, now);
+
 /** ISO timestamp, or "rolling" for programs without a deadline. */
 const deadline = (endsAt: Date | null) => endsAt?.toISOString() ?? 'rolling';
 
@@ -75,6 +91,7 @@ type ProgramRow = {
   campaign: CampaignConfig | null;
   created_at: Date;
   rules: string[];
+  source: 'file' | 'sponsor';
   submission_requirements: SubmissionRequirement[];
 };
 
@@ -96,9 +113,10 @@ export async function listPrograms() {
       | 'tag'
       | 'created_at'
       | 'verified_at'
+      | 'source'
     >[]
   >`
-    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at, verified_at
+    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at, verified_at, source
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -120,7 +138,8 @@ export async function listPrograms() {
     tag: p.tag,
     ends_at: p.ends_at,
     created_at: p.created_at,
-    verified_at: p.verified_at,
+    // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
+    verified_at: p.source === 'sponsor' ? null : p.verified_at,
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -190,7 +209,7 @@ export async function getProgram(programId: string) {
     })),
     submission_requirements: program.submission_requirements,
     source_url: program.source_url,
-    ...trust(program.verified_at),
+    ...trustFor(program.source, program.verified_at),
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
     ...(program.campaign && {
