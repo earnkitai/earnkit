@@ -137,14 +137,22 @@ export function parseAddresses(value: unknown): string[] {
 }
 
 /**
- * A repo link in the form used to spot the same repo entered twice: trimmed, lowercased, without
- * "www.", a trailing "/" or ".git" ("https://www.GitHub.com/x/a.git/" -> "https://github.com/x/a").
+ * A repo link in the form used to spot the same repo entered twice (stored as projects.repo_key):
+ * lowercased, without the scheme (http, https, git+…), user info, "www.", query or fragment, a
+ * trailing "/" or ".git", or a GitHub "/tree/<branch>…" suffix.
+ * "http://www.GitHub.com/x/a.git/" and "https://github.com/x/a/tree/main#readme" -> "github.com/x/a".
  */
 export function normalizeRepoUrl(url: string) {
   let u = url
     .trim()
     .toLowerCase()
-    .replace(/^((?:[a-z]+:)?\/\/)?www\./, '$1');
+    .replace(/^git\+/, '')
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .replace(/^\/\//, '')
+    .replace(/[?#].*$/, '')
+    .replace(/^[^/@]*@/, '')
+    .replace(/^www\./, '')
+    .replace(/^(github\.com\/[^/]+\/[^/]+)\/tree(\/.*)?$/, '$1');
   for (let prev = ''; prev !== u; ) {
     prev = u;
     u = u.replace(/\/+$/, '').replace(/\.git$/, '');

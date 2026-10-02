@@ -175,22 +175,38 @@ test('entries show rank while running and the prize once paid; wins announce onc
   assert.deepEqual(presentYourEntries([], null), { section: null, wins: [] });
 });
 
-test('normalizeRepoUrl: lowercase, no www., no trailing "/" or ".git"', () => {
-  const want = 'https://github.com/x/a';
+test('normalizeRepoUrl: scheme, www., query, fragment, trailing "/" or ".git", /tree/ and case are ignored', () => {
+  const want = 'github.com/x/a';
   for (const u of [
     'https://github.com/x/a',
+    'http://github.com/x/a',
+    'github.com/x/a',
+    '//github.com/x/a',
+    'git+https://github.com/x/a.git',
+    'git+ssh://git@github.com/x/a.git',
     'https://GitHub.com/X/A',
     'https://www.github.com/x/a',
+    'www.github.com/x/a',
     'https://github.com/x/a/',
     'https://github.com/x/a.git',
     'https://github.com/x/a.git/',
+    'https://github.com/x/a?tab=readme',
+    'https://github.com/x/a#readme',
+    'https://github.com/x/a/tree/main',
+    'https://github.com/x/a/tree/feature/x?y=1#z',
     '  https://www.github.com/x/a.git//  ',
   ])
     assert.equal(normalizeRepoUrl(u), want, u);
-  assert.equal(normalizeRepoUrl('www.github.com/x/a'), 'github.com/x/a');
+  // The duplicate the controller's rerun let in.
+  assert.equal(
+    normalizeRepoUrl('http://www.GitHub.com/b1/x402-weather.git/'),
+    normalizeRepoUrl('https://github.com/b1/x402-weather'),
+  );
   // Other repos stay different.
   assert.notEqual(normalizeRepoUrl('https://github.com/x/ab'), want);
   assert.notEqual(normalizeRepoUrl('https://github.com/x/a-git'), want);
+  assert.notEqual(normalizeRepoUrl('https://github.com/y/a'), want);
+  assert.notEqual(normalizeRepoUrl('https://gitlab.com/x/a'), want);
 });
 
 test('sameRepoEntry finds the entry with the same normalized repo, ignoring entries without one', () => {
