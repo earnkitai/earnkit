@@ -43,6 +43,13 @@ export async function getCampaignBoard(slug: string) {
       prize_reason, row_number() OVER (ORDER BY score DESC NULLS LAST, submitted_at)::int AS rank
     FROM projects WHERE program_id = ${slug} AND payout_wallet IS NOT NULL
     ORDER BY score DESC NULLS LAST, submitted_at`;
+  // An EarnKit campaign that closed without ever taking an entry (Campaign #1) isn't public.
+  if (
+    program.campaign.kind === 'earnkit' &&
+    program.status === 'closed' &&
+    rows.length === 0
+  )
+    return null;
   return {
     program: { ...program, campaign: program.campaign },
     rows,
