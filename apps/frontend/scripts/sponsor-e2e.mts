@@ -10,32 +10,32 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
-import type { Draft } from '../lib/earnkit/sponsor-rules';
+import type { DraftRequest } from '../lib/earnkit/sponsor-rules';
 
 /**
- * Full sponsor flow on a local anvil with the contracts deployed (Task 3 Step 3):
+ * Full sponsor flow on a local anvil with the contracts deployed:
  *   ESCROW_CHAIN=local ESCROW_RPC_URL=http://127.0.0.1:8547 ESCROW_FACTORY_ADDRESS=… ESCROW_LOCAL_TOKEN=…
  *   DATABASE_URL=… pnpm sponsor:e2e
+ * Deployed with OPERATOR = anvil #2, TREASURY = anvil #3, PAUSER (each clone's guardian) = anvil #0.
  * Anvil time is warped past deadlines; nothing touches a real network.
  *
- * Beyond the basic draft -> fund -> entries -> award flow, this script also exercises (Task 10
- * binding requirements, deferred here from Tasks 6-9):
- *   1. two concurrent confirmFunding(ref, tx) calls for the same ref (race safety)
- *   2. an expired draft rescued by a late but valid funding receipt
- *   3. an off-plan award (the sponsor calls the escrow directly) with a non-entry wallet
- *   4. prepareAward refused once a campaign is already awarded
- *   5. the operator CLI commands (refund, sync, fallback award) against the same anvil
- *   6. re-confirming a live campaign with its own funding tx (confirmTx and the status tool)
- *   7. a second deposit for the same ref from another wallet: a readable error naming the
- *      untracked escrow, then `campaign refund --escrow <address>` returns it
- *   8. `campaign sync <ref> --tx <hash>` repairing an expired, funded draft to live
- * and, from the v2.1 end-to-end test's fix list:
- *   9. the same repo entered twice (any spelling) is refused (item 1)
- *  10. a draft whose deadline is under 10 minutes away lazily expires (item 2)
- *  11. entry statuses: entered, not picked, refunded, taken down (board, entry page, and
- *      list_programs' "Your campaign entries") (items 3/4)
- *  12. sponsor replies (show_to_sponsor + next_step), award page names, the operator CLI's
- *      refusals, and Campaign #1's page being gone (items 5, 7, 9, 11)
+ * v2.2 (wallet binding): every draft is bound to its sponsor wallet; EarnKit finds the funding and
+ * the award by reading the chain (status, `pnpm campaign sync`), never from a reported tx hash.
+ * Beyond draft -> fund -> entries -> award, this script exercises:
+ *   1. a front-run: another wallet funds the same ref first; EarnKit ignores it, the bound wallet's
+ *      deposit publishes, and `campaign refund --escrow` returns the stray deposit (no tx needed)
+ *   2. a deposit from the bound wallet with the wrong amount: refused and named, never published
+ *   3. concurrent chain checks for one ref publish once
+ *   4. an expired draft rescued by its deposit (status, and `campaign sync <ref>`); `sync` with no
+ *      ref sweeps every draft, expired and live campaign
+ *   5. an off-plan award (the sponsor calls the escrow directly) with a non-entry wallet
+ *   6. award plans refuse a payout wallet that is an EarnKit escrow (sponsor and fallback CLI)
+ *   7. the operator fallback: propose too early (refused), propose, re-propose (restarts the
+ *      delay), execute too early (refused), execute after the 72 h delay; and on another campaign
+ *      propose -> guardian veto -> re-propose refused (the veto is sticky) -> the sponsor reclaims
+ *      after 60 days and status records the refund
+ *   8. the same repo entered twice is refused; lazily expiring drafts; entry statuses (board,
+ *      entry page, "Your campaign entries"); sponsor replies with no tx hashes; CLI refusals
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -93,12 +93,21 @@ const sponsorKey =
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'; // anvil #1
 const operatorKey =
   '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'; // anvil #2 (OPERATOR at deploy)
+const guardianKey =
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // anvil #0 (PAUSER at deploy)
 const treasury = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'; // anvil #3 (TREASURY at deploy)
-const wallet = createWalletClient({
-  account: privateKeyToAccount(sponsorKey),
-  chain: foundry,
-  transport: http(RPC),
-}).extend(publicActions);
+const walletOf = (key: `0x${string}`) =>
+  createWalletClient({
+    account: privateKeyToAccount(key),
+    chain: foundry,
+    transport: http(RPC),
+  }).extend(publicActions);
+const wallet = walletOf(sponsorKey);
+const SPONSOR = wallet.account.address.toLowerCase();
+// anvil #4: someone else, who tries to fund a sponsor's draft first.
+const attacker = walletOf(
+  '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
+);
 const rpc = (method: string, params: unknown[]) =>
   fetch(RPC, {
     method: 'POST',
@@ -106,20 +115,18 @@ const rpc = (method: string, params: unknown[]) =>
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
 const warpDays = async (days: number) => {
-  await rpc('evm_increaseTime', [days * 86_400]);
+  await rpc('evm_increaseTime', [Math.round(days * 86_400)]);
   await rpc('evm_mine', []);
 };
 
 const { sql } = await import('../lib/earnkit/db');
 const {
   createSponsorDraft,
-  confirmFunding,
+  checkChain,
   sponsorStatus,
   prepareAward,
-  confirmAward,
-  fundingFromReceipt,
   loadCampaign,
-  confirmTx,
+  DEADLINE_PASSED,
 } = await import('../lib/earnkit/sponsor');
 const { tools } = await import('../lib/earnkit/tools');
 const { recordSubmission } = await import('../lib/earnkit/projects');
@@ -128,7 +135,7 @@ const { presentYourEntries, entryStatus } = await import(
 );
 const { getCampaignBoard, getProjectPage, yourCampaignEntries, entryNames } =
   await import('../lib/earnkit/leaderboard');
-const { DEADLINE_PASSED } = await import('../lib/earnkit/sponsor');
+const { campaignAbi, campaignsAbi } = await import('../lib/earnkit/escrow-abi');
 const db = sql();
 
 const check = (ok: unknown, what: string) => {
@@ -150,11 +157,16 @@ const tsxBin = fileURLToPath(
   new URL('../../../node_modules/.bin/tsx', import.meta.url),
 );
 const campaignScript = fileURLToPath(new URL('campaign.mts', import.meta.url));
+const cliEnv = (env: Record<string, string> = {}) => ({
+  ...process.env,
+  OPERATOR_PRIVATE_KEY: operatorKey,
+  ...env,
+});
 /** Runs the CLI expecting it to fail; returns its stderr (one line, no stack trace). */
 function runCampaignCliFails(env: Record<string, string>, ...args: string[]) {
   try {
     execFileSync(tsxBin, [campaignScript, ...args], {
-      env: { ...process.env, OPERATOR_PRIVATE_KEY: operatorKey, ...env },
+      env: cliEnv(env),
       encoding: 'utf8',
       stdio: 'pipe',
     });
@@ -165,10 +177,10 @@ function runCampaignCliFails(env: Record<string, string>, ...args: string[]) {
   fail(`campaign ${args.join(' ')} was expected to fail but succeeded`);
 }
 
-function runCampaignCli(...args: string[]) {
+function runCampaignCliAs(env: Record<string, string>, ...args: string[]) {
   try {
     return execFileSync(tsxBin, [campaignScript, ...args], {
-      env: { ...process.env, OPERATOR_PRIVATE_KEY: operatorKey },
+      env: cliEnv(env),
       encoding: 'utf8',
     });
   } catch (err) {
@@ -178,24 +190,38 @@ function runCampaignCli(...args: string[]) {
     );
   }
 }
+const runCampaignCli = (...args: string[]) => runCampaignCliAs({}, ...args);
 
 const [{ id: inst }] = await db<{ id: number }[]>`
   INSERT INTO installations (token_hash) VALUES (${'e2e-' + Date.now()}) RETURNING id`;
 const token = process.env.ESCROW_LOCAL_TOKEN as `0x${string}`;
-await wallet.writeContract({
-  address: token,
-  abi: [
-    {
-      type: 'function',
-      name: 'mint',
-      inputs: [{ type: 'address' }, { type: 'uint256' }],
-      outputs: [],
-      stateMutability: 'nonpayable',
-    },
-  ],
-  functionName: 'mint',
-  args: [wallet.account.address, parseUnits('1000', 6)],
-});
+const mintAbi = [
+  {
+    type: 'function',
+    name: 'mint',
+    inputs: [{ type: 'address' }, { type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+] as const;
+const mint = async (to: `0x${string}`, amount: string) =>
+  wallet.waitForTransactionReceipt({
+    hash: await wallet.writeContract({
+      address: token,
+      abi: mintAbi,
+      functionName: 'mint',
+      args: [to, parseUnits(amount, 6)],
+    }),
+  });
+await mint(wallet.account.address, '1000');
+await mint(attacker.account.address, '10');
+const balanceOf = (a: string) =>
+  wallet.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [a as `0x${string}`],
+  });
 
 const DAY = 86_400_000;
 function mkDraft(
@@ -203,8 +229,10 @@ function mkDraft(
   amount: string,
   endsInDays: number,
   winners = 1,
-): Draft {
+): DraftRequest {
   return {
+    // Checksummed, as a sponsor's agent would usually pass it; stored lowercase.
+    sponsor_wallet: wallet.account.address,
     sponsor_name: 'E2E Co',
     title,
     theme: 'Build anything on Base that works end to end.',
@@ -218,21 +246,100 @@ function mkDraft(
   };
 }
 
-/** Creates a draft and sends its approve + createCampaign transactions. Does not confirm. */
-async function createAndFund(input: Draft) {
-  const draft = await createSponsorDraft(input, inst);
-  let fundTx: `0x${string}` = '0x';
-  for (const tx of draft.transactions) {
-    fundTx = await wallet.sendTransaction({ to: tx.to, data: tx.data });
-    await wallet.waitForTransactionReceipt({ hash: fundTx });
+type Txs = { to: `0x${string}`; data: `0x${string}` }[];
+/** Sends a draft's approve + createCampaign from `from` (the bound sponsor by default). */
+async function fund(txs: Txs, from = wallet) {
+  for (const tx of txs) {
+    const hash = await from.sendTransaction({ to: tx.to, data: tx.data });
+    await from.waitForTransactionReceipt({ hash });
   }
-  return { ref: draft.ref, fundTx, draft };
+}
+
+/** Creates a draft and deposits from the bound wallet. Nothing is reported to EarnKit. */
+async function createAndFund(input: DraftRequest) {
+  const draft = await createSponsorDraft(input, inst);
+  await fund(draft.transactions);
+  return { ref: draft.ref, draft };
+}
+
+type Reply = {
+  state: string;
+  show_to_sponsor: string;
+  next_step?: string;
+  escrow?: string;
+  campaign_url?: string;
+  fund_url?: string;
+  sponsor_wallet?: string;
+  chain_note?: string;
+};
+// Every sponsor reply, to check at the end that none mentions a tx hash.
+const replies: string[] = [];
+async function status(ref: string) {
+  const r = (await tools.sponsor_campaign(
+    { action: 'status', ref },
+    { installationId: inst },
+  )) as Reply;
+  replies.push(r.show_to_sponsor, r.next_step ?? '');
+  return r;
+}
+const campaignOf = (sponsor: string, ref: string) =>
+  wallet.readContract({
+    address: process.env.ESCROW_FACTORY_ADDRESS as `0x${string}`,
+    abi: campaignsAbi,
+    functionName: 'campaignOf',
+    args: [sponsor as `0x${string}`, ref as `0x${string}`],
+  }) as Promise<string>;
+
+async function enter(programId: string, name: string, payout: string) {
+  return recordSubmission(
+    {
+      program_id: programId,
+      project: {
+        name,
+        repo_url: `https://github.com/x/${name.toLowerCase().replace(/\W/g, '')}`,
+        live_url: `https://${name.toLowerCase().replace(/\W/g, '')}.app`,
+      },
+      submission_data: { payout_wallet: payout },
+    },
+    inst,
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Campaign A: the core draft -> fund -> entries -> award flow (ends in 4 days).
+// create: sponsor_wallet is required and bound; the reply names it and asks for no hashes.
 // ---------------------------------------------------------------------------
-const endsA = new Date(Date.now() + 4 * DAY).toISOString();
+const { sponsor_wallet: _w, ...unbound } = mkDraft('E2E unbound', '5', 4);
+const noWallet = await tools
+  .sponsor_campaign({ action: 'create', ...unbound }, { installationId: inst })
+  .then(
+    () => '',
+    (err: Error) => err.message,
+  );
+check(
+  /sponsor_wallet/.test(noWallet),
+  'create without sponsor_wallet is refused',
+);
+const badChecksum = await tools
+  .sponsor_campaign(
+    {
+      action: 'create',
+      ...mkDraft('E2E bad checksum', '5', 4),
+      sponsor_wallet: '0x70997970c51812dc3A010C7d01b50e0d17dc79C8',
+    },
+    { installationId: inst },
+  )
+  .then(
+    () => '',
+    (err: Error) => err.message,
+  );
+check(
+  /checksum/.test(badChecksum),
+  'a mixed-case sponsor_wallet with a bad checksum is refused',
+);
+
+// ---------------------------------------------------------------------------
+// Campaign A: draft -> fund -> (status finds it) -> entries -> award (ends in 4 days).
+// ---------------------------------------------------------------------------
 const draft = await createSponsorDraft(
   mkDraft('E2E campaign', '100', 4, 2),
   inst,
@@ -241,98 +348,66 @@ check(
   draft.transactions.length === 2,
   'draft returns approve + createCampaign',
 );
+replies.push(draft.show_to_sponsor, draft.next_step);
 check(
   draft.show_to_sponsor.startsWith('Campaign drafted: "E2E campaign".') &&
     draft.show_to_sponsor.includes('Winners get 90 USDC') &&
     draft.show_to_sponsor.includes("EarnKit's 10% (10 USDC)") &&
-    draft.show_to_sponsor.includes(`Fund it here: ${draft.fund_url}`) &&
-    draft.next_step.includes('action=status') &&
+    draft.show_to_sponsor.includes(
+      `Fund it here, from ${SPONSOR}: ${draft.fund_url}`,
+    ) &&
+    draft.next_step.includes('action=status and ref') &&
     !('show_to_builder' in draft),
-  'create replies with show_to_sponsor (split, deadline, fund link) and next_step',
+  'create replies with show_to_sponsor (split, deadline, bound wallet, fund link) and next_step',
 );
 console.log(`  show_to_sponsor: ${JSON.stringify(draft.show_to_sponsor)}`);
-
-let fundTx: `0x${string}` = '0x';
-for (const tx of draft.transactions) {
-  fundTx = await wallet.sendTransaction({ to: tx.to, data: tx.data });
-  await wallet.waitForTransactionReceipt({ hash: fundTx });
-}
-const live = await confirmFunding(draft.ref, fundTx);
+const [{ sponsor_wallet: storedWallet }] = await db<
+  { sponsor_wallet: string }[]
+>`SELECT sponsor_wallet FROM sponsor_campaigns WHERE ref = ${draft.ref}`;
 check(
-  live.program_id.startsWith('sponsor-'),
-  'funding confirmed, program live',
+  storedWallet === SPONSOR,
+  `the draft stores the bound wallet lowercased (${storedWallet})`,
 );
+
+const unfunded = await status(draft.ref);
 check(
-  (await confirmFunding(draft.ref, fundTx)).program_id === live.program_id,
-  'confirm twice is idempotent',
+  unfunded.state === 'draft' && unfunded.sponsor_wallet === SPONSOR,
+  'status before funding: still a draft (campaignOf is zero), naming the bound wallet',
 );
-
-const approveTx = await wallet.sendTransaction({
-  to: draft.transactions[0].to,
-  data: draft.transactions[0].data,
-});
-const approveReceipt = await wallet.waitForTransactionReceipt({
-  hash: approveTx,
-});
-let rejected = false;
-try {
-  fundingFromReceipt(
-    {
-      ref: draft.ref,
-      token,
-      token_decimals: 6,
-      amount: '100',
-      draft: { ends_at: endsA },
-    },
-    approveReceipt,
-  );
-} catch {
-  rejected = true;
-}
-check(rejected, 'a non-funding tx is rejected');
-
-const a = await recordSubmission(
-  {
-    program_id: live.program_id,
-    project: {
-      name: 'Alpha',
-      repo_url: 'https://github.com/x/a',
-      live_url: 'https://a.app',
-    },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000a1',
-    },
-  },
-  inst,
+await fund(draft.transactions);
+const liveA = await status(draft.ref);
+check(
+  liveA.state === 'live' &&
+    liveA.escrow === (await campaignOf(SPONSOR, draft.ref)).toLowerCase(),
+  'status finds the deposit onchain and publishes the campaign (escrow = campaignOf(wallet, ref))',
 );
-const b = await recordSubmission(
-  {
-    program_id: live.program_id,
-    project: {
-      name: 'Beta',
-      repo_url: 'https://github.com/x/b',
-      live_url: 'https://b.app',
-    },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000b2',
-    },
-  },
-  inst,
+const programA = (await loadCampaign(draft.ref)).program_id!;
+check((await status(draft.ref)).state === 'live', 'status again is idempotent');
+
+const a = await enter(
+  programA,
+  'Alpha',
+  '0x00000000000000000000000000000000000000a1',
+);
+const b = await enter(
+  programA,
+  'Beta',
+  '0x00000000000000000000000000000000000000b2',
 );
 check(
   (await sponsorStatus(draft.ref, inst)).entries.length === 2,
   'two entries without contracts',
 );
 
-// Item 1: the same repo, spelled differently, can't enter the same campaign twice.
+// The same repo, spelled differently, can't enter the same campaign twice.
 let dupErr = '';
 try {
   await recordSubmission(
     {
-      program_id: live.program_id,
+      program_id: programA,
       project: {
         name: 'Alpha again',
-        repo_url: 'https://www.GitHub.com/X/A.git/',
+        repo_url: 'https://www.GitHub.com/X/Alpha.git/',
         live_url: 'https://a2.app',
       },
       submission_data: {
@@ -349,72 +424,13 @@ check(
     `repo_url: this repo is already entered in this campaign (entry #${a.project_id}).`,
   `a second entry of the same repo is refused: ${dupErr}`,
 );
-const [{ n: alphaRows }] = await db<{ n: string }[]>`
-  SELECT count(*)::text AS n FROM projects WHERE program_id = ${live.program_id} AND name LIKE 'Alpha%'`;
-check(Number(alphaRows) === 1, 'the duplicate was not stored');
-
-// Review I-1: the http + www. + .git/ spelling is the same repo too.
-let httpDupErr = '';
-try {
-  await recordSubmission(
-    {
-      program_id: live.program_id,
-      project: {
-        name: 'Alpha http',
-        repo_url: 'http://www.GitHub.com/x/a.git/',
-      },
-      submission_data: {
-        payout_wallet: '0x00000000000000000000000000000000000000a8',
-      },
-    },
-    inst,
-  );
-} catch (err) {
-  httpDupErr = (err as Error).message;
-}
-check(
-  httpDupErr ===
-    `repo_url: this repo is already entered in this campaign (entry #${a.project_id}).`,
-  `the http://www. + .git/ spelling of the same repo is refused: ${httpDupErr}`,
-);
-const [{ repo_key: alphaKey }] = await db<{ repo_key: string }[]>`
-  SELECT repo_key FROM projects WHERE id = ${a.project_id}`;
-check(alphaKey === 'github.com/x/a', `the entry stores repo_key ${alphaKey}`);
-// Review M-1: the unique index catches a duplicate even when the friendly check can't see it
-// (a row with only repo_key set), and maps it to the same error.
-const [ghost] = await db<{ id: number }[]>`
-  INSERT INTO projects (program_id, name, repo_key) VALUES (${live.program_id}, 'Ghost', 'github.com/x/ghost')
-  RETURNING id`;
-let indexErr = '';
-try {
-  await recordSubmission(
-    {
-      program_id: live.program_id,
-      project: { name: 'Ghost again', repo_url: 'https://github.com/x/ghost' },
-      submission_data: {
-        payout_wallet: '0x00000000000000000000000000000000000000a7',
-      },
-    },
-    inst,
-  );
-} catch (err) {
-  indexErr = (err as Error).message;
-}
-check(
-  indexErr ===
-    `repo_url: this repo is already entered in this campaign (entry #${ghost.id}).`,
-  `the unique index refuses a duplicate the check missed, with the same error: ${indexErr}`,
-);
-const [{ n: ghostRows }] = await db<{ n: string }[]>`
-  SELECT count(*)::text AS n FROM projects WHERE program_id = ${live.program_id} AND repo_key = 'github.com/x/ghost'`;
-check(Number(ghostRows) === 1, 'still one row for that repo_key');
 // Two concurrent entries of one new repo: exactly one gets in.
 const racers = await Promise.allSettled(
   ['https://github.com/x/race', 'https://github.com/x/race/'].map(
     (repo_url, i) =>
       recordSubmission(
         {
-          program_id: live.program_id,
+          program_id: programA,
           project: { name: `Racer ${i}`, repo_url, live_url: 'https://r.app' },
           submission_data: {
             payout_wallet: '0x00000000000000000000000000000000000000f1',
@@ -428,19 +444,8 @@ check(
   racers.filter((r) => r.status === 'fulfilled').length === 1,
   'two concurrent entries of the same repo: exactly one is stored',
 );
-const racer = racers.find(
-  (r) => r.status === 'fulfilled',
-) as PromiseFulfilledResult<{ project_id: number }>;
 
-const liveStatus = (await tools.sponsor_campaign(
-  { action: 'status', ref: draft.ref },
-  { installationId: inst },
-)) as {
-  show_to_sponsor: string;
-  next_step?: string;
-  escrow?: string;
-  escrow_url?: string;
-};
+const liveStatus = await status(draft.ref);
 check(
   liveStatus.show_to_sponsor.startsWith(
     '"E2E campaign" is live: 3 entries; winners picked after ',
@@ -448,366 +453,316 @@ check(
     liveStatus.show_to_sponsor.includes(`Pool in escrow ${liveStatus.escrow}`),
   `status (live) says entries, deadline and escrow: ${JSON.stringify(liveStatus.show_to_sponsor)}`,
 );
-
-let early = false;
-try {
+check(
   await prepareAward(draft.ref, inst, [
     { entry_id: a.project_id, amount: '90', reason: 'Works best' },
-  ]);
-} catch {
-  early = true;
-}
-check(early, 'award refused before the end');
-
-// ---------------------------------------------------------------------------
-// Campaign C: two concurrent confirmFunding(ref, tx) calls for the same ref (binding item 1).
-// ---------------------------------------------------------------------------
-const draftC = await createAndFund(
-  mkDraft('E2E concurrent-confirm', '10', 3.5),
-);
-const [c1, c2] = await Promise.all([
-  confirmFunding(draftC.ref, draftC.fundTx),
-  confirmFunding(draftC.ref, draftC.fundTx),
-]);
-check(
-  c1.program_id === c2.program_id,
-  'two concurrent confirms return the same program_id',
-);
-const [{ n: programRows }] = await db<{ n: string }[]>`
-  SELECT count(*)::text AS n FROM programs WHERE id = ${c1.program_id}`;
-check(
-  Number(programRows) === 1,
-  'exactly one programs row exists after the concurrent confirm',
+  ]).then(
+    () => false,
+    () => true,
+  ),
+  'award refused before the end',
 );
 
 // ---------------------------------------------------------------------------
-// Re-confirm a live campaign with its funding tx (I-2): routed as funding by the receipt's
-// contents, not sent to confirmAward because the row is live.
+// Campaign F (front-run): another wallet funds the sponsor's draft first with the exact same
+// transactions. EarnKit never looks at it; the bound wallet's deposit is the campaign.
 // ---------------------------------------------------------------------------
-const reconfirm = await confirmTx(draftC.ref, draftC.fundTx);
-check(
-  reconfirm.confirmed === 'funding' &&
-    'program_id' in reconfirm &&
-    reconfirm.program_id === c1.program_id,
-  're-confirming a live campaign with its funding tx returns the live result',
+const draftF = await createSponsorDraft(
+  mkDraft('E2E front-run', '10', 3.5),
+  inst,
 );
-const viaTool = (await tools.sponsor_campaign(
-  { action: 'status', ref: draftC.ref, tx: draftC.fundTx },
-  { installationId: inst },
-)) as { state: string; campaign_url?: string };
+await fund(draftF.transactions, attacker);
+const attackerEscrow = (
+  await campaignOf(attacker.account.address, draftF.ref)
+).toLowerCase();
 check(
-  viaTool.state === 'live' &&
-    viaTool.campaign_url?.endsWith(`/campaigns/${c1.program_id}`) === true,
-  'status with the funding tx on a live campaign reports it live (no award error)',
+  /^0x[0-9a-f]{40}$/.test(attackerEscrow) && !/^0x0+$/.test(attackerEscrow),
+  `the attacker's deposit made its own escrow ${attackerEscrow}`,
 );
-
-// ---------------------------------------------------------------------------
-// A second deposit for campaign C's ref from another wallet (anvil #4): an untracked escrow.
-// ---------------------------------------------------------------------------
-const sponsor2 = createWalletClient({
-  account: privateKeyToAccount(
-    '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
-  ), // anvil #4
-  chain: foundry,
-  transport: http(RPC),
-}).extend(publicActions);
-await sponsor2.waitForTransactionReceipt({
-  hash: await wallet.writeContract({
-    address: token,
-    abi: [
-      {
-        type: 'function',
-        name: 'mint',
-        inputs: [{ type: 'address' }, { type: 'uint256' }],
-        outputs: [],
-        stateMutability: 'nonpayable',
-      },
-    ],
-    functionName: 'mint',
-    args: [sponsor2.account.address, parseUnits('10', 6)],
-  }),
-});
-let secondTx: `0x${string}` = '0x';
-for (const tx of draftC.draft.transactions) {
-  secondTx = await sponsor2.sendTransaction({ to: tx.to, data: tx.data });
-  await sponsor2.waitForTransactionReceipt({ hash: secondTx });
-}
-const { readCreated } = await import('../lib/earnkit/escrow');
-const secondEscrow = readCreated(
-  await sponsor2.getTransactionReceipt({ hash: secondTx }),
-)!.campaign.toLowerCase();
-let secondErr = '';
-try {
-  await confirmTx(draftC.ref, secondTx);
-} catch (err) {
-  secondErr = (err as Error).message;
-}
+const afterAttack = await status(draftF.ref);
 check(
-  secondErr.includes('second escrow') &&
-    secondErr.toLowerCase().includes(secondEscrow),
-  'a second deposit from another wallet is reported, naming the untracked escrow',
+  afterAttack.state === 'draft' &&
+    !afterAttack.show_to_sponsor.includes(attackerEscrow),
+  "status ignores the other wallet's deposit: still a draft, and it isn't shown",
 );
-const rowCAfter = await loadCampaign(draftC.ref);
+await fund(draftF.transactions);
+const liveF = await status(draftF.ref);
+const escrowF = (await campaignOf(SPONSOR, draftF.ref)).toLowerCase();
 check(
-  rowCAfter.state === 'live' && rowCAfter.escrow_address !== secondEscrow,
-  'the second deposit does not change the tracked campaign',
+  liveF.state === 'live' &&
+    liveF.escrow === escrowF &&
+    escrowF !== attackerEscrow,
+  "the bound wallet's deposit publishes the campaign with its own escrow, not the attacker's",
 );
-const s2Before = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: [sponsor2.account.address],
-});
-const refundEscrowOut =
+const attackerBefore = await balanceOf(attacker.account.address);
+const refundStray =
   runCampaignCli(
     'refund',
-    draftC.ref,
+    draftF.ref,
     '--escrow',
-    secondEscrow,
+    attackerEscrow,
     '--reason',
     'no-eligible',
     '--execute',
   ) ?? '';
 check(
-  /refunded untracked escrow .* \(database unchanged\): 0x/.test(
-    refundEscrowOut,
-  ),
-  '`campaign refund --escrow` refunds the untracked escrow',
-);
-const s2After = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: [sponsor2.account.address],
-});
-check(
-  s2After - s2Before === parseUnits('10', 6),
-  'the second depositor gets the full 10 USDC back',
+  /refunded untracked escrow .* \(database unchanged\): 0x/.test(refundStray),
+  '`campaign refund --escrow` refunds the stray deposit (no tx hash needed)',
 );
 check(
-  (await loadCampaign(draftC.ref)).state === 'live',
-  'campaign C stays live after the untracked refund',
+  (await balanceOf(attacker.account.address)) - attackerBefore ===
+    parseUnits('10', 6),
+  'the other wallet gets its full 10 USDC back',
+);
+check(
+  (await loadCampaign(draftF.ref)).state === 'live',
+  'campaign F stays live after the stray refund',
 );
 
 // ---------------------------------------------------------------------------
-// Campaign 2: an expired draft, funded late, rescued by the receipt (binding item 2).
+// Campaign M: the bound wallet deposits for the ref, but with a different amount than the draft.
+// ---------------------------------------------------------------------------
+const draftM = await createSponsorDraft(
+  mkDraft('E2E wrong amount', '10', 3.5),
+  inst,
+);
+const factory = process.env.ESCROW_FACTORY_ADDRESS as `0x${string}`;
+await wallet.waitForTransactionReceipt({
+  hash: await wallet.writeContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [factory, parseUnits('11', 6)],
+  }),
+});
+const endsAtM = BigInt(
+  Math.floor(Date.parse((await loadCampaign(draftM.ref)).draft.ends_at) / 1000),
+);
+await wallet.waitForTransactionReceipt({
+  hash: await wallet.writeContract({
+    address: factory,
+    abi: campaignsAbi,
+    functionName: 'createCampaign',
+    args: [draftM.ref, token, parseUnits('11', 6), endsAtM],
+  }),
+});
+const mismatch = await status(draftM.ref);
+check(
+  mismatch.state === 'draft' &&
+    mismatch.show_to_sponsor ===
+      `"E2E wrong amount": a deposit from ${SPONSOR} was found for this campaign, but the deposited amount differs from the draft, so it wasn't published.` &&
+    /Contact EarnKit to refund that deposit/.test(mismatch.next_step ?? ''),
+  `a deposit with the wrong amount is refused and named: ${JSON.stringify(mismatch.show_to_sponsor)}`,
+);
+const strayM = (await campaignOf(SPONSOR, draftM.ref)).toLowerCase();
+check(
+  /refunded untracked escrow/.test(
+    runCampaignCli(
+      'refund',
+      draftM.ref,
+      '--escrow',
+      strayM,
+      '--reason',
+      'no-eligible',
+      '--execute',
+    ) ?? '',
+  ),
+  'the operator refunds the mismatched deposit with `refund --escrow`',
+);
+
+// ---------------------------------------------------------------------------
+// Campaign C: concurrent chain checks for the same ref publish exactly once.
+// ---------------------------------------------------------------------------
+const draftC = await createAndFund(mkDraft('E2E concurrent-check', '10', 3.5));
+const rowC = await loadCampaign(draftC.ref);
+await Promise.all([checkChain(rowC), checkChain(rowC), checkChain(rowC)]);
+const c1 = await loadCampaign(draftC.ref);
+const [{ n: programRows }] = await db<{ n: string }[]>`
+  SELECT count(*)::text AS n FROM programs WHERE id = ${c1.program_id}`;
+check(
+  c1.state === 'live' && Number(programRows) === 1,
+  'three concurrent chain checks publish exactly one program',
+);
+
+// ---------------------------------------------------------------------------
+// Campaign 2: an expired draft, funded, rescued by status. Campaign 6: the same, rescued by
+// `campaign sync <ref>`. Campaign S: rescued by `campaign sync` with no ref (the sweep).
 // ---------------------------------------------------------------------------
 const draft2 = await createAndFund(mkDraft('E2E expired-rescue', '10', 3.5));
-await db`UPDATE sponsor_campaigns SET created_at = created_at - interval '8 days' WHERE ref = ${draft2.ref}`;
-const expired = await loadCampaign(draft2.ref);
+const draft6 = await createAndFund(mkDraft('E2E sync-repair', '5', 3.5));
+const draftS = await createAndFund(mkDraft('E2E sync-sweep', '5', 3.5));
+await db`UPDATE sponsor_campaigns SET created_at = created_at - interval '8 days'
+  WHERE ref IN (${draft2.ref}, ${draft6.ref}, ${draftS.ref})`;
 check(
-  expired.state === 'expired',
-  'an 8-day-old unfunded draft lazily expires',
-);
-const rescued = await confirmFunding(draft2.ref, draft2.fundTx);
-check(
-  rescued.program_id.startsWith('sponsor-'),
-  'a valid receipt rescues an expired draft to live',
+  (await loadCampaign(draft2.ref)).state === 'expired',
+  'an 8-day-old draft lazily expires',
 );
 check(
-  (await loadCampaign(draft2.ref)).state === 'live',
-  "the rescued campaign's DB row is live",
+  (await status(draft2.ref)).state === 'live',
+  "status rescues the expired draft: the bound wallet's deposit is onchain",
+);
+await loadCampaign(draft6.ref); // lazily expires it
+const syncOne = runCampaignCli('sync', draft6.ref) ?? '';
+check(
+  syncOne.includes(draft6.ref) &&
+    /database expired -> live · chain says: funded/.test(syncOne),
+  `\`campaign sync <ref>\` publishes the expired, funded draft: ${syncOne.trim()}`,
+);
+await loadCampaign(draftS.ref);
+const sweep = runCampaignCli('sync') ?? '';
+const sweepLine = sweep.split('\n').find((l) => l.startsWith(draftS.ref)) ?? '';
+check(
+  /database expired -> live/.test(sweepLine) && sweep.includes(draftF.ref),
+  `\`campaign sync\` with no ref sweeps every draft, expired and live campaign: ${sweepLine}`,
 );
 
 // ---------------------------------------------------------------------------
-// Item 2: a draft whose deadline is under 10 minutes away can't be funded: it lazily expires,
-// and status says the deadline has passed.
+// Drafts that lazily expire near/after their deadline; status says so without hashes.
 // ---------------------------------------------------------------------------
 const late = await createSponsorDraft(
   mkDraft('E2E late draft', '5', 3.5),
   inst,
 );
 await db`UPDATE sponsor_campaigns SET draft = jsonb_set(draft, '{ends_at}', to_jsonb(${new Date(Date.now() + 5 * 60_000).toISOString()}::text)) WHERE ref = ${late.ref}`;
-check(
-  (await loadCampaign(late.ref)).state === 'expired',
-  'a draft 5 minutes from its deadline lazily expires',
-);
-const lateStatus = (await tools.sponsor_campaign(
-  { action: 'status', ref: late.ref },
-  { installationId: inst },
-)) as {
-  state: string;
-  show_to_sponsor: string;
-  next_step?: string;
-  fund_url?: string;
-};
+const lateStatus = await status(late.ref);
 check(
   lateStatus.state === 'expired' &&
     lateStatus.show_to_sponsor === DEADLINE_PASSED &&
     !lateStatus.fund_url,
-  `status for it: ${JSON.stringify(lateStatus.show_to_sponsor)}`,
+  `a draft 5 minutes from its deadline expires; status: ${JSON.stringify(lateStatus.show_to_sponsor)}`,
 );
 check(
-  lateStatus.next_step?.includes(
-    'If you sent the deposit, call status with ref and tx',
-  ) === true,
-  'its next_step tells the agent to pass tx if it sent the deposit',
-);
-const pastDraft = await createSponsorDraft(
-  mkDraft('E2E past draft', '5', 3.5),
-  inst,
-);
-await db`UPDATE sponsor_campaigns SET draft = jsonb_set(draft, '{ends_at}', to_jsonb(${new Date(Date.now() - 60_000).toISOString()}::text)) WHERE ref = ${pastDraft.ref}`;
-check(
-  (await loadCampaign(pastDraft.ref)).state === 'expired',
-  'a draft past its deadline lazily expires',
+  /EarnKit finds it onchain/.test(lateStatus.next_step ?? ''),
+  'its next_step says EarnKit finds a deposit onchain (no hash to send)',
 );
 
 // ---------------------------------------------------------------------------
-// Campaign 6: an expired, funded draft whose confirm never ran, repaired by
-// `campaign sync <ref> --tx <hash>` (I-3).
+// Campaigns funded now and used after the warp: 3 (off-plan award), 4 (takedown), 5 (fallback
+// executed), 7 (no-eligible refund), 8 (fallback vetoed, then the sponsor reclaims).
 // ---------------------------------------------------------------------------
-const draft6 = await createAndFund(mkDraft('E2E sync-repair', '5', 3.5));
-await db`UPDATE sponsor_campaigns SET created_at = created_at - interval '8 days' WHERE ref = ${draft6.ref}`;
-check(
-  (await loadCampaign(draft6.ref)).state === 'expired',
-  'campaign 6 is an expired draft before repair',
-);
-const syncTxOut =
-  runCampaignCli('sync', draft6.ref, '--tx', draft6.fundTx) ?? '';
-check(
-  /repaired: funding confirmed \(database expired -> live\)/.test(syncTxOut),
-  '`campaign sync --tx` repairs the expired, funded draft',
-);
-check(
-  /chain says: live/.test(syncTxOut),
-  '`campaign sync --tx` then prints the chain state',
-);
-const row6 = await loadCampaign(draft6.ref);
-check(
-  row6.state === 'live' && row6.fund_tx === draft6.fundTx,
-  "campaign 6's DB row is live with its fund_tx",
-);
-
-// ---------------------------------------------------------------------------
-// Campaign 3: off-plan award — the sponsor calls the escrow directly, bypassing prepareAward,
-// with one entry's wallet and one wallet that isn't an entry (binding item 3).
-// ---------------------------------------------------------------------------
-const entryWallet = '0x00000000000000000000000000000000000000c3';
-const nonEntryWallet = '0x00000000000000000000000000000000000000d4';
 const draft3 = await createAndFund(mkDraft('E2E off-plan award', '40', 3.5));
-const live3 = await confirmFunding(draft3.ref, draft3.fundTx);
-const gamma = await recordSubmission(
-  {
-    program_id: live3.program_id,
-    project: {
-      name: 'Gamma',
-      repo_url: 'https://github.com/x/c',
-      live_url: 'https://c.app',
-    },
-    submission_data: { payout_wallet: entryWallet },
-  },
-  inst,
-);
-
-// Campaigns 4 and 5's createCampaign calls must land before the chain is warped forward (their
-// on-chain endsAt is only ~3.5 real-world days out, same as campaign 3's); fund them now and
-// confirm/use them further down, once the chain has moved past their deadlines too.
 const draft4 = await createAndFund(mkDraft('E2E operator-refund', '15', 3.5));
-const draft5 = await createAndFund(mkDraft('E2E operator-award', '20', 3.5));
+const draft5 = await createAndFund(mkDraft('E2E operator-fallback', '20', 3.5));
 const draft7 = await createAndFund(
   mkDraft('E2E no-eligible refund', '12', 3.5),
 );
-
-// Entries for the status checks (item 4): one in campaign A that won't be picked, one in
-// campaign C that stays live.
-const eps = await recordSubmission(
-  {
-    program_id: live.program_id,
-    project: {
-      name: 'Epsilon',
-      repo_url: 'https://github.com/x/e',
-      live_url: 'https://e.app',
-    },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000e1',
-    },
-  },
-  inst,
+const draft8 = await createAndFund(mkDraft('E2E vetoed fallback', '12', 3.5));
+for (const d of [draft3, draft4, draft5, draft7, draft8])
+  check(
+    (await status(d.ref)).state === 'live',
+    `campaign "${(await loadCampaign(d.ref)).draft.title}" is live`,
+  );
+const prog = async (ref: string) => (await loadCampaign(ref)).program_id!;
+const entryWallet = '0x00000000000000000000000000000000000000c3';
+const nonEntryWallet = '0x00000000000000000000000000000000000000d4';
+const gamma = await enter(await prog(draft3.ref), 'Gamma', entryWallet);
+const eps = await enter(
+  programA,
+  'Epsilon',
+  '0x00000000000000000000000000000000000000e1',
 );
-const theta = await recordSubmission(
-  {
-    program_id: c1.program_id,
-    project: { name: 'Theta', repo_url: 'https://github.com/x/t' },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000e2',
-    },
-  },
-  inst,
+const theta = await enter(
+  c1.program_id!,
+  'Theta',
+  '0x00000000000000000000000000000000000000e2',
+);
+// An entry whose payout wallet is another campaign's escrow (campaign C's).
+const sneaky = await enter(programA, 'Sneaky', c1.escrow_address!);
+const zeta = await enter(
+  await prog(draft4.ref),
+  'Zeta',
+  '0x00000000000000000000000000000000000000e3',
+);
+const delta = await enter(
+  await prog(draft5.ref),
+  'Delta',
+  '0x00000000000000000000000000000000000000e5',
+);
+const sneaky5 = await enter(await prog(draft5.ref), 'Sneaky5', escrowF);
+const eta = await enter(
+  await prog(draft7.ref),
+  'Eta',
+  '0x00000000000000000000000000000000000000e4',
+);
+const iota = await enter(
+  await prog(draft8.ref),
+  'Iota',
+  '0x00000000000000000000000000000000000000e6',
 );
 
-// Warp past campaign A's and campaign 3's end dates (both ~3.5-4 days out) and reset campaign
-// A's stored ends_at to the real past, the same way a sponsor's deadline actually arrives.
+// Warp past campaign A's and 3's end dates and reset A's stored ends_at to the real past, the
+// same way a sponsor's deadline actually arrives.
 await warpDays(6);
-await db`UPDATE sponsor_campaigns SET draft = jsonb_set(draft, '{ends_at}', to_jsonb(${new Date(Date.now() - 1000).toISOString()}::text)) WHERE ref = ${draft.ref}`;
+await db`UPDATE sponsor_campaigns SET draft = jsonb_set(draft, '{ends_at}', to_jsonb(${new Date(Date.now() - 1000).toISOString()}::text)) WHERE ref IN (${draft.ref}, ${draft5.ref}, ${draft8.ref})`;
 
-const { campaignAbi } = await import('../lib/earnkit/escrow-abi');
-const row3 = await loadCampaign(draft3.ref);
-const escrow3 = row3.escrow_address as `0x${string}`;
-const offPlanHash = await wallet.writeContract({
-  address: escrow3,
-  abi: campaignAbi,
-  functionName: 'award',
-  args: [
-    [entryWallet, nonEntryWallet],
-    [parseUnits('20', 6), parseUnits('16', 6)],
-  ],
+// ---------------------------------------------------------------------------
+// Campaign 3: off-plan award — the sponsor calls the escrow directly, with one entry's wallet and
+// one wallet that isn't an entry. Status reads it from the chain.
+// ---------------------------------------------------------------------------
+const escrow3 = (await loadCampaign(draft3.ref))
+  .escrow_address as `0x${string}`;
+await wallet.waitForTransactionReceipt({
+  hash: await wallet.writeContract({
+    address: escrow3,
+    abi: campaignAbi,
+    functionName: 'award',
+    args: [
+      [entryWallet, nonEntryWallet],
+      [parseUnits('20', 6), parseUnits('16', 6)],
+    ],
+  }),
 });
-await wallet.waitForTransactionReceipt({ hash: offPlanHash });
-const offPlanResult = await confirmAward(draft3.ref, offPlanHash);
-check(offPlanResult.paid === 1, "off-plan award records the entry's prize");
-check(offPlanResult.flagged === 1, 'off-plan award flags the non-entry wallet');
-const offPlanStatus = (await tools.sponsor_campaign(
-  { action: 'status', ref: draft3.ref },
-  { installationId: inst },
-)) as { show_to_sponsor: string };
+const offPlanStatus = await status(draft3.ref);
 check(
-  offPlanStatus.show_to_sponsor.startsWith(
-    'E2E off-plan award is awarded: 2 winners paid.',
-  ),
-  `status counts the off-plan non-entry winner as paid: ${JSON.stringify(offPlanStatus.show_to_sponsor)}`,
+  offPlanStatus.state === 'awarded' &&
+    offPlanStatus.show_to_sponsor.startsWith(
+      '"E2E off-plan award" is awarded: 2 winners paid.',
+    ),
+  `status reads the off-plan award from the chain: ${JSON.stringify(offPlanStatus.show_to_sponsor)}`,
 );
-const [gammaRow] = await db<
-  { prize_amount: string }[]
->`SELECT prize_amount FROM projects WHERE id = ${gamma.project_id}`;
-check(gammaRow.prize_amount === '20', "Gamma's prize is recorded as 20");
+const [gammaRow] = await db<{ prize_amount: string; prize_tx: string }[]>`
+  SELECT prize_amount, prize_tx FROM projects WHERE id = ${gamma.project_id}`;
+check(
+  gammaRow.prize_amount === '20' && /^0x[0-9a-f]{64}$/.test(gammaRow.prize_tx),
+  "Gamma's prize is recorded as 20, with the award's tx from the Awarded log",
+);
 const [offPlanRow] = await db<
-  {
-    award_onchain: {
-      wallet: string;
-      amount: string;
-      entry_id: number | null;
-    }[];
-  }[]
+  { award_onchain: { wallet: string; entry_id: number | null }[] }[]
 >`SELECT award_onchain FROM sponsor_campaigns WHERE ref = ${draft3.ref}`;
-const flaggedWallet = offPlanRow.award_onchain.find(
-  (o) => o.wallet.toLowerCase() === nonEntryWallet.toLowerCase(),
-);
 check(
-  flaggedWallet?.entry_id === null,
+  offPlanRow.award_onchain.find((o) => o.wallet === nonEntryWallet)
+    ?.entry_id === null,
   'award_onchain flags the non-entry wallet with entry_id: null',
 );
-
-let afterAwardFails = false;
-try {
-  await prepareAward(draft3.ref, inst, [
-    { entry_id: gamma.project_id, amount: '1', reason: 'x' },
-  ]);
-} catch {
-  afterAwardFails = true;
-}
 check(
-  afterAwardFails,
-  'prepareAward refuses an already-awarded campaign (binding item 4)',
+  await prepareAward(draft3.ref, inst, [
+    { entry_id: gamma.project_id, amount: '1', reason: 'x x x' },
+  ]).then(
+    () => false,
+    () => true,
+  ),
+  'prepareAward refuses an already-awarded campaign',
 );
 
 // ---------------------------------------------------------------------------
-// Campaign A's own award, via prepareAward/confirmAward (the sponsor-signed happy path).
+// Campaign A's own award: prepareAward, the sponsor signs, status reads it.
 // ---------------------------------------------------------------------------
+const sneakyErr = await prepareAward(draft.ref, inst, [
+  { entry_id: sneaky.project_id, amount: '90', reason: 'Sneaky' },
+]).then(
+  () => '',
+  (err: Error) => err.message,
+);
+check(
+  sneakyErr ===
+    `winners: entry ${sneaky.project_id}'s payout wallet is an EarnKit escrow or the sponsor's wallet, so it can't receive a prize.`,
+  `an award to another campaign's escrow is refused: ${sneakyErr}`,
+);
 const award = await prepareAward(draft.ref, inst, [
   { entry_id: a.project_id, amount: '60', reason: 'Works best' },
   { entry_id: b.project_id, amount: '30', reason: 'Runner-up' },
 ]);
+replies.push(award.show_to_sponsor, award.next_step);
 check(
   award.show_to_sponsor ===
     'Award ready:\n' +
@@ -824,65 +779,41 @@ check(
   names.get(a.project_id) === 'Alpha' && names.get(b.project_id) === 'Beta',
   'the award page can name each winner',
 );
-const afterDeadline = (await tools.sponsor_campaign(
-  { action: 'status', ref: draft.ref },
-  { installationId: inst },
-)) as { next_step?: string };
 check(
-  afterDeadline.next_step?.includes(award.award_url) === true,
+  (await status(draft.ref)).next_step?.includes(award.award_url) === true,
   'status after the deadline with a prepared award points at award_url',
 );
-const awardHash = await wallet.sendTransaction({
-  to: award.transaction.to,
-  data: award.transaction.data,
+await wallet.waitForTransactionReceipt({
+  hash: await wallet.sendTransaction({
+    to: award.transaction.to,
+    data: award.transaction.data,
+  }),
 });
-await wallet.waitForTransactionReceipt({ hash: awardHash });
+const awardedStatus = await status(draft.ref);
 check(
-  (await confirmAward(draft.ref, awardHash)).paid === 2,
-  'award confirmed for 2 winners',
+  awardedStatus.state === 'awarded' &&
+    awardedStatus.show_to_sponsor.startsWith(
+      '"E2E campaign" is awarded: 2 winners paid.',
+    ),
+  `status reads the sponsor's award from the chain: ${JSON.stringify(awardedStatus.show_to_sponsor)}`,
 );
-const bal = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: ['0x00000000000000000000000000000000000000a1'],
-});
-check(bal === parseUnits('60', 6), 'winner A received 60 USDC');
-const treasuryBal = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: [treasury as `0x${string}`],
-});
-// Campaign 3's off-plan award already paid its own 4 USDC fee to the treasury above, so by now
-// the treasury holds campaign 3's fee (4) plus campaign A's (10).
 check(
-  treasuryBal === parseUnits('14', 6),
+  (await balanceOf('0x00000000000000000000000000000000000000a1')) ===
+    parseUnits('60', 6),
+  'winner A received 60 USDC',
+);
+check(
+  (await balanceOf(treasury)) === parseUnits('14', 6),
   "EarnKit's 10% fees (4 + 10 USDC) reached the treasury",
 );
-
-let afterAwardFailsAgain = false;
-try {
+check(
   await prepareAward(draft.ref, inst, [
-    { entry_id: a.project_id, amount: '1', reason: 'x' },
-  ]);
-} catch {
-  afterAwardFailsAgain = true;
-}
-check(
-  afterAwardFailsAgain,
-  'prepareAward refuses campaign A once it is awarded too',
-);
-
-const awardedStatus = (await tools.sponsor_campaign(
-  { action: 'status', ref: draft.ref },
-  { installationId: inst },
-)) as { show_to_sponsor: string };
-check(
-  awardedStatus.show_to_sponsor.startsWith(
-    'E2E campaign is awarded: 2 winners paid.',
+    { entry_id: a.project_id, amount: '1', reason: 'x x x' },
+  ]).then(
+    () => false,
+    () => true,
   ),
-  `status (awarded): ${JSON.stringify(awardedStatus.show_to_sponsor)}`,
+  'prepareAward refuses campaign A once it is awarded too',
 );
 check(
   presentYourEntries(await yourCampaignEntries(inst), null).wins.includes(
@@ -892,59 +823,29 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// Campaign 4: operator refund of a still-live campaign (binding item 5). Created earlier,
-// before the chain was warped past its deadline (the deadline doesn't matter for this refund).
+// Campaign 4: operator takedown refund. Campaign 7: no-eligible refund.
 // ---------------------------------------------------------------------------
-const live4 = await confirmFunding(draft4.ref, draft4.fundTx);
-const zeta = await recordSubmission(
-  {
-    program_id: live4.program_id,
-    project: { name: 'Zeta', repo_url: 'https://github.com/x/z' },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000e3',
-    },
-  },
-  inst,
-);
-const sponsorBalBefore = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: [wallet.account.address],
-});
+const sponsorBefore = await balanceOf(SPONSOR);
 const refundOut =
   runCampaignCli('refund', draft4.ref, '--reason', 'takedown', '--execute') ??
   '';
 check(
-  /refunded: 0x/.test(refundOut),
-  '`campaign refund --execute` refunds the sponsor',
+  /refunded: 0x/.test(refundOut) &&
+    /goes back to the sponsor 0x/i.test(refundOut),
+  '`campaign refund --execute` refunds the sponsor and says who receives the money',
 );
-const sponsorBalAfter = await wallet.readContract({
-  address: token,
-  abi: erc20Abi,
-  functionName: 'balanceOf',
-  args: [wallet.account.address],
-});
 check(
-  sponsorBalAfter - sponsorBalBefore === parseUnits('15', 6),
+  (await balanceOf(SPONSOR)) - sponsorBefore === parseUnits('15', 6),
   "the sponsor's balance increases by the full deposit on takedown refund",
 );
-const [row4] = await db<
-  { state: string }[]
->`SELECT state FROM sponsor_campaigns WHERE ref = ${draft4.ref}`;
-check(row4.state === 'taken_down', 'campaign 4 is marked taken_down');
-const [prog4] = await db<{ status: string }[]>`
-  SELECT pr.status FROM programs pr JOIN sponsor_campaigns sc ON sc.program_id = pr.id WHERE sc.ref = ${draft4.ref}`;
-check(prog4.status === 'closed', "campaign 4's program is closed");
-
-const syncOut = runCampaignCli('sync', draft4.ref) ?? '';
 check(
-  /chain says: refunded/.test(syncOut),
-  '`campaign sync` prints the chain state',
+  (await loadCampaign(draft4.ref)).state === 'taken_down',
+  'campaign 4 is marked taken_down',
 );
 check(
-  /goes back to the sponsor 0x/i.test(refundOut),
-  '`campaign refund` says who receives the money',
+  /chain says: refunded/.test(runCampaignCli('sync', draft4.ref) ?? '') &&
+    (await status(draft4.ref)).state === 'taken_down',
+  '`campaign sync` prints the chain state; taken_down stays taken_down',
 );
 const refundAgain = runCampaignCliFails(
   {},
@@ -980,29 +881,24 @@ check(
     !missingRef.stderr.includes('    at '),
   `an unknown ref is one readable line, no stack trace: ${missingRef.stderr}`,
 );
+const oldTx = runCampaignCliFails({}, 'award', draft5.ref);
+check(
+  /^Unknown command "award"/.test(oldTx.stderr),
+  'the old operator `award` command is gone',
+);
 const help = execFileSync(tsxBin, [campaignScript, '--help'], {
   encoding: 'utf8',
 });
 check(
-  ['score', 'rank', 'payout', 'award', 'refund', 'sync'].every((c) =>
+  ['score', 'rank', 'payout', 'refund'].every((c) =>
     new RegExp(`\\n  ${c} +<`).test(help),
-  ),
-  '`campaign --help` lists all six commands',
-);
-
-// ---------------------------------------------------------------------------
-// Campaign 7: operator refund because nobody qualified (no-eligible), with one entry.
-// ---------------------------------------------------------------------------
-const live7 = await confirmFunding(draft7.ref, draft7.fundTx);
-const eta = await recordSubmission(
-  {
-    program_id: live7.program_id,
-    project: { name: 'Eta', repo_url: 'https://github.com/x/h' },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000e4',
-    },
-  },
-  inst,
+  ) &&
+    ['propose', 'execute', 'veto'].every((c) =>
+      new RegExp(`\\n  fallback ${c} +<ref>`).test(help),
+    ) &&
+    /\n  sync +\[<ref>\]/.test(help) &&
+    !help.includes('--tx'),
+  '`campaign --help` lists every command, and no --tx',
 );
 check(
   /refunded: 0x/.test(
@@ -1018,17 +914,13 @@ check(
 );
 
 // ---------------------------------------------------------------------------
-// Items 3/4: statuses on the board, the entry page, and "Your campaign entries".
+// Statuses on the board, the entry page, and "Your campaign entries".
 // ---------------------------------------------------------------------------
-const boardA = (await getCampaignBoard(live.program_id))!;
+const boardA = (await getCampaignBoard(programA))!;
 const statusOf = (board: NonNullable<typeof boardA>, id: number) => {
   const r = board.rows.find((x) => x.id === id)!;
   return entryStatus(board.program.campaign, r, board.sponsorState);
 };
-check(
-  boardA.rows.every((r) => r.score === null),
-  'campaign A has no scores, so its board is a plain entry list',
-);
 check(
   statusOf(boardA, a.project_id) === 'won 60 USDC',
   'board: Alpha "won 60 USDC"',
@@ -1037,138 +929,272 @@ check(
   statusOf(boardA, eps.project_id) === 'not picked',
   'board: Epsilon "not picked"',
 );
-const board7 = (await getCampaignBoard(live7.program_id))!;
+const board7 = (await getCampaignBoard(await prog(draft7.ref)))!;
 check(
   statusOf(board7, eta.project_id) === 'no winners — sponsor refunded',
   'board: Eta "no winners — sponsor refunded"',
 );
-const boardC = (await getCampaignBoard(c1.program_id))!;
+const boardC = (await getCampaignBoard(c1.program_id!))!;
 check(
   statusOf(boardC, theta.project_id) === 'entered',
   'board: Theta (live) "entered"',
 );
 check(
-  (await getCampaignBoard(live4.program_id)) === null,
-  'a taken-down campaign board is 404',
-);
-check(
-  (await getProjectPage(zeta.project_id)) === null,
-  'a taken-down entry page is 404',
-);
-const epsPage = (await getProjectPage(eps.project_id))!;
-check(
-  epsPage.sponsor_state === 'awarded' &&
-    !epsPage.any_scored &&
-    entryStatus(epsPage.campaign, epsPage, epsPage.sponsor_state) ===
-      'not picked',
-  'entry page: Epsilon is "not picked" with no rank (nothing scored)',
+  (await getCampaignBoard(await prog(draft4.ref))) === null &&
+    (await getProjectPage(zeta.project_id)) === null,
+  'a taken-down campaign board and entry page are 404',
 );
 const yours =
   presentYourEntries(await yourCampaignEntries(inst), null).section ?? '';
-console.log(
-  yours
-    .split('\n')
-    .map((l) => `  | ${l}`)
-    .join('\n'),
-);
 const lineFor = (name: string) =>
   yours
     .split('\n')
     .find((l) => l.startsWith(`${name} `) || l.startsWith(`${name}:`)) ?? '';
 check(
-  lineFor('Epsilon') === 'Epsilon in "E2E campaign": not picked this time',
-  'your entries: Epsilon "not picked this time"',
+  lineFor('Epsilon') === 'Epsilon in "E2E campaign": not picked this time' &&
+    lineFor('Eta') ===
+      'Eta in "E2E no-eligible refund": no winners; the sponsor was refunded' &&
+    lineFor('Zeta') ===
+      'Zeta in "E2E operator-refund": removed by EarnKit; the sponsor was refunded' &&
+    /^Theta in "E2E concurrent-check": entered · winners picked after /.test(
+      lineFor('Theta'),
+    ),
+  'your entries: not picked / refunded / removed / entered',
 );
-check(
-  lineFor('Eta') ===
-    'Eta in "E2E no-eligible refund": no winners; the sponsor was refunded',
-  'your entries: Eta "no winners; the sponsor was refunded"',
-);
-check(
-  lineFor('Zeta') ===
-    'Zeta in "E2E operator-refund": removed by EarnKit; the sponsor was refunded',
-  'your entries: Zeta "removed by EarnKit; the sponsor was refunded"',
-);
-check(
-  /^Theta in "E2E concurrent-confirm": entered · winners picked after [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC$/.test(
-    lineFor('Theta'),
-  ),
-  'your entries: Theta "entered · winners picked after <date>"',
-);
-check(!/#\d+ of \d+/.test(yours), 'no "#N of M" for unscored sponsor entries');
-check(racer.value.project_id > 0, 'the racing entry is listed too');
-
-// Item 11: Campaign #1 (EarnKit kind, closed, no entries) has no public page.
-const [c1prog] = await db<
-  { status: string }[]
->`SELECT status FROM programs WHERE id = 'earnkit-campaign-1-base'`;
-if (c1prog) {
-  check(
-    (await getCampaignBoard('earnkit-campaign-1-base')) === null,
-    'Campaign #1 (closed, no entries) is 404',
-  );
-} else
-  console.log('skip: earnkit-campaign-1-base not synced into this database');
 
 // ---------------------------------------------------------------------------
-// Campaign 5: operator fallback award, after endsAt + the 7-day grace (binding item 5). Also
-// created earlier, before the chain was warped.
+// Campaign 5: the operator fallback. Campaign 5's onchain endsAt is ~3.5 days after creation;
+// proposals open at endsAt + 7 days. The chain is 6 days in.
 // ---------------------------------------------------------------------------
-const live5 = await confirmFunding(draft5.ref, draft5.fundTx);
-const delta = await recordSubmission(
-  {
-    program_id: live5.program_id,
-    project: {
-      name: 'Delta',
-      repo_url: 'https://github.com/x/d',
-      live_url: 'https://d.app',
-    },
-    submission_data: {
-      payout_wallet: '0x00000000000000000000000000000000000000e5',
-    },
-  },
-  inst,
-);
-// Campaign 5's on-chain endsAt is ~3.5 days from its creation (chain time was still ~day 0 then);
-// the operator needs endsAt + 7 days. The chain is already 6 days in; 8 more clears it with room.
+const winners5 = `${delta.project_id}:18:Operator fallback award`;
 const tooEarly = runCampaignCliFails(
   {},
-  'award',
+  'fallback',
+  'propose',
   draft5.ref,
   '--winners',
-  `${delta.project_id}:18:Too early`,
+  winners5,
   '--execute',
 );
 check(
   /^The fallback opens on [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC\.$/.test(
     tooEarly.stderr,
   ),
-  `the operator award before endsAt + 7 days is refused: ${tooEarly.stderr}`,
+  `a proposal before endsAt + 7 days is refused: ${tooEarly.stderr}`,
 );
 await warpDays(8);
-const awardOut =
+const sneakyFallback = runCampaignCliFails(
+  {},
+  'fallback',
+  'propose',
+  draft5.ref,
+  '--winners',
+  `${sneaky5.project_id}:18:x`,
+  '--execute',
+);
+check(
+  /payout wallet is an EarnKit escrow/.test(sneakyFallback.stderr),
+  `the fallback refuses a winner that is an EarnKit escrow: ${sneakyFallback.stderr}`,
+);
+const dry =
+  runCampaignCli('fallback', 'propose', draft5.ref, '--winners', winners5) ??
+  '';
+check(
+  /Dry run\. Add --execute to propose/.test(dry),
+  '`fallback propose` without --execute is a dry run',
+);
+const proposed =
   runCampaignCli(
-    'award',
+    'fallback',
+    'propose',
     draft5.ref,
     '--winners',
-    `${delta.project_id}:18:Operator fallback award`,
+    winners5,
+    '--execute',
+  ) ?? '';
+const execAt = (out: string) =>
+  /Executable from ([A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2} UTC)/.exec(
+    out,
+  )?.[1];
+check(
+  /proposed: 0x/.test(proposed) && execAt(proposed),
+  `\`fallback propose --execute\` proposes and prints the execute time (${execAt(proposed)})`,
+);
+const pending = await status(draft5.ref);
+check(
+  pending.show_to_sponsor.includes(
+    `EarnKit has proposed fallback winners; they can be paid from ${execAt(proposed)} unless the sponsor awards first.`,
+  ),
+  `status says a fallback is pending, with its execute time: ${JSON.stringify(pending.show_to_sponsor)}`,
+);
+check(
+  (runCampaignCli('sync', draft5.ref) ?? '').includes(
+    `fallback pending, executable from ${execAt(proposed)}`,
+  ),
+  '`campaign sync` shows the pending proposal',
+);
+await warpDays(1);
+const reproposed =
+  runCampaignCli(
+    'fallback',
+    'propose',
+    draft5.ref,
+    '--winners',
+    winners5,
     '--execute',
   ) ?? '';
 check(
-  /awarded: 0x/.test(awardOut),
-  '`campaign award --execute` pays the operator fallback',
+  /proposed: 0x/.test(reproposed) && execAt(reproposed) !== execAt(proposed),
+  `re-proposing restarts the 72-hour delay (${execAt(proposed)} -> ${execAt(reproposed)})`,
 );
-const [row5] = await db<
-  { state: string }[]
->`SELECT state FROM sponsor_campaigns WHERE ref = ${draft5.ref}`;
+await warpDays(2);
+const execEarly = runCampaignCliFails(
+  {},
+  'fallback',
+  'execute',
+  draft5.ref,
+  '--execute',
+);
 check(
-  row5.state === 'awarded',
-  'campaign 5 is marked awarded by the operator fallback',
+  execEarly.stderr ===
+    `The fallback can be executed from ${execAt(reproposed)}.`,
+  `executing before the delay is refused: ${execEarly.stderr}`,
 );
-const [deltaRow] = await db<
-  { prize_amount: string }[]
->`SELECT prize_amount FROM projects WHERE id = ${delta.project_id}`;
-check(deltaRow.prize_amount === '18', "Delta's prize (18 USDC) is recorded");
+await warpDays(1.1);
+const executed =
+  runCampaignCli('fallback', 'execute', draft5.ref, '--execute') ?? '';
+check(
+  /executed: 0x.* \(database live -> awarded\)/.test(executed),
+  `\`fallback execute\` pays the proposal and status records it: ${executed.trim().split('\n').pop()}`,
+);
+const [deltaRow] = await db<{ prize_amount: string; prize_reason: string }[]>`
+  SELECT prize_amount, prize_reason FROM projects WHERE id = ${delta.project_id}`;
+check(
+  deltaRow.prize_amount === '18' &&
+    deltaRow.prize_reason === 'Operator fallback award' &&
+    (
+      await db<{ award_onchain: unknown }[]>`
+      SELECT award_onchain FROM sponsor_campaigns WHERE ref = ${draft5.ref}`
+    )[0].award_onchain === null,
+  "Delta's prize (18 USDC) is recorded against the fallback plan (not off-plan)",
+);
+
+// ---------------------------------------------------------------------------
+// Campaign 8: propose -> guardian veto -> re-propose refused (sticky) -> the sponsor reclaims.
+// ---------------------------------------------------------------------------
+const winners8 = `${iota.project_id}:10.8:Top entry`;
+check(
+  /proposed: 0x/.test(
+    runCampaignCli(
+      'fallback',
+      'propose',
+      draft8.ref,
+      '--winners',
+      winners8,
+      '--execute',
+    ) ?? '',
+  ),
+  'campaign 8: fallback proposed',
+);
+const vetoNoKey = runCampaignCliFails(
+  {},
+  'fallback',
+  'veto',
+  draft8.ref,
+  '--execute',
+);
+check(
+  vetoNoKey.stderr === 'Set GUARDIAN_PRIVATE_KEY in your local shell.',
+  `the veto needs GUARDIAN_PRIVATE_KEY: ${vetoNoKey.stderr}`,
+);
+const vetoAsOperator = runCampaignCliFails(
+  { GUARDIAN_PRIVATE_KEY: operatorKey },
+  'fallback',
+  'veto',
+  draft8.ref,
+  '--execute',
+);
+check(
+  vetoAsOperator.stderr ===
+    'The contract function "vetoFallback" reverted: NotAllowed.',
+  `the operator can't veto its own proposal: ${vetoAsOperator.stderr}`,
+);
+check(
+  /vetoed: 0x/.test(
+    runCampaignCliAs(
+      { GUARDIAN_PRIVATE_KEY: guardianKey },
+      'fallback',
+      'veto',
+      draft8.ref,
+      '--execute',
+    ) ?? '',
+  ),
+  'the guardian vetoes the proposal',
+);
+check(
+  !(await status(draft8.ref)).show_to_sponsor.includes(
+    'proposed fallback winners',
+  ),
+  'status no longer mentions a pending fallback',
+);
+const repropose8 = runCampaignCliFails(
+  {},
+  'fallback',
+  'propose',
+  draft8.ref,
+  '--winners',
+  winners8,
+  '--execute',
+);
+check(
+  /guardian vetoed the fallback/.test(repropose8.stderr),
+  `after a veto, re-proposing is refused (the veto is sticky): ${repropose8.stderr}`,
+);
+const exec8 = runCampaignCliFails(
+  {},
+  'fallback',
+  'execute',
+  draft8.ref,
+  '--execute',
+);
+check(
+  exec8.stderr === 'No fallback is pending onchain for this campaign.',
+  `nothing to execute after a veto: ${exec8.stderr}`,
+);
+// The sponsor reclaims after endsAt + 60 days, outside EarnKit; status reads the refund.
+await warpDays(50);
+const escrow8 = (await loadCampaign(draft8.ref))
+  .escrow_address as `0x${string}`;
+await wallet.waitForTransactionReceipt({
+  hash: await wallet.writeContract({
+    address: escrow8,
+    abi: campaignAbi,
+    functionName: 'refund',
+  }),
+});
+check(
+  (await status(draft8.ref)).state === 'refunded',
+  "status reads the sponsor's own reclaim from the chain: refunded",
+);
+
+// ---------------------------------------------------------------------------
+// No sponsor reply asks for or shows a transaction hash.
+// ---------------------------------------------------------------------------
+// Refs (64 hex) appear in fund/award links; any other 64-hex value would be a tx hash.
+const refs = new Set(
+  (await db<{ ref: string }[]>`SELECT ref FROM sponsor_campaigns`).map(
+    (r) => r.ref,
+  ),
+);
+const withHash = replies.filter(
+  (r) =>
+    (r.match(/0x[0-9a-fA-F]{64}/g) ?? []).some((h) => !refs.has(h)) ||
+    /\b(tx|hash)\b/i.test(r),
+);
+check(
+  withHash.length === 0,
+  `no show_to_sponsor/next_step mentions a tx or hash (${replies.length} replies checked)${withHash.length ? `: ${withHash[0]}` : ''}`,
+);
 
 await db.end();
 console.log('E2E PASSED');
