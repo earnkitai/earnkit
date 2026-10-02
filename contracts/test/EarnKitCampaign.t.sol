@@ -356,9 +356,11 @@ contract EarnKitCampaignTest is BaseTest {
         vm.warp(block.timestamp + DELAY);
         vm.expectRevert(EarnKitCampaign.NoFallback.selector);
         c.executeFallback(one(alice), oneAmt(900e6));
-        // The operator can propose again after a veto.
-        _propose(one(bob), oneAmt(900e6));
-        assertEq(c.fallbackAt(), block.timestamp);
+        // The veto is sticky (review M-02): the operator can never propose again on this campaign.
+        assertTrue(c.fallbackVetoed());
+        vm.prank(operator);
+        vm.expectRevert(EarnKitCampaign.FallbackClosed.selector);
+        c.proposeFallback(one(bob), oneAmt(900e6));
     }
 
     function test_veto_reverts_forNonGuardian() public {
@@ -405,13 +407,14 @@ contract EarnKitCampaignTest is BaseTest {
         c.executeFallback(one(alice), oneAmt(900e6));
     }
 
-    function _excluded() internal view returns (address[7] memory) {
-        return [sponsor, operator, treasury, pauser, address(c), address(factory), factory.implementation()];
+    function _excluded() internal view returns (address[8] memory) {
+        return
+            [sponsor, operator, treasury, pauser, address(c), address(factory), factory.implementation(), address(usdc)];
     }
 
     function test_excludedWinners_rejectedBySponsorAward() public {
         vm.warp(endsAt);
-        address[7] memory ex = _excluded();
+        address[8] memory ex = _excluded();
         for (uint256 i; i < ex.length; ++i) {
             vm.prank(sponsor);
             vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
@@ -421,7 +424,7 @@ contract EarnKitCampaignTest is BaseTest {
 
     function test_excludedWinners_rejectedByProposeFallback() public {
         vm.warp(endsAt + GRACE);
-        address[7] memory ex = _excluded();
+        address[8] memory ex = _excluded();
         for (uint256 i; i < ex.length; ++i) {
             vm.prank(operator);
             vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
@@ -444,5 +447,145 @@ contract EarnKitCampaignTest is BaseTest {
         assertEq(vm.getRecordedLogs().length, 2); // Transfer + Awarded
         assertEq(usdc.balanceOf(alice), 9);
         assertEq(usdc.balanceOf(treasury), 0);
+    }
+
+    // ------------------------------------------- regressions from the T1 review (M-02, L-01, I-1)
+
+    /// M-02: a compromised operator used to be able to re-propose after every veto until one
+    /// window was missed. Now one veto closes the fallback; the remaining exits pay only winners
+    /// the sponsor picks, or the sponsor.
+    function test_R02_vetoIsSticky_noReproposeSpam_refundStillWorks() public {
+        address thief = makeAddr("thief");
+        vm.warp(endsAt + GRACE);
+        _propose(one(thief), oneAmt(900e6));
+        vm.prank(pauser);
+        c.vetoFallback();
+        for (uint256 i; i < 17; ++i) {
+            vm.warp(block.timestamp + DELAY);
+            vm.prank(operator);
+            vm.expectRevert(EarnKitCampaign.FallbackClosed.selector);
+            c.proposeFallback(one(thief), oneAmt(900e6));
+            vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+            c.executeFallback(one(thief), oneAmt(900e6));
+        }
+        // Rotating the factory pauser changes nothing for this campaign: still closed.
+        vm.prank(owner);
+        factory.setPauser(makeAddr("newPauser"));
+        vm.prank(operator);
+        vm.expectRevert(EarnKitCampaign.FallbackClosed.selector);
+        c.proposeFallback(one(thief), oneAmt(900e6));
+        assertEq(usdc.balanceOf(thief), 0);
+        // Exits that remain: the sponsor's award, the operator's refund, the sponsor's late refund.
+        vm.warp(endsAt + 60 days);
+        uint256 before = usdc.balanceOf(sponsor);
+        vm.prank(sponsor);
+        c.refund();
+        assertEq(usdc.balanceOf(sponsor), before + 1000e6);
+    }
+
+    function test_R02_sponsorCanStillAwardAfterVeto() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.prank(pauser);
+        c.vetoFallback();
+        vm.prank(sponsor);
+        c.award(one(bob), oneAmt(900e6));
+        assertEq(usdc.balanceOf(bob), 900e6);
+    }
+
+    /// I-1: at exactly fallbackAt + 72 h, execute and veto are both valid; the guardian's safe
+    /// window is [fallbackAt, fallbackAt + 72 h). Documented, not changed.
+    function test_R02c_boundary_executeValidAtExactlyDelay_vetoAfterIsMoot() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        vm.prank(pauser);
+        vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+        c.vetoFallback();
+    }
+
+    /// L-01: the token contract is now an excluded winner (shares sent there are locked forever).
+    /// Another EarnKit clone is still accepted on-chain (needs a registry call to detect); the app
+    /// must reject known escrow addresses as payout wallets. This test pins both behaviours.
+    function test_R03_tokenExcluded_otherCloneStillAccepted() public {
+        vm.warp(endsAt);
+        vm.prank(sponsor);
+        vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
+        c.award(winners(alice, address(usdc)), amounts(450e6, 450e6));
+
+        vm.prank(sponsor);
+        address other =
+            factory.createCampaign(keccak256("other"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 1 days));
+        vm.prank(sponsor);
+        c.award(winners(alice, other), amounts(450e6, 450e6));
+        assertEq(usdc.balanceOf(other), 1450e6); // known limitation: 450e6 surplus stuck in `other`
+    }
+
+    function test_HELD_reproposeAfterDelayPassed_restartsTimer_noLastSecondSwap() public {
+        address thief = makeAddr("thief");
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + 100 hours);
+        _propose(one(thief), oneAmt(900e6));
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        vm.expectRevert(EarnKitCampaign.FallbackNotReady.selector);
+        c.executeFallback(one(thief), oneAmt(900e6));
+        assertEq(c.fallbackAt(), block.timestamp);
+    }
+
+    function test_HELD_duplicateWinnersHashDistinct_andPayExactly() public {
+        vm.warp(endsAt + GRACE);
+        _propose(winners(alice, alice), amounts(450e6, 450e6));
+        vm.warp(block.timestamp + DELAY);
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        c.executeFallback(winners(alice, alice), amounts(450e6, 450e6));
+        assertEq(usdc.balanceOf(alice), 900e6);
+    }
+
+    /// Non-canonical calldata (offsets swapped, trailing junk) re-encodes to the proposed payload.
+    function test_HELD_nonCanonicalCalldataSameHash() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY);
+        bytes memory data = abi.encodePacked(
+            EarnKitCampaign.executeFallback.selector,
+            uint256(0x80),
+            uint256(0x40),
+            uint256(1),
+            uint256(900e6),
+            uint256(1),
+            uint256(uint160(alice)),
+            uint256(0xdead)
+        );
+        (bool ok,) = address(c).call(data);
+        assertTrue(ok);
+        assertEq(usdc.balanceOf(alice), 900e6);
+    }
+
+    function test_HELD_dirtyAddressBitsRejected() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY);
+        bytes memory data = abi.encodePacked(
+            EarnKitCampaign.executeFallback.selector,
+            uint256(0x40),
+            uint256(0x80),
+            uint256(1),
+            uint256(uint160(alice)) | (uint256(1) << 200),
+            uint256(1),
+            uint256(900e6)
+        );
+        (bool ok,) = address(c).call(data);
+        assertFalse(ok);
+        assertEq(usdc.balanceOf(address(c)), 1000e6);
+    }
+
+    function test_HELD_implementationCannotBeUsed() public {
+        EarnKitCampaign impl = EarnKitCampaign(factory.implementation());
+        vm.expectRevert(EarnKitCampaign.NotFunded.selector);
+        impl.executeFallback(one(alice), oneAmt(1));
     }
 }

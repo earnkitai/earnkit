@@ -22,7 +22,8 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     address public immutable implementation;
     address public operator;
     address public treasury;
-    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian.
+    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian,
+    /// so it must never be the operator (the veto would then protect nothing).
     address public pauser;
     /// Max amount per campaign for each allowed token (0 = not allowed).
     mapping(address token => uint256 cap) public capOf;
@@ -45,6 +46,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     error AmountMismatch();
     error NotPauser();
     error RenounceDisabled();
+    error GuardianIsOperator();
 
     constructor(
         address owner_,
@@ -127,6 +129,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setOperator(address operator_) private {
         if (operator_ == address(0)) revert ZeroAddress();
+        if (operator_ == pauser) revert GuardianIsOperator();
         operator = operator_;
         emit OperatorSet(operator_);
     }
@@ -139,6 +142,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setPauser(address pauser_) private {
         if (pauser_ == address(0)) revert ZeroAddress();
+        if (pauser_ == operator) revert GuardianIsOperator();
         pauser = pauser_;
         emit PauserSet(pauser_);
     }

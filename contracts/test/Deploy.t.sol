@@ -39,5 +39,30 @@ contract DeployTest is Test {
         (t,) = script.run();
         assertEq(t.getMinDelay(), 60);
         vm.setEnv("ALLOW_SHORT_TIMELOCK", "0");
+
+        // Review L-02: the testnet flag is ignored on Base mainnet (8453), in any spelling.
+        uint256 realChain = block.chainid;
+        vm.chainId(8453);
+        vm.setEnv("USDC", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
+        vm.setEnv("TIMELOCK_DELAY", "0");
+        vm.setEnv("ALLOW_SHORT_TIMELOCK", "0x1");
+        vm.expectRevert(bytes("TIMELOCK_DELAY < 48h is never allowed on Base mainnet"));
+        script.run();
+        vm.setEnv("ALLOW_SHORT_TIMELOCK", "0");
+        // ...and on Base mainnet the token must be canonical USDC.
+        vm.setEnv("TIMELOCK_DELAY", "172800");
+        vm.setEnv("USDC", vm.toString(makeAddr("usdc")));
+        vm.expectRevert(bytes("USDC is not canonical Base USDC"));
+        script.run();
+        vm.setEnv("USDC", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
+        (t, f) = script.run();
+        assertEq(t.getMinDelay(), 48 hours);
+        vm.chainId(realChain);
+
+        // Review M-01: PAUSER == OPERATOR is refused with a clear message.
+        vm.setEnv("PAUSER", vm.toString(makeAddr("operator")));
+        vm.expectRevert(bytes("PAUSER must differ from OPERATOR (the pauser is the fallback-veto guardian)"));
+        script.run();
+        vm.setEnv("PAUSER", vm.toString(makeAddr("pauser")));
     }
 }

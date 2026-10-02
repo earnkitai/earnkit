@@ -1481,6 +1481,9 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     /// Pending operator fallback: keccak256(abi.encode(winners, amounts)) and when it was proposed.
     bytes32 public fallbackHash;
     uint64 public fallbackAt;
+    /// Set by a guardian veto: the operator fallback is closed for good on this campaign. The
+    /// remaining exits are the sponsor's `award` and `refund` (operator any time, sponsor later).
+    bool public fallbackVetoed;
 
     event Awarded(address[] winners, uint256[] amounts, uint256 fee);
     event Refunded(address indexed by, uint256 amount);
@@ -1497,6 +1500,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     error NoFallback();
     error FallbackMismatch();
     error FallbackNotReady();
+    error FallbackClosed();
 
     constructor() {
         factory = msg.sender;
@@ -1539,9 +1543,11 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
 
     /// @notice Operator proposes winners if the sponsor hasn't awarded by `endsAt + AWARD_GRACE`.
     ///         Anyone can execute it after `FALLBACK_DELAY`, unless the guardian vetoes first.
-    ///         Re-proposing replaces the pending list and restarts the delay.
+    ///         Re-proposing replaces the pending list and restarts the delay. After a veto, the
+    ///         fallback is closed on this campaign.
     function proposeFallback(address[] calldata winners, uint256[] calldata amounts) external {
         if (state != State.Funded) revert NotFunded();
+        if (fallbackVetoed) revert FallbackClosed();
         if (block.timestamp < uint256(endsAt) + AWARD_GRACE) revert NotEnded();
         if (msg.sender != operator) revert NotAllowed();
         _validate(winners, amounts);
@@ -1559,10 +1565,12 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
         _payout(winners, amounts);
     }
 
-    /// @notice Guardian cancels the pending fallback.
+    /// @notice Guardian cancels the pending fallback and closes the fallback path for this campaign
+    ///         (no re-propose), so a compromised operator gets one attempt, not one per 72 h.
     function vetoFallback() external {
         if (msg.sender != guardian) revert NotAllowed();
         if (fallbackHash == bytes32(0)) revert NoFallback();
+        fallbackVetoed = true;
         _clearFallback();
         emit FallbackVetoed();
     }
@@ -1584,6 +1592,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     }
 
     /// @dev 1..MAX_WINNERS, equal lengths, no zero or excluded address, no zero amount, sum == prize.
+    ///      Excluded: privileged parties (self-dealing) and addresses with no way to pay out (locked).
     function _validate(address[] calldata winners, uint256[] calldata amounts) private view {
         uint256 n = winners.length;
         if (n == 0 || n > MAX_WINNERS || n != amounts.length) revert BadWinners();
@@ -1593,7 +1602,7 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
             if (w == address(0) || amounts[i] == 0) revert BadWinners();
             if (
                 w == sponsor || w == operator || w == treasury || w == guardian || w == address(this) || w == factory
-                    || w == implementation
+                    || w == implementation || w == address(token)
             ) revert ExcludedWinner();
             total += amounts[i];
         }
@@ -1632,7 +1641,8 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     address public immutable implementation;
     address public operator;
     address public treasury;
-    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian.
+    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian,
+    /// so it must never be the operator (the veto would then protect nothing).
     address public pauser;
     /// Max amount per campaign for each allowed token (0 = not allowed).
     mapping(address token => uint256 cap) public capOf;
@@ -1655,6 +1665,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     error AmountMismatch();
     error NotPauser();
     error RenounceDisabled();
+    error GuardianIsOperator();
 
     constructor(
         address owner_,
@@ -1737,6 +1748,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setOperator(address operator_) private {
         if (operator_ == address(0)) revert ZeroAddress();
+        if (operator_ == pauser) revert GuardianIsOperator();
         operator = operator_;
         emit OperatorSet(operator_);
     }
@@ -1749,6 +1761,7 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
 
     function _setPauser(address pauser_) private {
         if (pauser_ == address(0)) revert ZeroAddress();
+        if (pauser_ == operator) revert GuardianIsOperator();
         pauser = pauser_;
         emit PauserSet(pauser_);
     }

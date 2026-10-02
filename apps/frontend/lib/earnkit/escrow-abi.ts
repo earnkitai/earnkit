@@ -525,6 +525,11 @@ export const campaignsAbi = [
   },
   {
     type: 'error',
+    name: 'GuardianIsOperator',
+    inputs: [],
+  },
+  {
+    type: 'error',
     name: 'InsufficientBalance',
     inputs: [
       {
@@ -750,6 +755,19 @@ export const campaignAbi = [
         name: '',
         type: 'bytes32',
         internalType: 'bytes32',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'fallbackVetoed',
+    inputs: [],
+    outputs: [
+      {
+        name: '',
+        type: 'bool',
+        internalType: 'bool',
       },
     ],
     stateMutability: 'view',
@@ -1023,6 +1041,11 @@ export const campaignAbi = [
   {
     type: 'error',
     name: 'ExcludedWinner',
+    inputs: [],
+  },
+  {
+    type: 'error',
+    name: 'FallbackClosed',
     inputs: [],
   },
   {

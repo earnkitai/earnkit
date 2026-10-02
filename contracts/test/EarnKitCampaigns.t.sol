@@ -171,12 +171,12 @@ contract EarnKitCampaignsTest is BaseTest {
         factory.setPauser(address(0));
         factory.setOperator(bob);
         factory.setTreasury(bob);
-        factory.setPauser(bob);
+        factory.setPauser(alice);
         factory.setCap(address(usdc), 0);
         vm.stopPrank();
         assertEq(factory.operator(), bob);
         assertEq(factory.treasury(), bob);
-        assertEq(factory.pauser(), bob);
+        assertEq(factory.pauser(), alice);
         assertEq(factory.capOf(address(usdc)), 0);
     }
 
@@ -190,11 +190,19 @@ contract EarnKitCampaignsTest is BaseTest {
         address[] memory tokens = new address[](1);
         tokens[0] = address(usdc);
         uint256[] memory caps = new uint256[](0);
-        vm.expectRevert(EarnKitCampaigns.LengthMismatch.selector);
-        new EarnKitCampaigns(owner, operator, treasury, pauser, tokens, caps);
+        // try/catch, not expectRevert: with this forge, an expected revert on `new` ends the test
+        // function, so a second check after it would silently never run.
+        try new EarnKitCampaigns(owner, operator, treasury, pauser, tokens, caps) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.LengthMismatch.selector);
+        }
         uint256[] memory oneCap = new uint256[](1);
-        vm.expectRevert(EarnKitCampaigns.ZeroAddress.selector);
-        new EarnKitCampaigns(owner, address(0), treasury, pauser, tokens, oneCap);
+        try new EarnKitCampaigns(owner, address(0), treasury, pauser, tokens, oneCap) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.ZeroAddress.selector);
+        }
     }
 
     function test_implementation_cannotBeInitialized() public {
@@ -222,5 +230,32 @@ contract EarnKitCampaignsTest is BaseTest {
         vm.prank(address(factory));
         vm.expectRevert();
         c.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
+    }
+
+    /// Regression for review M-01: guardian (pauser) == operator would make the fallback veto
+    /// worthless, so the factory refuses it in the constructor and both setters.
+    function test_guardianCannotBeOperator_constructorAndSetters() public {
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(usdc);
+        uint256[] memory caps = new uint256[](1);
+        caps[0] = CAP;
+        // try/catch rather than expectRevert on `new` (see test_constructor_reverts_onBadConfig).
+        try new EarnKitCampaigns(owner, operator, treasury, operator, tokens, caps) {
+            fail();
+        } catch (bytes memory err) {
+            assertEq(bytes4(err), EarnKitCampaigns.GuardianIsOperator.selector);
+        }
+
+        vm.startPrank(owner);
+        vm.expectRevert(EarnKitCampaigns.GuardianIsOperator.selector);
+        factory.setPauser(operator);
+        vm.expectRevert(EarnKitCampaigns.GuardianIsOperator.selector);
+        factory.setOperator(pauser);
+        vm.stopPrank();
+        assertEq(factory.operator(), operator);
+        assertEq(factory.pauser(), pauser);
+
+        EarnKitCampaign c = create(1000e6, uint64(block.timestamp + 1 days));
+        assertTrue(c.guardian() != c.operator());
     }
 }
