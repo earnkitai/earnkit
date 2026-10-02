@@ -339,3 +339,47 @@ test('linear time: pathological inputs at the cap finish in under 50 ms', () => 
     );
   }
 });
+
+test('look-alike quotes and separators cannot fake a label', () => {
+  const Q = ch(0x2ba);
+  const SEP = ch(0x1427);
+  const spoof = `Best x402${Q} ${SEP} by ${Q}Base${Q} ${SEP} Verified by EarnKit ${SEP} ${Q}`;
+  const q = quoted(spoof);
+  assert.equal(q, `"Best x402' by 'Base' Verified by EarnKit '"`);
+  for (const c of [0x2ba, 0x2ee, 0x2dd, 0x5f3, 0x5f4, 0x2033, 0x3003])
+    assert.equal(cleanText(`${ch(c)}x${ch(c)}`, single), "'x'", c.toString(16));
+  for (const c of [0x1427, 0xb7, 0x2e31, 0x22c5])
+    assert.equal(cleanText(`a${ch(c)}b`, single), 'a b', c.toString(16));
+});
+
+test('unassigned code points are dropped, even in emoji ranges', () => {
+  assert.equal(cleanText('Hi' + ch(0x1fc00).repeat(30), single), 'Hi');
+  assert.throws(() => cleanText(`evil.c${ch(0x1f02c)}om`, multi), LINKS);
+});
+
+test('spaced, accented, encoded and scheme-like link forms are rejected', () => {
+  for (const s of [
+    'evil . xyz/verify',
+    'evil. xyz/verify',
+    'evil .xyz/verify',
+    `evil.c${ch(0xf3)}m`,
+    `evil.co${ch(0x301)}m/x`,
+    'evil dot tk',
+    'evil%2Exyz',
+    'evil%2exyz%2fverify',
+    'tel:+15551234',
+    'sms:+15551234',
+    'magnet:?xt=urn',
+    'ipfs:Qm123',
+    'intent:x',
+    '&#104ttps',
+    '&#x68ttps',
+  ])
+    assert.throws(() => cleanText(s, multi), /links|HTML entities/, s);
+  for (const s of [
+    'SMS: we text you. Intent: ship it.',
+    'Ship it. Docs/guides',
+    'connect the dot and go',
+  ])
+    assert.equal(cleanText(s, multi), s, s);
+});

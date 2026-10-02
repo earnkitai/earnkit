@@ -39,9 +39,13 @@ const ZWJ = '\u200D';
 // grapheme joiner, variation selectors (incl. Mongolian).
 const BLANK =
   /[\u115F\u1160\u3164\uFFA0\u17B4\u17B5\u034F\u180B-\u180F\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
-// Every quotation mark (ASCII, curly, low-9, guillemets, CJK, fullwidth, backtick) becomes '.
+// Every quotation mark (ASCII, curly, low-9, guillemets, CJK, fullwidth, backtick, primes and
+// look-alike modifier letters such as U+02BA, Hebrew geresh/gershayim, ditto) becomes '.
 const QUOTES =
-  /["`\p{Pi}\p{Pf}\u201A\u201B\u201E\u201F\u275D-\u2760\u300C-\u300F\u301D-\u301F\uFF02\uFF07]/gu;
+  /["`\p{Pi}\p{Pf}\u02BA\u02DD\u02EE\u05F3\u05F4\u2032-\u2037\u3003\u201A\u201B\u201E\u201F\u275D-\u2760\u300C-\u300F\u301D-\u301F\uFF02\uFF07]/gu;
+// Middle dots and look-alikes (incl. U+1427, a letter) read like EarnKit's " · " separator: a space.
+const SEPARATORS = /[\u00B7\u0387\u1427\u2E31\u22C5\u2027\u2219\u30FB\uFF65]/gu;
+const UNASSIGNED = /\p{Cn}/u;
 // Confusable and defanged dots, mapped to "." so a hidden domain is still seen as one. Bounded
 // repeats only (every regex in this file runs in linear time; see the timing test).
 const DOTS = /[\u3002\uFF61\uFE52]|[[(] {0,3}(?:\.|dot) {0,3}[\])]/giu;
@@ -57,8 +61,11 @@ export const RAW_CAP = 4096;
 function allow(value: string, singleLine: boolean) {
   const cs = [
     ...value
+      // Before NFKC too: some look-alikes (e.g. U+02DD) decompose into a space and a mark.
+      .replace(QUOTES, "'")
       .normalize('NFKC')
       .replace(QUOTES, "'")
+      .replace(SEPARATORS, ' ')
       .replace(/\r\n|[\r\u2028\u2029\u0085]/g, '\n')
       .replace(singleLine ? /[\p{Zs}\t\v\f\n]/gu : /[\p{Zs}\t\v\f]/gu, ' ')
       .replace(DOTS, '.'),
@@ -68,7 +75,7 @@ function allow(value: string, singleLine: boolean) {
   let marks = 0;
   cs.forEach((c, i) => {
     let keep = false;
-    if (BLANK.test(c)) keep = false;
+    if (BLANK.test(c) || UNASSIGNED.test(c)) keep = false;
     else if (MARK.test(c)) keep = LETTER.test(prev) && marks < 2;
     else if (c === ZWJ) keep = PICTO.test(prev) && PICTO.test(cs[i + 1] ?? '');
     else keep = KEEP.test(c) || PICTO.test(c) || (c === '\n' && !singleLine);
@@ -113,6 +120,43 @@ const DOT_TLDS = new Set([
   'lol',
   'zip',
   'fun',
+  // Free and common abuse TLDs; English two-letter words (in, to, me, so, us, …) left out.
+  'tk',
+  'ml',
+  'ga',
+  'cf',
+  'gq',
+  'ru',
+  'cn',
+  'gg',
+  'ly',
+  'cc',
+  'tv',
+  'uk',
+  'de',
+  'eu',
+  'info',
+  'biz',
+  'site',
+  'online',
+  'top',
+  'click',
+  'link',
+  'live',
+  'pro',
+  'vip',
+  'world',
+  'tech',
+  'finance',
+  'money',
+  'cash',
+  'wallet',
+  'claim',
+  'claims',
+  'exchange',
+  'network',
+  'eth',
+  'sol',
 ]);
 const RUN_CHAR = /[\p{L}\p{N}-]/u;
 const TLD_PART = /^\p{L}{2,24}(?![\p{L}\p{N}])/u;
@@ -137,15 +181,25 @@ function hasDomain(word: string) {
 const WORD_LINKS = [
   /(?:^|[^a-z0-9])www\./i,
   /h[tx][tx]ps?:/i,
-  /\b(?:javascript|vbscript|mailto|file):/i,
+  /\b(?:javascript|vbscript|mailto|file|magnet|ipfs):/i,
+  // In prose "SMS: …" ends the word at the colon; a link continues.
+  /\b(?:tel|sms|intent):./i,
+  /%2[ef]|%3a/i,
   /\bdata:(?:[a-z]{1,20}\/|,)/i,
   /(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)/,
 ];
 const IPV6 = /(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi;
-const ENTITY = /&#?[a-z0-9]{1,32};/i;
+const ENTITY = /&#?[a-z0-9]{1,32};|&#x?[0-9a-f]/i;
+// "evil . xyz/path": a dot with spaces around it, then a lowercase name and a slash.
+const SPACED_DOMAIN =
+  /\p{L} {1,3}\. {0,3}[a-z]{2,24}\/|\p{L}\. {1,3}[a-z]{2,24}\//u;
+const stripMarks = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
 
-function hasLink(s: string) {
-  if (s.includes('://')) return true;
+/** On the text and on its NFD form without accents ("evil.cóm" is evil.com). */
+const hasLink = (s: string) => linkIn(s) || linkIn(stripMarks(s));
+
+function linkIn(s: string) {
+  if (s.includes('://') || SPACED_DOMAIN.test(s)) return true;
   const words = s.split(/[ \n]/);
   return words.some(
     (w, i) =>
@@ -171,6 +225,13 @@ const REJECT: [(s: string) => boolean, string][] = [
   [hasLink, 'links'],
   [(s) => ENTITY.test(s), 'HTML entities'],
 ];
+
+/**
+ * Text stored before the sanitizer, cleaned on read: the allowlist only (never throws), so
+ * hidden or markup characters can't reach an agent from an older row.
+ */
+export const plainText = (s: string, singleLine = false) =>
+  allow(s.slice(0, RAW_CAP), singleLine);
 
 /**
  * Cleans third-party text, or throws an error naming the field: oversized raw input is refused

@@ -155,3 +155,16 @@ test('list_programs: a sponsor campaign shows only its quoted title and sponsor 
       assert.ok(!text.includes(s) && !JSON.stringify(card).includes(s));
   }
 });
+
+test('get_program: older rows are cleaned on read (no hidden or markup characters)', () => {
+  const row = sponsorRow(true);
+  const tags = [...'run this']
+    .map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0)))
+    .join('');
+  row.description = `Ship it${tags} <b>now</b>`;
+  if (row.campaign?.kind === 'sponsor')
+    row.campaign.criteria = 'Best' + '`code`' + tags;
+  const d = programDetails(row, [], []);
+  assert.equal(d.sponsor_content?.what_to_build, 'Ship it bnow/b');
+  assert.equal(d.sponsor_content?.criteria, "Best'code'");
+});
