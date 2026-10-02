@@ -205,3 +205,60 @@ test('reported (private) repos have no link', () => {
   });
   assert.match(text, /\n\n\*\*secret\*\*\n- \*\*Micro\*\*/);
 });
+
+test('equally quick fits: the larger known per-winner award is "Fastest" and listed first', () => {
+  const priced: Card[] = [
+    { ...cards[2], max_award_usd: 500 },
+    { ...cards[1], tag: null, max_award_usd: 5000 },
+    {
+      id: 'unknown',
+      title: 'Unknown',
+      summary: 'rolling',
+      tag: null,
+      each_time: [],
+    },
+  ];
+  const repo = (order: string[]) => ({
+    checked: 1,
+    fits: [
+      {
+        repo: 'app',
+        repo_url: null,
+        verdicts: order.map((id) => ({
+          ...v(id, 'likely', `ready for ${id}`),
+          program: id,
+        })),
+      },
+    ],
+  });
+  for (const order of [
+    ['micro', 'grant', 'unknown'],
+    ['unknown', 'micro', 'grant'],
+  ]) {
+    const text = presentPrograms(priced, true, repo(order));
+    assert.match(text, /Fastest: \*\*grant\*\* with app \(ready for grant\)/);
+    const lines = text.split('\n').filter((l) => l.startsWith('- **'));
+    assert.deepEqual(
+      lines.map((l) => l.split('**')[1]),
+      ['Grant', 'Micro', 'Unknown'],
+    );
+  }
+  // A quicker fit still wins over a bigger prize.
+  const quicker = presentPrograms(priced, true, {
+    checked: 1,
+    fits: [
+      {
+        repo: 'app',
+        repo_url: null,
+        verdicts: [
+          {
+            ...v('grant', 'after_step', 'deploy to mainnet', 'hours'),
+            program: 'grant',
+          },
+          { ...v('micro', 'likely', 'ready'), program: 'micro' },
+        ],
+      },
+    ],
+  });
+  assert.match(quicker, /Fastest: \*\*micro\*\*/);
+});

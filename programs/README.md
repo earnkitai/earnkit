@@ -22,6 +22,11 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
 3. Fill in:
    - `summary`: one short line builders see, reward + deadline as the organizer states it
      (e.g. `"500 USDC × 20 grants · closes Oct 14, 11:59 PM ET"`, or `"· rolling"`).
+   - `max_award_usd` (optional): the most one winner gets, in USD, as a number. Set it only when
+     the source states a per-winner amount (e.g. `500` for "500 USDC per microgrant", `5000` for
+     "up to $5,000"); otherwise leave it out. When two of a builder's fits are equally quick,
+     list_programs puts the larger known per-winner award first (unknown counts as 0). Sponsor
+     campaigns don't need it: their per-winner amount is the prize divided by the winners.
    - `tag` (optional): `"long shot"` when few prizes go to many judged entries;
      `"needs a live product"` when it only suits builders who already shipped.
    - `ends_at`: ISO 8601 with timezone, converted from the organizer's timezone.

@@ -7,6 +7,7 @@
   "submission_url": "https://dorahacks.io/hackathon/arc-microgrants",
   "reward": "500 USDC per microgrant (20 microgrants, 10,000 USDC pool)",
   "summary": "500 USDC × 20 grants · closes Oct 14, 11:59 PM ET",
+  "max_award_usd": 500,
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
   "verified_at": "2026-09-28",

@@ -14,6 +14,8 @@ export type Card = {
   is_new?: boolean;
   /** Whole days until the deadline, when it's 3 or fewer. */
   closes_in_days?: number | null;
+  /** The known per-winner award in USD (programs.ts perWinnerUsd); unknown sorts as 0. */
+  max_award_usd?: number | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -77,6 +79,12 @@ const MAX_REPOS = 5;
 const quickness = (v: Verdict) =>
   (v.status === 'likely' ? 0 : 10) + EFFORT_ORDER.indexOf(v.effort);
 
+/** Quickest first; between equally quick fits, the larger known per-winner award. */
+const byFit = (byId: Map<string, Card>) => (a: Verdict, b: Verdict) =>
+  quickness(a) - quickness(b) ||
+  (byId.get(b.program_id)?.max_award_usd ?? 0) -
+    (byId.get(a.program_id)?.max_award_usd ?? 0);
+
 /**
  * The one answer. Opens with the money (how many programs their repos can enter and the fastest
  * one), then what they're already working on, each repo with the programs it fits, every other
@@ -91,12 +99,13 @@ export function presentPrograms(
 ) {
   if (cards.length === 0) return 'No open programs right now. Check back soon.';
   const byId = new Map(cards.map((c) => [c.id, c]));
+  const order = byFit(byId);
   const fits = repos && 'fits' in repos ? repos.fits : [];
   const noteFor = (id: string) =>
     fits
       .flatMap((f) => f.verdicts)
       .filter((v) => v.program_id === id)
-      .sort((a, b) => quickness(a) - quickness(b))[0]?.note;
+      .sort(order)[0]?.note;
 
   const sections: string[] = [];
   const shown = new Set<string>();
@@ -110,7 +119,7 @@ export function presentPrograms(
   const fastest = fits
     .flatMap((f) => f.verdicts.map((v) => ({ repo: f.repo, v })))
     .filter(({ v }) => byId.has(v.program_id))
-    .sort((a, b) => quickness(a.v) - quickness(b.v))[0];
+    .sort((a, b) => order(a.v, b.v))[0];
   if (repos && 'error' in repos)
     sections.push(`Couldn't read your repos: ${repos.error}`);
   else if (repos && fitIds.size === 0)
@@ -142,14 +151,12 @@ export function presentPrograms(
   for (const fit of fits) {
     const lines =
       repoSections < MAX_REPOS
-        ? [...fit.verdicts]
-            .sort((a, b) => quickness(a) - quickness(b))
-            .flatMap((v) => {
-              const card = byId.get(v.program_id);
-              if (!card || shown.has(card.id)) return [];
-              shown.add(card.id);
-              return [line(card, v.note)];
-            })
+        ? [...fit.verdicts].sort(order).flatMap((v) => {
+            const card = byId.get(v.program_id);
+            if (!card || shown.has(card.id)) return [];
+            shown.add(card.id);
+            return [line(card, v.note)];
+          })
         : [];
     if (lines.length === 0) {
       others.push(fit.repo);

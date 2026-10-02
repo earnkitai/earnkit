@@ -110,6 +110,7 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS installation_id integer REFERENCES
 
 -- v2.1 sponsor campaigns
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'file'; -- 'file' | 'sponsor'
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS max_award_usd numeric;  -- per-winner USD, when the source states it (tie-break)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_amount text;  -- what this winner got, token units
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_reason text;  -- the sponsor's public reason
 CREATE TABLE IF NOT EXISTS sponsor_campaigns (

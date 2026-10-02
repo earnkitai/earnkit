@@ -64,6 +64,22 @@ export const trustFor = (
     ? { verified_note: SPONSOR_TRUST_NOTE }
     : trust(verifiedAt, now);
 
+/**
+ * The known per-winner award in USD, or null: a USDC sponsor campaign's prize_total / winners, or
+ * a program file's max_award_usd (set only where the source states it). Breaks ties between
+ * equally quick fits ("Fastest"). Pure; exported for tests.
+ */
+export function perWinnerUsd(p: {
+  campaign: CampaignConfig | null;
+  max_award_usd: string | number | null;
+}) {
+  if (p.campaign?.kind === 'sponsor')
+    return p.campaign.prize.symbol === 'USDC'
+      ? Number(p.campaign.prize_total) / p.campaign.winners
+      : null;
+  return p.max_award_usd == null ? null : Number(p.max_award_usd);
+}
+
 /** ISO timestamp, or "rolling" for programs without a deadline. */
 const deadline = (endsAt: Date | null) => endsAt?.toISOString() ?? 'rolling';
 
@@ -92,6 +108,8 @@ type ProgramRow = {
   created_at: Date;
   rules: string[];
   source: 'file' | 'sponsor';
+  /** numeric comes back from postgres.js as a string. */
+  max_award_usd: string | null;
   submission_requirements: SubmissionRequirement[];
 };
 
@@ -114,9 +132,12 @@ export async function listPrograms() {
       | 'created_at'
       | 'verified_at'
       | 'source'
+      | 'campaign'
+      | 'max_award_usd'
     >[]
   >`
-    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at, verified_at, source
+    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at,
+      verified_at, source, campaign, max_award_usd
     FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
@@ -140,6 +161,7 @@ export async function listPrograms() {
     created_at: p.created_at,
     // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
     verified_at: p.source === 'sponsor' ? null : p.verified_at,
+    max_award_usd: perWinnerUsd(p),
     tracks: tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
   }));
 }
@@ -279,6 +301,7 @@ export async function upsertProgram(
       each_time: p.each_time,
       summary: p.summary,
       tag: p.tag ?? null,
+      max_award_usd: p.max_award_usd ?? null,
       chains: p.chains,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,

@@ -79,6 +79,12 @@ export const ProgramFile = z
     chains: z.array(z.enum(CHAINS)).min(1),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
+    /**
+     * The most one winner gets, in USD, only when the source states a per-winner amount
+     * (e.g. "500 USDC per microgrant", "up to $5,000"). Breaks ties between equally quick fits
+     * in list_programs; leave it out otherwise (unknown sorts as 0).
+     */
+    max_award_usd: z.number().positive().optional(),
     /** Shown next to the title so the builder isn't misled about effort or odds. */
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     /** Program-wide rules and requirements every project must meet. */
