@@ -5,10 +5,22 @@ import type { Chain } from './match';
 import { sql } from './db';
 import type { ProgramFile, SubmissionRequirement } from './program-file';
 import {
+  UNVERIFIED,
+  sponsorLabel,
+  trackRecordText,
+  type SponsorIdentity,
+  type TrackRecord,
+} from './sponsor-identity';
+import {
   sponsorDescription,
   sponsorRules,
   sponsorSummary,
 } from './sponsor-rules';
+import {
+  sponsorIdentity,
+  sponsorOfProgram,
+  trackRecord,
+} from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
 
 export class NotFoundError extends Error {}
@@ -127,7 +139,7 @@ export type ProgramRow = {
 export async function listPrograms() {
   const db = sql();
   const programs = await db<
-    Pick<
+    (Pick<
       ProgramRow,
       | 'id'
       | 'title'
@@ -144,22 +156,31 @@ export async function listPrograms() {
       | 'source'
       | 'campaign'
       | 'max_award_usd'
-    >[]
+    > & { sponsor_url: string | null; sponsor_wallet: string | null })[]
   >`
-    SELECT id, title, organizer, reward, ends_at, existing_work, setup, each_time, summary, tag, created_at,
-      verified_at, source, campaign, max_award_usd
-    FROM programs
-    WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
-    ORDER BY ends_at NULLS LAST`;
+    SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
+      p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
+      sc.sponsor_url, sc.sponsor_wallet
+    FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
+    WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
+    ORDER BY p.ends_at NULLS LAST`;
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
     SELECT id, program_id, name FROM tracks
     WHERE program_id IN ${db(programs.map((p) => p.id).concat(''))}
     ORDER BY id`;
 
-  return programs.map((p) =>
+  // Who each sponsor is, as far as EarnKit can vouch (cached; lazily re-checked).
+  const identities = await Promise.all(
+    programs.map((p) =>
+      p.campaign?.kind === 'sponsor' ? sponsorIdentity(p) : UNVERIFIED,
+    ),
+  );
+
+  return programs.map((p, i) =>
     programCard(
       p,
       tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
+      identities[i],
     ),
   );
 }
@@ -185,7 +206,10 @@ export function programCard(
     | 'max_award_usd'
   >,
   tracks: string[],
+  /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
+  identity: SponsorIdentity = UNVERIFIED,
 ) {
+  const sponsored = p.campaign?.kind === 'sponsor';
   return {
     id: p.id,
     title: shownTitle(p),
@@ -203,6 +227,7 @@ export function programCard(
             pool: p.campaign.pool,
             symbol: p.campaign.prize.symbol,
             endsAt: p.ends_at.toISOString(),
+            identity,
           })
         : p.summary,
     tag: p.tag,
@@ -211,6 +236,8 @@ export function programCard(
     // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
     verified_at: p.source === 'sponsor' ? null : p.verified_at,
     max_award_usd: perWinnerUsd(p),
+    // Never the "Fastest" headline or the closing offer (present.ts).
+    unverified_sponsor: sponsored && !identity.verified,
     tracks,
   };
 }
@@ -270,7 +297,17 @@ export async function getProgram(programId: string) {
   const starters = await db<StarterRow[]>`
     SELECT track_id, title, what_to_build, requirements, build_context FROM starters
     WHERE program_id = ${programId} ORDER BY id`;
-  return programDetails(program, tracks, starters);
+  const sponsorRow =
+    program.campaign?.kind === 'sponsor'
+      ? await sponsorOfProgram(programId)
+      : null;
+  const who = sponsorRow
+    ? {
+        identity: await sponsorIdentity(sponsorRow),
+        track_record: await trackRecord(sponsorRow.sponsor_wallet),
+      }
+    : undefined;
+  return programDetails(program, tracks, starters, who);
 }
 
 /** get_program's answer for one program. Pure; exported for tests. */
@@ -278,7 +315,10 @@ export function programDetails(
   program: ProgramRow,
   tracks: TrackRow[],
   starters: StarterRow[],
+  /** A sponsor campaign's identity and its wallet's track record. */
+  who?: { identity: SponsorIdentity; track_record: TrackRecord },
 ) {
+  const identity = who?.identity ?? UNVERIFIED;
   const trackName = (id: string | null) =>
     tracks.find((t) => t.id === id)?.name ?? null;
   const sponsor =
@@ -291,7 +331,7 @@ export function programDetails(
     // A sponsor campaign's description and rules are EarnKit's words only (built here, so rows
     // published before v2.2 read the same); the sponsor's own text is in sponsor_content.
     description: sponsor
-      ? sponsorDescription(sponsor.sponsor.name)
+      ? sponsorDescription(sponsor.sponsor.name, identity)
       : program.description,
     reward: program.reward,
     existing_work: program.existing_work,
@@ -332,6 +372,19 @@ export function programDetails(
             }
           : {
               by: quoted(program.campaign.sponsor.name),
+              sponsor: {
+                name: quoted(program.campaign.sponsor.name),
+                label: sponsorLabel(identity),
+                verified: identity.verified,
+                // Only a domain EarnKit checked; the sponsor's own claim isn't repeated.
+                host: identity.verified ? identity.host : null,
+                ...(who && {
+                  track_record: {
+                    ...who.track_record,
+                    summary: trackRecordText(who.track_record),
+                  },
+                }),
+              },
               pool: prizeText(program.campaign),
               escrow: escrowLink(
                 program.campaign.prize.chain_id,
@@ -350,7 +403,9 @@ export function programDetails(
         // Cleaned on read too, so rows stored before v2.2 carry no raw characters.
         what_to_build: plainText(sponsor.what_to_build ?? program.description),
         criteria: plainText(sponsor.criteria),
-        ...(sponsor.sponsor.url && { sponsor_url: sponsor.sponsor.url }),
+        // Only once verified: an unchecked link (e.g. to a brand's site) would imply endorsement.
+        ...(sponsor.sponsor.url &&
+          identity.verified && { sponsor_url: sponsor.sponsor.url }),
       },
     }),
     ...(starters.length > 0 && {

@@ -21,6 +21,8 @@ import {
   type EscrowReader,
 } from './escrow';
 import { NotFoundError, upsertProgram } from './programs';
+import { reservedNameProblem, sponsorLabel } from './sponsor-identity';
+import { sponsorIdentity } from './sponsor-verify';
 import {
   DEADLINE_MARGIN_MS,
   DEADLINE_PASSED,
@@ -33,6 +35,7 @@ import {
   awardReply,
   checkDraft,
   createReply,
+  labelText,
   mapOffPlanAward,
   matchAwardToPlan,
   planAward,
@@ -92,6 +95,22 @@ export async function createSponsorDraft(
   const token = findToken(d.token);
   const cap = token ? await capOf(token.address) : 0n;
   const { amountUnits } = checkDraft(d, token, cap, new Date());
+  // The domain is checked now (a failure is always re-fetched here, so a fixed file counts at
+  // once); a reserved name needs a pass on that brand's own domain.
+  const identity = await sponsorIdentity(
+    { sponsor_url: d.sponsor_url ?? null, sponsor_wallet },
+    { retryFailureAfterMs: 0 },
+  );
+  const reserved = reservedNameProblem(
+    d.sponsor_name,
+    identity.verified ? identity.host : null,
+  );
+  if (reserved)
+    throw new SponsorError(
+      identity.note && identity.host
+        ? `${reserved} (${identity.note})`
+        : reserved,
+    );
   const ref = `0x${randomBytes(32).toString('hex')}` as `0x${string}`;
   const { chainId } = escrowConfig();
   await sql()`INSERT INTO sponsor_campaigns ${sql()({
@@ -127,7 +146,10 @@ export async function createSponsorDraft(
       endsAt: d.ends_at,
       fundUrl,
       sponsorWallet: sponsor_wallet,
+      identity,
+      verificationNote: identity.note,
     }),
+    sponsor_label: sponsorLabel(identity),
   };
 }
 
@@ -573,9 +595,22 @@ export async function sponsorStatus(ref: string, installationId: number) {
   const units = parseUnits(row.amount, row.token_decimals);
   const prize = formatUnits(splitUnits(units).prize, row.token_decimals);
   const now = new Date();
+  // Lazily re-verified; the creating agent gets a failed check retried after a minute, so a
+  // sponsor who just published earnkit.txt sees it count.
+  const identity = await sponsorIdentity(row, {
+    ...(row.installation_id === installationId && {
+      retryFailureAfterMs: 60_000,
+    }),
+  });
   const base = {
     state: row.state,
     title: row.draft.title,
+    sponsor_label: sponsorLabel(identity),
+    ...(!identity.verified &&
+      row.sponsor_wallet &&
+      row.installation_id === installationId && {
+        verification: labelText(identity, row.sponsor_wallet, identity.note),
+      }),
     pool: `${row.amount} ${row.token_symbol}`,
     prize: `${prize} ${row.token_symbol}`,
     ends_at: row.draft.ends_at,

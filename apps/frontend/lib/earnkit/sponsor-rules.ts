@@ -5,6 +5,13 @@ import { formatExact } from './format-units';
 import { CHAINS } from './match';
 import type { ProgramFile } from './program-file';
 import type { TokenInfo } from './escrow';
+import {
+  UNVERIFIED,
+  earnkitTxtLine,
+  earnkitTxtUrl,
+  sponsorLabel,
+  type SponsorIdentity,
+} from './sponsor-identity';
 import { SponsorUrl, TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 /**
@@ -124,18 +131,29 @@ const day = (iso: string) =>
     timeZone: 'UTC',
   });
 
-/** A sponsor program's description: neutral; the sponsor's own text is in sponsor_content. */
-export const sponsorDescription = (name: string) =>
-  `Sponsored campaign by ${quoted(name)}. See sponsor_content.`;
+/**
+ * A sponsor program's description: neutral, with who EarnKit can vouch for; the sponsor's own text
+ * is in sponsor_content.
+ */
+export const sponsorDescription = (
+  name: string,
+  identity: SponsorIdentity = UNVERIFIED,
+) =>
+  `${sponsorLabel(identity)} campaign by ${quoted(name)}` +
+  (identity.verified
+    ? '.'
+    : ': EarnKit has not verified who the sponsor is, only that the pool is in escrow.') +
+  ' See sponsor_content.';
 
-/** The list line after the title: EarnKit's words plus the quoted sponsor name. */
+/** The list line after the title: EarnKit's words, the label, and the quoted sponsor name. */
 export const sponsorSummary = (a: {
   name: string;
   pool: string;
   symbol: string;
   endsAt: string;
+  identity?: SponsorIdentity;
 }) =>
-  `by ${quoted(a.name)} · Sponsored · ${fmt(a.pool)} ${a.symbol} pool in escrow · closes ${day(a.endsAt)}`;
+  `by ${quoted(a.name)} · ${sponsorLabel(a.identity ?? UNVERIFIED)} · ${fmt(a.pool)} ${a.symbol} pool in escrow · closes ${day(a.endsAt)}`;
 
 /**
  * EarnKit's generic rules for a sponsor campaign. No sponsor text: the theme, criteria and link
@@ -419,7 +437,27 @@ const amt = (units: bigint, t: Tok) =>
   `${formatExact(units, t.decimals)} ${t.symbol}`;
 const entriesText = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`;
 
-/** create: what was drafted, the split, and how to fund it. */
+/**
+ * How the campaign is labeled for builders and, when unverified, how to change that. Pure;
+ * exported for tests.
+ */
+export function labelText(
+  identity: SponsorIdentity,
+  wallet: string,
+  note?: string | null,
+) {
+  const label = `Label for builders: ${sponsorLabel(identity)}.`;
+  if (identity.verified) return label;
+  if (!identity.host)
+    return `${label} Without a sponsor_url there is no domain to verify; a campaign can't be the top pick for builders while unverified.`;
+  return (
+    `${label}${note ? ` ${note}` : ''} To show as verified ${identity.host}, publish the line ` +
+    `"${earnkitTxtLine(wallet)}" at ${earnkitTxtUrl(identity.host)}; EarnKit checks it again when ` +
+    "the campaign is viewed. Unverified campaigns are listed, but never as builders' top pick."
+  );
+}
+
+/** create: what was drafted, the split, how it's labeled, and how to fund it. */
 export function createReply(a: {
   title: string;
   poolUnits: bigint;
@@ -428,6 +466,8 @@ export function createReply(a: {
   endsAt: string;
   fundUrl: string;
   sponsorWallet: string;
+  identity: SponsorIdentity;
+  verificationNote?: string | null;
 }) {
   const { prize, fee } = splitUnits(a.poolUnits);
   return {
@@ -436,6 +476,7 @@ export function createReply(a: {
       `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
       `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
       `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
+      `${labelText(a.identity, a.sponsorWallet, a.verificationNote)}\n` +
       `Fund it here, from ${a.sponsorWallet}: ${a.fundUrl}`,
     next_step:
       `Fund it: the sponsor opens ${a.fundUrl} and deposits from ${a.sponsorWallet}, or, if you hold ` +

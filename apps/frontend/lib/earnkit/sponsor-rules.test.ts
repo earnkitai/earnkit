@@ -7,6 +7,9 @@ import {
   awardReply,
   checkDraft,
   createReply,
+  labelText,
+  sponsorDescription,
+  sponsorSummary,
   mapOffPlanAward,
   matchAwardToPlan,
   planAward,
@@ -146,7 +149,7 @@ test("the program file keeps the sponsor's theme and criteria out of description
   });
   assert.equal(
     p.description,
-    'Sponsored campaign by "Acme". See sponsor_content.',
+    'Sponsored · unverified campaign by "Acme": EarnKit has not verified who the sponsor is, only that the pool is in escrow. See sponsor_content.',
   );
   const said = [p.description, p.summary, ...p.rules].join('\n');
   assert.ok(!said.includes(draft.theme) && !said.includes(draft.criteria));
@@ -182,7 +185,7 @@ test('the program file is valid and states the judging rule and requirements', (
   assert.equal(ProgramFile.parse(p).id, 'sponsor-aaaaaaaaaaaaaaaa');
   assert.equal(
     p.summary,
-    'by "Acme" · Sponsored · 5,000 USDC pool in escrow · closes Oct 15',
+    'by "Acme" · Sponsored · unverified · 5,000 USDC pool in escrow · closes Oct 15',
   );
   assert.equal(p.campaign?.kind, 'sponsor');
   if (p.campaign?.kind === 'sponsor')
@@ -375,12 +378,14 @@ test('createReply: title, pool, split, winners, formatted deadline, fund link, n
     endsAt: '2026-10-06T06:51:00Z',
     fundUrl: 'https://earnkit.com/fund/0xabc',
     sponsorWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+    identity: { verified: true, host: 'acme.dev' },
   });
   assert.equal(
     r.show_to_sponsor,
     'Campaign drafted: "Build on Acme".\n' +
       "Pool: 100 USDC. Winners get 90 USDC; EarnKit's 10% (10 USDC) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n" +
       'Winners: 2 planned. Deadline: Oct 6, 2026, 06:51 UTC.\n' +
+      'Label for builders: Sponsored · verified acme.dev.\n' +
       'Fund it here, from 0x70997970c51812dc3a010c7d01b50e0d17dc79c8: https://earnkit.com/fund/0xabc',
   );
   assert.match(r.next_step, /https:\/\/earnkit\.com\/fund\/0xabc/);
@@ -568,5 +573,45 @@ test('sponsor_wallet: required, lowercased; mixed case must be a valid checksum'
     DraftInput.parse({ ...draft, sponsor_wallet: '0x' + 'AB'.repeat(20) })
       .sponsor_wallet,
     '0x' + 'ab'.repeat(20),
+  );
+});
+
+test('labelText: verified, unverified with a domain (how to verify), no domain', () => {
+  const w = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8';
+  assert.equal(
+    labelText({ verified: true, host: 'acme.dev' }, w),
+    'Label for builders: Sponsored · verified acme.dev.',
+  );
+  assert.equal(
+    labelText(
+      { verified: false, host: 'acme.dev' },
+      w,
+      "EarnKit couldn't read https://acme.dev/.well-known/earnkit.txt: answered 404, not 200.",
+    ),
+    "Label for builders: Sponsored · unverified. EarnKit couldn't read https://acme.dev/.well-known/earnkit.txt: answered 404, not 200. " +
+      `To show as verified acme.dev, publish the line "earnkit-sponsor: ${w}" at https://acme.dev/.well-known/earnkit.txt; ` +
+      "EarnKit checks it again when the campaign is viewed. Unverified campaigns are listed, but never as builders' top pick.",
+  );
+  assert.match(
+    labelText({ verified: false, host: null }, w),
+    /^Label for builders: Sponsored · unverified\. Without a sponsor_url there is no domain to verify/,
+  );
+});
+
+test('sponsorSummary and sponsorDescription carry the verified label', () => {
+  const identity = { verified: true, host: 'acme.dev' };
+  assert.equal(
+    sponsorSummary({
+      name: 'Acme',
+      pool: '5000',
+      symbol: 'USDC',
+      endsAt: '2026-10-15T00:00:00Z',
+      identity,
+    }),
+    'by "Acme" · Sponsored · verified acme.dev · 5,000 USDC pool in escrow · closes Oct 15',
+  );
+  assert.equal(
+    sponsorDescription('Acme', identity),
+    'Sponsored · verified acme.dev campaign by "Acme". See sponsor_content.',
   );
 });
