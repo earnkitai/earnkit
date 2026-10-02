@@ -104,8 +104,11 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.
 - **Sponsor campaigns** (v2.1): the escrow (`contracts/`) is the only place a sponsor's funds
-  move; EarnKit's server only reads the chain (`escrow.ts`) and never holds a signing key for a
-  sponsor's wallet. Each campaign is a clone (`EarnKitCampaigns.createCampaign`) that snapshots
+  move; EarnKit's server only reads the chain (`escrow.ts`) and holds no private key at all.
+  The `sponsor_campaign` tool is registered only when the escrow is configured
+  (`escrowConfigProblem()` is null: `ESCROW_FACTORY_ADDRESS` set, `ESCROW_CHAIN` one of
+  base|base-sepolia|local); otherwise the server has the 5 builder tools, `/fund` and `/award`
+  404, and the confirm API returns 503. Each campaign is a clone (`EarnKitCampaigns.createCampaign`) that snapshots
   the factory's `operator` and `treasury` at creation, so a factory owner who later rotates either
   one can't redirect an already-funded campaign's payouts or fees. Funding and awards are both
   confirmed from a transaction receipt, never trusted from the caller: `confirmFunding` and
@@ -122,3 +125,12 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   only as a guide, never binding. The operator (`pnpm campaign award|refund|sync`,
   `OPERATOR_PRIVATE_KEY`) acts only from a local shell, never from Railway: a fallback award after
   the sponsor misses the 7-day grace period, or a refund (no-eligible-entries / takedown).
+  Every reported tx goes through `confirmTx`, which routes by what the receipt contains
+  (`routeReceipt`: a `CampaignCreated` for this ref is funding, an `Awarded` from the tracked
+  escrow is an award), so re-confirming a live campaign with its funding tx returns the live
+  result. Refs are unique per sender onchain, so a second wallet can fund the same draft:
+  `fundingDecision` reports that second escrow by address instead of succeeding, and the operator
+  refunds it with `pnpm campaign refund <ref> --escrow <address>` (DB unchanged). A deposit whose
+  confirm never ran is repaired with `pnpm campaign sync <ref> --tx <hash>`; there is no automatic
+  onchain lookup by ref yet (pre-mainnet). Program ids are `sponsor-<first 16 hex of the ref>`,
+  and `confirmFunding` refuses to publish over an existing program id.

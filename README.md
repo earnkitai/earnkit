@@ -15,7 +15,9 @@ Then ask: "Anything worth building?"
 
 Tools: `list_programs` ("what can I earn?": the builder's matching projects + open programs),
 `get_program`, `prepare_submission`, `record_submission`,
-`launch_token` (optional tokens.fun token for a submitted project).
+`launch_token` (optional tokens.fun token for a submitted project), and `sponsor_campaign`
+(sponsors fund a builder campaign into an escrow on Base; offered only once the escrow is
+configured with `ESCROW_FACTORY_ADDRESS`, so until then the server lists the first five).
 
 ## Layout
 

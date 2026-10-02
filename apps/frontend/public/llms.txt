@@ -36,10 +36,12 @@ which EarnKit approves instantly.
 - launch_token: launches a token for a submitted project on tokens.fun, only
   after the builder says yes (tokens.fun pays gas; 40% of trading fees to the
   builder's wallet). The agent can upload an image it made
-- sponsor_campaign: for sponsors. Create a builder campaign (returns a funding
-  link; the pool sits in an escrow on Base), check entries, and award winners.
-  90% goes to winners the sponsor picks; EarnKit takes 10% only when prizes are
-  paid, and refunds everything if nobody qualifies
+- sponsor_campaign (opens once EarnKit's escrow is live; until then the
+  server lists only the five tools above): for sponsors. Create a builder
+  campaign (returns a funding link; the pool sits in an escrow on Base), check
+  entries, and award winners. 90% goes to winners the sponsor picks; EarnKit
+  takes 10% only when prizes are paid, and refunds everything if nobody
+  qualifies
 
 ## EarnKit campaigns
 
@@ -48,6 +50,11 @@ through record_submission with its Base contracts and a payout wallet.
 Entries are scored from Base onchain data (unique wallets using the
 contracts), a person reviews the top entries, and prizes are sent straight
 to the winners' payout wallets. Leaderboards: https://earnkit.com/campaigns/<id>
+
+Sponsor campaigns (once EarnKit's escrow is live) are entered the same way,
+but contracts are optional: an entry needs the project name, description,
+repo, live link, and a payout wallet. Base contracts, if given, are scored
+as a guide; the sponsor picks the winners and their reasons are public.
 
 ## What EarnKit does not do
 
