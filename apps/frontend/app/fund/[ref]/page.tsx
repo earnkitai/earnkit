@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
+import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
@@ -71,9 +72,9 @@ export default async function FundPage({
         </dl>
         <p className="mt-6 max-w-2xl font-funnel-sans text-sm font-light text-ek-blue-soft">
           The pool goes into its own escrow contract on Base. You pick the
-          winners after {new Date(row.draft.ends_at).toUTCString()}. If you
-          don&apos;t within 7 days, EarnKit pays the top entries. If nobody
-          qualifies, everything comes back to you, fee included.
+          winners after {formatDeadline(row.draft.ends_at)}. If you don&apos;t
+          within 7 days, EarnKit pays the top entries. If nobody qualifies,
+          everything comes back to you, fee included.
         </p>
         {row.state === 'draft' && !sameChain ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">

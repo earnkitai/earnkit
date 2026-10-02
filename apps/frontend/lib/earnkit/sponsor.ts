@@ -3,6 +3,7 @@ import type postgres from 'postgres';
 import { formatUnits, parseUnits, type TransactionReceipt } from 'viem';
 import { z } from 'zod';
 import { scoreEntry } from './campaigns';
+import { formatDeadline } from './dates';
 import { formatExact } from './format-units';
 import { sql } from './db';
 import {
@@ -276,8 +277,7 @@ export async function confirmFunding(
     if (receipt.status !== 'success')
       throw new SponsorError('That transaction failed onchain.');
     const decision = fundingDecision(row, readCreated(receipt));
-    if (decision.action === 'refuse')
-      throw new SponsorError(decision.message);
+    if (decision.action === 'refuse') throw new SponsorError(decision.message);
     if (decision.action === 'second_escrow') {
       console.error(
         `[sponsor] second escrow for ${ref}: ${decision.escrow} (tx ${tx}); tracked escrow ${row.escrow_address}. ` +
@@ -394,7 +394,7 @@ export function assertCanAward(
     throw new SponsorError(`This campaign is ${row.state}.`);
   if (now.getTime() < Date.parse(row.draft.ends_at))
     throw new SponsorError(
-      `Awards open after the campaign ends (${row.draft.ends_at}).`,
+      `Awards open after the campaign ends (${formatDeadline(row.draft.ends_at)}).`,
     );
 }
 

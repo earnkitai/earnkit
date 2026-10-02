@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sql } from './db';
 import { EntryError, validateEntry } from './campaigns';
+import { formatDeadline } from './dates';
 import { getProgramRow, isOpen } from './programs';
 import { ProjectInfo } from './submission';
 import { tokenOffer } from './tokens';
@@ -68,9 +69,9 @@ export async function recordSubmission(
           campaign_entry:
             `Entered ${program.title}. ` +
             (program.campaign.kind === 'earnkit'
-              ? `Scored on unique wallets using ${entry.contracts.join(', ')} until ${program.ends_at?.toISOString()}; ` +
+              ? `Scored on unique wallets using ${entry.contracts.join(', ')} until ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}; ` +
                 `at least ${program.campaign.min_score} to be eligible. `
-              : `The sponsor picks winners after ${program.ends_at?.toISOString()}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
+              : `The sponsor picks winners after ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
             `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure your agent controls that wallet.`,
         }),
       ...(!token_url && { next: tokenOffer(name) }),

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProjectPage } from '@/lib/earnkit/leaderboard';
 import { minScore, wonText } from '@/lib/earnkit/campaigns';
+import { formatDeadline } from '@/lib/earnkit/dates';
 
 export const dynamic = 'force-dynamic';
 /** Builder-supplied links: only http(s) becomes a link (no javascript: or data: URLs). */
@@ -104,7 +105,7 @@ export default async function ProjectPage({
         </ul>
         {p.scored_at ? (
           <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
-            Scored {p.scored_at.toUTCString()}
+            Scored {formatDeadline(p.scored_at)}
           </p>
         ) : null}
       </section>

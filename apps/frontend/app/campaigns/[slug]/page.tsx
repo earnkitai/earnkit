@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { minScore, prizeText, wonText } from '@/lib/earnkit/campaigns';
+import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
 
 export const dynamic = 'force-dynamic';
@@ -31,9 +32,7 @@ export default async function CampaignPage({
         </p>
         <p className="mt-6 font-funnel-sans text-base text-ek-white">
           {prizeText(c)} ·{' '}
-          {ended
-            ? 'closed'
-            : `closes ${program.ends_at.toUTCString().replace(':00 GMT', ' UTC')}`}
+          {ended ? 'closed' : `closes ${formatDeadline(program.ends_at)}`}
         </p>
         {c.kind === 'sponsor' ? (
           <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
