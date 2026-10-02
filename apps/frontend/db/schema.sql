@@ -132,8 +132,7 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
   amount          text NOT NULL,                    -- decimal string in token units
   chain_id        integer NOT NULL,
   escrow_address  text,
-  sponsor_wallet  text,
-  fund_tx         text,
+  sponsor_wallet  text,                             -- bound at create (lowercase); only its deposit counts
   state           text NOT NULL DEFAULT 'draft'
                   CHECK (state IN ('draft', 'live', 'awarded', 'refunded', 'expired', 'taken_down')),
   award_plan      jsonb,                            -- [{entry_id, wallet, amount, reason}] as the sponsor sent it
@@ -143,3 +142,7 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
   funded_at       timestamptz,
   awarded_at      timestamptz
 );
+-- v2.2: funding and awards are read from the chain for the bound sponsor wallet, never from a
+-- reported tx hash. The operator's pending fallback winners live beside the sponsor's plan.
+ALTER TABLE sponsor_campaigns DROP COLUMN IF EXISTS fund_tx;
+ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS fallback_plan jsonb;  -- [{entry_id, wallet, amount, reason}]

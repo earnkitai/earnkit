@@ -1,4 +1,4 @@
-import { formatUnits, parseUnits } from 'viem';
+import { formatUnits, isAddress, parseUnits } from 'viem';
 import { z } from 'zod';
 import { formatDeadline } from './dates';
 import { formatExact } from './format-units';
@@ -14,8 +14,28 @@ import { SponsorUrl, TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 export class SponsorError extends Error {}
 
+/**
+ * The wallet that will fund the campaign (an EOA or a smart-contract wallet). Lowercased; a
+ * mixed-case address must carry a valid EIP-55 checksum, so a typo can't bind the wrong wallet.
+ */
+export const SponsorWallet = z
+  .string()
+  .trim()
+  .refine(
+    (a) =>
+      /^0x[0-9a-fA-F]{40}$/.test(a) &&
+      !/^0x0{40}$/.test(a) &&
+      // One case throughout carries no checksum; mixed case must be EIP-55.
+      (a.slice(2) === a.slice(2).toLowerCase() ||
+        a.slice(2) === a.slice(2).toUpperCase() ||
+        isAddress(a, { strict: true })),
+    'a 0x wallet address (mixed case must be a valid checksum)',
+  )
+  .transform((a) => a.toLowerCase());
+
 export const DraftInput = z
   .object({
+    sponsor_wallet: SponsorWallet,
     sponsor_name: untrusted(TEXT_LIMITS.sponsor_name),
     sponsor_url: SponsorUrl.optional(),
     title: untrusted(TEXT_LIMITS.title, 5),
@@ -34,7 +54,10 @@ export const DraftInput = z
     ends_at: z.string().datetime({ offset: true }),
   })
   .strict();
-export type Draft = z.infer<typeof DraftInput>;
+/** What create accepts. */
+export type DraftRequest = z.infer<typeof DraftInput>;
+/** What the draft row stores (`sponsor_campaigns.draft`); the wallet has its own column. */
+export type Draft = Omit<DraftRequest, 'sponsor_wallet'>;
 
 const DAY = 86_400_000;
 
@@ -273,12 +296,17 @@ export const AwardWinner = z
   })
   .strict();
 
-/** Checks the sponsor's picks and returns what the award transaction must contain. */
+/**
+ * Checks the sponsor's (or the operator fallback's) picks and returns what the award transaction
+ * must contain. `excluded` (lowercase) are wallets that may never receive a prize: every EarnKit
+ * escrow clone (the contract only excludes itself) and the sponsor's own wallet.
+ */
 export function planAward(a: {
   winners: z.infer<typeof AwardWinner>[];
   entries: { id: number; payout_wallet: string }[];
   prizeUnits: bigint;
   decimals: number;
+  excluded: ReadonlySet<string>;
 }) {
   const seen = new Set<number>();
   const items = a.winners.map((w) => {
@@ -291,6 +319,10 @@ export function planAward(a: {
     if (!e)
       throw new SponsorError(
         `winners: ${w.entry_id} isn't an entry in this campaign.`,
+      );
+    if (a.excluded.has(e.payout_wallet.toLowerCase()))
+      throw new SponsorError(
+        `winners: entry ${w.entry_id}'s payout wallet is an EarnKit escrow or the sponsor's wallet, so it can't receive a prize.`,
       );
     const units = toUnits('winners', w.amount, a.decimals);
     return { entry_id: e.id, wallet: e.payout_wallet, units, reason: w.reason };
@@ -395,6 +427,7 @@ export function createReply(a: {
   winners: number;
   endsAt: string;
   fundUrl: string;
+  sponsorWallet: string;
 }) {
   const { prize, fee } = splitUnits(a.poolUnits);
   return {
@@ -403,12 +436,13 @@ export function createReply(a: {
       `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
       `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
       `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
-      `Fund it here: ${a.fundUrl}`,
+      `Fund it here, from ${a.sponsorWallet}: ${a.fundUrl}`,
     next_step:
-      `Fund it: the sponsor opens ${a.fundUrl} and deposits from their wallet, or, if you hold that ` +
-      'wallet, send the two `transactions` in order (approve, then createCampaign). Then call ' +
-      'sponsor_campaign with action=status, ref, and tx (the createCampaign hash). An unfunded ' +
-      'draft expires after 7 days, or 10 minutes before its deadline.',
+      `Fund it: the sponsor opens ${a.fundUrl} and deposits from ${a.sponsorWallet}, or, if you hold ` +
+      'that wallet, send the two `transactions` from it in order (approve, then createCampaign). ' +
+      'Then call sponsor_campaign with action=status and ref: EarnKit finds the deposit onchain. ' +
+      'Only a deposit from that wallet counts. An unfunded draft expires after 7 days, or 10 ' +
+      'minutes before its deadline.',
   };
 }
 
@@ -431,6 +465,10 @@ export type StatusFacts = {
   campaignUrl: string | null;
   /** live with a prepared award plan. */
   awardUrl: string | null;
+  /** live: when EarnKit's pending fallback can be paid out, unless the sponsor awards first. */
+  fallbackExecutesAt: Date | null;
+  /** draft/expired: why a deposit found onchain wasn't accepted (see sponsor.ts fundingMismatch). */
+  fundingProblem: string | null;
 };
 
 /** status: one line per state, plus the next step where there is one. */
@@ -442,6 +480,12 @@ export function statusReply(s: StatusFacts): {
   const title = quoted(s.title);
   switch (s.state) {
     case 'draft':
+      if (s.fundingProblem)
+        return {
+          show_to_sponsor: `${title}: ${s.fundingProblem}`,
+          next_step:
+            'Contact EarnKit to refund that deposit, then create a new campaign with action=create.',
+        };
       return {
         show_to_sponsor:
           `${title} is a draft, not funded yet. Deposit the pool at ${s.fundUrl}` +
@@ -450,15 +494,17 @@ export function statusReply(s: StatusFacts): {
             : '.'),
         next_step:
           `Fund it: the sponsor deposits at ${s.fundUrl}, or you send the two transactions from ` +
-          'create if you hold their wallet. Then call status with ref and tx (the createCampaign hash).',
+          'create if you hold their wallet. Then call status with ref: EarnKit finds the deposit onchain.',
       };
     case 'expired':
       return {
-        show_to_sponsor:
-          s.expiredText ?? `${title} expired before it was funded.`,
-        next_step:
-          'If you sent the deposit, call status with ref and tx (the createCampaign hash) to finish; ' +
-          'the funds are safe in escrow. Otherwise create a new campaign with action=create.',
+        show_to_sponsor: s.fundingProblem
+          ? `${title}: ${s.fundingProblem}`
+          : (s.expiredText ?? `${title} expired before it was funded.`),
+        next_step: s.fundingProblem
+          ? 'Contact EarnKit to refund that deposit, then create a new campaign with action=create.'
+          : 'If the deposit was only just sent, call status again in a minute: EarnKit finds it onchain. ' +
+            'Otherwise create a new campaign with action=create.',
       };
     case 'awarded':
       return {
@@ -482,10 +528,13 @@ export function statusReply(s: StatusFacts): {
           show_to_sponsor: `${title} is live: ${entriesText(s.entries)}; winners picked after ${deadline}.${escrow}${page}`,
           next_step: `Nothing to do until ${deadline}. Then call award with the winners.`,
         };
+      const fallback = s.fallbackExecutesAt
+        ? ` EarnKit has proposed fallback winners; they can be paid from ${formatDeadline(s.fallbackExecutesAt)} unless the sponsor awards first.`
+        : '';
       return {
-        show_to_sponsor: `${title} has ended with ${entriesText(s.entries)}; time to pick winners.${escrow}${page}`,
+        show_to_sponsor: `${title} has ended with ${entriesText(s.entries)}; time to pick winners.${fallback}${escrow}${page}`,
         next_step: s.awardUrl
-          ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref and tx.`
+          ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref: EarnKit reads the award onchain.`
           : s.entries === 0
             ? 'Nobody entered. Contact EarnKit to refund the pool (fee included).'
             : `Call award with winners [{entry_id, amount, reason}] adding up to ${s.prize} exactly. If the sponsor doesn't award within 7 days of the deadline, EarnKit pays the top entries.`,
@@ -517,6 +566,6 @@ export function awardReply(a: {
       `Sign it here: ${a.awardUrl}`,
     next_step:
       `The sponsor signs at ${a.awardUrl} with the wallet that funded the campaign (or, if you hold ` +
-      'that wallet, send `transaction`). Then call status with ref and tx (the award hash).',
+      'that wallet, send `transaction`). Then call status with ref: EarnKit reads the award onchain.',
   };
 }

@@ -4,7 +4,6 @@ import { RecordSubmissionInput, recordSubmission } from './projects';
 import { presentYourEntries } from './campaigns';
 import { yourCampaignEntries } from './leaderboard';
 import { checkPrograms, setWorkingOn } from './installations';
-import { receiptNotFoundMessage } from './receipt-error';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -19,12 +18,7 @@ import {
   type YourRepos,
 } from './present';
 import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
-import {
-  confirmTx,
-  createSponsorDraft,
-  prepareAward,
-  sponsorStatus,
-} from './sponsor';
+import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
 import { AwardWinner, DraftInput, SponsorError } from './sponsor-rules';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { LaunchTokenInput, launchToken } from './tokens';
@@ -55,12 +49,9 @@ const ListProgramsInput = z
   .strict();
 
 const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
-const TxHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'a transaction hash');
 export const SponsorCampaignInput = z.discriminatedUnion('action', [
   DraftInput.extend({ action: z.literal('create') }).strict(),
-  z
-    .object({ action: z.literal('status'), ref: Ref, tx: TxHash.optional() })
-    .strict(),
+  z.object({ action: z.literal('status'), ref: Ref }).strict(),
   z
     .object({
       action: z.literal('award'),
@@ -222,7 +213,8 @@ export const tools = {
   launch_token: async (input: unknown, ctx: ToolContext) =>
     launchToken(LaunchTokenInput.parse(input), ctx.installationId),
 
-  // Sponsors: create a campaign (returns a funding link and raw txs), check it, award it.
+  // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
+  // chain for the bound wallet's deposit or award), award it.
   sponsor_campaign: async (input: unknown, ctx: ToolContext) => {
     // Normally unreachable (the tool isn't registered until the escrow is configured).
     if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
@@ -237,17 +229,6 @@ export const tools = {
     }
     if (i.action === 'award')
       return prepareAward(i.ref, ctx.installationId, i.winners);
-    if (i.tx) {
-      // Routed by what the receipt contains (funding or award), not only by the row's state, so
-      // re-sending a live campaign's funding tx re-confirms it instead of failing as an award.
-      try {
-        await confirmTx(i.ref, i.tx as `0x${string}`);
-      } catch (err) {
-        const msg = receiptNotFoundMessage(err);
-        if (msg) throw new SponsorError(msg);
-        throw err;
-      }
-    }
     return sponsorStatus(i.ref, ctx.installationId);
   },
 } satisfies Record<

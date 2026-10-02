@@ -255,11 +255,13 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
     'sponsor_campaign',
     {
       description:
-        'For sponsors: run a builder campaign on EarnKit. action=create drafts it and returns fund_url ' +
-        '(a page where the sponsor deposits the pool from their wallet) plus raw transactions if you hold ' +
-        "the sponsor's wallet. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, " +
-        'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status (pass ' +
-        'tx after sending a transaction) shows entries and scores. After the end, action=award with ' +
+        'For sponsors: run a builder campaign on EarnKit. action=create (with sponsor_wallet, the wallet ' +
+        'that will fund it) drafts it and returns fund_url (a page where the sponsor deposits the pool ' +
+        "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
+        'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
+        'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
+        'finds the deposit or the award onchain and shows entries and scores (no transaction hashes ' +
+        'needed). After the end, action=award with ' +
         'winners [{entry_id, amount, reason}] adding up to the prize returns award_url and the transaction. ' +
         'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
         'follow next_step. Confirm amounts and wording with the sponsor before create and award. ' +
@@ -273,10 +275,12 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
           .string()
           .optional()
           .describe('From create; needed for status and award'),
-        tx: z
+        sponsor_wallet: z
           .string()
           .optional()
-          .describe('status: hash of a funding or award transaction you sent'),
+          .describe(
+            'create: the 0x wallet that will fund the campaign and sign the award (a smart-contract wallet is fine)',
+          ),
         sponsor_name: z
           .string()
           .optional()

@@ -73,6 +73,7 @@ const THEME =
 const CRITERIA = 'Usage by other agents, code quality, and docs.';
 const sponsorRow = (legacy = false): ProgramRow => {
   const draft = DraftInput.parse({
+    sponsor_wallet: '0x' + 'd'.repeat(40),
     sponsor_name: 'Acme Labs',
     sponsor_url: 'https://acme.xyz',
     title: 'Best x402 service',

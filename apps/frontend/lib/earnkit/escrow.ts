@@ -1,18 +1,16 @@
 import {
   createPublicClient,
-  decodeEventLog,
   encodeFunctionData,
   erc20Abi,
   http,
   isAddress,
-  type TransactionReceipt,
 } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import { campaignAbi, campaignsAbi } from './escrow-abi';
 
 /**
  * Read-only access to the EarnKit escrow contracts (v2.1). The server never signs: it builds
- * transactions for the sponsor's wallet and reads receipts and state.
+ * transactions for the sponsor's wallet and reads state and events from the chain.
  */
 
 export type EscrowChain = 'base' | 'base-sepolia' | 'local';
@@ -78,8 +76,9 @@ export function escrowConfigProblem(
 }
 
 /** Whether the escrow is configured, i.e. sponsor campaigns are open on this deployment. */
-export const escrowEnabled = (env: Record<string, string | undefined> = process.env) =>
-  escrowConfigProblem(env) === null;
+export const escrowEnabled = (
+  env: Record<string, string | undefined> = process.env,
+) => escrowConfigProblem(env) === null;
 
 /** Shown to agents and sponsors when the escrow isn't configured yet. */
 export const SPONSOR_NOT_OPEN =
@@ -143,8 +142,6 @@ const EXPLORER: Record<number, string> = {
 };
 export const escrowLink = (chainId: number, address: string) =>
   EXPLORER[chainId] ? `${EXPLORER[chainId]}/address/${address}` : address;
-export const txLink = (chainId: number, hash: string) =>
-  EXPLORER[chainId] ? `${EXPLORER[chainId]}/tx/${hash}` : hash;
 
 /** approve + createCampaign, for an agent that holds the sponsor's wallet. */
 export function fundTxs(
@@ -198,63 +195,136 @@ export function awardTx(
   };
 }
 
-/** The CampaignCreated event in a factory receipt, or null. */
-export function readCreated(receipt: TransactionReceipt) {
-  const { factory } = escrowConfig();
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== factory.toLowerCase()) continue;
-    try {
-      const e = decodeEventLog({
+/** The clone's onchain state, by `EarnKitCampaign.State` index. */
+export const ESCROW_STATES = ['none', 'funded', 'awarded', 'refunded'] as const;
+export type EscrowState = (typeof ESCROW_STATES)[number];
+
+/** What `findFunding` needs from a funded clone. Addresses are lowercased. */
+export type CloneFacts = {
+  sponsor: string;
+  token: string;
+  prize: bigint;
+  fee: bigint;
+  endsAt: number;
+  state: EscrowState;
+};
+
+/**
+ * The chain reads the sponsor flow needs. An interface so the funding/award rules can be tested
+ * with a stub; `chainReader()` is the real one.
+ */
+export type EscrowReader = {
+  /** factory.campaignOf(sponsor, ref): the clone that wallet funded for this ref, or null. */
+  campaignOf(sponsor: string, ref: string): Promise<string | null>;
+  clone(address: string): Promise<CloneFacts>;
+};
+
+const ZERO = '0x0000000000000000000000000000000000000000';
+
+export function chainReader(): EscrowReader {
+  const read = (address: string, functionName: string) =>
+    escrowClient().readContract({
+      address: address as `0x${string}`,
+      abi: campaignAbi,
+      functionName: functionName as 'state',
+    }) as Promise<unknown>;
+  return {
+    async campaignOf(sponsor, ref) {
+      const a = (await escrowClient().readContract({
+        address: escrowConfig().factory,
         abi: campaignsAbi,
-        data: log.data,
-        topics: log.topics,
-      });
-      if (e.eventName === 'CampaignCreated') {
-        const a = e.args as {
-          ref: `0x${string}`;
-          sponsor: string;
-          campaign: string;
-          token: string;
-          amount: bigint;
-          endsAt: bigint;
-        };
-        return {
-          ref: a.ref,
-          sponsor: a.sponsor,
-          campaign: a.campaign,
-          token: a.token,
-          amount: a.amount,
-          endsAt: Number(a.endsAt),
-        };
-      }
-    } catch {
-      // other events from the factory (CapSet etc.) don't concern us
-    }
-  }
-  return null;
+        functionName: 'campaignOf',
+        args: [sponsor as `0x${string}`, ref as `0x${string}`],
+      })) as string;
+      return a.toLowerCase() === ZERO ? null : a.toLowerCase();
+    },
+    async clone(address) {
+      const [sponsor, token, prize, fee, endsAt, state] = await Promise.all(
+        ['sponsor', 'token', 'prize', 'fee', 'endsAt', 'state'].map((f) =>
+          read(address, f),
+        ),
+      );
+      return {
+        sponsor: (sponsor as string).toLowerCase(),
+        token: (token as string).toLowerCase(),
+        prize: prize as bigint,
+        fee: fee as bigint,
+        endsAt: Number(endsAt),
+        state: ESCROW_STATES[Number(state)],
+      };
+    },
+  };
 }
 
-/** The Awarded event emitted by `escrow` in a receipt, or null. */
-export function readAwarded(receipt: TransactionReceipt, escrow: string) {
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== escrow.toLowerCase()) continue;
-    try {
-      const e = decodeEventLog({
-        abi: campaignAbi,
-        data: log.data,
-        topics: log.topics,
-      });
-      if (e.eventName === 'Awarded') {
-        const a = e.args as {
-          winners: string[];
-          amounts: bigint[];
-          fee: bigint;
-        };
-        return { winners: [...a.winners], amounts: [...a.amounts], fee: a.fee };
-      }
-    } catch {
-      // not an Awarded log
-    }
+/** The clone's state and its pending operator fallback (executable from `fallbackExecutesAt`). */
+export async function readEscrow(escrow: string) {
+  const c = escrowClient();
+  const read = (
+    functionName: 'state' | 'fallbackHash' | 'fallbackAt' | 'FALLBACK_DELAY',
+  ) =>
+    c.readContract({
+      address: escrow as `0x${string}`,
+      abi: campaignAbi,
+      functionName,
+    }) as Promise<unknown>;
+  const [state, hash, at, delay] = await Promise.all([
+    read('state'),
+    read('fallbackHash'),
+    read('fallbackAt'),
+    read('FALLBACK_DELAY'),
+  ]);
+  return {
+    state: ESCROW_STATES[Number(state)],
+    fallbackHash: hash as `0x${string}`,
+    fallbackExecutesAt: /^0x0+$/.test(hash as string)
+      ? null
+      : new Date(Number((at as bigint) + (delay as bigint)) * 1000),
+  };
+}
+
+/** Base makes a block about every 2 seconds; logs are read in chunks under common RPC limits. */
+const BLOCK_SECONDS = 2;
+const LOG_CHUNK = 9_000n;
+
+/**
+ * The first block an award could be in: an estimate of the block at `endsAt` (an award can't
+ * happen before it), with 300 blocks of slack. Pure; exported for tests.
+ */
+export function awardSearchFrom(
+  latest: bigint,
+  latestTs: bigint,
+  endsAt: number,
+) {
+  const back = (latestTs - BigInt(endsAt)) / BigInt(BLOCK_SECONDS) + 300n;
+  return latest > back ? latest - back : 0n;
+}
+
+/**
+ * The clone's `Awarded` event (there is at most one), read from the estimated block at `endsAt`
+ * to the latest block, in chunks. Null when it isn't in that range.
+ */
+export async function readAwardedLog(escrow: string, endsAt: number) {
+  const c = escrowClient();
+  const latest = await c.getBlock();
+  const from = awardSearchFrom(latest.number, latest.timestamp, endsAt);
+  for (let lo = from; lo <= latest.number; lo += LOG_CHUNK) {
+    const hi =
+      lo + LOG_CHUNK - 1n < latest.number ? lo + LOG_CHUNK - 1n : latest.number;
+    const logs = await c.getContractEvents({
+      address: escrow as `0x${string}`,
+      abi: campaignAbi,
+      eventName: 'Awarded',
+      fromBlock: lo,
+      toBlock: hi,
+    });
+    const log = logs[0];
+    if (log)
+      return {
+        winners: [...log.args.winners!],
+        amounts: [...log.args.amounts!],
+        fee: log.args.fee!,
+        tx: log.transactionHash,
+      };
   }
   return null;
 }

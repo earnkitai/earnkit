@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  encodeAbiParameters,
-  encodeEventTopics,
-  type TransactionReceipt,
-} from 'viem';
-import { campaignAbi, campaignsAbi } from './escrow-abi';
+import { awardSearchFrom, type CloneFacts, type EscrowReader } from './escrow';
 import {
   assertCanAward,
   DEADLINE_PASSED,
@@ -13,21 +8,12 @@ import {
   confirmableState,
   draftExpiry,
   expiredText,
-  fundingDecision,
-  fundingFromReceipt,
-  routeReceipt,
-  secondEscrowMessage,
+  matchFunding,
 } from './sponsor';
 
-// escrowConfig() (used by fundingFromReceipt via readCreated) reads these lazily per call, not
-// at module load, so setting them here (after imports, which are hoisted) is sufficient — see
-// oauth.test.ts for the same pattern with EARNKIT_AUTH_SECRET.
-process.env.ESCROW_CHAIN = 'base';
-process.env.ESCROW_FACTORY_ADDRESS =
-  '0x00000000000000000000000000000000000000fa';
-
-const REF = ('0x' + 'a'.repeat(64)) as `0x${string}`;
-const SPONSOR = '0x00000000000000000000000000000000000000b0';
+const REF = '0x' + 'a'.repeat(64);
+const WALLET = '0x00000000000000000000000000000000000000b0';
+const OTHER = '0x00000000000000000000000000000000000000b9';
 const CLONE = '0x00000000000000000000000000000000000000c1';
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const row = {
@@ -35,92 +21,111 @@ const row = {
   token: USDC,
   token_decimals: 6,
   amount: '5000',
+  sponsor_wallet: WALLET,
   draft: { ends_at: '2026-10-15T00:00:00Z' },
-  state: 'draft',
 };
-const endsAt = BigInt(Date.parse('2026-10-15T00:00:00Z') / 1000);
+const endsAt = Date.parse('2026-10-15T00:00:00Z') / 1000;
+const good: CloneFacts = {
+  sponsor: WALLET,
+  token: USDC.toLowerCase(),
+  prize: 4_500_000_000n,
+  fee: 500_000_000n,
+  endsAt,
+  state: 'funded',
+};
 
-function receipt(over: {
-  ref?: `0x${string}`;
-  amount?: bigint;
-  status?: 'success' | 'reverted';
-  from?: string;
-  token?: string;
-  endsAt?: bigint;
-  campaign?: string;
-}) {
-  const topics = encodeEventTopics({
-    abi: campaignsAbi,
-    eventName: 'CampaignCreated',
-    args: { ref: over.ref ?? REF, sponsor: SPONSOR },
-  });
-  const data = encodeAbiParameters(
-    [
-      { type: 'address' },
-      { type: 'address' },
-      { type: 'uint256' },
-      { type: 'uint64' },
-    ],
-    [
-      (over.campaign ?? CLONE) as `0x${string}`,
-      (over.token ?? USDC) as `0x${string}`,
-      over.amount ?? 5_000_000_000n,
-      over.endsAt ?? endsAt,
-    ],
-  );
+/** A stub chain: `clones` maps "sponsor:ref" to a clone address, `facts` that clone's state. */
+function reader(
+  clones: Record<string, string>,
+  facts: CloneFacts = good,
+): EscrowReader & { asked: string[] } {
+  const asked: string[] = [];
   return {
-    status: over.status ?? 'success',
-    logs: [
-      {
-        address: over.from ?? process.env.ESCROW_FACTORY_ADDRESS,
-        topics,
-        data,
-      },
-    ],
-  } as unknown as TransactionReceipt;
+    asked,
+    async campaignOf(sponsor, ref) {
+      asked.push(sponsor);
+      return clones[`${sponsor}:${ref}`] ?? null;
+    },
+    async clone() {
+      return facts;
+    },
+  };
 }
 
-test('accepts the matching funding receipt', () => {
-  assert.deepEqual(fundingFromReceipt(row, receipt({})), {
-    escrow: CLONE,
-    sponsor: SPONSOR,
-  });
+test("findFunding: the bound wallet's clone with the draft's exact terms is the funding", async () => {
+  assert.deepEqual(
+    await matchFunding(row, reader({ [`${WALLET}:${REF}`]: CLONE })),
+    { status: 'funded', escrow: CLONE },
+  );
 });
 
-test('rejects a reverted tx, another ref, another amount, or another contract', () => {
-  assert.throws(
-    () => fundingFromReceipt(row, receipt({ status: 'reverted' })),
-    /failed/,
+test('findFunding: no clone for the bound wallet (zero address) is not funded', async () => {
+  assert.deepEqual(await matchFunding(row, reader({})), { status: 'none' });
+});
+
+test("findFunding: another wallet's deposit for the same ref is never looked at (front-running)", async () => {
+  const r = reader({ [`${OTHER}:${REF}`]: CLONE });
+  assert.deepEqual(await matchFunding(row, r), { status: 'none' });
+  assert.deepEqual(r.asked, [WALLET]);
+});
+
+test('findFunding: wrong sponsor, token, amount, end date or state are each refused', async () => {
+  const at = { [`${WALLET}:${REF}`]: CLONE };
+  const refused = async (over: Partial<CloneFacts>) =>
+    matchFunding(row, reader(at, { ...good, ...over }));
+  assert.deepEqual(await refused({ sponsor: OTHER }), {
+    status: 'mismatch',
+    escrow: CLONE,
+    problem: "it wasn't made by the campaign's wallet",
+  });
+  assert.match(
+    ((await refused({ token: OTHER })) as { problem: string }).problem,
+    /different token/,
   );
-  assert.throws(
-    () =>
-      fundingFromReceipt(
-        row,
-        receipt({ ref: ('0x' + 'b'.repeat(64)) as `0x${string}` }),
-      ),
-    /isn't the funding/,
+  assert.match(
+    ((await refused({ fee: 499_999_999n })) as { problem: string }).problem,
+    /amount differs/,
   );
-  assert.throws(
-    () => fundingFromReceipt(row, receipt({ amount: 1n })),
-    /amount/,
+  assert.match(
+    ((await refused({ prize: 4_500_000_001n })) as { problem: string }).problem,
+    /amount differs/,
   );
-  assert.throws(
-    () =>
-      fundingFromReceipt(
-        row,
-        receipt({ from: '0x00000000000000000000000000000000000000ee' }),
-      ),
-    /isn't the funding/,
+  assert.match(
+    ((await refused({ endsAt: endsAt + 1 })) as { problem: string }).problem,
+    /end date differs/,
   );
+  assert.match(
+    ((await refused({ state: 'refunded' })) as { problem: string }).problem,
+    /refunded, not funded/,
+  );
+});
+
+test('findFunding: addresses compare case-insensitively', async () => {
+  assert.equal(
+    (
+      await matchFunding(
+        { ...row, sponsor_wallet: WALLET.toUpperCase().replace('0X', '0x') },
+        reader({
+          [`${WALLET.toUpperCase().replace('0X', '0x')}:${REF}`]: CLONE,
+        }),
+      )
+    ).status,
+    'funded',
+  );
+});
+
+test('awardSearchFrom: from about the block at endsAt (2 s blocks), minus 300, never below 0', () => {
+  // 1 hour after endsAt at block 1,000,000: ~1,800 blocks back, plus 300.
+  assert.equal(awardSearchFrom(1_000_000n, 10_000n + 3_600n, 10_000), 997_900n);
+  assert.equal(awardSearchFrom(100n, 10_000n + 86_400n, 10_000), 0n);
 });
 
 test('confirmableState: draft and expired publish, live is idempotent, terminal states refuse', () => {
   assert.equal(confirmableState('draft'), 'publish');
-  // A lazily-expired draft is rescued by confirmFunding when the receipt proves it was funded —
+  // A lazily-expired draft is rescued by findFunding when the bound wallet's deposit is onchain —
   // see the comment on confirmableState.
   assert.equal(confirmableState('expired'), 'publish');
   assert.equal(confirmableState('live'), 'already_live');
-  // An awarded campaign's own funding tx is still recognised (fundingDecision checks the escrow).
   assert.equal(confirmableState('awarded'), 'already_live');
   assert.equal(confirmableState('refunded'), 'refuse');
   assert.equal(confirmableState('taken_down'), 'refuse');
@@ -154,159 +159,6 @@ test('award plan rejected before end and from another installation', () => {
   );
 });
 
-test('rejects funding with a different token or a different end date', () => {
-  assert.throws(
-    () =>
-      fundingFromReceipt(
-        row,
-        receipt({ token: '0x00000000000000000000000000000000000000dd' }),
-      ),
-    /different token/,
-  );
-  assert.throws(
-    () => fundingFromReceipt(row, receipt({ endsAt: endsAt + 1n })),
-    /end date/,
-  );
-});
-
-function awardReceipt(escrow: string) {
-  const data = encodeAbiParameters(
-    [{ type: 'address[]' }, { type: 'uint256[]' }, { type: 'uint256' }],
-    [['0x00000000000000000000000000000000000000a1'], [90n], 10n],
-  );
-  const topics = encodeEventTopics({ abi: campaignAbi, eventName: 'Awarded' });
-  return {
-    status: 'success',
-    logs: [{ address: escrow, topics, data }],
-  } as unknown as TransactionReceipt;
-}
-
-test('routeReceipt routes by what the receipt contains, not the row state', () => {
-  const liveRow = { ref: REF, state: 'live', escrow_address: CLONE } as const;
-  // The original funding tx of a live campaign is a funding receipt (re-confirm), not an award.
-  assert.deepEqual(routeReceipt(liveRow, receipt({})), { route: 'funding' });
-  assert.deepEqual(routeReceipt(liveRow, awardReceipt(CLONE)), {
-    route: 'award',
-  });
-  const draftRow = { ref: REF, state: 'draft', escrow_address: null } as const;
-  assert.deepEqual(routeReceipt(draftRow, receipt({})), { route: 'funding' });
-  assert.deepEqual(
-    routeReceipt({ ...draftRow, state: 'expired' }, receipt({})),
-    {
-      route: 'funding',
-    },
-  );
-  // Errors are readable.
-  assert.match(
-    (
-      routeReceipt(liveRow, receipt({ status: 'reverted' })) as {
-        error: string;
-      }
-    ).error,
-    /failed onchain/,
-  );
-  assert.match(
-    (
-      routeReceipt(
-        liveRow,
-        awardReceipt('0x00000000000000000000000000000000000000ee'),
-      ) as {
-        error: string;
-      }
-    ).error,
-    /funding or award/,
-  );
-  assert.match(
-    (
-      routeReceipt(
-        draftRow,
-        receipt({ ref: ('0x' + 'b'.repeat(64)) as `0x${string}` }),
-      ) as {
-        error: string;
-      }
-    ).error,
-    /isn't the funding/,
-  );
-  assert.match(
-    (
-      routeReceipt(
-        { ...liveRow, state: 'refunded' },
-        awardReceipt('0x00000000000000000000000000000000000000ee'),
-      ) as {
-        error: string;
-      }
-    ).error,
-    /refunded/,
-  );
-});
-
-test('fundingDecision: publish, re-confirm, second escrow, refuse', () => {
-  const created = { ref: REF, campaign: CLONE };
-  const other = '0x00000000000000000000000000000000000000c2';
-  assert.deepEqual(
-    fundingDecision(
-      { ref: REF, state: 'draft', escrow_address: null },
-      created,
-    ),
-    { action: 'publish' },
-  );
-  assert.deepEqual(
-    fundingDecision(
-      { ref: REF, state: 'expired', escrow_address: null },
-      created,
-    ),
-    { action: 'publish' },
-  );
-  // The live campaign's own funding receipt (any address casing) re-confirms.
-  assert.deepEqual(
-    fundingDecision(
-      {
-        ref: REF,
-        state: 'live',
-        escrow_address: CLONE.toUpperCase().replace('0X', '0x'),
-      },
-      created,
-    ),
-    { action: 'already_live' },
-  );
-  // A second CampaignCreated for the same ref, from another wallet: a different, untracked escrow.
-  assert.deepEqual(
-    fundingDecision(
-      { ref: REF, state: 'live', escrow_address: other },
-      created,
-    ),
-    { action: 'second_escrow', escrow: CLONE },
-  );
-  assert.deepEqual(
-    fundingDecision(
-      { ref: REF, state: 'taken_down', escrow_address: other },
-      created,
-    ),
-    { action: 'second_escrow', escrow: CLONE },
-  );
-  assert.equal(
-    fundingDecision(
-      { ref: REF, state: 'refunded', escrow_address: CLONE },
-      created,
-    ).action,
-    'refuse',
-  );
-  // No CampaignCreated, or one for another ref: not this campaign's funding, even when live.
-  assert.equal(
-    fundingDecision({ ref: REF, state: 'live', escrow_address: CLONE }, null)
-      .action,
-    'refuse',
-  );
-  assert.equal(
-    fundingDecision(
-      { ref: REF, state: 'live', escrow_address: CLONE },
-      { ref: '0x' + 'b'.repeat(64), campaign: CLONE },
-    ).action,
-    'refuse',
-  );
-  assert.match(secondEscrowMessage(CLONE, other), new RegExp(CLONE));
-});
-
 test('draftExpiry: a deadline under 10 minutes away (or past) expires the draft, as does 7 days unfunded', () => {
   const now = new Date('2026-10-06T12:00:00Z');
   const at = (ends_at: string, created = '2026-10-05T00:00:00Z') => ({
@@ -329,10 +181,10 @@ test('draftExpiry: a deadline under 10 minutes away (or past) expires the draft,
   assert.equal(
     DEADLINE_PASSED,
     "This draft's deadline has passed or is less than 10 minutes away. Ask your agent to create a new campaign. " +
-      'If you already deposited, your funds are safe in escrow: send the deposit transaction hash (status with tx) to finish.',
+      'If you already deposited from your bound wallet, your funds are safe in escrow: EarnKit finds the deposit onchain and publishes the campaign (reload in a minute).',
   );
   assert.match(
     DRAFT_EXPIRED,
-    /If you already deposited, your funds are safe in escrow/,
+    /If you already deposited from your bound wallet, your funds are safe in escrow/,
   );
 });

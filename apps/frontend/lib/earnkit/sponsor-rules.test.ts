@@ -26,6 +26,7 @@ const now = new Date('2026-10-01T00:00:00Z');
 const days = (n: number) =>
   new Date(now.getTime() + n * 86_400_000).toISOString();
 const draft = DraftInput.parse({
+  sponsor_wallet: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
   sponsor_name: 'Acme',
   sponsor_url: 'https://acme.xyz',
   title: 'Best x402 service on Base',
@@ -212,6 +213,7 @@ test('award plan must use real entries and add up exactly to the prize', () => {
     entries,
     prizeUnits: 4_500_000_000n,
     decimals: 6,
+    excluded: new Set(),
   });
   assert.deepEqual(ok.amountsUnits, [3_000_000_000n, 1_500_000_000n]);
   assert.throws(
@@ -221,6 +223,7 @@ test('award plan must use real entries and add up exactly to the prize', () => {
         entries,
         prizeUnits: 4_500_000_000n,
         decimals: 6,
+        excluded: new Set(),
       }),
     /isn't an entry/,
   );
@@ -231,6 +234,7 @@ test('award plan must use real entries and add up exactly to the prize', () => {
         entries,
         prizeUnits: 4_500_000_000n,
         decimals: 6,
+        excluded: new Set(),
       }),
     /add up to 4500/,
   );
@@ -244,6 +248,7 @@ test('award plan must use real entries and add up exactly to the prize', () => {
         entries,
         prizeUnits: 4_500_000_000n,
         decimals: 6,
+        excluded: new Set(),
       }),
     /once/,
   );
@@ -257,6 +262,7 @@ test("rejects award amounts finer than the token's decimals", () => {
         entries,
         prizeUnits: 4_500_000_000n,
         decimals: 6,
+        excluded: new Set(),
       }),
     /6 decimals/,
   );
@@ -269,6 +275,7 @@ test('an uneven prize needs an exact award, not just a close one', () => {
     entries,
     prizeUnits,
     decimals: 6,
+    excluded: new Set(),
   });
   assert.deepEqual(ok.amountsUnits, [90_000_001n]);
   assert.throws(
@@ -278,6 +285,7 @@ test('an uneven prize needs an exact award, not just a close one', () => {
         entries,
         prizeUnits,
         decimals: 6,
+        excluded: new Set(),
       }),
     /add up to 90.000001/,
   );
@@ -288,6 +296,7 @@ test('an uneven prize needs an exact award, not just a close one', () => {
         entries,
         prizeUnits,
         decimals: 6,
+        excluded: new Set(),
       }),
     /add up to 90.000001/,
   );
@@ -302,6 +311,7 @@ test('matches award to entries by plan order, even with a repeated wallet', () =
     entries,
     prizeUnits: 4_500_000_000n,
     decimals: 6,
+    excluded: new Set(),
   });
   const matched = matchAwardToPlan(
     plan,
@@ -364,16 +374,21 @@ test('createReply: title, pool, split, winners, formatted deadline, fund link, n
     winners: 2,
     endsAt: '2026-10-06T06:51:00Z',
     fundUrl: 'https://earnkit.com/fund/0xabc',
+    sponsorWallet: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
   });
   assert.equal(
     r.show_to_sponsor,
     'Campaign drafted: "Build on Acme".\n' +
       "Pool: 100 USDC. Winners get 90 USDC; EarnKit's 10% (10 USDC) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n" +
       'Winners: 2 planned. Deadline: Oct 6, 2026, 06:51 UTC.\n' +
-      'Fund it here: https://earnkit.com/fund/0xabc',
+      'Fund it here, from 0x70997970c51812dc3a010c7d01b50e0d17dc79c8: https://earnkit.com/fund/0xabc',
   );
   assert.match(r.next_step, /https:\/\/earnkit\.com\/fund\/0xabc/);
-  assert.match(r.next_step, /action=status, ref, and tx/);
+  assert.match(
+    r.next_step,
+    /action=status and ref: EarnKit finds the deposit onchain/,
+  );
+  assert.doesNotMatch(r.next_step, /\btx\b|hash/);
 });
 
 const facts = (over: Partial<StatusFacts>): StatusFacts => ({
@@ -391,6 +406,8 @@ const facts = (over: Partial<StatusFacts>): StatusFacts => ({
   escrowUrl: 'https://basescan.org/address/0xe5',
   campaignUrl: 'https://earnkit.com/campaigns/sponsor-1',
   awardUrl: null,
+  fallbackExecutesAt: null,
+  fundingProblem: null,
   ...over,
 });
 
@@ -402,7 +419,40 @@ test('statusReply: draft shows the deposit link and expiry', () => {
     r.show_to_sponsor,
     '"Acme" is a draft, not funded yet. Deposit the pool at https://earnkit.com/fund/0xabc before Oct 4, 2026, 12:00 UTC, when the draft expires.',
   );
-  assert.match(r.next_step!, /status with ref and tx/);
+  assert.match(
+    r.next_step!,
+    /status with ref: EarnKit finds the deposit onchain/,
+  );
+});
+
+test('statusReply: a refused deposit from the bound wallet is named, with the way out', () => {
+  for (const state of ['draft', 'expired'] as const) {
+    const r = statusReply(
+      facts({
+        state,
+        fundingProblem:
+          "a deposit from 0xabc was found for this campaign, but the deposited amount differs from the draft, so it wasn't published.",
+      }),
+    );
+    assert.equal(
+      r.show_to_sponsor,
+      '"Acme": a deposit from 0xabc was found for this campaign, but the deposited amount differs from the draft, so it wasn\'t published.',
+    );
+    assert.match(r.next_step!, /Contact EarnKit to refund that deposit/);
+  }
+});
+
+test('statusReply: a pending operator fallback says when it can be paid', () => {
+  const r = statusReply(
+    facts({
+      now: new Date('2026-10-20T00:00:00Z'),
+      fallbackExecutesAt: new Date('2026-10-16T06:51:00Z'),
+    }),
+  );
+  assert.match(
+    r.show_to_sponsor,
+    /EarnKit has proposed fallback winners; they can be paid from Oct 16, 2026, 06:51 UTC unless the sponsor awards first\./,
+  );
 });
 
 test('statusReply: live before the deadline, entries and escrow', () => {
@@ -423,7 +473,7 @@ test('statusReply: after the deadline the next step is award, adding up to the p
     statusReply(
       facts({ now: after, awardUrl: 'https://earnkit.com/award/0xabc' }),
     ).next_step!,
-    /signs the prepared award at https:\/\/earnkit\.com\/award\/0xabc/,
+    /signs the prepared award at https:\/\/earnkit\.com\/award\/0xabc.*Then call status with ref: EarnKit reads the award onchain\./,
   );
 });
 
@@ -447,7 +497,7 @@ test('statusReply: one line for each finished state', () => {
   );
   assert.match(
     statusReply(facts({ state: 'expired', expiredText: 'Gone.' })).next_step!,
-    /If you sent the deposit, call status with ref and tx/,
+    /call status again in a minute: EarnKit finds it onchain/,
   );
 });
 
@@ -469,5 +519,54 @@ test('awardReply: each winner by entry id and quoted name, amount; fee; award li
       "EarnKit's 10% (10 USDC) is released with this payout.\n" +
       'Sign it here: https://earnkit.com/award/0xabc',
   );
-  assert.match(r.next_step, /status with ref and tx/);
+  assert.match(r.next_step, /status with ref: EarnKit reads the award onchain/);
+});
+
+test('award plans refuse a winner whose payout wallet is an EarnKit escrow or the sponsor', () => {
+  const clone = '0x' + '2'.repeat(40);
+  assert.throws(
+    () =>
+      planAward({
+        winners: [{ entry_id: 12, amount: '4500', reason: 'x x x' }],
+        entries,
+        prizeUnits: 4_500_000_000n,
+        decimals: 6,
+        excluded: new Set([clone]),
+      }),
+    /entry 12's payout wallet is an EarnKit escrow or the sponsor's wallet/,
+  );
+  // Matched case-insensitively.
+  assert.throws(() =>
+    planAward({
+      winners: [{ entry_id: 11, amount: '4500', reason: 'x x x' }],
+      entries: [{ id: 11, payout_wallet: '0x' + 'A'.repeat(40) }],
+      prizeUnits: 4_500_000_000n,
+      decimals: 6,
+      excluded: new Set(['0x' + 'a'.repeat(40)]),
+    }),
+  );
+});
+
+test('sponsor_wallet: required, lowercased; mixed case must be a valid checksum', () => {
+  assert.equal(
+    draft.sponsor_wallet,
+    '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
+  );
+  const { sponsor_wallet: _w, ...noWallet } = draft;
+  assert.throws(() => DraftInput.parse(noWallet));
+  assert.throws(() =>
+    DraftInput.parse({
+      ...draft,
+      sponsor_wallet: '0x70997970c51812dc3A010C7d01b50e0d17dc79C8',
+    }),
+  );
+  assert.throws(() =>
+    DraftInput.parse({ ...draft, sponsor_wallet: '0x' + '0'.repeat(40) }),
+  );
+  assert.throws(() => DraftInput.parse({ ...draft, sponsor_wallet: '0x1234' }));
+  assert.equal(
+    DraftInput.parse({ ...draft, sponsor_wallet: '0x' + 'AB'.repeat(20) })
+      .sponsor_wallet,
+    '0x' + 'ab'.repeat(20),
+  );
 });
