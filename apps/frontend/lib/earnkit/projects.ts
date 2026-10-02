@@ -10,6 +10,7 @@ import { formatDeadline } from './dates';
 import { getProgramRow, isOpen } from './programs';
 import { ProjectInfo } from './submission';
 import { tokenOffer } from './tokens';
+import { cleanProject, quoted } from './untrusted-text';
 
 export const RecordSubmissionInput = z
   .object({
@@ -27,8 +28,10 @@ export async function recordSubmission(
   installationId: number,
 ) {
   const program = await getProgramRow(input.program_id);
+  // A campaign entry's name and description reach the sponsor's agent: cleaned like all
+  // third-party text. Other programs' projects go only to the builder's own submission.
   const { name, description, repo_url, live_url, demo_url, token_url } =
-    input.project;
+    program.campaign ? cleanProject(input.project) : input.project;
 
   // EarnKit campaigns: this call *is* the entry, so check it before storing anything.
   let entry: { contracts: string[]; payoutWallet: string } | null = null;
@@ -98,7 +101,7 @@ export async function recordSubmission(
         ...(entry &&
           program.campaign && {
             campaign_entry:
-              `Entered ${program.title}. ` +
+              `Entered ${program.campaign.kind === 'sponsor' ? quoted(program.title) : program.title}. ` +
               (program.campaign.kind === 'earnkit'
                 ? `Scored on unique wallets using ${entry.contracts.join(', ')} until ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}; ` +
                   `at least ${program.campaign.min_score} to be eligible. `

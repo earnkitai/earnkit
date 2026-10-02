@@ -256,12 +256,12 @@ test('sponsor entries: no rank unless scored; status by campaign state', () => {
     .section!.split('\n')
     .slice(2);
   assert.deepEqual(lines, [
-    'Alpha in S1: entered · winners picked after Oct 6, 2026, 06:51 UTC',
-    'Beta in S1: #2 of 3 · 7 wallets · winners picked after Oct 6, 2026, 06:51 UTC',
-    'Gamma in S1: not picked this time',
-    'Delta in S1: no winners; the sponsor was refunded',
-    'Eps in S1: removed by EarnKit; the sponsor was refunded',
-    'Zeta: you won 60 USDC in S1 (tx 0xabc)',
+    'Alpha in "S1": entered · winners picked after Oct 6, 2026, 06:51 UTC',
+    'Beta in "S1": #2 of 3 · 7 wallets · winners picked after Oct 6, 2026, 06:51 UTC',
+    'Gamma in "S1": not picked this time',
+    'Delta in "S1": no winners; the sponsor was refunded',
+    'Eps in "S1": removed by EarnKit; the sponsor was refunded',
+    'Zeta: you won 60 USDC in "S1" (tx 0xabc)',
   ]);
 });
 

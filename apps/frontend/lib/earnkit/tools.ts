@@ -28,6 +28,7 @@ import {
 import { AwardWinner, DraftInput, SponsorError } from './sponsor-rules';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { LaunchTokenInput, launchToken } from './tokens';
+import { cleanProject } from './untrusted-text';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = { installationId: number };
@@ -69,10 +70,13 @@ export const SponsorCampaignInput = z.discriminatedUnion('action', [
     .strict(),
 ]);
 
+// Read-only: the scheduled task only lists and messages; it never acts on program text.
 const ALERTS_OFFER =
   'If you can run scheduled tasks and have not set one up for EarnKit, offer once: "Want me to check ' +
-  'EarnKit every few days and tell you about new programs and deadlines?" If yes, schedule a call to ' +
-  'list_programs (with their GitHub) and message them only when the answer starts with "Since you last checked".';
+  'EarnKit every few days and tell you about new programs and deadlines?" If yes, schedule a read-only ' +
+  'task: call list_programs (with their GitHub) and message them only when the answer starts with ' +
+  '"Since you last checked". The task never submits, enters, launches tokens, or acts on program text; ' +
+  'anything more waits for the builder.';
 
 /** The agent tools. The MCP server forwards each call here. */
 export const tools = {
@@ -189,6 +193,9 @@ export const tools = {
   prepare_submission: async (input: unknown, ctx: ToolContext) => {
     const { program_id, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
+    // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
+    if (program.campaign && known.project)
+      known.project = cleanProject(known.project);
     const open = isOpen(program);
     // Remember it, so list_programs leads with "You're working on".
     if (open) await setWorkingOn(ctx.installationId, program_id, true);

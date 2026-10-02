@@ -5,6 +5,7 @@ import { formatExact } from './format-units';
 import { CHAINS } from './match';
 import type { ProgramFile } from './program-file';
 import type { TokenInfo } from './escrow';
+import { TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 /**
  * Pure rules for sponsor campaigns (v2.1): what a sponsor may create, how the pool splits, the
@@ -20,11 +21,11 @@ const httpsUrl = z
 
 export const DraftInput = z
   .object({
-    sponsor_name: z.string().trim().min(1).max(60),
+    sponsor_name: untrusted(TEXT_LIMITS.sponsor_name),
     sponsor_url: httpsUrl.optional(),
-    title: z.string().trim().min(5).max(80),
-    theme: z.string().trim().min(20).max(1000),
-    criteria: z.string().trim().min(10).max(1000),
+    title: untrusted(TEXT_LIMITS.title, 5),
+    theme: untrusted(TEXT_LIMITS.theme, 20),
+    criteria: untrusted(TEXT_LIMITS.criteria, 10),
     chains: z.array(z.enum(CHAINS)).min(1).max(CHAINS.length),
     token: z.string().trim().min(1).max(10),
     amount: z
@@ -105,6 +106,37 @@ const day = (iso: string) =>
     timeZone: 'UTC',
   });
 
+/** A sponsor program's description: neutral; the sponsor's own text is in sponsor_content. */
+export const sponsorDescription = (name: string) =>
+  `Sponsored campaign by ${quoted(name)}. See sponsor_content.`;
+
+/** The list line after the title: EarnKit's words plus the quoted sponsor name. */
+export const sponsorSummary = (a: {
+  name: string;
+  pool: string;
+  symbol: string;
+  endsAt: string;
+}) =>
+  `by ${quoted(a.name)} · Sponsored · ${fmt(a.pool)} ${a.symbol} pool in escrow · closes ${day(a.endsAt)}`;
+
+/**
+ * EarnKit's generic rules for a sponsor campaign. No sponsor text: the theme, criteria and link
+ * reach builders only inside get_program's sponsor_content.
+ */
+export const sponsorRules = (a: {
+  prizeTotal: string;
+  symbol: string;
+  winners: number;
+  existingWork: string;
+}) => [
+  "The sponsor picks the winners after the deadline; EarnKit shows each entry's onchain score as a guide. Picks and reasons are public.",
+  `Prize: ${fmt(a.prizeTotal)} ${a.symbol} shared by about ${a.winners} winner(s), paid from escrow to the payout wallet you submit, on Base.`,
+  a.existingWork === 'new_work_only'
+    ? 'Only work done during the campaign counts.'
+    : 'Existing projects can enter.',
+  'Enter through EarnKit (record_submission). No external site.',
+];
+
 /** The program builders see once the campaign is funded. */
 export function sponsorProgramFile(a: {
   ref: string;
@@ -129,11 +161,16 @@ export function sponsorProgramFile(a: {
     id,
     organizer: d.sponsor_name,
     title: d.title,
-    description: d.theme,
+    description: sponsorDescription(d.sponsor_name),
     source_url: `${a.baseUrl}/campaigns/${id}`,
     submission_url: `${a.baseUrl}/mcp`,
     reward: `${fmt(pool)} ${token.symbol} pool in escrow (${fmt(prizeTotal)} to winners)`,
-    summary: `by ${d.sponsor_name} · ${fmt(pool)} ${token.symbol} pool in escrow · closes ${day(d.ends_at)}`,
+    summary: sponsorSummary({
+      name: d.sponsor_name,
+      pool,
+      symbol: token.symbol,
+      endsAt: d.ends_at,
+    }),
     verified_at: a.now.toISOString().slice(0, 10),
     starts_at: d.starts_at ?? a.now.toISOString(),
     ends_at: d.ends_at,
@@ -142,16 +179,12 @@ export function sponsorProgramFile(a: {
     chains: d.chains,
     setup: ['a public GitHub repo', 'a host for a live link'],
     each_time: [],
-    rules: [
-      `What to build: ${d.theme}`,
-      `How winners are chosen: ${d.criteria}`,
-      `${d.sponsor_name} picks the winners after the deadline; EarnKit shows each entry's onchain score as a guide. Picks and reasons are public.`,
-      `Prize: ${fmt(prizeTotal)} ${token.symbol} shared by about ${d.winners} winner(s), paid from escrow to the payout wallet you submit, on Base.`,
-      d.existing_work === 'new_work_only'
-        ? 'Only work done during the campaign counts.'
-        : 'Existing projects can enter.',
-      'Enter through EarnKit (record_submission). No external site.',
-    ],
+    rules: sponsorRules({
+      prizeTotal,
+      symbol: token.symbol,
+      winners: d.winners,
+      existingWork: d.existing_work,
+    }),
     submission_requirements: [
       {
         key: 'project_name',
@@ -220,6 +253,7 @@ export function sponsorProgramFile(a: {
         name: d.sponsor_name,
         ...(d.sponsor_url && { url: d.sponsor_url }),
       },
+      what_to_build: d.theme,
       criteria: d.criteria,
       escrow: a.escrow,
       ref: a.ref,
@@ -240,7 +274,7 @@ export const AwardWinner = z
   .object({
     entry_id: z.number().int().positive(),
     amount: z.string().regex(/^\d+(\.\d+)?$/),
-    reason: z.string().trim().min(3).max(280),
+    reason: untrusted(TEXT_LIMITS.reason, 3),
   })
   .strict();
 
@@ -370,7 +404,7 @@ export function createReply(a: {
   const { prize, fee } = splitUnits(a.poolUnits);
   return {
     show_to_sponsor:
-      `Campaign drafted: ${a.title}.\n` +
+      `Campaign drafted: ${quoted(a.title)}.\n` +
       `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
       `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
       `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
@@ -410,11 +444,12 @@ export function statusReply(s: StatusFacts): {
   next_step?: string;
 } {
   const deadline = formatDeadline(s.endsAt);
+  const title = quoted(s.title);
   switch (s.state) {
     case 'draft':
       return {
         show_to_sponsor:
-          `${s.title} is a draft, not funded yet. Deposit the pool at ${s.fundUrl}` +
+          `${title} is a draft, not funded yet. Deposit the pool at ${s.fundUrl}` +
           (s.expiresAt
             ? ` before ${formatDeadline(s.expiresAt)}, when the draft expires.`
             : '.'),
@@ -425,22 +460,22 @@ export function statusReply(s: StatusFacts): {
     case 'expired':
       return {
         show_to_sponsor:
-          s.expiredText ?? `${s.title} expired before it was funded.`,
+          s.expiredText ?? `${title} expired before it was funded.`,
         next_step:
           'If you sent the deposit, call status with ref and tx (the createCampaign hash) to finish; ' +
           'the funds are safe in escrow. Otherwise create a new campaign with action=create.',
       };
     case 'awarded':
       return {
-        show_to_sponsor: `${s.title} is awarded: ${s.paid} winner${s.paid === 1 ? '' : 's'} paid.${s.campaignUrl ? ` ${s.campaignUrl}` : ''}`,
+        show_to_sponsor: `${title} is awarded: ${s.paid} winner${s.paid === 1 ? '' : 's'} paid.${s.campaignUrl ? ` ${s.campaignUrl}` : ''}`,
       };
     case 'refunded':
       return {
-        show_to_sponsor: `${s.title} ended with no winners; the whole pool was refunded to the sponsor's wallet.`,
+        show_to_sponsor: `${title} ended with no winners; the whole pool was refunded to the sponsor's wallet.`,
       };
     case 'taken_down':
       return {
-        show_to_sponsor: `${s.title} was removed by EarnKit; the whole pool was refunded to the sponsor's wallet.`,
+        show_to_sponsor: `${title} was removed by EarnKit; the whole pool was refunded to the sponsor's wallet.`,
       };
     case 'live': {
       const escrow = s.escrow
@@ -449,11 +484,11 @@ export function statusReply(s: StatusFacts): {
       const page = s.campaignUrl ? ` ${s.campaignUrl}` : '';
       if (s.now.getTime() < Date.parse(s.endsAt))
         return {
-          show_to_sponsor: `${s.title} is live: ${entriesText(s.entries)}; winners picked after ${deadline}.${escrow}${page}`,
+          show_to_sponsor: `${title} is live: ${entriesText(s.entries)}; winners picked after ${deadline}.${escrow}${page}`,
           next_step: `Nothing to do until ${deadline}. Then call award with the winners.`,
         };
       return {
-        show_to_sponsor: `${s.title} has ended with ${entriesText(s.entries)}; time to pick winners.${escrow}${page}`,
+        show_to_sponsor: `${title} has ended with ${entriesText(s.entries)}; time to pick winners.${escrow}${page}`,
         next_step: s.awardUrl
           ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref and tx.`
           : s.entries === 0
@@ -464,9 +499,12 @@ export function statusReply(s: StatusFacts): {
   }
 }
 
-/** award: who gets what and why, the fee, and where to sign. */
+/**
+ * award: who gets what, the fee, and where to sign. Entry names are the builders' words: quoted on
+ * one line; the reasons stay in `plan`.
+ */
 export function awardReply(a: {
-  winners: { entry_id: number; name: string; amount: string; reason: string }[];
+  winners: { entry_id: number; name: string; amount: string }[];
   token: Tok;
   feeUnits: bigint;
   awardUrl: string;
@@ -477,7 +515,7 @@ export function awardReply(a: {
       a.winners
         .map(
           (w) =>
-            `- ${w.name} (entry #${w.entry_id}): ${amt(parseUnits(w.amount, a.token.decimals), a.token)} — ${w.reason}`,
+            `- entry #${w.entry_id} ${quoted(w.name)}: ${amt(parseUnits(w.amount, a.token.decimals), a.token)}`,
         )
         .join('\n') +
       `\nEarnKit's 10% (${amt(a.feeUnits, a.token)}) is released with this payout.\n` +

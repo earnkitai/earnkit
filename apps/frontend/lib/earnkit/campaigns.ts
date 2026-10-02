@@ -2,6 +2,7 @@ import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import { z } from 'zod';
 import { formatDeadline } from './dates';
+import { quoted } from './untrusted-text';
 
 /**
  * EarnKit's own campaigns (v2.0): a program with a `campaign` block. Builders submit to
@@ -56,6 +57,8 @@ export const SponsorCampaign = z
     sponsor: z
       .object({ name: z.string().min(1), url: z.string().url().optional() })
       .strict(),
+    /** The sponsor's theme. Absent on campaigns published before v2.2 (it was the description). */
+    what_to_build: z.string().min(1).optional(),
     criteria: z.string().min(1),
     /** The campaign's escrow clone. */
     escrow: address,
@@ -367,7 +370,12 @@ function sponsorEntryText(e: YourEntry) {
 
 /** "Your campaign entries" lines, plus "you won" notices for the since-last-check line. */
 export function presentYourEntries(list: YourEntry[], lastCheck: Date | null) {
-  const lines = list.map((e) => {
+  const lines = list.map((raw) => {
+    // A sponsor's title is quoted: their words, not EarnKit's.
+    const e =
+      raw.campaign.kind === 'sponsor'
+        ? { ...raw, campaign_title: quoted(raw.campaign_title) }
+        : raw;
     if (e.prize_tx)
       return `${e.name}: you won ${wonText(e.campaign, e.prize_amount)} in ${e.campaign_title} (tx ${e.prize_tx})`;
     if (e.campaign.kind === 'sponsor')

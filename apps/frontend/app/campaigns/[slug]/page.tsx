@@ -45,7 +45,9 @@ export default async function CampaignPage({
           {program.title}
         </h1>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
-          {program.description}
+          {c.kind === 'sponsor'
+            ? (c.what_to_build ?? program.description)
+            : program.description}
         </p>
         <p className="mt-6 font-funnel-sans text-base text-ek-white">
           {prizeText(c)} ·{' '}
