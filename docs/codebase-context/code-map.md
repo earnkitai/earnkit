@@ -20,14 +20,16 @@ apps/frontend/
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (opened from the hero)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
-                               entries). Sponsor kind: "Sponsored campaign" header, and a plain entry
-                               list (links + status, no rank or wallets) until some entry is scored
+                               entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
+                               verified <host>" header, the sponsor wallet's track record, and a
+                               plain entry list (links + status, no rank or wallets) until some
+                               entry is scored
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
-  app/fund/[ref]/{page.tsx,FundClient.tsx}   sponsor deposit page: shows pool/prize/fee, sends
+  app/fund/[ref]/{page.tsx,FundClient.tsx}   sponsor deposit page (noindex; sponsor label): shows pool/prize/fee, sends
                                approve + createCampaign from the bound sponsor wallet only, checks
                                the chain on load and polls /check after sending (the open page
                                disables the deposit 10 minutes before the deadline)
-  app/award/[ref]/{page.tsx,AwardClient.tsx} sponsor award page: shows the stored plan (each winner's
+  app/award/[ref]/{page.tsx,AwardClient.tsx} sponsor award page (noindex; sponsor label): shows the stored plan (each winner's
                                project name, entry, wallet, reason) and EarnKit's fee, sends the
                                award tx from the bound sponsor wallet only; "Done" once /check reads it
   app/api/sponsor/[ref]/check/route.ts  POST (no body) -> checkChain: reads the chain for the bound
@@ -70,6 +72,20 @@ apps/frontend/
                                FUND_WARNING / AWARD_PROVENANCE scam copy, awardWarnings: red flags
                                for a winner that is the sponsor or a repeated wallet) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
+    safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS
+                               resolved once and every address public (isPublicAddress: IPv4
+                               special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
+                               mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
+                               cert check and Host on the hostname (pinnedLookup), no redirects, 5 s,
+                               4 KB; resolver and transport injectable
+    sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
+                               <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
+                               names (reservedBrands/reservedNameProblem: NFKC, Cyrillic/Greek
+                               look-alikes, accents, whole words incl. split letters; brand ->
+                               official domains), trackRecordOf/trackRecordText
+    sponsor-verify.ts(+test)   domain verification over safe-fetch, cached in sponsor_verifications
+                               (24 h pass, 1 h failure): verifySponsor, sponsorIdentity (never
+                               throws), trackRecord (per sponsor wallet; only funded states count)
     rate-limit.ts(+test)       minimal Postgres fixed-window counter (rate_windows) + clientIp
                                (rightmost x-forwarded-for); /check allows 60 per IP per minute
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
@@ -78,7 +94,9 @@ apps/frontend/
                                escrow is configured; descriptions and schemas
     present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
                                one line per program, who-does-what said once; equally quick fits
-                               ordered by the larger known per-winner award (byFit)
+                               ordered by the larger known per-winner award (byFit); unverified
+                               sponsor campaigns are never "Fastest" or the closing offer and sort
+                               last in "Also open"
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs + get_program's eligibility check
                                (public GitHub reads, GITHUB_TOKEN)
@@ -114,7 +132,7 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
-                               projects.repo_key + its partial unique index)
+                               projects.repo_key + its partial unique index, sponsor_verifications)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor

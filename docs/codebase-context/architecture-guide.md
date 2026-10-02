@@ -26,7 +26,7 @@
   is a discriminated union on `kind`: `'earnkit'` (EarnKit's own: fixed amount per winner, top
   scores win, paid by `pnpm campaign payout`) or `'sponsor'` (v2.1: a sponsor's pool held in a
   Base escrow clone, sponsor picks winners — see
-  `sponsor_campaigns` in `db/schema.sql`). record_submission *is* the entry (payout wallet
+  `sponsor_campaigns` in `db/schema.sql`). record_submission _is_ the entry (payout wallet
   always; Base contracts required for `earnkit`, optional for `sponsor`). See
   `docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md`.
 - **Sponsor campaign**: a `sponsor_campaigns` row, keyed by a random `ref` (bytes32), that walks
@@ -101,7 +101,7 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
   (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
   block was > 0. Rank is computed on read (score, then earlier entry). `pnpm campaign
-  payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in campaigns.ts
+payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in campaigns.ts
   branch on `kind` instead). `pnpm campaign payout` runs locally only, refuses before the
   deadline, below min_score, or if already paid, and records prize_tx + prize_amount;
   list_programs then tells the winner.
@@ -172,6 +172,25 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   set by the sponsor and backed by the escrow. The operator CLI turns every error into one
   readable line (contract reverts named, e.g. "…reverted: NotAllowed.") and checks the escrow
   onchain before signing (refund only a Funded escrow, naming who receives it).
+- **Sponsored isn't curated** (v2.2 §3): every sponsor campaign carries a fixed label, "Sponsored ·
+  unverified" or "Sponsored · verified <host>" (`sponsor-identity.ts` `sponsorLabel`), in the
+  list_programs line, get_program (`description` and `campaign.sponsor`: name, label, verified,
+  host, track_record) and on the campaign, `/fund` and `/award` pages (the latter two are noindex).
+  Verified means `https://<sponsor_url host>/.well-known/earnkit.txt` has a line
+  `earnkit-sponsor: <sponsor_wallet>`; it is fetched by `safe-fetch.ts` (https/443, domain names
+  only, every resolved address public, the socket pinned to the vetted address while SNI, the
+  certificate check and Host stay on the hostname, no redirects, 5 s, 4 KB) and cached per
+  (host, wallet) in `sponsor_verifications` (pass 24 h, failure 1 h). It runs at create (a failure
+  is always re-fetched), lazily on status (the creating agent retries a failure after 1 minute),
+  list_programs, get_program and the pages; any error reads as unverified. `sponsor_url` reaches
+  agents only once verified. A sponsor name using a reserved brand (EarnKit, Base, Coinbase,
+  Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words after NFKC, Cyrillic/Greek
+  look-alikes and accents, incl. split letters like "B.A.S.E") is refused at create unless the
+  verified host is that brand's official domain. Unverified sponsor campaigns are listed but are
+  never the "Fastest" headline or the closing offer (`present.ts`), and sort after curated
+  programs in "Also open". The track record counts a sponsor wallet's funded campaigns (live,
+  awarded, refunded, taken down); drafts and expired drafts don't count, since anyone can bind
+  any wallet to a draft.
 - **Third-party text is data** (v2.2 §2): anything a sponsor or builder writes reaches other
   people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
   an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,
