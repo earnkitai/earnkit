@@ -47,8 +47,10 @@ contract BaseUsdcForkTest is Test {
         assertEq(USDC.balanceOf(treasury), 100e6);
     }
 
-    /// Operator fallback on real USDC: propose after grace, a vetoed proposal never pays, a
-    /// re-proposal executes (by a stranger) after 72 h, and pays winners + treasury exactly.
+    /// Operator fallback on real USDC. Campaign A: propose after grace, guardian vetoes, the
+    /// fallback is closed for good, the operator refunds the sponsor. Campaign B: propose, a
+    /// stranger executes at exactly 72 h, winners + treasury are paid exactly. Also: USDC itself
+    /// is an excluded winner.
     function test_fallbackCycleWithRealUsdc() public {
         vm.skip(block.chainid != 8453);
         address sponsor = makeAddr("sponsor");
@@ -67,11 +69,18 @@ contract BaseUsdcForkTest is Test {
         vm.deal(op, 1 ether);
         vm.deal(guardian, 1 ether);
         vm.startPrank(sponsor);
-        USDC.approve(address(f), 1000e6);
+        USDC.approve(address(f), 2000e6);
+        EarnKitCampaign v =
+            EarnKitCampaign(f.createCampaign(bytes32("v"), USDC, 1000e6, uint64(block.timestamp + 1 days)));
+        vm.stopPrank();
+        // deal() per campaign: one 2000e6 deal left the sponsor short at the second create on the
+        // fork (cause not investigated; test-harness only).
+        deal(address(USDC), sponsor, 1000e6);
+        vm.prank(sponsor);
         EarnKitCampaign c =
             EarnKitCampaign(f.createCampaign(bytes32("r"), USDC, 1000e6, uint64(block.timestamp + 1 days)));
-        vm.stopPrank();
         assertEq(c.guardian(), guardian);
+        assertEq(USDC.balanceOf(sponsor), 0);
 
         address[] memory w = new address[](2);
         (w[0], w[1]) = (makeAddr("winner1"), makeAddr("winner2"));
@@ -79,14 +88,29 @@ contract BaseUsdcForkTest is Test {
         (a[0], a[1]) = (600e6, 300e6);
 
         vm.warp(c.endsAt() + 7 days);
+        // The token contract itself is an excluded winner.
+        address[] memory bad = new address[](2);
+        (bad[0], bad[1]) = (w[0], address(USDC));
         vm.prank(op);
-        c.proposeFallback(w, a);
+        vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
+        v.proposeFallback(bad, a);
+
+        // Campaign A: veto closes the fallback; refund is the exit.
+        vm.prank(op);
+        v.proposeFallback(w, a);
         vm.prank(guardian);
-        c.vetoFallback();
+        v.vetoFallback();
+        vm.prank(op);
+        vm.expectRevert(EarnKitCampaign.FallbackClosed.selector);
+        v.proposeFallback(w, a);
         vm.warp(block.timestamp + 72 hours);
         vm.expectRevert(EarnKitCampaign.NoFallback.selector);
-        c.executeFallback(w, a);
+        v.executeFallback(w, a);
+        vm.prank(op);
+        v.refund();
+        assertEq(USDC.balanceOf(sponsor), 1000e6);
 
+        // Campaign B: the fallback runs to completion.
         vm.prank(op);
         c.proposeFallback(w, a);
         vm.warp(block.timestamp + 72 hours - 1);

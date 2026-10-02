@@ -12,19 +12,27 @@ pool. Money leaves a clone once, only:
     `fallbackAt = now`, emits `FallbackProposed`. Re-proposing replaces it and restarts the timer.
   - `executeFallback(winners, amounts)`: anyone, once `now >= fallbackAt + 72 hours`, only with
     the exact proposed payload. Pays exactly like `award` and emits the same `Awarded` event.
-  - `vetoFallback()`: the campaign's **guardian** cancels the pending proposal (`FallbackVetoed`).
+  - `vetoFallback()`: the campaign's **guardian** cancels the pending proposal (`FallbackVetoed`)
+    and **closes the fallback for good on that campaign** (`fallbackVetoed = true`; any later
+    `proposeFallback` reverts `FallbackClosed`). After a veto the exits are the sponsor's `award`
+    and `refund` (operator any time, sponsor after `endsAt + 60 days`).
   - The sponsor can still `award` while a proposal is pending; that settles the campaign and
     makes the proposal moot. A `refund` also clears it.
 - `refund()`: everything back to the sponsor. Operator any time; sponsor after `endsAt + 60 days`.
 
 **Excluded winners**: every award path (`award` and `proposeFallback`, re-checked at
 `executeFallback`) rejects the sponsor, operator, treasury, guardian, the clone itself, the
-factory and the implementation (`ExcludedWinner`). Tokens sent to any of those would either be
+factory, the implementation and the token contract (`ExcludedWinner`). Tokens sent to any of those would either be
 self-dealing by a privileged party or locked forever (audit F-03). The fee transfer is skipped
 when the fee rounds to 0 (amounts under 10 base units, audit I-01).
 
+**The guardian must be a different custodian from the operator** (ideally a multisig): the factory
+refuses `pauser == operator` in its constructor, `setOperator` and `setPauser`
+(`GuardianIsOperator`), and `Deploy.s.sol` refuses `PAUSER == OPERATOR`.
+
 So stealing a campaign's prize now needs the operator key, **plus** 72 h of public on-chain notice
-(`FallbackProposed`), **plus** a guardian who doesn't veto and a sponsor who doesn't award first.
+(`FallbackProposed`), **plus** a separate guardian key that doesn't veto that one proposal, **plus**
+a sponsor who doesn't award first. One veto ends the attempt on that campaign.
 
 The owner (timelock) can only change caps, operator, treasury, pauser, and pause/unpause new
 campaign creation. It can't touch deposited funds. The pauser can also pause (not unpause) new
@@ -65,15 +73,22 @@ run the commands above from inside that venv. Aderyn runs via `npx` (Node, no gl
   veto/refund). v2.2 adds: no excluded address ever receives funds (`invariant_excludedNeverPaid`),
   and a fallback only ever executes the exact proposed payload at or after proposal + 72 h, with
   the contract's pending proposal always matching the handler's own record
-  (`invariant_fallbackOnlyAfterDelay`). Each of these was mutation-checked: removing the delay
+  (`invariant_fallbackOnlyAfterDelay`). Fix round 1 adds: no proposal ever exists after a veto
+  and the contract's veto flag matches the handler (`invariant_noProposalAfterVeto`), and the
+  owner randomly rotating operator/pauser among four keys never leaves `pauser == operator` at the
+  factory or in any campaign snapshot (`invariant_guardianNeverOperator`). Each of these was mutation-checked: removing the delay
   check, the payload check, the guardian check, the operator check, the grace check, any single
-  excluded address, or the refund/veto clearing makes an invariant fail. `forge test --match-contract
+  excluded address, the refund/veto clearing, the sticky-veto check, or either
+  `GuardianIsOperator` check makes an invariant fail. `forge test --match-contract
   InvariantsTest -vv` → all pass at `runs: 256, calls: 16384`.
-- `test/halmos/Halmos.t.sol`: 9 symbolic proofs over fully symbolic amounts/durations/callers/
+- `test/halmos/Halmos.t.sol`: 11 symbolic proofs over fully symbolic amounts/durations/callers/
   timestamps — fee split, exact award payouts + sponsor-only/time gating, the operator never
   awarding directly, a fallback executing only the exact proposed payload at or after +72 h (and
-  then paying exactly), only the guardian vetoing and a vetoed proposal never executing, a fully
-  symbolic winner being accepted only if it is none of the excluded addresses, exact refund
+  then paying exactly; the candidate payload has a symbolic second winner, either order, and a
+  symbolic split), a re-proposal replacing the old payload and restarting the timer, only the
+  guardian vetoing and a vetoed campaign never executing or accepting a new proposal, two fully
+  symbolic winners being accepted only if neither is an excluded address, no owner rotation
+  ever making `pauser == operator`, exact refund
   payouts + caller/time gating, the owner never extracting funds through a campaign, and owner
   rotation of operator/treasury never redirecting an *existing* campaign's payouts (including that a
   legitimate sponsor award after rotation cannot be silently swallowed by a `catch {}`). Run with
@@ -82,9 +97,12 @@ run the commands above from inside that venv. Aderyn runs via `npx` (Node, no gl
   "Analyzer notes" below for why, and `check-flat.sh` for the staleness guard.
 - `test/Deploy.t.sol`: runs `script/Deploy.s.sol` and checks the 48 h timelock floor (audit F-05):
   `TIMELOCK_DELAY < 48 hours` is refused unless `ALLOW_SHORT_TIMELOCK=1` (testnet only), which
-  logs a loud warning.
-- `test/fork/BaseUsdc.t.sol`: the full create → warp → award flow, and a propose → veto →
-  re-propose → execute fallback cycle, against the real Base USDC
+  logs a loud warning. On Base mainnet (chain 8453) a short delay is refused regardless of the
+  flag and `USDC` must be the canonical address. `PAUSER == OPERATOR` is refused. After deploying,
+  the script asserts the timelock's delay and that it owns the factory.
+- `test/fork/BaseUsdc.t.sol`: the full create → warp → award flow, and a fallback cycle (USDC
+  rejected as a winner; propose → veto → re-propose refused → refund on one campaign; propose →
+  execute at exactly 72 h on another), against the real Base USDC
   proxy (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) on a live Base fork, using `deal()` for the
   token balance and `vm.deal()` + `vm.prank()` for the sponsor's calls. Reports **skipped** (not
   passed) when not run against a Base fork, via `vm.skip`.
@@ -136,21 +154,35 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
 
 ## Known limitations
 
-- **Operator key compromise (audit F-02) — now bounded by the fallback delay and veto.** Each
-  clone snapshots `operator`, `treasury` and `guardian` at creation, and rotation at the factory
-  only affects new campaigns. The operator can no longer `award`. A compromised operator key can
-  only `proposeFallback` (after `endsAt + 7 days`), which is public for 72 h before anyone can
-  execute it; during that window the guardian can `vetoFallback`, the sponsor can `award`, and
-  the (honest) operator or the sponsor (after `endsAt + 60 days`) can `refund`. Theft therefore
-  needs the operator key **and** an absent or compromised guardian **and** a sponsor who doesn't
-  act for 72 h. The attacker can re-propose after each veto, so the guardian must keep watching
-  `FallbackProposed` events for every unsettled campaign until it settles; the robust response
-  to a leaked operator key is still for the guardian to veto while the (still trusted) operator,
-  or the sponsor after the reclaim window, refunds at-risk campaigns. A refund only ever pays the
-  campaign's sponsor, so the operator's `refund` power can't be used to steal.
-- **The guardian is the factory's `pauser`, snapshotted per clone.** A compromised guardian
-  alone can only veto fallbacks (delaying payouts to the sponsor's award or a refund), not move
-  funds. A *rotated-away* guardian keeps veto power over the campaigns created before rotation.
+- **Operator key compromise (audit F-02) — bounded by the fallback delay and a sticky veto.**
+  Each clone snapshots `operator`, `treasury` and `guardian` at creation, and rotation at the
+  factory only affects new campaigns. The operator can no longer `award`. A compromised operator
+  key can only `proposeFallback` (after `endsAt + 7 days`), which is public for 72 h before anyone
+  can execute it. During that window the guardian can `vetoFallback`, which closes the fallback on
+  that campaign for good, so the attacker gets **one** attempt per campaign, not one per 72 h.
+  The sponsor can also `award`, and the (honest) operator or the sponsor (after
+  `endsAt + 60 days`) can `refund`. A refund only ever pays the campaign's sponsor, so the
+  operator's `refund` power can't be used to steal. Guardian runbook: alert on every
+  `FallbackProposed` and veto any proposal not made by the team. The guardian's safe window is
+  `[fallbackAt, fallbackAt + 72 h)`; at exactly `fallbackAt + 72 h` an execute and a veto are
+  both valid and block order decides, so treat the deadline as about one block earlier (review
+  I-1).
+- **Cost of the sticky veto.** A veto also blocks a *legitimate* fallback on that campaign. After
+  a veto, if the sponsor never awards, the only exit is a refund to the sponsor; the entrants of
+  that campaign are not paid by the fallback. The guardian should therefore veto only proposals
+  it doesn't recognise.
+- **The guardian is the factory's `pauser`, snapshotted per clone, and never the operator.** A
+  compromised guardian alone can only veto fallbacks (closing that path; payouts then need the
+  sponsor's award or a refund), not move funds. A *rotated-away* guardian keeps veto power over
+  the campaigns created before rotation. The factory refuses `pauser == operator`, but it can't
+  tell two addresses held by one person apart: keep the keys with different custodians.
+- **Other EarnKit clones as winners (review L-01).** The token contract is excluded, but another
+  campaign's clone is not, because detecting it would need a registry lookup (a new external
+  call). A share sent to another clone is stuck there as surplus forever. The app must reject any
+  known escrow, factory or implementation address as a payout wallet.
+- **`executeFallback` emits the same `Awarded` event as a sponsor award (review I-3).** This is by
+  design (one payout path for off-chain consumers). To tell them apart, record `FallbackProposed`
+  and `FallbackVetoed`, or check the tx selector.
 - **Accepted audit findings (2026-10-02 review):**
   - **F-04 (blocklistable token).** A USDC-blocklisted treasury makes `award`/`executeFallback`
     revert for every campaign that snapshotted it (only `refund` remains); a blocked clone, or a
@@ -167,7 +199,9 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
     `nonReentrant` + state-before-transfer contain a hook-adding upgrade; a USDC pause delays every
     exit but can't redirect funds; a malicious upgrade is out of scope.
 - **Sponsor self-award.** The sponsor can no longer name itself as a winner, but can still pay
-  sybil wallets it controls (audit I-04); the app flags off-plan winners.
+  sybil wallets it controls (audit I-04; review I-2). Treat the exclusion as a typo guard, not a
+  sybil control; the app flags off-plan winners. It also blocks a sponsor from paying its own
+  wallet even when that would be legitimate.
 - **Token-type risks for future allowlisted tokens.** Only the owner (timelock) can allowlist a
   token via `setCap`, and USDC is the only token allowlisted today, but the mechanism allows more:
   - **Blocklisting** (USDC and similar tokens can block/freeze an address) has four different
@@ -199,4 +233,6 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
 
 See `script/Deploy.s.sol`. The owner runs it from their own wallet. It refuses
 `TIMELOCK_DELAY < 48 hours` unless `ALLOW_SHORT_TIMELOCK=1` is set (testnet only; it then logs a
-loud warning). Never use a short-timelock deployment for real funds.
+loud warning), and on Base mainnet (8453) it refuses a short delay whatever the flag says and
+requires `USDC` to be canonical Base USDC. It refuses `PAUSER == OPERATOR`. Never use a
+short-timelock deployment for real funds.
