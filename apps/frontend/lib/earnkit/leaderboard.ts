@@ -119,3 +119,10 @@ export async function yourCampaignEntries(installationId: number) {
     ) e
     WHERE e.installation_id = ${installationId}`;
 }
+
+/** Project names by entry id (the award page names each winner). */
+export async function entryNames(ids: number[]) {
+  const rows = await sql()<{ id: number; name: string }[]>`
+    SELECT id, name FROM projects WHERE id IN ${sql()(ids.concat(0))}`;
+  return new Map(rows.map((r) => [r.id, r.name]));
+}

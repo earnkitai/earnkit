@@ -13,6 +13,8 @@ export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
   // the only control offered re-POSTs this same hash — never re-sending `award`, which would
   // revert (or pay again) rather than simply re-confirming.
   const [sentTx, setSentTx] = useState<`0x${string}` | null>(null);
+  // Set once EarnKit confirmed the payment: nothing left to retry, only the result stays.
+  const [done, setDone] = useState(false);
 
   async function confirm(hash: `0x${string}`) {
     setBusy(true);
@@ -25,6 +27,7 @@ export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
       const body = (await res.json()) as { paid?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not confirm.');
       setMsg(`Paid ${body.paid} winner(s). Done.`);
+      setDone(true);
       setBusy(false);
     } catch (err) {
       setMsg(walletErrorMessage(err));
@@ -55,7 +58,7 @@ export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
 
   return (
     <div className="mt-8 font-funnel-sans">
-      {!sentTx ? (
+      {done ? null : !sentTx ? (
         <button
           type="button"
           disabled={busy}

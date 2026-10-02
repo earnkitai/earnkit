@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
 import { awardTx, escrowEnabled } from '@/lib/earnkit/escrow';
+import { formatDeadline } from '@/lib/earnkit/dates';
 import { formatExact } from '@/lib/earnkit/format-units';
+import { entryNames } from '@/lib/earnkit/leaderboard';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
+import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import AwardClient from './AwardClient';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +27,9 @@ export default async function AwardPage({
   const amountsUnits = row.award_plan.map((p) =>
     parseUnits(p.amount, row.token_decimals),
   );
+  const names = await entryNames(row.award_plan.map((p) => p.entry_id));
+  // EarnKit's 10%, released to EarnKit by this same transaction.
+  const { fee } = splitUnits(parseUnits(row.amount, row.token_decimals));
   const tx = awardTx(
     row.escrow_address as `0x${string}`,
     row.award_plan.map((p) => p.wallet),
@@ -38,6 +44,9 @@ export default async function AwardPage({
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
           {row.draft.title}
         </h1>
+        <p className="mt-2 font-funnel-sans text-base text-ek-blue-light">
+          Ended {formatDeadline(row.draft.ends_at)}
+        </p>
         <ul className="mt-8 space-y-3 font-funnel-sans text-ek-blue-light">
           {row.award_plan.map((p, i) => (
             <li key={p.entry_id}>
@@ -45,10 +54,20 @@ export default async function AwardPage({
                 {formatExact(amountsUnits[i], row.token_decimals)}{' '}
                 {row.token_symbol}
               </span>{' '}
-              to entry #{p.entry_id} ({p.wallet}): {p.reason}
+              to{' '}
+              <span className="text-ek-white">
+                {names.get(p.entry_id) ?? 'unknown project'}
+              </span>{' '}
+              (entry #{p.entry_id}, {p.wallet}): {p.reason}
             </li>
           ))}
         </ul>
+        <p className="mt-4 font-funnel-sans text-ek-blue-light">
+          EarnKit fee, released on payout:{' '}
+          <span className="text-ek-white">
+            {formatExact(fee, row.token_decimals)} {row.token_symbol}
+          </span>
+        </p>
         <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
           Your wallet must be the one that funded this campaign (
           {row.sponsor_wallet}).
