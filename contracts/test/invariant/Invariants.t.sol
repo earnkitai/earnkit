@@ -101,8 +101,10 @@ contract InvariantsTest is StdInvariant, BaseTest {
     /// the factory holds 0: `invariant_conservation`/`invariant_factoryHoldsNothing`.)
     function invariant_excludedNeverPaid() public view {
         assertEq(handler.excludedPaid(), 0, "an award/fallback with an excluded winner succeeded");
-        assertEq(usdc.balanceOf(operator), 0, "operator received funds");
-        assertEq(usdc.balanceOf(pauser), 0, "guardian received funds");
+        for (uint256 k; k < 4; ++k) {
+            assertEq(usdc.balanceOf(handler.roleKeys(k)), 0, "an operator/guardian key received funds");
+        }
+        assertEq(usdc.balanceOf(address(usdc)), 0, "token contract received funds");
         assertEq(usdc.balanceOf(factory.implementation()), 0, "implementation received funds");
     }
 
@@ -118,6 +120,33 @@ contract InvariantsTest is StdInvariant, BaseTest {
             if (c.state() != EarnKitCampaign.State.Funded) {
                 assertEq(c.fallbackHash(), bytes32(0), "settled => no proposal");
             }
+        }
+    }
+
+    /// A veto is sticky: once vetoed, a campaign never again has a pending proposal, and the
+    /// contract's veto flag matches the handler's record.
+    function invariant_noProposalAfterVeto() public view {
+        uint256 n = handler.campaignCount();
+        for (uint256 i; i < n; ++i) {
+            EarnKitCampaign c = handler.campaigns(i);
+            assertEq(c.fallbackVetoed(), handler.ghostVetoed(address(c)), "veto flag matches handler");
+            if (c.fallbackVetoed()) assertEq(c.fallbackHash(), bytes32(0), "proposal exists after a veto");
+        }
+    }
+
+    /// The guardian (pauser) is never the operator: not at the factory after any rotation, and not
+    /// in any campaign's snapshot (which also matches the handler's model of the factory then).
+    function invariant_guardianNeverOperator() public view {
+        assertEq(handler.configViolations(), 0, "a rotation made pauser == operator");
+        assertTrue(factory.pauser() != factory.operator(), "factory pauser == operator");
+        assertEq(factory.operator(), handler.curOperator(), "factory operator matches model");
+        assertEq(factory.pauser(), handler.curPauser(), "factory pauser matches model");
+        uint256 n = handler.campaignCount();
+        for (uint256 i; i < n; ++i) {
+            EarnKitCampaign c = handler.campaigns(i);
+            assertTrue(c.guardian() != c.operator(), "campaign guardian == operator");
+            assertEq(c.operator(), handler.ghostOperatorOf(address(c)), "operator snapshot");
+            assertEq(c.guardian(), handler.ghostGuardianOf(address(c)), "guardian snapshot");
         }
     }
 }

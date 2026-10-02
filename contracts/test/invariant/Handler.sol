@@ -26,6 +26,13 @@ contract Handler is Test {
     address public winnerA = makeAddr("winnerA");
     address public winnerB = makeAddr("winnerB");
     address[] public actors;
+    /// Keys the owner rotates the factory's operator/pauser between (the two originals + two spares).
+    address[4] public roleKeys;
+    /// The handler's own model of the factory's current operator/pauser.
+    address public curOperator;
+    address public curPauser;
+    /// A setOperator/setPauser that made operator == pauser succeeded.
+    uint256 public configViolations;
     EarnKitCampaign[] public campaigns;
 
     uint256 public constant STARTING_BALANCE = 1_000_000e6;
@@ -55,6 +62,11 @@ contract Handler is Test {
     mapping(address campaign => bytes32 h) public ghostProposedHash;
     mapping(address campaign => address[] w) internal pendingWinners;
     mapping(address campaign => uint256[] a) internal pendingAmounts;
+    // What each campaign should have snapshotted at creation (from the handler's model), and
+    // whether the handler saw a successful veto on it.
+    mapping(address campaign => address op) public ghostOperatorOf;
+    mapping(address campaign => address g) public ghostGuardianOf;
+    mapping(address campaign => bool v) public ghostVetoed;
 
     constructor(
         EarnKitCampaigns f,
@@ -65,6 +77,8 @@ contract Handler is Test {
         address pauser_
     ) {
         (factory, usdc, owner, operator, treasury, pauser) = (f, t, owner_, operator_, treasury_, pauser_);
+        roleKeys = [operator_, pauser_, makeAddr("operatorB"), makeAddr("pauserB")];
+        (curOperator, curPauser) = (operator_, pauser_);
         for (uint256 i; i < 4; ++i) {
             address a = makeAddr(string(abi.encodePacked("actor", i)));
             actors.push(a);
@@ -82,15 +96,17 @@ contract Handler is Test {
         return actors.length;
     }
 
-    /// Picks from sponsor / operator / owner / stranger / pauser / a random actor, so both the
-    /// allowed callers and several disallowed ones are exercised for every action.
+    /// Picks from sponsor / this campaign's operator / owner / stranger / this campaign's guardian /
+    /// any role key (possibly another campaign's operator or guardian) / a random actor, so both
+    /// the allowed callers and several disallowed ones are exercised for every action.
     function _pickCaller(EarnKitCampaign c, uint256 seed) internal view returns (address) {
-        uint256 m = seed % 6;
+        uint256 m = seed % 7;
         if (m == 0) return c.sponsor();
-        if (m == 1) return operator;
+        if (m == 1) return ghostOperatorOf[address(c)];
         if (m == 2) return owner;
         if (m == 3) return stranger;
-        if (m == 4) return pauser;
+        if (m == 4) return ghostGuardianOf[address(c)];
+        if (m == 5) return roleKeys[(seed / 7) % 4];
         return actors[seed % actors.length];
     }
 
@@ -109,12 +125,23 @@ contract Handler is Test {
             ghostDeposited += amount;
             ghostDepositedBy[a] += amount;
             ghostAmountOf[c] = amount;
+            ghostOperatorOf[c] = curOperator;
+            ghostGuardianOf[c] = curPauser;
         } catch {}
     }
 
     /// Addresses no award path may pay (the treasury is paid only its fee, checked separately).
-    function excludedOf(EarnKitCampaign c) public view returns (address[7] memory) {
-        return [c.sponsor(), operator, treasury, pauser, address(c), address(factory), factory.implementation()];
+    function excludedOf(EarnKitCampaign c) public view returns (address[8] memory) {
+        return [
+            c.sponsor(),
+            ghostOperatorOf[address(c)],
+            treasury,
+            ghostGuardianOf[address(c)],
+            address(c),
+            address(factory),
+            factory.implementation(),
+            address(usdc)
+        ];
     }
 
     /// Two-way split between winnerA/winnerB (one winner if prize < 2). One time in 8, one winner is
@@ -142,7 +169,7 @@ contract Handler is Test {
             amt[1] = prize - first;
         }
         if (exSeed % 8 == 0) {
-            w[w.length - 1] = excludedOf(c)[(exSeed / 8 % 7 + split % 7) % 7];
+            w[w.length - 1] = excludedOf(c)[(exSeed / 8 % 8 + split % 8) % 8];
             hasExcluded = true;
         }
     }
@@ -201,10 +228,11 @@ contract Handler is Test {
         if (campaigns.length == 0) return;
         EarnKitCampaign c = _campaign(idx);
         // Half the time the operator, so proposals actually land; otherwise any caller.
-        address caller = callerSeed % 2 == 0 ? operator : _pickCaller(c, callerSeed / 2);
+        address caller = callerSeed % 2 == 0 ? ghostOperatorOf[address(c)] : _pickCaller(c, callerSeed / 2);
         (address[] memory w, uint256[] memory amt, bool hasExcluded) = _payload(c, split, exSeed);
 
-        bool allowed = caller == operator && block.timestamp >= uint256(c.endsAt()) + c.AWARD_GRACE();
+        bool allowed = caller == ghostOperatorOf[address(c)] && !ghostVetoed[address(c)]
+            && block.timestamp >= uint256(c.endsAt()) + c.AWARD_GRACE();
 
         vm.prank(caller);
         try c.proposeFallback(w, amt) {
@@ -248,12 +276,13 @@ contract Handler is Test {
     function vetoFallback(uint256 idx, uint256 callerSeed) external {
         if (campaigns.length == 0) return;
         EarnKitCampaign c = _campaign(idx);
-        address caller = callerSeed % 2 == 0 ? pauser : _pickCaller(c, callerSeed / 2);
-        bool allowed = caller == pauser && ghostProposedHash[address(c)] != bytes32(0);
+        address caller = callerSeed % 2 == 0 ? ghostGuardianOf[address(c)] : _pickCaller(c, callerSeed / 2);
+        bool allowed = caller == ghostGuardianOf[address(c)] && ghostProposedHash[address(c)] != bytes32(0);
 
         vm.prank(caller);
         try c.vetoFallback() {
             if (!allowed) unauthorizedSuccesses++;
+            ghostVetoed[address(c)] = true;
             _clearGhostFallback(address(c));
         } catch {}
     }
@@ -265,7 +294,7 @@ contract Handler is Test {
         address sponsorAddr = c.sponsor();
         uint256 amount = c.prize() + c.fee();
 
-        bool allowed = (caller == operator)
+        bool allowed = (caller == ghostOperatorOf[address(c)])
             || (caller == sponsorAddr && block.timestamp >= uint256(c.endsAt()) + c.RECLAIM_AFTER());
 
         vm.prank(caller);
@@ -287,6 +316,24 @@ contract Handler is Test {
         factory.setCap(address(usdc), bound(cap, 1, 10_000e6));
         factory.setTreasury(treasury); // same treasury: invariants track one address
         vm.stopPrank();
+    }
+
+    /// The owner rotates the factory's operator or pauser to one of the role keys. A rotation that
+    /// would make operator == pauser must revert; if it succeeds, that's a config violation.
+    function rotateRole(uint256 keySeed, bool setOperator) external {
+        address k = roleKeys[keySeed % 4];
+        vm.prank(owner);
+        if (setOperator) {
+            try factory.setOperator(k) {
+                if (k == curPauser) configViolations++;
+                curOperator = k;
+            } catch {}
+        } else {
+            try factory.setPauser(k) {
+                if (k == curOperator) configViolations++;
+                curPauser = k;
+            } catch {}
+        }
     }
 
     function pauseToggle(bool on) external {

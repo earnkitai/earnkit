@@ -209,12 +209,27 @@ contract HalmosTest is Test {
         assert(usdc.balanceOf(address(c)) == amount);
     }
 
-    /// After the operator proposes P at time t1, an execute of payload Q at time t2 by anyone
-    /// succeeds only if Q == P and t2 >= t1 + 72 h, and then pays exactly P.
+    /// Q = a symbolic two-winner list (a symbolic winner `y`, order swapped or not, symbolic split).
+    function _q(uint256 prize, address y, bool swap, uint128 split)
+        internal
+        pure
+        returns (address[] memory w, uint256[] memory a)
+    {
+        w = new address[](2);
+        (w[0], w[1]) = swap ? (y, address(0xA)) : (address(0xA), y);
+        a = new uint256[](2);
+        (a[0], a[1]) = (split, prize - split);
+    }
+
+    /// After the operator proposes P = [(0xA, first), (0xB, prize - first)] at t1, an execute by
+    /// anyone at t2 of a symbolic Q (symbolic second winner, either order, symbolic split) succeeds
+    /// only if Q == P and t2 >= t1 + 72 h, and then pays exactly P.
     function check_fallbackOnlyExactPayloadAfterDelay(
         uint128 amount,
         uint128 first,
-        uint128 first2,
+        uint128 split,
+        address y,
+        bool swap,
         uint64 t1,
         uint64 t2,
         address caller
@@ -222,7 +237,7 @@ contract HalmosTest is Test {
         vm.assume(amount >= 2);
         EarnKitCampaign c = _create(amount, uint64(block.timestamp + 1 days));
         uint256 prize = c.prize();
-        vm.assume(first > 0 && first < prize && first2 > 0 && first2 < prize);
+        vm.assume(first > 0 && first < prize && split > 0 && split < prize);
         (address[] memory w, uint256[] memory a) = _two(prize, first);
         vm.assume(uint256(t1) >= uint256(c.endsAt()) + 7 days);
         vm.warp(t1);
@@ -230,11 +245,11 @@ contract HalmosTest is Test {
         c.proposeFallback(w, a);
         assert(c.fallbackAt() == t1);
 
-        (address[] memory w2, uint256[] memory a2) = _two(prize, first2);
+        (address[] memory w2, uint256[] memory a2) = _q(prize, y, swap, split);
         vm.warp(t2);
         vm.prank(caller);
         try c.executeFallback(w2, a2) {
-            assert(first2 == first);
+            assert(!swap && y == address(0xB) && split == first);
             assert(uint256(t2) >= uint256(t1) + 72 hours);
             assert(usdc.balanceOf(address(0xA)) == first);
             assert(usdc.balanceOf(address(0xB)) == prize - first);
@@ -246,7 +261,57 @@ contract HalmosTest is Test {
         }
     }
 
-    /// Only the guardian can veto; a veto clears the proposal so it can never execute afterwards.
+    struct Payload {
+        address[] w;
+        uint256[] a;
+    }
+
+    /// Re-propose: P at t1, then a symbolic Q at t2. Afterwards P executes only if it equals Q, and
+    /// anything executes only at or after t2 + 72 h (the timer restarted).
+    function check_reproposeRestartsTimer(
+        uint128 amount,
+        uint128 first,
+        uint128 split,
+        address y,
+        bool swap,
+        uint64 t1,
+        uint64 t2,
+        uint64 t3,
+        bool executeP
+    ) public {
+        vm.assume(amount >= 2);
+        EarnKitCampaign c = _create(amount, uint64(block.timestamp + 1 days));
+        Payload memory p;
+        Payload memory q;
+        {
+            uint256 prize = c.prize();
+            vm.assume(first > 0 && first < prize && split > 0 && split < prize);
+            (p.w, p.a) = _two(prize, first);
+            (q.w, q.a) = _q(prize, y, swap, split);
+        }
+        vm.assume(uint256(t1) >= uint256(c.endsAt()) + 7 days && t2 >= t1);
+        vm.warp(t1);
+        vm.prank(OPERATOR);
+        c.proposeFallback(p.w, p.a);
+        vm.warp(t2);
+        vm.prank(OPERATOR);
+        try c.proposeFallback(q.w, q.a) {}
+        catch {
+            return; // Q invalid (zero/excluded winner): P stays pending, covered by the check above
+        }
+        assert(c.fallbackAt() == t2);
+        vm.warp(t3);
+        Payload memory e = executeP ? p : q;
+        try c.executeFallback(e.w, e.a) {
+            if (executeP) assert(!swap && y == address(0xB) && split == first);
+            assert(uint256(t3) >= uint256(t2) + 72 hours);
+        } catch {
+            assert(usdc.balanceOf(address(c)) == amount);
+        }
+    }
+
+    /// Only the guardian can veto; a veto clears the proposal so it can never execute afterwards,
+    /// and closes the fallback for good: the operator can never propose again on this campaign.
     function check_vetoClears(uint128 amount, uint64 t1, uint64 t2, address vetoer, address caller) public {
         vm.assume(amount >= 1);
         EarnKitCampaign c = _create(amount, uint64(block.timestamp + 1 days));
@@ -262,8 +327,12 @@ contract HalmosTest is Test {
         vm.prank(vetoer);
         try c.vetoFallback() {
             assert(vetoer == PAUSER);
-            assert(c.fallbackHash() == bytes32(0) && c.fallbackAt() == 0);
+            assert(c.fallbackHash() == bytes32(0) && c.fallbackAt() == 0 && c.fallbackVetoed());
             vm.warp(t2);
+            vm.prank(OPERATOR);
+            try c.proposeFallback(w, a) {
+                assert(false);
+            } catch {}
             vm.prank(caller);
             try c.executeFallback(w, a) {
                 assert(false);
@@ -274,15 +343,25 @@ contract HalmosTest is Test {
         }
     }
 
-    /// For a fully symbolic winner `x`: a sponsor award or an operator proposal naming `x` only
-    /// succeeds if `x` is none of the excluded addresses, so an excluded address is never paid.
-    function check_excludedNeverAccepted(uint128 amount, address x, uint64 when, bool viaFallback) public {
-        vm.assume(amount >= 1);
+    /// For two fully symbolic winners `x`, `y` (symbolic split): a sponsor award or an operator
+    /// proposal naming them only succeeds if neither is an excluded address. Since execute only
+    /// pays an accepted proposal byte-for-byte, an excluded address is never paid on any path.
+    function check_excludedNeverAccepted(
+        uint128 amount,
+        address x,
+        address y,
+        uint128 split,
+        uint64 when,
+        bool viaFallback
+    ) public {
+        vm.assume(amount >= 2);
         EarnKitCampaign c = _create(amount, uint64(block.timestamp + 1 days));
-        address[] memory w = new address[](1);
-        w[0] = x;
-        uint256[] memory a = new uint256[](1);
-        a[0] = c.prize();
+        uint256 prize = c.prize();
+        vm.assume(split > 0 && split < prize);
+        address[] memory w = new address[](2);
+        (w[0], w[1]) = (x, y);
+        uint256[] memory a = new uint256[](2);
+        (a[0], a[1]) = (split, prize - split);
         vm.warp(when);
         bool ok;
         if (viaFallback) {
@@ -297,10 +376,28 @@ contract HalmosTest is Test {
             } catch {}
         }
         if (ok) {
-            assert(x != SPONSOR && x != OPERATOR && x != TREASURY && x != PAUSER);
-            assert(x != address(c) && x != address(factory) && x != factory.implementation());
+            assert(!_excluded(c, x) && !_excluded(c, y));
         } else {
             assert(usdc.balanceOf(address(c)) == amount);
         }
+    }
+
+    function _excluded(EarnKitCampaign c, address x) internal view returns (bool) {
+        return x == SPONSOR || x == OPERATOR || x == TREASURY || x == PAUSER || x == address(c) || x == address(factory)
+            || x == factory.implementation() || x == address(usdc);
+    }
+
+    /// No owner rotation, in either order and to any addresses, can make pauser == operator.
+    function check_guardianNeverOperator(address a1, address a2, bool opFirst) public {
+        vm.startPrank(OWNER);
+        if (opFirst) {
+            try factory.setOperator(a1) {} catch {}
+            try factory.setPauser(a2) {} catch {}
+        } else {
+            try factory.setPauser(a1) {} catch {}
+            try factory.setOperator(a2) {} catch {}
+        }
+        vm.stopPrank();
+        assert(factory.pauser() != factory.operator());
     }
 }
