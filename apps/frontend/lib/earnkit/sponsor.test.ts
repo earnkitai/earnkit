@@ -328,6 +328,11 @@ test('draftExpiry: a deadline under 10 minutes away (or past) expires the draft,
   );
   assert.equal(
     DEADLINE_PASSED,
-    "This draft's deadline has passed. Ask your agent to create a new campaign.",
+    "This draft's deadline has passed or is less than 10 minutes away. Ask your agent to create a new campaign. " +
+      'If you already deposited, your funds are safe in escrow: send the deposit transaction hash (status with tx) to finish.',
+  );
+  assert.match(
+    DRAFT_EXPIRED,
+    /If you already deposited, your funds are safe in escrow/,
   );
 });

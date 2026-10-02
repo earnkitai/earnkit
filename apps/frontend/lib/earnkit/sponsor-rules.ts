@@ -426,7 +426,9 @@ export function statusReply(s: StatusFacts): {
       return {
         show_to_sponsor:
           s.expiredText ?? `${s.title} expired before it was funded.`,
-        next_step: 'Create a new campaign with action=create.',
+        next_step:
+          'If you sent the deposit, call status with ref and tx (the createCampaign hash) to finish; ' +
+          'the funds are safe in escrow. Otherwise create a new campaign with action=create.',
       };
     case 'awarded':
       return {

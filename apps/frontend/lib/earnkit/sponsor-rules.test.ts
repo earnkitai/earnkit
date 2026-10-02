@@ -373,6 +373,10 @@ test('statusReply: one line for each finished state', () => {
       .show_to_sponsor,
     'Gone.',
   );
+  assert.match(
+    statusReply(facts({ state: 'expired', expiredText: 'Gone.' })).next_step!,
+    /If you sent the deposit, call status with ref and tx/,
+  );
 });
 
 test('awardReply: each winner with project name, amount and reason; fee; award link', () => {

@@ -21,6 +21,11 @@ import {
 } from './escrow';
 import { NotFoundError, upsertProgram } from './programs';
 import {
+  DEADLINE_MARGIN_MS,
+  DEADLINE_PASSED,
+  DRAFT_EXPIRED,
+} from './sponsor-text';
+import {
   AwardWinner,
   SponsorError,
   awardReply,
@@ -107,9 +112,6 @@ export async function createSponsorDraft(d: Draft, installationId: number) {
   };
 }
 
-/** createCampaign reverts once endsAt has passed; a deposit needs some time to land first. */
-const DEADLINE_MARGIN_MS = 10 * 60_000;
-
 /**
  * Why an unfunded draft can no longer be funded, or null: its deadline is less than 10 minutes
  * away (or past), or it is over 7 days old. Pure; exported for tests.
@@ -124,10 +126,7 @@ export function draftExpiry(
   return null;
 }
 
-export const DEADLINE_PASSED =
-  "This draft's deadline has passed. Ask your agent to create a new campaign.";
-export const DRAFT_EXPIRED =
-  'This draft expired (unfunded for 7 days). Ask your agent to create a new campaign.';
+export { DEADLINE_PASSED, DRAFT_EXPIRED };
 
 /** When a draft stops being fundable: 7 days after creation, or 10 minutes before its deadline. */
 export const draftExpiresAt = (
