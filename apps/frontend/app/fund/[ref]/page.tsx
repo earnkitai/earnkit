@@ -5,10 +5,14 @@ import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { checkChain, expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
+import { sponsorLabel } from '@/lib/earnkit/sponsor-identity';
 import { FUND_WARNING } from '@/lib/earnkit/sponsor-text';
+import { sponsorIdentity } from '@/lib/earnkit/sponsor-verify';
 import FundClient from './FundClient';
 
 export const dynamic = 'force-dynamic';
+// Pages anyone's agent can create: never in search results (v2.2 audit L2).
+export const metadata = { robots: { index: false, follow: false } };
 
 export default async function FundPage({
   params,
@@ -27,6 +31,7 @@ export default async function FundPage({
     return { fundingProblem: null };
   });
   const row = await loadCampaign(ref);
+  const identity = await sponsorIdentity(row);
   // Sign exactly the token the draft stored (and that findFunding matches), never a
   // token looked up from the current config.
   const token = {
@@ -52,7 +57,7 @@ export default async function FundPage({
           {row.draft.title}
         </h1>
         <p className="mt-2 font-funnel-sans text-base text-ek-blue-light">
-          by {row.sponsor_name}
+          by &ldquo;{row.sponsor_name}&rdquo; · {sponsorLabel(identity)}
         </p>
         <dl className="mt-8 grid gap-4 font-funnel-sans text-ek-white sm:grid-cols-3">
           <div>

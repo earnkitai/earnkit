@@ -1,5 +1,6 @@
 import type { CampaignConfig, SponsorState, YourEntry } from './campaigns';
 import { sql } from './db';
+import { sponsorIdentity, trackRecord } from './sponsor-verify';
 
 export type BoardRow = {
   id: number;
@@ -35,8 +36,13 @@ export async function getCampaignBoard(slug: string) {
   // A taken-down sponsor campaign is removed from public view immediately (refunded/awarded
   // campaigns stay visible).
   const [sponsorRow] = await sql()<
-    { state: SponsorState; award_onchain: OffPlanAward[] | null }[]
-  >`SELECT state, award_onchain FROM sponsor_campaigns WHERE program_id = ${slug}`;
+    {
+      state: SponsorState;
+      award_onchain: OffPlanAward[] | null;
+      sponsor_url: string | null;
+      sponsor_wallet: string | null;
+    }[]
+  >`SELECT state, award_onchain, sponsor_url, sponsor_wallet FROM sponsor_campaigns WHERE program_id = ${slug}`;
   if (sponsorRow?.state === 'taken_down') return null;
   const rows = await sql()<BoardRow[]>`
     SELECT id, name, repo_url, live_url, score, token_url, prize_tx, payout_wallet, prize_amount,
@@ -55,6 +61,13 @@ export async function getCampaignBoard(slug: string) {
     rows,
     sponsorState: sponsorRow?.state ?? null,
     offPlan: sponsorRow?.award_onchain ?? null,
+    // Who the sponsor is (lazily re-verified) and what its wallet has done before.
+    sponsor: sponsorRow
+      ? {
+          identity: await sponsorIdentity(sponsorRow),
+          trackRecord: await trackRecord(sponsorRow.sponsor_wallet),
+        }
+      : null,
   };
 }
 

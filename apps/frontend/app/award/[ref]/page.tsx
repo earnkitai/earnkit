@@ -6,10 +6,14 @@ import { formatExact } from '@/lib/earnkit/format-units';
 import { entryNames } from '@/lib/earnkit/leaderboard';
 import { checkChain, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
+import { sponsorLabel } from '@/lib/earnkit/sponsor-identity';
 import { AWARD_PROVENANCE, awardWarnings } from '@/lib/earnkit/sponsor-text';
+import { sponsorIdentity } from '@/lib/earnkit/sponsor-verify';
 import AwardClient from './AwardClient';
 
 export const dynamic = 'force-dynamic';
+// Pages anyone's agent can create: never in search results (v2.2 audit L2).
+export const metadata = { robots: { index: false, follow: false } };
 
 export default async function AwardPage({
   params,
@@ -28,6 +32,7 @@ export default async function AwardPage({
   );
   const row = await loadCampaign(ref);
   if (!row.award_plan || !row.escrow_address || !row.sponsor_wallet) notFound();
+  const identity = await sponsorIdentity(row);
   // Computed once: the amount shown for each winner must be the exact amount signed, not a
   // separately-rounded display of the same decimal string (see format-units.ts).
   const amountsUnits = row.award_plan.map((p) =>
@@ -52,7 +57,8 @@ export default async function AwardPage({
           {row.draft.title}
         </h1>
         <p className="mt-2 font-funnel-sans text-base text-ek-blue-light">
-          Ended {formatDeadline(row.draft.ends_at)}
+          by &ldquo;{row.sponsor_name}&rdquo; · {sponsorLabel(identity)} · Ended{' '}
+          {formatDeadline(row.draft.ends_at)}
         </p>
         <p className="mt-8 rounded-2xl border border-ek-blue-soft px-5 py-4 font-funnel-sans text-base font-medium text-ek-white">
           {AWARD_PROVENANCE}

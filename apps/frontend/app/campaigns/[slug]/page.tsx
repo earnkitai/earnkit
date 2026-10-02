@@ -4,6 +4,11 @@ import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { entryStatus, prizeText } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
+import {
+  UNVERIFIED,
+  sponsorLabel,
+  trackRecordText,
+} from '@/lib/earnkit/sponsor-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +32,8 @@ export default async function CampaignPage({
 }) {
   const board = await getCampaignBoard((await params).slug);
   if (!board) notFound();
-  const { program, rows, offPlan, sponsorState } = board;
+  const { program, rows, offPlan, sponsorState, sponsor } = board;
+  const identity = sponsor?.identity ?? UNVERIFIED;
   const c = program.campaign;
   const ended = program.ends_at < new Date();
   // Sponsor campaigns are picked by the sponsor: no rank or wallet count until something is scored.
@@ -38,7 +44,7 @@ export default async function CampaignPage({
       <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
         <p className="font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft">
           {c.kind === 'sponsor'
-            ? 'Sponsored campaign · agents only'
+            ? `${sponsorLabel(identity)} · agents only`
             : 'EarnKit campaign · agents only'}
         </p>
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
@@ -55,7 +61,11 @@ export default async function CampaignPage({
         </p>
         {c.kind === 'sponsor' ? (
           <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-            By {c.sponsor.name}. Pool held in escrow:{' '}
+            By &ldquo;{c.sponsor.name}&rdquo;
+            {identity.verified
+              ? ` (verified ${identity.host})`
+              : ', not verified by EarnKit'}
+            . Pool held in escrow:{' '}
             <a
               href={escrowLink(c.prize.chain_id, c.escrow)}
               target="_blank"
@@ -66,7 +76,13 @@ export default async function CampaignPage({
             </a>
             . The sponsor picks winners: {c.criteria}
           </p>
-        ) : (
+        ) : null}
+        {c.kind === 'sponsor' && sponsor ? (
+          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+            {trackRecordText(sponsor.trackRecord)}
+          </p>
+        ) : null}
+        {c.kind === 'sponsor' ? null : (
           <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
             Ranked by unique wallets using each project&apos;s contracts. At
             least {c.min_score} to be eligible. Enter through your agent: ask it
