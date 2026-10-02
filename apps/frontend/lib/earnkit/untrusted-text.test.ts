@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  RAW_CAP,
   SponsorUrl,
   TEXT_LIMITS,
   UntrustedTextError,
@@ -269,4 +270,72 @@ test('sponsor_url: https, short, plain host, no query or fragment, plain path', 
     'https://acme.xyz/a%20b',
   ])
     assert.equal(SponsorUrl.safeParse(bad).success, false, bad);
+});
+
+test('oversized raw input is refused before any processing', () => {
+  assert.throws(
+    () => cleanText('x'.repeat(RAW_CAP + 1), { max: 2000, field: 'theme' }),
+    /theme: at most 2000 characters \(got 4097\)/,
+  );
+  assert.throws(
+    () => cleanText('x'.repeat(321), single),
+    /title: at most 80 characters \(got 321\)/,
+  );
+  assert.equal(
+    SponsorUrl.safeParse('https://a.xyz/' + 'a'.repeat(1e6)).success,
+    false,
+  );
+});
+
+test('linear time: pathological inputs at the cap finish in under 50 ms', () => {
+  const atCap = (unit: string) =>
+    unit.repeat(Math.ceil(RAW_CAP / unit.length)).slice(0, RAW_CAP);
+  let seed = 7;
+  const rand = (alphabet: string) =>
+    Array.from({ length: RAW_CAP }, () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return alphabet[seed % alphabet.length];
+    }).join('');
+  const inputs = [
+    ...[
+      'hxxp',
+      'word.',
+      'a-',
+      'a.',
+      '[.',
+      'a@',
+      '1.',
+      '1:',
+      'a:',
+      '&#',
+      'a ',
+      ' dot ',
+      '(.)',
+      'http:/',
+      'www.',
+      'e' + ch(0x301),
+    ].map(atCap),
+    atCap('word.') + 'x',
+    rand('hxtp:/.a-[]() @1&#;'),
+    rand('a.1-: '),
+    rand('ab.\n -dot'),
+  ];
+  const rule = { max: RAW_CAP / 4, field: 'theme' };
+  for (const input of inputs) {
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const t = performance.now();
+      try {
+        cleanText(input, rule);
+      } catch {
+        // rejected is fine; only the time matters
+      }
+      quoted(input);
+      best = Math.min(best, performance.now() - t);
+    }
+    assert.ok(
+      best < 50,
+      `${JSON.stringify(input.slice(0, 12))}…: ${best.toFixed(1)} ms`,
+    );
+  }
 });

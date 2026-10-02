@@ -10,12 +10,14 @@ import { formatDeadline } from './dates';
 import { getProgramRow, isOpen } from './programs';
 import { ProjectInfo } from './submission';
 import { tokenOffer } from './tokens';
-import { cleanProject, quoted } from './untrusted-text';
+import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 
 export const RecordSubmissionInput = z
   .object({
     program_id: z.string(),
-    project: ProjectInfo.extend({ name: z.string().trim().min(1) }),
+    project: ProjectInfo.extend({
+      name: z.string().max(RAW_CAP).trim().min(1),
+    }),
     /** The final answers that were actually submitted, by requirement key. */
     submission_data: z.record(z.string(), z.unknown()),
     external_submission_url: z.string().url().optional(),

@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import type { ProjectField, SubmissionRequirement } from './program-file';
+import { RAW_CAP } from './untrusted-text';
 
 export const ProjectInfo = z
   .object({
-    name: z.string().optional(),
-    description: z.string().optional(),
+    // Bounded before any cleaning; campaign entries are then held to TEXT_LIMITS (cleanProject).
+    name: z.string().max(RAW_CAP).optional(),
+    description: z.string().max(RAW_CAP).optional(),
     repo_url: z.string().optional(),
     live_url: z.string().optional(),
     demo_url: z.string().optional(),

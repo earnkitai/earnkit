@@ -42,9 +42,12 @@ const BLANK =
 // Every quotation mark (ASCII, curly, low-9, guillemets, CJK, fullwidth, backtick) becomes '.
 const QUOTES =
   /["`\p{Pi}\p{Pf}\u201A\u201B\u201E\u201F\u275D-\u2760\u300C-\u300F\u301D-\u301F\uFF02\uFF07]/gu;
-// Confusable dots and defanged dots, mapped to "." so a hidden domain is still seen as one.
-const DOTS =
-  /[\u3002\uFF61\uFE52]|\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)/giu;
+// Confusable and defanged dots, mapped to "." so a hidden domain is still seen as one. Bounded
+// repeats only (every regex in this file runs in linear time; see the timing test).
+const DOTS = /[\u3002\uFF61\uFE52]|[[(] {0,3}(?:\.|dot) {0,3}[\])]/giu;
+
+/** Raw input past this is rejected before any normalization or regex runs. */
+export const RAW_CAP = 4096;
 
 /**
  * The allowlist: after NFKC, keeps letters, numbers, spaces (and newlines when multi-line), a
@@ -56,9 +59,9 @@ function allow(value: string, singleLine: boolean) {
     ...value
       .normalize('NFKC')
       .replace(QUOTES, "'")
-      .replace(DOTS, '.')
-      .replace(/\r\n?|[\u2028\u2029\u0085]/g, '\n')
-      .replace(singleLine ? /[\p{Zs}\t\v\f\n]/gu : /[\p{Zs}\t\v\f]/gu, ' '),
+      .replace(/\r\n|[\r\u2028\u2029\u0085]/g, '\n')
+      .replace(singleLine ? /[\p{Zs}\t\v\f\n]/gu : /[\p{Zs}\t\v\f]/gu, ' ')
+      .replace(DOTS, '.'),
   ];
   let out = '';
   let prev = '';
@@ -79,7 +82,7 @@ function allow(value: string, singleLine: boolean) {
   });
   return out
     .replace(/ {2,}/g, ' ')
-    .replace(/ *\n */g, '\n')
+    .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -98,45 +101,91 @@ const TECH_WORDS = new Set([
   'web3.js',
   'viem.sh',
 ]);
+const DOT_TLDS = new Set([
+  'com',
+  'org',
+  'net',
+  'io',
+  'xyz',
+  'ai',
+  'app',
+  'dev',
+  'lol',
+  'zip',
+  'fun',
+]);
+const RUN_CHAR = /[\p{L}\p{N}-]/u;
+const TLD_PART = /^\p{L}{2,24}(?![\p{L}\p{N}])/u;
 
-const isIpv6 = (s: string) =>
-  [
-    ...s.matchAll(/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi),
-  ].some(([m]) => m.includes('::') || m.split(':').length > 5);
+/** Any `word.letters{2,24}` in one word, other than a known library name. Linear: one pass per part. */
+function hasDomain(word: string) {
+  const parts = word.split('.');
+  for (let i = 1; i < parts.length; i++) {
+    const tld = TLD_PART.exec(parts[i]);
+    if (!tld) continue;
+    const left = parts[i - 1];
+    let j = left.length;
+    while (j > 0 && RUN_CHAR.test(left[j - 1])) j--;
+    if (j === left.length) continue;
+    if (!TECH_WORDS.has(`${left.slice(j)}.${tld[0]}`.toLowerCase()))
+      return true;
+  }
+  return false;
+}
 
-const hasDomain = (s: string) =>
-  [...s.matchAll(/([\p{L}\p{N}-]+)\.(\p{L}{2,24})(?![\p{L}\p{N}])/gu)].some(
-    ([m]) => !TECH_WORDS.has(m.toLowerCase()),
+/** Link patterns checked per word: fixed-width or bounded repeats only. */
+const WORD_LINKS = [
+  /(?:^|[^a-z0-9])www\./i,
+  /h[tx][tx]ps?:/i,
+  /\b(?:javascript|vbscript|mailto|file):/i,
+  /\bdata:(?:[a-z]{1,20}\/|,)/i,
+  /(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)/,
+];
+const IPV6 = /(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi;
+const ENTITY = /&#?[a-z0-9]{1,32};/i;
+
+function hasLink(s: string) {
+  if (s.includes('://')) return true;
+  const words = s.split(/[ \n]/);
+  return words.some(
+    (w, i) =>
+      WORD_LINKS.some((re) => re.test(w)) ||
+      [...w.matchAll(IPV6)].some(
+        ([m]) => m.includes('::') || m.split(':').length > 5,
+      ) ||
+      hasDomain(w) ||
+      // Defanged "evil dot xyz".
+      (words[i + 1]?.toLowerCase() === 'dot' &&
+        RUN_CHAR.test(w.slice(-1)) &&
+        (/^[a-z]{2,24}\//i.test(words[i + 2] ?? '') ||
+          DOT_TLDS.has(
+            /^[a-z]{2,24}(?![a-z])/i
+              .exec(words[i + 2] ?? '')?.[0]
+              .toLowerCase() ?? '',
+          ))),
   );
+}
 
 /** What gets cleaned text rejected, with the word used in the error. */
 const REJECT: [(s: string) => boolean, string][] = [
-  [(s) => /[a-z][a-z0-9+.-]*:\/\/|\bwww\./i.test(s), 'links'],
-  [(s) => /\bh[tx]{2}ps?:/i.test(s), 'links'],
-  [(s) => /\b(?:javascript|vbscript|mailto|file):/i.test(s), 'links'],
-  [(s) => /\bdata:[a-z]+\/|\bdata:,/i.test(s), 'links'],
-  [(s) => /(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)/.test(s), 'links'],
-  [isIpv6, 'links'],
-  [
-    (s) =>
-      /\b[a-z0-9-]+ dot (?:[a-z]{2,24}\/|(?:com|org|net|io|xyz|ai|app|dev|lol|zip|fun)\b)/i.test(
-        s,
-      ),
-    'links',
-  ],
-  [hasDomain, 'links'],
-  [(s) => /&#?[a-z0-9]+;/i.test(s), 'HTML entities'],
+  [hasLink, 'links'],
+  [(s) => ENTITY.test(s), 'HTML entities'],
 ];
 
 /**
- * Cleans third-party text, or throws an error naming the field: the allowlist (`allow`), then
- * rejected if it holds a link (incl. defanged forms, bare domains, IP literals, URI schemes) or an
- * HTML entity, or is longer than `max` after cleaning.
+ * Cleans third-party text, or throws an error naming the field: oversized raw input is refused
+ * first (before any normalization or regex), then the allowlist (`allow`), then rejected if it
+ * holds a link (incl. defanged forms, bare domains, IP literals, URI schemes) or an HTML entity,
+ * or is longer than `max` after cleaning.
  */
 export function cleanText(
   value: string,
   { max, singleLine = false, field = 'text' }: TextRule & { field?: string },
 ) {
+  if (value.length > max * 4 || value.length > RAW_CAP)
+    throw new UntrustedTextError(
+      `${field}: at most ${max} characters (got ${value.length}).`,
+    );
   const s = allow(value, singleLine);
   for (const [bad, what] of REJECT)
     if (bad(s))
@@ -155,7 +204,7 @@ export function cleanText(
 export const untrusted = (rule: TextRule, min = 1) =>
   z
     .string()
-    .max(rule.max * 4)
+    .max(Math.min(rule.max * 4, RAW_CAP))
     .transform((v, ctx) => {
       try {
         return cleanText(v, rule);
@@ -177,7 +226,7 @@ export const untrusted = (rule: TextRule, min = 1) =>
  */
 export const quoted = (s: string) =>
   `"${[
-    ...allow(s, true)
+    ...allow(s.slice(0, RAW_CAP), true)
       .replace(/[*_~|#>[\]]/g, '')
       .replace(/ {2,}/g, ' ')
       .trim(),
@@ -186,7 +235,7 @@ export const quoted = (s: string) =>
     .join('')
     .trim()}"`;
 
-const IP_HOST = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[.*\])$/;
+const IP_HOST = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]{0,45}\])$/i;
 
 /**
  * The sponsor's link: https only, at most 100 characters, a plain host (no userinfo, IP literal or
@@ -197,6 +246,8 @@ export const SponsorUrl = z
   .max(100)
   .url()
   .superRefine((v, ctx) => {
+    // The max/url checks above report their own issue; don't parse what they rejected.
+    if (v.length > 100 || !URL.canParse(v)) return;
     const u = new URL(v);
     const problem =
       u.protocol !== 'https:'
