@@ -1,8 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { awardSearchFrom, type CloneFacts, type EscrowReader } from './escrow';
+import {
+  awardSearchFrom,
+  logScanPlan,
+  type CloneFacts,
+  type EscrowReader,
+} from './escrow';
+import { AWARD_PROVENANCE, FUND_WARNING, awardWarnings } from './sponsor-text';
 import {
   assertCanAward,
+  CHAIN_CHECK_TTL_MS,
+  checkIsFresh,
   DEADLINE_PASSED,
   DRAFT_EXPIRED,
   confirmableState,
@@ -77,6 +85,7 @@ test('findFunding: wrong sponsor, token, amount, end date or state are each refu
     status: 'mismatch',
     escrow: CLONE,
     problem: "it wasn't made by the campaign's wallet",
+    cloneState: 'funded',
   });
   assert.match(
     ((await refused({ token: OTHER })) as { problem: string }).problem,
@@ -187,4 +196,77 @@ test('draftExpiry: a deadline under 10 minutes away (or past) expires the draft,
     DRAFT_EXPIRED,
     /If you already deposited from your bound wallet, your funds are safe in escrow/,
   );
+});
+
+test('chain checks are reused for 15 seconds, then read again', () => {
+  const at = new Date('2026-10-03T10:00:00Z');
+  const after = (ms: number) => new Date(at.getTime() + ms);
+  assert.equal(CHAIN_CHECK_TTL_MS, 15_000);
+  assert.equal(checkIsFresh(null, at), false);
+  assert.equal(checkIsFresh(at, at), true);
+  assert.equal(checkIsFresh(at, after(14_999)), true);
+  assert.equal(checkIsFresh(at, after(15_000)), false);
+  // A clock that went backwards doesn't pin the cache forever.
+  assert.equal(checkIsFresh(after(60_000), at), false);
+});
+
+test('award log search: newest first, at most 6 chunks per check, resumes where it stopped', () => {
+  const first = logScanPlan({
+    latest: 100_000n,
+    floor: 0n,
+    resumeHi: null,
+    chunk: 9_000n,
+  });
+  assert.equal(first.ranges.length, 6);
+  assert.deepEqual(first.ranges[0], [91_001n, 100_000n]);
+  assert.deepEqual(first.ranges[5], [46_001n, 55_000n]);
+  assert.equal(first.next, 46_000n);
+  // The next check (with new blocks on top) continues below where this one stopped.
+  const second = logScanPlan({
+    latest: 100_050n,
+    floor: 0n,
+    resumeHi: first.next,
+    chunk: 9_000n,
+  });
+  assert.deepEqual(second.ranges[0], [37_001n, 46_000n]);
+  assert.deepEqual(second.ranges.at(-1), [0n, 1_000n]);
+  assert.equal(second.ranges.length, 6);
+  assert.equal(second.next, null);
+  // A short range is one chunk, clipped at the floor; nothing left.
+  assert.deepEqual(logScanPlan({ latest: 500n, floor: 200n, resumeHi: null }), {
+    ranges: [[200n, 500n]],
+    next: null,
+  });
+  // An empty range (floor above latest) does no work.
+  assert.deepEqual(logScanPlan({ latest: 10n, floor: 20n, resumeHi: null }), {
+    ranges: [],
+    next: null,
+  });
+});
+
+test("award page warnings: the sponsor's own wallet, or one wallet paid twice", () => {
+  const me = '0x' + 'a'.repeat(40);
+  const x = '0x' + 'b'.repeat(40);
+  const y = '0x' + 'c'.repeat(40);
+  assert.deepEqual(awardWarnings([{ wallet: x }, { wallet: y }], me), [
+    null,
+    null,
+  ]);
+  assert.deepEqual(
+    awardWarnings([{ wallet: me.toUpperCase().replace('0X', '0x') }], me),
+    ['This winner is your own wallet.'],
+  );
+  assert.deepEqual(
+    awardWarnings([{ wallet: x }, { wallet: y }, { wallet: x }], me),
+    [
+      'This wallet is paid more than once in this award.',
+      null,
+      'This wallet is paid more than once in this award.',
+    ],
+  );
+  assert.match(
+    FUND_WARNING,
+    /^Only fund a campaign you asked your own agent to create\./,
+  );
+  assert.match(AWARD_PROVENANCE, /this payment is final\.$/);
 });

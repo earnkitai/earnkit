@@ -3,7 +3,7 @@ export const metadata = { title: 'Sponsor terms · EarnKit' };
 const TERMS = [
   'Your deposit goes into its own escrow contract on Base. EarnKit cannot take it; the contract only pays it out as below.',
   'After the deadline you pick winners and amounts that add up to the whole prize (90% of the deposit). The other 10% is EarnKit’s fee, paid only at that moment.',
-  'If you have not picked winners 7 days after the deadline, EarnKit may pick the top entries and pay them, with public reasons.',
+  'If you have not picked winners 7 days after the deadline, EarnKit may propose the top entries, with public reasons; they can be paid 3 days later unless you award first.',
   'If no entry qualifies, or EarnKit removes a campaign that breaks these terms or the law, everything is refunded to your wallet, fee included.',
   'If nothing has been paid 60 days after the deadline, you can take the deposit back yourself.',
   'Your campaign text and picks are public. Do not post anything misleading, illegal, or that you have no right to post.',

@@ -299,32 +299,72 @@ export function awardSearchFrom(
   return latest > back ? latest - back : 0n;
 }
 
+/** At most this many `getLogs` calls per request; a longer search resumes on the next check. */
+export const LOG_CHUNKS_PER_CHECK = 6;
+
 /**
- * The clone's `Awarded` event (there is at most one), read from the estimated block at `endsAt`
- * to the latest block, in chunks. Null when it isn't in that range.
+ * The block ranges to search this time, newest first: down from `resumeHi` (where the previous
+ * check stopped) or `latest`, to `floor`, at most `maxChunks` ranges of `chunk` blocks. `next` is
+ * where the following check should resume, or null when this plan reaches `floor`. Pure; exported
+ * for tests.
  */
-export async function readAwardedLog(escrow: string, endsAt: number) {
+export function logScanPlan(a: {
+  latest: bigint;
+  floor: bigint;
+  resumeHi: bigint | null;
+  chunk?: bigint;
+  maxChunks?: number;
+}) {
+  const chunk = a.chunk ?? LOG_CHUNK;
+  const ranges: [bigint, bigint][] = [];
+  let hi = a.resumeHi !== null && a.resumeHi < a.latest ? a.resumeHi : a.latest;
+  while (
+    hi >= a.floor &&
+    ranges.length < (a.maxChunks ?? LOG_CHUNKS_PER_CHECK)
+  ) {
+    const lo = hi - chunk + 1n > a.floor ? hi - chunk + 1n : a.floor;
+    ranges.push([lo, hi]);
+    hi = lo - 1n;
+  }
+  return { ranges, next: hi >= a.floor ? hi : null };
+}
+
+/**
+ * The clone's `Awarded` event (there is at most one), searched newest first from the latest block
+ * (or `resumeHi`) down to the estimated block at `endsAt`, at most `LOG_CHUNKS_PER_CHECK` chunks
+ * per call. `{ log: null, next }` means not found yet: resume from `next` (null: the whole range
+ * was searched).
+ */
+export async function readAwardedLog(
+  escrow: string,
+  endsAt: number,
+  resumeHi: bigint | null,
+) {
   const c = escrowClient();
   const latest = await c.getBlock();
-  const from = awardSearchFrom(latest.number, latest.timestamp, endsAt);
-  for (let lo = from; lo <= latest.number; lo += LOG_CHUNK) {
-    const hi =
-      lo + LOG_CHUNK - 1n < latest.number ? lo + LOG_CHUNK - 1n : latest.number;
-    const logs = await c.getContractEvents({
+  const plan = logScanPlan({
+    latest: latest.number,
+    floor: awardSearchFrom(latest.number, latest.timestamp, endsAt),
+    resumeHi,
+  });
+  for (const [lo, hi] of plan.ranges) {
+    const [log] = await c.getContractEvents({
       address: escrow as `0x${string}`,
       abi: campaignAbi,
       eventName: 'Awarded',
       fromBlock: lo,
       toBlock: hi,
     });
-    const log = logs[0];
     if (log)
       return {
-        winners: [...log.args.winners!],
-        amounts: [...log.args.amounts!],
-        fee: log.args.fee!,
-        tx: log.transactionHash,
+        log: {
+          winners: [...log.args.winners!],
+          amounts: [...log.args.amounts!],
+          fee: log.args.fee!,
+          tx: log.transactionHash,
+        },
+        next: null,
       };
   }
-  return null;
+  return { log: null, next: plan.next };
 }

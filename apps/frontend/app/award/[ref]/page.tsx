@@ -6,6 +6,7 @@ import { formatExact } from '@/lib/earnkit/format-units';
 import { entryNames } from '@/lib/earnkit/leaderboard';
 import { checkChain, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
+import { AWARD_PROVENANCE, awardWarnings } from '@/lib/earnkit/sponsor-text';
 import AwardClient from './AwardClient';
 
 export const dynamic = 'force-dynamic';
@@ -26,13 +27,14 @@ export default async function AwardPage({
     console.error('[award] chain check failed:', err),
   );
   const row = await loadCampaign(ref);
-  if (!row.award_plan || !row.escrow_address) notFound();
+  if (!row.award_plan || !row.escrow_address || !row.sponsor_wallet) notFound();
   // Computed once: the amount shown for each winner must be the exact amount signed, not a
   // separately-rounded display of the same decimal string (see format-units.ts).
   const amountsUnits = row.award_plan.map((p) =>
     parseUnits(p.amount, row.token_decimals),
   );
   const names = await entryNames(row.award_plan.map((p) => p.entry_id));
+  const warnings = awardWarnings(row.award_plan, row.sponsor_wallet);
   // EarnKit's 10%, released to EarnKit by this same transaction.
   const { fee } = splitUnits(parseUnits(row.amount, row.token_decimals));
   const tx = awardTx(
@@ -52,7 +54,10 @@ export default async function AwardPage({
         <p className="mt-2 font-funnel-sans text-base text-ek-blue-light">
           Ended {formatDeadline(row.draft.ends_at)}
         </p>
-        <ul className="mt-8 space-y-3 font-funnel-sans text-ek-blue-light">
+        <p className="mt-8 rounded-2xl border border-ek-blue-soft px-5 py-4 font-funnel-sans text-base font-medium text-ek-white">
+          {AWARD_PROVENANCE}
+        </p>
+        <ul className="mt-6 space-y-3 font-funnel-sans text-ek-blue-light">
           {row.award_plan.map((p, i) => (
             <li key={p.entry_id}>
               <span className="text-ek-white">
@@ -60,10 +65,16 @@ export default async function AwardPage({
                 {row.token_symbol}
               </span>{' '}
               to{' '}
-              <span className="text-ek-white">
+              {/* EarnKit's own entry page only; never a link the builder wrote. */}
+              <a className="text-ek-white underline" href={`/p/${p.entry_id}`}>
                 {names.get(p.entry_id) ?? 'unknown project'}
-              </span>{' '}
+              </a>{' '}
               (entry #{p.entry_id}, {p.wallet}): {p.reason}
+              {warnings[i] ? (
+                <span className="mt-1 block font-medium text-red-400">
+                  {warnings[i]}
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>

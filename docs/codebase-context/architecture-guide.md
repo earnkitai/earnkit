@@ -145,8 +145,17 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   checked, so `taken_down` stays). `checkChain` runs from `status` (every state; an RPC failure
   becomes `chain_note`), the `/fund` and `/award` page loads, `POST /api/sponsor/[ref]/check` (no
   body; the pages poll it every 3 s for up to 2 minutes after sending) and `pnpm campaign sync`.
+  Chain reads are throttled: a ref is read at most once per 15 s (`chain_checks`, claimed
+  atomically so it holds across instances; checks in between reuse the stored result; the CLI
+  passes `fresh`), `/check` allows 60 requests per IP per minute (`rate-limit.ts`), and the
+  `Awarded` log search goes newest-first, at most 6 `getLogs` chunks per check, resuming from
+  `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
   `/fund` and `/award` show their action only while the connected wallet is the bound wallet
-  (`WalletGate`: "Connect 0xABCD…1234 to continue"). Award plans (`planAward`'s `excluded`) refuse
+  (`WalletGate`: "Connect 0xABCD…1234 to continue"). Because anyone's agent can bind someone
+  else's wallet and send them the link, `/fund` shows a fixed warning (only fund a campaign your
+  own agent created) and "This campaign can only be funded from <wallet>", and `/award` says the
+  winners were proposed by the creating agent, links each to EarnKit's own `/p/<id>` page, and
+  flags in red a winner that is the sponsor's wallet or a wallet paid twice. Award plans (`planAward`'s `excluded`) refuse
   any EarnKit escrow clone, the sponsor wallet, the token and the factory as a winner — the
   contract only excludes the clone itself and its own parties. EarnKit's score is shown to the
   sponsor only as a guide, never binding. **Operator fallback (contract v2.2 §4):** the operator

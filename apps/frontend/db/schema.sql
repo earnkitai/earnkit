@@ -146,3 +146,20 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
 -- reported tx hash. The operator's pending fallback winners live beside the sponsor's plan.
 ALTER TABLE sponsor_campaigns DROP COLUMN IF EXISTS fund_tx;
 ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS fallback_plan jsonb;  -- [{entry_id, wallet, amount, reason}]
+
+-- v2.2 T2 fix: public chain checks are throttled. One row per ref: when it was last read from the
+-- chain and what came back (reused for 15 s), and how far down the award-log search has got.
+CREATE TABLE IF NOT EXISTS chain_checks (
+  ref             text PRIMARY KEY,
+  checked_at      timestamptz NOT NULL,
+  result          jsonb,
+  award_scan_hi   text                              -- next block to search down from (decimal)
+);
+-- Fixed-window request counters (e.g. POST /api/sponsor/[ref]/check per IP). Old windows are
+-- deleted as new ones start.
+CREATE TABLE IF NOT EXISTS rate_windows (
+  key             text NOT NULL,
+  window_start    timestamptz NOT NULL,
+  count           integer NOT NULL,
+  PRIMARY KEY (key, window_start)
+);

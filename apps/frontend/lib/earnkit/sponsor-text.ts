@@ -17,3 +17,39 @@ export const DEADLINE_PASSED =
 export const DRAFT_EXPIRED =
   'This draft expired (unfunded for 7 days). Ask your agent to create a new campaign. ' +
   ALREADY_DEPOSITED;
+
+/**
+ * Fixed copy against the fund_url confidence scam: anyone's agent can create a draft bound to
+ * someone else's wallet and send them the link.
+ */
+export const FUND_WARNING =
+  'Only fund a campaign you asked your own agent to create. EarnKit never asks you to fund ' +
+  "someone else's campaign, and nobody from EarnKit will send you this link.";
+
+export const AWARD_PROVENANCE =
+  'These winners were proposed by the agent that created this campaign. Check every winner ' +
+  'before signing; this payment is final.';
+
+/**
+ * Per winner of an award plan, a red warning or null: the winner is the sponsor's own wallet, or
+ * the same wallet is paid more than once. Pure; exported for tests.
+ */
+export function awardWarnings(
+  plan: { wallet: string }[],
+  sponsorWallet: string | null,
+): (string | null)[] {
+  const count = new Map<string, number>();
+  for (const p of plan)
+    count.set(
+      p.wallet.toLowerCase(),
+      (count.get(p.wallet.toLowerCase()) ?? 0) + 1,
+    );
+  return plan.map((p) => {
+    const w = p.wallet.toLowerCase();
+    if (sponsorWallet && w === sponsorWallet.toLowerCase())
+      return 'This winner is your own wallet.';
+    if ((count.get(w) ?? 0) > 1)
+      return 'This wallet is paid more than once in this award.';
+    return null;
+  });
+}

@@ -42,25 +42,31 @@ export default function AwardClient({
     setBusy(false);
   }
 
+  // Progress and results stay visible even if the wallet switches accounts after sending.
   return (
-    <WalletGate wallet={sponsorWallet}>
-      <div className="mt-8 font-funnel-sans">
-        {sent ? null : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={award}
-            className="rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
-          >
-            {busy ? 'Working…' : 'Pay the winners'}
-          </button>
-        )}
-        {msg ? (
-          <p className="mt-4 text-sm text-ek-blue-light" role="status">
-            {msg}
-          </p>
-        ) : null}
-      </div>
-    </WalletGate>
+    <>
+      <WalletGate wallet={sponsorWallet}>
+        <div className="mt-8 font-funnel-sans">
+          {sent ? null : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={award}
+              className="rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
+            >
+              {busy ? 'Working…' : 'Pay the winners'}
+            </button>
+          )}
+        </div>
+      </WalletGate>
+      {msg ? (
+        <p
+          className="mt-4 font-funnel-sans text-sm text-ek-blue-light"
+          role="status"
+        >
+          {msg}
+        </p>
+      ) : null}
+    </>
   );
 }

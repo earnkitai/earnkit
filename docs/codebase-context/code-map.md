@@ -32,7 +32,7 @@ apps/frontend/
                                award tx from the bound sponsor wallet only; "Done" once /check reads it
   app/api/sponsor/[ref]/check/route.ts  POST (no body) -> checkChain: reads the chain for the bound
                                wallet's deposit or the escrow's award; {state, campaign_url, paid,
-                               problem}; 503 when the escrow isn't configured
+                               problem}; 60/min per IP (429); 503 when the escrow isn't configured
   app/components/wallet.ts     browser wallet: useAccount (eth_accounts + accountsChanged), sendAll
                                (from the bound wallet only), pollCheck (every 3 s, up to 2 min)
   app/components/WalletGate.tsx  shows a page's action only for the bound wallet, else "Connect
@@ -66,8 +66,12 @@ apps/frontend/
                                entities, TEXT_LIMITS), SponsorUrl, untrusted() (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions)
-    sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED) and the
+    sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED, the fixed
+                               FUND_WARNING / AWARD_PROVENANCE scam copy, awardWarnings: red flags
+                               for a winner that is the sponsor or a repeated wallet) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
+    rate-limit.ts(+test)       minimal Postgres fixed-window counter (rate_windows) + clientIp
+                               (rightmost x-forwarded-for); /check allows 60 per IP per minute
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the

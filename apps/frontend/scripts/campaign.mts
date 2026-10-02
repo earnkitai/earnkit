@@ -276,7 +276,9 @@ async function sponsorCommand() {
       ? [slug]
       : (
           await db<{ ref: string }[]>`
-          SELECT ref FROM sponsor_campaigns WHERE state IN ('draft', 'expired', 'live')
+          SELECT ref FROM sponsor_campaigns
+          WHERE state IN ('draft', 'live')
+            OR (state = 'expired' AND (draft->>'ends_at')::timestamptz > now() - interval '30 days')
           ORDER BY created_at`
         ).map((r) => r.ref);
     if (refs.length === 0)
@@ -285,7 +287,7 @@ async function sponsorCommand() {
     for (const ref of refs) {
       const before = await loadCampaign(ref);
       try {
-        const found = await checkChain(before);
+        const found = await checkChain(before, { fresh: true });
         const after = await loadCampaign(ref);
         const chain = after.escrow_address
           ? (await readEscrow(after.escrow_address)).state
@@ -297,7 +299,10 @@ async function sponsorCommand() {
             (found.fallbackExecutesAt
               ? ` · fallback pending, executable from ${formatDeadline(found.fallbackExecutesAt)}`
               : '') +
-            (found.fundingProblem ? ` · refused: ${found.fundingProblem}` : ''),
+            (found.fundingProblem
+              ? ` · refused: ${found.fundingProblem}`
+              : '') +
+            (found.chainNote ? ` · ${found.chainNote}` : ''),
         );
       } catch (err) {
         failed++;
@@ -546,7 +551,7 @@ async function sponsorCommand() {
       args: [wallets, amounts],
     }),
   );
-  await checkChain(row);
+  await checkChain(row, { fresh: true });
   console.log(
     `executed: ${hash} (database ${row.state} -> ${(await loadCampaign(slug!)).state})`,
   );

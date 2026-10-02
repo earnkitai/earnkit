@@ -69,47 +69,57 @@ export default function FundClient({
     setBusy(false);
   }
 
+  // Progress and results stay visible even if the wallet switches accounts after sending.
   return (
-    <WalletGate wallet={sponsorWallet}>
-      <div className="mt-8 font-funnel-sans">
-        {sent ? null : (
-          <>
-            <label className="flex items-start gap-3 text-sm text-ek-blue-light">
-              <input
-                type="checkbox"
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-1"
-              />
-              <span>
-                I agree to the{' '}
-                <a href="/sponsor-terms" target="_blank" className="underline">
-                  sponsor terms
-                </a>
-                .
-              </span>
-            </label>
-            <button
-              type="button"
-              disabled={!agreed || busy || tooLate}
-              onClick={fund}
-              className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
-            >
-              {busy ? 'Working…' : 'Deposit the pool'}
-            </button>
-            {tooLate ? (
-              <p className="mt-4 text-sm text-ek-white" role="status">
-                {DEADLINE_PASSED}
-              </p>
-            ) : null}
-          </>
-        )}
-        {msg ? (
-          <p className="mt-4 text-sm text-ek-blue-light" role="status">
-            {msg}
-          </p>
-        ) : null}
-      </div>
-    </WalletGate>
+    <>
+      <WalletGate wallet={sponsorWallet}>
+        <div className="mt-8 font-funnel-sans">
+          {sent ? null : (
+            <>
+              <label className="flex items-start gap-3 text-sm text-ek-blue-light">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  I agree to the{' '}
+                  <a
+                    href="/sponsor-terms"
+                    target="_blank"
+                    className="underline"
+                  >
+                    sponsor terms
+                  </a>
+                  .
+                </span>
+              </label>
+              <button
+                type="button"
+                disabled={!agreed || busy || tooLate}
+                onClick={fund}
+                className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
+              >
+                {busy ? 'Working…' : 'Deposit the pool'}
+              </button>
+              {tooLate ? (
+                <p className="mt-4 text-sm text-ek-white" role="status">
+                  {DEADLINE_PASSED}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      </WalletGate>
+      {msg ? (
+        <p
+          className="mt-4 font-funnel-sans text-sm text-ek-blue-light"
+          role="status"
+        >
+          {msg}
+        </p>
+      ) : null}
+    </>
   );
 }

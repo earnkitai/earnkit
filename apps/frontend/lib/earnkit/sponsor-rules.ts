@@ -537,7 +537,7 @@ export function statusReply(s: StatusFacts): {
           ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref: EarnKit reads the award onchain.`
           : s.entries === 0
             ? 'Nobody entered. Contact EarnKit to refund the pool (fee included).'
-            : `Call award with winners [{entry_id, amount, reason}] adding up to ${s.prize} exactly. If the sponsor doesn't award within 7 days of the deadline, EarnKit pays the top entries.`,
+            : `Call award with winners [{entry_id, amount, reason}] adding up to ${s.prize} exactly. If the sponsor hasn't picked winners 7 days after the deadline, EarnKit may propose the top entries; they can be paid 3 days later unless the sponsor awards first.`,
       };
     }
   }

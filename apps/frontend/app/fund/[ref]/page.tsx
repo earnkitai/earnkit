@@ -5,6 +5,7 @@ import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { checkChain, expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
+import { FUND_WARNING } from '@/lib/earnkit/sponsor-text';
 import FundClient from './FundClient';
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,7 @@ export default async function FundPage({
     return { fundingProblem: null };
   });
   const row = await loadCampaign(ref);
-  // Sign exactly the token the draft stored (and that confirmFunding verifies against), never a
+  // Sign exactly the token the draft stored (and that findFunding matches), never a
   // token looked up from the current config.
   const token = {
     symbol: row.token_symbol,
@@ -77,26 +78,42 @@ export default async function FundPage({
         </dl>
         <p className="mt-6 max-w-2xl font-funnel-sans text-sm font-light text-ek-blue-soft">
           The pool goes into its own escrow contract on Base. You pick the
-          winners after {formatDeadline(row.draft.ends_at)}. If you don&apos;t
-          within 7 days, EarnKit pays the top entries. If nobody qualifies,
-          everything comes back to you, fee included.
+          winners after {formatDeadline(row.draft.ends_at)}. If you haven&apos;t
+          picked winners 7 days after the deadline, EarnKit may propose the top
+          entries; they can be paid 3 days later unless you award first. If
+          nobody qualifies, everything comes back to you, fee included.
         </p>
-        <p className="mt-4 font-funnel-sans text-sm text-ek-blue-soft">
-          Deposit from the campaign&apos;s wallet:{' '}
-          <span className="text-ek-white">{row.sponsor_wallet}</span>. A deposit
-          from any other wallet doesn&apos;t count.
-        </p>
+        {row.sponsor_wallet ? (
+          <p className="mt-4 font-funnel-sans text-sm text-ek-blue-soft">
+            This campaign can only be funded from{' '}
+            <span className="text-ek-white">{row.sponsor_wallet}</span>.
+          </p>
+        ) : null}
+        {row.state === 'draft' ? (
+          <p
+            className="mt-8 rounded-2xl border border-red-400 px-5 py-4 font-funnel-sans text-base font-medium text-ek-white"
+            role="alert"
+          >
+            {FUND_WARNING}
+          </p>
+        ) : null}
         {fundingProblem ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
             {fundingProblem[0].toUpperCase()}
-            {fundingProblem.slice(1)} Contact EarnKit to have it refunded.
+            {fundingProblem.slice(1)} Contact EarnKit to have it refunded, then
+            ask your agent to create a new campaign.
+          </p>
+        ) : row.state === 'draft' && !row.sponsor_wallet ? (
+          <p className="mt-8 font-funnel-sans text-base text-ek-white">
+            This draft predates wallet binding; ask your agent to create a new
+            one.
           </p>
         ) : row.state === 'draft' && !sameChain ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
             This draft was made for another network; ask your agent to create a
             new one.
           </p>
-        ) : row.state === 'draft' ? (
+        ) : row.state === 'draft' && row.sponsor_wallet ? (
           <FundClient
             ref_={ref}
             sponsorWallet={row.sponsor_wallet}

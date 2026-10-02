@@ -274,7 +274,11 @@ type Reply = {
 };
 // Every sponsor reply, to check at the end that none mentions a tx hash.
 const replies: string[] = [];
-async function status(ref: string) {
+/** status as an agent sees it 15 s later: the per-ref chain-check cache has expired. */
+async function status(ref: string, { cached = false } = {}) {
+  // Age the last check past the 15 s window (exercises the claim of an existing row).
+  if (!cached)
+    await db`UPDATE chain_checks SET checked_at = checked_at - interval '20 seconds' WHERE ref = ${ref}`;
   const r = (await tools.sponsor_campaign(
     { action: 'status', ref },
     { installationId: inst },
@@ -375,6 +379,10 @@ check(
   'status before funding: still a draft (campaignOf is zero), naming the bound wallet',
 );
 await fund(draft.transactions);
+check(
+  (await status(draft.ref, { cached: true })).state === 'draft',
+  'a status within 15 s of the last one reuses that chain read (still a draft)',
+);
 const liveA = await status(draft.ref);
 check(
   liveA.state === 'live' &&
