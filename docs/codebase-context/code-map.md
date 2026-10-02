@@ -46,11 +46,19 @@ apps/frontend/
     programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
-                               escrow note, no verified_at), perWinnerUsd (tie-break amount)
+                               escrow note, no verified_at), perWinnerUsd (tie-break amount); programCard/
+                               programDetails (pure): sponsor campaigns get quoted title/name,
+                               generic rules and a neutral description, their own text only
+                               in sponsor_content
     submission.ts(+.test.ts)   prepareSubmission (pure)
     projects.ts                recordSubmission (campaigns: one entry per repo and per contract,
                                checked under a per-campaign advisory lock; stores repo_key, backed
                                by the unique index projects_campaign_repo_key)
+    untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, strip
+                               control/zero-width/bidi, collapse spaces, reject links/markdown/
+                               backticks/HTML, TEXT_LIMITS), untrusted() (zod), cleanProject
+                               (campaign entries), quoted() (sponsor names/titles in EarnKit's
+                               sentences), SAFETY_LINES (server instructions + tool descriptions)
     sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
