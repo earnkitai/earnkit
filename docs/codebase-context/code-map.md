@@ -24,7 +24,8 @@ apps/frontend/
                                list (links + status, no rank or wallets) until some entry is scored
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
   app/fund/[ref]/{page.tsx,FundClient.tsx}   sponsor deposit page: shows pool/prize/fee, sends
-                               approve + createCampaign from the sponsor's browser wallet
+                               approve + createCampaign from the sponsor's browser wallet (the open
+                               page disables the deposit 10 minutes before the deadline)
   app/award/[ref]/{page.tsx,AwardClient.tsx} sponsor award page: shows the stored plan (each winner's
                                project name, entry, wallet, reason) and EarnKit's fee, sends the
                                award tx from the sponsor's browser wallet; only "Done" after success
@@ -48,7 +49,10 @@ apps/frontend/
                                escrow note, no verified_at), perWinnerUsd (tie-break amount)
     submission.ts(+.test.ts)   prepareSubmission (pure)
     projects.ts                recordSubmission (campaigns: one entry per repo and per contract,
-                               checked under a per-campaign advisory lock)
+                               checked under a per-campaign advisory lock; stores repo_key, backed
+                               by the unique index projects_campaign_repo_key)
+    sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED) and the
+                               10-minute deadline margin (used by sponsor.ts and FundClient)
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
@@ -88,7 +92,8 @@ apps/frontend/
                                its receipt; re-confirm live; flag a second escrow for the same
                                ref), sponsorStatus (survives a scoring failure), prepareAward
                                (guarded UPDATE so it can't clobber an already-awarded plan)
-  db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*)
+  db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
+                               projects.repo_key + its partial unique index)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 award|refund|sync (sponsor campaigns; operator-signed, local only;

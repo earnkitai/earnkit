@@ -351,6 +351,61 @@ check(
 const [{ n: alphaRows }] = await db<{ n: string }[]>`
   SELECT count(*)::text AS n FROM projects WHERE program_id = ${live.program_id} AND name LIKE 'Alpha%'`;
 check(Number(alphaRows) === 1, 'the duplicate was not stored');
+
+// Review I-1: the http + www. + .git/ spelling is the same repo too.
+let httpDupErr = '';
+try {
+  await recordSubmission(
+    {
+      program_id: live.program_id,
+      project: {
+        name: 'Alpha http',
+        repo_url: 'http://www.GitHub.com/x/a.git/',
+      },
+      submission_data: {
+        payout_wallet: '0x00000000000000000000000000000000000000a8',
+      },
+    },
+    inst,
+  );
+} catch (err) {
+  httpDupErr = (err as Error).message;
+}
+check(
+  httpDupErr ===
+    `repo_url: already entered as "Alpha" (entry #${a.project_id}).`,
+  `the http://www. + .git/ spelling of the same repo is refused: ${httpDupErr}`,
+);
+const [{ repo_key: alphaKey }] = await db<{ repo_key: string }[]>`
+  SELECT repo_key FROM projects WHERE id = ${a.project_id}`;
+check(alphaKey === 'github.com/x/a', `the entry stores repo_key ${alphaKey}`);
+// Review M-1: the unique index catches a duplicate even when the friendly check can't see it
+// (a row with only repo_key set), and maps it to the same error.
+const [ghost] = await db<{ id: number }[]>`
+  INSERT INTO projects (program_id, name, repo_key) VALUES (${live.program_id}, 'Ghost', 'github.com/x/ghost')
+  RETURNING id`;
+let indexErr = '';
+try {
+  await recordSubmission(
+    {
+      program_id: live.program_id,
+      project: { name: 'Ghost again', repo_url: 'https://github.com/x/ghost' },
+      submission_data: {
+        payout_wallet: '0x00000000000000000000000000000000000000a7',
+      },
+    },
+    inst,
+  );
+} catch (err) {
+  indexErr = (err as Error).message;
+}
+check(
+  indexErr === `repo_url: already entered as "Ghost" (entry #${ghost.id}).`,
+  `the unique index refuses a duplicate the check missed, with the same error: ${indexErr}`,
+);
+const [{ n: ghostRows }] = await db<{ n: string }[]>`
+  SELECT count(*)::text AS n FROM projects WHERE program_id = ${live.program_id} AND repo_key = 'github.com/x/ghost'`;
+check(Number(ghostRows) === 1, 'still one row for that repo_key');
 // Two concurrent entries of one new repo: exactly one gets in.
 const racers = await Promise.allSettled(
   ['https://github.com/x/race', 'https://github.com/x/race/'].map(
@@ -568,12 +623,23 @@ check(
 const lateStatus = (await tools.sponsor_campaign(
   { action: 'status', ref: late.ref },
   { installationId: inst },
-)) as { state: string; show_to_sponsor: string; fund_url?: string };
+)) as {
+  state: string;
+  show_to_sponsor: string;
+  next_step?: string;
+  fund_url?: string;
+};
 check(
   lateStatus.state === 'expired' &&
     lateStatus.show_to_sponsor === DEADLINE_PASSED &&
     !lateStatus.fund_url,
   `status for it: ${JSON.stringify(lateStatus.show_to_sponsor)}`,
+);
+check(
+  lateStatus.next_step?.includes(
+    'If you sent the deposit, call status with ref and tx',
+  ) === true,
+  'its next_step tells the agent to pass tx if it sent the deposit',
 );
 const pastDraft = await createSponsorDraft(
   mkDraft('E2E past draft', '5', 3.5),
@@ -689,6 +755,16 @@ await wallet.waitForTransactionReceipt({ hash: offPlanHash });
 const offPlanResult = await confirmAward(draft3.ref, offPlanHash);
 check(offPlanResult.paid === 1, "off-plan award records the entry's prize");
 check(offPlanResult.flagged === 1, 'off-plan award flags the non-entry wallet');
+const offPlanStatus = (await tools.sponsor_campaign(
+  { action: 'status', ref: draft3.ref },
+  { installationId: inst },
+)) as { show_to_sponsor: string };
+check(
+  offPlanStatus.show_to_sponsor.startsWith(
+    'E2E off-plan award is awarded: 2 winners paid.',
+  ),
+  `status counts the off-plan non-entry winner as paid: ${JSON.stringify(offPlanStatus.show_to_sponsor)}`,
+);
 const [gammaRow] = await db<
   { prize_amount: string }[]
 >`SELECT prize_amount FROM projects WHERE id = ${gamma.project_id}`;

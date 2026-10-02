@@ -93,8 +93,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   automatically after ends_at; there is no scheduled re-check.
 - Campaigns: entries are checked at submission (contracts, when required, must have no code at
   the start block, via Base RPC; one entry per contract and one per repo — `normalizeRepoUrl`
-  lowercases and drops `www.`, a trailing `/` and `.git` — both checked inside the insert's
-  transaction under a per-campaign advisory lock; `requireContracts` is `true` for
+  lowercases and drops the scheme, `www.`, query, fragment, a GitHub `/tree/…` suffix, a trailing
+  `/` and `.git` — both checked inside the insert's transaction under a per-campaign advisory lock;
+  the normalized repo is stored as `projects.repo_key` with a partial unique index on
+  `(program_id, repo_key)`, and a violation maps to the same error; `requireContracts` is `true` for
   `kind: 'earnkit'`, `false` for `kind: 'sponsor'` — sponsor entries only need a payout wallet).
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
   (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
