@@ -31,7 +31,7 @@
   `docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md`.
 - **Sponsor campaign**: a `sponsor_campaigns` row, keyed by a random `ref` (bytes32), that walks
   `draft -> live -> awarded | refunded | taken_down` (or `expired` for an unfunded draft after 7
-  days). The sponsor deposits into a one-per-campaign escrow clone (`EarnKitCampaigns.createCampaign`)
+  days, or once its deadline is under 10 minutes away, since `createCampaign` would revert). The sponsor deposits into a one-per-campaign escrow clone (`EarnKitCampaigns.createCampaign`)
   that snapshots the factory's `operator`/`treasury` at creation, so a later factory rotation never
   touches an already-funded campaign. Going live, awarding, and refunding are never signed by
   EarnKit's server: it builds the transaction (`escrow.ts`), the sponsor (or, past the 7-day grace,
@@ -92,7 +92,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   them to the database (upsert replaces all three). Programs drop out of list_programs
   automatically after ends_at; there is no scheduled re-check.
 - Campaigns: entries are checked at submission (contracts, when required, must have no code at
-  the start block, via Base RPC; one entry per contract; `requireContracts` is `true` for
+  the start block, via Base RPC; one entry per contract and one per repo — `normalizeRepoUrl`
+  lowercases and drops `www.`, a trailing `/` and `.git` — both checked inside the insert's
+  transaction under a per-campaign advisory lock; `requireContracts` is `true` for
   `kind: 'earnkit'`, `false` for `kind: 'sponsor'` — sponsor entries only need a payout wallet).
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
   (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
@@ -101,6 +103,17 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   branch on `kind` instead). `pnpm campaign payout` runs locally only, refuses before the
   deadline, below min_score, or if already paid, and records prize_tx + prize_amount;
   list_programs then tells the winner.
+- Entry status (`entryStatus`, board and entry page): EarnKit kind "won / eligible / building";
+  sponsor kind "entered" (live), "won <amount>", "not picked" (awarded), "no winners — sponsor
+  refunded" (refunded); taken-down campaigns are 404. A sponsor board shows rank and wallets only
+  once some entry is scored, and "Your campaign entries" never says "#N of M" for an unscored
+  sponsor entry (it joins `sponsor_campaigns.state`). A closed EarnKit campaign with no entries
+  (Campaign #1) has no public page.
+- Human-facing dates use one format (`dates.ts` `formatDeadline`, "Oct 6, 2026, 06:51 UTC");
+  machine fields (`ends_at`, `deadline`) stay ISO.
+- "Fastest" and per-repo ordering in list_programs: quickest first; between equally quick fits,
+  the larger known per-winner award (`perWinnerUsd`: a USDC sponsor campaign's prize / winners,
+  or a program file's optional `max_award_usd`; unknown is 0).
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.
 - **Sponsor campaigns** (v2.1): the escrow (`contracts/`) is the only place a sponsor's funds
@@ -133,4 +146,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   refunds it with `pnpm campaign refund <ref> --escrow <address>` (DB unchanged). A deposit whose
   confirm never ran is repaired with `pnpm campaign sync <ref> --tx <hash>`; there is no automatic
   onchain lookup by ref yet (pre-mainnet). Program ids are `sponsor-<first 16 hex of the ref>`,
-  and `confirmFunding` refuses to publish over an existing program id.
+  and `confirmFunding` refuses to publish over an existing program id. Every `sponsor_campaign`
+  reply carries `show_to_sponsor` (shown to the sponsor as written) and, where there is one,
+  `next_step` for the agent; the text is built by pure functions in `sponsor-rules.ts`. Sponsor
+  programs make no `verified_at` claim: `get_program` says they are set by the sponsor and backed
+  by the escrow. The operator CLI turns every error into one readable line and checks the escrow
+  onchain before signing (fallback award only after `endsAt + 7 days`; refund only a Funded
+  escrow, naming who receives it).
