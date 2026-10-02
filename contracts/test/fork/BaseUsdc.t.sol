@@ -34,7 +34,8 @@ contract BaseUsdcForkTest is Test {
         vm.deal(sponsor, 1 ether);
         vm.startPrank(sponsor);
         USDC.approve(address(f), 1000e6);
-        EarnKitCampaign c = EarnKitCampaign(f.createCampaign(bytes32("r"), USDC, 1000e6, uint64(block.timestamp + 1 days)));
+        EarnKitCampaign c =
+            EarnKitCampaign(f.createCampaign(bytes32("r"), USDC, 1000e6, uint64(block.timestamp + 1 days)));
         vm.warp(block.timestamp + 1 days);
         address[] memory w = new address[](1);
         w[0] = makeAddr("winner");
@@ -44,5 +45,62 @@ contract BaseUsdcForkTest is Test {
         vm.stopPrank();
         assertEq(USDC.balanceOf(w[0]), 900e6);
         assertEq(USDC.balanceOf(treasury), 100e6);
+    }
+
+    /// Operator fallback on real USDC: propose after grace, a vetoed proposal never pays, a
+    /// re-proposal executes (by a stranger) after 72 h, and pays winners + treasury exactly.
+    function test_fallbackCycleWithRealUsdc() public {
+        vm.skip(block.chainid != 8453);
+        address sponsor = makeAddr("sponsor");
+        address treasury = makeAddr("treasury");
+        address op = makeAddr("op");
+        address guardian = makeAddr("p");
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(USDC);
+        uint256[] memory caps = new uint256[](1);
+        caps[0] = 10_000e6;
+        EarnKitCampaigns f = new EarnKitCampaigns(address(this), op, treasury, guardian, tokens, caps);
+        deal(address(USDC), sponsor, 1000e6);
+        // Same empirical workaround as test_fullFlowWithRealUsdc: give every pranked address a
+        // trace of ETH, or pranked calls on the fork revert with empty returndata.
+        vm.deal(sponsor, 1 ether);
+        vm.deal(op, 1 ether);
+        vm.deal(guardian, 1 ether);
+        vm.startPrank(sponsor);
+        USDC.approve(address(f), 1000e6);
+        EarnKitCampaign c =
+            EarnKitCampaign(f.createCampaign(bytes32("r"), USDC, 1000e6, uint64(block.timestamp + 1 days)));
+        vm.stopPrank();
+        assertEq(c.guardian(), guardian);
+
+        address[] memory w = new address[](2);
+        (w[0], w[1]) = (makeAddr("winner1"), makeAddr("winner2"));
+        uint256[] memory a = new uint256[](2);
+        (a[0], a[1]) = (600e6, 300e6);
+
+        vm.warp(c.endsAt() + 7 days);
+        vm.prank(op);
+        c.proposeFallback(w, a);
+        vm.prank(guardian);
+        c.vetoFallback();
+        vm.warp(block.timestamp + 72 hours);
+        vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+        c.executeFallback(w, a);
+
+        vm.prank(op);
+        c.proposeFallback(w, a);
+        vm.warp(block.timestamp + 72 hours - 1);
+        vm.expectRevert(EarnKitCampaign.FallbackNotReady.selector);
+        c.executeFallback(w, a);
+        vm.warp(block.timestamp + 1);
+        address stranger = makeAddr("stranger");
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        c.executeFallback(w, a);
+
+        assertEq(USDC.balanceOf(w[0]), 600e6);
+        assertEq(USDC.balanceOf(w[1]), 300e6);
+        assertEq(USDC.balanceOf(treasury), 100e6);
+        assertEq(USDC.balanceOf(address(c)), 0);
     }
 }
