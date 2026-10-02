@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
 import { awardTx } from '@/lib/earnkit/escrow';
+import { formatExact } from '@/lib/earnkit/format-units';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
 import AwardClient from './AwardClient';
 
@@ -16,10 +17,15 @@ export default async function AwardPage({
     ? await loadCampaign(ref).catch(() => null)
     : null;
   if (!row || !row.award_plan || !row.escrow_address) notFound();
+  // Computed once: the amount shown for each winner must be the exact amount signed, not a
+  // separately-rounded display of the same decimal string (see format-units.ts).
+  const amountsUnits = row.award_plan.map((p) =>
+    parseUnits(p.amount, row.token_decimals),
+  );
   const tx = awardTx(
     row.escrow_address as `0x${string}`,
     row.award_plan.map((p) => p.wallet),
-    row.award_plan.map((p) => parseUnits(p.amount, row.token_decimals)),
+    amountsUnits,
   );
   return (
     <div className="w-full pt-4">
@@ -31,10 +37,11 @@ export default async function AwardPage({
           {row.draft.title}
         </h1>
         <ul className="mt-8 space-y-3 font-funnel-sans text-ek-blue-light">
-          {row.award_plan.map((p) => (
+          {row.award_plan.map((p, i) => (
             <li key={p.entry_id}>
               <span className="text-ek-white">
-                {p.amount} {row.token_symbol}
+                {formatExact(amountsUnits[i], row.token_decimals)}{' '}
+                {row.token_symbol}
               </span>{' '}
               to entry #{p.entry_id} ({p.wallet}): {p.reason}
             </li>

@@ -3,14 +3,19 @@
 import { useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
 import { sendAll } from '@/app/components/wallet';
+import { walletErrorMessage } from '@/lib/earnkit/wallet-errors';
 
 export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  async function award() {
+  // Set only once `sendAll` has returned a hash, i.e. the award is already onchain. Once set,
+  // the only control offered re-POSTs this same hash — never re-sending `award`, which would
+  // revert (or pay again) rather than simply re-confirming.
+  const [sentTx, setSentTx] = useState<`0x${string}` | null>(null);
+
+  async function confirm(hash: `0x${string}`) {
     setBusy(true);
     try {
-      const hash = await sendAll([tx], setMsg);
       const res = await fetch(`/api/sponsor/${ref_}/confirm`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -19,21 +24,47 @@ export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
       const body = (await res.json()) as { paid?: number; error?: string };
       if (!res.ok) throw new Error(body.error ?? 'Could not confirm.');
       setMsg(`Paid ${body.paid} winner(s). Done.`);
+      setBusy(false);
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err));
+      setMsg(walletErrorMessage(err));
       setBusy(false);
     }
   }
+
+  async function award() {
+    setBusy(true);
+    setMsg('');
+    try {
+      const hash = await sendAll([tx], setMsg);
+      setSentTx(hash);
+      await confirm(hash);
+    } catch (err) {
+      setMsg(walletErrorMessage(err));
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mt-8 font-funnel-sans">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={award}
-        className="rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
-      >
-        {busy ? 'Working…' : 'Connect wallet and pay winners'}
-      </button>
+      {!sentTx ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={award}
+          className="rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
+        >
+          {busy ? 'Working…' : 'Connect wallet and pay winners'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => confirm(sentTx)}
+          className="rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
+        >
+          {busy ? 'Working…' : 'Retry confirmation'}
+        </button>
+      )}
       {msg ? (
         <p className="mt-4 text-sm text-ek-blue-light" role="status">
           {msg}

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
 import { findToken, fundTxs } from '@/lib/earnkit/escrow';
+import { formatExact } from '@/lib/earnkit/format-units';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import FundClient from './FundClient';
@@ -20,8 +21,9 @@ export default async function FundPage({
   const token = findToken(row.token_symbol)!;
   const units = parseUnits(row.amount, row.token_decimals);
   const { prize, fee } = splitUnits(units);
-  const f = (u: bigint) =>
-    (Number(u) / 10 ** row.token_decimals).toLocaleString('en-US');
+  // Exact — not Number(u).toLocaleString(), which rounds to 3 fraction digits and can show a
+  // different amount than the one actually signed onchain.
+  const f = (u: bigint) => formatExact(u, row.token_decimals);
 
   return (
     <div className="w-full pt-4">
