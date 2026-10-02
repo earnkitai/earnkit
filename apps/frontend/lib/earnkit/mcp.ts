@@ -4,6 +4,7 @@ import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
+import { escrowConfigProblem } from './escrow';
 import { SponsorError } from './sponsor-rules';
 import { LaunchError } from './tokens';
 import { type ToolContext, type ToolName, tools } from './tools';
@@ -223,6 +224,19 @@ export function createMcpServer(ctx: ToolContext) {
     (input) => run(ctx, 'launch_token', input),
   );
 
+  // Sponsor campaigns are offered only once EarnKit's escrow is configured on this deployment
+  // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 5 builder
+  // tools, so no agent is ever offered a tool that can only fail.
+  const escrowProblem = escrowConfigProblem();
+  if (escrowProblem && process.env.ESCROW_FACTORY_ADDRESS)
+    // Partially configured: say so in the logs (a typo in ESCROW_CHAIN, say), without exposing it.
+    console.error(`[sponsor] sponsor_campaign disabled: ${escrowProblem}`);
+  if (!escrowProblem) registerSponsorTool(server, ctx);
+
+  return server;
+}
+
+function registerSponsorTool(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     'sponsor_campaign',
     {
@@ -286,6 +300,4 @@ export function createMcpServer(ctx: ToolContext) {
     },
     (input) => run(ctx, 'sponsor_campaign', input),
   );
-
-  return server;
 }

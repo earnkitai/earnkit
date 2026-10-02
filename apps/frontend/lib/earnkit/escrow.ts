@@ -4,6 +4,7 @@ import {
   encodeFunctionData,
   erc20Abi,
   http,
+  isAddress,
   type TransactionReceipt,
 } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
@@ -48,12 +49,47 @@ const TOKENS: Record<Exclude<EscrowChain, 'local'>, TokenInfo[]> = {
   ],
 };
 
+export const ESCROW_CHAINS = ['base', 'base-sepolia', 'local'] as const;
+
+/** A readable configuration problem (never a TypeError from a bad env value). */
+export class EscrowConfigError extends Error {}
+
+/**
+ * What is wrong with the escrow env, or null when it's usable. Sponsor campaigns are only offered
+ * (the `sponsor_campaign` tool is only registered) when this is null. `ESCROW_CHAIN` defaults to
+ * `base` when unset.
+ */
+export function escrowConfigProblem(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const chain = env.ESCROW_CHAIN ?? 'base';
+  if (!(ESCROW_CHAINS as readonly string[]).includes(chain))
+    return `ESCROW_CHAIN must be one of ${ESCROW_CHAINS.join(', ')} (got ${JSON.stringify(chain)}).`;
+  const factory = env.ESCROW_FACTORY_ADDRESS;
+  if (!factory) return 'ESCROW_FACTORY_ADDRESS is not set.';
+  if (!isAddress(factory, { strict: false }))
+    return `ESCROW_FACTORY_ADDRESS is not an address (got ${JSON.stringify(factory)}).`;
+  if (chain === 'local') {
+    const t = env.ESCROW_LOCAL_TOKEN;
+    if (!t || !isAddress(t, { strict: false }))
+      return 'ESCROW_LOCAL_TOKEN must be set to the token address when ESCROW_CHAIN=local.';
+  }
+  return null;
+}
+
+/** Whether the escrow is configured, i.e. sponsor campaigns are open on this deployment. */
+export const escrowEnabled = (env: Record<string, string | undefined> = process.env) =>
+  escrowConfigProblem(env) === null;
+
+/** Shown to agents and sponsors when the escrow isn't configured yet. */
+export const SPONSOR_NOT_OPEN =
+  "Sponsor campaigns aren't open yet on EarnKit. Check back soon.";
+
 export function escrowConfig() {
+  const problem = escrowConfigProblem();
+  if (problem) throw new EscrowConfigError(`Escrow not configured: ${problem}`);
   const chain = (process.env.ESCROW_CHAIN ?? 'base') as EscrowChain;
-  const factory = process.env.ESCROW_FACTORY_ADDRESS as
-    | `0x${string}`
-    | undefined;
-  if (!factory) throw new Error('ESCROW_FACTORY_ADDRESS is not set');
+  const factory = process.env.ESCROW_FACTORY_ADDRESS as `0x${string}`;
   const tokens =
     chain === 'local'
       ? [

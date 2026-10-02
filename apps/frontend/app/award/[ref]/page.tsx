@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
-import { awardTx } from '@/lib/earnkit/escrow';
+import { awardTx, escrowEnabled } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
 import AwardClient from './AwardClient';
@@ -13,6 +13,8 @@ export default async function AwardPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
+  // No escrow configured on this deployment (sponsor campaigns not open yet): nothing to award.
+  if (!escrowEnabled()) notFound();
   const row = /^0x[0-9a-f]{64}$/.test(ref)
     ? await loadCampaign(ref).catch(() => null)
     : null;
