@@ -20,7 +20,45 @@ import type { Draft } from '../lib/earnkit/sponsor-rules';
  *   4. prepareAward refused once a campaign is already awarded
  *   5. the operator CLI commands (refund, sync, fallback award) against the same anvil
  */
-const RPC = process.env.ESCROW_RPC_URL!;
+function guardFail(message: string): never {
+  console.error(`FAIL: ${message}`);
+  process.exit(1);
+}
+
+// Safety guard, checked before any app module (lib/earnkit/db, lib/earnkit/sponsor, ...) is
+// imported: this script inserts rows and sends real transactions, so it must never run against
+// anything but a local anvil and a local Postgres, however it's invoked or whatever a
+// developer's apps/frontend/.env.local happens to point at.
+if (process.env.ESCROW_CHAIN !== 'local') {
+  guardFail(
+    `ESCROW_CHAIN must be "local" to run this script (got ${JSON.stringify(process.env.ESCROW_CHAIN ?? null)}).`,
+  );
+}
+const guardDbUrl = process.env.DATABASE_URL ?? '';
+let guardDbHost = '';
+try {
+  guardDbHost = new URL(guardDbUrl).hostname;
+} catch {
+  guardFail(`DATABASE_URL is missing or not a valid URL (got ${JSON.stringify(guardDbUrl)}).`);
+}
+if (guardDbHost !== 'localhost' && guardDbHost !== '127.0.0.1') {
+  guardFail(`DATABASE_URL must point at localhost or 127.0.0.1 (got host ${JSON.stringify(guardDbHost)}).`);
+}
+const guardRpcUrl = process.env.ESCROW_RPC_URL;
+if (!guardRpcUrl) guardFail('ESCROW_RPC_URL is not set.');
+const guardChainId: number = await fetch(guardRpcUrl, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
+})
+  .then((r) => r.json())
+  .then((j) => Number(j.result))
+  .catch((err) => guardFail(`Could not reach ESCROW_RPC_URL (${guardRpcUrl}): ${err}`));
+if (guardChainId !== 31337) {
+  guardFail(`ESCROW_RPC_URL must be a local anvil (chain id 31337); it reported ${guardChainId}.`);
+}
+
+const RPC = guardRpcUrl;
 const sponsorKey = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'; // anvil #1
 const operatorKey = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a'; // anvil #2 (OPERATOR at deploy)
 const treasury = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'; // anvil #3 (TREASURY at deploy)
@@ -208,6 +246,7 @@ const expired = await loadCampaign(draft2.ref);
 check(expired.state === 'expired', 'an 8-day-old unfunded draft lazily expires');
 const rescued = await confirmFunding(draft2.ref, draft2.fundTx);
 check(rescued.program_id.startsWith('sponsor-'), 'a valid receipt rescues an expired draft to live');
+check((await loadCampaign(draft2.ref)).state === 'live', "the rescued campaign's DB row is live");
 
 // ---------------------------------------------------------------------------
 // Campaign 3: off-plan award — the sponsor calls the escrow directly, bypassing prepareAward,
@@ -252,6 +291,16 @@ check(offPlanResult.paid === 1, "off-plan award records the entry's prize");
 check(offPlanResult.flagged === 1, 'off-plan award flags the non-entry wallet');
 const [gammaRow] = await db<{ prize_amount: string }[]>`SELECT prize_amount FROM projects WHERE id = ${gamma.project_id}`;
 check(gammaRow.prize_amount === '20', "Gamma's prize is recorded as 20");
+const [offPlanRow] = await db<
+  { award_onchain: { wallet: string; amount: string; entry_id: number | null }[] }[]
+>`SELECT award_onchain FROM sponsor_campaigns WHERE ref = ${draft3.ref}`;
+const flaggedWallet = offPlanRow.award_onchain.find(
+  (o) => o.wallet.toLowerCase() === nonEntryWallet.toLowerCase(),
+);
+check(
+  flaggedWallet?.entry_id === null,
+  'award_onchain flags the non-entry wallet with entry_id: null',
+);
 
 let afterAwardFails = false;
 try {

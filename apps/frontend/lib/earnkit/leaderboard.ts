@@ -29,13 +29,17 @@ export async function getCampaignBoard(slug: string) {
     }[]
   >`SELECT id, title, description, summary, ends_at, campaign, rules FROM programs WHERE id = ${slug}`;
   if (!program?.campaign) return null;
+  // A taken-down sponsor campaign is removed from public view immediately (refunded/awarded
+  // campaigns stay visible).
+  const [sponsorRow] = await sql()<
+    { state: string; award_onchain: OffPlanAward[] | null }[]
+  >`SELECT state, award_onchain FROM sponsor_campaigns WHERE program_id = ${slug}`;
+  if (sponsorRow?.state === 'taken_down') return null;
   const rows = await sql()<BoardRow[]>`
     SELECT id, name, score, token_url, prize_tx, payout_wallet, prize_amount, prize_reason,
       row_number() OVER (ORDER BY score DESC NULLS LAST, submitted_at)::int AS rank
     FROM projects WHERE program_id = ${slug} AND payout_wallet IS NOT NULL
     ORDER BY score DESC NULLS LAST, submitted_at`;
-  const [sponsorRow] = await sql()<{ award_onchain: OffPlanAward[] | null }[]>`
-    SELECT award_onchain FROM sponsor_campaigns WHERE program_id = ${slug}`;
   return {
     program: { ...program, campaign: program.campaign },
     rows,
@@ -74,7 +78,9 @@ export async function getProjectPage(id: number) {
         row_number() OVER (PARTITION BY p.program_id ORDER BY p.score DESC NULLS LAST, p.submitted_at)::int AS rank,
         count(*) OVER (PARTITION BY p.program_id)::int AS entries
       FROM projects p JOIN programs pr ON pr.id = p.program_id
+      LEFT JOIN sponsor_campaigns sc ON sc.program_id = pr.id
       WHERE pr.campaign IS NOT NULL AND p.payout_wallet IS NOT NULL
+        AND sc.state IS DISTINCT FROM 'taken_down'
     ) x WHERE x.id = ${id}`;
   return row ?? null;
 }

@@ -86,7 +86,8 @@ if (['award', 'refund', 'sync'].includes(command)) {
         abi: campaignAbi,
         functionName: 'refund',
       });
-      await escrowClient().waitForTransactionReceipt({ hash });
+      const receipt = await escrowClient().waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') fail(`refund reverted: ${hash}`);
       await db`UPDATE sponsor_campaigns SET state = ${reason === 'takedown' ? 'taken_down' : 'refunded'} WHERE ref = ${slug}`;
       if (row.program_id)
         await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
@@ -119,14 +120,20 @@ if (['award', 'refund', 'sync'].includes(command)) {
     if (!process.argv.includes('--execute'))
       console.log('Dry run. Add --execute to award (operator, after the grace period).');
     else {
-      await db`UPDATE sponsor_campaigns SET award_plan = ${db.json(plan as never)} WHERE ref = ${slug}`;
-      const hash = await signer().writeContract({
+      // 1. planAward already validated the winners above. 2. Build the signer now, so a missing
+      // OPERATOR_PRIVATE_KEY fails before anything is sent or stored. 3-4. Send the tx and require
+      // a successful receipt. 5. Only then persist the plan and record via confirmAward — the
+      // sponsor's stored plan must never be overwritten by a tx that never lands.
+      const wallet = signer();
+      const hash = await wallet.writeContract({
         address: escrow,
         abi: campaignAbi,
         functionName: 'award',
         args: [wallets as `0x${string}`[], amountsUnits],
       });
-      await escrowClient().waitForTransactionReceipt({ hash });
+      const receipt = await escrowClient().waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') fail(`award reverted: ${hash}`);
+      await db`UPDATE sponsor_campaigns SET award_plan = ${db.json(plan as never)} WHERE ref = ${slug}`;
       console.log(`awarded: ${hash}`, await confirmAward(slug, hash));
     }
   }
