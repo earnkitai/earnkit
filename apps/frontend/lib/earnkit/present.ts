@@ -16,6 +16,11 @@ export type Card = {
   closes_in_days?: number | null;
   /** The known per-winner award in USD (programs.ts perWinnerUsd); unknown sorts as 0. */
   max_award_usd?: number | null;
+  /**
+   * A sponsor campaign whose sponsor isn't domain-verified: listed, but never the "Fastest"
+   * headline or the closing offer, and after curated programs in "Also open".
+   */
+  unverified_sponsor?: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -56,9 +61,16 @@ export type YourRepos =
     }
   | { error: string };
 
-/** Programs where the builder only approves come first; tagged ones (long shot, needs a live product) last. */
+/**
+ * Programs where the builder only approves come first; tagged ones (long shot, needs a live
+ * product) and unverified sponsor campaigns last.
+ */
 function rank(card: Card) {
-  return (card.tag ? 2 : 0) + (card.each_time.length > 0 ? 1 : 0);
+  return (
+    (card.unverified_sponsor ? 4 : 0) +
+    (card.tag ? 2 : 0) +
+    (card.each_time.length > 0 ? 1 : 0)
+  );
 }
 
 /** One line per program: title, reward and deadline, flags, then what it needs from this repo. */
@@ -116,9 +128,12 @@ export function presentPrograms(
       .flatMap((f) => f.verdicts.map((v) => v.program_id))
       .filter((id) => byId.has(id)),
   );
+  // Anything can be listed, but only curated programs and verified sponsors are put forward.
+  const canLead = (id: string) =>
+    byId.has(id) && !byId.get(id)!.unverified_sponsor;
   const fastest = fits
     .flatMap((f) => f.verdicts.map((v) => ({ repo: f.repo, v })))
-    .filter(({ v }) => byId.has(v.program_id))
+    .filter(({ v }) => canLead(v.program_id))
     .sort((a, b) => order(a.v, b.v))[0];
   if (repos && 'error' in repos)
     sections.push(`Couldn't read your repos: ${repos.error}`);
@@ -126,11 +141,11 @@ export function presentPrograms(
     sections.push(
       `None of your ${repos.checked} repos fits an open program yet.`,
     );
-  else if (fastest)
+  else if (fitIds.size > 0)
     sections.push(
       `Your repos can enter ${fitIds.size} program${fitIds.size === 1 ? '' : 's'}.` +
         // Skip "fastest" when they're already on it; "You're working on" says it.
-        (workingOn.includes(fastest.v.program_id)
+        (!fastest || workingOn.includes(fastest.v.program_id)
           ? ''
           : ` Fastest: **${fastest.v.program}** with ${fastest.repo} (${fastest.v.note}).`),
     );
@@ -183,9 +198,10 @@ export function presentPrograms(
       `${shown.size > 0 ? '**Also open**\n' : ''}${rest.map((c) => line(c)).join('\n')}`,
     );
 
-  // One offer, not five equal options.
-  const next = working[0]
-    ? `Want me to keep going on ${working[0].title}?`
+  // One offer, not five equal options; never an unverified sponsor campaign.
+  const resume = working.find((c) => !c.unverified_sponsor);
+  const next = resume
+    ? `Want me to keep going on ${resume.title}?`
     : fastest
       ? `Want me to start on ${fastest.v.program}?`
       : "Pick one and I'll start.";

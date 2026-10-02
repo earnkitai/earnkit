@@ -262,3 +262,78 @@ test('equally quick fits: the larger known per-winner award is "Fastest" and lis
   });
   assert.match(quicker, /Fastest: \*\*micro\*\*/);
 });
+
+// M4: a sponsor campaign with every chain, existing work allowed and 1 winner fits most repos
+// with no effort and the largest per-winner award.
+const capture: Card = {
+  id: 'sponsor-x',
+  title: '"Official Base Grant"',
+  summary:
+    'by "Base" · Sponsored · unverified · 10,000 USDC pool in escrow · closes Oct 20',
+  tag: null,
+  each_time: [],
+  max_award_usd: 9000,
+  unverified_sponsor: true,
+};
+const captureFits = {
+  checked: 1,
+  fits: [
+    {
+      repo: 'tipjar',
+      repo_url: 'https://github.com/dev/tipjar',
+      verdicts: [
+        v('sponsor-x', 'likely', 'existing work counts', 'none'),
+        v('micro', 'after_step', 'needs a live link', 'minutes'),
+      ],
+    },
+  ],
+};
+
+test('unverified sponsor campaign: listed, but never "Fastest" or the closing offer', () => {
+  const text = presentPrograms([capture, ...cards], true, captureFits);
+  assert.match(
+    text,
+    /^Your repos can enter 2 programs\. Fastest: \*\*Micro\*\* with tipjar \(needs a live link\)\./,
+  );
+  assert.match(text, /Want me to start on Micro\?/);
+  // Still listed, with its label.
+  assert.match(
+    text,
+    /- \*\*"Official Base Grant"\*\* · by "Base" · Sponsored · unverified/,
+  );
+  assert.doesNotMatch(text, /Fastest: \*\*sponsor-x|start on sponsor-x/);
+});
+
+test('unverified sponsor campaign: the only fit gets no "Fastest" and no offer', () => {
+  const only = {
+    checked: 1,
+    fits: [
+      { ...captureFits.fits[0], verdicts: [captureFits.fits[0].verdicts[0]] },
+    ],
+  };
+  const text = presentPrograms([capture, ...cards], true, only);
+  assert.match(text, /^Your repos can enter 1 program\.\n\n/);
+  assert.doesNotMatch(text, /Fastest/);
+  assert.match(text, /Pick one and I'll start\./);
+  // Working on it: still not offered.
+  const working = presentPrograms([capture, ...cards], true, only, [
+    'sponsor-x',
+  ]);
+  assert.doesNotMatch(working, /keep going on/);
+  assert.match(working, /Pick one and I'll start\./);
+});
+
+test('verified sponsor campaign can be "Fastest" and the offer', () => {
+  const verified = { ...capture, unverified_sponsor: false };
+  const text = presentPrograms([verified, ...cards], true, captureFits);
+  assert.match(text, /Fastest: \*\*sponsor-x\*\* with tipjar/);
+  assert.match(text, /Want me to start on sponsor-x\?/);
+});
+
+test('unverified sponsor campaigns come after curated programs in "Also open"', () => {
+  const text = presentPrograms([capture, ...cards], true);
+  assert.match(
+    text,
+    /^- \*\*Micro\*\*.*\n- \*\*Grant\*\*.*\n- \*\*Big Hack\*\*.*\n- \*\*"Official Base Grant"\*\*/,
+  );
+});
