@@ -4,9 +4,11 @@ import {
   CampaignConfig as CampaignSchema,
   EntryError,
   minScore,
+  normalizeRepoUrl,
   parseAddresses,
   presentYourEntries,
   prizeText,
+  sameRepoEntry,
   validateEntry,
   wonText,
   type CampaignConfig,
@@ -163,4 +165,34 @@ test('entries show rank while running and the prize once paid; wins announce onc
   assert.match(section!, /Gamma: #12 of 12 in C1 · not scored yet/);
   assert.deepEqual(wins, ['you won 75,000,000 MINI with Beta']);
   assert.deepEqual(presentYourEntries([], null), { section: null, wins: [] });
+});
+
+test('normalizeRepoUrl: lowercase, no www., no trailing "/" or ".git"', () => {
+  const want = 'https://github.com/x/a';
+  for (const u of [
+    'https://github.com/x/a',
+    'https://GitHub.com/X/A',
+    'https://www.github.com/x/a',
+    'https://github.com/x/a/',
+    'https://github.com/x/a.git',
+    'https://github.com/x/a.git/',
+    '  https://www.github.com/x/a.git//  ',
+  ])
+    assert.equal(normalizeRepoUrl(u), want, u);
+  assert.equal(normalizeRepoUrl('www.github.com/x/a'), 'github.com/x/a');
+  // Other repos stay different.
+  assert.notEqual(normalizeRepoUrl('https://github.com/x/ab'), want);
+  assert.notEqual(normalizeRepoUrl('https://github.com/x/a-git'), want);
+});
+
+test('sameRepoEntry finds the entry with the same normalized repo, ignoring entries without one', () => {
+  const entries = [
+    { id: 1, name: 'Alpha', repo_url: null },
+    { id: 2, name: 'Beta', repo_url: 'https://github.com/x/b' },
+  ];
+  assert.equal(
+    sameRepoEntry('https://www.github.com/X/B.git/', entries)?.id,
+    2,
+  );
+  assert.equal(sameRepoEntry('https://github.com/x/c', entries), undefined);
 });

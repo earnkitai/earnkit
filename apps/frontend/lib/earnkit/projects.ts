@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { sql } from './db';
-import { EntryError, validateEntry } from './campaigns';
+import { EntryError, sameRepoEntry, validateEntry } from './campaigns';
 import { formatDeadline } from './dates';
 import { getProgramRow, isOpen } from './programs';
 import { ProjectInfo } from './submission';
@@ -32,16 +32,35 @@ export async function recordSubmission(
     entry = await validateEntry(input.submission_data, program, {
       requireContracts: program.campaign.kind === 'earnkit',
     });
-    if (entry.contracts.length > 0) {
-      const [taken] = await sql()<{ name: string }[]>`
-        SELECT name FROM projects
-        WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
-      if (taken)
-        throw new EntryError(`contracts: already entered by "${taken.name}".`);
-    }
   }
 
   return sql().begin(async (tx) => {
+    if (entry) {
+      // One entry per repo and per contract in a campaign. Entries for the same campaign are
+      // serialized, so two agents entering the same repo at once can't both get in.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'entry:' + program.id}))`;
+      if (repo_url) {
+        const same = sameRepoEntry(
+          repo_url,
+          await tx<{ id: number; name: string; repo_url: string | null }[]>`
+            SELECT id, name, repo_url FROM projects
+            WHERE program_id = ${program.id} AND repo_url IS NOT NULL`,
+        );
+        if (same)
+          throw new EntryError(
+            `repo_url: already entered as "${same.name}" (entry #${same.id}).`,
+          );
+      }
+      if (entry.contracts.length > 0) {
+        const [taken] = await tx<{ name: string }[]>`
+          SELECT name FROM projects
+          WHERE program_id = ${program.id} AND contracts && ${entry.contracts}::text[]`;
+        if (taken)
+          throw new EntryError(
+            `contracts: already entered by "${taken.name}".`,
+          );
+      }
+    }
     const [project] = await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
         program_id: input.program_id,

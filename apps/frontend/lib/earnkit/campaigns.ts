@@ -135,6 +135,33 @@ export function parseAddresses(value: unknown): string[] {
   return [...new Set(parts.map((p) => p.trim().toLowerCase()).filter(Boolean))];
 }
 
+/**
+ * A repo link in the form used to spot the same repo entered twice: trimmed, lowercased, without
+ * "www.", a trailing "/" or ".git" ("https://www.GitHub.com/x/a.git/" -> "https://github.com/x/a").
+ */
+export function normalizeRepoUrl(url: string) {
+  let u = url
+    .trim()
+    .toLowerCase()
+    .replace(/^((?:[a-z]+:)?\/\/)?www\./, '$1');
+  for (let prev = ''; prev !== u; ) {
+    prev = u;
+    u = u.replace(/\/+$/, '').replace(/\.git$/, '');
+  }
+  return u;
+}
+
+/** The entry already holding this repo in the same campaign, if any. Pure; exported for tests. */
+export function sameRepoEntry<T extends { repo_url: string | null }>(
+  repoUrl: string,
+  entries: T[],
+) {
+  const want = normalizeRepoUrl(repoUrl);
+  return entries.find(
+    (e) => e.repo_url !== null && normalizeRepoUrl(e.repo_url) === want,
+  );
+}
+
 export type Deployment = 'not_contract' | 'before_start' | 'during';
 
 /**
