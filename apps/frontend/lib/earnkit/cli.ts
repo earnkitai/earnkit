@@ -33,13 +33,16 @@ export function cliErrorLine(err: unknown): string {
   return msg.replace(/\s*\n\s*/g, ' ').trim();
 }
 
-/** Why OPERATOR_PRIVATE_KEY can't be used, or null. */
-export function operatorKeyProblem(key: string | undefined) {
-  if (!key) return 'Set OPERATOR_PRIVATE_KEY in your local shell.';
+/** Why a signing key from the env (`name`) can't be used, or null. */
+export function privateKeyProblem(name: string, key: string | undefined) {
+  if (!key) return `Set ${name} in your local shell.`;
   if (!/^0x[0-9a-fA-F]{64}$/.test(key))
-    return 'OPERATOR_PRIVATE_KEY must be 0x followed by 64 hex characters.';
+    return `${name} must be 0x followed by 64 hex characters.`;
   return null;
 }
+
+export const operatorKeyProblem = (key: string | undefined) =>
+  privateKeyProblem('OPERATOR_PRIVATE_KEY', key);
 
 /**
  * Whether the operator's fallback award is open at `now` (chain time, in seconds): the escrow

@@ -18,6 +18,7 @@ import {
   cliErrorLine,
   fallbackProblem,
   operatorKeyProblem,
+  privateKeyProblem,
 } from '../lib/earnkit/cli';
 import { formatDeadline } from '../lib/earnkit/dates';
 import { sql } from '../lib/earnkit/db';
@@ -404,12 +405,14 @@ async function main() {
     if (!process.argv.includes('--execute')) {
       console.log('\nDry run. Add --execute to send.');
     } else {
-      const key = process.env.PAYOUT_PRIVATE_KEY as `0x${string}` | undefined;
+      const key = process.env.PAYOUT_PRIVATE_KEY;
       if (!key)
         fail(
           'Set PAYOUT_PRIVATE_KEY in your local shell (the wallet holding the prize).',
         );
-      const account = privateKeyToAccount(key);
+      const keyProblem = privateKeyProblem('PAYOUT_PRIVATE_KEY', key);
+      if (keyProblem) fail(keyProblem);
+      const account = privateKeyToAccount(key as `0x${string}`);
       const balance = await reader.readContract({
         address: token,
         abi: erc20Abi,

@@ -10,6 +10,7 @@ import {
   cliErrorLine,
   fallbackProblem,
   operatorKeyProblem,
+  privateKeyProblem,
 } from './cli';
 
 test('cliErrorLine: our errors by message, viem by shortMessage, all on one line', () => {
@@ -70,4 +71,19 @@ test('fallbackProblem: refuses before endsAt + 7 days with the opening date', ()
 test('USAGE lists every command', () => {
   for (const c of ['score', 'rank', 'payout', 'award', 'refund', 'sync'])
     assert.match(USAGE, new RegExp(`\\n  ${c} +<`));
+});
+
+test('privateKeyProblem checks PAYOUT_PRIVATE_KEY the same way, by name', () => {
+  assert.equal(
+    privateKeyProblem('PAYOUT_PRIVATE_KEY', '0x1234'),
+    'PAYOUT_PRIVATE_KEY must be 0x followed by 64 hex characters.',
+  );
+  assert.equal(
+    privateKeyProblem('PAYOUT_PRIVATE_KEY', undefined),
+    'Set PAYOUT_PRIVATE_KEY in your local shell.',
+  );
+  assert.equal(
+    privateKeyProblem('PAYOUT_PRIVATE_KEY', `0x${'1'.repeat(64)}`),
+    null,
+  );
 });
