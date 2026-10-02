@@ -33,10 +33,10 @@
   `draft -> live -> awarded | refunded | taken_down` (or `expired` for an unfunded draft after 7
   days, or once its deadline is under 10 minutes away, since `createCampaign` would revert). The sponsor deposits into a one-per-campaign escrow clone (`EarnKitCampaigns.createCampaign`)
   that snapshots the factory's `operator`/`treasury` at creation, so a later factory rotation never
-  touches an already-funded campaign. Going live, awarding, and refunding are never signed by
-  EarnKit's server: it builds the transaction (`escrow.ts`), the sponsor (or, past the 7-day grace,
-  the operator) signs it in their own wallet, and EarnKit only confirms what the receipt proves
-  happened (`sponsor.ts`'s `confirmFunding`/`confirmAward`). A `live` sponsor campaign is also a
+  touches an already-funded campaign. Each draft is bound to its `sponsor_wallet` at create.
+  Going live, awarding, and refunding are never signed by EarnKit's server: it builds the
+  transaction (`escrow.ts`), the sponsor signs it in their own wallet, and EarnKit reads the
+  outcome from the chain (`sponsor.ts`'s `findFunding`/`findAward`, run by `checkChain`). A `live` sponsor campaign is also a
   `programs` row (`source = 'sponsor'`), so it shows up in list_programs/get_program/record_submission
   like any other campaign.
 
@@ -123,38 +123,46 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   The `sponsor_campaign` tool is registered only when the escrow is configured
   (`escrowConfigProblem()` is null: `ESCROW_FACTORY_ADDRESS` set, `ESCROW_CHAIN` one of
   base|base-sepolia|local); otherwise the server has the 5 builder tools, `/fund` and `/award`
-  404, and the confirm API returns 503. Each campaign is a clone (`EarnKitCampaigns.createCampaign`) that snapshots
-  the factory's `operator` and `treasury` at creation, so a factory owner who later rotates either
-  one can't redirect an already-funded campaign's payouts or fees. Funding and awards are both
-  confirmed from a transaction receipt, never trusted from the caller: `confirmFunding` and
-  `confirmAward` run inside one row-locked (`FOR UPDATE`) DB transaction, so two concurrent
-  confirms for the same `ref` serialize and the second sees the row already updated and returns
-  the same result instead of publishing or recording twice. `confirmFunding` also rescues a draft
-  that lazily expired (`loadCampaign`, 7 days unfunded) if the receipt proves it was actually
-  funded — the deposit is real even though EarnKit's draft TTL had already passed. A sponsor can
-  also award the escrow directly, bypassing EarnKit's prepared plan (e.g. straight through a
-  wallet or block explorer); `confirmAward` then falls back to `mapOffPlanAward`, matching each
-  onchain winner to an entry by payout wallet and flagging any wallet that isn't one
-  (`award_onchain`, `entry_id: null`) rather than failing the confirmation. A draft becomes a
-  `programs` row with `source = 'sponsor'` once funded; EarnKit's score is shown to the sponsor
-  only as a guide, never binding. The operator (`pnpm campaign award|refund|sync`,
-  `OPERATOR_PRIVATE_KEY`) acts only from a local shell, never from Railway: a fallback award after
-  the sponsor misses the 7-day grace period, or a refund (no-eligible-entries / takedown).
-  Every reported tx goes through `confirmTx`, which routes by what the receipt contains
-  (`routeReceipt`: a `CampaignCreated` for this ref is funding, an `Awarded` from the tracked
-  escrow is an award), so re-confirming a live campaign with its funding tx returns the live
-  result. Refs are unique per sender onchain, so a second wallet can fund the same draft:
-  `fundingDecision` reports that second escrow by address instead of succeeding, and the operator
-  refunds it with `pnpm campaign refund <ref> --escrow <address>` (DB unchanged). A deposit whose
-  confirm never ran is repaired with `pnpm campaign sync <ref> --tx <hash>`; there is no automatic
-  onchain lookup by ref yet (pre-mainnet). Program ids are `sponsor-<first 16 hex of the ref>`,
-  and `confirmFunding` refuses to publish over an existing program id. Every `sponsor_campaign`
+  404, and the check API returns 503. Each campaign is a clone (`EarnKitCampaigns.createCampaign`) that snapshots
+  the factory's `operator`, `treasury` and `pauser` (the clone's `guardian`) at creation, so a
+  factory owner who later rotates any of them can't redirect an already-funded campaign's payouts
+  or fees. **Wallet binding (v2.2 §1):** `create` requires `sponsor_wallet` (EOA or contract;
+  mixed case must be a valid checksum; stored lowercase in `sponsor_campaigns.sponsor_wallet`).
+  Funding and awards are found by reading the chain, never from a reported tx hash:
+  `findFunding` reads `factory.campaignOf(sponsor_wallet, ref)` (only the factory writes it, so a
+  non-zero entry is a genuine clone) and requires the clone's sponsor, token, `prize + fee` and
+  `endsAt` to equal the draft's and its state to be Funded (`matchFunding`/`fundingMismatch`); a
+  match publishes the program in one row-locked (`FOR UPDATE`) transaction (`publishFunding`), so
+  concurrent checks publish once; a lazily-expired draft is still rescued. A deposit from the
+  bound wallet with other terms is refused and named to the sponsor (status `fundingProblem`),
+  and the operator refunds it with `pnpm campaign refund <ref> --escrow <address>`. Another
+  wallet's deposit for the same ref (refs are unique per sender) is its own escrow: EarnKit never
+  looks at it, so front-running can't hijack or block a campaign. `findAward` reads the clone's
+  `state()`: Awarded → its `Awarded` log, searched from the estimated block at `endsAt` (2 s
+  blocks, 300 blocks slack, 9,000-block chunks; `readAwardedLog`), recorded against the sponsor's
+  plan, else the operator's `fallback_plan`, else off-plan (`mapOffPlanAward`, non-entry wallets
+  flagged in `award_onchain`); Refunded → the row is marked `refunded` (only `live` rows are
+  checked, so `taken_down` stays). `checkChain` runs from `status` (every state; an RPC failure
+  becomes `chain_note`), the `/fund` and `/award` page loads, `POST /api/sponsor/[ref]/check` (no
+  body; the pages poll it every 3 s for up to 2 minutes after sending) and `pnpm campaign sync`.
+  `/fund` and `/award` show their action only while the connected wallet is the bound wallet
+  (`WalletGate`: "Connect 0xABCD…1234 to continue"). Award plans (`planAward`'s `excluded`) refuse
+  any EarnKit escrow clone, the sponsor wallet, the token and the factory as a winner — the
+  contract only excludes the clone itself and its own parties. EarnKit's score is shown to the
+  sponsor only as a guide, never binding. **Operator fallback (contract v2.2 §4):** the operator
+  can't award; `pnpm campaign fallback propose <ref> --winners …` (`OPERATOR_PRIVATE_KEY`, after
+  `endsAt + 7 days`, same plan checks; stores `fallback_plan`, prints the 72 h execute time),
+  `fallback execute <ref>` (after the delay; checks the stored plan hashes to the onchain
+  proposal) and `fallback veto <ref>` (`GUARDIAN_PRIVATE_KEY`; sticky: no re-propose after it).
+  Status says when a fallback is pending and when it becomes payable. All signing keys live in a
+  local shell, never on Railway. Program ids are `sponsor-<first 16 hex of the ref>`, and
+  `publishFunding` refuses to publish over an existing program id. Every `sponsor_campaign`
   reply carries `show_to_sponsor` (shown to the sponsor as written) and, where there is one,
-  `next_step` for the agent; the text is built by pure functions in `sponsor-rules.ts`. Sponsor
-  programs make no `verified_at` claim: `get_program` says they are set by the sponsor and backed
-  by the escrow. The operator CLI turns every error into one readable line and checks the escrow
-  onchain before signing (fallback award only after `endsAt + 7 days`; refund only a Funded
-  escrow, naming who receives it).
+  `next_step` for the agent, with no tx hashes; the text is built by pure functions in
+  `sponsor-rules.ts`. Sponsor programs make no `verified_at` claim: `get_program` says they are
+  set by the sponsor and backed by the escrow. The operator CLI turns every error into one
+  readable line (contract reverts named, e.g. "…reverted: NotAllowed.") and checks the escrow
+  onchain before signing (refund only a Funded escrow, naming who receives it).
 - **Third-party text is data** (v2.2 §2): anything a sponsor or builder writes reaches other
   people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
   an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,
