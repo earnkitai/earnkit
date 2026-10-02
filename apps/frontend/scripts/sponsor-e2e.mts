@@ -19,6 +19,10 @@ import type { Draft } from '../lib/earnkit/sponsor-rules';
  *   3. an off-plan award (the sponsor calls the escrow directly) with a non-entry wallet
  *   4. prepareAward refused once a campaign is already awarded
  *   5. the operator CLI commands (refund, sync, fallback award) against the same anvil
+ *   6. re-confirming a live campaign with its own funding tx (confirmTx and the status tool)
+ *   7. a second deposit for the same ref from another wallet: a readable error naming the
+ *      untracked escrow, then `campaign refund --escrow <address>` returns it
+ *   8. `campaign sync <ref> --tx <hash>` repairing an expired, funded draft to live
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -87,7 +91,9 @@ const {
   confirmAward,
   fundingFromReceipt,
   loadCampaign,
+  confirmTx,
 } = await import('../lib/earnkit/sponsor');
+const { tools } = await import('../lib/earnkit/tools');
 const { recordSubmission } = await import('../lib/earnkit/projects');
 const { presentYourEntries } = await import('../lib/earnkit/campaigns');
 const db = sql();
@@ -238,6 +244,81 @@ const [{ n: programRows }] = await db<{ n: string }[]>`
 check(Number(programRows) === 1, 'exactly one programs row exists after the concurrent confirm');
 
 // ---------------------------------------------------------------------------
+// Re-confirm a live campaign with its funding tx (I-2): routed as funding by the receipt's
+// contents, not sent to confirmAward because the row is live.
+// ---------------------------------------------------------------------------
+const reconfirm = await confirmTx(draftC.ref, draftC.fundTx);
+check(
+  reconfirm.confirmed === 'funding' && 'program_id' in reconfirm && reconfirm.program_id === c1.program_id,
+  're-confirming a live campaign with its funding tx returns the live result',
+);
+const viaTool = (await tools.sponsor_campaign(
+  { action: 'status', ref: draftC.ref, tx: draftC.fundTx },
+  { installationId: inst },
+)) as { state: string; campaign_url?: string };
+check(
+  viaTool.state === 'live' && viaTool.campaign_url?.endsWith(`/campaigns/${c1.program_id}`) === true,
+  'status with the funding tx on a live campaign reports it live (no award error)',
+);
+
+// ---------------------------------------------------------------------------
+// A second deposit for campaign C's ref from another wallet (anvil #4): an untracked escrow.
+// ---------------------------------------------------------------------------
+const sponsor2 = createWalletClient({
+  account: privateKeyToAccount('0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a'), // anvil #4
+  chain: foundry,
+  transport: http(RPC),
+}).extend(publicActions);
+await sponsor2.waitForTransactionReceipt({
+  hash: await wallet.writeContract({
+    address: token,
+    abi: [
+      {
+        type: 'function',
+        name: 'mint',
+        inputs: [{ type: 'address' }, { type: 'uint256' }],
+        outputs: [],
+        stateMutability: 'nonpayable',
+      },
+    ],
+    functionName: 'mint',
+    args: [sponsor2.account.address, parseUnits('10', 6)],
+  }),
+});
+let secondTx: `0x${string}` = '0x';
+for (const tx of draftC.draft.transactions) {
+  secondTx = await sponsor2.sendTransaction({ to: tx.to, data: tx.data });
+  await sponsor2.waitForTransactionReceipt({ hash: secondTx });
+}
+const { readCreated } = await import('../lib/earnkit/escrow');
+const secondEscrow = readCreated(await sponsor2.getTransactionReceipt({ hash: secondTx }))!.campaign.toLowerCase();
+let secondErr = '';
+try {
+  await confirmTx(draftC.ref, secondTx);
+} catch (err) {
+  secondErr = (err as Error).message;
+}
+check(
+  secondErr.includes('second escrow') && secondErr.toLowerCase().includes(secondEscrow),
+  'a second deposit from another wallet is reported, naming the untracked escrow',
+);
+const rowCAfter = await loadCampaign(draftC.ref);
+check(
+  rowCAfter.state === 'live' && rowCAfter.escrow_address !== secondEscrow,
+  'the second deposit does not change the tracked campaign',
+);
+const s2Before = await wallet.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [sponsor2.account.address] });
+const refundEscrowOut =
+  runCampaignCli('refund', draftC.ref, '--escrow', secondEscrow, '--reason', 'no-eligible', '--execute') ?? '';
+check(
+  /refunded untracked escrow .* \(database unchanged\): 0x/.test(refundEscrowOut),
+  '`campaign refund --escrow` refunds the untracked escrow',
+);
+const s2After = await wallet.readContract({ address: token, abi: erc20Abi, functionName: 'balanceOf', args: [sponsor2.account.address] });
+check(s2After - s2Before === parseUnits('10', 6), 'the second depositor gets the full 10 USDC back');
+check((await loadCampaign(draftC.ref)).state === 'live', 'campaign C stays live after the untracked refund');
+
+// ---------------------------------------------------------------------------
 // Campaign 2: an expired draft, funded late, rescued by the receipt (binding item 2).
 // ---------------------------------------------------------------------------
 const draft2 = await createAndFund(mkDraft('E2E expired-rescue', '10', 3.5));
@@ -247,6 +328,19 @@ check(expired.state === 'expired', 'an 8-day-old unfunded draft lazily expires')
 const rescued = await confirmFunding(draft2.ref, draft2.fundTx);
 check(rescued.program_id.startsWith('sponsor-'), 'a valid receipt rescues an expired draft to live');
 check((await loadCampaign(draft2.ref)).state === 'live', "the rescued campaign's DB row is live");
+
+// ---------------------------------------------------------------------------
+// Campaign 6: an expired, funded draft whose confirm never ran, repaired by
+// `campaign sync <ref> --tx <hash>` (I-3).
+// ---------------------------------------------------------------------------
+const draft6 = await createAndFund(mkDraft('E2E sync-repair', '5', 3.5));
+await db`UPDATE sponsor_campaigns SET created_at = created_at - interval '8 days' WHERE ref = ${draft6.ref}`;
+check((await loadCampaign(draft6.ref)).state === 'expired', 'campaign 6 is an expired draft before repair');
+const syncTxOut = runCampaignCli('sync', draft6.ref, '--tx', draft6.fundTx) ?? '';
+check(/repaired: funding confirmed \(database expired -> live\)/.test(syncTxOut), '`campaign sync --tx` repairs the expired, funded draft');
+check(/chain says: live/.test(syncTxOut), '`campaign sync --tx` then prints the chain state');
+const row6 = await loadCampaign(draft6.ref);
+check(row6.state === 'live' && row6.fund_tx === draft6.fundTx, "campaign 6's DB row is live with its fund_tx");
 
 // ---------------------------------------------------------------------------
 // Campaign 3: off-plan award — the sponsor calls the escrow directly, bypassing prepareAward,
