@@ -1,22 +1,38 @@
 import { BaseError, UserRejectedRequestError } from 'viem';
 
 /**
+ * Walks `err`'s `cause` chain (not just `BaseError`'s own chain, so this also sees through a
+ * plain wrapper like `SendAllError` in app/components/wallet.ts) looking for a user rejection:
+ * either viem's `UserRejectedRequestError`, or any cause carrying RPC error code 4001.
+ */
+function isRejection(err: unknown): boolean {
+  let cur: unknown = err;
+  while (cur) {
+    if (cur instanceof UserRejectedRequestError) return true;
+    if (
+      typeof cur === 'object' &&
+      'code' in cur &&
+      (cur as { code?: unknown }).code === 4001
+    )
+      return true;
+    cur =
+      typeof cur === 'object' && cur !== null && 'cause' in cur
+        ? (cur as { cause?: unknown }).cause
+        : undefined;
+  }
+  return false;
+}
+
+/**
  * Turns a wallet/viem error into a short, readable message for the fund/award pages. `viem`'s
  * `BaseError.message` is a multi-line block ("Request Arguments:", "Docs:", "Version:", …);
  * `shortMessage` is the one-line summary meant for people. A rejection in the wallet (the user
- * clicked "Reject", or any cause in the chain carries RPC error code 4001) gets a plain, specific
- * message instead of viem's generic one.
+ * clicked "Reject", anywhere in the cause chain) gets a plain, specific message instead of
+ * viem's generic one or a wrapping error's own message.
  */
 export function walletErrorMessage(err: unknown): string {
-  if (err instanceof BaseError) {
-    const rejected = err.walk(
-      (e) =>
-        e instanceof UserRejectedRequestError ||
-        (e as { code?: unknown }).code === 4001,
-    );
-    if (rejected) return 'You cancelled in your wallet.';
-    return err.shortMessage;
-  }
+  if (isRejection(err)) return 'You cancelled in your wallet.';
+  if (err instanceof BaseError) return err.shortMessage;
   if (err instanceof Error) return err.message;
   return String(err);
 }

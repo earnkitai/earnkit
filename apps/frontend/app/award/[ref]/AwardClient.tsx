@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
-import { sendAll } from '@/app/components/wallet';
+import { SendAllError, sendAll } from '@/app/components/wallet';
+import { decideRetry } from '@/lib/earnkit/send-retry';
 import { walletErrorMessage } from '@/lib/earnkit/wallet-errors';
 
 export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
@@ -39,6 +40,14 @@ export default function AwardClient({ ref_, tx }: { ref_: string; tx: RawTx }) {
       setSentTx(hash);
       await confirm(hash);
     } catch (err) {
+      // sendAll failed partway through. The award tx is a single step, so if its hash was
+      // submitted and isn't a confirmed revert, its outcome is unknown (it may have landed) —
+      // the only safe move is to let the sponsor retry confirming that same hash, never resend
+      // `award`.
+      if (err instanceof SendAllError) {
+        const decision = decideRetry(err.sent, 1, err.reverted);
+        if (decision.action === 'confirm') setSentTx(decision.hash);
+      }
       setMsg(walletErrorMessage(err));
       setBusy(false);
     }

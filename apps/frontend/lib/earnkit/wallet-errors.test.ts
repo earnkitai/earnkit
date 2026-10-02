@@ -37,3 +37,27 @@ test('a raw RPC code 4001 in the cause chain also counts as a rejection', () => 
   const wrapped = new BaseError('Could not send transaction.', { cause });
   assert.equal(walletErrorMessage(wrapped), 'You cancelled in your wallet.');
 });
+
+test('a rejection is still found when the wrapper itself is not a BaseError (e.g. SendAllError)', () => {
+  class SendAllError extends Error {}
+  const rejection = new UserRejectedRequestError(
+    new Error('User rejected the request.'),
+  );
+  const wrapped = new SendAllError('Step 1 could not be sent.', {
+    cause: rejection,
+  });
+  assert.equal(walletErrorMessage(wrapped), 'You cancelled in your wallet.');
+});
+
+test("a non-BaseError wrapper without a rejection keeps its own message, not its cause's", () => {
+  class SendAllError extends Error {}
+  const cause = new Error('fetch failed: ECONNRESET');
+  const wrapped = new SendAllError(
+    "Step 2 was sent but couldn't be confirmed yet (0xabc).",
+    { cause },
+  );
+  assert.equal(
+    walletErrorMessage(wrapped),
+    "Step 2 was sent but couldn't be confirmed yet (0xabc).",
+  );
+});

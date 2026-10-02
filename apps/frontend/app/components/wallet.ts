@@ -18,6 +18,39 @@ const CHAINS: Record<number, Chain> = {
   31337: foundry,
 };
 
+/**
+ * Thrown by `sendAll` when the sequence doesn't complete. Carries every hash the wallet actually
+ * returned (`sent`, in order), so a caller can tell a step that never reached the chain at all
+ * from one whose outcome is merely unknown (e.g. the server's RPC node lagging the wallet's) —
+ * see `decideRetry` in `lib/earnkit/send-retry.ts`, which turns this into a retry decision.
+ */
+export class SendAllError extends Error {
+  /** Hashes submitted to the wallet so far, in order (`sendTransaction` resolved for each). */
+  readonly sent: `0x${string}`[];
+  /** `sent.at(-1)`, or `null` if nothing was submitted yet. */
+  readonly lastHash: `0x${string}` | null;
+  /**
+   * Whether `lastHash`'s transaction is known, for a fact, to have reverted onchain. `false`
+   * when its outcome is unknown (waiting for the receipt itself errored) rather than confirmed
+   * failed — an unknown outcome must not be treated the same as a safe-to-retry revert.
+   */
+  readonly reverted: boolean;
+
+  constructor(
+    message: string,
+    opts: { cause?: unknown; sent: `0x${string}`[]; reverted: boolean },
+  ) {
+    super(
+      message,
+      opts.cause !== undefined ? { cause: opts.cause } : undefined,
+    );
+    this.name = 'SendAllError';
+    this.sent = opts.sent;
+    this.lastHash = opts.sent.at(-1) ?? null;
+    this.reverted = opts.reverted;
+  }
+}
+
 /** Connects the browser wallet, switches chain, sends each tx in order, waits for each. */
 export async function sendAll(
   txs: RawTx[],
@@ -40,21 +73,45 @@ export async function sendAll(
       await wallet.switchChain({ id: chain.id });
     });
   }
-  let last: `0x${string}` = '0x';
+  const sent: `0x${string}`[] = [];
   for (const [i, tx] of txs.entries()) {
     onStep(
       `Step ${i + 1} of ${txs.length}: ${tx.description}. Confirm in your wallet…`,
     );
-    last = await wallet.sendTransaction({
-      account,
-      to: tx.to,
-      data: tx.data,
-      chain,
-    });
+    let hash: `0x${string}`;
+    try {
+      hash = await wallet.sendTransaction({
+        account,
+        to: tx.to,
+        data: tx.data,
+        chain,
+      });
+    } catch (err) {
+      // Never reached the chain (e.g. the wallet rejected signing): `sent` doesn't grow.
+      throw new SendAllError(`Step ${i + 1} could not be sent.`, {
+        cause: err,
+        sent,
+        reverted: false,
+      });
+    }
+    sent.push(hash);
     onStep(`Waiting for step ${i + 1} to confirm…`);
-    const r = await wallet.waitForTransactionReceipt({ hash: last });
-    if (r.status !== 'success')
-      throw new Error(`Step ${i + 1} failed onchain (${last}).`);
+    // The tx was submitted, but if waiting for its receipt itself errors (e.g. the server's RPC
+    // node lags the wallet's), its outcome couldn't be learned — it may yet land, so that must
+    // not be treated the same as a confirmed, safe-to-retry revert.
+    const receipt = await wallet
+      .waitForTransactionReceipt({ hash })
+      .catch((err) => {
+        throw new SendAllError(
+          `Step ${i + 1} was sent but couldn't be confirmed yet (${hash}).`,
+          { cause: err, sent, reverted: false },
+        );
+      });
+    if (receipt.status !== 'success')
+      throw new SendAllError(`Step ${i + 1} failed onchain (${hash}).`, {
+        sent,
+        reverted: true,
+      });
   }
-  return last;
+  return sent[sent.length - 1];
 }

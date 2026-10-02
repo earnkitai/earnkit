@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
-import { sendAll } from '@/app/components/wallet';
+import { SendAllError, sendAll } from '@/app/components/wallet';
+import { decideRetry } from '@/lib/earnkit/send-retry';
 import { walletErrorMessage } from '@/lib/earnkit/wallet-errors';
 
 export default function FundClient({
@@ -51,6 +52,13 @@ export default function FundClient({
       setSentTx(tx);
       await confirm(tx);
     } catch (err) {
+      // sendAll failed partway through. If the LAST transaction's hash was submitted and isn't
+      // a confirmed revert, its outcome is unknown (it may have landed) — the only safe move is
+      // to let the sponsor retry confirming that same hash, never resend createCampaign.
+      if (err instanceof SendAllError) {
+        const decision = decideRetry(err.sent, txs.length, err.reverted);
+        if (decision.action === 'confirm') setSentTx(decision.hash);
+      }
       setMsg(walletErrorMessage(err));
       setBusy(false);
     }
