@@ -158,8 +158,8 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
             address w = winners[i];
             if (w == address(0) || amounts[i] == 0) revert BadWinners();
             if (
-                w == sponsor || w == operator || w == treasury || w == guardian || w == address(this)
-                    || w == factory || w == implementation
+                w == sponsor || w == operator || w == treasury || w == guardian || w == address(this) || w == factory
+                    || w == implementation
             ) revert ExcludedWinner();
             total += amounts[i];
         }
