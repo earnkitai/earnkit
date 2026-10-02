@@ -29,6 +29,8 @@ contract EarnKitCampaignsTest is BaseTest {
         assertEq(c.factory(), address(factory));
         assertEq(c.operator(), operator);
         assertEq(c.treasury(), treasury);
+        assertEq(c.guardian(), pauser);
+        assertEq(c.fallbackHash(), bytes32(0));
     }
 
     function test_create_roundsTheFeeDown() public {
@@ -69,6 +71,27 @@ contract EarnKitCampaignsTest is BaseTest {
         vm.expectRevert(EarnKitCampaigns.BadEndsAt.selector);
         factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 180 days + 1));
         vm.stopPrank();
+    }
+
+    function test_create_minDurationBoundary() public {
+        vm.startPrank(sponsor);
+        vm.expectRevert(EarnKitCampaigns.BadEndsAt.selector);
+        factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 1 days - 1));
+        factory.createCampaign(REF, IERC20(address(usdc)), 1e6, uint64(block.timestamp + 1 days));
+        factory.createCampaign(keccak256("max"), IERC20(address(usdc)), 1e6, uint64(block.timestamp + 180 days));
+        vm.stopPrank();
+    }
+
+    function test_create_snapshotsPauserAsGuardian_rotationOnlyAffectsNewCampaigns() public {
+        EarnKitCampaign a = create(10e6, uint64(block.timestamp + 1 days));
+        vm.prank(owner);
+        factory.setPauser(bob);
+        vm.prank(sponsor);
+        EarnKitCampaign b = EarnKitCampaign(
+            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 10e6, uint64(block.timestamp + 1 days))
+        );
+        assertEq(a.guardian(), pauser);
+        assertEq(b.guardian(), bob);
     }
 
     function test_create_reverts_refReusedBySameSponsor_butNotByOthers() public {
@@ -176,7 +199,7 @@ contract EarnKitCampaignsTest is BaseTest {
     function test_implementation_cannotBeInitialized() public {
         EarnKitCampaign impl = EarnKitCampaign(factory.implementation());
         vm.expectRevert();
-        impl.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        impl.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
     }
 
     function test_initialize_reverts_whenCalledDirectlyNotByFactory() public {
@@ -184,7 +207,7 @@ contract EarnKitCampaignsTest is BaseTest {
         // lets the call through, so this exercises the explicit `msg.sender != factory` check.
         EarnKitCampaign rawClone = EarnKitCampaign(Clones.clone(factory.implementation()));
         vm.expectRevert(EarnKitCampaign.NotFactory.selector);
-        rawClone.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        rawClone.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
     }
 
     function test_setCap_reverts_zeroAddress() public {
@@ -197,6 +220,6 @@ contract EarnKitCampaignsTest is BaseTest {
         EarnKitCampaign c = create(1e6, uint64(block.timestamp + 1 days));
         vm.prank(address(factory));
         vm.expectRevert();
-        c.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury);
+        c.initialize(alice, IERC20(address(usdc)), 1, uint64(block.timestamp + 1), operator, treasury, pauser);
     }
 }

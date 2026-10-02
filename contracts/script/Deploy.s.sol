@@ -18,6 +18,14 @@ contract Deploy is Script {
         uint256[] memory caps = new uint256[](1);
         caps[0] = vm.envUint("USDC_CAP");
         uint256 delay = vm.envOr("TIMELOCK_DELAY", uint256(48 hours));
+        if (delay < 48 hours) {
+            // Testnet only: a short delay removes the "every config change is public 48 h ahead" guarantee.
+            require(vm.envOr("ALLOW_SHORT_TIMELOCK", uint256(0)) == 1, "TIMELOCK_DELAY < 48h (set ALLOW_SHORT_TIMELOCK=1 for testnet)");
+            console2.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            console2.log("WARNING: TIMELOCK_DELAY below 48 hours (seconds):", delay);
+            console2.log("WARNING: testnet only. Never use this deployment for real funds.");
+            console2.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        }
 
         vm.startBroadcast();
         timelock = new TimelockController(delay, proposers, executors, address(0));

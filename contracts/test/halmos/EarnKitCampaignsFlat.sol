@@ -1441,8 +1441,11 @@ library SafeERC20 {
 // src/EarnKitCampaign.sol
 
 /// @title One EarnKit campaign's prize pool (deployed as a clone by EarnKitCampaigns)
-/// @notice Money leaves only by `award` (whole prize to winners + fee to the treasury) or
-///         `refund` (everything back to the sponsor), once, under the time rules below.
+/// @notice Money leaves only once, by one of:
+///         - `award` (sponsor, after `endsAt`): whole prize to winners + fee to the treasury;
+///         - `executeFallback` (anyone, for a winner list the operator proposed after
+///           `endsAt + AWARD_GRACE` and nobody vetoed for `FALLBACK_DELAY`): same payout as award;
+///         - `refund` (operator any time, sponsor after `endsAt + RECLAIM_AFTER`): all to the sponsor.
 contract EarnKitCampaign is Initializable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -1454,11 +1457,14 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     }
 
     uint64 public constant AWARD_GRACE = 7 days;
+    uint64 public constant FALLBACK_DELAY = 72 hours;
     uint64 public constant RECLAIM_AFTER = 60 days;
     uint256 public constant MAX_WINNERS = 50;
 
     /// The factory that deployed the implementation; shared by every clone (immutable is in code).
     address public immutable factory;
+    /// The implementation's own address, also baked into the shared code, so every clone knows it.
+    address private immutable implementation;
 
     address public sponsor;
     IERC20 public token;
@@ -1470,9 +1476,16 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     /// already-funded campaign, so the factory owner can't redirect its payouts or fees.
     address public operator;
     address public treasury;
+    /// The factory's pauser at creation time; can veto a pending operator fallback.
+    address public guardian;
+    /// Pending operator fallback: keccak256(abi.encode(winners, amounts)) and when it was proposed.
+    bytes32 public fallbackHash;
+    uint64 public fallbackAt;
 
     event Awarded(address[] winners, uint256[] amounts, uint256 fee);
     event Refunded(address indexed by, uint256 amount);
+    event FallbackProposed(address[] winners, uint256[] amounts);
+    event FallbackVetoed();
 
     error NotFactory();
     error NotFunded();
@@ -1480,22 +1493,28 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
     error NotAllowed();
     error BadWinners();
     error WrongTotal();
+    error ExcludedWinner();
+    error NoFallback();
+    error FallbackMismatch();
+    error FallbackNotReady();
 
     constructor() {
         factory = msg.sender;
+        implementation = address(this);
         _disableInitializers();
     }
 
     /// @dev Called once by the factory right after cloning, before it moves the funds in.
-    ///      `operator_`/`treasury_` are snapshotted as-of creation; later factory rotations only
-    ///      apply to campaigns created afterwards.
+    ///      `operator_`/`treasury_`/`guardian_` are snapshotted as-of creation; later factory
+    ///      rotations only apply to campaigns created afterwards.
     function initialize(
         address sponsor_,
         IERC20 token_,
         uint256 amount,
         uint64 endsAt_,
         address operator_,
-        address treasury_
+        address treasury_,
+        address guardian_
     ) external initializer {
         if (msg.sender != factory) revert NotFactory();
         sponsor = sponsor_;
@@ -1505,33 +1524,47 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
         endsAt = endsAt_;
         operator = operator_;
         treasury = treasury_;
+        guardian = guardian_;
         state = State.Funded;
     }
 
-    /// @notice Pays the whole prize to `winners` and the fee to the treasury.
-    /// @dev Sponsor after `endsAt`; the operator only after `endsAt + AWARD_GRACE`.
+    /// @notice Sponsor pays the whole prize to `winners` and the fee to the treasury, after `endsAt`.
+    ///         Allowed while an operator fallback is pending (the sponsor's choice wins).
     function award(address[] calldata winners, uint256[] calldata amounts) external nonReentrant {
         if (state != State.Funded) revert NotFunded();
         if (block.timestamp < endsAt) revert NotEnded();
-        bool bySponsor = msg.sender == sponsor;
-        bool byOperator = msg.sender == operator && block.timestamp >= uint256(endsAt) + AWARD_GRACE;
-        if (!bySponsor && !byOperator) revert NotAllowed();
+        if (msg.sender != sponsor) revert NotAllowed();
+        _payout(winners, amounts);
+    }
 
-        uint256 n = winners.length;
-        if (n == 0 || n > MAX_WINNERS || n != amounts.length) revert BadWinners();
-        uint256 total;
-        for (uint256 i; i < n; ++i) {
-            if (winners[i] == address(0) || amounts[i] == 0) revert BadWinners();
-            total += amounts[i];
-        }
-        if (total != prize) revert WrongTotal();
+    /// @notice Operator proposes winners if the sponsor hasn't awarded by `endsAt + AWARD_GRACE`.
+    ///         Anyone can execute it after `FALLBACK_DELAY`, unless the guardian vetoes first.
+    ///         Re-proposing replaces the pending list and restarts the delay.
+    function proposeFallback(address[] calldata winners, uint256[] calldata amounts) external {
+        if (state != State.Funded) revert NotFunded();
+        if (block.timestamp < uint256(endsAt) + AWARD_GRACE) revert NotEnded();
+        if (msg.sender != operator) revert NotAllowed();
+        _validate(winners, amounts);
+        fallbackHash = keccak256(abi.encode(winners, amounts));
+        fallbackAt = uint64(block.timestamp);
+        emit FallbackProposed(winners, amounts);
+    }
 
-        state = State.Awarded;
-        for (uint256 i; i < n; ++i) {
-            token.safeTransfer(winners[i], amounts[i]);
-        }
-        token.safeTransfer(treasury, fee);
-        emit Awarded(winners, amounts, fee);
+    /// @notice Pays out the pending fallback exactly as proposed, once its delay has passed.
+    function executeFallback(address[] calldata winners, uint256[] calldata amounts) external nonReentrant {
+        if (state != State.Funded) revert NotFunded();
+        if (fallbackHash == bytes32(0)) revert NoFallback();
+        if (fallbackHash != keccak256(abi.encode(winners, amounts))) revert FallbackMismatch();
+        if (block.timestamp < uint256(fallbackAt) + FALLBACK_DELAY) revert FallbackNotReady();
+        _payout(winners, amounts);
+    }
+
+    /// @notice Guardian cancels the pending fallback.
+    function vetoFallback() external {
+        if (msg.sender != guardian) revert NotAllowed();
+        if (fallbackHash == bytes32(0)) revert NoFallback();
+        _clearFallback();
+        emit FallbackVetoed();
     }
 
     /// @notice Returns prize + fee to the sponsor.
@@ -1544,9 +1577,44 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
         if (!byOperator && !bySponsor) revert NotAllowed();
 
         state = State.Refunded;
+        _clearFallback();
         uint256 amount = prize + fee;
         token.safeTransfer(sponsor, amount);
         emit Refunded(msg.sender, amount);
+    }
+
+    /// @dev 1..MAX_WINNERS, equal lengths, no zero or excluded address, no zero amount, sum == prize.
+    function _validate(address[] calldata winners, uint256[] calldata amounts) private view {
+        uint256 n = winners.length;
+        if (n == 0 || n > MAX_WINNERS || n != amounts.length) revert BadWinners();
+        uint256 total = 0;
+        for (uint256 i; i < n; ++i) {
+            address w = winners[i];
+            if (w == address(0) || amounts[i] == 0) revert BadWinners();
+            if (
+                w == sponsor || w == operator || w == treasury || w == guardian || w == address(this)
+                    || w == factory || w == implementation
+            ) revert ExcludedWinner();
+            total += amounts[i];
+        }
+        if (total != prize) revert WrongTotal();
+    }
+
+    /// @dev Validates, settles state first, then transfers (checks-effects-interactions).
+    function _payout(address[] calldata winners, uint256[] calldata amounts) private {
+        _validate(winners, amounts);
+        state = State.Awarded;
+        _clearFallback();
+        for (uint256 i; i < winners.length; ++i) {
+            token.safeTransfer(winners[i], amounts[i]);
+        }
+        if (fee > 0) token.safeTransfer(treasury, fee);
+        emit Awarded(winners, amounts, fee);
+    }
+
+    function _clearFallback() private {
+        fallbackHash = bytes32(0);
+        fallbackAt = 0;
     }
 }
 
@@ -1558,11 +1626,13 @@ contract EarnKitCampaign is Initializable, ReentrancyGuard {
 contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    uint256 public constant MIN_DURATION = 1 days;
     uint256 public constant MAX_DURATION = 180 days;
 
     address public immutable implementation;
     address public operator;
     address public treasury;
+    /// Can pause creation; also snapshotted into each new campaign as its fallback-veto guardian.
     address public pauser;
     /// Max amount per campaign for each allowed token (0 = not allowed).
     mapping(address token => uint256 cap) public capOf;
@@ -1614,12 +1684,12 @@ contract EarnKitCampaigns is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 cap = capOf[address(token)];
         if (cap == 0) revert TokenNotAllowed();
         if (amount == 0 || amount > cap) revert BadAmount();
-        if (endsAt <= block.timestamp || endsAt > block.timestamp + MAX_DURATION) revert BadEndsAt();
+        if (endsAt < block.timestamp + MIN_DURATION || endsAt > block.timestamp + MAX_DURATION) revert BadEndsAt();
         if (campaignOf[msg.sender][ref] != address(0)) revert RefUsed();
 
         campaign = Clones.clone(implementation);
         campaignOf[msg.sender][ref] = campaign;
-        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt, operator, treasury);
+        EarnKitCampaign(campaign).initialize(msg.sender, token, amount, endsAt, operator, treasury, pauser);
 
         uint256 before = token.balanceOf(campaign);
         token.safeTransferFrom(msg.sender, campaign, amount);

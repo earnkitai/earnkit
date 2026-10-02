@@ -45,15 +45,14 @@ contract EarnKitCampaignTest is BaseTest {
         c.award(one(alice), oneAmt(900e6));
     }
 
-    function test_award_operatorOnlyAfterGrace() public {
-        vm.warp(endsAt + 7 days - 1);
+    function test_award_reverts_forOperator_evenAfterGrace() public {
+        vm.warp(endsAt + 30 days);
         vm.prank(operator);
         vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
         c.award(one(alice), oneAmt(900e6));
-        vm.warp(endsAt + 7 days);
-        vm.prank(operator);
+        vm.prank(pauser);
+        vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
         c.award(one(alice), oneAmt(900e6));
-        assertEq(usdc.balanceOf(alice), 900e6);
     }
 
     function test_award_reverts_forStrangersAndOwner() public {
@@ -156,11 +155,16 @@ contract EarnKitCampaignTest is BaseTest {
         factory.setTreasury(bob);
         vm.stopPrank();
 
-        // The old operator can still award the pre-rotation campaign, and its fee still goes
-        // to the old treasury, not bob.
+        // The old operator can still run the fallback on the pre-rotation campaign, and its fee
+        // still goes to the old treasury, not bob. bob (new operator) can't propose on it.
         vm.warp(endsAt + 7 days);
+        vm.prank(bob);
+        vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+        c.proposeFallback(one(alice), oneAmt(900e6));
         vm.prank(operator);
-        c.award(one(alice), oneAmt(900e6));
+        c.proposeFallback(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + 72 hours);
+        c.executeFallback(one(alice), oneAmt(900e6));
         assertEq(usdc.balanceOf(treasury), 100e6);
         assertEq(usdc.balanceOf(bob), 0);
 
@@ -192,6 +196,9 @@ contract EarnKitCampaignTest is BaseTest {
         vm.prank(owner);
         vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
         c.award(one(alice), oneAmt(900e6));
+        vm.prank(owner);
+        vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+        c.proposeFallback(one(alice), oneAmt(900e6));
 
         vm.prank(owner);
         vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
@@ -208,5 +215,230 @@ contract EarnKitCampaignTest is BaseTest {
         assertEq(usdc.balanceOf(alice), 900e6);
         assertEq(usdc.balanceOf(treasury), 100e6);
         assertEq(usdc.balanceOf(address(c)), 5e6);
+    }
+
+    // ---------------------------------------------------------------- operator fallback
+
+    uint256 constant GRACE = 7 days;
+    uint256 constant DELAY = 72 hours;
+
+    function _propose(address[] memory w, uint256[] memory a) internal {
+        vm.prank(operator);
+        c.proposeFallback(w, a);
+    }
+
+    function test_propose_storesHashAndTime_andEmits() public {
+        vm.warp(endsAt + GRACE);
+        vm.expectEmit(false, false, false, true, address(c));
+        emit EarnKitCampaign.FallbackProposed(winners(alice, bob), amounts(600e6, 300e6));
+        _propose(winners(alice, bob), amounts(600e6, 300e6));
+        assertEq(c.fallbackHash(), keccak256(abi.encode(winners(alice, bob), amounts(600e6, 300e6))));
+        assertEq(c.fallbackAt(), endsAt + GRACE);
+        assertEq(usdc.balanceOf(address(c)), 1000e6); // proposing moves nothing
+    }
+
+    function test_propose_reverts_beforeGrace() public {
+        vm.warp(endsAt + GRACE - 1);
+        vm.prank(operator);
+        vm.expectRevert(EarnKitCampaign.NotEnded.selector);
+        c.proposeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function test_propose_reverts_forNonOperator() public {
+        vm.warp(endsAt + GRACE);
+        address[4] memory who = [sponsor, pauser, owner, alice];
+        for (uint256 i; i < who.length; ++i) {
+            vm.prank(who[i]);
+            vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+            c.proposeFallback(one(alice), oneAmt(900e6));
+        }
+    }
+
+    function test_propose_reverts_whenSettled() public {
+        vm.prank(operator);
+        c.refund();
+        vm.warp(endsAt + GRACE);
+        vm.prank(operator);
+        vm.expectRevert(EarnKitCampaign.NotFunded.selector);
+        c.proposeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function test_propose_validatesLikeAward() public {
+        vm.warp(endsAt + GRACE);
+        vm.startPrank(operator);
+        vm.expectRevert(EarnKitCampaign.BadWinners.selector);
+        c.proposeFallback(new address[](0), new uint256[](0));
+        vm.expectRevert(EarnKitCampaign.BadWinners.selector);
+        c.proposeFallback(winners(alice, bob), oneAmt(900e6));
+        vm.expectRevert(EarnKitCampaign.BadWinners.selector);
+        c.proposeFallback(one(address(0)), oneAmt(900e6));
+        vm.expectRevert(EarnKitCampaign.BadWinners.selector);
+        c.proposeFallback(winners(alice, bob), amounts(900e6, 0));
+        vm.expectRevert(EarnKitCampaign.WrongTotal.selector);
+        c.proposeFallback(one(alice), oneAmt(900e6 - 1));
+        vm.stopPrank();
+    }
+
+    function test_execute_byAnyoneAfterDelay_paysExactly_andClears() public {
+        vm.warp(endsAt + GRACE);
+        _propose(winners(alice, bob), amounts(600e6, 300e6));
+        vm.warp(block.timestamp + DELAY);
+        vm.expectEmit(false, false, false, true, address(c));
+        emit EarnKitCampaign.Awarded(winners(alice, bob), amounts(600e6, 300e6), 100e6);
+        vm.prank(makeAddr("anyone"));
+        c.executeFallback(winners(alice, bob), amounts(600e6, 300e6));
+        assertEq(usdc.balanceOf(alice), 600e6);
+        assertEq(usdc.balanceOf(bob), 300e6);
+        assertEq(usdc.balanceOf(treasury), 100e6);
+        assertEq(usdc.balanceOf(address(c)), 0);
+        assertEq(uint8(c.state()), 2);
+        assertEq(c.fallbackHash(), bytes32(0));
+        assertEq(c.fallbackAt(), 0);
+        vm.expectRevert(EarnKitCampaign.NotFunded.selector);
+        c.executeFallback(winners(alice, bob), amounts(600e6, 300e6));
+    }
+
+    function test_execute_reverts_beforeDelay() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY - 1);
+        vm.expectRevert(EarnKitCampaign.FallbackNotReady.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function test_execute_reverts_withDifferentPayload() public {
+        vm.warp(endsAt + GRACE);
+        _propose(winners(alice, bob), amounts(600e6, 300e6));
+        vm.warp(block.timestamp + DELAY);
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(winners(alice, bob), amounts(300e6, 600e6));
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(winners(bob, alice), amounts(600e6, 300e6));
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function test_execute_reverts_withNoProposal() public {
+        vm.warp(endsAt + 365 days);
+        vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function test_repropose_overwritesAndRestartsTimer() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY - 1);
+        _propose(one(bob), oneAmt(900e6));
+        assertEq(c.fallbackAt(), block.timestamp);
+        vm.warp(block.timestamp + 1); // first proposal's delay has passed, second's has not
+        vm.expectRevert(EarnKitCampaign.FallbackMismatch.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        vm.expectRevert(EarnKitCampaign.FallbackNotReady.selector);
+        c.executeFallback(one(bob), oneAmt(900e6));
+        vm.warp(block.timestamp + DELAY - 1);
+        c.executeFallback(one(bob), oneAmt(900e6));
+        assertEq(usdc.balanceOf(bob), 900e6);
+    }
+
+    function test_veto_byGuardian_clearsProposal() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.expectEmit(false, false, false, true, address(c));
+        emit EarnKitCampaign.FallbackVetoed();
+        vm.prank(pauser);
+        c.vetoFallback();
+        assertEq(c.fallbackHash(), bytes32(0));
+        assertEq(c.fallbackAt(), 0);
+        vm.warp(block.timestamp + DELAY);
+        vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        // The operator can propose again after a veto.
+        _propose(one(bob), oneAmt(900e6));
+        assertEq(c.fallbackAt(), block.timestamp);
+    }
+
+    function test_veto_reverts_forNonGuardian() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        address[4] memory who = [sponsor, operator, owner, alice];
+        for (uint256 i; i < who.length; ++i) {
+            vm.prank(who[i]);
+            vm.expectRevert(EarnKitCampaign.NotAllowed.selector);
+            c.vetoFallback();
+        }
+    }
+
+    function test_veto_reverts_withNoProposal() public {
+        vm.prank(pauser);
+        vm.expectRevert(EarnKitCampaign.NoFallback.selector);
+        c.vetoFallback();
+    }
+
+    function test_sponsorAward_duringPendingProposal_settlesAndMootsIt() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        vm.prank(sponsor);
+        c.award(one(bob), oneAmt(900e6));
+        assertEq(usdc.balanceOf(bob), 900e6);
+        assertEq(c.fallbackHash(), bytes32(0));
+        vm.warp(block.timestamp + DELAY);
+        vm.expectRevert(EarnKitCampaign.NotFunded.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+        assertEq(usdc.balanceOf(alice), 0);
+    }
+
+    function test_refund_duringPendingProposal_clearsIt() public {
+        vm.warp(endsAt + GRACE);
+        _propose(one(alice), oneAmt(900e6));
+        uint256 before = usdc.balanceOf(sponsor);
+        vm.prank(operator);
+        c.refund();
+        assertEq(usdc.balanceOf(sponsor), before + 1000e6);
+        assertEq(c.fallbackHash(), bytes32(0));
+        assertEq(c.fallbackAt(), 0);
+        vm.warp(block.timestamp + DELAY);
+        vm.expectRevert(EarnKitCampaign.NotFunded.selector);
+        c.executeFallback(one(alice), oneAmt(900e6));
+    }
+
+    function _excluded() internal view returns (address[7] memory) {
+        return [sponsor, operator, treasury, pauser, address(c), address(factory), factory.implementation()];
+    }
+
+    function test_excludedWinners_rejectedBySponsorAward() public {
+        vm.warp(endsAt);
+        address[7] memory ex = _excluded();
+        for (uint256 i; i < ex.length; ++i) {
+            vm.prank(sponsor);
+            vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
+            c.award(winners(alice, ex[i]), amounts(450e6, 450e6));
+        }
+    }
+
+    function test_excludedWinners_rejectedByProposeFallback() public {
+        vm.warp(endsAt + GRACE);
+        address[7] memory ex = _excluded();
+        for (uint256 i; i < ex.length; ++i) {
+            vm.prank(operator);
+            vm.expectRevert(EarnKitCampaign.ExcludedWinner.selector);
+            c.proposeFallback(winners(ex[i], alice), amounts(450e6, 450e6));
+        }
+    }
+
+    function test_feeZero_awardSkipsTreasuryTransfer() public {
+        vm.prank(sponsor);
+        EarnKitCampaign dust = EarnKitCampaign(
+            factory.createCampaign(keccak256("dust"), IERC20(address(usdc)), 9, uint64(block.timestamp + 1 days))
+        );
+        assertEq(dust.fee(), 0);
+        assertEq(dust.prize(), 9);
+        vm.warp(block.timestamp + 1 days);
+        vm.recordLogs();
+        vm.prank(sponsor);
+        dust.award(one(alice), oneAmt(9));
+        // Only one Transfer (to alice): no zero-value transfer to the treasury.
+        assertEq(vm.getRecordedLogs().length, 2); // Transfer + Awarded
+        assertEq(usdc.balanceOf(alice), 9);
+        assertEq(usdc.balanceOf(treasury), 0);
     }
 }
