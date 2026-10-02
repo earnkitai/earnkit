@@ -65,9 +65,9 @@ export function useAccount() {
 }
 
 /**
- * Sends each tx in order from `from` (the campaign's bound wallet). Every step but the last waits
- * for its receipt (createCampaign needs the approval mined); the last returns once submitted —
- * the page then polls EarnKit, which reads the outcome from the chain.
+ * Sends each tx in order from `from` (the campaign's bound wallet), waiting for each receipt
+ * (createCampaign needs the approval mined; a revert is reported). The page then polls EarnKit,
+ * which reads the outcome from the chain.
  */
 export async function sendAll(
   txs: RawTx[],
@@ -100,10 +100,17 @@ export async function sendAll(
       data: tx.data,
       chain,
     });
-    if (i === txs.length - 1) return;
     onStep(`Waiting for step ${i + 1} to confirm…`);
-    const receipt = await wallet.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success')
+    // The last step's outcome is read by EarnKit from the chain, so an RPC hiccup while waiting
+    // for its receipt is not an error here; a revert still is.
+    const last = i === txs.length - 1;
+    const receipt = await wallet
+      .waitForTransactionReceipt({ hash })
+      .catch((err) => {
+        if (last) return null;
+        throw err;
+      });
+    if (receipt && receipt.status !== 'success')
       throw new Error(`Step ${i + 1} failed onchain. Try again.`);
   }
 }
