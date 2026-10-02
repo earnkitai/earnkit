@@ -113,6 +113,12 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'file
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS max_award_usd numeric;  -- per-winner USD, when the source states it (tie-break)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_amount text;  -- what this winner got, token units
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_reason text;  -- the sponsor's public reason
+-- One entry per repo per campaign, guaranteed by the database as well as by recordSubmission's
+-- check: repo_key is the normalized repo link (campaigns.ts normalizeRepoUrl), set for campaign
+-- entries only. Rows from before this have NULL and are skipped by the partial index.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_campaign_repo_key
+  ON projects (program_id, repo_key) WHERE repo_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS sponsor_campaigns (
   ref             text PRIMARY KEY,                 -- 0x + 64 hex; bytes32 used onchain
   program_id      text REFERENCES programs(id),     -- set when live
