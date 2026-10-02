@@ -84,6 +84,7 @@ export default async function FundPage({
         ) : row.state === 'draft' ? (
           <FundClient
             ref_={ref}
+            endsAt={Date.parse(row.draft.ends_at)}
             txs={fundTxs(
               ref as `0x${string}`,
               token,

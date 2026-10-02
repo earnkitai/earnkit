@@ -1,17 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
 import { SendAllError, sendAll } from '@/app/components/wallet';
 import { decideRetry } from '@/lib/earnkit/send-retry';
+import {
+  DEADLINE_MARGIN_MS,
+  DEADLINE_PASSED,
+} from '@/lib/earnkit/sponsor-text';
 import { walletErrorMessage } from '@/lib/earnkit/wallet-errors';
 
 export default function FundClient({
   ref_,
   txs,
+  endsAt,
 }: {
   ref_: string;
   txs: RawTx[];
+  /** The draft's deadline (ms). A deposit needs to land before endsAt - 10 minutes. */
+  endsAt: number;
 }) {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -21,6 +28,15 @@ export default function FundClient({
   // transactions, which would waste gas (same wallet) or fund a second, untracked escrow
   // (a different wallet).
   const [sentTx, setSentTx] = useState<`0x${string}` | null>(null);
+  // An open page re-checks the deadline: the server only checked when it rendered. Starts false
+  // (the server rendered this only for a fundable draft), so hydration matches.
+  const [tooLate, setTooLate] = useState(false);
+  useEffect(() => {
+    const check = () => setTooLate(Date.now() > endsAt - DEADLINE_MARGIN_MS);
+    check();
+    const t = setInterval(check, 15_000);
+    return () => clearInterval(t);
+  }, [endsAt]);
 
   async function confirm(tx: `0x${string}`) {
     setBusy(true);
@@ -45,6 +61,10 @@ export default function FundClient({
   }
 
   async function fund() {
+    if (Date.now() > endsAt - DEADLINE_MARGIN_MS) {
+      setTooLate(true);
+      return;
+    }
     setBusy(true);
     setMsg('');
     try {
@@ -85,12 +105,17 @@ export default function FundClient({
           </label>
           <button
             type="button"
-            disabled={!agreed || busy}
+            disabled={!agreed || busy || tooLate}
             onClick={fund}
             className="mt-4 rounded-full bg-ek-blue-bright px-6 py-3 font-medium text-ek-navy-deep disabled:opacity-50"
           >
             {busy ? 'Working…' : 'Connect wallet and deposit'}
           </button>
+          {tooLate ? (
+            <p className="mt-4 text-sm text-ek-white" role="status">
+              {DEADLINE_PASSED}
+            </p>
+          ) : null}
         </>
       ) : (
         <button
