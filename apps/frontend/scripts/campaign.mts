@@ -25,8 +25,12 @@ import { sql } from '../lib/earnkit/db';
  *
  * Admin for sponsor campaigns (escrowed onchain; operator-only, local use):
  *   pnpm campaign sync   <ref>                        compare the DB state to the chain state
+ *   pnpm campaign sync   <ref> --tx <hash>            repair: confirm that funding (rescuing an
+ *        expired draft) or award transaction into the DB, then compare the states
  *   pnpm campaign refund <ref> --reason no-eligible|takedown --execute
  *        refunds the sponsor from OPERATOR_PRIVATE_KEY (local only, never on the server)
+ *   pnpm campaign refund <ref> --escrow <address> --reason no-eligible --execute
+ *        refunds a specific escrow for this ref, e.g. an untracked second deposit (DB unchanged)
  *   pnpm campaign award  <ref> --winners id:amount:reason,... --execute
  *        operator fallback award after the sponsor misses the 7-day grace period
  */
@@ -43,20 +47,93 @@ function fail(message: string): never {
 }
 
 if (['award', 'refund', 'sync'].includes(command)) {
-  const { loadCampaign, confirmAward } = await import('../lib/earnkit/sponsor');
-  const { planAward, splitUnits } = await import('../lib/earnkit/sponsor-rules');
+  const { loadCampaign, confirmAward, confirmTx } = await import('../lib/earnkit/sponsor');
+  const { planAward, splitUnits, SponsorError } = await import('../lib/earnkit/sponsor-rules');
   const { escrowConfig, escrowClient } = await import('../lib/earnkit/escrow');
-  const { campaignAbi } = await import('../lib/earnkit/escrow-abi');
-  const row = await loadCampaign(slug);
-  const escrow = row.escrow_address as `0x${string}`;
+  const { campaignAbi, campaignsAbi } = await import('../lib/earnkit/escrow-abi');
+  const { NotFoundError } = await import('../lib/earnkit/programs');
+  const { receiptNotFoundMessage } = await import('../lib/earnkit/receipt-error');
+  const { isAddress } = await import('viem');
+  const STATES = ['none', 'live', 'awarded', 'refunded'] as const;
+  const chainStateOf = async (address: `0x${string}`) =>
+    STATES[
+      Number(
+        await escrowClient().readContract({ address, abi: campaignAbi, functionName: 'state' }),
+      )
+    ];
+  /** A readable message for the errors the sponsor library throws on purpose, else rethrow. */
+  const readable = (err: unknown) => {
+    const msg =
+      receiptNotFoundMessage(err) ??
+      (err instanceof SponsorError || err instanceof NotFoundError ? err.message : null);
+    if (msg === null) throw err;
+    return msg;
+  };
+
+  let row = await loadCampaign(slug).catch((err) => fail(readable(err)));
+
+  if (command === 'sync') {
+    // sync <ref> --tx <hash>: repair. Confirms that funding (including the rescue of a funded
+    // draft that lazily expired) or award transaction exactly as the status tool would, then
+    // prints the DB vs chain state like plain sync.
+    const tx = flag('tx');
+    if (tx !== undefined) {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) fail('--tx must be a transaction hash');
+      const before = row.state;
+      const result = await confirmTx(slug, tx as `0x${string}`).catch((err) =>
+        fail(`sync --tx: ${readable(err)}`),
+      );
+      row = await loadCampaign(slug);
+      console.log(
+        `repaired: ${result.confirmed} confirmed (database ${before} -> ${row.state})`,
+        JSON.stringify(result),
+      );
+    }
+    if (!row.escrow_address) {
+      console.log(
+        `${row.draft.title} · ${row.state} · no escrow recorded\n` +
+          `database: ${row.state}; chain says: unknown (pass --tx <funding hash> to confirm a deposit)`,
+      );
+      await db.end();
+      process.exit(0);
+    }
+  }
+
+  // refund --escrow <address>: refund a specific escrow for this ref, e.g. a second deposit made
+  // for an already-funded draft from another wallet (refs are unique per sender onchain). It must
+  // be a clone of our factory that the factory records for this ref.
+  const escrowFlag = command === 'refund' ? flag('escrow') : undefined;
+  let escrow = row.escrow_address as `0x${string}` | null;
+  let untracked = false;
+  if (escrowFlag !== undefined) {
+    if (!isAddress(escrowFlag, { strict: false })) fail('--escrow must be an address');
+    const target = escrowFlag.toLowerCase() as `0x${string}`;
+    if (target !== escrow?.toLowerCase()) {
+      const { factory } = escrowConfig();
+      const read = (functionName: 'factory' | 'sponsor') =>
+        escrowClient()
+          .readContract({ address: target, abi: campaignAbi, functionName })
+          .catch(() => fail(`${target} isn't an EarnKit campaign escrow.`)) as Promise<string>;
+      if ((await read('factory')).toLowerCase() !== factory.toLowerCase())
+        fail(`${target} wasn't created by this EarnKit factory (${factory}).`);
+      const sponsor = (await read('sponsor')) as `0x${string}`;
+      const recorded = (await escrowClient().readContract({
+        address: factory,
+        abi: campaignsAbi,
+        functionName: 'campaignOf',
+        args: [sponsor, slug as `0x${string}`],
+      })) as string;
+      if (recorded.toLowerCase() !== target)
+        fail(`${target} isn't an escrow for campaign ${slug}.`);
+      untracked = true;
+      console.log(`untracked escrow ${target} (sponsor ${sponsor}) for this ref`);
+    }
+    escrow = target;
+  }
   if (!escrow) fail(`Campaign ${slug} isn't funded (state ${row.state}).`);
-  const chainState = await escrowClient().readContract({
-    address: escrow,
-    abi: campaignAbi,
-    functionName: 'state',
-  });
+  const chainState = await chainStateOf(escrow);
   console.log(
-    `${row.draft.title} · ${row.state} · onchain state ${chainState} · escrow ${escrow}`,
+    `${row.draft.title} · ${row.state} · onchain state ${STATES.indexOf(chainState)} · escrow ${escrow}`,
   );
 
   const signer = () => {
@@ -72,8 +149,7 @@ if (['award', 'refund', 'sync'].includes(command)) {
   };
 
   if (command === 'sync') {
-    const map = ['none', 'live', 'awarded', 'refunded'] as const;
-    console.log(`database: ${row.state}; chain says: ${map[Number(chainState)]}`);
+    console.log(`database: ${row.state}; chain says: ${chainState}`);
   } else if (command === 'refund') {
     const reason = flag('reason');
     if (reason !== 'no-eligible' && reason !== 'takedown')
@@ -88,10 +164,15 @@ if (['award', 'refund', 'sync'].includes(command)) {
       });
       const receipt = await escrowClient().waitForTransactionReceipt({ hash });
       if (receipt.status !== 'success') fail(`refund reverted: ${hash}`);
-      await db`UPDATE sponsor_campaigns SET state = ${reason === 'takedown' ? 'taken_down' : 'refunded'} WHERE ref = ${slug}`;
-      if (row.program_id)
-        await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
-      console.log(`refunded: ${hash}`);
+      if (untracked) {
+        // A second deposit was never part of the campaign: the tracked campaign is unchanged.
+        console.log(`refunded untracked escrow ${escrow} (database unchanged): ${hash}`);
+      } else {
+        await db`UPDATE sponsor_campaigns SET state = ${reason === 'takedown' ? 'taken_down' : 'refunded'} WHERE ref = ${slug}`;
+        if (row.program_id)
+          await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
+        console.log(`refunded: ${hash}`);
+      }
     }
   } else {
     // award: --winners id:amount:reason,... (fallback after the 7-day grace)

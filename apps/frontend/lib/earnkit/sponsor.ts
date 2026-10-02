@@ -3,12 +3,15 @@ import type postgres from 'postgres';
 import { formatUnits, parseUnits, type TransactionReceipt } from 'viem';
 import { z } from 'zod';
 import { scoreEntry } from './campaigns';
+import { formatExact } from './format-units';
 import { sql } from './db';
 import {
+  SPONSOR_NOT_OPEN,
   awardTx,
   capOf,
   escrowClient,
   escrowConfig,
+  escrowEnabled,
   findToken,
   fundTxs,
   readAwarded,
@@ -58,6 +61,7 @@ const baseUrl = () =>
 const DRAFT_TTL_MS = 7 * 86_400_000;
 
 export async function createSponsorDraft(d: Draft, installationId: number) {
+  if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
   const token = findToken(d.token);
   const cap = token ? await capOf(token.address) : 0n;
   const { amountUnits } = checkDraft(d, token, cap, new Date());
@@ -76,8 +80,9 @@ export async function createSponsorDraft(d: Draft, installationId: number) {
     chain_id: chainId,
   })}`;
   const { prize, fee } = splitUnits(amountUnits);
-  const fmt = (u: bigint) =>
-    (Number(u) / 10 ** token!.decimals).toLocaleString('en-US');
+  // Exact (formatUnits-based), so the split told to the sponsor matches the fund page and the
+  // signed amount to the last unit.
+  const fmt = (u: bigint) => formatExact(u, token!.decimals);
   return {
     ref,
     fund_url: `${baseUrl()}/fund/${ref}`,
@@ -142,22 +147,109 @@ export function fundingFromReceipt(
 /**
  * Whether `confirmFunding` should publish the campaign, treat it as already live, or refuse,
  * given the row's current `state`. Pure; exported for tests (the DB-backed paths around it are
- * exercised by the Task 10 end-to-end script).
+ * exercised by the end-to-end script).
  *
  * - `draft` or `expired` → `publish`. A draft expires lazily after 7 days (`loadCampaign`), but
  *   a deposit that lands after that still counts: `confirmFunding` only reaches `publish` once
  *   `fundingFromReceipt` has verified the receipt is this campaign's exact funding, so an
  *   `expired` row is rescued rather than lost.
- * - `live` → `already_live`. Publishing already happened; return the same result again
- *   (idempotent, no error, no double publish).
- * - `awarded`, `refunded`, `taken_down` → `refuse`. Terminal states; funding cannot reopen them.
+ * - `live` or `awarded` → `already_live`. Publishing already happened; `confirmFunding` returns
+ *   the same result again, but only after `fundingDecision` has checked the receipt created the
+ *   escrow this row tracks.
+ * - `refunded`, `taken_down` → `refuse`. Terminal states; funding cannot reopen them.
  */
 export function confirmableState(
   state: SponsorRow['state'],
 ): 'publish' | 'already_live' | 'refuse' {
   if (state === 'draft' || state === 'expired') return 'publish';
-  if (state === 'live') return 'already_live';
+  if (state === 'live' || state === 'awarded') return 'already_live';
   return 'refuse';
+}
+
+/** The funding receipt's `CampaignCreated` as `fundingDecision` needs it. */
+type Created = { ref: string; campaign: string };
+
+/**
+ * What to do with a funding receipt for `row`. Pure; exported for tests.
+ *
+ * Refs are unique per sponsor wallet onchain, so two different wallets can both fund the same
+ * draft. The first confirmed deposit becomes the campaign; any other `CampaignCreated` for this
+ * ref is a second, untracked escrow, and is reported by its address (the operator refunds it with
+ * `pnpm campaign refund <ref> --escrow <address>`), never silently reported as success.
+ */
+export function fundingDecision(
+  row: Pick<SponsorRow, 'ref' | 'state' | 'escrow_address'>,
+  created: Created | null,
+):
+  | { action: 'publish' }
+  | { action: 'already_live' }
+  | { action: 'second_escrow'; escrow: string }
+  | { action: 'refuse'; message: string } {
+  if (!created || created.ref.toLowerCase() !== row.ref.toLowerCase())
+    return {
+      action: 'refuse',
+      message: "That transaction isn't the funding for this campaign.",
+    };
+  const escrow = created.campaign.toLowerCase();
+  if (row.escrow_address && row.escrow_address.toLowerCase() !== escrow)
+    return { action: 'second_escrow', escrow };
+  const state = confirmableState(row.state);
+  if (state === 'refuse')
+    return { action: 'refuse', message: `This campaign is ${row.state}.` };
+  return { action: state };
+}
+
+export const secondEscrowMessage = (escrow: string, tracked: string) =>
+  `This deposit created a second escrow (${escrow}) for a campaign that is already funded by ` +
+  `escrow ${tracked}. It is not part of the campaign: EarnKit will refund it to the wallet that ` +
+  `sent it. Contact EarnKit with this escrow address if you have questions.`;
+
+/**
+ * Which confirmation a receipt is for, judged by its contents (not only by the row's state):
+ * a `CampaignCreated` for this ref from the factory is a funding receipt, an `Awarded` from this
+ * campaign's escrow is an award receipt. Otherwise, the readable error to show. Pure; exported for
+ * tests.
+ */
+export function routeReceipt(
+  row: Pick<SponsorRow, 'ref' | 'state' | 'escrow_address'>,
+  receipt: TransactionReceipt,
+): { route: 'funding' | 'award' } | { error: string } {
+  if (receipt.status !== 'success')
+    return { error: 'That transaction failed onchain.' };
+  const created = readCreated(receipt);
+  if (created && created.ref.toLowerCase() === row.ref.toLowerCase())
+    return { route: 'funding' };
+  if (row.escrow_address && readAwarded(receipt, row.escrow_address))
+    return { route: 'award' };
+  if (row.state === 'draft' || row.state === 'expired')
+    return { error: "That transaction isn't the funding for this campaign." };
+  if (row.state === 'live')
+    return {
+      error: "That transaction isn't this campaign's funding or award.",
+    };
+  return { error: `This campaign is ${row.state}.` };
+}
+
+/**
+ * Confirms any transaction a sponsor (or their agent, or the operator) reports for `ref`: the
+ * funding deposit (including the rescue of a lazily-expired draft, and re-confirming a campaign
+ * that's already live), or the award. Used by the `status` tool, the pages' confirm API, and
+ * `pnpm campaign sync --tx`.
+ */
+export async function confirmTx(ref: string, tx: `0x${string}`) {
+  const row = await loadCampaign(ref);
+  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
+  const r = routeReceipt(row, receipt);
+  if ('error' in r) throw new SponsorError(r.error);
+  if (r.route === 'funding')
+    return {
+      confirmed: 'funding' as const,
+      ...(await confirmFunding(ref, tx, receipt)),
+    };
+  return {
+    confirmed: 'award' as const,
+    ...(await confirmAward(ref, tx, receipt)),
+  };
 }
 
 /**
@@ -166,20 +258,37 @@ export function confirmableState(
  * so a second confirm that arrives while the first is still running waits, then sees the row
  * already `live` and returns the same result rather than publishing twice.
  */
-export async function confirmFunding(ref: string, tx: `0x${string}`) {
+export async function confirmFunding(
+  ref: string,
+  tx: `0x${string}`,
+  fetched?: TransactionReceipt,
+) {
   // Fetch the receipt before opening the transaction: it's a network round-trip, and must not
   // run while holding the row lock below.
-  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
+  const receipt =
+    fetched ?? (await escrowClient().getTransactionReceipt({ hash: tx }));
 
   return sql().begin(async (db) => {
     const [row] = await db<SponsorRow[]>`
       SELECT * FROM sponsor_campaigns WHERE ref = ${ref} FOR UPDATE`;
     if (!row) throw new NotFoundError(`No sponsor campaign "${ref}".`);
 
-    const decision = confirmableState(row.state);
-    if (decision === 'refuse')
-      throw new SponsorError(`This campaign is ${row.state}.`);
-    if (decision === 'already_live')
+    if (receipt.status !== 'success')
+      throw new SponsorError('That transaction failed onchain.');
+    const decision = fundingDecision(row, readCreated(receipt));
+    if (decision.action === 'refuse')
+      throw new SponsorError(decision.message);
+    if (decision.action === 'second_escrow') {
+      console.error(
+        `[sponsor] second escrow for ${ref}: ${decision.escrow} (tx ${tx}); tracked escrow ${row.escrow_address}. ` +
+          `Refund it: pnpm campaign refund ${ref} --escrow ${decision.escrow} --reason no-eligible --execute`,
+      );
+      throw new SponsorError(
+        secondEscrowMessage(decision.escrow, row.escrow_address as string),
+      );
+    }
+    if (decision.action === 'already_live')
+      // The receipt is the creation of the escrow this row already tracks (checked above).
       return {
         program_id: row.program_id as string,
         campaign_url: `${baseUrl()}/campaigns/${row.program_id}`,
@@ -203,6 +312,19 @@ export async function confirmFunding(ref: string, tx: `0x${string}`) {
       baseUrl: baseUrl(),
       now: new Date(),
     });
+    // The program id comes from the ref; never let a (vanishingly unlikely) id collision
+    // overwrite another program, which would mix two campaigns' entries and awards.
+    const [taken] = await db<{ id: string }[]>`
+      SELECT id FROM programs WHERE id = ${file.id}`;
+    if (taken) {
+      console.error(
+        `[sponsor] program id ${file.id} for ${ref} is already taken; not publishing (escrow ${escrow}, tx ${tx}).`,
+      );
+      throw new SponsorError(
+        "This campaign's id clashes with an existing program, so it wasn't published. " +
+          'Your deposit is safe in escrow; contact EarnKit to sort it out.',
+      );
+    }
     // Published in the same transaction as the state flip, so the two can't diverge.
     await upsertProgram(file, 'sponsor', db);
     // Note: even if draft.ends_at has already passed by now, this still goes live — the receipt
@@ -361,8 +483,13 @@ export async function prepareAward(
  * while the first is still running waits, then sees the row already `awarded` and returns the same
  * result rather than recording twice.
  */
-export async function confirmAward(ref: string, tx: `0x${string}`) {
-  const receipt = await escrowClient().getTransactionReceipt({ hash: tx });
+export async function confirmAward(
+  ref: string,
+  tx: `0x${string}`,
+  fetched?: TransactionReceipt,
+) {
+  const receipt =
+    fetched ?? (await escrowClient().getTransactionReceipt({ hash: tx }));
 
   return sql().begin(async (db) => {
     const [row] = await db<SponsorRow[]>`

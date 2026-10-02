@@ -18,11 +18,10 @@ import {
   presentSinceLastCheck,
   type YourRepos,
 } from './present';
+import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
 import {
-  confirmAward,
-  confirmFunding,
+  confirmTx,
   createSponsorDraft,
-  loadCampaign,
   prepareAward,
   sponsorStatus,
 } from './sponsor';
@@ -227,6 +226,8 @@ export const tools = {
 
   // Sponsors: create a campaign (returns a funding link and raw txs), check it, award it.
   sponsor_campaign: async (input: unknown, ctx: ToolContext) => {
+    // Normally unreachable (the tool isn't registered until the escrow is configured).
+    if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
     const i = SponsorCampaignInput.parse(
       Object.fromEntries(
         Object.entries(input as object).filter(([, v]) => v !== undefined),
@@ -239,12 +240,10 @@ export const tools = {
     if (i.action === 'award')
       return prepareAward(i.ref, ctx.installationId, i.winners);
     if (i.tx) {
-      const row = await loadCampaign(i.ref);
+      // Routed by what the receipt contains (funding or award), not only by the row's state, so
+      // re-sending a live campaign's funding tx re-confirms it instead of failing as an award.
       try {
-        if (row.state === 'draft' || row.state === 'expired')
-          await confirmFunding(i.ref, i.tx as `0x${string}`);
-        else if (row.state === 'live')
-          await confirmAward(i.ref, i.tx as `0x${string}`);
+        await confirmTx(i.ref, i.tx as `0x${string}`);
       } catch (err) {
         const msg = receiptNotFoundMessage(err);
         if (msg) throw new SponsorError(msg);

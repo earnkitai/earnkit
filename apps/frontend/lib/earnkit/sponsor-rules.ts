@@ -115,7 +115,9 @@ export function sponsorProgramFile(a: {
   now: Date;
 }): ProgramFile {
   const { draft: d, token } = a;
-  const id = `sponsor-${a.ref.slice(2, 10)}`;
+  // 64 bits of the random ref: collisions are negligible, and confirmFunding still refuses to
+  // publish over an existing program id rather than overwrite it.
+  const id = `sponsor-${a.ref.slice(2, 18)}`;
   const pool = formatUnits(a.amountUnits, token.decimals);
   const prizeTotal = formatUnits(
     splitUnits(a.amountUnits).prize,

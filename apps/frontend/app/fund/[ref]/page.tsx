@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { parseUnits } from 'viem';
-import { findToken, fundTxs } from '@/lib/earnkit/escrow';
+import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
 import { loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
@@ -14,11 +14,21 @@ export default async function FundPage({
   params: Promise<{ ref: string }>;
 }) {
   const { ref } = await params;
+  // No escrow configured on this deployment (sponsor campaigns not open yet): nothing to fund.
+  if (!escrowEnabled()) notFound();
   const row = /^0x[0-9a-f]{64}$/.test(ref)
     ? await loadCampaign(ref).catch(() => null)
     : null;
   if (!row) notFound();
-  const token = findToken(row.token_symbol)!;
+  // Sign exactly the token the draft stored (and that confirmFunding verifies against), never a
+  // token looked up from the current config.
+  const token = {
+    symbol: row.token_symbol,
+    address: row.token as `0x${string}`,
+    decimals: row.token_decimals,
+  };
+  // A draft made for another chain than the one this deployment's escrow is on can't be funded here.
+  const sameChain = escrowConfig().chainId === row.chain_id;
   const units = parseUnits(row.amount, row.token_decimals);
   const { prize, fee } = splitUnits(units);
   // Exact — not Number(u).toLocaleString(), which rounds to 3 fraction digits and can show a
@@ -65,7 +75,12 @@ export default async function FundPage({
           don&apos;t within 7 days, EarnKit pays the top entries. If nobody
           qualifies, everything comes back to you, fee included.
         </p>
-        {row.state === 'draft' ? (
+        {row.state === 'draft' && !sameChain ? (
+          <p className="mt-8 font-funnel-sans text-base text-ek-white">
+            This draft was made for another network; ask your agent to create a
+            new one.
+          </p>
+        ) : row.state === 'draft' ? (
           <FundClient
             ref_={ref}
             txs={fundTxs(

@@ -102,7 +102,7 @@ test('the program file is valid and states the judging rule and requirements', (
     baseUrl: 'https://earnkit.com',
     now,
   });
-  assert.equal(ProgramFile.parse(p).id, 'sponsor-aaaaaaaa');
+  assert.equal(ProgramFile.parse(p).id, 'sponsor-aaaaaaaaaaaaaaaa');
   assert.equal(
     p.summary,
     'by Acme · 5,000 USDC pool in escrow · closes Oct 15',

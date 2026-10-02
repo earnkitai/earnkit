@@ -1,8 +1,5 @@
-import {
-  confirmAward,
-  confirmFunding,
-  loadCampaign,
-} from '@/lib/earnkit/sponsor';
+import { SPONSOR_NOT_OPEN, escrowEnabled } from '@/lib/earnkit/escrow';
+import { confirmTx } from '@/lib/earnkit/sponsor';
 import { SponsorError } from '@/lib/earnkit/sponsor-rules';
 import { NotFoundError } from '@/lib/earnkit/programs';
 import { receiptNotFoundMessage } from '@/lib/earnkit/receipt-error';
@@ -12,26 +9,24 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ ref: string }> },
 ) {
+  // Until EarnKit's escrow is configured on this deployment there is nothing to confirm.
+  if (!escrowEnabled())
+    return Response.json({ error: SPONSOR_NOT_OPEN }, { status: 503 });
   const { ref } = await params;
-  const body = (await request.json().catch(() => ({}))) as { tx?: string };
-  if (!/^0x[0-9a-fA-F]{64}$/.test(body.tx ?? ''))
+  const body = (await request.json().catch(() => null)) as {
+    tx?: unknown;
+  } | null;
+  const raw = typeof body?.tx === 'string' ? body.tx : '';
+  if (!/^0x[0-9a-fA-F]{64}$/.test(raw))
     return Response.json(
       { error: 'tx must be a transaction hash' },
       { status: 400 },
     );
-  const tx = body.tx as `0x${string}`;
+  const tx = raw as `0x${string}`;
   try {
-    const row = await loadCampaign(ref);
-    // draft/expired → confirmFunding (it rescues a funded draft that lazily expired); live →
-    // confirmAward. Any other state (awarded, refunded, taken_down) is terminal.
-    if (row.state === 'draft' || row.state === 'expired')
-      return Response.json({ ok: true, ...(await confirmFunding(ref, tx)) });
-    if (row.state === 'live')
-      return Response.json({ ok: true, ...(await confirmAward(ref, tx)) });
-    return Response.json(
-      { error: `This campaign is ${row.state}.` },
-      { status: 400 },
-    );
+    // Routed by what the receipt contains: a funding receipt (draft, a lazily-expired draft it
+    // rescues, or a re-confirm of a campaign that's already live) or an award receipt.
+    return Response.json({ ok: true, ...(await confirmTx(ref, tx)) });
   } catch (err) {
     const receiptMsg = receiptNotFoundMessage(err);
     if (receiptMsg)
