@@ -68,7 +68,7 @@ export default async function ProjectPage({
           ) : null}
           <div>
             <dt className="text-sm text-ek-blue-soft">
-              {ranked ? 'Prize' : 'Status'}
+              {c.kind === 'sponsor' ? 'Status' : 'Prize'}
             </dt>
             <dd className="mt-1 text-2xl text-ek-white">
               {capitalize(entryStatus(c, p, p.sponsor_state))}
