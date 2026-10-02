@@ -1,5 +1,7 @@
 import { formatUnits, parseUnits } from 'viem';
 import { z } from 'zod';
+import { formatDeadline } from './dates';
+import { formatExact } from './format-units';
 import { CHAINS } from './match';
 import type { ProgramFile } from './program-file';
 import type { TokenInfo } from './escrow';
@@ -344,4 +346,142 @@ export function matchAwardToPlan(
     amount: p.amount,
     reason: p.reason,
   }));
+}
+
+/*
+ * What the sponsor's agent shows the sponsor (`show_to_sponsor`) and does next (`next_step`).
+ * Built here, pure, so every reply reads the same and is tested. Amounts are exact (formatExact).
+ */
+
+type Tok = { symbol: string; decimals: number };
+const amt = (units: bigint, t: Tok) =>
+  `${formatExact(units, t.decimals)} ${t.symbol}`;
+const entriesText = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`;
+
+/** create: what was drafted, the split, and how to fund it. */
+export function createReply(a: {
+  title: string;
+  poolUnits: bigint;
+  token: Tok;
+  winners: number;
+  endsAt: string;
+  fundUrl: string;
+}) {
+  const { prize, fee } = splitUnits(a.poolUnits);
+  return {
+    show_to_sponsor:
+      `Campaign drafted: ${a.title}.\n` +
+      `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
+      `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
+      `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
+      `Fund it here: ${a.fundUrl}`,
+    next_step:
+      `Fund it: the sponsor opens ${a.fundUrl} and deposits from their wallet, or, if you hold that ` +
+      'wallet, send the two `transactions` in order (approve, then createCampaign). Then call ' +
+      'sponsor_campaign with action=status, ref, and tx (the createCampaign hash). An unfunded ' +
+      'draft expires after 7 days, or 10 minutes before its deadline.',
+  };
+}
+
+export type StatusFacts = {
+  state: 'draft' | 'live' | 'awarded' | 'refunded' | 'expired' | 'taken_down';
+  title: string;
+  /** What winners share, formatted ("90 USDC"). */
+  prize: string;
+  endsAt: string;
+  now: Date;
+  fundUrl: string;
+  /** draft: when it stops being fundable. */
+  expiresAt: Date | null;
+  /** expired: why (see sponsor.ts expiredText). */
+  expiredText: string | null;
+  entries: number;
+  paid: number;
+  escrow: string | null;
+  escrowUrl: string | null;
+  campaignUrl: string | null;
+  /** live with a prepared award plan. */
+  awardUrl: string | null;
+};
+
+/** status: one line per state, plus the next step where there is one. */
+export function statusReply(s: StatusFacts): {
+  show_to_sponsor: string;
+  next_step?: string;
+} {
+  const deadline = formatDeadline(s.endsAt);
+  switch (s.state) {
+    case 'draft':
+      return {
+        show_to_sponsor:
+          `${s.title} is a draft, not funded yet. Deposit the pool at ${s.fundUrl}` +
+          (s.expiresAt
+            ? ` before ${formatDeadline(s.expiresAt)}, when the draft expires.`
+            : '.'),
+        next_step:
+          `Fund it: the sponsor deposits at ${s.fundUrl}, or you send the two transactions from ` +
+          'create if you hold their wallet. Then call status with ref and tx (the createCampaign hash).',
+      };
+    case 'expired':
+      return {
+        show_to_sponsor:
+          s.expiredText ?? `${s.title} expired before it was funded.`,
+        next_step: 'Create a new campaign with action=create.',
+      };
+    case 'awarded':
+      return {
+        show_to_sponsor: `${s.title} is awarded: ${s.paid} winner${s.paid === 1 ? '' : 's'} paid.${s.campaignUrl ? ` ${s.campaignUrl}` : ''}`,
+      };
+    case 'refunded':
+      return {
+        show_to_sponsor: `${s.title} ended with no winners; the whole pool was refunded to the sponsor's wallet.`,
+      };
+    case 'taken_down':
+      return {
+        show_to_sponsor: `${s.title} was removed by EarnKit; the whole pool was refunded to the sponsor's wallet.`,
+      };
+    case 'live': {
+      const escrow = s.escrow
+        ? ` Pool in escrow ${s.escrow}${s.escrowUrl && s.escrowUrl !== s.escrow ? ` (${s.escrowUrl})` : ''}.`
+        : '';
+      const page = s.campaignUrl ? ` ${s.campaignUrl}` : '';
+      if (s.now.getTime() < Date.parse(s.endsAt))
+        return {
+          show_to_sponsor: `${s.title} is live: ${entriesText(s.entries)}; winners picked after ${deadline}.${escrow}${page}`,
+          next_step: `Nothing to do until ${deadline}. Then call award with the winners.`,
+        };
+      return {
+        show_to_sponsor: `${s.title} has ended with ${entriesText(s.entries)}; time to pick winners.${escrow}${page}`,
+        next_step: s.awardUrl
+          ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref and tx.`
+          : s.entries === 0
+            ? 'Nobody entered. Contact EarnKit to refund the pool (fee included).'
+            : `Call award with winners [{entry_id, amount, reason}] adding up to ${s.prize} exactly. If the sponsor doesn't award within 7 days of the deadline, EarnKit pays the top entries.`,
+      };
+    }
+  }
+}
+
+/** award: who gets what and why, the fee, and where to sign. */
+export function awardReply(a: {
+  winners: { entry_id: number; name: string; amount: string; reason: string }[];
+  token: Tok;
+  feeUnits: bigint;
+  awardUrl: string;
+}) {
+  return {
+    show_to_sponsor:
+      'Award ready:\n' +
+      a.winners
+        .map(
+          (w) =>
+            `- ${w.name} (entry #${w.entry_id}): ${amt(parseUnits(w.amount, a.token.decimals), a.token)} — ${w.reason}`,
+        )
+        .join('\n') +
+      `\nEarnKit's 10% (${amt(a.feeUnits, a.token)}) is released with this payout.\n` +
+      `Sign it here: ${a.awardUrl}`,
+    next_step:
+      `The sponsor signs at ${a.awardUrl} with the wallet that funded the campaign (or, if you hold ` +
+      'that wallet, send `transaction`). Then call status with ref and tx (the award hash).',
+  };
 }

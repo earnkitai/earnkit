@@ -52,7 +52,7 @@ export function createMcpServer(ctx: ToolContext) {
     {
       instructions: [
         'EarnKit lists live builder programs with rewards, checked against official sources.',
-        'When a tool returns show_to_builder, show it exactly as written.',
+        'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself,',
         "confirm once before the final submit, and submit on the program's own site. Call",
         'record_submission only after it was really submitted, then follow its `next`. Never invent',
@@ -247,7 +247,8 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
         'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status (pass ' +
         'tx after sending a transaction) shows entries and scores. After the end, action=award with ' +
         'winners [{entry_id, amount, reason}] adding up to the prize returns award_url and the transaction. ' +
-        'Confirm amounts and wording with the sponsor before create and award.',
+        'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
+        'follow next_step. Confirm amounts and wording with the sponsor before create and award.',
       inputSchema: {
         action: z.enum(['create', 'status', 'award']),
         ref: z

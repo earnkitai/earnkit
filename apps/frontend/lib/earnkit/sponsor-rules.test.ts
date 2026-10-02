@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import {
   DraftInput,
   SponsorError,
+  awardReply,
   checkDraft,
+  createReply,
   mapOffPlanAward,
   matchAwardToPlan,
   planAward,
   splitUnits,
   sponsorProgramFile,
+  statusReply,
+  type StatusFacts,
 } from './sponsor-rules';
 import { ProgramFile } from './program-file';
 
@@ -276,4 +280,118 @@ test('off-plan award: case-insensitive matching, a shared wallet mapped to disti
       reason: 'Paid by the sponsor (no reason given)',
     },
   ]);
+});
+
+const USDC_T = { symbol: 'USDC', decimals: 6 };
+
+test('createReply: title, pool, split, winners, formatted deadline, fund link, next step', () => {
+  const r = createReply({
+    title: 'Build on Acme',
+    poolUnits: 100_000_000n,
+    token: USDC_T,
+    winners: 2,
+    endsAt: '2026-10-06T06:51:00Z',
+    fundUrl: 'https://earnkit.com/fund/0xabc',
+  });
+  assert.equal(
+    r.show_to_sponsor,
+    'Campaign drafted: Build on Acme.\n' +
+      "Pool: 100 USDC. Winners get 90 USDC; EarnKit's 10% (10 USDC) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n" +
+      'Winners: 2 planned. Deadline: Oct 6, 2026, 06:51 UTC.\n' +
+      'Fund it here: https://earnkit.com/fund/0xabc',
+  );
+  assert.match(r.next_step, /https:\/\/earnkit\.com\/fund\/0xabc/);
+  assert.match(r.next_step, /action=status, ref, and tx/);
+});
+
+const facts = (over: Partial<StatusFacts>): StatusFacts => ({
+  state: 'live',
+  title: 'Acme',
+  prize: '90 USDC',
+  endsAt: '2026-10-06T06:51:00Z',
+  now: new Date('2026-10-05T00:00:00Z'),
+  fundUrl: 'https://earnkit.com/fund/0xabc',
+  expiresAt: null,
+  expiredText: null,
+  entries: 2,
+  paid: 0,
+  escrow: '0xe5',
+  escrowUrl: 'https://basescan.org/address/0xe5',
+  campaignUrl: 'https://earnkit.com/campaigns/sponsor-1',
+  awardUrl: null,
+  ...over,
+});
+
+test('statusReply: draft shows the deposit link and expiry', () => {
+  const r = statusReply(
+    facts({ state: 'draft', expiresAt: new Date('2026-10-04T12:00:00Z') }),
+  );
+  assert.equal(
+    r.show_to_sponsor,
+    'Acme is a draft, not funded yet. Deposit the pool at https://earnkit.com/fund/0xabc before Oct 4, 2026, 12:00 UTC, when the draft expires.',
+  );
+  assert.match(r.next_step!, /status with ref and tx/);
+});
+
+test('statusReply: live before the deadline, entries and escrow', () => {
+  const r = statusReply(facts({}));
+  assert.equal(
+    r.show_to_sponsor,
+    'Acme is live: 2 entries; winners picked after Oct 6, 2026, 06:51 UTC. Pool in escrow 0xe5 (https://basescan.org/address/0xe5). https://earnkit.com/campaigns/sponsor-1',
+  );
+});
+
+test('statusReply: after the deadline the next step is award, adding up to the prize', () => {
+  const after = new Date('2026-10-07T00:00:00Z');
+  assert.match(
+    statusReply(facts({ now: after })).next_step!,
+    /Call award with winners \[\{entry_id, amount, reason\}\] adding up to 90 USDC exactly/,
+  );
+  assert.match(
+    statusReply(
+      facts({ now: after, awardUrl: 'https://earnkit.com/award/0xabc' }),
+    ).next_step!,
+    /signs the prepared award at https:\/\/earnkit\.com\/award\/0xabc/,
+  );
+});
+
+test('statusReply: one line for each finished state', () => {
+  assert.equal(
+    statusReply(facts({ state: 'awarded', paid: 2 })).show_to_sponsor,
+    'Acme is awarded: 2 winners paid. https://earnkit.com/campaigns/sponsor-1',
+  );
+  assert.equal(
+    statusReply(facts({ state: 'refunded' })).show_to_sponsor,
+    "Acme ended with no winners; the whole pool was refunded to the sponsor's wallet.",
+  );
+  assert.equal(
+    statusReply(facts({ state: 'taken_down' })).show_to_sponsor,
+    "Acme was removed by EarnKit; the whole pool was refunded to the sponsor's wallet.",
+  );
+  assert.equal(
+    statusReply(facts({ state: 'expired', expiredText: 'Gone.' }))
+      .show_to_sponsor,
+    'Gone.',
+  );
+});
+
+test('awardReply: each winner with project name, amount and reason; fee; award link', () => {
+  const r = awardReply({
+    winners: [
+      { entry_id: 12, name: 'Alpha', amount: '60', reason: 'Works best' },
+      { entry_id: 13, name: 'Beta', amount: '30.5', reason: 'Runner-up' },
+    ],
+    token: USDC_T,
+    feeUnits: 10_000_000n,
+    awardUrl: 'https://earnkit.com/award/0xabc',
+  });
+  assert.equal(
+    r.show_to_sponsor,
+    'Award ready:\n' +
+      '- Alpha (entry #12): 60 USDC — Works best\n' +
+      '- Beta (entry #13): 30.5 USDC — Runner-up\n' +
+      "EarnKit's 10% (10 USDC) is released with this payout.\n" +
+      'Sign it here: https://earnkit.com/award/0xabc',
+  );
+  assert.match(r.next_step, /status with ref and tx/);
 });

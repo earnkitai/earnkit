@@ -4,7 +4,6 @@ import { formatUnits, parseUnits, type TransactionReceipt } from 'viem';
 import { z } from 'zod';
 import { scoreEntry } from './campaigns';
 import { formatDeadline } from './dates';
-import { formatExact } from './format-units';
 import { sql } from './db';
 import {
   SPONSOR_NOT_OPEN,
@@ -13,6 +12,7 @@ import {
   escrowClient,
   escrowConfig,
   escrowEnabled,
+  escrowLink,
   findToken,
   fundTxs,
   readAwarded,
@@ -23,13 +23,17 @@ import { NotFoundError, upsertProgram } from './programs';
 import {
   AwardWinner,
   SponsorError,
+  awardReply,
   checkDraft,
+  createReply,
   mapOffPlanAward,
   matchAwardToPlan,
   planAward,
   sponsorProgramFile,
   splitUnits,
+  statusReply,
   type Draft,
+  type StatusFacts,
 } from './sponsor-rules';
 
 /** Sponsor campaigns (v2.1): drafts, funding, status, and awards. Reads the chain; never signs. */
@@ -80,24 +84,26 @@ export async function createSponsorDraft(d: Draft, installationId: number) {
     amount: d.amount,
     chain_id: chainId,
   })}`;
-  const { prize, fee } = splitUnits(amountUnits);
-  // Exact (formatUnits-based), so the split told to the sponsor matches the fund page and the
-  // signed amount to the last unit.
-  const fmt = (u: bigint) => formatExact(u, token!.decimals);
+  const fundUrl = `${baseUrl()}/fund/${ref}`;
   return {
     ref,
-    fund_url: `${baseUrl()}/fund/${ref}`,
+    fund_url: fundUrl,
     transactions: fundTxs(
       ref,
       token!,
       amountUnits,
       Math.floor(Date.parse(d.ends_at) / 1000),
     ),
-    show_to_builder:
-      `Campaign drafted: ${d.title}. To go live, deposit ${d.amount} ${token!.symbol} into escrow: ` +
-      `${baseUrl()}/fund/${ref} (or I can send the two transactions if I hold your wallet). ` +
-      `${fmt(prize)} ${token!.symbol} goes to the winners you pick; EarnKit's 10% (${fmt(fee)} ${token!.symbol}) ` +
-      `is paid only when prizes are paid, and refunded if nobody qualifies. Unfunded drafts expire in 7 days.`,
+    // Exact amounts (formatExact), so the split told to the sponsor matches the fund page and the
+    // signed amount to the last unit.
+    ...createReply({
+      title: d.title,
+      poolUnits: amountUnits,
+      token: token!,
+      winners: d.winners,
+      endsAt: d.ends_at,
+      fundUrl,
+    }),
   };
 }
 
@@ -122,6 +128,17 @@ export const DEADLINE_PASSED =
   "This draft's deadline has passed. Ask your agent to create a new campaign.";
 export const DRAFT_EXPIRED =
   'This draft expired (unfunded for 7 days). Ask your agent to create a new campaign.';
+
+/** When a draft stops being fundable: 7 days after creation, or 10 minutes before its deadline. */
+export const draftExpiresAt = (
+  row: Pick<SponsorRow, 'created_at'> & { draft: { ends_at: string } },
+) =>
+  new Date(
+    Math.min(
+      row.created_at.getTime() + DRAFT_TTL_MS,
+      Date.parse(row.draft.ends_at) - DEADLINE_MARGIN_MS,
+    ),
+  );
 
 /** What to tell a sponsor about an expired draft. Pure; exported for tests. */
 export const expiredText = (
@@ -379,6 +396,7 @@ type EntryRow = {
   contracts: string[];
   score: number | null;
   scored_at: Date | null;
+  prize_tx: string | null;
 };
 
 /** Entries with a payout wallet for `programId`. `db` reuses a caller's transaction, if any. */
@@ -387,7 +405,7 @@ async function entriesOf(
   db: postgres.Sql | postgres.TransactionSql = sql(),
 ) {
   return db<EntryRow[]>`
-    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at FROM projects
+    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, prize_tx FROM projects
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
 
@@ -430,6 +448,7 @@ export async function sponsorStatus(ref: string, installationId: number) {
   const row = await loadCampaign(ref);
   const units = parseUnits(row.amount, row.token_decimals);
   const prize = formatUnits(splitUnits(units).prize, row.token_decimals);
+  const now = new Date();
   const base = {
     state: row.state,
     title: row.draft.title,
@@ -437,15 +456,37 @@ export async function sponsorStatus(ref: string, installationId: number) {
     prize: `${prize} ${row.token_symbol}`,
     ends_at: row.draft.ends_at,
   };
+  const facts: StatusFacts = {
+    state: row.state,
+    title: row.draft.title,
+    prize: base.prize,
+    endsAt: row.draft.ends_at,
+    now,
+    fundUrl: `${baseUrl()}/fund/${ref}`,
+    expiresAt: row.state === 'draft' ? draftExpiresAt(row) : null,
+    expiredText: row.state === 'expired' ? expiredText(row, now) : null,
+    entries: 0,
+    paid: 0,
+    escrow: row.escrow_address,
+    escrowUrl: row.escrow_address
+      ? escrowLink(row.chain_id, row.escrow_address)
+      : null,
+    campaignUrl: row.program_id
+      ? `${baseUrl()}/campaigns/${row.program_id}`
+      : null,
+    awardUrl:
+      row.award_plan && row.state === 'live'
+        ? `${baseUrl()}/award/${ref}`
+        : null,
+  };
   if (row.state === 'draft')
-    return { ...base, fund_url: `${baseUrl()}/fund/${ref}`, entries: [] };
-  if (row.state === 'expired')
     return {
       ...base,
-      show_to_sponsor: expiredText(row, new Date()),
+      fund_url: facts.fundUrl,
+      ...statusReply(facts),
       entries: [],
     };
-  if (!row.program_id) return { ...base, entries: [] };
+  if (!row.program_id) return { ...base, ...statusReply(facts), entries: [] };
   const entries = await entriesOf(row.program_id);
   let scoresNote: string | undefined;
   if (row.installation_id === installationId) {
@@ -459,11 +500,17 @@ export async function sponsorStatus(ref: string, installationId: number) {
         'Scores could not be refreshed just now; showing the last known scores.';
     }
   }
+  facts.entries = entries.length;
+  facts.paid = entries.filter((e) => e.prize_tx).length;
   return {
     ...base,
-    campaign_url: `${baseUrl()}/campaigns/${row.program_id}`,
-    ...(row.award_plan &&
-      row.state === 'live' && { award_url: `${baseUrl()}/award/${ref}` }),
+    campaign_url: facts.campaignUrl,
+    ...(row.escrow_address && {
+      escrow: row.escrow_address,
+      escrow_url: facts.escrowUrl,
+    }),
+    ...(facts.awardUrl && { award_url: facts.awardUrl }),
+    ...statusReply(facts),
     ...(scoresNote && { scores_note: scoresNote }),
     entries: entries.map((e) => ({
       entry_id: e.id,
@@ -498,14 +545,24 @@ export async function prepareAward(
     WHERE ref = ${ref} AND state = 'live' AND installation_id = ${installationId}`;
   if (res.count === 0)
     throw new SponsorError('This campaign changed; check status again.');
+  const awardUrl = `${baseUrl()}/award/${ref}`;
   return {
-    award_url: `${baseUrl()}/award/${ref}`,
+    award_url: awardUrl,
     transaction: awardTx(
       row.escrow_address as `0x${string}`,
       wallets,
       amountsUnits,
     ),
     plan,
+    ...awardReply({
+      winners: plan.map((p) => ({
+        ...p,
+        name: entries.find((e) => e.id === p.entry_id)?.name ?? '',
+      })),
+      token: { symbol: row.token_symbol, decimals: row.token_decimals },
+      feeUnits: splitUnits(parseUnits(row.amount, row.token_decimals)).fee,
+      awardUrl,
+    }),
   };
 }
 
