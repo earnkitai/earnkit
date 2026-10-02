@@ -42,7 +42,8 @@ contract EarnKitCampaignsTest is BaseTest {
     function test_create_eachCampaignIsItsOwnAddress() public {
         EarnKitCampaign a = create(10e6, uint64(block.timestamp + 1 days));
         vm.prank(sponsor);
-        address b = factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 20e6, uint64(block.timestamp + 1 days));
+        address b =
+            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 20e6, uint64(block.timestamp + 1 days));
         assertTrue(address(a) != b);
         assertEq(usdc.balanceOf(address(a)), 10e6);
         assertEq(usdc.balanceOf(b), 20e6);

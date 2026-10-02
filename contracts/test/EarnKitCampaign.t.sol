@@ -88,7 +88,9 @@ contract EarnKitCampaignTest is BaseTest {
         c.award(winners(alice, bob), amounts(900e6, 0));
         address[] memory many = new address[](51);
         uint256[] memory each = new uint256[](51);
-        for (uint256 i; i < 51; ++i) (many[i], each[i]) = (alice, 1);
+        for (uint256 i; i < 51; ++i) {
+            (many[i], each[i]) = (alice, 1);
+        }
         vm.expectRevert(EarnKitCampaign.BadWinners.selector);
         c.award(many, each);
         vm.stopPrank();
@@ -146,8 +148,9 @@ contract EarnKitCampaignTest is BaseTest {
         // A second campaign created before the rotation, so we can check refund on an
         // untouched, still-Funded campaign after `c` has been awarded below.
         vm.prank(sponsor);
-        address c2Addr =
-            factory.createCampaign(keccak256("ref-2"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days));
+        address c2Addr = factory.createCampaign(
+            keccak256("ref-2"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days)
+        );
         EarnKitCampaign c2 = EarnKitCampaign(c2Addr);
 
         vm.startPrank(owner);
@@ -177,8 +180,9 @@ contract EarnKitCampaignTest is BaseTest {
 
         // A campaign created after the rotation uses bob for both operator and treasury.
         vm.prank(sponsor);
-        address c3Addr =
-            factory.createCampaign(keccak256("ref-3"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days));
+        address c3Addr = factory.createCampaign(
+            keccak256("ref-3"), IERC20(address(usdc)), 1000e6, uint64(block.timestamp + 14 days)
+        );
         EarnKitCampaign c3 = EarnKitCampaign(c3Addr);
         assertEq(c3.operator(), bob);
         assertEq(c3.treasury(), bob);
