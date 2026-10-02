@@ -1,7 +1,5 @@
-import { BaseError } from 'viem';
 import { ZodError } from 'zod';
 import { formatDeadline } from './dates';
-import { receiptNotFoundMessage } from './receipt-error';
 
 /** Pure helpers for the operator CLI (scripts/campaign.mts), kept here so they're tested. */
 
@@ -13,20 +11,49 @@ EarnKit's own campaigns (by program slug):
   payout <slug> --winners <id>,<id>,... [--execute]
                                                  send the fixed prize to approved winners (PAYOUT_PRIVATE_KEY)
 
-Sponsor campaigns (by ref; operator only, OPERATOR_PRIVATE_KEY, local shell):
-  award  <ref> --winners <id>:<amount>:<reason>,... [--execute]
-                                                 fallback award, once 7 days have passed since the deadline
+Sponsor campaigns (by ref; local shell only):
+  fallback propose <ref> --winners <id>:<amount>:<reason>,... [--execute]
+                                                 propose winners once 7 days have passed since the deadline
+                                                 (OPERATOR_PRIVATE_KEY); payable 72 hours later unless vetoed
+  fallback execute <ref> [--execute]             pay the proposed winners once the 72 hours have passed
+  fallback veto    <ref> [--execute]             cancel the proposal for good (GUARDIAN_PRIVATE_KEY)
   refund <ref> --reason no-eligible|takedown [--escrow <address>] [--execute]
-                                                 refund the sponsor (--escrow: an untracked second deposit)
-  sync   <ref> [--tx <hash>]                     compare the database with the chain; --tx repairs from a receipt
+                                                 refund the sponsor (OPERATOR_PRIVATE_KEY; --escrow: a stray
+                                                 escrow for this ref that EarnKit doesn't track)
+  sync   [<ref>]                                 read the chain and update the database: one campaign, or
+                                                 every draft, expired and live one; shows pending fallbacks
 
-Without --execute, payout, award and refund are dry runs.`;
+Without --execute, payout, fallback and refund are dry runs.`;
+
+/**
+ * viem's errors by shape, not `instanceof`: under tsx the scripts load viem as ESM while lib/ loads
+ * it as CommonJS, so a viem error thrown in a script isn't an instance of lib/'s `BaseError`.
+ */
+const isViemError = (e: unknown): e is { shortMessage: string } =>
+  typeof e === 'object' &&
+  e !== null &&
+  typeof (e as { shortMessage?: unknown }).shortMessage === 'string';
+
+/** The contract's custom error name somewhere in a revert's cause chain, or null. */
+function revertName(err: unknown): string | null {
+  let cur: unknown = err;
+  while (typeof cur === 'object' && cur !== null) {
+    const name = (cur as { data?: { errorName?: unknown } }).data?.errorName;
+    if (typeof name === 'string') return name;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return null;
+}
 
 /** One readable line for any error the CLI hits: no stack traces. */
 export function cliErrorLine(err: unknown): string {
-  const receipt = receiptNotFoundMessage(err);
-  if (receipt) return receipt;
-  if (err instanceof BaseError) return err.shortMessage;
+  if (isViemError(err)) {
+    // A contract revert names the contract's error ("…reverted: NotAllowed.").
+    const name = revertName(err);
+    return name
+      ? `${err.shortMessage.replace(/\.$/, '')}: ${name}.`
+      : err.shortMessage;
+  }
   if (err instanceof ZodError)
     return `Invalid input: ${err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`;
   const msg = err instanceof Error ? err.message : String(err);
@@ -44,8 +71,11 @@ export function privateKeyProblem(name: string, key: string | undefined) {
 export const operatorKeyProblem = (key: string | undefined) =>
   privateKeyProblem('OPERATOR_PRIVATE_KEY', key);
 
+export const guardianKeyProblem = (key: string | undefined) =>
+  privateKeyProblem('GUARDIAN_PRIVATE_KEY', key);
+
 /**
- * Whether the operator's fallback award is open at `now` (chain time, in seconds): the escrow
+ * Whether the operator may propose fallback winners at `now` (chain time, in seconds): the escrow
  * allows it once `endsAt + grace` has passed. Otherwise, the line to refuse with.
  */
 export function fallbackProblem(endsAt: bigint, grace: bigint, now: bigint) {
@@ -53,4 +83,14 @@ export function fallbackProblem(endsAt: bigint, grace: bigint, now: bigint) {
   return now >= opens
     ? null
     : `The fallback opens on ${formatDeadline(new Date(Number(opens) * 1000))}.`;
+}
+
+/**
+ * Whether a proposed fallback can be executed at `now` (chain time, in seconds): once its delay
+ * has passed at `executesAt`. Otherwise, the line to refuse with.
+ */
+export function executeProblem(executesAt: bigint, now: bigint) {
+  return now >= executesAt
+    ? null
+    : `The fallback can be executed from ${formatDeadline(new Date(Number(executesAt) * 1000))}.`;
 }

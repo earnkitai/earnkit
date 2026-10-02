@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BaseError, TransactionReceiptNotFoundError } from 'viem';
+import { BaseError, ContractFunctionRevertedError } from 'viem';
 import { z } from 'zod';
 import { EntryError } from './campaigns';
 import { EscrowConfigError } from './escrow';
@@ -8,7 +8,9 @@ import { SponsorError } from './sponsor-rules';
 import {
   USAGE,
   cliErrorLine,
+  executeProblem,
   fallbackProblem,
+  guardianKeyProblem,
   operatorKeyProblem,
   privateKeyProblem,
 } from './cli';
@@ -30,11 +32,26 @@ test('cliErrorLine: our errors by message, viem by shortMessage, all on one line
     details: 'long details\nwith lines',
   });
   assert.equal(cliErrorLine(viem), 'Execution reverted: NotEnded');
-  assert.match(
-    cliErrorLine(
-      new TransactionReceiptNotFoundError({ hash: `0x${'1'.repeat(64)}` }),
-    ),
-    /isn't confirmed yet/,
+  const revert = new BaseError(
+    'The contract function "vetoFallback" reverted.',
+    {
+      cause: Object.assign(
+        new ContractFunctionRevertedError({
+          abi: [{ type: 'error', name: 'NotAllowed', inputs: [] }],
+          data: '0x3d693ada',
+          functionName: 'vetoFallback',
+        }),
+      ),
+    },
+  );
+  assert.equal(
+    cliErrorLine(revert),
+    'The contract function "vetoFallback" reverted: NotAllowed.',
+  );
+  // By shape, not instanceof (a script's viem may be another module instance).
+  assert.equal(
+    cliErrorLine({ shortMessage: 'Short.', message: 'long\nlong' }),
+    'Short.',
   );
   assert.equal(cliErrorLine(new Error('first\n  second')), 'first second');
   assert.equal(cliErrorLine('plain'), 'plain');
@@ -69,8 +86,28 @@ test('fallbackProblem: refuses before endsAt + 7 days with the opening date', ()
 });
 
 test('USAGE lists every command', () => {
-  for (const c of ['score', 'rank', 'payout', 'award', 'refund', 'sync'])
+  for (const c of ['score', 'rank', 'payout', 'refund'])
     assert.match(USAGE, new RegExp(`\\n  ${c} +<`));
+  for (const c of ['propose', 'execute', 'veto'])
+    assert.match(USAGE, new RegExp(`\\n  fallback ${c} +<ref>`));
+  assert.match(USAGE, /\n  sync +\[<ref>\]/);
+  assert.doesNotMatch(USAGE, /--tx|\n  award /);
+});
+
+test('executeProblem: refuses before the 72-hour delay with the execute time', () => {
+  const at = BigInt(Date.parse('2026-10-16T06:51:00Z') / 1000);
+  assert.equal(
+    executeProblem(at, at - 1n),
+    'The fallback can be executed from Oct 16, 2026, 06:51 UTC.',
+  );
+  assert.equal(executeProblem(at, at), null);
+});
+
+test('guardianKeyProblem names GUARDIAN_PRIVATE_KEY', () => {
+  assert.equal(
+    guardianKeyProblem(undefined),
+    'Set GUARDIAN_PRIVATE_KEY in your local shell.',
+  );
 });
 
 test('privateKeyProblem checks PAYOUT_PRIVATE_KEY the same way, by name', () => {

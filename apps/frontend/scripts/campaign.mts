@@ -2,8 +2,11 @@ import './env.mts';
 import {
   createPublicClient,
   createWalletClient,
+  encodeAbiParameters,
   erc20Abi,
   http,
+  isAddress,
+  keccak256,
   parseUnits,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -16,7 +19,9 @@ import {
 import {
   USAGE,
   cliErrorLine,
+  executeProblem,
   fallbackProblem,
+  guardianKeyProblem,
   operatorKeyProblem,
   privateKeyProblem,
 } from '../lib/earnkit/cli';
@@ -25,11 +30,16 @@ import { sql } from '../lib/earnkit/db';
 
 /**
  * Admin for EarnKit's own campaigns (score|rank|payout <slug>) and for sponsor campaigns
- * (award|refund|sync <ref>; operator-only, local use). `pnpm campaign --help` lists every command
- * (lib/earnkit/cli.ts USAGE). Signing keys (PAYOUT_PRIVATE_KEY, OPERATOR_PRIVATE_KEY) live only in
- * the local shell, never on the server. Every error ends as one readable line and exit code 1.
+ * (fallback|refund|sync <ref>; local use). `pnpm campaign --help` lists every command
+ * (lib/earnkit/cli.ts USAGE). Signing keys (PAYOUT_PRIVATE_KEY, OPERATOR_PRIVATE_KEY,
+ * GUARDIAN_PRIVATE_KEY) live only in the local shell, never on the server. Every error ends as one
+ * readable line and exit code 1.
  */
-const [command, slug] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const command = args[0];
+const sub = command === 'fallback' ? args[1] : undefined;
+const positional = args[command === 'fallback' ? 2 : 1];
+const slug = positional?.startsWith('--') ? undefined : positional;
 const flag = (name: string) => {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? undefined : (process.argv[i + 1] ?? '');
@@ -39,16 +49,19 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['score', 'rank', 'payout', 'award', 'refund', 'sync'];
+const COMMANDS = ['score', 'rank', 'payout', 'fallback', 'refund', 'sync'];
+const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
   process.exit(command ? 0 : 1);
 }
 if (!COMMANDS.includes(command))
   fail(`Unknown command "${command}".\n\n${USAGE}`);
-if (!slug)
+if (command === 'fallback' && !FALLBACK.includes(sub ?? ''))
+  fail(`pnpm campaign fallback needs propose, execute or veto.\n\n${USAGE}`);
+if (!slug && command !== 'sync')
   fail(
-    `pnpm campaign ${command} needs a campaign ${['score', 'rank', 'payout'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
+    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['score', 'rank', 'payout'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
   );
 
 // Set inside the try, so a missing DATABASE_URL is a readable line too.
@@ -62,250 +75,8 @@ try {
 }
 
 async function main() {
-  if (['award', 'refund', 'sync'].includes(command)) {
-    const { loadCampaign, confirmAward, confirmTx } = await import(
-      '../lib/earnkit/sponsor'
-    );
-    const { planAward, splitUnits } = await import(
-      '../lib/earnkit/sponsor-rules'
-    );
-    const { escrowConfig, escrowClient } = await import(
-      '../lib/earnkit/escrow'
-    );
-    const { campaignAbi, campaignsAbi } = await import(
-      '../lib/earnkit/escrow-abi'
-    );
-    const { formatExact } = await import('../lib/earnkit/format-units');
-    const { isAddress } = await import('viem');
-    const STATES = ['none', 'live', 'awarded', 'refunded'] as const;
-    const chainStateOf = async (address: `0x${string}`) =>
-      STATES[
-        Number(
-          await escrowClient().readContract({
-            address,
-            abi: campaignAbi,
-            functionName: 'state',
-          }),
-        )
-      ];
-    // Signing needs a well-formed key; check it before reading anything else.
-    const execute = process.argv.includes('--execute');
-    if (execute && command !== 'sync') {
-      const problem = operatorKeyProblem(process.env.OPERATOR_PRIVATE_KEY);
-      if (problem) fail(problem);
-    }
-    let row = await loadCampaign(slug);
-
-    if (command === 'sync') {
-      // sync <ref> --tx <hash>: repair. Confirms that funding (including the rescue of a funded
-      // draft that lazily expired) or award transaction exactly as the status tool would, then
-      // prints the DB vs chain state like plain sync.
-      const tx = flag('tx');
-      if (tx !== undefined) {
-        if (!/^0x[0-9a-fA-F]{64}$/.test(tx))
-          fail('--tx must be a transaction hash');
-        const before = row.state;
-        const result = await confirmTx(slug, tx as `0x${string}`).catch((err) =>
-          fail(`sync --tx: ${cliErrorLine(err)}`),
-        );
-        row = await loadCampaign(slug);
-        console.log(
-          `repaired: ${result.confirmed} confirmed (database ${before} -> ${row.state})`,
-          JSON.stringify(result),
-        );
-      }
-      if (!row.escrow_address) {
-        console.log(
-          `${row.draft.title} · ${row.state} · no escrow recorded\n` +
-            `database: ${row.state}; chain says: unknown (pass --tx <funding hash> to confirm a deposit)`,
-        );
-        await db.end();
-        process.exit(0);
-      }
-    }
-
-    // refund --escrow <address>: refund a specific escrow for this ref, e.g. a second deposit made
-    // for an already-funded draft from another wallet (refs are unique per sender onchain). It must
-    // be a clone of our factory that the factory records for this ref.
-    const escrowFlag = command === 'refund' ? flag('escrow') : undefined;
-    let escrow = row.escrow_address as `0x${string}` | null;
-    let untracked = false;
-    if (escrowFlag !== undefined) {
-      if (!isAddress(escrowFlag, { strict: false }))
-        fail('--escrow must be an address');
-      const target = escrowFlag.toLowerCase() as `0x${string}`;
-      if (target !== escrow?.toLowerCase()) {
-        const { factory } = escrowConfig();
-        const read = (functionName: 'factory' | 'sponsor') =>
-          escrowClient()
-            .readContract({ address: target, abi: campaignAbi, functionName })
-            .catch(() =>
-              fail(`${target} isn't an EarnKit campaign escrow.`),
-            ) as Promise<string>;
-        if ((await read('factory')).toLowerCase() !== factory.toLowerCase())
-          fail(
-            `${target} wasn't created by this EarnKit factory (${factory}).`,
-          );
-        const sponsor = (await read('sponsor')) as `0x${string}`;
-        const recorded = (await escrowClient().readContract({
-          address: factory,
-          abi: campaignsAbi,
-          functionName: 'campaignOf',
-          args: [sponsor, slug as `0x${string}`],
-        })) as string;
-        if (recorded.toLowerCase() !== target)
-          fail(`${target} isn't an escrow for campaign ${slug}.`);
-        untracked = true;
-        console.log(
-          `untracked escrow ${target} (sponsor ${sponsor}) for this ref`,
-        );
-      }
-      escrow = target;
-    }
-    if (!escrow) fail(`Campaign ${slug} isn't funded (state ${row.state}).`);
-    const chainState = await chainStateOf(escrow);
-    console.log(
-      `${row.draft.title} · ${row.state} · onchain state ${STATES.indexOf(chainState)} · escrow ${escrow}`,
-    );
-
-    const signer = () => {
-      const key = process.env.OPERATOR_PRIVATE_KEY;
-      const problem = operatorKeyProblem(key);
-      if (problem) fail(problem);
-      const { chain, rpcUrl } = escrowConfig();
-      const viemChain = { base, 'base-sepolia': baseSepolia, local: foundry }[
-        chain
-      ];
-      return createWalletClient({
-        account: privateKeyToAccount(key as `0x${string}`),
-        chain: viemChain,
-        transport: http(rpcUrl),
-      });
-    };
-
-    if (command === 'sync') {
-      console.log(`database: ${row.state}; chain says: ${chainState}`);
-    } else if (command === 'refund') {
-      const reason = flag('reason');
-      if (reason !== 'no-eligible' && reason !== 'takedown')
-        fail('--reason no-eligible|takedown');
-      // Only a Funded escrow can be refunded; say who gets the money before anything is signed.
-      if (chainState !== 'live')
-        fail(
-          `The escrow isn't Funded onchain (chain says: ${chainState}); nothing to refund.`,
-        );
-      const readEscrow = (functionName: 'sponsor' | 'prize' | 'fee') =>
-        escrowClient().readContract({
-          address: escrow,
-          abi: campaignAbi,
-          functionName,
-        });
-      const [to, prize, fee] = await Promise.all([
-        readEscrow('sponsor') as Promise<string>,
-        readEscrow('prize') as Promise<bigint>,
-        readEscrow('fee') as Promise<bigint>,
-      ]);
-      console.log(
-        `Refund: ${formatExact(prize + fee, row.token_decimals)} ${row.token_symbol} (fee included) goes back to the sponsor ${to}.`,
-      );
-      if (!execute)
-        console.log('Dry run. Add --execute to refund the sponsor.');
-      else {
-        const hash = await signer().writeContract({
-          address: escrow,
-          abi: campaignAbi,
-          functionName: 'refund',
-        });
-        const receipt = await escrowClient().waitForTransactionReceipt({
-          hash,
-        });
-        if (receipt.status !== 'success') fail(`refund reverted: ${hash}`);
-        if (untracked) {
-          // A second deposit was never part of the campaign: the tracked campaign is unchanged.
-          console.log(
-            `refunded untracked escrow ${escrow} (database unchanged): ${hash}`,
-          );
-        } else {
-          await db`UPDATE sponsor_campaigns SET state = ${reason === 'takedown' ? 'taken_down' : 'refunded'} WHERE ref = ${slug}`;
-          if (row.program_id)
-            await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
-          console.log(`refunded: ${hash}`);
-        }
-      }
-    } else {
-      // award: --winners id:amount:reason,... (fallback after the 7-day grace)
-      const spec = (flag('winners') ?? '')
-        .split(',')
-        .filter(Boolean)
-        .map((w) => {
-          const [id, amount, ...reason] = w.split(':');
-          return {
-            entry_id: Number(id),
-            amount,
-            reason: reason.join(':') || 'Top entry (EarnKit fallback)',
-          };
-        });
-      const entries = await db<{ id: number; payout_wallet: string }[]>`
-      SELECT id, payout_wallet FROM projects WHERE program_id = ${row.program_id} AND payout_wallet IS NOT NULL`;
-      const { prize } = splitUnits(parseUnits(row.amount, row.token_decimals));
-      const { wallets, amountsUnits, plan } = planAward({
-        winners: spec,
-        entries,
-        prizeUnits: prize,
-        decimals: row.token_decimals,
-      });
-      for (const p of plan)
-        console.log(
-          `  #${p.entry_id} ${p.wallet} ${p.amount} ${row.token_symbol}: ${p.reason}`,
-        );
-      if (chainState !== 'live')
-        fail(
-          `The escrow isn't Funded onchain (chain says: ${chainState}); nothing to award.`,
-        );
-      // The escrow lets the operator award only once endsAt + AWARD_GRACE (7 days) has passed.
-      const [endsAt, grace, block] = await Promise.all([
-        escrowClient().readContract({
-          address: escrow,
-          abi: campaignAbi,
-          functionName: 'endsAt',
-        }),
-        escrowClient().readContract({
-          address: escrow,
-          abi: campaignAbi,
-          functionName: 'AWARD_GRACE',
-        }),
-        escrowClient().getBlock(),
-      ]);
-      const notYet = fallbackProblem(
-        BigInt(endsAt as bigint),
-        BigInt(grace as bigint),
-        block.timestamp,
-      );
-      if (!execute)
-        console.log(
-          `Dry run. Add --execute to award (operator, after the grace period).${notYet ? ` ${notYet}` : ''}`,
-        );
-      else if (notYet) fail(notYet);
-      else {
-        // 1. planAward already validated the winners above. 2. Build the signer now, so a missing
-        // OPERATOR_PRIVATE_KEY fails before anything is sent or stored. 3-4. Send the tx and require
-        // a successful receipt. 5. Only then persist the plan and record via confirmAward — the
-        // sponsor's stored plan must never be overwritten by a tx that never lands.
-        const wallet = signer();
-        const hash = await wallet.writeContract({
-          address: escrow,
-          abi: campaignAbi,
-          functionName: 'award',
-          args: [wallets as `0x${string}`[], amountsUnits],
-        });
-        const receipt = await escrowClient().waitForTransactionReceipt({
-          hash,
-        });
-        if (receipt.status !== 'success') fail(`award reverted: ${hash}`);
-        await db`UPDATE sponsor_campaigns SET award_plan = ${db.json(plan as never)} WHERE ref = ${slug}`;
-        console.log(`awarded: ${hash}`, await confirmAward(slug, hash));
-      }
-    }
+  if (['fallback', 'refund', 'sync'].includes(command)) {
+    await sponsorCommand();
     await db.end();
     process.exit(0);
   }
@@ -326,7 +97,7 @@ async function main() {
     campaign.kind !== 'earnkit' &&
     (command === 'payout' || command === 'rank')
   )
-    fail('Sponsor campaigns: use award/refund/sync (see --help).');
+    fail('Sponsor campaigns: use fallback/refund/sync (see --help).');
 
   type Entry = {
     id: number;
@@ -365,7 +136,7 @@ async function main() {
   } else if (command === 'payout') {
     // Guarded above for non-'earnkit' kinds; re-checked here so TS narrows `campaign` below.
     if (campaign.kind !== 'earnkit')
-      fail('Sponsor campaigns: use award/refund/sync (see --help).');
+      fail('Sponsor campaigns: use fallback/refund/sync (see --help).');
     const ids = (flag('winners') ?? '').split(',').map(Number).filter(Boolean);
     if (ids.length === 0)
       fail(
@@ -446,4 +217,337 @@ async function main() {
     fail(USAGE);
   }
   await db.end();
+}
+
+/** fallback | refund | sync: sponsor campaigns, by ref. */
+async function sponsorCommand() {
+  const { loadCampaign, checkChain, excludedWinners } = await import(
+    '../lib/earnkit/sponsor'
+  );
+  const { planAward, splitUnits } = await import(
+    '../lib/earnkit/sponsor-rules'
+  );
+  const { escrowConfig, escrowClient, readEscrow } = await import(
+    '../lib/earnkit/escrow'
+  );
+  const { campaignAbi, campaignsAbi } = await import(
+    '../lib/earnkit/escrow-abi'
+  );
+  const { formatExact } = await import('../lib/earnkit/format-units');
+  const { quoted } = await import('../lib/earnkit/untrusted-text');
+
+  // Signing needs a well-formed key; check it before reading anything else.
+  const execute = process.argv.includes('--execute');
+  const keyName =
+    sub === 'veto' ? 'GUARDIAN_PRIVATE_KEY' : 'OPERATOR_PRIVATE_KEY';
+  const keyProblem = () =>
+    (sub === 'veto' ? guardianKeyProblem : operatorKeyProblem)(
+      process.env[keyName],
+    );
+  if (execute && command !== 'sync') {
+    const problem = keyProblem();
+    if (problem) fail(problem);
+  }
+  const signer = () => {
+    const problem = keyProblem();
+    if (problem) fail(problem);
+    const { chain, rpcUrl } = escrowConfig();
+    return createWalletClient({
+      account: privateKeyToAccount(process.env[keyName] as `0x${string}`),
+      chain: { base, 'base-sepolia': baseSepolia, local: foundry }[chain],
+      transport: http(rpcUrl),
+    });
+  };
+  const send = async (
+    what: string,
+    write: (w: ReturnType<typeof signer>) => Promise<`0x${string}`>,
+  ) => {
+    const hash = await write(signer());
+    const receipt = await escrowClient().waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') fail(`${what} reverted: ${hash}`);
+    return hash;
+  };
+  const chainNow = async () => (await escrowClient().getBlock()).timestamp;
+  const seconds = (d: Date) => BigInt(Math.floor(d.getTime() / 1000));
+
+  if (command === 'sync') {
+    // One campaign, or every one that can still change onchain.
+    const refs = slug
+      ? [slug]
+      : (
+          await db<{ ref: string }[]>`
+          SELECT ref FROM sponsor_campaigns WHERE state IN ('draft', 'expired', 'live')
+          ORDER BY created_at`
+        ).map((r) => r.ref);
+    if (refs.length === 0)
+      console.log('No draft, expired or live sponsor campaigns.');
+    let failed = 0;
+    for (const ref of refs) {
+      const before = await loadCampaign(ref);
+      try {
+        const found = await checkChain(before);
+        const after = await loadCampaign(ref);
+        const chain = after.escrow_address
+          ? (await readEscrow(after.escrow_address)).state
+          : 'no deposit from the sponsor wallet';
+        console.log(
+          `${ref} · ${quoted(after.draft.title)} · database ${before.state}` +
+            (after.state !== before.state ? ` -> ${after.state}` : '') +
+            ` · chain says: ${chain}` +
+            (found.fallbackExecutesAt
+              ? ` · fallback pending, executable from ${formatDeadline(found.fallbackExecutesAt)}`
+              : '') +
+            (found.fundingProblem ? ` · refused: ${found.fundingProblem}` : ''),
+        );
+      } catch (err) {
+        failed++;
+        console.log(`${ref} · check failed: ${cliErrorLine(err)}`);
+      }
+    }
+    if (failed) fail(`${failed} campaign(s) could not be checked.`);
+    return;
+  }
+
+  const row = await loadCampaign(slug!);
+
+  if (command === 'refund') {
+    const reason = flag('reason');
+    if (reason !== 'no-eligible' && reason !== 'takedown')
+      fail('--reason no-eligible|takedown');
+    // --escrow <address>: a stray escrow for this ref that EarnKit doesn't track (another wallet's
+    // deposit, or the sponsor wallet's deposit with terms that differ from the draft). It must be a
+    // clone of our factory that the factory records for this ref.
+    const escrowFlag = flag('escrow');
+    let escrow = row.escrow_address as `0x${string}` | null;
+    let untracked = false;
+    if (escrowFlag !== undefined) {
+      if (!isAddress(escrowFlag, { strict: false }))
+        fail('--escrow must be an address');
+      const target = escrowFlag.toLowerCase() as `0x${string}`;
+      if (target !== escrow?.toLowerCase()) {
+        const { factory } = escrowConfig();
+        const read = (functionName: 'factory' | 'sponsor') =>
+          escrowClient()
+            .readContract({ address: target, abi: campaignAbi, functionName })
+            .catch(() =>
+              fail(`${target} isn't an EarnKit campaign escrow.`),
+            ) as Promise<string>;
+        if ((await read('factory')).toLowerCase() !== factory.toLowerCase())
+          fail(
+            `${target} wasn't created by this EarnKit factory (${factory}).`,
+          );
+        const sponsor = (await read('sponsor')) as `0x${string}`;
+        const recorded = (await escrowClient().readContract({
+          address: factory,
+          abi: campaignsAbi,
+          functionName: 'campaignOf',
+          args: [sponsor, slug as `0x${string}`],
+        })) as string;
+        if (recorded.toLowerCase() !== target)
+          fail(`${target} isn't an escrow for campaign ${slug}.`);
+        untracked = true;
+        console.log(
+          `untracked escrow ${target} (sponsor ${sponsor}) for this ref`,
+        );
+      }
+      escrow = target;
+    }
+    if (!escrow) fail(`Campaign ${slug} isn't funded (state ${row.state}).`);
+    const chainState = (await readEscrow(escrow)).state;
+    console.log(
+      `${quoted(row.draft.title)} · ${row.state} · onchain ${chainState} · escrow ${escrow}`,
+    );
+    // Only a Funded escrow can be refunded; say who gets the money before anything is signed.
+    if (chainState !== 'funded')
+      fail(
+        `The escrow isn't Funded onchain (chain says: ${chainState}); nothing to refund.`,
+      );
+    const readEscrowField = (functionName: 'sponsor' | 'prize' | 'fee') =>
+      escrowClient().readContract({
+        address: escrow,
+        abi: campaignAbi,
+        functionName,
+      });
+    const [to, prize, fee] = await Promise.all([
+      readEscrowField('sponsor') as Promise<string>,
+      readEscrowField('prize') as Promise<bigint>,
+      readEscrowField('fee') as Promise<bigint>,
+    ]);
+    console.log(
+      `Refund: ${formatExact(prize + fee, row.token_decimals)} ${row.token_symbol} (fee included) goes back to the sponsor ${to}.`,
+    );
+    if (!execute) {
+      console.log('Dry run. Add --execute to refund the sponsor.');
+      return;
+    }
+    const hash = await send('refund', (w) =>
+      w.writeContract({
+        address: escrow,
+        abi: campaignAbi,
+        functionName: 'refund',
+      }),
+    );
+    if (untracked) {
+      // A stray escrow was never part of the campaign: the tracked campaign is unchanged.
+      console.log(
+        `refunded untracked escrow ${escrow} (database unchanged): ${hash}`,
+      );
+      return;
+    }
+    await db`UPDATE sponsor_campaigns SET state = ${reason === 'takedown' ? 'taken_down' : 'refunded'} WHERE ref = ${slug}`;
+    if (row.program_id)
+      await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
+    console.log(`refunded: ${hash}`);
+    return;
+  }
+
+  // fallback propose | execute | veto
+  const escrow = row.escrow_address as `0x${string}` | null;
+  if (row.state !== 'live' || !escrow)
+    fail(`Campaign ${slug} isn't live (state ${row.state}).`);
+  const chain = await readEscrow(escrow);
+  console.log(
+    `${quoted(row.draft.title)} · ${row.state} · onchain ${chain.state} · escrow ${escrow}`,
+  );
+  if (chain.state !== 'funded')
+    fail(
+      `The escrow isn't Funded onchain (chain says: ${chain.state}); run pnpm campaign sync ${slug}.`,
+    );
+  const readField = (
+    functionName: 'endsAt' | 'AWARD_GRACE' | 'fallbackVetoed',
+  ) =>
+    escrowClient().readContract({
+      address: escrow,
+      abi: campaignAbi,
+      functionName,
+    });
+
+  if (sub === 'propose') {
+    if (await readField('fallbackVetoed'))
+      fail(
+        "The guardian vetoed the fallback on this campaign; only the sponsor's award or a refund remain.",
+      );
+    const spec = (flag('winners') ?? '')
+      .split(',')
+      .filter(Boolean)
+      .map((w) => {
+        const [id, amount, ...reason] = w.split(':');
+        return {
+          entry_id: Number(id),
+          amount,
+          reason: reason.join(':') || 'Top entry (EarnKit fallback)',
+        };
+      });
+    const entries = await db<{ id: number; payout_wallet: string }[]>`
+      SELECT id, payout_wallet FROM projects WHERE program_id = ${row.program_id} AND payout_wallet IS NOT NULL`;
+    const { prize } = splitUnits(parseUnits(row.amount, row.token_decimals));
+    const { wallets, amountsUnits, plan } = planAward({
+      winners: spec,
+      entries,
+      prizeUnits: prize,
+      decimals: row.token_decimals,
+      excluded: await excludedWinners(row, db),
+    });
+    for (const p of plan)
+      console.log(
+        `  #${p.entry_id} ${p.wallet} ${p.amount} ${row.token_symbol}: ${p.reason}`,
+      );
+    // The escrow takes proposals only once endsAt + AWARD_GRACE (7 days) has passed.
+    const [endsAt, grace, now] = await Promise.all([
+      readField('endsAt') as Promise<bigint>,
+      readField('AWARD_GRACE') as Promise<bigint>,
+      chainNow(),
+    ]);
+    const notYet = fallbackProblem(BigInt(endsAt), BigInt(grace), now);
+    if (!execute) {
+      console.log(
+        `Dry run. Add --execute to propose (operator; payable 72 hours later unless vetoed).${notYet ? ` ${notYet}` : ''}`,
+      );
+      return;
+    }
+    if (notYet) fail(notYet);
+    const hash = await send('proposeFallback', (w) =>
+      w.writeContract({
+        address: escrow,
+        abi: campaignAbi,
+        functionName: 'proposeFallback',
+        args: [wallets as `0x${string}`[], amountsUnits],
+      }),
+    );
+    // Stored only once the proposal is onchain: `execute` sends exactly this list, and the award
+    // is matched back to it.
+    await db`UPDATE sponsor_campaigns SET fallback_plan = ${db.json(plan as never)} WHERE ref = ${slug}`;
+    const { fallbackExecutesAt } = await readEscrow(escrow);
+    console.log(
+      `proposed: ${hash}\nExecutable from ${formatDeadline(fallbackExecutesAt!)} ` +
+        '(pnpm campaign fallback execute), unless the guardian vetoes or the sponsor awards first.',
+    );
+    return;
+  }
+
+  if (!chain.fallbackExecutesAt)
+    fail('No fallback is pending onchain for this campaign.');
+
+  if (sub === 'veto') {
+    if (!execute) {
+      console.log(
+        'Dry run. Add --execute to veto (guardian). After a veto the fallback is closed on this campaign.',
+      );
+      return;
+    }
+    const hash = await send('vetoFallback', (w) =>
+      w.writeContract({
+        address: escrow,
+        abi: campaignAbi,
+        functionName: 'vetoFallback',
+      }),
+    );
+    await db`UPDATE sponsor_campaigns SET fallback_plan = NULL WHERE ref = ${slug}`;
+    console.log(`vetoed: ${hash}. The fallback is closed on this campaign.`);
+    return;
+  }
+
+  // execute: anyone may, once the delay has passed; this CLI signs with the operator key.
+  const plan = row.fallback_plan;
+  if (!plan)
+    fail('EarnKit has no record of the proposed winners for this campaign.');
+  const wallets = plan.map((p) => p.wallet as `0x${string}`);
+  const amounts = plan.map((p) => parseUnits(p.amount, row.token_decimals));
+  const hashOf = keccak256(
+    encodeAbiParameters(
+      [{ type: 'address[]' }, { type: 'uint256[]' }],
+      [wallets, amounts],
+    ),
+  );
+  if (hashOf !== chain.fallbackHash)
+    fail(
+      "The stored fallback winners differ from the onchain proposal; don't execute.",
+    );
+  for (const p of plan)
+    console.log(
+      `  #${p.entry_id} ${p.wallet} ${p.amount} ${row.token_symbol}: ${p.reason}`,
+    );
+  const notYet = executeProblem(
+    seconds(chain.fallbackExecutesAt),
+    await chainNow(),
+  );
+  if (!execute) {
+    console.log(
+      `Dry run. Add --execute to pay these winners.${notYet ? ` ${notYet}` : ''}`,
+    );
+    return;
+  }
+  if (notYet) fail(notYet);
+  const hash = await send('executeFallback', (w) =>
+    w.writeContract({
+      address: escrow,
+      abi: campaignAbi,
+      functionName: 'executeFallback',
+      args: [wallets, amounts],
+    }),
+  );
+  await checkChain(row);
+  console.log(
+    `executed: ${hash} (database ${row.state} -> ${(await loadCampaign(slug!)).state})`,
+  );
 }
