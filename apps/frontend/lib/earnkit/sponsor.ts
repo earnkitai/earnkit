@@ -101,16 +101,44 @@ export async function createSponsorDraft(d: Draft, installationId: number) {
   };
 }
 
-/** The row, with lazy expiry of drafts older than 7 days. */
+/** createCampaign reverts once endsAt has passed; a deposit needs some time to land first. */
+const DEADLINE_MARGIN_MS = 10 * 60_000;
+
+/**
+ * Why an unfunded draft can no longer be funded, or null: its deadline is less than 10 minutes
+ * away (or past), or it is over 7 days old. Pure; exported for tests.
+ */
+export function draftExpiry(
+  row: Pick<SponsorRow, 'created_at'> & { draft: { ends_at: string } },
+  now: Date,
+): 'deadline' | 'age' | null {
+  if (Date.parse(row.draft.ends_at) - now.getTime() < DEADLINE_MARGIN_MS)
+    return 'deadline';
+  if (now.getTime() - row.created_at.getTime() > DRAFT_TTL_MS) return 'age';
+  return null;
+}
+
+export const DEADLINE_PASSED =
+  "This draft's deadline has passed. Ask your agent to create a new campaign.";
+export const DRAFT_EXPIRED =
+  'This draft expired (unfunded for 7 days). Ask your agent to create a new campaign.';
+
+/** What to tell a sponsor about an expired draft. Pure; exported for tests. */
+export const expiredText = (
+  row: Pick<SponsorRow, 'created_at'> & { draft: { ends_at: string } },
+  now: Date,
+) => (draftExpiry(row, now) === 'deadline' ? DEADLINE_PASSED : DRAFT_EXPIRED);
+
+/**
+ * The row, with lazy expiry of drafts that can no longer be funded (see `draftExpiry`). A funded
+ * receipt still rescues an expired draft (`confirmFunding`).
+ */
 export async function loadCampaign(ref: string) {
   const [row] = await sql()<
     SponsorRow[]
   >`SELECT * FROM sponsor_campaigns WHERE ref = ${ref}`;
   if (!row) throw new NotFoundError(`No sponsor campaign "${ref}".`);
-  if (
-    row.state === 'draft' &&
-    Date.now() - row.created_at.getTime() > DRAFT_TTL_MS
-  ) {
+  if (row.state === 'draft' && draftExpiry(row, new Date())) {
     await sql()`UPDATE sponsor_campaigns SET state = 'expired' WHERE ref = ${ref} AND state = 'draft'`;
     return { ...row, state: 'expired' as const };
   }
@@ -411,6 +439,12 @@ export async function sponsorStatus(ref: string, installationId: number) {
   };
   if (row.state === 'draft')
     return { ...base, fund_url: `${baseUrl()}/fund/${ref}`, entries: [] };
+  if (row.state === 'expired')
+    return {
+      ...base,
+      show_to_sponsor: expiredText(row, new Date()),
+      entries: [],
+    };
   if (!row.program_id) return { ...base, entries: [] };
   const entries = await entriesOf(row.program_id);
   let scoresNote: string | undefined;

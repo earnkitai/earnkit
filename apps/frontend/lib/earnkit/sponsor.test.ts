@@ -8,7 +8,11 @@ import {
 import { campaignAbi, campaignsAbi } from './escrow-abi';
 import {
   assertCanAward,
+  DEADLINE_PASSED,
+  DRAFT_EXPIRED,
   confirmableState,
+  draftExpiry,
+  expiredText,
   fundingDecision,
   fundingFromReceipt,
   routeReceipt,
@@ -186,30 +190,52 @@ test('routeReceipt routes by what the receipt contains, not the row state', () =
   });
   const draftRow = { ref: REF, state: 'draft', escrow_address: null } as const;
   assert.deepEqual(routeReceipt(draftRow, receipt({})), { route: 'funding' });
-  assert.deepEqual(routeReceipt({ ...draftRow, state: 'expired' }, receipt({})), {
-    route: 'funding',
-  });
+  assert.deepEqual(
+    routeReceipt({ ...draftRow, state: 'expired' }, receipt({})),
+    {
+      route: 'funding',
+    },
+  );
   // Errors are readable.
   assert.match(
-    (routeReceipt(liveRow, receipt({ status: 'reverted' })) as { error: string }).error,
+    (
+      routeReceipt(liveRow, receipt({ status: 'reverted' })) as {
+        error: string;
+      }
+    ).error,
     /failed onchain/,
   );
   assert.match(
-    (routeReceipt(liveRow, awardReceipt('0x00000000000000000000000000000000000000ee')) as {
-      error: string;
-    }).error,
+    (
+      routeReceipt(
+        liveRow,
+        awardReceipt('0x00000000000000000000000000000000000000ee'),
+      ) as {
+        error: string;
+      }
+    ).error,
     /funding or award/,
   );
   assert.match(
-    (routeReceipt(draftRow, receipt({ ref: ('0x' + 'b'.repeat(64)) as `0x${string}` })) as {
-      error: string;
-    }).error,
+    (
+      routeReceipt(
+        draftRow,
+        receipt({ ref: ('0x' + 'b'.repeat(64)) as `0x${string}` }),
+      ) as {
+        error: string;
+      }
+    ).error,
     /isn't the funding/,
   );
   assert.match(
-    (routeReceipt({ ...liveRow, state: 'refunded' }, awardReceipt('0x00000000000000000000000000000000000000ee')) as {
-      error: string;
-    }).error,
+    (
+      routeReceipt(
+        { ...liveRow, state: 'refunded' },
+        awardReceipt('0x00000000000000000000000000000000000000ee'),
+      ) as {
+        error: string;
+      }
+    ).error,
     /refunded/,
   );
 });
@@ -218,37 +244,57 @@ test('fundingDecision: publish, re-confirm, second escrow, refuse', () => {
   const created = { ref: REF, campaign: CLONE };
   const other = '0x00000000000000000000000000000000000000c2';
   assert.deepEqual(
-    fundingDecision({ ref: REF, state: 'draft', escrow_address: null }, created),
+    fundingDecision(
+      { ref: REF, state: 'draft', escrow_address: null },
+      created,
+    ),
     { action: 'publish' },
   );
   assert.deepEqual(
-    fundingDecision({ ref: REF, state: 'expired', escrow_address: null }, created),
+    fundingDecision(
+      { ref: REF, state: 'expired', escrow_address: null },
+      created,
+    ),
     { action: 'publish' },
   );
   // The live campaign's own funding receipt (any address casing) re-confirms.
   assert.deepEqual(
     fundingDecision(
-      { ref: REF, state: 'live', escrow_address: CLONE.toUpperCase().replace('0X', '0x') },
+      {
+        ref: REF,
+        state: 'live',
+        escrow_address: CLONE.toUpperCase().replace('0X', '0x'),
+      },
       created,
     ),
     { action: 'already_live' },
   );
   // A second CampaignCreated for the same ref, from another wallet: a different, untracked escrow.
   assert.deepEqual(
-    fundingDecision({ ref: REF, state: 'live', escrow_address: other }, created),
+    fundingDecision(
+      { ref: REF, state: 'live', escrow_address: other },
+      created,
+    ),
     { action: 'second_escrow', escrow: CLONE },
   );
   assert.deepEqual(
-    fundingDecision({ ref: REF, state: 'taken_down', escrow_address: other }, created),
+    fundingDecision(
+      { ref: REF, state: 'taken_down', escrow_address: other },
+      created,
+    ),
     { action: 'second_escrow', escrow: CLONE },
   );
   assert.equal(
-    fundingDecision({ ref: REF, state: 'refunded', escrow_address: CLONE }, created).action,
+    fundingDecision(
+      { ref: REF, state: 'refunded', escrow_address: CLONE },
+      created,
+    ).action,
     'refuse',
   );
   // No CampaignCreated, or one for another ref: not this campaign's funding, even when live.
   assert.equal(
-    fundingDecision({ ref: REF, state: 'live', escrow_address: CLONE }, null).action,
+    fundingDecision({ ref: REF, state: 'live', escrow_address: CLONE }, null)
+      .action,
     'refuse',
   );
   assert.equal(
@@ -259,4 +305,29 @@ test('fundingDecision: publish, re-confirm, second escrow, refuse', () => {
     'refuse',
   );
   assert.match(secondEscrowMessage(CLONE, other), new RegExp(CLONE));
+});
+
+test('draftExpiry: a deadline under 10 minutes away (or past) expires the draft, as does 7 days unfunded', () => {
+  const now = new Date('2026-10-06T12:00:00Z');
+  const at = (ends_at: string, created = '2026-10-05T00:00:00Z') => ({
+    created_at: new Date(created),
+    draft: { ends_at },
+  });
+  assert.equal(draftExpiry(at('2026-10-09T12:00:00Z'), now), null);
+  assert.equal(draftExpiry(at('2026-10-06T12:10:00Z'), now), null);
+  assert.equal(draftExpiry(at('2026-10-06T12:09:59Z'), now), 'deadline');
+  assert.equal(draftExpiry(at('2026-10-06T11:00:00Z'), now), 'deadline');
+  assert.equal(
+    draftExpiry(at('2026-10-20T00:00:00Z', '2026-09-28T00:00:00Z'), now),
+    'age',
+  );
+  assert.equal(expiredText(at('2026-10-06T11:00:00Z'), now), DEADLINE_PASSED);
+  assert.equal(
+    expiredText(at('2026-10-20T00:00:00Z', '2026-09-28T00:00:00Z'), now),
+    DRAFT_EXPIRED,
+  );
+  assert.equal(
+    DEADLINE_PASSED,
+    "This draft's deadline has passed. Ask your agent to create a new campaign.",
+  );
 });

@@ -3,7 +3,7 @@ import { parseUnits } from 'viem';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowConfig, escrowEnabled, fundTxs } from '@/lib/earnkit/escrow';
 import { formatExact } from '@/lib/earnkit/format-units';
-import { loadCampaign } from '@/lib/earnkit/sponsor';
+import { expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import FundClient from './FundClient';
 
@@ -93,7 +93,7 @@ export default async function FundPage({
           />
         ) : row.state === 'expired' ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
-            This draft expired; ask your agent to create a new one.
+            {expiredText(row, new Date())}
           </p>
         ) : (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
