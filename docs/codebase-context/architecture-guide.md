@@ -24,11 +24,21 @@
 - **Project / submission**: recorded after the agent submitted to the program's own site.
 - **Campaign**: a program with a `campaign` block. `CampaignConfig` (`lib/earnkit/campaigns.ts`)
   is a discriminated union on `kind`: `'earnkit'` (EarnKit's own: fixed amount per winner, top
-  scores win, paid by `pnpm campaign payout`) or `'sponsor'` (v2.1, in progress: a sponsor's pool
-  held in a Base escrow clone, sponsor picks winners — see
+  scores win, paid by `pnpm campaign payout`) or `'sponsor'` (v2.1: a sponsor's pool held in a
+  Base escrow clone, sponsor picks winners — see
   `sponsor_campaigns` in `db/schema.sql`). record_submission *is* the entry (payout wallet
   always; Base contracts required for `earnkit`, optional for `sponsor`). See
   `docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md`.
+- **Sponsor campaign**: a `sponsor_campaigns` row, keyed by a random `ref` (bytes32), that walks
+  `draft -> live -> awarded | refunded | taken_down` (or `expired` for an unfunded draft after 7
+  days). The sponsor deposits into a one-per-campaign escrow clone (`EarnKitCampaigns.createCampaign`)
+  that snapshots the factory's `operator`/`treasury` at creation, so a later factory rotation never
+  touches an already-funded campaign. Going live, awarding, and refunding are never signed by
+  EarnKit's server: it builds the transaction (`escrow.ts`), the sponsor (or, past the 7-day grace,
+  the operator) signs it in their own wallet, and EarnKit only confirms what the receipt proves
+  happened (`sponsor.ts`'s `confirmFunding`/`confirmAward`). A `live` sponsor campaign is also a
+  `programs` row (`source = 'sponsor'`), so it shows up in list_programs/get_program/record_submission
+  like any other campaign.
 
 For other organizers' programs EarnKit does not build, evaluate, host, or pay. For its own
 campaigns it scores, ranks, and pays (after a human approves winners). Sponsor campaigns: the
@@ -93,3 +103,22 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   list_programs then tells the winner.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.
+- **Sponsor campaigns** (v2.1): the escrow (`contracts/`) is the only place a sponsor's funds
+  move; EarnKit's server only reads the chain (`escrow.ts`) and never holds a signing key for a
+  sponsor's wallet. Each campaign is a clone (`EarnKitCampaigns.createCampaign`) that snapshots
+  the factory's `operator` and `treasury` at creation, so a factory owner who later rotates either
+  one can't redirect an already-funded campaign's payouts or fees. Funding and awards are both
+  confirmed from a transaction receipt, never trusted from the caller: `confirmFunding` and
+  `confirmAward` run inside one row-locked (`FOR UPDATE`) DB transaction, so two concurrent
+  confirms for the same `ref` serialize and the second sees the row already updated and returns
+  the same result instead of publishing or recording twice. `confirmFunding` also rescues a draft
+  that lazily expired (`loadCampaign`, 7 days unfunded) if the receipt proves it was actually
+  funded — the deposit is real even though EarnKit's draft TTL had already passed. A sponsor can
+  also award the escrow directly, bypassing EarnKit's prepared plan (e.g. straight through a
+  wallet or block explorer); `confirmAward` then falls back to `mapOffPlanAward`, matching each
+  onchain winner to an entry by payout wallet and flagging any wallet that isn't one
+  (`award_onchain`, `entry_id: null`) rather than failing the confirmation. A draft becomes a
+  `programs` row with `source = 'sponsor'` once funded; EarnKit's score is shown to the sponsor
+  only as a guide, never binding. The operator (`pnpm campaign award|refund|sync`,
+  `OPERATOR_PRIVATE_KEY`) acts only from a local shell, never from Railway: a fallback award after
+  the sponsor misses the 7-day grace period, or a refund (no-eligible-entries / takedown).

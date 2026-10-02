@@ -24,7 +24,8 @@
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
     "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
-    "campaign": "tsx apps/frontend/scripts/campaign.mts"
+    "campaign": "tsx apps/frontend/scripts/campaign.mts",
+    "sponsor:e2e": "tsx apps/frontend/scripts/sponsor-e2e.mts"
   },
   "pnpm": {
     "overrides": {}
