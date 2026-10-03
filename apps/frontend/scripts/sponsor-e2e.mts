@@ -336,7 +336,28 @@ const campaignOf = (sponsor: string, ref: string) =>
     args: [sponsor as `0x${string}`, ref as `0x${string}`],
   }) as Promise<string>;
 
-async function enter(programId: string, name: string, payout: string) {
+// v2.2 §5: at most 3 entries per installation per campaign. Further entries in one campaign come
+// from other builders' installations (one spare per campaign).
+const spares = new Map<string, number>();
+async function entrant(programId: string) {
+  const [{ n }] = await db<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM projects
+    WHERE program_id = ${programId} AND installation_id = ${builder} AND payout_wallet IS NOT NULL`;
+  if (n < 3) return builder;
+  if (!spares.has(programId)) {
+    const [{ id }] = await db<{ id: number }[]>`
+      INSERT INTO installations (token_hash) VALUES (${`e2e-spare-${programId}-${Date.now()}`}) RETURNING id`;
+    spares.set(programId, id);
+  }
+  return spares.get(programId)!;
+}
+
+async function enter(
+  programId: string,
+  name: string,
+  payout: string,
+  installationId?: number,
+) {
   const slug = name.toLowerCase().replace(/\W/g, '');
   const repo_url = `https://github.com/x/${slug}`;
   ownRepo(repo_url, payout);
@@ -351,7 +372,7 @@ async function enter(programId: string, name: string, payout: string) {
       },
       submission_data: { payout_wallet: payout },
     },
-    builder,
+    installationId ?? (await entrant(programId)),
     github,
   );
 }
@@ -619,7 +640,10 @@ check(
     labelled.repo_created_at === '2026-09-01T00:00:00.000Z',
   `the sponsor sees the repo dates: ${labelled?.repo_label}`,
 );
-// Two concurrent entries of one new repo: exactly one gets in.
+// Two concurrent entries of one new repo: exactly one gets in. They come from another builder
+// (each installation may enter a campaign 3 times).
+const [{ id: racer }] = await db<{ id: number }[]>`
+  INSERT INTO installations (token_hash) VALUES (${'e2e-racer-' + Date.now()}) RETURNING id`;
 ownRepo(
   'https://github.com/x/race',
   '0x00000000000000000000000000000000000000f1',
@@ -640,7 +664,7 @@ const racers = await Promise.allSettled(
             payout_wallet: '0x00000000000000000000000000000000000000f1',
           },
         },
-        builder,
+        racer,
         github,
       ),
   ),
@@ -873,6 +897,34 @@ const theta = await enter(
 );
 // An entry whose payout wallet is another campaign's escrow (campaign C's).
 const sneaky = await enter(programA, 'Sneaky', c1.escrow_address!);
+// v2.2 §5: a fourth entry from one installation in one campaign is refused.
+ownRepo(
+  'https://github.com/x/fourth',
+  '0x00000000000000000000000000000000000000e9',
+);
+const fourth = await recordSubmission(
+  {
+    program_id: programA,
+    project: {
+      name: 'Fourth',
+      description: 'One entry too many.',
+      repo_url: 'https://github.com/x/fourth',
+      live_url: 'https://fourth.app',
+    },
+    submission_data: {
+      payout_wallet: '0x00000000000000000000000000000000000000e9',
+    },
+  },
+  builder,
+  github,
+).then(
+  () => '',
+  (e: Error) => e.message,
+);
+check(
+  /already has 3 entries in this campaign/.test(fourth),
+  `a 4th entry from one installation in one campaign is refused: ${fourth}`,
+);
 const zeta = await enter(
   await prog(draft4.ref),
   'Zeta',
@@ -950,7 +1002,7 @@ check(
   'campaign "E2E contracts" is live',
 );
 const contractsProgram = await prog(contractsRef);
-const enterWith = (name: string, payout: string, contracts: string[]) => {
+const enterWith = async (name: string, payout: string, contracts: string[]) => {
   const repo_url = `https://github.com/x/${name.toLowerCase()}`;
   // The squatter's file lists the contract too: listing proves nothing.
   ownRepo(repo_url, payout, contracts);
@@ -965,7 +1017,7 @@ const enterWith = (name: string, payout: string, contracts: string[]) => {
       },
       submission_data: { payout_wallet: payout, contracts },
     },
-    builder,
+    await entrant(contractsProgram),
     chainReads,
   );
 };
