@@ -80,7 +80,7 @@ run the commands above from inside that venv. Aderyn runs via `npx` (Node, no gl
   check, the payload check, the guardian check, the operator check, the grace check, any single
   excluded address, the refund/veto clearing, the sticky-veto check, or either
   `GuardianIsOperator` check makes an invariant fail. `forge test --match-contract
-  InvariantsTest -vv` → all pass at `runs: 256, calls: 16384`.
+InvariantsTest -vv` → all pass at `runs: 256, calls: 16384`.
 - `test/halmos/Halmos.t.sol`: 11 symbolic proofs over fully symbolic amounts/durations/callers/
   timestamps — fee split, exact award payouts + sponsor-only/time gating, the operator never
   awarding directly, a fallback executing only the exact proposed payload at or after +72 h (and
@@ -90,7 +90,7 @@ run the commands above from inside that venv. Aderyn runs via `npx` (Node, no gl
   symbolic winners being accepted only if neither is an excluded address, no owner rotation
   ever making `pauser == operator`, exact refund
   payouts + caller/time gating, the owner never extracting funds through a campaign, and owner
-  rotation of operator/treasury never redirecting an *existing* campaign's payouts (including that a
+  rotation of operator/treasury never redirecting an _existing_ campaign's payouts (including that a
   legitimate sponsor award after rotation cannot be silently swallowed by a `catch {}`). Run with
   `./test/halmos/check-flat.sh && halmos --contract HalmosTest --solver-timeout-assertion 0`.
   **Imports from `./EarnKitCampaignsFlat.sol`, not from `../../src/...` directly** — see
@@ -167,29 +167,42 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
   `[fallbackAt, fallbackAt + 72 h)`; at exactly `fallbackAt + 72 h` an execute and a veto are
   both valid and block order decides, so treat the deadline as about one block earlier (review
   I-1).
-- **Cost of the sticky veto.** A veto also blocks a *legitimate* fallback on that campaign. After
+- **Cost of the sticky veto.** A veto also blocks a _legitimate_ fallback on that campaign. After
   a veto, if the sponsor never awards, the only exit is a refund to the sponsor; the entrants of
   that campaign are not paid by the fallback. The guardian should therefore veto only proposals
   it doesn't recognise.
 - **The guardian is the factory's `pauser`, snapshotted per clone, and never the operator.** A
   compromised guardian alone can only veto fallbacks (closing that path; payouts then need the
-  sponsor's award or a refund), not move funds. A *rotated-away* guardian keeps veto power over
+  sponsor's award or a refund), not move funds. A _rotated-away_ guardian keeps veto power over
   the campaigns created before rotation. The factory refuses `pauser == operator`, but it can't
   tell two addresses held by one person apart: keep the keys with different custodians.
 - **Other EarnKit clones as winners (review L-01).** The token contract is excluded, but another
   campaign's clone is not, because detecting it would need a registry lookup (a new external
   call). A share sent to another clone is stuck there as surplus forever. The app must reject any
   known escrow, factory or implementation address as a payout wallet.
+- **Owner key compromise defeats the two-key model for future campaigns (re-audit L-01).** The
+  owner (timelock) can set both `operator` and `pauser` (the guardian) to attacker addresses;
+  every campaign created after that has an attacker operator _and_ guardian, so its fallback can
+  pay the attacker. Existing campaigns keep their snapshots and are unaffected. The 48 h timelock
+  delay is the notice: watch `OperatorSet`, `PauserSet` and `TreasurySet`, and keep the timelock
+  proposer and the guardian with different custodians.
+- **Stray tokens are unrecoverable (re-audit I-02).** Clone addresses come from `CREATE` and are
+  predictable. Tokens sent directly to a clone or to the factory (surplus of the campaign token,
+  or any other token) can never be withdrawn: there is no sweep. Escrowed funds are unaffected
+  (`createCampaign` measures the balance delta).
+- **Propose a fallback by `endsAt + 57 days` (re-audit I-03).** From `endsAt + 60 days` the
+  sponsor's `refund` is allowed even while a fallback is pending or executable, and clears it. A
+  proposal must be executable (72 h later) before then.
 - **`executeFallback` emits the same `Awarded` event as a sponsor award (review I-3).** This is by
   design (one payout path for off-chain consumers). To tell them apart, record `FallbackProposed`
   and `FallbackVetoed`, or check the tx selector.
 - **Accepted audit findings (2026-10-02 review):**
   - **F-04 (blocklistable token).** A USDC-blocklisted treasury makes `award`/`executeFallback`
     revert for every campaign that snapshotted it (only `refund` remains); a blocked clone, or a
-    blocked treasury *and* sponsor, locks funds. Accepted: a pull-based fee would add a second
+    blocked treasury _and_ sponsor, locks funds. Accepted: a pull-based fee would add a second
     exit path and state for a case that requires Circle to blocklist EarnKit's own treasury. Ops
     note: keep the treasury a clean, dedicated address. Details per party below.
-  - **F-06 (pauser can re-pause after every unpause).** Accepted: pausing only blocks *new*
+  - **F-06 (pauser can re-pause after every unpause).** Accepted: pausing only blocks _new_
     campaigns, never awards, fallbacks or refunds. Ops note: rotate the pauser and unpause in one
     timelock batch (`setPauser(new)` + `unpause()`).
   - **I-03 (operator refund during the sponsor's award window).** Accepted: the operator's
@@ -204,7 +217,7 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
   wallet even when that would be legitimate.
 - **Token-type risks for future allowlisted tokens.** Only the owner (timelock) can allowlist a
   token via `setCap`, and USDC is the only token allowlisted today, but the mechanism allows more:
-  - **Blocklisting** (USDC and similar tokens can block/freeze an address) has four different
+  - **Blocklisting** (USDC and similar tokens can block/freeze an address) has five different
     failure modes depending on which address gets blocked:
     - **A winner is blocked**: `award` reverts for the whole batch (the transfer to that winner
       fails); the sponsor can simply pick again with a different winner list. No funds at risk.
@@ -221,6 +234,9 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
     - **The clone itself is blocked**: both `award` and `refund` fail (every transfer out of the
       clone reverts), since the token checks the sender too. There is no workaround at the
       contract level for this case.
+    - **The factory is blocked (re-audit I-05)**: USDC's `transferFrom` also checks the spender,
+      so every `createCampaign` reverts. Existing clones are unaffected (the factory never moves
+      their funds); new campaigns need a new factory.
   - **Pausable tokens**: a token-level pause can delay `award`/`refund` until it's lifted; it can't
     redirect funds.
   - **Rebasing and fee-on-transfer tokens must never be allowlisted.** `createCampaign` already
