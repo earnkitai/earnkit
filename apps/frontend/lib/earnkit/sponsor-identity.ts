@@ -264,6 +264,8 @@ export type TrackRecord = {
   fallback: number;
   /** Awarded by the sponsor, but some prize went to the sponsor's own wallet. */
   self_awarded: number;
+  /** Paid by a direct contract call outside any award plan (re-audit M3: buyable). */
+  off_plan: number;
   refunded: number;
   taken_down: number;
 };
@@ -288,6 +290,7 @@ export function trackRecordOf(rows: TrackRow[], wallet: string | null) {
     awarded: 0,
     fallback: 0,
     self_awarded: 0,
+    off_plan: 0,
     refunded: 0,
     taken_down: 0,
   };
@@ -305,6 +308,7 @@ export function trackRecordOf(rows: TrackRow[], wallet: string | null) {
       const source =
         r.award_source ?? (r.fallback_plan ? 'fallback' : 'sponsor');
       if (source === 'fallback') t.fallback++;
+      else if (source === 'off_plan') t.off_plan++;
       else if (self && r.winners.some((w) => w.toLowerCase() === self))
         t.self_awarded++;
       else t.awarded++;
@@ -317,7 +321,12 @@ export function trackRecordOf(rows: TrackRow[], wallet: string | null) {
 /** One line for builders. Pure; exported for tests. */
 export function trackRecordText(t: TrackRecord) {
   const past =
-    t.awarded + t.fallback + t.self_awarded + t.refunded + t.taken_down;
+    t.awarded +
+    t.fallback +
+    t.self_awarded +
+    t.off_plan +
+    t.refunded +
+    t.taken_down;
   if (t.funded <= 1 && past === 0)
     return `This sponsor wallet has no earlier funded campaigns of ${TRACK_RECORD_MIN_POOL_USDC} USDC or more on EarnKit.`;
   const parts = [
@@ -327,6 +336,9 @@ export function trackRecordText(t: TrackRecord) {
     `${t.taken_down} taken down by EarnKit`,
     ...(t.self_awarded > 0
       ? [`${t.self_awarded} paid to the sponsor's own wallet`]
+      : []),
+    ...(t.off_plan > 0
+      ? [`${t.off_plan} paid outside an award plan made on EarnKit`]
       : []),
     ...(t.live > 0 ? [`${t.live} live`] : []),
   ];

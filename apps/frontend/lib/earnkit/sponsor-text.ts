@@ -24,7 +24,8 @@ export const DRAFT_EXPIRED =
  */
 export const FUND_WARNING =
   'Only fund a campaign you asked your own agent to create. EarnKit never asks you to fund ' +
-  "someone else's campaign, and nobody from EarnKit will send you this link.";
+  "someone else's campaign, and nobody from EarnKit will send you this link. Winners never " +
+  'deposit or sign anything to receive a prize.';
 
 /**
  * What an unfunded draft's /fund page says instead of "by <sponsor> · <label>" (review I1): a draft

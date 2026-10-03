@@ -187,18 +187,21 @@ test('trackRecordOf: only funded campaigns of 100 USDC or more count', () => {
     ],
     W,
   );
+  // An off-plan award (a direct contract call, no entry needed) is not "awarded by the sponsor"
+  // (re-audit M3: it bought a track record for 10%).
   assert.deepEqual(t, {
     funded: 5,
     live: 1,
-    awarded: 2,
+    awarded: 1,
     fallback: 0,
     self_awarded: 0,
+    off_plan: 1,
     refunded: 1,
     taken_down: 1,
   });
   assert.equal(
     trackRecordText(t),
-    "This sponsor wallet has funded 5 campaigns of 100 USDC or more on EarnKit: 2 awarded by the sponsor, 0 paid by EarnKit's fallback, 1 refunded with no winners, 1 taken down by EarnKit, 1 live.",
+    "This sponsor wallet has funded 5 campaigns of 100 USDC or more on EarnKit: 1 awarded by the sponsor, 0 paid by EarnKit's fallback, 1 refunded with no winners, 1 taken down by EarnKit, 1 paid outside an award plan made on EarnKit, 1 live.",
   );
   assert.equal(
     trackRecordText(trackRecordOf([row()], W)),

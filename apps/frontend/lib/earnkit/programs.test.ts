@@ -213,6 +213,7 @@ test('get_program: an unverified sponsor is labeled, and its link is not passed 
         awarded: 0,
         fallback: 0,
         self_awarded: 0,
+        off_plan: 0,
         refunded: 2,
         taken_down: 0,
         summary:
