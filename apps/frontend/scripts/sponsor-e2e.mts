@@ -38,7 +38,8 @@ import type { DraftRequest } from '../lib/earnkit/sponsor-rules';
  *      after 60 days and status records the refund
  *   8. the same repo entered twice is refused; lazily expiring drafts; entry statuses (board,
  *      entry page, "Your campaign entries"); sponsor replies with no tx hashes; CLI refusals
- *   9. v2.2 §6: create with five answers (defaults listed), awards and a fallback by ranking
+ *   9. v2.2 §6: create with five answers (defaults listed), awards and a fallback by ranking;
+ *      create with replaces (limits, refusals, a stray deposit to a replaced ref refunded)
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -431,7 +432,8 @@ check(
       'winners: 3; existing projects can enter; ends ',
   ) &&
     fiveAnswers.show_to_sponsor.includes(
-      '(14 days); no sponsor_url (the campaign shows as unverified). To change any, create it again before funding.',
+      '(14 days); no sponsor_url (the campaign shows as unverified).\nTo change anything, ask me to update it: ' +
+        'the update replaces this draft (same wallet), and this link stops working.',
     ) &&
     fiveRow.draft.winners === 3 &&
     fiveRow.draft.existing_work === 'allowed' &&
@@ -439,6 +441,159 @@ check(
       'Build anything on Base that works end to end.' &&
     !('theme' in fiveRow.draft),
   `create with five answers uses the defaults and says so: ${JSON.stringify(fiveAnswers.show_to_sponsor)}`,
+);
+
+// ---------------------------------------------------------------------------
+// v2.2 §6 fix (I3): create with replaces corrects an unfunded draft. Its own installation, so the
+// daily limits start at zero: 5 creates, then replacements (their own cap of 10) still work.
+// ---------------------------------------------------------------------------
+const [{ id: inst2 }] = await db<{ id: number }[]>`
+  INSERT INTO installations (token_hash) VALUES (${'e2e-replacer-' + Date.now()}) RETURNING id`;
+type Created = Awaited<ReturnType<typeof createSponsorDraft>>;
+const create2 = (over: Record<string, unknown>) =>
+  tools.sponsor_campaign(
+    {
+      action: 'create',
+      sponsor_wallet: wallet.account.address,
+      sponsor_name: 'E2E Co',
+      what_to_build: 'Build anything on Base that works end to end.',
+      amount: '5',
+      ...over,
+    },
+    { installationId: inst2 },
+  ) as Promise<Created>;
+const errOf = (p: Promise<unknown>) =>
+  p.then(
+    () => '',
+    (err: Error) => err.message,
+  );
+const charged = async (name: string) =>
+  (
+    await db<{ n: number }[]>`
+      SELECT coalesce(sum(count), 0)::int AS n FROM rate_windows WHERE key = ${`${name}:${inst2}`}`
+  )[0].n;
+const limitDrafts: Created[] = [];
+for (let i = 1; i <= 5; i++)
+  limitDrafts.push(await create2({ title: `E2E limit ${i}` }));
+const [old1, old2] = limitDrafts;
+const replacement = await create2({
+  title: 'E2E limit 1 corrected',
+  winners: 2,
+  replaces: old1.ref,
+});
+const [old1Row] = await db<{ state: string; replaced_by: string | null }[]>`
+  SELECT state, replaced_by FROM sponsor_campaigns WHERE ref = ${old1.ref}`;
+check(
+  replacement.show_to_sponsor.includes(
+    'Replaces "E2E limit 1"; its old link no longer works.',
+  ) &&
+    (replacement as Created & { replaced?: string }).replaced === old1.ref &&
+    old1Row.state === 'replaced' &&
+    old1Row.replaced_by === replacement.ref &&
+    (await charged('sponsorCreate')) === 5 &&
+    (await charged('sponsorReplace')) === 1,
+  'after 5 creates, a replacement succeeds, retires the old draft (replaced_by) and counts only against its own cap',
+);
+check(
+  /created 5 sponsor campaigns today/.test(
+    await errOf(create2({ title: 'E2E limit 6' })),
+  ),
+  'a sixth plain create is refused by the daily limit',
+);
+const chargedBefore = [
+  await charged('sponsorCreate'),
+  await charged('sponsorReplace'),
+];
+const refusedReplaces = [
+  [
+    await errOf(create2({ title: 'E2E again', replaces: old1.ref })),
+    /already replaced; replace the newer one/,
+    'an already-replaced draft',
+  ],
+  [
+    await errOf(create2({ title: 'E2E theirs', replaces: fiveAnswers.ref })),
+    /created by another agent/,
+    "another installation's draft",
+  ],
+  [
+    await errOf(
+      create2({
+        title: 'E2E other wallet',
+        replaces: old2.ref,
+        sponsor_wallet: '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
+      }),
+    ),
+    /keeps the bound wallet/,
+    'a different sponsor_wallet',
+  ],
+  [
+    await errOf(
+      create2({ title: 'E2E nothing', replaces: '0x' + 'f'.repeat(64) }),
+    ),
+    /there is no draft/,
+    'an unknown ref',
+  ],
+  [
+    await errOf(create2({ replaces: old2.ref })),
+    /title/,
+    'an invalid draft (no title)',
+  ],
+] as const;
+for (const [msg, re, what] of refusedReplaces)
+  check(re.test(msg), `replacing ${what} is refused: ${msg}`);
+check(
+  (await charged('sponsorCreate')) === chargedBefore[0] &&
+    (await charged('sponsorReplace')) === chargedBefore[1],
+  'refused creates and replacements charge no rate limit',
+);
+// A funded draft can't be replaced: the chain read publishes it first.
+await fund(old2.transactions);
+check(
+  /replaces: that campaign is live; only an unfunded draft can be replaced\./.test(
+    await errOf(create2({ title: 'E2E too late', replaces: old2.ref })),
+  ),
+  'a draft that has been funded (found onchain at replace time) is refused',
+);
+// A deposit sent to the replaced draft's ref (e.g. in flight before the replacement): never
+// published, reported, and refundable with the operator CLI.
+await fund(old1.transactions);
+await db`UPDATE chain_checks SET checked_at = checked_at - interval '20 seconds' WHERE ref = ${old1.ref}`;
+const strayStatus = (await tools.sponsor_campaign(
+  { action: 'status', ref: old1.ref },
+  { installationId: inst2 },
+)) as Reply;
+replies.push(strayStatus.show_to_sponsor, strayStatus.next_step ?? '');
+const [old1After] = await db<{ state: string; program_id: string | null }[]>`
+  SELECT state, program_id FROM sponsor_campaigns WHERE ref = ${old1.ref}`;
+check(
+  strayStatus.state === 'replaced' &&
+    strayStatus.show_to_sponsor ===
+      `"E2E limit 1" was replaced by a newer draft; fund that one at ${replacement.fund_url}. ` +
+        `A deposit from ${wallet.account.address.toLowerCase()} was found for this draft, but it was replaced by a newer draft, so it wasn't published.` &&
+    old1After.state === 'replaced' &&
+    old1After.program_id === null,
+  `a deposit to a replaced draft is never published and is named: ${JSON.stringify(strayStatus.show_to_sponsor)}`,
+);
+const strayEscrow = await campaignOf(wallet.account.address, old1.ref);
+check(
+  (runCampaignCli('sync', old1.ref) ?? '').includes(
+    `refund it: pnpm campaign refund ${old1.ref} --escrow ${strayEscrow.toLowerCase()} --reason no-eligible --execute`,
+  ),
+  '`campaign sync` names the stray deposit with the refund command',
+);
+check(
+  (
+    runCampaignCli(
+      'refund',
+      old1.ref,
+      '--escrow',
+      strayEscrow,
+      '--reason',
+      'no-eligible',
+      '--execute',
+    ) ?? ''
+  ).includes(`refunded untracked escrow ${strayEscrow.toLowerCase()}`),
+  "the replaced draft's stray deposit is refunded with refund --escrow",
 );
 
 // ---------------------------------------------------------------------------
