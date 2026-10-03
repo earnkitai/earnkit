@@ -160,3 +160,21 @@ export async function screenWinners(
       `winners: entry ${hit.entry_id}'s payout wallet can't receive prizes on EarnKit. Pick another entry.`,
     );
 }
+
+/**
+ * Why a stored award plan must not be signed now, or null: every winner is screened again (the
+ * screen at plan time may be days old). Used by the award page on load. A screen that can't run
+ * in production is a reason too (fail closed).
+ */
+export async function planScreenProblem(
+  plan: { entry_id: number; wallet: string }[],
+  chainId: number,
+): Promise<string | null> {
+  try {
+    await screenWinners(plan, chainId);
+    return null;
+  } catch (err) {
+    if (err instanceof SanctionsError) return err.message;
+    throw err;
+  }
+}

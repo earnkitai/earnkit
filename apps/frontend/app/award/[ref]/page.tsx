@@ -9,6 +9,7 @@ import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import { sponsorLabel } from '@/lib/earnkit/sponsor-identity';
 import { AWARD_PROVENANCE, awardWarnings } from '@/lib/earnkit/sponsor-text';
 import { sponsorIdentity } from '@/lib/earnkit/sponsor-verify';
+import { SCREEN_UNAVAILABLE, planScreenProblem } from '@/lib/earnkit/sanctions';
 import AwardClient from './AwardClient';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,11 @@ export default async function AwardPage({
   const warnings = awardWarnings(row.award_plan, row.sponsor_wallet);
   // EarnKit's 10%, released to EarnKit by this same transaction.
   const { fee } = splitUnits(parseUnits(row.amount, row.token_decimals));
+  // Screened again now: the screen at plan time may be days old (re-audit M7).
+  const blocked =
+    row.state === 'live'
+      ? await planScreenProblem(row.award_plan, row.chain_id)
+      : null;
   const tx = awardTx(
     row.escrow_address as `0x${string}`,
     row.award_plan.map((p) => p.wallet),
@@ -93,7 +99,17 @@ export default async function AwardPage({
         <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
           Sign with the campaign&apos;s wallet: {row.sponsor_wallet}.
         </p>
-        {row.state === 'live' ? (
+        {blocked ? (
+          <p
+            role="alert"
+            className="mt-8 rounded-2xl border border-red-400 px-5 py-4 font-funnel-sans text-base font-medium text-red-400"
+          >
+            Don&apos;t sign this award yet. {blocked}{' '}
+            {blocked === SCREEN_UNAVAILABLE
+              ? 'Reload this page in a minute.'
+              : 'Ask your agent to award again with other winners.'}
+          </p>
+        ) : row.state === 'live' ? (
           <AwardClient ref_={ref} tx={tx} sponsorWallet={row.sponsor_wallet} />
         ) : (
           <p className="mt-8 text-ek-white">This campaign is {row.state}.</p>

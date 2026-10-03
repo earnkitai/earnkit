@@ -4,6 +4,7 @@ import {
   BASE_MAINNET,
   CLEAN_TTL_MS,
   SanctionsError,
+  planScreenProblem,
   sanctionedWallets,
   screenWallet,
   screenWinners,
@@ -111,5 +112,32 @@ test('sanctions: award plans and payouts name the listed winner', async () => {
       BASE_MAINNET,
     ),
     /winners: entry 7's payout wallet can't receive prizes on EarnKit\./,
+  );
+});
+
+// Re-audit M7: a plan screened when it was made can be signed days later; the award page screens
+// it again on load and blocks signing on a hit.
+test('sanctions: a stored award plan is screened again before signing (re-audit M7)', async () => {
+  setSanctionsOracle(stub());
+  const plan = [
+    { entry_id: 3, wallet: CLEAN },
+    { entry_id: 5, wallet: LISTED },
+  ];
+  assert.equal(
+    await planScreenProblem(plan, BASE_MAINNET),
+    "winners: entry 5's payout wallet can't receive prizes on EarnKit. Pick another entry.",
+  );
+  assert.equal(await planScreenProblem([plan[0]], BASE_MAINNET), null);
+  // Production with an unreadable oracle: blocked, not skipped.
+  env.NODE_ENV = 'production';
+  setSanctionsOracle({
+    chainId: async () => BASE_MAINNET,
+    isSanctioned: async () => {
+      throw new Error('rpc down');
+    },
+  });
+  assert.equal(
+    await planScreenProblem([plan[0]], BASE_MAINNET),
+    "Can't check this wallet right now; try again shortly.",
   );
 });
