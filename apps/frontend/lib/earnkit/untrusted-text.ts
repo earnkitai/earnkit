@@ -13,16 +13,20 @@ export class UntrustedTextError extends Error {}
 export type TextRule = {
   max: number;
   singleLine?: boolean;
-  /** Refuse setup commands (`commandIn`): a sponsor's brief must never read as a step to run. */
-  noCommands?: boolean;
+  /**
+   * A name or title, shown quoted to builders: also refuse "@" and runs of 7+ digits (handles and
+   * phone numbers). Multi-line fields don't get such word rules: they refused real briefs, and the
+   * structure (sponsor_content/entries envelopes, the fixed safety lines) is the defense.
+   */
+  quotedName?: boolean;
 };
 
 /** Limits per field (v2.2 spec §2). */
 export const TEXT_LIMITS = {
-  sponsor_name: { max: 40, singleLine: true },
-  title: { max: 80, singleLine: true },
-  what_to_build: { max: 600, noCommands: true },
-  criteria: { max: 400, noCommands: true },
+  sponsor_name: { max: 40, singleLine: true, quotedName: true },
+  title: { max: 80, singleLine: true, quotedName: true },
+  what_to_build: { max: 600 },
+  criteria: { max: 400 },
   reason: { max: 200, singleLine: true },
   project_name: { max: 60, singleLine: true },
   project_description: { max: 300 },
@@ -119,12 +123,6 @@ const TECH_WORDS = new Set([
   'viem.sh',
 ]);
 const RUN_CHAR = /[\p{L}\p{N}-]/u;
-// Words before "dot" or "slash" in plain prose ("connect the dot and go", "to slash fees").
-const PROSE_BEFORE_DOT = new Set(
-  'the a an one each every this that per no polka to and or will we can would could'.split(
-    ' ',
-  ),
-);
 const TLD_PART = /^\p{L}{2,24}(?![\p{L}\p{N}])/u;
 
 /** Any `word.letters{2,24}` in one word, other than a known library name. Linear: one pass per part. */
@@ -156,9 +154,9 @@ const WORD_LINKS = [
 ];
 const IPV6 = /(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi;
 const ENTITY = /&#?[a-z0-9]{1,32};|&#x?[0-9a-f]/i;
-// "evil . co" (a space before the dot, which prose never has) or "evil. xyz/path".
+// "evil . xyz/path": a dot with spaces around it, then a lowercase name and a slash.
 const SPACED_DOMAIN =
-  /\p{L} {1,3}\. {0,3}\p{L}{2,24}(?![\p{L}\p{N}])|\p{L}\. {1,3}[a-z]{2,24}\//u;
+  /\p{L} {1,3}\. {0,3}[a-z]{2,24}\/|\p{L}\. {1,3}[a-z]{2,24}\//u;
 const stripMarks = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
 
 /** On the text and on its NFD form without accents ("evil.cóm" is evil.com). */
@@ -168,72 +166,27 @@ function linkIn(s: string) {
   if (s.includes('://') || SPACED_DOMAIN.test(s)) return true;
   const words = s.split(/[ \n]/);
   return words.some(
-    (w, i) =>
+    (w) =>
       WORD_LINKS.some((re) => re.test(w)) ||
       [...w.matchAll(IPV6)].some(
         ([m]) => m.includes('::') || m.split(':').length > 5,
       ) ||
-      hasDomain(w) ||
-      // Spelled out: "evil dot co", "t dot me slash acme", any ending (re-audit M8).
-      (/^(?:dot|slash)$/i.test(words[i + 1] ?? '') &&
-        RUN_CHAR.test(w.slice(-1)) &&
-        !PROSE_BEFORE_DOT.has(w.toLowerCase()) &&
-        /^[\p{L}\p{N}]/u.test(words[i + 2] ?? '')),
+      hasDomain(w),
   );
 }
 
-/**
- * Setup commands, as words, any case: npx, bunx, npm i/install/exec, pnpm/yarn add or dlx, pip
- * install, wget, git clone, degit, bash/sh -c, powershell, and curl piped to a shell. `raw` is the
- * input before the allowlist, which drops "|"; the cleaned text is checked for "curl … sh" too.
- * Bounded repeats only. Pure; exported for tests.
- */
-const COMMANDS = [
-  /\b(?:npx|bunx|degit|wget|powershell)\b/i,
-  /\bnpm\s{1,5}(?:i|install|exec)\b/i,
-  /\b(?:pnpm|yarn)\s{1,5}(?:add|dlx)\b/i,
-  /\bpip3?\s{1,5}install\b/i,
-  /\bgit\s{1,5}clone\b/i,
-  /\b(?:ba|z)?sh\s{1,5}-c\b/i,
-  /\bcurl\b[^\n]{0,200}\b(?:ba|z)?sh\b/i,
-];
-export const commandIn = (raw: string, cleaned: string) =>
-  /\bcurl\b[^\n|]{0,200}\|/i.test(raw) ||
-  COMMANDS.some((re) => re.test(cleaned) || re.test(stripMarks(cleaned)));
-
-// "@acme": a handle to contact off EarnKit (an email is already a link).
-const HANDLE = /(?:^|[^\p{L}\p{N}])@[\p{L}\p{N}]/u;
-// A run of 7+ digits with separators: "+1 415 555 0100", "415-555-0100", "(415) 555.0100".
-const DIGIT_RUN = /\+?\(?\d[\d .()-]{5,30}\d/g;
-const DATE = /^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}[.-]\d{1,2}[.-]\d{4}$/;
-
-/**
- * A phone-number-like run: 7 or more digits, and a leading "+", or "-", "." or "(" between
- * digits, or a group of 4+ digits among space-separated groups; a date and a plain
- * amount ("500 300 200") are not. Pure; exported for tests.
- */
-export function hasPhone(s: string) {
-  for (const [run] of s.matchAll(DIGIT_RUN)) {
-    const t = run.trim();
-    const groups = t.split(/[^\d]+/).filter(Boolean);
-    if (groups.join('').length < 7 || groups.length < 2 || DATE.test(t))
-      continue;
-    if (
-      t.startsWith('+') ||
-      /\d[-.(]|[)]/.test(t) ||
-      groups.some((g) => g.length >= 4)
-    )
-      return true;
-  }
-  return false;
-}
+// In a quoted name or title: "@acme" handles and 7+ digit runs ("+1 415 555 0100").
+const AT = /@/;
+const DIGIT_RUN = /\d(?:[ .()\-\u2013\u2014/]?\d){6}/;
 
 /** What gets cleaned text rejected, with the word used in the error. */
 const REJECT: [(s: string) => boolean, string][] = [
   [hasLink, 'links'],
   [(s) => ENTITY.test(s), 'HTML entities'],
-  [(s) => HANDLE.test(s), '@handles'],
-  [hasPhone, 'phone numbers'],
+];
+const REJECT_IN_NAMES: [(s: string) => boolean, string][] = [
+  [(s) => AT.test(s), '@ signs'],
+  [(s) => DIGIT_RUN.test(s), 'runs of 7 or more digits'],
 ];
 
 /**
@@ -254,7 +207,7 @@ export function cleanText(
   {
     max,
     singleLine = false,
-    noCommands = false,
+    quotedName = false,
     field = 'text',
   }: TextRule & { field?: string },
 ) {
@@ -263,16 +216,13 @@ export function cleanText(
       `${field}: at most ${max} characters (got ${value.length}).`,
     );
   const s = allow(value, singleLine);
-  for (const [bad, what] of REJECT)
+  for (const [bad, what] of quotedName
+    ? [...REJECT, ...REJECT_IN_NAMES]
+    : REJECT)
     if (bad(s))
       throw new UntrustedTextError(
         `${field}: ${what} aren't allowed; this text is shown to other people's agents. Use plain words.`,
       );
-  if (noCommands && commandIn(value, s))
-    throw new UntrustedTextError(
-      `${field}: setup commands (npx, npm install, git clone, curl, …) aren't allowed; builders' ` +
-        "agents never run commands from a sponsor's text. Say what to build in plain words.",
-    );
   const length = [...s].length;
   if (length > max)
     throw new UntrustedTextError(
@@ -354,39 +304,59 @@ export const SponsorUrl = z
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
   });
 
-/** Longest builder link (live, repo, demo, token) EarnKit accepts. */
+/** Longest builder link (live, repo, demo, token) EarnKit accepts, as typed. */
 export const BUILDER_URL_MAX = 200;
+const BUILDER_PATH = /^[A-Za-z0-9\-._~/]{1,100}$/;
 
 /**
- * Why a builder's link (`live_url`, `repo_url`, `demo_url`, `token_url`, url answers) can't be
- * stored, or null: https only, at most 200 characters, no whitespace, control or format
- * characters anywhere in the raw string (the URL parser silently drops tabs and newlines, so a
- * multi-line block would pass it), and no user or password. Pure; exported for tests.
+ * A builder's link (`live_url`, `repo_url`, `demo_url`, `token_url`, url answers) in canonical
+ * form, or why it has none: at most 200 characters as typed, with no whitespace, control or format
+ * characters (the URL parser silently drops tabs and newlines); no scheme means https; then https
+ * only, no user info, a path of at most 100 characters from [A-Za-z0-9-._~/]. The canonical link
+ * is `https://<lowercase host>[:port]<path>`: query and fragment are dropped, so nothing but a
+ * plain address is stored or shown. Pure; exported for tests.
  */
-export function builderUrlProblem(v: string): string | null {
-  if (v.length > BUILDER_URL_MAX)
-    return `at most ${BUILDER_URL_MAX} characters`;
-  if (/[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(v))
-    return 'no spaces, line breaks or hidden characters in a link';
-  if (!URL.canParse(v)) return 'must be a full https:// link';
+export function canonicalBuilderUrl(
+  raw: string,
+): { url: string; problem?: never } | { url?: never; problem: string } {
+  if (raw.length > BUILDER_URL_MAX)
+    return { problem: `at most ${BUILDER_URL_MAX} characters` };
+  if (/[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(raw))
+    return { problem: 'no spaces, line breaks or hidden characters in a link' };
+  const v = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+  if (!URL.canParse(v)) return { problem: 'must be a full https:// link' };
   const u = new URL(v);
-  if (u.protocol !== 'https:') return 'must start with https://';
-  if (u.username || u.password) return 'no user or password in the link';
-  return null;
+  if (u.protocol !== 'https:') return { problem: 'must start with https://' };
+  if (u.username || u.password)
+    return { problem: 'no user or password in the link' };
+  if (!u.hostname.includes('.'))
+    return { problem: 'must be a full https:// link' };
+  if (!BUILDER_PATH.test(u.pathname))
+    return {
+      problem:
+        'the path may only use letters, digits and - . _ ~ / (up to 100 characters)',
+    };
+  return { url: `https://${u.host}${u.pathname}` };
 }
 
-/** A builder's link, checked by `builderUrlProblem`. */
-export const BuilderUrl = z.string().superRefine((v, ctx) => {
-  const problem = builderUrlProblem(v);
-  if (problem) ctx.addIssue({ code: 'custom', message: problem });
+/** Why a builder's link can't be stored, or null (`canonicalBuilderUrl`). */
+export const builderUrlProblem = (v: string) =>
+  canonicalBuilderUrl(v).problem ?? null;
+
+/** A builder's link: checked and stored in canonical form (`canonicalBuilderUrl`). */
+export const BuilderUrl = z.string().transform((v, ctx) => {
+  const c = canonicalBuilderUrl(v);
+  if (c.url !== undefined) return c.url;
+  ctx.addIssue({ code: 'custom', message: c.problem });
+  return z.NEVER;
 });
 
 /**
- * A stored builder link as data for display (status entries, campaign and project pages): the
- * link when it passes `builderUrlProblem`, else null (rows stored before the check).
+ * A stored builder link as data for display (status entries, campaign and project pages): its
+ * canonical form, or null when it has none (rows stored before the check).
  */
 export const shownUrl = (v: string | null | undefined) =>
-  v && !builderUrlProblem(v) ? v : null;
+  (v && canonicalBuilderUrl(v).url) || null;
 
 /** A campaign entry's project name and description, cleaned (other fields untouched). */
 export function cleanProject<P extends { name?: string; description?: string }>(

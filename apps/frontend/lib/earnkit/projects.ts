@@ -21,7 +21,7 @@ import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import { tokenOffer } from './tokens';
 import {
   RAW_CAP,
-  builderUrlProblem,
+  canonicalBuilderUrl,
   cleanProject,
   quoted,
 } from './untrusted-text';
@@ -153,8 +153,11 @@ export async function recordSubmission(
     );
     if (missing) throw new EntryError(missing);
     repo_url = entryRepoUrl(repo_url, input.submission_data);
-    const repoProblem = repo_url ? builderUrlProblem(repo_url) : null;
-    if (repoProblem) throw new EntryError(`repo_url: ${repoProblem}.`);
+    if (repo_url) {
+      const c = canonicalBuilderUrl(repo_url);
+      if (c.problem) throw new EntryError(`repo_url: ${c.problem}.`);
+      repo_url = c.url;
+    }
     entry = await validateEntry(input.submission_data, program, {
       ...entryRules(program.campaign.kind, program.existing_work),
       status: deps.status,
