@@ -142,9 +142,12 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   block was > 0. An ended window is read from its last block back (Blockscout's `block_number`
   keyset cursor), up to 500 pages (25,000 txs) per contract; a capped read is stored as
   `projects.score_partial` and named in the sponsor's `scores_note`. Sponsor status rescoring
-  (`refreshScores`) runs under a per-campaign advisory lock (a concurrent call gets the stored
-  scores and "Scoring in progress"), with a 20 s deadline passed into every Blockscout and RPC
-  read, including the per-wallet history loop. `projects.scored_through` records the window end
+  (`refreshScores`) runs under a per-campaign lease (`withScoringLock`: a `scoring_leases` row
+  claimed and released by single statements, 60 s expiry; a concurrent call gets the stored
+  scores and "Scoring in progress"). No transaction or pool connection is held across the network
+  reads, so concurrent passes can't exhaust the pool. A 20 s deadline is passed into every
+  Blockscout and RPC read, including the per-wallet history loop; RPC requests are aborted at it
+  (`baseRpcUntil`). `projects.scored_through` records the window end
   a score covers. A score is final (`scoreIsFinal`) only when it covers `ends_at` and was taken
   at least 15 minutes after it (explorer lag); earlier scores are provisional, refreshed when over
   6 h old and replaced after the grace. A read cut short by the deadline is saved only where

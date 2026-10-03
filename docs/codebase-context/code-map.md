@@ -169,7 +169,7 @@ apps/frontend/
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
                                projects.repo_key + its partial unique index, sponsor_verifications,
-                               rate_windows, github_repo_facts, projects.score_partial and
+                               rate_windows, github_repo_facts, scoring_leases, projects.score_partial and
                                scored_through)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
