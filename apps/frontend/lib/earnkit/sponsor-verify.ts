@@ -191,20 +191,28 @@ export function staleKeys(
   });
 }
 
-/** At most this many verification fetches run at once in this process (background refreshes only). */
+/** At most this many background refreshes run at once in this process. */
 const BACKGROUND_LIMIT = 4;
+let backgroundRunning = 0;
 
 /**
  * Fire-and-forget re-verification of (host, wallet), deduped per pair by verifySponsor's in-flight
- * map. Never awaited by the request; skipped while BACKGROUND_LIMIT fetches are already running
- * (a later request retries). Errors are logged, never thrown.
+ * map. Never awaited by the request; skipped while BACKGROUND_LIMIT refreshes are running (a later
+ * request retries). The counter goes up synchronously, before any await, so one listing can't
+ * start more than the cap. Errors are logged, never thrown.
  */
 function refreshInBackground(host: string, wallet: string) {
-  if (inFlight.has(`${host} ${wallet}`) || inFlight.size >= BACKGROUND_LIMIT)
+  if (
+    inFlight.has(`${host} ${wallet}`) ||
+    backgroundRunning >= BACKGROUND_LIMIT
+  )
     return;
-  void verifySponsor(host, wallet).catch((err) =>
-    console.error('[sponsor-verify] background refresh failed:', err),
-  );
+  backgroundRunning++;
+  void verifySponsor(host, wallet)
+    .catch((err) =>
+      console.error('[sponsor-verify] background refresh failed:', err),
+    )
+    .finally(() => backgroundRunning--);
 }
 
 /** The track record of a sponsor wallet (see trackRecordOf). */

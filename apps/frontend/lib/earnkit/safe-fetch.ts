@@ -111,10 +111,13 @@ export async function resolveBoth(
       (value) => ({ ok: true as const, value }),
       (reason) => ({ ok: false as const, reason }),
     );
+  // Settled handlers on both before awaiting either, so a late AAAA rejection (e.g. cancelled
+  // after a safe A answer) is never unhandled.
+  const aaaaSettled = settled(v6);
   const a = await settled(v4);
   if (a.ok && a.value.length > 0 && a.value.every(isPublicAddress))
     return as(4)(a.value);
-  const aaaa = await settled(v6);
+  const aaaa = await aaaaSettled;
   const failed = [a, aaaa].flatMap((x) =>
     !x.ok && !NO_ANSWER.has(x.reason?.code) ? [x.reason] : [],
   );
@@ -136,10 +139,8 @@ const defaultResolver: Resolver = async (host, signal) => {
   const r = new dns.Resolver({ timeout: DNS_TIMEOUT_MS, tries: 1 });
   const cancel = () => r.cancel();
   signal.addEventListener('abort', cancel, { once: true });
-  const v6 = r.resolve6(host);
-  v6.catch(() => {}); // may be cancelled unread
   try {
-    return await resolveBoth(r.resolve4(host), v6);
+    return await resolveBoth(r.resolve4(host), r.resolve6(host));
   } finally {
     signal.removeEventListener('abort', cancel);
     r.cancel();

@@ -194,14 +194,17 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   draft's `/fund` page shows only the title and "Draft: the sponsor's identity is confirmed only
   after it is funded from the bound wallet." `sponsor_url` reaches
   agents only once verified. A sponsor name using a reserved brand (or a title that reads as by or
-  official to one: "Official", "by/from <brand>", "<brand> Grant/Foundation/Labs…", or just the
-  brand; "Build on Base" is fine) (EarnKit, Base,
+  official to one: "Official", "by/from [the] <brand>", "<brand> Grant/Foundation/Labs/
+  Hackathon…" or glued "BaseGrants", or just the brand; "Build on Base" is fine, and USDC never
+  counts in a title) (EarnKit, Base,
   Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words of the confusable
   skeleton in `confusables.ts` — NFKD, marks dropped, lowercase, the UTS #39 table generated into
   `confusables-table.ts` by `scripts/gen-confusables.mts` plus stroke letters and small capitals,
   other non-ASCII as word breaks, "d"→"cl", "l"→"i", "rn"→"m" — incl. split letters like
   "B.A.S.E") is refused at create unless the verified host is that brand's official domain (apex or www). A
-  sponsor name that mixes Latin with a look-alike script inside one word is refused outright. Unverified sponsor campaigns are listed but are
+  name or title with a word mixing plain ASCII letters and any other letter after NFKD and
+  dropping marks ("Mɵnad", "Bаse") is refused outright ("Use plain letters in names and titles");
+  accented words ("Café", "Zürich") and whole words in another script pass. Unverified sponsor campaigns are listed but are
   never the "Fastest" headline or the closing offer (`present.ts`), and sort after curated
   programs in "Also open"; the "Since you last checked" line names only curated or verified
   programs and counts new unverified ones ("2 new sponsored campaigns (unverified)"). The track

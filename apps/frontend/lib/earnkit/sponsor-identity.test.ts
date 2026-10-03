@@ -266,6 +266,11 @@ test('titleBrands: a title may mention a chain, but not read as by or official t
     'Agents on Monad',
     'Ship USDC payments on Arc and Base',
     'Basecamp grant', // not the brand word
+    // USDC is the payout currency, never a title brand.
+    '100 USDC grant',
+    'USDC grants for agent builders',
+    // Misspelled org words are out of scope.
+    'Base Grantz',
   ]) {
     assert.deepEqual(titleBrands(ok), [], ok);
     assert.equal(reservedNameProblem(ok, null, 'title'), null, ok);
@@ -281,6 +286,18 @@ test('titleBrands: a title may mention a chain, but not read as by or official t
     ['Tempo Labs agents', 'tempo'],
     ['Build on Base (official)', 'base'],
     ['The Monad DAO prize', 'monad'],
+    // Round 4: glued org words, "by the", the extra org words.
+    ['Basegrants', 'base'],
+    ['BaseGrants', 'base'],
+    ['Hackathon by the Monad community', 'monad'],
+    ['Presented by the Base', 'base'],
+    ['Base Accelerator', 'base'],
+    ['Coinbase Ventures bounty', 'coinbase'],
+    ['Base Hackathon', 'base'],
+    ['Tempo Studio jam', 'tempo'],
+    ['Monad Collective prize', 'monad'],
+    // Accepted false positive: the error says to reword or verify.
+    ['Story arc program', 'arc'],
   ];
   for (const [title, brand] of refused) {
     assert.deepEqual(titleBrands(title), [brand], title);

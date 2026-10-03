@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mixedScriptWords, skeleton } from './confusables';
+import { mixedScriptWords, skeleton, specialLetterWords } from './confusables';
 import { CONFUSABLES_VERSION } from './confusables-table';
-import { mixedScriptProblem, reservedBrands } from './sponsor-identity';
+import {
+  mixedScriptProblem,
+  plainLettersProblem,
+  reservedBrands,
+} from './sponsor-identity';
 
 test('skeleton: look-alikes from other scripts fold to the plain spelling', () => {
   const cases: [string, string][] = [
@@ -143,4 +147,80 @@ test('mixedScriptWords: Latin mixed with a look-alike script inside one word', (
     mixedScriptProblem('Bаse Grants')!,
     /^sponsor_name: "Bаse Grants" mixes Latin letters with look-alike letters/,
   );
+});
+
+// Re-review round 4 (t4/r23.mts): hooked, barred and stroked Latin letters, and other scripts.
+const R23 = [
+  'Roƀinħood',
+  'Mɵnad',
+  'Monaɖ',
+  'Teʈpo',
+  'Temƥo',
+  'Temᵽo',
+  'Cɨrcle',
+  'UꞨDC',
+  'Ciɾcle',
+  'Ciɫcle',
+  'Ciƚcle',
+  'ᵬase',
+  'Moꞑad',
+  'Moɲad',
+  'Earnⱪit',
+  'Baᶊe',
+  'Coiɳbase',
+  'Toƙens.fun',
+  'Tokens.ꞙun',
+  'Aɽc',
+  'Aꞧc',
+  'Arɕ',
+  'Mөnad',
+  'Robinհood',
+  'Bαѕе',
+  'ᏴᎪՏᎬ',
+  'Ⲃⲁⲋⲉ',
+  'ꓐꓮꓢꓰ',
+  '𐊂ase',
+  'Tempꝋ',
+  'Robinhꝍod',
+  'Baꜱe',
+  'Monaȡ',
+  'ꮃonad',
+  'Mоnаd',
+];
+
+test('round 4 (r23 probes): every special-letter or look-alike brand is refused in names and titles', () => {
+  for (const n of R23)
+    for (const field of ['sponsor_name', 'title'] as const) {
+      const text = field === 'title' ? `Official ${n} Grant` : n;
+      const refused =
+        plainLettersProblem(text, field) ??
+        mixedScriptProblem(text, field) ??
+        (reservedBrands(text).length > 0 ? 'reserved' : null);
+      assert.ok(refused, `${field}: ${text}`);
+    }
+  // Plain letters with a special form inside a word: the exact refusal.
+  assert.equal(
+    plainLettersProblem('Mɵnad', 'sponsor_name'),
+    'sponsor_name: "Mɵnad". Use plain letters in names and titles (no special letter forms).',
+  );
+  // Whole words in another script: allowed by this rule, caught by the skeleton when a brand.
+  for (const n of ['ᏴᎪՏᎬ', 'Ⲃⲁⲋⲉ', 'ꓐꓮꓢꓰ', 'Ваѕе', 'Μοηαԁ']) {
+    assert.equal(plainLettersProblem(n, 'sponsor_name'), null, n);
+    assert.ok(reservedBrands(n).length > 0, n);
+  }
+});
+
+test('round 4: accented names decompose to plain letters and pass; whole-word other scripts pass', () => {
+  for (const ok of [
+    'Café Labs',
+    'Zürich Builders',
+    'Ångström',
+    'Crème Brûlée Co',
+    'Привет мир',
+    'Acme 東京',
+    'x402 Agents',
+  ]) {
+    assert.deepEqual(specialLetterWords(ok), [], ok);
+    assert.equal(plainLettersProblem(ok, 'title'), null, ok);
+  }
 });

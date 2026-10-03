@@ -1,4 +1,4 @@
-import { mixedScriptWords, skeleton } from './confusables';
+import { mixedScriptWords, skeleton, specialLetterWords } from './confusables';
 import { quoted } from './untrusted-text';
 
 /**
@@ -113,30 +113,52 @@ export function reservedBrands(name: string): Brand[] {
 }
 
 // Words that, next to a brand, make a title read as the brand's own (compared as skeletons).
-const OFFICIAL_WORDS = new Set(
-  'official grant grants program programme foundation team labs ecosystem fund funds council dao'
-    .split(' ')
-    .map(skeleton),
-);
+const ORG_WORDS = (
+  'official grant grants program programme foundation team labs ecosystem fund funds council dao ' +
+  'accelerator hackathon ventures studio collective'
+).split(' ');
+const OFFICIAL_WORDS = new Set(ORG_WORDS.map(skeleton));
 const OFFICIAL = skeleton('official');
 const BY = new Set(['by', 'from'].map(skeleton));
+const ARTICLES = new Set(['the', 'a', 'an'].map(skeleton));
+// USDC is the payout currency, so a title may say "100 USDC grant".
+const TITLE_BRANDS = BRANDS.filter((b) => b !== 'usdc');
+// A brand glued to an org word ("Basegrants", "BaseGrants"), either way round.
+const GLUED = new Map(
+  TITLE_BRANDS.flatMap((b) =>
+    ORG_WORDS.flatMap((o) => [
+      [skeleton(b + o), b] as const,
+      [skeleton(o + b), b] as const,
+    ]),
+  ),
+);
 
 /**
  * The reserved brands a title presents itself as by or official to (a title may mention a chain:
- * "Build on Base" is fine). A brand counts when the title is just the brand, says "by/from
- * <brand>", has "official" anywhere, or has one of OFFICIAL_WORDS right before the brand or within
- * the two words after it ("Base Builder Grants", "Arc Foundation bounty"). Pure; exported for tests.
+ * "Build on Base" is fine; USDC, the payout currency, is never one). A brand counts when the title
+ * is just the brand, says "by/from [the] <brand>", has "official" anywhere, has one of the org
+ * words right before the brand or within the two words after it ("Base Builder Grants", "Arc
+ * Foundation bounty"), or glues one to it ("BaseGrants"). Rare false positives ("Story arc
+ * program") are accepted: the error says to reword or verify the domain. Pure; exported for tests.
  */
 export function titleBrands(title: string): Brand[] {
   const words = nameWords(title);
   const official = words.includes(OFFICIAL);
   const found = new Set<Brand>();
+  for (const w of words) {
+    const glued = GLUED.get(w);
+    if (glued) found.add(glued);
+  }
   for (const { brand, i, j } of brandSpans(words)) {
+    if (brand === 'usdc') continue;
     const near = [words[i - 1], words[j + 1], words[j + 2]];
+    const by =
+      BY.has(words[i - 1]) ||
+      (ARTICLES.has(words[i - 1]) && BY.has(words[i - 2]));
     if (
       official ||
       (i === 0 && j === words.length - 1) ||
-      BY.has(words[i - 1]) ||
+      by ||
       near.some((w) => w !== undefined && OFFICIAL_WORDS.has(w))
     )
       found.add(brand);
@@ -265,9 +287,28 @@ export function trackRecordText(t: TrackRecord) {
  * Why a sponsor name mixes scripts inside a word (Latin with Cyrillic, Greek or another
  * look-alike script), or null. Pure; exported for tests.
  */
-export function mixedScriptProblem(name: string): string | null {
+export function mixedScriptProblem(
+  name: string,
+  field: 'sponsor_name' | 'title' = 'sponsor_name',
+): string | null {
   const words = mixedScriptWords(name);
   return words.length === 0
     ? null
-    : `sponsor_name: ${quoted(name)} mixes Latin letters with look-alike letters from another script in one word. Write each word in one script.`;
+    : `${field}: ${quoted(name)} mixes Latin letters with look-alike letters from another script in one word. Write each word in one script.`;
+}
+
+/**
+ * Fail closed on special letter forms (re-review round 4): a word with both plain ASCII letters
+ * and any other letter after NFKD and dropping marks ("Roƀinħood", "Mɵnad", "Bаse") is refused,
+ * rather than chasing every hooked, barred or stroked letter. Accented letters decompose to ASCII
+ * plus marks ("Café", "Zürich", "Ångström" pass); whole words in another script pass and still go
+ * through the confusable skeleton. Pure; exported for tests.
+ */
+export function plainLettersProblem(
+  text: string,
+  field: 'sponsor_name' | 'title',
+): string | null {
+  return specialLetterWords(text).length === 0
+    ? null
+    : `${field}: ${quoted(text)}. Use plain letters in names and titles (no special letter forms).`;
 }

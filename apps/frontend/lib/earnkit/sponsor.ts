@@ -23,6 +23,7 @@ import {
 import { NotFoundError, upsertProgram } from './programs';
 import {
   mixedScriptProblem,
+  plainLettersProblem,
   reservedNameProblem,
   sponsorLabel,
 } from './sponsor-identity';
@@ -116,8 +117,13 @@ export async function createSponsorDraft(
     new Date(),
     localMinPool(token?.decimals),
   );
-  const mixed = mixedScriptProblem(d.sponsor_name);
-  if (mixed) throw new SponsorError(mixed);
+  // Special letter forms and mixed scripts are refused in the name and the title (fail closed).
+  const letters =
+    plainLettersProblem(d.sponsor_name, 'sponsor_name') ??
+    plainLettersProblem(d.title, 'title') ??
+    mixedScriptProblem(d.sponsor_name) ??
+    mixedScriptProblem(d.title, 'title');
+  if (letters) throw new SponsorError(letters);
   // The domain is checked now (a failure is always re-fetched here, so a fixed file counts at
   // once); a reserved name needs a pass on that brand's own domain. Builders see the result only
   // once the campaign is funded from the bound wallet.

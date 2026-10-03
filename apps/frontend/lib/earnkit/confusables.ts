@@ -9,13 +9,13 @@ import { CONFUSABLES } from './confusables-table';
 
 // [look-alikes, Latin letter], lowercase (looked up after lowercasing): stroke and hook letters
 // UTS #39 treats as distinct, small capitals, and lowercase letters the table lists only in
-// uppercase with another prototype (Cyrillic п, Greek η).
+// uppercase with another prototype (Cyrillic п, Greek η), and Coptic small letters.
 const SUPPLEMENT: [string, string][] = [
-  ['ⱥᴀ', 'a'],
+  ['ⱥᴀⲁ', 'a'],
   ['ƀʙƅɓ', 'b'],
   ['ȼƈꞓ', 'c'],
   ['đᴅɗ', 'd'],
-  ['ɇᴇ', 'e'],
+  ['ɇᴇⲉ', 'e'],
   ['ɢԍ', 'g'],
   ['ʜ', 'h'],
   ['ᴊ', 'j'],
@@ -26,7 +26,7 @@ const SUPPLEMENT: [string, string][] = [
   ['ø', 'o'],
   ['ᴘ', 'p'],
   ['ɍʀ', 'r'],
-  ['ȿꞩʂ', 's'],
+  ['ȿꞩʂⲋ', 's'],
   ['ŧƭᴛ', 't'],
 ];
 const EXTRA = new Map<string, string>();
@@ -85,4 +85,17 @@ export function mixedScriptWords(name: string) {
     .normalize('NFKC')
     .split(/[^\p{L}\p{N}\p{M}]+/u)
     .filter((w) => LATIN.test(w) && LOOKALIKE_SCRIPTS.test(w));
+}
+
+/**
+ * Words (runs of letters and digits, after NFKD and dropping marks) that mix ASCII letters with
+ * any other letter: "Roƀinħood", "Mɵnad", "Bаse". "Café" (e + mark) and all-Cyrillic words are
+ * not. Pure; exported for tests.
+ */
+export function specialLetterWords(s: string) {
+  return s
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => /[A-Za-z]/.test(w) && /[^\x00-\x7f]/.test(w));
 }
