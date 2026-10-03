@@ -166,3 +166,11 @@ test('parseFallbackPicks: a ranking with an optional split, or exact picks', () 
   );
   assert.match(USAGE, /--winners <id>,<id>,\.\.\. \[--split equal\|<pct>/);
 });
+
+test('parseFallbackPicks: 0% and over-100% splits refused; an empty reason gets the default', () => {
+  assert.throws(() => parseFallbackPicks('12,7', '0,100'), /from 1 to 100/);
+  assert.throws(() => parseFallbackPicks('12,7', '101,1'), /from 1 to 100/);
+  assert.deepEqual(parseFallbackPicks('12:60:', undefined), {
+    winners: [{ entry_id: 12, amount: '60' }],
+  });
+});

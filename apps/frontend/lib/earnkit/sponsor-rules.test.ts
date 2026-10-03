@@ -972,3 +972,20 @@ test('a ranking feeds planAward: exact units, excluded wallets and duplicates st
     /more than 0/,
   );
 });
+
+test('splitPrize validates on its own: no winners, out-of-range percentages', () => {
+  assert.throws(() => splitPrize(100n, 0), /at least one entry/);
+  assert.throws(() => splitPrize(100n, 2, [150, -50]), /from 1 to 100/);
+  assert.throws(() => splitPrize(100n, 2, [100, 0]), /from 1 to 100/);
+  assert.throws(() => splitPrize(100n, 2, [50.5, 49.5]), /from 1 to 100/);
+  assert.throws(
+    () => resolvePicks({ winners: [] }, prizeOpts),
+    /at least one entry/,
+  );
+});
+
+test('pickedBy: the default reason is cleaned; an unusable name falls back', () => {
+  assert.equal(pickedBy('Acme'), 'Picked by Acme');
+  assert.equal(pickedBy('Acme‮Labs'), 'Picked by AcmeLabs');
+  assert.equal(pickedBy('see https://evil.xyz'), 'Picked by the sponsor');
+});

@@ -59,9 +59,9 @@ export function parseFallbackPicks(
       split === undefined || split === 'equal'
         ? split
         : split.split(',').map((p) => {
-            if (!/^\d+$/.test(p))
+            if (!/^\d+$/.test(p) || Number(p) < 1 || Number(p) > 100)
               throw new Error(
-                `--split: "${p}" isn't a whole percentage; use equal or e.g. 50,30,20.`,
+                `--split: "${p}" isn't a whole percentage from 1 to 100; use equal or e.g. 50,30,20.`,
               );
             return Number(p);
           });
@@ -80,7 +80,8 @@ export function parseFallbackPicks(
       return {
         entry_id: id(entry),
         amount,
-        ...(reason.length && { reason: reason.join(':') }),
+        // An empty reason ("12:60:") gets the default, as before.
+        ...(reason.join(':') && { reason: reason.join(':') }),
       };
     }),
   };

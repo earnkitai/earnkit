@@ -77,6 +77,18 @@ export default function FundClient({
         <div className="mt-8 font-funnel-sans">
           {sent ? null : (
             <>
+              <div className="mb-6 text-sm text-ek-blue-light">
+                <p>Your wallet will ask you to sign:</p>
+                <ol className="mt-2 list-decimal pl-5">
+                  {txs.map((t) => (
+                    <li key={t.data}>{t.description}</li>
+                  ))}
+                </ol>
+                <p className="mt-2">
+                  One signature if your wallet supports batching, otherwise one
+                  per step.
+                </p>
+              </div>
               <label className="flex items-start gap-3 text-sm text-ek-blue-light">
                 <input
                   type="checkbox"

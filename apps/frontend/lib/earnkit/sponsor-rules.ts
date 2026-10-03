@@ -470,6 +470,8 @@ export function splitPrize(
   count: number,
   split: z.infer<typeof AwardSplit> = 'equal',
 ): bigint[] {
+  if (!Number.isInteger(count) || count < 1)
+    throw new SponsorError('winners: name at least one entry.');
   let shares: bigint[];
   if (split === 'equal') {
     shares = Array.from({ length: count }, () => prizeUnits / BigInt(count));
@@ -477,6 +479,10 @@ export function splitPrize(
     if (split.length !== count)
       throw new SponsorError(
         `split: give one percentage per winner (${count}); got ${split.length}.`,
+      );
+    if (split.some((p) => !Number.isInteger(p) || p < 1 || p > 100))
+      throw new SponsorError(
+        'split: each percentage is a whole number from 1 to 100.',
       );
     const sum = split.reduce((a, b) => a + b, 0);
     if (sum !== 100)
@@ -520,7 +526,13 @@ export function resolvePicks(
 }
 
 /** The reason recorded for a winner the sponsor didn't explain. */
-export const pickedBy = (sponsorName: string) => `Picked by ${sponsorName}`;
+export const pickedBy = (sponsorName: string) => {
+  // Cleaned like any reason: rows from before v2.2 hold unsanitized sponsor names.
+  const r = untrusted(TEXT_LIMITS.reason, 3).safeParse(
+    `Picked by ${sponsorName}`,
+  );
+  return r.success ? r.data : 'Picked by the sponsor';
+};
 
 /**
  * Checks the sponsor's (or the operator fallback's) picks and returns what the award transaction

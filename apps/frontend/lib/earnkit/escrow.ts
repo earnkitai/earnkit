@@ -7,6 +7,7 @@ import {
 } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import { campaignAbi, campaignsAbi } from './escrow-abi';
+import { formatExact } from './format-units';
 
 /**
  * Read-only access to the EarnKit escrow contracts (v2.1). The server never signs: it builds
@@ -161,7 +162,7 @@ export function fundTxs(
       }),
       value: '0',
       chain_id: chainId,
-      description: `Approve the EarnKit escrow factory to take ${token.symbol}`,
+      description: `Approve exactly ${formatExact(amountUnits, token.decimals)} ${token.symbol} for the EarnKit escrow factory`,
     },
     {
       to: factory,

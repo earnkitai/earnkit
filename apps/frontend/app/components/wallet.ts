@@ -4,7 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { createWalletClient, custom, publicActions, type Chain } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import type { RawTx } from '@/lib/earnkit/escrow';
-import { atomicBatching } from '@/lib/earnkit/wallet-batch';
+import {
+  atomicBatching,
+  batchStatusProblem,
+  batchUnsupported,
+} from '@/lib/earnkit/wallet-batch';
 
 declare global {
   interface Window {
@@ -137,8 +141,9 @@ export async function sendAll(
 
 /**
  * One signature when the wallet can (EIP-5792): if wallet_getCapabilities says atomic batching is
- * supported on the chain, every tx goes in one wallet_sendCalls batch; otherwise they are sent in
- * order, as `sendAll`. Either way the page then polls EarnKit, which finds the outcome by reading
+ * "supported" on the chain (not "ready", which would upgrade the account), every tx goes in one
+ * wallet_sendCalls batch; otherwise, or if the wallet then refuses the batch (57xx), they are sent
+ * in order, as `sendAll`. Either way the page then polls EarnKit, which finds the outcome by reading
  * the chain (no hash is handed over).
  */
 export async function sendBatched(
@@ -147,31 +152,41 @@ export async function sendBatched(
   onStep: (msg: string) => void,
 ): Promise<'batched' | 'sequential'> {
   const c = await connect(txs, from, onStep);
-  // Wallets without EIP-5792 reject the method: that just means "send them in order".
+  // All chains' capabilities (0x0 = every chain); wallets without EIP-5792 reject the method,
+  // which just means "send them in order".
   const caps = await c.wallet
-    .getCapabilities({ account: c.account, chainId: c.chain.id })
+    .getCapabilities({ account: c.account })
     .catch(() => null);
-  if (txs.length < 2 || !atomicBatching(caps)) {
+  if (txs.length < 2 || !atomicBatching(caps, c.chain.id)) {
     await sendInOrder(c, txs, onStep);
     return 'sequential';
   }
   onStep(
     `One signature: ${txs.map((t) => t.description).join(', then ')}. Confirm in your wallet…`,
   );
-  const { id } = await c.wallet.sendCalls({
-    account: c.account,
-    chain: c.chain,
-    calls: txs.map((t) => ({ to: t.to, data: t.data })),
-    forceAtomic: true,
-  });
+  let id: string;
+  try {
+    ({ id } = await c.wallet.sendCalls({
+      account: c.account,
+      chain: c.chain,
+      calls: txs.map((t) => ({ to: t.to, data: t.data })),
+      forceAtomic: true,
+    }));
+  } catch (err) {
+    // The wallet advertised atomic batching but can't do this one (EIP-5792 57xx): nothing was
+    // submitted, so send them in order instead.
+    if (!batchUnsupported(err)) throw err;
+    await sendInOrder(c, txs, onStep);
+    return 'sequential';
+  }
   onStep('Waiting for it to confirm…');
   // As with the last tx in order: EarnKit reads the outcome from the chain, so a status endpoint
-  // that is slow or missing is not an error here; a failed batch still is.
+  // that is slow or missing is not an error here; a batch that wasn't sent or reverted still is.
   const status = await c.wallet
     .waitForCallsStatus({ id, timeout: 120_000 })
     .catch(() => null);
-  if (status?.status === 'failure')
-    throw new Error('The deposit failed onchain. Try again.');
+  const problem = batchStatusProblem(status?.statusCode);
+  if (problem) throw new Error(problem);
   return 'batched';
 }
 
