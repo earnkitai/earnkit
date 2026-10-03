@@ -14,7 +14,9 @@
 - **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos and
   agent-reported local_repos given, and
   `working_on` (programs passed to prepare_submission, cleared by record_submission), so
-  list_programs needs no arguments later and leads with "You're working on".
+  list_programs needs no arguments later and leads with "You're working on". It also keeps the
+  payout wallet of the last campaign entry (`installations.payout_wallet`), prefilled by
+  prepare_submission with a confirm note.
 - **verified_at**: the day a program's facts were last checked against its source. Within 7 days
   agents are told not to re-read the source.
 - **Track**: a category inside a program with its own requirements.
@@ -98,6 +100,31 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   the normalized repo is stored as `projects.repo_key` with a partial unique index on
   `(program_id, repo_key)`, and a violation maps to the same error; `requireContracts` is `true` for
   `kind: 'earnkit'`, `false` for `kind: 'sponsor'` — sponsor entries only need a payout wallet).
+  **Entry hygiene (v2.2 §1 Builders, T5):** before anything is stored, `recordSubmission` refuses
+  the sponsor's own installation ("You created this campaign…") and the sponsor wallet as payout
+  wallet (`selfEntryProblem`), enforces every required submission field (`missingAnswersProblem`
+  over `prepareSubmission`'s ready/missing), checks the payout wallet (`isWalletAddress`: not zero,
+  mixed case must be EIP-55; never one of the entry's contracts), screens it for sanctions, then
+  requires **ownership proof** (`ownership.ts`, `checkOwnership`): the entry's repo must be a public
+  GitHub repo whose `earnkit.txt` (root, default branch, fetched from
+  `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/earnkit.txt`, 5 s, 4 KB, no redirects) says
+  `payout_wallet: <the entry's wallet>`; each entered contract must be created by that wallet
+  (Base Blockscout `creator_address_hash`, asked only for contracts the file doesn't list) or be
+  listed as `contracts: 0x…, 0x…`. Errors name the exact file and line to add. This makes the
+  first-entry-wins repo dedupe owner-wins: only someone who can push to the repo can enter it.
+  `EARNKIT_OWNERSHIP_BASE_URL` replaces raw.githubusercontent.com in development and tests (the
+  e2e serves files from a local server); it is refused when `NODE_ENV=production`. The payout
+  wallet requirement is `from: 'builder'` ("ask the builder; never derive it from the code"); a
+  successful entry saves it as `installations.payout_wallet`, and `prepare_submission` prefills it
+  next time with `payout_wallet_note` ("Using <wallet> from your last entry; confirm with the
+  builder"). **Sanctions** (`sanctions.ts`): Chainalysis's oracle
+  (`0x3A91A31cB3dC49b4db9Ce721F50a9D076c8D739B`, `isSanctioned`) over `BASE_RPC_URL`, on Base
+  mainnet (chain 8453) only — elsewhere (and when BASE_RPC_URL isn't chain 8453) it is skipped
+  with a logged note. Screened: payout wallets at entry (on the prize chain; Base for EarnKit
+  campaigns), the sponsor wallet at create (the escrow chain), and every winner of an award plan
+  (`prepareAward` and `campaign fallback propose`). A listed wallet gets "This wallet can't
+  receive prizes on EarnKit." (or "…can't fund campaigns…"); an unreadable oracle fails closed
+  ("try again in a minute"). The oracle is injectable (`setSanctionsOracle`) for tests.
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
   (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
   block was > 0. Rank is computed on read (score, then earlier entry). `pnpm campaign

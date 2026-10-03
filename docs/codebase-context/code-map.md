@@ -58,10 +58,19 @@ apps/frontend/
                                programDetails (pure): sponsor campaigns get quoted title/name,
                                generic rules and a neutral description, their own text only
                                in sponsor_content
-    submission.ts(+.test.ts)   prepareSubmission (pure)
-    projects.ts                recordSubmission (campaigns: one entry per repo and per contract,
-                               checked under a per-campaign advisory lock; stores repo_key, backed
-                               by the unique index projects_campaign_repo_key)
+    submission.ts(+.test.ts)   prepareSubmission, prefillPayoutWallet (pure)
+    projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
+                               (missingAnswersProblem), sanctions, ownership proof; one entry per
+                               repo and per contract, checked under a per-campaign advisory lock;
+                               stores repo_key, backed by the unique index projects_campaign_repo_key;
+                               remembers installations.payout_wallet)
+    ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
+                               5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
+                               parseOwnershipFile, githubRepo, ownershipProblem (pure),
+                               checkOwnership (fetcher + Blockscout creator lookup injectable)
+    sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
+                               note elsewhere; injectable): screenWallet (entry, create),
+                               screenWinners (award plans), fails closed
     untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, then an
                                allowlist of letters/numbers/fixed punctuation/emoji, quotes -> ',
                                reject links incl. defanged/IP/confusable-dot/bare domains and HTML
@@ -93,7 +102,8 @@ apps/frontend/
                                cachedIdentities (cache only; list_programs, get_program), trackRecord
     rate-limit.ts(+test)       minimal Postgres fixed-window counter (rate_windows) + clientIp
                                (rightmost x-forwarded-for); /check allows 60 per IP per minute
-    installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
+    installations.ts           save / touch installation by token hash; memory (GitHub, working_on,
+                               last payout wallet)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas
@@ -110,7 +120,8 @@ apps/frontend/
                                includes sponsor_campaign (create/status/award)
     tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'), minScore/prizeText/wonText,
-                               entry checks (contracts optional for 'sponsor'), normalizeRepoUrl/
+                               entry checks (contracts optional for 'sponsor'; isWalletAddress:
+                               mixed-case payout wallets must be EIP-55), normalizeRepoUrl/
                                sameRepoEntry (repo dedupe), unique_wallets scoring (Base Blockscout +
                                Base RPC), entryStatus (public status), "Your campaign entries" text
                                (sponsor entries: state-based, no rank unless scored)

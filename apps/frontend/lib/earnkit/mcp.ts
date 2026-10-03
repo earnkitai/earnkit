@@ -178,7 +178,8 @@ export function createMcpServer(ctx: ToolContext) {
     {
       description:
         "Record the project on EarnKit. Only call AFTER the project was actually submitted on the program's " +
-        'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet). ' +
+        'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet; the ' +
+        "public GitHub repo must hold earnkit.txt naming the payout wallet, see prepare_submission's how_to_submit). " +
         'Pass the final answers that were submitted. Returns ' +
         'project_id and `next`: offer the builder a tokens.fun token for the project (launch_token). ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
