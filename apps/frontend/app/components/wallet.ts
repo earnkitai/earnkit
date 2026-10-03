@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createWalletClient, custom, publicActions, type Chain } from 'viem';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import type { RawTx } from '@/lib/earnkit/escrow';
+import { atomicBatching } from '@/lib/earnkit/wallet-batch';
 
 declare global {
   interface Window {
@@ -64,16 +65,12 @@ export function useAccount() {
   return { account, connect, error };
 }
 
-/**
- * Sends each tx in order from `from` (the campaign's bound wallet), waiting for each receipt
- * (createCampaign needs the approval mined; a revert is reported). The page then polls EarnKit,
- * which reads the outcome from the chain.
- */
-export async function sendAll(
+/** A wallet client on the txs' chain, connected as `from` (the campaign's bound wallet). */
+async function connect(
   txs: RawTx[],
   from: string,
   onStep: (msg: string) => void,
-): Promise<void> {
+) {
   if (!window.ethereum) throw new Error(NO_WALLET);
   const chain = CHAINS[txs[0].chain_id];
   const wallet = createWalletClient({
@@ -90,6 +87,20 @@ export async function sendAll(
       await wallet.switchChain({ id: chain.id });
     });
   }
+  return { wallet, account, chain };
+}
+
+type Connected = Awaited<ReturnType<typeof connect>>;
+
+/**
+ * Sends each tx in order, waiting for each receipt (createCampaign needs the approval mined; a
+ * revert is reported). The page then polls EarnKit, which reads the outcome from the chain.
+ */
+async function sendInOrder(
+  { wallet, account, chain }: Connected,
+  txs: RawTx[],
+  onStep: (msg: string) => void,
+) {
   for (const [i, tx] of txs.entries()) {
     onStep(
       `Step ${i + 1} of ${txs.length}: ${tx.description}. Confirm in your wallet…`,
@@ -113,6 +124,55 @@ export async function sendAll(
     if (receipt && receipt.status !== 'success')
       throw new Error(`Step ${i + 1} failed onchain. Try again.`);
   }
+}
+
+/** Sends each tx in order from `from` (the campaign's bound wallet): one signature per tx. */
+export async function sendAll(
+  txs: RawTx[],
+  from: string,
+  onStep: (msg: string) => void,
+): Promise<void> {
+  await sendInOrder(await connect(txs, from, onStep), txs, onStep);
+}
+
+/**
+ * One signature when the wallet can (EIP-5792): if wallet_getCapabilities says atomic batching is
+ * supported on the chain, every tx goes in one wallet_sendCalls batch; otherwise they are sent in
+ * order, as `sendAll`. Either way the page then polls EarnKit, which finds the outcome by reading
+ * the chain (no hash is handed over).
+ */
+export async function sendBatched(
+  txs: RawTx[],
+  from: string,
+  onStep: (msg: string) => void,
+): Promise<'batched' | 'sequential'> {
+  const c = await connect(txs, from, onStep);
+  // Wallets without EIP-5792 reject the method: that just means "send them in order".
+  const caps = await c.wallet
+    .getCapabilities({ account: c.account, chainId: c.chain.id })
+    .catch(() => null);
+  if (txs.length < 2 || !atomicBatching(caps)) {
+    await sendInOrder(c, txs, onStep);
+    return 'sequential';
+  }
+  onStep(
+    `One signature: ${txs.map((t) => t.description).join(', then ')}. Confirm in your wallet…`,
+  );
+  const { id } = await c.wallet.sendCalls({
+    account: c.account,
+    chain: c.chain,
+    calls: txs.map((t) => ({ to: t.to, data: t.data })),
+    forceAtomic: true,
+  });
+  onStep('Waiting for it to confirm…');
+  // As with the last tx in order: EarnKit reads the outcome from the chain, so a status endpoint
+  // that is slow or missing is not an error here; a failed batch still is.
+  const status = await c.wallet
+    .waitForCallsStatus({ id, timeout: 120_000 })
+    .catch(() => null);
+  if (status?.status === 'failure')
+    throw new Error('The deposit failed onchain. Try again.');
+  return 'batched';
 }
 
 export type CheckResult = {

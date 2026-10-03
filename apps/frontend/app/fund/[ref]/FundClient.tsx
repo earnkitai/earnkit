@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { RawTx } from '@/lib/earnkit/escrow';
-import { pollCheck, sendAll } from '@/app/components/wallet';
+import { pollCheck, sendBatched } from '@/app/components/wallet';
 import WalletGate from '@/app/components/WalletGate';
 import {
   DEADLINE_MARGIN_MS,
@@ -47,7 +47,8 @@ export default function FundClient({
     setBusy(true);
     setMsg('');
     try {
-      await sendAll(txs, sponsorWallet, setMsg);
+      // One signature when the wallet supports atomic batching, else approve then deposit.
+      await sendBatched(txs, sponsorWallet, setMsg);
     } catch (err) {
       setMsg(walletErrorMessage(err));
       setBusy(false);
