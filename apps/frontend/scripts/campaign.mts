@@ -18,12 +18,14 @@ import {
   type CampaignConfig,
 } from '../lib/earnkit/campaigns';
 import {
+  FALLBACK_REASON,
   USAGE,
   cliErrorLine,
   executeProblem,
   fallbackProblem,
   guardianKeyProblem,
   operatorKeyProblem,
+  parseFallbackPicks,
   privateKeyProblem,
 } from '../lib/earnkit/cli';
 import { formatDeadline } from '../lib/earnkit/dates';
@@ -241,7 +243,7 @@ async function sponsorCommand() {
   const { loadCampaign, checkChain, excludedWinners } = await import(
     '../lib/earnkit/sponsor'
   );
-  const { planAward, splitUnits } = await import(
+  const { planAward, resolvePicks, splitUnits } = await import(
     '../lib/earnkit/sponsor-rules'
   );
   const { screenWinners } = await import('../lib/earnkit/sanctions');
@@ -456,22 +458,22 @@ async function sponsorCommand() {
       fail(
         "The guardian vetoed the fallback on this campaign; only the sponsor's award or a refund remain.",
       );
-    const spec = (flag('winners') ?? '')
-      .split(',')
-      .filter(Boolean)
-      .map((w) => {
-        const [id, amount, ...reason] = w.split(':');
-        return {
-          entry_id: Number(id),
-          amount,
-          reason: reason.join(':') || 'Top entry (EarnKit fallback)',
-        };
-      });
+    let picks: ReturnType<typeof parseFallbackPicks>;
+    try {
+      picks = parseFallbackPicks(flag('winners'), flag('split'));
+    } catch (err) {
+      fail((err as Error).message);
+    }
     const entries = await db<{ id: number; payout_wallet: string }[]>`
       SELECT id, payout_wallet FROM projects WHERE program_id = ${row.program_id} AND payout_wallet IS NOT NULL`;
     const { prize } = splitUnits(parseUnits(row.amount, row.token_decimals));
+    // A ranking gets exact shares (the remainder to first place), checked by planAward like any picks.
     const { wallets, amountsUnits, plan } = planAward({
-      winners: spec,
+      winners: resolvePicks(picks, {
+        prizeUnits: prize,
+        decimals: row.token_decimals,
+        defaultReason: FALLBACK_REASON,
+      }),
       entries,
       prizeUnits: prize,
       decimals: row.token_decimals,

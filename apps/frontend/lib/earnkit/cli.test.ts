@@ -12,6 +12,7 @@ import {
   fallbackProblem,
   guardianKeyProblem,
   operatorKeyProblem,
+  parseFallbackPicks,
   privateKeyProblem,
 } from './cli';
 
@@ -123,4 +124,45 @@ test('privateKeyProblem checks PAYOUT_PRIVATE_KEY the same way, by name', () => 
     privateKeyProblem('PAYOUT_PRIVATE_KEY', `0x${'1'.repeat(64)}`),
     null,
   );
+});
+
+test('parseFallbackPicks: a ranking with an optional split, or exact picks', () => {
+  assert.deepEqual(parseFallbackPicks('12,7,3', undefined), {
+    winners: [12, 7, 3],
+  });
+  assert.deepEqual(parseFallbackPicks('12,7', 'equal'), {
+    winners: [12, 7],
+    split: 'equal',
+  });
+  assert.deepEqual(parseFallbackPicks('12,7,3', '50,30,20'), {
+    winners: [12, 7, 3],
+    split: [50, 30, 20],
+  });
+  assert.deepEqual(
+    parseFallbackPicks('12:60:Best docs: really,7:30', undefined),
+    {
+      winners: [
+        { entry_id: 12, amount: '60', reason: 'Best docs: really' },
+        { entry_id: 7, amount: '30' },
+      ],
+    },
+  );
+  assert.throws(
+    () => parseFallbackPicks(undefined, undefined),
+    /Name the winners/,
+  );
+  assert.throws(
+    () => parseFallbackPicks('12,x', undefined),
+    /"x" isn't an entry id/,
+  );
+  assert.throws(() => parseFallbackPicks('12,7', '50,abc'), /whole percentage/);
+  assert.throws(
+    () => parseFallbackPicks('12:60', 'equal'),
+    /only for a ranking/,
+  );
+  assert.throws(
+    () => parseFallbackPicks('12:', undefined),
+    /needs <id>:<amount>/,
+  );
+  assert.match(USAGE, /--winners <id>,<id>,\.\.\. \[--split equal\|<pct>/);
 });

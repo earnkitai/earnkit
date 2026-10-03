@@ -12,8 +12,11 @@ EarnKit's own campaigns (by program slug):
                                                  send the fixed prize to approved winners (PAYOUT_PRIVATE_KEY)
 
 Sponsor campaigns (by ref; local shell only):
-  fallback propose <ref> --winners <id>:<amount>:<reason>,... [--execute]
-                                                 propose winners once 7 days have passed since the deadline
+  fallback propose <ref> --winners <id>,<id>,... [--split equal|<pct>,<pct>,...] [--execute]
+  fallback propose <ref> --winners <id>:<amount>[:<reason>],... [--execute]
+                                                 propose winners (ranked best first, the prize split equally
+                                                 or by percentages adding up to 100; or exact amounts)
+                                                 once 7 days have passed since the deadline
                                                  (OPERATOR_PRIVATE_KEY); payable 72 hours later unless vetoed
   fallback execute <ref> [--execute]             pay the proposed winners once the 72 hours have passed
   fallback veto    <ref> [--execute]             cancel the proposal for good (GUARDIAN_PRIVATE_KEY)
@@ -25,6 +28,63 @@ Sponsor campaigns (by ref; local shell only):
                                                  days of their deadline); shows pending fallbacks
 
 Without --execute, payout, fallback and refund are dry runs.`;
+
+/** The fallback's default reason for a winner. */
+export const FALLBACK_REASON = 'Top entry (EarnKit fallback)';
+
+/**
+ * Parses `fallback propose`'s --winners (and --split): entry ids in ranked order ("12,7,3") with an
+ * optional split ("equal" or "50,30,20"), or exact picks ("12:60:reason,7:30"). The result goes
+ * through resolvePicks and planAward like a sponsor's award. Throws a readable Error.
+ */
+export function parseFallbackPicks(
+  winners: string | undefined,
+  split: string | undefined,
+): {
+  winners: number[] | { entry_id: number; amount: string; reason?: string }[];
+  split?: 'equal' | number[];
+} {
+  const items = (winners ?? '').split(',').filter(Boolean);
+  if (!items.length)
+    throw new Error(
+      'Name the winners: --winners <id>,<id>,... (ranked) or <id>:<amount>[:<reason>],...',
+    );
+  const id = (v: string) => {
+    if (!/^\d+$/.test(v) || Number(v) <= 0)
+      throw new Error(`--winners: "${v}" isn't an entry id.`);
+    return Number(v);
+  };
+  if (items.every((w) => !w.includes(':'))) {
+    const parsedSplit =
+      split === undefined || split === 'equal'
+        ? split
+        : split.split(',').map((p) => {
+            if (!/^\d+$/.test(p))
+              throw new Error(
+                `--split: "${p}" isn't a whole percentage; use equal or e.g. 50,30,20.`,
+              );
+            return Number(p);
+          });
+    return {
+      winners: items.map(id),
+      ...(parsedSplit !== undefined && { split: parsedSplit }),
+    };
+  }
+  if (split !== undefined)
+    throw new Error('--split is only for a ranking (--winners <id>,<id>,...).');
+  return {
+    winners: items.map((w) => {
+      const [entry, amount, ...reason] = w.split(':');
+      if (!amount || !/^\d+(\.\d+)?$/.test(amount))
+        throw new Error(`--winners: "${w}" needs <id>:<amount>[:<reason>].`);
+      return {
+        entry_id: id(entry),
+        amount,
+        ...(reason.length && { reason: reason.join(':') }),
+      };
+    }),
+  };
+}
 
 /**
  * viem's errors by shape, not `instanceof`: under tsx the scripts load viem as ESM while lib/ loads

@@ -409,6 +409,37 @@ check(
   'a mixed-case sponsor_wallet with a bad checksum is refused',
 );
 
+// v2.2 §6: five answers are enough; the reply lists the defaults used. `theme` is still accepted
+// (mkDraft uses it), as the old name of what_to_build.
+const fiveAnswers = (await tools.sponsor_campaign(
+  {
+    action: 'create',
+    sponsor_wallet: wallet.account.address,
+    sponsor_name: 'E2E Co',
+    title: 'E2E five answers',
+    what_to_build: 'Build anything on Base that works end to end.',
+    amount: '5',
+  },
+  { installationId: inst },
+)) as Awaited<ReturnType<typeof createSponsorDraft>>;
+const [fiveRow] = await sql()<{ draft: Record<string, unknown> }[]>`
+  SELECT draft FROM sponsor_campaigns WHERE ref = ${fiveAnswers.ref}`;
+check(
+  fiveAnswers.show_to_sponsor.includes(
+    'Defaults used: criteria: "E2E Co picks the most useful entries"; chains: base; token: USDC; ' +
+      'winners: 3; existing projects can enter; ends ',
+  ) &&
+    fiveAnswers.show_to_sponsor.includes(
+      '(14 days); no sponsor_url (the campaign shows as unverified). To change any, create it again before funding.',
+    ) &&
+    fiveRow.draft.winners === 3 &&
+    fiveRow.draft.existing_work === 'allowed' &&
+    fiveRow.draft.what_to_build ===
+      'Build anything on Base that works end to end.' &&
+    !('theme' in fiveRow.draft),
+  `create with five answers uses the defaults and says so: ${JSON.stringify(fiveAnswers.show_to_sponsor)}`,
+);
+
 // ---------------------------------------------------------------------------
 // Campaign A: draft -> fund -> (status finds it) -> entries -> award (ends in 4 days).
 // ---------------------------------------------------------------------------
@@ -683,9 +714,9 @@ check(
   `status (live) says entries, deadline and escrow: ${JSON.stringify(liveStatus.show_to_sponsor)}`,
 );
 check(
-  await prepareAward(draft.ref, inst, [
-    { entry_id: a.project_id, amount: '90', reason: 'Works best' },
-  ]).then(
+  await prepareAward(draft.ref, inst, {
+    winners: [{ entry_id: a.project_id, amount: '90', reason: 'Works best' }],
+  }).then(
     () => false,
     () => true,
   ),
@@ -1085,9 +1116,9 @@ check(
   'award_onchain flags the non-entry wallet with entry_id: null',
 );
 check(
-  await prepareAward(draft3.ref, inst, [
-    { entry_id: gamma.project_id, amount: '1', reason: 'x x x' },
-  ]).then(
+  await prepareAward(draft3.ref, inst, {
+    winners: [{ entry_id: gamma.project_id, amount: '1', reason: 'x x x' }],
+  }).then(
     () => false,
     () => true,
   ),
@@ -1097,9 +1128,9 @@ check(
 // ---------------------------------------------------------------------------
 // Campaign A's own award: prepareAward, the sponsor signs, status reads it.
 // ---------------------------------------------------------------------------
-const sneakyErr = await prepareAward(draft.ref, inst, [
-  { entry_id: sneaky.project_id, amount: '90', reason: 'Sneaky' },
-]).then(
+const sneakyErr = await prepareAward(draft.ref, inst, {
+  winners: [{ entry_id: sneaky.project_id, amount: '90', reason: 'Sneaky' }],
+}).then(
   () => '',
   (err: Error) => err.message,
 );
@@ -1108,10 +1139,43 @@ check(
     `winners: entry ${sneaky.project_id}'s payout wallet is an EarnKit escrow or the sponsor's wallet, so it can't receive a prize.`,
   `an award to another campaign's escrow is refused: ${sneakyErr}`,
 );
-const award = await prepareAward(draft.ref, inst, [
-  { entry_id: a.project_id, amount: '60', reason: 'Works best' },
-  { entry_id: b.project_id, amount: '30', reason: 'Runner-up' },
-]);
+// Awards by ranking: exact shares, the remainder to first place, the default reason.
+const ranked = await prepareAward(draft.ref, inst, {
+  winners: [a.project_id, b.project_id],
+  split: [67, 33],
+});
+check(
+  ranked.plan.map((p) => p.amount).join(',') === '60.3,29.7' &&
+    ranked.sponsor_content.reasons.every(
+      (r) => r.reason === 'Picked by E2E Co',
+    ),
+  `a ranking with a split gets exact amounts and "Picked by <sponsor>": ${JSON.stringify(ranked.plan)}`,
+);
+const rankedEqual = await prepareAward(draft.ref, inst, {
+  winners: [b.project_id, a.project_id],
+});
+check(
+  rankedEqual.plan.map((p) => `${p.entry_id}:${p.amount}`).join(',') ===
+    `${b.project_id}:45,${a.project_id}:45`,
+  'a ranking without a split shares the prize equally, in rank order',
+);
+const badSplit = await prepareAward(draft.ref, inst, {
+  winners: [a.project_id, b.project_id],
+  split: [60, 30],
+}).then(
+  () => '',
+  (err: Error) => err.message,
+);
+check(
+  badSplit === 'split: percentages must add up to 100 (got 90).',
+  `a split that doesn't add up to 100 is refused: ${badSplit}`,
+);
+const award = await prepareAward(draft.ref, inst, {
+  winners: [
+    { entry_id: a.project_id, amount: '60', reason: 'Works best' },
+    { entry_id: b.project_id, amount: '30', reason: 'Runner-up' },
+  ],
+});
 replies.push(award.show_to_sponsor, award.next_step);
 check(
   award.show_to_sponsor ===
@@ -1157,9 +1221,9 @@ check(
   "EarnKit's 10% fees (4 + 10 USDC) reached the treasury",
 );
 check(
-  await prepareAward(draft.ref, inst, [
-    { entry_id: a.project_id, amount: '1', reason: 'x x x' },
-  ]).then(
+  await prepareAward(draft.ref, inst, {
+    winners: [{ entry_id: a.project_id, amount: '1', reason: 'x x x' }],
+  }).then(
     () => false,
     () => true,
   ),
@@ -1384,15 +1448,36 @@ check(
   '`campaign sync` shows the pending proposal',
 );
 await warpDays(1);
+// The fallback also takes a ranking (v2.2 §6): entry ids, the prize split by planAward's rules.
+const badFallbackSplit = runCampaignCliFails(
+  {},
+  'fallback',
+  'propose',
+  draft5.ref,
+  '--winners',
+  `${delta.project_id}`,
+  '--split',
+  '60,30',
+);
+check(
+  badFallbackSplit.stderr === 'split: one percentage per winner (1); got 2.',
+  `the fallback refuses a split that doesn't match the ranking: ${badFallbackSplit.stderr}`,
+);
 const reproposed =
   runCampaignCli(
     'fallback',
     'propose',
     draft5.ref,
     '--winners',
-    winners5,
+    `${delta.project_id}`,
     '--execute',
   ) ?? '';
+check(
+  reproposed.includes(
+    `#${delta.project_id} 0x00000000000000000000000000000000000000e5 18 USDC: Top entry (EarnKit fallback)`,
+  ),
+  `a ranked fallback gets the whole prize and the default reason: ${reproposed.split('\n')[0]}`,
+);
 check(
   /proposed: 0x/.test(reproposed) && execAt(reproposed) !== execAt(proposed),
   `re-proposing restarts the 72-hour delay (${execAt(proposed)} -> ${execAt(reproposed)})`,
@@ -1421,7 +1506,7 @@ const [deltaRow] = await db<{ prize_amount: string; prize_reason: string }[]>`
   SELECT prize_amount, prize_reason FROM projects WHERE id = ${delta.project_id}`;
 check(
   deltaRow.prize_amount === '18' &&
-    deltaRow.prize_reason === 'Operator fallback award' &&
+    deltaRow.prize_reason === 'Top entry (EarnKit fallback)' &&
     (
       await db<{ award_onchain: unknown }[]>`
       SELECT award_onchain FROM sponsor_campaigns WHERE ref = ${draft5.ref}`
