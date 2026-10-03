@@ -78,3 +78,10 @@ export async function touchInstallation(token: string) {
     WHERE token_hash = ${hash(token)} RETURNING id`;
   return row?.id ?? null;
 }
+
+/** The payout wallet of this installation's last campaign entry (lowercase), or null. */
+export async function rememberedPayoutWallet(installationId: number) {
+  const [row] = await sql()<{ payout_wallet: string | null }[]>`
+    SELECT payout_wallet FROM installations WHERE id = ${installationId}`;
+  return row?.payout_wallet ?? null;
+}

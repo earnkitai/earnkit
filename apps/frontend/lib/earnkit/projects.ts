@@ -7,8 +7,10 @@ import {
   validateEntry,
 } from './campaigns';
 import { formatDeadline } from './dates';
-import { getProgramRow, isOpen } from './programs';
-import { ProjectInfo } from './submission';
+import { checkOwnership } from './ownership';
+import { getProgramRow, isOpen, type ProgramRow } from './programs';
+import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
+import { ProjectInfo, prepareSubmission } from './submission';
 import { tokenOffer } from './tokens';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 
@@ -24,6 +26,71 @@ export const RecordSubmissionInput = z
   })
   .strict();
 
+/** submission_data as prepareSubmission's answers: strings, lists joined with ", ". */
+export const answersOf = (data: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(data)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]),
+  );
+
+/**
+ * Why a campaign entry is missing required answers, or null: prepareSubmission's `missing` items
+ * that are required (absent, or present but invalid). Pure; exported for tests.
+ */
+export function missingAnswersProblem(
+  requirements: ProgramRow['submission_requirements'],
+  project: z.infer<typeof ProjectInfo>,
+  data: Record<string, unknown>,
+): string | null {
+  const { ready, missing } = prepareSubmission(requirements, {
+    project,
+    answers: answersOf(data),
+  });
+  if (ready) return null;
+  const items = missing
+    .filter((m) => m.required)
+    .map((m) => `${m.key} (${m.label}${m.problem ? `: ${m.problem}` : ''})`);
+  return `Missing required answers: ${items.join(', ')}. Call prepare_submission to see what each needs, then record_submission again.`;
+}
+
+/**
+ * Why `installationId` can't enter a sponsor's campaign, or null: it is the sponsor's own
+ * installation, or the payout wallet is the sponsor's wallet. Pure; exported for tests.
+ */
+export function selfEntryProblem(
+  sponsor: { installation_id: number; sponsor_wallet: string | null } | null,
+  installationId: number,
+  payoutWallet: string,
+): string | null {
+  if (!sponsor) return null;
+  if (sponsor.installation_id === installationId)
+    return "You created this campaign, so you can't enter it.";
+  if (sponsor.sponsor_wallet?.toLowerCase() === payoutWallet.toLowerCase())
+    return "payout_wallet: that's the sponsor's wallet, which can't enter its own campaign.";
+  return null;
+}
+
+/** The entry's repo link: project.repo_url, else submission_data.repo_url; both must agree. */
+function entryRepoUrl(
+  projectRepo: string | undefined,
+  data: Record<string, unknown>,
+) {
+  const answer =
+    typeof data.repo_url === 'string' && data.repo_url.trim()
+      ? data.repo_url.trim()
+      : undefined;
+  if (
+    projectRepo &&
+    answer &&
+    normalizeRepoUrl(projectRepo) !== normalizeRepoUrl(answer)
+  )
+    throw new EntryError(
+      'repo_url: project.repo_url and submission_data.repo_url are different repos; enter one.',
+    );
+  return projectRepo || answer;
+}
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
@@ -32,15 +99,53 @@ export async function recordSubmission(
   const program = await getProgramRow(input.program_id);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
   // third-party text. Other programs' projects go only to the builder's own submission.
-  const { name, description, repo_url, live_url, demo_url, token_url } =
-    program.campaign ? cleanProject(input.project) : input.project;
+  const cleaned = program.campaign
+    ? cleanProject(input.project)
+    : input.project;
+  const { name, description, live_url, demo_url, token_url } = cleaned;
+  let repo_url = cleaned.repo_url;
 
   // EarnKit campaigns: this call *is* the entry, so check it before storing anything.
   let entry: { contracts: string[]; payoutWallet: string } | null = null;
   if (program.campaign) {
     if (!isOpen(program)) throw new EntryError('This campaign is closed.');
+    const [sponsor] = await sql()<
+      { installation_id: number; sponsor_wallet: string | null }[]
+    >`SELECT installation_id, sponsor_wallet FROM sponsor_campaigns WHERE program_id = ${program.id}`;
+    if (sponsor?.installation_id === installationId)
+      throw new EntryError(selfEntryProblem(sponsor, installationId, '')!);
+    const missing = missingAnswersProblem(
+      program.submission_requirements,
+      cleaned,
+      input.submission_data,
+    );
+    if (missing) throw new EntryError(missing);
+    repo_url = entryRepoUrl(repo_url, input.submission_data);
     entry = await validateEntry(input.submission_data, program, {
       requireContracts: program.campaign.kind === 'earnkit',
+    });
+    const self = selfEntryProblem(
+      sponsor ?? null,
+      installationId,
+      entry.payoutWallet,
+    );
+    if (self) throw new EntryError(self);
+    await screenWallet(
+      entry.payoutWallet,
+      program.campaign.kind === 'sponsor'
+        ? program.campaign.prize.chain_id
+        : BASE_MAINNET,
+      `payout_wallet: ${CANT_RECEIVE}`,
+    );
+    // Proof of ownership: the repo's earnkit.txt names this payout wallet (and the contracts).
+    if (!repo_url)
+      throw new EntryError(
+        'repo_url: campaign entries need the public GitHub repo of the project.',
+      );
+    await checkOwnership({
+      repoUrl: repo_url,
+      payoutWallet: entry.payoutWallet,
+      contracts: entry.contracts,
     });
   }
 
@@ -92,6 +197,9 @@ export async function recordSubmission(
         repo_key: repoKey,
         contracts: entry?.contracts ?? null,
       })} RETURNING id, submitted_at`;
+      // Remembered for this installation's next entry (prepare_submission prefills it).
+      if (entry)
+        await tx`UPDATE installations SET payout_wallet = ${entry.payoutWallet} WHERE id = ${installationId}`;
       await tx`INSERT INTO submissions ${tx({
         project_id: project.id,
         submission_data: tx.json(input.submission_data as never),
@@ -109,7 +217,7 @@ export async function recordSubmission(
                 ? `Scored on unique wallets using ${entry.contracts.join(', ')} until ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}; ` +
                   `at least ${program.campaign.min_score} to be eligible. `
                 : `The sponsor picks winners after ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
-              `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure your agent controls that wallet.`,
+              `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure they control that wallet.`,
           }),
         ...(!token_url && { next: tokenOffer(name) }),
       };

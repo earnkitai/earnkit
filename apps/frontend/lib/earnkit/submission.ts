@@ -111,3 +111,25 @@ export function prepareSubmission(
     ...(unused_answers.length > 0 && { unused_answers }),
   };
 }
+
+/**
+ * Prefills the payout_wallet answer with the wallet this installation used for its last campaign
+ * entry, when the program asks for one and the agent didn't pass one. Returns the answers to use
+ * and a note for the agent (null when nothing was prefilled). Pure; exported for tests.
+ */
+export function prefillPayoutWallet(
+  requirements: SubmissionRequirement[],
+  answers: Record<string, string> | undefined,
+  remembered: string | null,
+): { answers: Record<string, string> | undefined; note: string | null } {
+  if (
+    !remembered ||
+    answers?.payout_wallet?.trim() ||
+    !requirements.some((r) => r.key === 'payout_wallet')
+  )
+    return { answers, note: null };
+  return {
+    answers: { ...answers, payout_wallet: remembered },
+    note: `Using ${remembered} from your last entry; confirm with the builder.`,
+  };
+}

@@ -48,9 +48,10 @@
     },
     {
       "key": "repo_url",
-      "label": "Public repo",
+      "label": "Public GitHub repo",
       "type": "url",
       "required": true,
+      "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (and \"contracts: …\" for contracts that wallet didn't deploy).",
       "project_field": "repo_url",
       "from": "project"
     },
@@ -75,8 +76,8 @@
       "label": "Payout wallet",
       "type": "text",
       "required": true,
-      "description": "Your agent's wallet on Base (0x…) that receives MINI if you win.",
-      "from": "project"
+      "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.",
+      "from": "builder"
     }
   ],
   "campaign": {

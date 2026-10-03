@@ -215,7 +215,7 @@ test('the program file is valid and states the judging rule and requirements', (
   assert.ok(p.rules.some((r) => /picks the winners/.test(r)));
   assert.ok(
     p.submission_requirements.some(
-      (r) => r.key === 'payout_wallet' && r.required,
+      (r) => r.key === 'payout_wallet' && r.required && r.from === 'builder',
     ),
   );
   assert.ok(

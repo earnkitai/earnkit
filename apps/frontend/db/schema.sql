@@ -180,3 +180,6 @@ CREATE INDEX IF NOT EXISTS sponsor_campaigns_wallet ON sponsor_campaigns (sponso
 -- for the sponsor wallet's track record.
 ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS award_source text;
 ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS award_winners text[];
+-- v2.2 §1 Builders: the payout wallet of this installation's last campaign entry (lowercase),
+-- prefilled by prepare_submission with a confirm note.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS payout_wallet text;

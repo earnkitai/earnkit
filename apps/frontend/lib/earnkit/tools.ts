@@ -3,7 +3,11 @@ import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import { RecordSubmissionInput, recordSubmission } from './projects';
 import { presentYourEntries } from './campaigns';
 import { yourCampaignEntries } from './leaderboard';
-import { checkPrograms, setWorkingOn } from './installations';
+import {
+  checkPrograms,
+  rememberedPayoutWallet,
+  setWorkingOn,
+} from './installations';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -20,7 +24,12 @@ import {
 import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
 import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
 import { AwardWinner, DraftInput, SponsorError } from './sponsor-rules';
-import { ProjectInfo, prepareSubmission } from './submission';
+import {
+  ProjectInfo,
+  prefillPayoutWallet,
+  prepareSubmission,
+} from './submission';
+import { OWNERSHIP_FILE } from './ownership';
 import { LaunchTokenInput, launchToken } from './tokens';
 import { cleanProject } from './untrusted-text';
 
@@ -190,14 +199,30 @@ export const tools = {
     const open = isOpen(program);
     // Remember it, so list_programs leads with "You're working on".
     if (open) await setWorkingOn(ctx.installationId, program_id, true);
+    // Campaign entries: the payout wallet of this installation's last entry, to confirm.
+    const prefill = program.campaign
+      ? prefillPayoutWallet(
+          program.submission_requirements,
+          known.answers,
+          await rememberedPayoutWallet(ctx.installationId),
+        )
+      : { answers: known.answers, note: null };
     return {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
-      ...prepareSubmission(program.submission_requirements, known),
+      ...prepareSubmission(program.submission_requirements, {
+        ...known,
+        answers: prefill.answers,
+      }),
+      ...(prefill.note && { payout_wallet_note: prefill.note }),
       ...(program.campaign
         ? {
             how_to_submit:
-              'This is an EarnKit campaign: when ready, submit by calling record_submission.',
+              'This is an EarnKit campaign: when ready, submit by calling record_submission. ' +
+              `First the project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root ` +
+              '(default branch) with the line "payout_wallet: <the payout wallet>", plus ' +
+              '"contracts: 0x…, 0x…" for any entered contract that wallet didn\'t deploy. It proves ' +
+              "the entry is the builder's.",
           }
         : { submission_url: program.submission_url }),
     };

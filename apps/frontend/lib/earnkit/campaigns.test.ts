@@ -11,6 +11,7 @@ import {
   prizeText,
   sameRepoEntry,
   validateEntry,
+  isWalletAddress,
   wonText,
   type CampaignConfig,
   type YourEntry,
@@ -286,5 +287,38 @@ test('entryStatus: sponsor states and EarnKit eligibility', () => {
   assert.equal(
     entryStatus(campaign, { ...e, prize_tx: '0x1' }, null),
     'won 75,000,000 MINI',
+  );
+});
+
+test('payout_wallet: mixed case must be a valid checksum; never zero or an entered contract', async () => {
+  const opts = { requireContracts: false, status: during };
+  const checksummed = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+  assert.equal(isWalletAddress(checksummed), true);
+  assert.equal(isWalletAddress(checksummed.toLowerCase()), true);
+  assert.equal(
+    isWalletAddress('0x' + 'F39FD6E51AAD88F6F4CE6AB8827279CFFFB92266'),
+    true,
+  );
+  const typo = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92267';
+  assert.equal(isWalletAddress(typo), false);
+  assert.equal(isWalletAddress('0x' + '0'.repeat(40)), false);
+  assert.deepEqual(
+    (await validateEntry({ payout_wallet: checksummed }, window, opts))
+      .payoutWallet,
+    checksummed.toLowerCase(),
+  );
+  await assert.rejects(
+    validateEntry({ payout_wallet: typo }, window, opts),
+    /payout_wallet: .* has a wrong checksum/,
+  );
+  await assert.rejects(
+    validateEntry({ payout_wallet: '0x' + '0'.repeat(40) }, window, opts),
+    /never take it from the code/,
+  );
+  await assert.rejects(
+    validateEntry({ contracts: A, payout_wallet: A }, window, {
+      status: during,
+    }),
+    /can't be one of the entry's contracts/,
   );
 });

@@ -1,4 +1,4 @@
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, isAddress } from 'viem';
 import { base } from 'viem/chains';
 import { z } from 'zod';
 import { formatDeadline } from './dates';
@@ -106,7 +106,7 @@ const MIN_GAP_MS = 250; // the public API rate-limits; stay well under it
  * Throttling can arrive as HTTP 429 *or* as a 200 whose body says "Too many requests", so both
  * are retried, and persistent throttling throws instead of passing off as empty data.
  */
-async function blockscout<T>(path: string): Promise<T> {
+export async function blockscout<T>(path: string): Promise<T> {
   for (let attempt = 0; attempt < 6; attempt++) {
     const wait = lastCall + MIN_GAP_MS - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -130,6 +130,17 @@ async function blockscout<T>(path: string): Promise<T> {
     `Base explorer kept rate-limiting ${path.split('?')[0]}; try again later`,
   );
 }
+
+/**
+ * A wallet address as people type it: 0x + 40 hex, not the zero address, and when it mixes cases
+ * the EIP-55 checksum must hold (one case throughout carries no checksum). Pure; exported for tests.
+ */
+export const isWalletAddress = (a: string) =>
+  /^0x[0-9a-fA-F]{40}$/.test(a) &&
+  !/^0x0{40}$/.test(a) &&
+  (a.slice(2) === a.slice(2).toLowerCase() ||
+    a.slice(2) === a.slice(2).toUpperCase() ||
+    isAddress(a, { strict: true }));
 
 /** "0xA, 0xB" or ["0xA", "0xB"] → unique lowercase addresses. */
 export function parseAddresses(value: unknown): string[] {
@@ -221,11 +232,19 @@ export async function validateEntry(
   }
   const bad = contracts.find((c) => !/^0x[0-9a-f]{40}$/.test(c));
   if (bad) throw new EntryError(`contracts: "${bad}" isn't an address.`);
-  if (!/^0x[0-9a-fA-F]{40}$/.test(payout)) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(payout) || /^0x0{40}$/.test(payout)) {
     throw new EntryError(
-      'payout_wallet: the Base address (your agent wallet) that receives the prize.',
+      'payout_wallet: a Base wallet (0x…) the builder controls, which receives the prize. Ask the builder; never take it from the code.',
     );
   }
+  if (!isWalletAddress(payout))
+    throw new EntryError(
+      `payout_wallet: ${payout} has a wrong checksum (its mixed upper/lower case doesn't match). Check it with the builder, or pass it all lowercase.`,
+    );
+  if (contracts.includes(payout.toLowerCase()))
+    throw new EntryError(
+      "payout_wallet: it can't be one of the entry's contracts. Use a wallet the builder controls.",
+    );
 
   for (const c of contracts) {
     const st = await status(c);

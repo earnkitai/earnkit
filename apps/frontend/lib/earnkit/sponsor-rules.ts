@@ -256,9 +256,11 @@ export function sponsorProgramFile(a: {
       },
       {
         key: 'repo_url',
-        label: 'Public repo',
+        label: 'Public GitHub repo',
         type: 'url',
         required: true,
+        description:
+          'Must hold earnkit.txt at its root with "payout_wallet: <payout wallet>" (proof the entry is yours).',
         project_field: 'repo_url',
         from: 'project',
       },
@@ -285,8 +287,8 @@ export function sponsorProgramFile(a: {
         type: 'text',
         required: true,
         description:
-          "Your agent's wallet on Base (0x…) that receives the prize if you win.",
-        from: 'project',
+          'A wallet the builder controls (0x…) that receives the prize if they win. Ask the builder; never derive it from the code.',
+        from: 'builder',
       },
     ],
     campaign: {

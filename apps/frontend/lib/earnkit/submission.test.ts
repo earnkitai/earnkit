@@ -118,3 +118,39 @@ test('blank strings count as missing', () => {
   const r = prepareSubmission(reqs, { project: { name: '   ' } });
   assert.ok(r.missing.some((m) => m.key === 'project_name'));
 });
+
+test('prefillPayoutWallet: the last entry wallet, with a confirm note, only when not given', async () => {
+  const { prefillPayoutWallet } = await import('./submission');
+  const req: SubmissionRequirement[] = [
+    {
+      key: 'payout_wallet',
+      label: 'Payout wallet',
+      type: 'text',
+      required: true,
+      from: 'builder',
+    },
+  ];
+  const W = '0x' + 'a'.repeat(40);
+  assert.deepEqual(prefillPayoutWallet(req, { name: 'x' }, W), {
+    answers: { name: 'x', payout_wallet: W },
+    note: `Using ${W} from your last entry; confirm with the builder.`,
+  });
+  // The agent's own answer wins; no memory or no such question: nothing changes.
+  const given = { payout_wallet: '0x' + 'b'.repeat(40) };
+  assert.deepEqual(prefillPayoutWallet(req, given, W), {
+    answers: given,
+    note: null,
+  });
+  assert.deepEqual(prefillPayoutWallet(req, undefined, null), {
+    answers: undefined,
+    note: null,
+  });
+  assert.deepEqual(prefillPayoutWallet([], undefined, W), {
+    answers: undefined,
+    note: null,
+  });
+  const r = prepareSubmission(req, {
+    answers: prefillPayoutWallet(req, undefined, W).answers,
+  });
+  assert.equal(r.ready, true);
+});
