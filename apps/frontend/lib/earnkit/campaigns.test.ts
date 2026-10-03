@@ -14,6 +14,10 @@ import {
   isWalletAddress,
   normalizeLiveUrl,
   wonText,
+  firstPageParams,
+  needsScore,
+  walletsUsing,
+  type TxPage,
   type CampaignConfig,
   type YourEntry,
 } from './campaigns';
@@ -337,4 +341,125 @@ test('normalizeLiveUrl: scheme, www, trailing slash, query and fragment are drop
     normalizeLiveUrl('https://app.xyz/a'),
     normalizeLiveUrl('https://app.xyz/b'),
   );
+});
+
+test('needsScore: refreshed every 6 h until the end, then one final score, then frozen', () => {
+  const H = 3_600_000;
+  const end = new Date('2026-10-10T00:00:00Z');
+  const at = (iso: string) => new Date(iso);
+  assert.equal(needsScore(null, end, at('2026-10-05T00:00:00Z'), 6 * H), true);
+  assert.equal(
+    needsScore(
+      at('2026-10-05T00:00:00Z'),
+      end,
+      at('2026-10-05T05:00:00Z'),
+      6 * H,
+    ),
+    false,
+  );
+  assert.equal(
+    needsScore(
+      at('2026-10-05T00:00:00Z'),
+      end,
+      at('2026-10-05T06:00:00Z'),
+      6 * H,
+    ),
+    true,
+  );
+  // Scored an hour before the end; after the end the final score is due at once.
+  assert.equal(
+    needsScore(
+      at('2026-10-09T23:00:00Z'),
+      end,
+      at('2026-10-10T00:10:00Z'),
+      6 * H,
+    ),
+    true,
+  );
+  // Scored at or after the end: final, never again.
+  assert.equal(needsScore(end, end, at('2026-10-20T00:00:00Z'), 6 * H), false);
+  assert.equal(
+    needsScore(
+      at('2026-10-10T00:10:00Z'),
+      end,
+      at('2026-12-01T00:00:00Z'),
+      6 * H,
+    ),
+    false,
+  );
+});
+
+test('firstPageParams: an ended window starts at its end block (Blockscout keyset cursor)', () => {
+  assert.equal(firstPageParams(), 'filter=to');
+  assert.equal(
+    firstPageParams(123n),
+    'filter=to&block_number=123&index=0&items_count=50',
+  );
+});
+
+/** A fake explorer: `pages` pages of 50 txs, newest first, one a minute back from `newest`. */
+function fakeExplorer(
+  pages: number,
+  newest: Date,
+  from = (i: number) => `0x${(i % 7).toString(16).padStart(40, '0')}`,
+) {
+  const calls: string[] = [];
+  const fetchPage = async (path: string): Promise<TxPage> => {
+    calls.push(path);
+    const page = calls.length - 1;
+    return {
+      items: Array.from({ length: 50 }, (_, j) => {
+        const i = page * 50 + j;
+        return {
+          timestamp: new Date(newest.getTime() - i * 60_000).toISOString(),
+          status: 'ok',
+          from: { hash: from(i) },
+        };
+      }),
+      next_page_params:
+        page + 1 < pages
+          ? { block_number: 1000 - page, index: 0, items_count: 50 }
+          : null,
+    };
+  };
+  return { calls, fetchPage };
+}
+
+test('walletsUsing: pages past the old 40-page cutoff back to the window start', async () => {
+  const newest = new Date('2026-10-10T00:00:00Z');
+  // 100 pages = 5,000 txs over ~83 h; the window covers all of it, so all pages are read.
+  const ex = fakeExplorer(100, newest);
+  const r = await walletsUsing(
+    '0xc',
+    new Date(newest.getTime() - 6 * 86_400_000),
+    newest,
+    { fetchPage: ex.fetchPage },
+  );
+  assert.equal(ex.calls.length, 100);
+  assert.equal(r.complete, true);
+  assert.equal(r.wallets.size, 7);
+});
+
+test('walletsUsing: stops at the window start, and at maxPages with complete=false', async () => {
+  const newest = new Date('2026-10-10T00:00:00Z');
+  const early = fakeExplorer(100, newest);
+  const r1 = await walletsUsing(
+    '0xc',
+    new Date(newest.getTime() - 120 * 60_000), // 2 h: inside page 3
+    newest,
+    { fetchPage: early.fetchPage },
+  );
+  assert.equal(early.calls.length, 3);
+  assert.equal(r1.complete, true);
+
+  const capped = fakeExplorer(100, newest);
+  const r2 = await walletsUsing('0xc', new Date(0), newest, {
+    fetchPage: capped.fetchPage,
+    maxPages: 10,
+    startBlock: 999n,
+  });
+  assert.equal(capped.calls.length, 10);
+  assert.equal(r2.complete, false);
+  assert.match(capped.calls[0], /block_number=999&index=0/);
+  assert.match(capped.calls[1], /block_number=1000/);
 });

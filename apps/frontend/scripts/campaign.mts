@@ -13,6 +13,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, foundry } from 'viem/chains';
 import {
   minScore,
+  SCORE_MAX_PAGES,
   scoreEntry,
   type CampaignConfig,
 } from '../lib/earnkit/campaigns';
@@ -118,8 +119,13 @@ async function main() {
     const until = new Date(Math.min(Date.now(), program.ends_at.getTime()));
     for (const e of await entries()) {
       const r = await scoreEntry(e.contracts, program.starts_at, until);
-      await db`UPDATE projects SET score = ${r.score}, scored_at = now() WHERE id = ${e.id}`;
-      console.log(`${e.name}: ${r.score} wallets counted (${r.seen} seen)`);
+      await db`UPDATE projects SET score = ${r.score}, scored_at = now(), score_partial = ${!r.complete} WHERE id = ${e.id}`;
+      console.log(
+        `${e.name}: ${r.score} wallets counted (${r.seen} seen)` +
+          (r.complete
+            ? ''
+            : ` — read capped at ${SCORE_MAX_PAGES} pages per contract; the oldest traffic wasn't read`),
+      );
     }
   } else if (command === 'rank') {
     const list = await entries();

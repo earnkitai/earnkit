@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type postgres from 'postgres';
 import { formatUnits, parseUnits } from 'viem';
 import { z } from 'zod';
-import { scoreEntry } from './campaigns';
+import { SCORE_MAX_PAGES, needsScore, scoreEntry } from './campaigns';
 import { formatDeadline } from './dates';
 import { sql } from './db';
 import {
@@ -543,6 +543,8 @@ export async function excludedWinners(
 }
 
 const SCORE_MAX_AGE_MS = 6 * 3_600_000;
+/** One status call stops starting new scores after this long; the rest wait for the next call. */
+const SCORE_BUDGET_MS = 20_000;
 
 type EntryRow = {
   id: number;
@@ -553,6 +555,7 @@ type EntryRow = {
   contracts: string[];
   score: number | null;
   scored_at: Date | null;
+  score_partial: boolean;
   prize_tx: string | null;
   repo_created_at: Date | null;
   repo_pushed_at: Date | null;
@@ -576,24 +579,51 @@ async function entriesOf(
   db: postgres.Sql | postgres.TransactionSql = sql(),
 ) {
   return db<EntryRow[]>`
-    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, prize_tx,
+    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, score_partial, prize_tx,
       repo_created_at, repo_pushed_at FROM projects
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
 
-/** Re-scores entries with Base contracts when the last score is over 6 hours old (chain 8453 only). */
+/**
+ * Re-scores entries with Base contracts when the last score is over 6 hours old (chain 8453 only).
+ * Scores freeze at ends_at: the first score taken after the end is final. Returns true when some
+ * entries were left for the next call (this call's time budget ran out).
+ */
 async function refreshScores(row: SponsorRow, entries: EntryRow[]) {
-  if (row.chain_id !== 8453) return;
+  if (row.chain_id !== 8453) return false;
   const from = new Date(row.draft.starts_at ?? row.created_at);
-  const until = new Date(Math.min(Date.now(), Date.parse(row.draft.ends_at)));
+  const endsAt = new Date(row.draft.ends_at);
+  const started = Date.now();
   for (const e of entries) {
     if (e.contracts.length === 0) continue;
-    if (e.scored_at && Date.now() - e.scored_at.getTime() < SCORE_MAX_AGE_MS)
-      continue;
+    const now = new Date();
+    if (!needsScore(e.scored_at, endsAt, now, SCORE_MAX_AGE_MS)) continue;
+    if (now.getTime() - started > SCORE_BUDGET_MS) return true;
+    const until = new Date(Math.min(now.getTime(), endsAt.getTime()));
     const r = await scoreEntry(e.contracts, from, until);
-    await sql()`UPDATE projects SET score = ${r.score}, scored_at = now() WHERE id = ${e.id}`;
+    const [saved] = await sql()<{ scored_at: Date }[]>`
+      UPDATE projects SET score = ${r.score}, scored_at = now(), score_partial = ${!r.complete}
+      WHERE id = ${e.id} RETURNING scored_at`;
     e.score = r.score;
+    e.scored_at = saved.scored_at;
+    e.score_partial = !r.complete;
   }
+  return false;
+}
+
+/** The status `scores_note` for capped reads and refreshes still pending. Pure; exported for tests. */
+export function scoreNotes(
+  entries: Pick<EntryRow, 'id' | 'score_partial'>[],
+  pending: boolean,
+) {
+  const partial = entries.filter((e) => e.score_partial).map((e) => `#${e.id}`);
+  const notes = [
+    partial.length > 0 &&
+      `Entry ${partial.join(', ')}: more than ${SCORE_MAX_PAGES * 50} transactions to its contracts in the window, so only the most recent ${SCORE_MAX_PAGES * 50} were read; its score may be low. Check its contracts on the explorer before relying on it.`,
+    pending &&
+      'Some scores are still being refreshed; ask for status again in a minute.',
+  ].filter(Boolean);
+  return notes.length ? notes.join(' ') : undefined;
 }
 
 /** Whether `installationId` can award `row` right now. Pure; exported for tests. */
@@ -715,9 +745,10 @@ export async function sponsorStatus(ref: string, installationId: number) {
     return { ...base, ...statusReply(facts), ...notes, entries: [] };
   const entries = await entriesOf(row.program_id);
   let scoresNote: string | undefined;
+  let pending = false;
   if (row.installation_id === installationId) {
     try {
-      await refreshScores(row, entries);
+      pending = await refreshScores(row, entries);
     } catch (err) {
       // A scoring RPC failure must not fail the whole status call: fall back to the last stored
       // scores (already on `entries`, since `refreshScores` mutates in place only on success).
@@ -726,6 +757,9 @@ export async function sponsorStatus(ref: string, installationId: number) {
         'Scores could not be refreshed just now; showing the last known scores.';
     }
   }
+  scoresNote =
+    [scoresNote, scoreNotes(entries, pending)].filter(Boolean).join(' ') ||
+    undefined;
   facts.entries = entries.length;
   facts.paid = paidWinners(row, entries);
   return {

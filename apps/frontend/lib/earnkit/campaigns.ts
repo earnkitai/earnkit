@@ -276,31 +276,59 @@ export async function validateEntry(
   return { contracts, payoutWallet: payout.toLowerCase() };
 }
 
-type TxPage = {
+export type TxPage = {
   items: { timestamp: string; status: string; from: { hash: string } }[];
   next_page_params: Record<string, unknown> | null;
 };
 
-/** Distinct wallets that sent a successful transaction to `contract` within the window. */
-export async function walletsUsing(contract: string, from: Date, to: Date) {
+/**
+ * Pages read per contract when scoring (50 transactions each). The old 40-page cap let ~2,000
+ * spam calls push a rival's real users out of the count (econ review M3); this one costs a
+ * griefer over 25,000 transactions, and a capped read is reported, never silent.
+ */
+export const SCORE_MAX_PAGES = 500;
+
+/** The first page's query: from `startBlock` back (Blockscout's keyset cursor), else from now. Pure. */
+export const firstPageParams = (startBlock?: bigint) =>
+  startBlock === undefined
+    ? 'filter=to'
+    : `filter=to&block_number=${startBlock}&index=0&items_count=50`;
+
+/**
+ * Distinct wallets that sent a successful transaction to `contract` within the window, newest
+ * first. `startBlock` starts the read at the window's end instead of now, so later traffic can't
+ * crowd the window out. `complete` is false when `maxPages` ran out before reaching `from`.
+ */
+export async function walletsUsing(
+  contract: string,
+  from: Date,
+  to: Date,
+  opts: {
+    startBlock?: bigint;
+    maxPages?: number;
+    fetchPage?: (path: string) => Promise<TxPage>;
+  } = {},
+) {
+  const fetchPage = opts.fetchPage ?? blockscout<TxPage>;
   const wallets = new Set<string>();
-  let params = 'filter=to';
-  for (let page = 0; page < 40; page++) {
-    const data = await blockscout<TxPage>(
+  let params = firstPageParams(opts.startBlock);
+  for (let page = 0; page < (opts.maxPages ?? SCORE_MAX_PAGES); page++) {
+    const data = await fetchPage(
       `/api/v2/addresses/${contract}/transactions?${params}`,
     );
     for (const tx of data.items) {
       const at = new Date(tx.timestamp);
-      if (at < from) return wallets; // newest first: everything after this is older
+      // Newest first: everything after this is older.
+      if (at < from) return { wallets, complete: true };
       if (at <= to && tx.status === 'ok')
         wallets.add(tx.from.hash.toLowerCase());
     }
-    if (!data.next_page_params) break;
+    if (!data.next_page_params) return { wallets, complete: true };
     params = new URLSearchParams(
       Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)]),
     ).toString();
   }
-  return wallets;
+  return { wallets, complete: false };
 }
 
 /** Base RPC. BASE_RPC_URL overrides the public endpoint (e.g. a local fork for tests). */
@@ -330,17 +358,42 @@ export async function hadHistoryBefore(wallet: string, blockBefore: bigint) {
 
 /**
  * Metric `unique_wallets`: distinct wallets with prior history that used any of the entry's
- * contracts during the campaign. Returns the score and the counted wallets as evidence.
+ * contracts during the campaign. Returns the score and the counted wallets as evidence;
+ * `complete` is false when a contract had more than SCORE_MAX_PAGES pages in the window.
  */
 export async function scoreEntry(contracts: string[], from: Date, to: Date) {
+  // A window that has ended is read from its last block back, not from now.
+  const startBlock =
+    to.getTime() < Date.now() ? (await baseBlockAt(to)) + 1n : undefined;
   const all = new Set<string>();
-  for (const c of contracts)
-    for (const w of await walletsUsing(c, from, to)) all.add(w);
+  let complete = true;
+  for (const c of contracts) {
+    const r = await walletsUsing(c, from, to, { startBlock });
+    for (const w of r.wallets) all.add(w);
+    complete &&= r.complete;
+  }
   const blockBefore = await baseBlockAt(from);
   const counted: string[] = [];
   for (const w of all)
     if (await hadHistoryBefore(w, blockBefore)) counted.push(w);
-  return { score: counted.length, wallets: counted, seen: all.size };
+  return { score: counted.length, wallets: counted, seen: all.size, complete };
+}
+
+/**
+ * Whether an entry's score should be (re)computed now. Scores freeze at the end: the first score
+ * taken at or after `endsAt` is final. Before that, a score older than `maxAgeMs` is refreshed.
+ * Pure; exported for tests.
+ */
+export function needsScore(
+  scoredAt: Date | null,
+  endsAt: Date,
+  now: Date,
+  maxAgeMs: number,
+) {
+  if (!scoredAt) return true;
+  if (scoredAt >= endsAt) return false; // final
+  if (now >= endsAt) return true; // the final score hasn't been taken yet
+  return now.getTime() - scoredAt.getTime() >= maxAgeMs;
 }
 
 /** sponsor_campaigns.state; null for EarnKit's own campaigns. */

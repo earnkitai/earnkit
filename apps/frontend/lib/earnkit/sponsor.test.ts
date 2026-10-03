@@ -17,6 +17,7 @@ import {
   draftExpiry,
   expiredText,
   matchFunding,
+  scoreNotes,
 } from './sponsor';
 
 const REF = '0x' + 'a'.repeat(64);
@@ -269,4 +270,17 @@ test("award page warnings: the sponsor's own wallet, or one wallet paid twice", 
     /^Only fund a campaign you asked your own agent to create\./,
   );
   assert.match(AWARD_PROVENANCE, /this payment is final\.$/);
+});
+
+test('scoreNotes: names capped entries and pending refreshes; nothing when all is well', () => {
+  assert.equal(scoreNotes([{ id: 1, score_partial: false }], false), undefined);
+  const n = scoreNotes(
+    [
+      { id: 4, score_partial: true },
+      { id: 9, score_partial: true },
+    ],
+    true,
+  )!;
+  assert.match(n, /Entry #4, #9: more than 25000 transactions/);
+  assert.match(n, /still being refreshed/);
 });
