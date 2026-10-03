@@ -2,7 +2,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   awardSearchFrom,
-  logScanPlan,
+  LOG_CHUNK_MIN,
+  logRangeLimit,
+  scanLogsNewestFirst,
   type CloneFacts,
   type EscrowReader,
 } from './escrow';
@@ -240,38 +242,151 @@ test('chain checks are reused for 15 seconds, then read again', () => {
   assert.equal(checkIsFresh(after(60_000), at), false);
 });
 
-test('award log search: newest first, at most 6 chunks per check, resumes where it stopped', () => {
-  const first = logScanPlan({
+/**
+ * A fake RPC whose `getLogs` refuses ranges over `limit` blocks, like mainnet.base.org (HTTP 413,
+ * -32614, "eth_getLogs is limited to a 2,000 range"); `named: false` refuses without a number.
+ */
+function fakeRpc(limit: bigint, hitAt: bigint | null, named = true) {
+  const calls: [bigint, bigint][] = [];
+  const get = async (lo: bigint, hi: bigint) => {
+    calls.push([lo, hi]);
+    if (hi - lo + 1n > limit)
+      throw Object.assign(new Error('HTTP request failed.'), {
+        status: 413,
+        cause: {
+          code: -32614,
+          message: named
+            ? `eth_getLogs is limited to a ${limit.toLocaleString('en-US')} range`
+            : 'block range too large',
+        },
+      });
+    return hitAt !== null && lo <= hitAt && hitAt <= hi ? `log@${hitAt}` : null;
+  };
+  return { calls, get };
+}
+
+test('award log search: newest first in 2,000-block chunks, at most 8 calls per check, resumes where it stopped', async () => {
+  const rpc = fakeRpc(2_000n, null);
+  const first = await scanLogsNewestFirst({
     latest: 100_000n,
     floor: 0n,
     resumeHi: null,
-    chunk: 9_000n,
+    get: rpc.get,
   });
-  assert.equal(first.ranges.length, 6);
-  assert.deepEqual(first.ranges[0], [91_001n, 100_000n]);
-  assert.deepEqual(first.ranges[5], [46_001n, 55_000n]);
-  assert.equal(first.next, 46_000n);
+  assert.equal(rpc.calls.length, 8);
+  assert.deepEqual(rpc.calls[0], [98_001n, 100_000n]);
+  assert.deepEqual(rpc.calls[7], [84_001n, 86_000n]);
+  assert.deepEqual(first, { found: null, next: 84_000n, chunk: 2_000n });
   // The next check (with new blocks on top) continues below where this one stopped.
-  const second = logScanPlan({
+  rpc.calls.length = 0;
+  const second = await scanLogsNewestFirst({
     latest: 100_050n,
-    floor: 0n,
+    floor: 80_000n,
     resumeHi: first.next,
-    chunk: 9_000n,
+    get: rpc.get,
   });
-  assert.deepEqual(second.ranges[0], [37_001n, 46_000n]);
-  assert.deepEqual(second.ranges.at(-1), [0n, 1_000n]);
-  assert.equal(second.ranges.length, 6);
+  assert.deepEqual(rpc.calls[0], [82_001n, 84_000n]);
+  assert.deepEqual(rpc.calls.at(-1), [80_000n, 80_000n]);
   assert.equal(second.next, null);
-  // A short range is one chunk, clipped at the floor; nothing left.
-  assert.deepEqual(logScanPlan({ latest: 500n, floor: 200n, resumeHi: null }), {
-    ranges: [[200n, 500n]],
-    next: null,
-  });
   // An empty range (floor above latest) does no work.
-  assert.deepEqual(logScanPlan({ latest: 10n, floor: 20n, resumeHi: null }), {
-    ranges: [],
-    next: null,
+  rpc.calls.length = 0;
+  assert.deepEqual(
+    await scanLogsNewestFirst({
+      latest: 10n,
+      floor: 20n,
+      resumeHi: null,
+      get: rpc.get,
+    }),
+    { found: null, next: null, chunk: 2_000n },
+  );
+  assert.equal(rpc.calls.length, 0);
+});
+
+test('award log search: finds the event on an RPC with a 2,000-block limit (the Base mainnet fork bug)', async () => {
+  const rpc = fakeRpc(2_000n, 95_500n);
+  const r = await scanLogsNewestFirst({
+    latest: 100_000n,
+    floor: 90_000n,
+    resumeHi: null,
+    chunk: 9_000n, // the old chunk size: refused once, then the named limit is used
+    get: rpc.get,
   });
+  assert.equal(r.found, 'log@95500');
+  assert.equal(r.chunk, 2_000n);
+  assert.deepEqual(rpc.calls, [
+    [91_001n, 100_000n],
+    [98_001n, 100_000n],
+    [96_001n, 98_000n],
+    [94_001n, 96_000n],
+  ]);
+});
+
+test('award log search: an unnamed limit halves the chunk until accepted, never below 100', async () => {
+  const rpc = fakeRpc(600n, 99_000n, false);
+  const r = await scanLogsNewestFirst({
+    latest: 100_000n,
+    floor: 0n,
+    resumeHi: null,
+    maxCalls: 20,
+    get: rpc.get,
+  });
+  // 2,000 → 1,000 → 500 accepted.
+  assert.equal(r.chunk, 500n);
+  assert.deepEqual(rpc.calls.slice(0, 3), [
+    [98_001n, 100_000n],
+    [99_001n, 100_000n],
+    [99_501n, 100_000n],
+  ]);
+  assert.equal(r.found, 'log@99000');
+  // A provider that refuses even 100 blocks: the error surfaces instead of looping.
+  const broken = fakeRpc(50n, null, false);
+  await assert.rejects(
+    scanLogsNewestFirst({
+      latest: 100_000n,
+      floor: 0n,
+      resumeHi: null,
+      maxCalls: 50,
+      get: broken.get,
+    }),
+    /HTTP request failed/,
+  );
+  assert.equal(
+    broken.calls.at(-1)![1] - broken.calls.at(-1)![0] + 1n,
+    LOG_CHUNK_MIN,
+  );
+  // Other errors are not retried.
+  let n = 0;
+  await assert.rejects(
+    scanLogsNewestFirst({
+      latest: 100n,
+      floor: 0n,
+      resumeHi: null,
+      get: async () => {
+        n++;
+        throw new Error('connection reset');
+      },
+    }),
+    /connection reset/,
+  );
+  assert.equal(n, 1);
+});
+
+test('logRangeLimit: reads the limit from common RPC wordings', () => {
+  const lim = (message: string, extra: object = {}) =>
+    logRangeLimit({ message, ...extra })?.limit ?? null;
+  assert.equal(lim('eth_getLogs is limited to a 2,000 range'), 2_000n);
+  assert.equal(lim('maximum block range: 500'), 500n);
+  assert.equal(lim('exceed maximum block range: 10000'), 10_000n);
+  assert.equal(
+    lim(
+      'Log response size exceeded. this block range should work: [0x10, 0x4f]',
+    ),
+    64n,
+  );
+  assert.equal(lim('Request entity too large', { status: 413 }), null);
+  assert.ok(logRangeLimit({ message: 'x', status: 413 }));
+  assert.equal(logRangeLimit(new Error('execution reverted')), null);
+  assert.equal(logRangeLimit({ message: 'nonce too low', code: -32000 }), null);
 });
 
 test("award page warnings: the sponsor's own wallet, or one wallet paid twice", () => {

@@ -283,9 +283,15 @@ export async function readEscrow(escrow: string) {
   };
 }
 
-/** Base makes a block about every 2 seconds; logs are read in chunks under common RPC limits. */
+/** Base makes a block about every 2 seconds. */
 const BLOCK_SECONDS = 2;
-const LOG_CHUNK = 9_000n;
+/**
+ * The first `getLogs` range size: Base's public RPC (mainnet.base.org) answers "eth_getLogs is
+ * limited to a 2,000 range" above it. A provider with a smaller limit is learned at runtime.
+ */
+export const LOG_CHUNK = 2_000n;
+/** Never ask for fewer blocks than this; a provider that refuses 100 blocks is broken. */
+export const LOG_CHUNK_MIN = 100n;
 
 /**
  * The first block an award could be in: an estimate of the block at `endsAt` (an award can't
@@ -300,40 +306,102 @@ export function awardSearchFrom(
   return latest > back ? latest - back : 0n;
 }
 
-/** At most this many `getLogs` calls per request; a longer search resumes on the next check. */
-export const LOG_CHUNKS_PER_CHECK = 6;
+/** At most this many `getLogs` calls per request (refused ones included); a longer search resumes on the next check. */
+export const LOG_CHUNKS_PER_CHECK = 8;
 
 /**
- * The block ranges to search this time, newest first: down from `resumeHi` (where the previous
- * check stopped) or `latest`, to `floor`, at most `maxChunks` ranges of `chunk` blocks. `next` is
- * where the following check should resume, or null when this plan reaches `floor`. Pure; exported
- * for tests.
+ * Whether `err` is an RPC refusing a `getLogs` range as too large, and the largest range it names
+ * (null: it names none). Covers HTTP 413, JSON-RPC -32614 / -32005, and the usual wordings
+ * ("limited to a 2,000 range", "block range is too large", "maximum block range: 500", Alchemy's
+ * "this block range should work: [0x.., 0x..]"). Walks viem's `cause` chain. Pure; exported for
+ * tests.
  */
-export function logScanPlan(a: {
+export function logRangeLimit(err: unknown): { limit: bigint | null } | null {
+  let hit = false;
+  let limit: bigint | null = null;
+  for (
+    let e = err as Record<string, unknown> | undefined, i = 0;
+    e && i < 8;
+    e = e.cause as never, i++
+  ) {
+    const text = [e.message, e.details, e.shortMessage]
+      .filter((t) => typeof t === 'string')
+      .join(' ');
+    if (
+      e.status === 413 ||
+      e.code === -32614 ||
+      e.code === -32005 ||
+      /\b(block )?range\b.*\b(limit|too (large|wide|big)|exceed)|limited to .*range|max(imum)? (block )?range|query returned more than|response size exceeded|too many blocks/i.test(
+        text,
+      )
+    )
+      hit = true;
+    if (limit === null) {
+      const pair = text.match(/\[\s*(0x[0-9a-f]+)\s*,\s*(0x[0-9a-f]+)\s*\]/i);
+      const n =
+        text.match(/limited to (?:a )?([\d,]+)/i) ??
+        text.match(/max(?:imum)?(?: block)? range(?: of| is|:)?\s*([\d,]+)/i) ??
+        text.match(/([\d,]+)\s*(?:-)?\s*block range/i) ??
+        text.match(/range (?:limit|of|is)\s*(?:of\s*)?([\d,]+)/i);
+      if (pair) limit = BigInt(pair[2]) - BigInt(pair[1]) + 1n;
+      else if (n) limit = BigInt(n[1].replace(/,/g, ''));
+      if (limit !== null && limit <= 0n) limit = null;
+    }
+  }
+  return hit ? { limit } : null;
+}
+
+/**
+ * Searches `floor..hi` newest first, where `hi` is `resumeHi` (where the previous check stopped)
+ * or `latest`, calling `get(lo, hi)` on ranges of at most `chunk` blocks, at most `maxCalls`
+ * times. A range the RPC refuses as too large is retried smaller: the size it names, or half,
+ * never below `LOG_CHUNK_MIN` (then the error is thrown). Returns the first hit, the chunk size
+ * that worked (to start from next time), and `next`: where to resume, or null when the search
+ * reached `floor`.
+ */
+export async function scanLogsNewestFirst<T>(a: {
   latest: bigint;
   floor: bigint;
   resumeHi: bigint | null;
   chunk?: bigint;
-  maxChunks?: number;
-}) {
-  const chunk = a.chunk ?? LOG_CHUNK;
-  const ranges: [bigint, bigint][] = [];
+  maxCalls?: number;
+  get: (lo: bigint, hi: bigint) => Promise<T | null>;
+}): Promise<{ found: T | null; next: bigint | null; chunk: bigint }> {
+  let chunk = a.chunk ?? LOG_CHUNK;
   let hi = a.resumeHi !== null && a.resumeHi < a.latest ? a.resumeHi : a.latest;
-  while (
-    hi >= a.floor &&
-    ranges.length < (a.maxChunks ?? LOG_CHUNKS_PER_CHECK)
+  for (
+    let calls = 0;
+    hi >= a.floor && calls < (a.maxCalls ?? LOG_CHUNKS_PER_CHECK);
+    calls++
   ) {
     const lo = hi - chunk + 1n > a.floor ? hi - chunk + 1n : a.floor;
-    ranges.push([lo, hi]);
+    let found: T | null;
+    try {
+      found = await a.get(lo, hi);
+    } catch (err) {
+      const refused = logRangeLimit(err);
+      const size = hi - lo + 1n;
+      if (!refused || size <= LOG_CHUNK_MIN) throw err;
+      const smaller =
+        refused.limit !== null && refused.limit < size
+          ? refused.limit
+          : size / 2n;
+      chunk = smaller > LOG_CHUNK_MIN ? smaller : LOG_CHUNK_MIN;
+      continue;
+    }
+    if (found !== null) return { found, next: null, chunk };
     hi = lo - 1n;
   }
-  return { ranges, next: hi >= a.floor ? hi : null };
+  return { found: null, next: hi >= a.floor ? hi : null, chunk };
 }
+
+/** The range size the RPC last accepted, so later checks in this process skip the refusals. */
+let learnedChunk = LOG_CHUNK;
 
 /**
  * The clone's `Awarded` event (there is at most one), searched newest first from the latest block
- * (or `resumeHi`) down to the estimated block at `endsAt`, at most `LOG_CHUNKS_PER_CHECK` chunks
- * per call. `{ log: null, next }` means not found yet: resume from `next` (null: the whole range
+ * (or `resumeHi`) down to the estimated block at `endsAt`, at most `LOG_CHUNKS_PER_CHECK` calls
+ * per check. `{ log: null, next }` means not found yet: resume from `next` (null: the whole range
  * was searched).
  */
 export async function readAwardedLog(
@@ -343,29 +411,29 @@ export async function readAwardedLog(
 ) {
   const c = escrowClient();
   const latest = await c.getBlock();
-  const plan = logScanPlan({
+  const scan = await scanLogsNewestFirst({
     latest: latest.number,
     floor: awardSearchFrom(latest.number, latest.timestamp, endsAt),
     resumeHi,
+    chunk: learnedChunk,
+    get: async (lo, hi) => {
+      const [log] = await c.getContractEvents({
+        address: escrow as `0x${string}`,
+        abi: campaignAbi,
+        eventName: 'Awarded',
+        fromBlock: lo,
+        toBlock: hi,
+      });
+      return log
+        ? {
+            winners: [...log.args.winners!],
+            amounts: [...log.args.amounts!],
+            fee: log.args.fee!,
+            tx: log.transactionHash,
+          }
+        : null;
+    },
   });
-  for (const [lo, hi] of plan.ranges) {
-    const [log] = await c.getContractEvents({
-      address: escrow as `0x${string}`,
-      abi: campaignAbi,
-      eventName: 'Awarded',
-      fromBlock: lo,
-      toBlock: hi,
-    });
-    if (log)
-      return {
-        log: {
-          winners: [...log.args.winners!],
-          amounts: [...log.args.amounts!],
-          fee: log.args.fee!,
-          tx: log.transactionHash,
-        },
-        next: null,
-      };
-  }
-  return { log: null, next: plan.next };
+  learnedChunk = scan.chunk;
+  return { log: scan.found, next: scan.next };
 }

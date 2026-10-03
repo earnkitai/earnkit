@@ -193,7 +193,7 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   wallet's deposit for the same ref (refs are unique per sender) is its own escrow: EarnKit never
   looks at it, so front-running can't hijack or block a campaign. `findAward` reads the clone's
   `state()`: Awarded → its `Awarded` log, searched from the estimated block at `endsAt` (2 s
-  blocks, 300 blocks slack, 9,000-block chunks; `readAwardedLog`), recorded against the sponsor's
+  blocks, 300 blocks slack; `readAwardedLog`), recorded against the sponsor's
   plan, else the operator's `fallback_plan`, else off-plan (`mapOffPlanAward`, non-entry wallets
   flagged in `award_onchain`); Refunded → the row is marked `refunded` (only `live` rows are
   checked, so `taken_down` stays). `checkChain` runs from `status` (every state; an RPC failure
@@ -203,8 +203,11 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   atomically so it holds across instances; checks in between reuse the stored result; the CLI
   passes `fresh`), `/check` allows 60 requests per IP per minute and sponsor `status` 60 per
   installation per minute (`rate-limit.ts`), and the
-  `Awarded` log search goes newest-first, at most 6 `getLogs` chunks per check, resuming from
-  `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
+  `Awarded` log search goes newest-first (`scanLogsNewestFirst`), at most 8 `getLogs` calls per
+  check, resuming from `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
+  Ranges start at 2,000 blocks (Base's public RPC refuses more: HTTP 413 / -32614 "limited to a
+  2,000 range"); a range-limit refusal (`logRangeLimit`) retries with the size the RPC names, or
+  half, never below 100, and the accepted size is remembered for the process.
   `/fund` and `/award` show their action only while the connected wallet is the bound wallet
   (`WalletGate`: "Connect 0xABCD…1234 to continue"). Because anyone's agent can bind someone
   else's wallet and send them the link, `/fund` shows a fixed warning (only fund a campaign your
