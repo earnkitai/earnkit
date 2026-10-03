@@ -95,39 +95,54 @@ export const DNS_TIMEOUT_MS = 2_000;
 const NO_ANSWER = new Set([dns.NODATA, dns.NOTFOUND]);
 
 /**
+ * Combines parallel A and AAAA lookups. An A answer that is non-empty and all public is used as
+ * soon as it arrives, without waiting for AAAA (IPv4 is also what the connection prefers). Else
+ * both are awaited and every address is returned for safeFetchText to vet: "no such name/no
+ * records" counts as empty; both failing otherwise is an error. Exported for tests.
+ */
+export async function resolveBoth(
+  v4: Promise<string[]>,
+  v6: Promise<string[]>,
+): Promise<Resolved[]> {
+  const as = (family: 4 | 6) => (list: string[]) =>
+    list.map((address) => ({ address, family }));
+  const settled = (p: Promise<string[]>) =>
+    p.then(
+      (value) => ({ ok: true as const, value }),
+      (reason) => ({ ok: false as const, reason }),
+    );
+  const a = await settled(v4);
+  if (a.ok && a.value.length > 0 && a.value.every(isPublicAddress))
+    return as(4)(a.value);
+  const aaaa = await settled(v6);
+  const failed = [a, aaaa].flatMap((x) =>
+    !x.ok && !NO_ANSWER.has(x.reason?.code) ? [x.reason] : [],
+  );
+  if (failed.length === 2) throw failed[0];
+  return [
+    ...(a.ok ? as(4)(a.value) : []),
+    ...(aaaa.ok ? as(6)(aaaa.value) : []),
+  ];
+}
+
+/**
  * A/AAAA through c-ares (`dns.promises.Resolver`), not `dns.lookup`: getaddrinfo runs on libuv's
  * 4-thread pool and can't be cancelled, so a few black-holed nameservers would stall every other
  * lookup, fs and crypto call in the process (review I5). This one has its own timeout and
- * `tries`, and is cancelled when the overall deadline aborts.
+ * `tries`, is cancelled when the overall deadline aborts, and stops waiting for AAAA once a safe
+ * A answer is in (resolveBoth; the pending query is then cancelled).
  */
 const defaultResolver: Resolver = async (host, signal) => {
   const r = new dns.Resolver({ timeout: DNS_TIMEOUT_MS, tries: 1 });
   const cancel = () => r.cancel();
   signal.addEventListener('abort', cancel, { once: true });
+  const v6 = r.resolve6(host);
+  v6.catch(() => {}); // may be cancelled unread
   try {
-    const [v4, v6] = await Promise.allSettled([
-      r.resolve4(host),
-      r.resolve6(host),
-    ]);
-    const failed = [v4, v6].flatMap((x) =>
-      x.status === 'rejected' && !NO_ANSWER.has(x.reason?.code)
-        ? [x.reason]
-        : [],
-    );
-    // One family answering is enough; both failing (other than "no answer") is a failure.
-    if (failed.length === 2) throw failed[0];
-    return [
-      ...(v4.status === 'fulfilled' ? v4.value : []).map((address) => ({
-        address,
-        family: 4 as const,
-      })),
-      ...(v6.status === 'fulfilled' ? v6.value : []).map((address) => ({
-        address,
-        family: 6 as const,
-      })),
-    ];
+    return await resolveBoth(r.resolve4(host), v6);
   } finally {
     signal.removeEventListener('abort', cancel);
+    r.cancel();
   }
 };
 

@@ -4,6 +4,7 @@ import {
   SafeFetchError,
   isPublicAddress,
   pinnedLookup,
+  resolveBoth,
   safeFetchText,
   type Resolver,
   type Transport,
@@ -285,4 +286,40 @@ test('pinnedLookup: always answers with the vetted address, in both call shapes'
   assert.deepEqual(got, [null, '93.184.216.34', 4]);
   lookup('evil.example', ((...a: unknown[]) => (got = a)) as never);
   assert.deepEqual(got, [null, '93.184.216.34', 4]);
+});
+
+test('resolveBoth: a safe A answer is used without waiting for AAAA; else both are vetted', async () => {
+  const never = new Promise<string[]>(() => {});
+  const noData = () =>
+    Promise.reject(Object.assign(new Error('nodata'), { code: 'ENODATA' }));
+  const servfail = () =>
+    Promise.reject(Object.assign(new Error('servfail'), { code: 'ESERVFAIL' }));
+  // AAAA never answers: the public A answer is returned anyway.
+  assert.deepEqual(
+    await resolveBoth(Promise.resolve(['93.184.216.34']), never),
+    [{ address: '93.184.216.34', family: 4 }],
+  );
+  // A private A answer isn't "safe": AAAA is awaited and both go to the vetting step (refused there).
+  assert.deepEqual(
+    await resolveBoth(
+      Promise.resolve(['10.0.0.5']),
+      Promise.resolve(['2606:4700::1111']),
+    ),
+    [
+      { address: '10.0.0.5', family: 4 },
+      { address: '2606:4700::1111', family: 6 },
+    ],
+  );
+  // No A records: the AAAA answer.
+  assert.deepEqual(
+    await resolveBoth(noData(), Promise.resolve(['2606:4700::1111'])),
+    [{ address: '2606:4700::1111', family: 6 }],
+  );
+  // Neither has records: empty ("doesn't resolve"); both failing: an error.
+  assert.deepEqual(await resolveBoth(noData(), noData()), []);
+  await assert.rejects(resolveBoth(servfail(), servfail()), /servfail/);
+  assert.deepEqual(
+    await resolveBoth(servfail(), Promise.resolve(['2606:4700::1111'])),
+    [{ address: '2606:4700::1111', family: 6 }],
+  );
 });
