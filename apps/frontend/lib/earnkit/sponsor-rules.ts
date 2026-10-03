@@ -279,7 +279,7 @@ export const sponsorRules = (a: {
   `Prize: ${fmt(a.prizeTotal)} ${a.symbol} shared by about ${a.winners} winner(s), paid from escrow to the payout wallet you submit, on Base.`,
   a.existingWork === 'new_work_only'
     ? 'Only work done during the campaign counts.'
-    : 'Existing projects can enter.',
+    : 'Existing projects (and contracts deployed before the campaign) can enter; only activity during the campaign is scored.',
   'Enter through EarnKit (record_submission). No external site.',
 ];
 
@@ -372,7 +372,9 @@ export function sponsorProgramFile(a: {
         type: 'text',
         required: false,
         description:
-          'Up to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet.',
+          d.existing_work === 'new_work_only'
+            ? 'Up to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet.'
+            : 'Up to 5 Base mainnet contracts, comma-separated, deployed from the payout wallet (before or during the campaign); only their use during the campaign is scored.',
         from: 'project',
       },
       {

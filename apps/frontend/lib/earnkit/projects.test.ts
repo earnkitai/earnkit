@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { answersOf, missingAnswersProblem, selfEntryProblem } from './projects';
+import {
+  answersOf,
+  entryRules,
+  missingAnswersProblem,
+  selfEntryProblem,
+} from './projects';
 import { sponsorProgramFile } from './sponsor-rules';
 import type { SubmissionRequirement } from './program-file';
 
@@ -83,4 +88,20 @@ test('missingAnswersProblem: a sponsor campaign entry must answer every required
     missingAnswersProblem(reqs, project, {})!,
     /^Missing required answers: payout_wallet \(Payout wallet\)\./,
   );
+});
+
+test('entryRules: existing_work decides whether contracts from before the start count', () => {
+  assert.deepEqual(entryRules('sponsor', 'allowed'), {
+    requireContracts: false,
+    allowExisting: true,
+  });
+  assert.deepEqual(entryRules('sponsor', 'new_work_only'), {
+    requireContracts: false,
+    allowExisting: false,
+  });
+  assert.deepEqual(entryRules('earnkit', 'new_work_only'), {
+    requireContracts: true,
+    allowExisting: false,
+  });
+  assert.equal(entryRules('sponsor', 'unknown').allowExisting, false);
 });

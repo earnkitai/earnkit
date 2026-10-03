@@ -98,6 +98,19 @@ function entryRepoUrl(
   return projectRepo || answer;
 }
 
+/**
+ * How a campaign entry's contracts are checked: EarnKit campaigns require contracts; sponsor
+ * campaigns don't. With existing_work 'allowed', contracts deployed before the start are accepted
+ * (scoring still counts only use inside the campaign window). Pure; exported for tests.
+ */
+export const entryRules = (
+  kind: 'earnkit' | 'sponsor',
+  existingWork: string,
+) => ({
+  requireContracts: kind === 'earnkit',
+  allowExisting: existingWork === 'allowed',
+});
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
@@ -136,7 +149,7 @@ export async function recordSubmission(
     if (missing) throw new EntryError(missing);
     repo_url = entryRepoUrl(repo_url, input.submission_data);
     entry = await validateEntry(input.submission_data, program, {
-      requireContracts: program.campaign.kind === 'earnkit',
+      ...entryRules(program.campaign.kind, program.existing_work),
       status: deps.status,
     });
     const self = selfEntryProblem(

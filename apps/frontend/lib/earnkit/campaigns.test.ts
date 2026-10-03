@@ -515,3 +515,29 @@ test('walletsUsing: stops at the window start, and at maxPages with complete=fal
   assert.match(capped.calls[0], /block_number=999&index=0/);
   assert.match(capped.calls[1], /block_number=1000/);
 });
+
+test('existing work allowed: a contract deployed before the start is accepted; new_work_only refuses it', async () => {
+  const before = async () => 'before_start' as const;
+  assert.deepEqual(
+    await validateEntry({ contracts: A, payout_wallet: W }, window, {
+      allowExisting: true,
+      status: before,
+    }),
+    { contracts: [A], payoutWallet: W },
+  );
+  await assert.rejects(
+    validateEntry({ contracts: A, payout_wallet: W }, window, {
+      allowExisting: false,
+      status: before,
+    }),
+    /deployed before the campaign started/,
+  );
+  // Not a contract is refused either way.
+  await assert.rejects(
+    validateEntry({ contracts: A, payout_wallet: W }, window, {
+      allowExisting: true,
+      status: async () => 'not_contract',
+    }),
+    /isn't a contract/,
+  );
+});

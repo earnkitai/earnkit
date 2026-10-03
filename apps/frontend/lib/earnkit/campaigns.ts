@@ -253,15 +253,18 @@ export async function deploymentStatus(
 }
 
 /**
- * Checks a campaign entry: 1–5 Base contracts deployed during the campaign, and a payout wallet.
- * Sponsor campaigns may skip contracts (`requireContracts: false`); EarnKit campaigns require
- * them. `status` is injectable for tests.
+ * Checks a campaign entry: 1–5 Base contracts, and a payout wallet. Contracts must be deployed
+ * during the campaign unless the program allows existing work (`allowExisting`); either way only
+ * activity inside the campaign window is scored (scoreEntry). Sponsor campaigns may skip contracts
+ * (`requireContracts: false`); EarnKit campaigns require them. `status` is injectable for tests.
  */
 export async function validateEntry(
   data: Record<string, unknown>,
   window: { starts_at: Date | null; ends_at: Date | null },
   opts: {
     requireContracts?: boolean;
+    /** existing_work 'allowed': contracts deployed before the start are accepted. */
+    allowExisting?: boolean;
     status?: (contract: string) => Promise<Deployment>;
   } = {},
 ) {
@@ -300,7 +303,7 @@ export async function validateEntry(
     const st = await status(c);
     if (st === 'not_contract')
       throw new EntryError(`contracts: ${c} isn't a contract on Base mainnet.`);
-    if (st === 'before_start') {
+    if (st === 'before_start' && !opts.allowExisting) {
       throw new EntryError(
         `contracts: ${c} was deployed before the campaign started. Only work built during the campaign counts.`,
       );
