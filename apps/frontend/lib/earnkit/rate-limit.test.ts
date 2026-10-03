@@ -1,7 +1,14 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
-import { clientIp, hit, hitResult, retryText, windowStart } from './rate-limit';
+import {
+  clientIp,
+  hit,
+  hitResult,
+  ipKey,
+  retryText,
+  windowStart,
+} from './rate-limit';
 
 test('windowStart: fixed minute windows', () => {
   assert.equal(
@@ -41,16 +48,33 @@ test('retryText: readable waits', () => {
   assert.equal(retryText(5 * 3_600 + 1), '6 hours');
 });
 
-test('clientIp: the proxy-appended (rightmost) forwarded address, not a client-sent one', () => {
+test("clientIp: X-Real-IP (set by Railway's edge) first, then the rightmost forwarded hop", () => {
+  // A client-sent X-Forwarded-For never beats the edge's X-Real-IP.
+  assert.equal(
+    clientIp(
+      new Headers({ 'x-forwarded-for': '6.6.6.6', 'x-real-ip': '203.0.113.9' }),
+    ),
+    '203.0.113.9',
+  );
   assert.equal(
     clientIp(new Headers({ 'x-forwarded-for': '6.6.6.6, 203.0.113.9' })),
     '203.0.113.9',
   );
-  assert.equal(
-    clientIp(new Headers({ 'x-real-ip': '198.51.100.2' })),
-    '198.51.100.2',
-  );
+  assert.equal(clientIp(new Headers(), '198.51.100.4'), '198.51.100.4');
   assert.equal(clientIp(new Headers()), 'unknown');
+});
+
+test('clientIp: IPv6 is keyed on its /64, so rotating within it shares one limit', () => {
+  const v6 = (ip: string) => clientIp(new Headers({ 'x-real-ip': ip }));
+  assert.equal(v6('2001:db8::1'), '2001:db8:0:0::/64');
+  assert.equal(v6('2001:db8::2'), v6('2001:db8::1'));
+  assert.equal(v6('2001:db8:0:0:ffff:1:2:3'), '2001:db8:0:0::/64');
+  assert.notEqual(v6('2001:db8:0:1::1'), v6('2001:db8::1'));
+  assert.equal(v6('2001:0DB8:00ab:0001:aaaa::9'), '2001:db8:ab:1::/64');
+  assert.equal(v6('[2001:db8::1]'), '2001:db8:0:0::/64');
+  assert.equal(v6('::ffff:192.0.2.7'), '192.0.2.7');
+  assert.equal(v6('::1'), '0:0:0:0::/64');
+  assert.equal(ipKey('fe80::1%en0'), 'fe80:0:0:0::/64');
 });
 
 // Against a real database when one is configured (the local stack); skipped otherwise.

@@ -18,6 +18,11 @@ export const LIMITS = {
   githubMatching: { limit: 30, windowSeconds: 3_600 },
   /** Chain reads: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
   chainChecks: { limit: 60, windowSeconds: 60 },
+  /** New installations (POST /oauth/token that creates one), per client IP: hourly and daily. */
+  installHour: { limit: 10, windowSeconds: 3_600 },
+  installDay: { limit: 30, windowSeconds: 86_400 },
+  /** GET /oauth/authorize, per client IP. */
+  oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
 } as const;
 
 /** Campaign entries one installation may record in one campaign (checked in recordSubmission). */
@@ -59,13 +64,46 @@ export function retryText(seconds: number) {
 }
 
 /**
- * The caller's IP: the rightmost `x-forwarded-for` entry, the one our proxy appended (entries to
- * its left are whatever the client sent). Pure; exported for tests.
+ * An IPv6 address as its /64 ("2001:db8:0:0::/64"): one subscriber usually holds a whole /64, so
+ * per-address keys could be rotated for free. IPv4 (and IPv4-mapped IPv6) is returned as is.
+ * Pure; exported for tests.
  */
-export function clientIp(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for');
-  const last = forwarded?.split(',').at(-1)?.trim();
-  return last || headers.get('x-real-ip') || 'unknown';
+export function ipKey(ip: string): string {
+  const addr = ip
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .split('%')[0];
+  if (!addr.includes(':')) return addr;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(addr);
+  if (mapped) return mapped[1];
+  const [head, tail] = addr.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups =
+    tail === undefined
+      ? left
+      : [
+          ...left,
+          ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'),
+          ...right,
+        ];
+  return `${groups
+    .slice(0, 4)
+    .map((g) => (parseInt(g, 16) || 0).toString(16))
+    .join(':')}::/64`;
+}
+
+/**
+ * The caller's IP, as a rate-limit key. Railway's edge sets X-Real-IP to the client's address
+ * (documented), so it comes first; then the rightmost `x-forwarded-for` entry (the one a proxy
+ * appended; entries to its left are whatever the client sent); then the socket address when the
+ * runtime gives one. Pure; exported for tests.
+ */
+export function clientIp(headers: Headers, remoteAddress?: string): string {
+  const real = headers.get('x-real-ip')?.trim();
+  const forwarded = headers.get('x-forwarded-for')?.split(',').at(-1)?.trim();
+  const ip = real || forwarded || remoteAddress?.trim();
+  return ip ? ipKey(ip) : 'unknown';
 }
 
 /** Counts one request for `key` in the current `windowSeconds` window. */
