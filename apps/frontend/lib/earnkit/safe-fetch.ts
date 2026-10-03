@@ -1,4 +1,4 @@
-import { promises as dns, type LookupAddress } from 'node:dns';
+import { promises as dns } from 'node:dns';
 import https from 'node:https';
 import { BlockList, isIP } from 'node:net';
 
@@ -9,13 +9,18 @@ import { BlockList, isIP } from 'node:net';
  * connection goes to that vetted address while TLS (SNI + certificate check) and the Host header
  * keep the hostname; no redirects (any 3xx fails); 5 s for the whole fetch; a 4 KB body cap.
  *
+ * DNS goes through c-ares with its own timeout, cancelled at the deadline (never `dns.lookup`).
  * The resolver and transport are injectable so the guard is tested without the network.
  */
 
 export class SafeFetchError extends Error {}
 
 export type Resolved = { address: string; family: 4 | 6 };
-export type Resolver = (host: string) => Promise<Resolved[]>;
+/** Resolves `host` to its addresses; must stop when `signal` aborts (the overall deadline). */
+export type Resolver = (
+  host: string,
+  signal: AbortSignal,
+) => Promise<Resolved[]>;
 export type TransportResponse = {
   status: number;
   /** content-length, when the server sent one. */
@@ -84,10 +89,47 @@ export function isPublicAddress(ip: string): boolean {
   return false;
 }
 
-const defaultResolver: Resolver = async (host) =>
-  (await dns.lookup(host, { all: true, verbatim: true })).map(
-    (a: LookupAddress) => ({ address: a.address, family: a.family as 4 | 6 }),
-  );
+export const DNS_TIMEOUT_MS = 2_000;
+
+// "No such name" and "no records of this type": an empty answer, not a failure.
+const NO_ANSWER = new Set([dns.NODATA, dns.NOTFOUND]);
+
+/**
+ * A/AAAA through c-ares (`dns.promises.Resolver`), not `dns.lookup`: getaddrinfo runs on libuv's
+ * 4-thread pool and can't be cancelled, so a few black-holed nameservers would stall every other
+ * lookup, fs and crypto call in the process (review I5). This one has its own timeout and
+ * `tries`, and is cancelled when the overall deadline aborts.
+ */
+const defaultResolver: Resolver = async (host, signal) => {
+  const r = new dns.Resolver({ timeout: DNS_TIMEOUT_MS, tries: 1 });
+  const cancel = () => r.cancel();
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    const [v4, v6] = await Promise.allSettled([
+      r.resolve4(host),
+      r.resolve6(host),
+    ]);
+    const failed = [v4, v6].flatMap((x) =>
+      x.status === 'rejected' && !NO_ANSWER.has(x.reason?.code)
+        ? [x.reason]
+        : [],
+    );
+    // One family answering is enough; both failing (other than "no answer") is a failure.
+    if (failed.length === 2) throw failed[0];
+    return [
+      ...(v4.status === 'fulfilled' ? v4.value : []).map((address) => ({
+        address,
+        family: 4 as const,
+      })),
+      ...(v6.status === 'fulfilled' ? v6.value : []).map((address) => ({
+        address,
+        family: 6 as const,
+      })),
+    ];
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
+};
 
 /**
  * A `lookup` for node's net/tls that always answers with the vetted address, so the socket goes
@@ -182,19 +224,22 @@ export async function safeFetchText(
   });
   let close: (() => void) | undefined;
   const run = async () => {
-    const addresses = await resolve(u.hostname);
+    const addresses = await resolve(u.hostname, controller.signal);
     if (addresses.length === 0)
       throw new SafeFetchError(`${u.hostname} doesn't resolve`);
     // Every address must be public, so no answer in the set can point inside.
     const bad = addresses.find((a) => !isPublicAddress(a.address));
     if (bad)
+      // The address itself isn't echoed: that would map private networks for anyone (review m1).
       throw new SafeFetchError(
-        `${u.hostname} resolves to a non-public address (${bad.address})`,
+        `${u.hostname} doesn't point to a public address`,
       );
+    // IPv4 first: some egress hosts have no IPv6 route (review m4).
+    const first = addresses.find((a) => a.family === 4) ?? addresses[0];
     const res = await transport({
       url: u,
-      address: addresses[0].address,
-      family: addresses[0].family,
+      address: first.address,
+      family: first.family,
       signal: controller.signal,
     });
     close = res.close;

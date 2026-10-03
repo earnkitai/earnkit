@@ -235,6 +235,8 @@ async function sponsorCommand() {
   );
   const { formatExact } = await import('../lib/earnkit/format-units');
   const { quoted } = await import('../lib/earnkit/untrusted-text');
+  const { sponsorIdentity } = await import('../lib/earnkit/sponsor-verify');
+  const { sponsorLabel } = await import('../lib/earnkit/sponsor-identity');
 
   // Signing needs a well-formed key; check it before reading anything else.
   const execute = process.argv.includes('--execute');
@@ -292,6 +294,9 @@ async function sponsorCommand() {
         const chain = after.escrow_address
           ? (await readEscrow(after.escrow_address)).state
           : 'no deposit from the sponsor wallet';
+        // Refreshes the domain-verification cache that list_programs and get_program read (they
+        // never fetch). Only funded campaigns have an identity.
+        const identity = await sponsorIdentity(after);
         console.log(
           `${ref} · ${quoted(after.draft.title)} · database ${before.state}` +
             (after.state !== before.state ? ` -> ${after.state}` : '') +
@@ -302,7 +307,8 @@ async function sponsorCommand() {
             (found.fundingProblem
               ? ` · refused: ${found.fundingProblem}`
               : '') +
-            (found.chainNote ? ` · ${found.chainNote}` : ''),
+            (found.chainNote ? ` · ${found.chainNote}` : '') +
+            (after.state === 'live' ? ` · ${sponsorLabel(identity)}` : ''),
         );
       } catch (err) {
         failed++;

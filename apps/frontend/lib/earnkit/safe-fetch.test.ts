@@ -136,7 +136,7 @@ test('safeFetchText: refuses before connecting when any address is non-public', 
         resolve: resolveTo(...addrs),
         transport: transport(200, ['ok'], seen),
       }),
-      /non-public address/,
+      /doesn't point to a public address$/,
     );
     assert.equal(seen.length, 0, `connected for ${addrs}`);
   }
@@ -205,14 +205,20 @@ test('safeFetchText: 4 KB cap, by header and while reading', async () => {
 });
 
 test('safeFetchText: times out (slow DNS or a slow server) and aborts the transport', async () => {
+  // The resolver gets the deadline's signal, so slow DNS is cancelled, not left running (I5).
+  let dnsAborted = false;
   await refuses(
     safeFetchText('https://a.example/x', {
-      resolve: () => new Promise(() => {}),
+      resolve: (_host, signal) => {
+        signal.addEventListener('abort', () => (dnsAborted = true));
+        return new Promise(() => {});
+      },
       transport: transport(200),
       timeoutMs: 20,
     }),
     /no answer within/,
   );
+  assert.equal(dnsAborted, true);
   let aborted = false;
   await refuses(
     safeFetchText('https://a.example/x', {
@@ -232,6 +238,23 @@ test('safeFetchText: times out (slow DNS or a slow server) and aborts the transp
     /no answer within/,
   );
   assert.equal(aborted, true);
+});
+
+test('safeFetchText (review m1, m4): no internal address echoed; IPv4 tried first', async () => {
+  await assert.rejects(
+    safeFetchText('https://redis.example/x', {
+      resolve: resolveTo('fd12:3456:789a::5'),
+      transport: transport(200),
+    }),
+    (e: Error) =>
+      !e.message.includes('fd12') && /public address/.test(e.message),
+  );
+  const seen: Seen = [];
+  await safeFetchText('https://a.example/x', {
+    resolve: resolveTo('2606:4700::1111', '93.184.216.34'),
+    transport: transport(200, ['ok'], seen),
+  });
+  assert.equal(seen[0].address, '93.184.216.34');
 });
 
 test('safeFetchText: a transport error becomes a SafeFetchError', async () => {
