@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   earnkitTxtNames,
   nameWords,
+  plainLettersProblem,
   reservedBrands,
   reservedNameProblem,
   sponsorHost,
@@ -142,7 +143,11 @@ test('reservedNameProblem: refused unless verified on the brand domain', () => {
   assert.equal(reservedNameProblem('Base Builders', 'base.dev'), null);
   assert.equal(reservedNameProblem('USDC Rewards', 'circle.com'), null);
   assert.equal(reservedNameProblem('tokens.fun', 'tokens.fun'), null);
-  assert.equal(reservedNameProblem('EarnKit', 'earnkit.com'), null);
+  // EarnKit's own name: refused for everyone, even verified on earnkit.com (re-audit H3).
+  assert.match(
+    reservedNameProblem('EarnKit', 'earnkit.com')!,
+    /EarnKit's own name, which no sponsor campaign can use/,
+  );
   // Two brands: one domain can't cover both.
   assert.ok(reservedNameProblem('Base x Circle', 'base.org'));
   // Not reserved: any sponsor, verified or not.
@@ -308,4 +313,66 @@ test('titleBrands: a title may mention a chain, but not read as by or official t
     reservedNameProblem('Base Builder Grants', 'base.org', 'title'),
     null,
   );
+});
+
+// Re-audit H3 (econ/H3-brand-lookalikes.json) and pentest F1 (app/brand.mts): glued names, digit
+// swaps, "EarnKit" in titles, and whole words in Canadian Syllabics or Coptic.
+test('re-audit H3 / F1: glued, leet and EarnKit look-alikes are refused in names and titles', () => {
+  const nameRefused = [
+    'CoinbaseVentures',
+    'CoinbaseVentures', // Coinbase_Ventures after the sanitizer drops "_"
+    'EarnKitTeam',
+    'EarnKitHQ',
+    'EarnkitTeam',
+    'MonadFoundation',
+    'TempoLabs',
+    'BaseGrants',
+    'Arclabs',
+    'RobinhoodGrants',
+    'M0nad',
+    'Rob1nhood',
+    'Coin8ase',
+    'Ba5e',
+    'B@se',
+    'Ba$e',
+    '3arnKit',
+    'Earn K1t',
+    'C1rcle',
+    'T3mpo',
+    'M0nadFoundation',
+  ];
+  for (const n of nameRefused)
+    assert.ok(reservedNameProblem(n, null), `name ${n}`);
+  for (const t of [
+    'EarnKit Prize Claim',
+    'EarnKit support: approve USDC to verify',
+    'EarnKit verified bounty',
+    'EarnKit Rewards Round',
+    'Season 2 of EarnKit',
+    'Build with EarnKitHQ',
+    'Build on 3arnkit',
+    'CoinbaseVentures bounty',
+  ])
+    assert.ok(reservedNameProblem(t, null, 'title'), `title ${t}`);
+  // Unaffected: real words that contain a brand, a chain named as where to build, digits.
+  for (const ok of [
+    'Basecamp',
+    'Arcade',
+    'Baseline',
+    'Acme Labs',
+    'Studio 54',
+    'Team 8',
+    'Web3 Builders',
+  ])
+    assert.equal(reservedNameProblem(ok, null), null, ok);
+  for (const ok of [
+    'Build on Base',
+    'Payments on Monad 2026',
+    'Agents 4 Base apps',
+  ])
+    assert.equal(reservedNameProblem(ok, null, 'title'), null, ok);
+  // Whole words in Canadian Syllabics or Coptic: refused as special letters.
+  for (const n of ['ᗷᗩᔕᗴ', 'ⲂⲀⲤⲈ', 'ⲃⲁⲥⲉ', 'ᗰOᑎᗩᗪ'])
+    assert.ok(plainLettersProblem(n, 'sponsor_name'), n);
+  assert.equal(plainLettersProblem('Café Zürich', 'sponsor_name'), null);
 });

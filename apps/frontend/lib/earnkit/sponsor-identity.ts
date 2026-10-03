@@ -88,8 +88,31 @@ const LONGEST = Math.max(...[...SKELETONS.keys()].map((k) => k.length));
  */
 export const nameWords = (name: string) => toWords(skeleton(name));
 const toWords = (sk: string) => sk.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-/** nameWords for each brand skeleton (spelling, and the ß -> b reading when it differs). */
-const wordReadings = (name: string) => brandSkeletons(name).map(toWords);
+/** Digits and symbols written for letters ("M0nad", "Coin8ase", "B@se", "Ba$e"). */
+const LEET: Record<string, string> = {
+  '0': 'o',
+  '1': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't',
+  '8': 'b',
+  '@': 'a',
+  $: 's',
+};
+// 1 -> l is covered too: the skeleton reads every l as i.
+const leet = (s: string) => s.replace(/[0134578@$]/g, (c) => LEET[c]);
+
+/**
+ * nameWords for each brand skeleton: the spelling, the ß -> b reading when it differs, and the
+ * same with digits read as letters (`LEET`) when the text has any.
+ */
+const wordReadings = (name: string) => {
+  const sks = new Set(brandSkeletons(name));
+  if (leet(name) !== name)
+    for (const sk of brandSkeletons(leet(name))) sks.add(sk);
+  return [...sks].map(toWords);
+};
 
 /** Where a brand appears in `words`: words[i..j] join into it. */
 function brandSpans(words: string[]) {
@@ -113,9 +136,11 @@ function brandSpans(words: string[]) {
  * brand inside a longer word ("Basecamp", "Arcade") is not a match. Pure; exported for tests.
  */
 export function reservedBrands(name: string): Brand[] {
-  const found = new Set(
-    wordReadings(name).flatMap((w) => brandSpans(w).map((s) => s.brand)),
-  );
+  const found = new Set<Brand>();
+  for (const words of wordReadings(name)) {
+    for (const s of brandSpans(words)) found.add(s.brand);
+    addGlued(words, found);
+  }
   return BRANDS.filter((b) => found.has(b));
 }
 
@@ -128,6 +153,7 @@ const OFFICIAL_WORDS = new Set(ORG_WORDS.map(skeleton));
 const OFFICIAL = skeleton('official');
 const BY = new Set(['by', 'from'].map(skeleton));
 const ARTICLES = new Set(['the', 'a', 'an'].map(skeleton));
+const EARNKIT = skeleton('earnkit').replace(/rn/g, 'm');
 // USDC is the payout currency, so a title may say "100 USDC grant".
 const TITLE_BRANDS = BRANDS.filter((b) => b !== 'usdc');
 // A brand glued to an org word ("Basegrants", "BaseGrants"), either way round.
@@ -154,14 +180,25 @@ export function titleBrands(title: string): Brand[] {
   return BRANDS.filter((b) => found.has(b));
 }
 
-function addTitleBrands(words: string[], found: Set<Brand>) {
-  const official = words.includes(OFFICIAL);
+/**
+ * Brands glued to an org word in one word ("CoinbaseVentures", "MonadFoundation"), and EarnKit
+ * inside any word ("EarnKitHQ"): EarnKit's name is never a sponsor's.
+ */
+function addGlued(words: string[], found: Set<Brand>) {
   for (const w of words) {
     const glued = GLUED.get(w);
     if (glued) found.add(glued);
+    if (w.replace(/rn/g, 'm').includes(EARNKIT)) found.add('earnkit');
   }
+}
+
+function addTitleBrands(words: string[], found: Set<Brand>) {
+  const official = words.includes(OFFICIAL);
+  addGlued(words, found);
   for (const { brand, i, j } of brandSpans(words)) {
     if (brand === 'usdc') continue;
+    // EarnKit anywhere in a title ("EarnKit Prize Claim", "Season 2 of EarnKit").
+    if (brand === 'earnkit') found.add(brand);
     const near = [words[i - 1], words[j + 1], words[j + 2]];
     const by =
       BY.has(words[i - 1]) ||
@@ -190,6 +227,9 @@ export function reservedNameProblem(
     ? titleBrands(name)
     : reservedBrands(name)) {
     const { name: brand, domains } = RESERVED_BRANDS[b];
+    // Only EarnKit's own campaigns (program files, not sponsor campaigns) carry its name.
+    if (b === 'earnkit')
+      return `${field}: ${quoted(name)} uses EarnKit's own name, which no sponsor campaign can use (in any spelling). Choose another ${field}.`;
     if (verifiedHost && (domains as readonly string[]).includes(verifiedHost))
       continue;
     const domain = domains[0];
@@ -314,11 +354,16 @@ export function mixedScriptProblem(
  * plus marks ("Café", "Zürich", "Ångström" pass); whole words in another script pass and still go
  * through the confusable skeleton. Pure; exported for tests.
  */
+// Scripts with whole-word Latin look-alikes UTS #39 doesn't map to the brand ("ᗷᗩᔕᗴ",
+// "ⲂⲀⲤⲈ"): refused in names and titles outright (re-audit H3).
+const REFUSED_SCRIPTS = /[\p{Script=Canadian_Aboriginal}\p{Script=Coptic}]/u;
+
 export function plainLettersProblem(
   text: string,
   field: 'sponsor_name' | 'title',
 ): string | null {
-  return specialLetterWords(text).length === 0
+  return specialLetterWords(text).length === 0 &&
+    !REFUSED_SCRIPTS.test(text.normalize('NFKC'))
     ? null
-    : `${field}: ${quoted(text)}. Use plain letters in names and titles (no special letter forms).`;
+    : `${field}: ${quoted(text)}. Use plain letters in names and titles (no special letter forms, Canadian Syllabics or Coptic).`;
 }
