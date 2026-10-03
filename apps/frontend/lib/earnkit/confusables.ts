@@ -116,6 +116,20 @@ export const brandSkeletons = (s: string) => {
   return lookalike === plain ? [plain] : [plain, lookalike];
 };
 
+/**
+ * Characters that pass for a full stop: UTS #39's (Lisu ꓸ, Syriac ܁ ܂, Vai ꘎, Arabic-Indic zero, …)
+ * plus look-alikes it leaves out (Latin ꞏ U+A78F, Hebrew mark ׅ U+05C5, Arabic ۔ U+06D4, Tibetan ༌
+ * U+0F0C, ⸳ U+2E33). untrusted-text reads them as "." before link detection.
+ */
+export const DOT_LOOKALIKES = [
+  ...[...CONFUSABLES].filter(([, t]) => t === '.').map(([c]) => c),
+  '\uA78F',
+  '\u05C5',
+  '\u06D4',
+  '\u0F0C',
+  '\u2E33',
+].join('');
+
 // Scripts whose letters pass for Latin ones.
 const LOOKALIKE_SCRIPTS =
   /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}\p{Script=Lisu}\p{Script=Coptic}]/u;

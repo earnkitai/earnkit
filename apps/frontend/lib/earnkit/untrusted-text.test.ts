@@ -50,7 +50,7 @@ test('allowlist: invisible, format, filler, tag and variation characters are dro
 
 test('allowlist: keeps letters, numbers, the punctuation set, dashes, emoji and accents', () => {
   const ok =
-    "Café ünïcode 日本語 x402: 1,000 (USDC) & more! #1 @acme 50% $5 a+b=c a*b ok? it's a/b; x – y — z";
+    "Café ünïcode 日本語 x402: 1,000 (USDC) & more! #1 a @ b 50% $5 a+b=c a*b ok? it's a/b; x – y — z";
   assert.equal(cleanText(ok, multi), ok);
   // Emoji kept; a ZWJ only between two pictographs; VS16 dropped.
   const family = ch(0x1f468, 0x200d, 0x1f469);
@@ -325,6 +325,10 @@ test('linear time: pathological inputs at the cap finish in under 50 ms', () => 
       'e' + ch(0x301),
       'curl ',
       'npm  ',
+      '1 ',
+      '1-(',
+      ' dot x',
+      'x slash ',
     ].map(atCap),
     atCap('word.') + 'x',
     rand('hxtp:/.a-[]() @1&#;'),
@@ -438,4 +442,47 @@ test('what_to_build and criteria refuse setup commands (re-audit H2)', () => {
     cleanText('npx fans', { ...TEXT_LIMITS.title, field: 'title' }),
     'npx fans',
   );
+});
+
+// Re-audit M8 (econ/M8-lookalike-links.json) and pentest F2: dot look-alikes, spelled and spaced
+// links with any ending, @handles and phone numbers.
+test('look-alike dots, spelled links, @handles and phone numbers are rejected (re-audit M8, F2)', () => {
+  const brief = { ...TEXT_LIMITS.what_to_build, field: 'what_to_build' };
+  for (const [s, what] of [
+    [`Claim at earnkit${ch(0xa4f8)}co`, 'links'], // Lisu letter tone mya ti
+    [`Claim at earnkit${ch(0xa78f)}co`, 'links'], // Latin letter sinological dot
+    [`Claim at earnkit${ch(0x5c5)}com`, 'links'], // Hebrew mark
+    [`Claim at earnkit${ch(0x701)}co`, 'links'], // Syriac (UTS #39)
+    [`Claim at earnkit${ch(0x6d4)}co`, 'links'],
+    [`Claim at earnkit${ch(0x2e33)}co`, 'links'],
+    ['Claim at earnkit . co today', 'links'],
+    ['visit evil . xyz now reward', 'links'],
+    ['Claim at earnkit dot co slash claim', 'links'],
+    ['Questions? Message us on Telegram: t dot me slash acmeclaims', 'links'],
+    ['Find us at acme slash claims', 'links'],
+    ['DM @earnkit_support on Telegram or Discord to claim', '@handles'],
+    ['Ping @acme to claim', '@handles'],
+    ['WhatsApp +1 415 555 0100 to claim your prize', 'phone numbers'],
+    ['Call 415-555-0100 to claim', 'phone numbers'],
+    ['Call (415) 555.0100 to claim', 'phone numbers'],
+    ['Call 415 555 0100 to claim', 'phone numbers'],
+  ] as const)
+    assert.throws(
+      () => cleanText(s, brief),
+      new RegExp(`what_to_build: ${what} aren't allowed`),
+      s,
+    );
+  // Builder text too.
+  assert.throws(
+    () => cleanProject({ name: 'Pay', description: 'Text +44 20 7946 0958' }),
+    /project\.description: phone numbers/,
+  );
+  for (const ok of [
+    'Top 3 get 500 300 200 USDC, judged on 2026-10-15.',
+    'A pool of 1,000,000 USDC for 10 winners; ends 15.10.2026.',
+    'Connect the dot and go; we will slash fees for users.',
+    'Meet @ the demo day, 10 am.',
+    'Build an x402 service; 4155550100 is not a format we use.',
+  ])
+    assert.equal(cleanText(ok, brief), ok, ok);
 });

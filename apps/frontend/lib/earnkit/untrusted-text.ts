@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DOT_LOOKALIKES } from './confusables';
 
 /**
  * Text written by sponsors or builders reaches other people's agents. One sanitizer for all of
@@ -55,6 +56,8 @@ const UNASSIGNED = /\p{Cn}/u;
 // Confusable and defanged dots, mapped to "." so a hidden domain is still seen as one. Bounded
 // repeats only (every regex in this file runs in linear time; see the timing test).
 const DOTS = /[\u3002\uFF61\uFE52]|[[(] {0,3}(?:\.|dot) {0,3}[\])]/giu;
+// Letters, marks and punctuation that look like a dot (confusables.ts), read as "." too.
+const DOT_LIKE = new RegExp(`[${DOT_LOOKALIKES}]`, 'gu');
 
 /** Raw input past this is rejected before any normalization or regex runs. */
 export const RAW_CAP = 4096;
@@ -74,7 +77,8 @@ function allow(value: string, singleLine: boolean) {
       .replace(SEPARATORS, ' ')
       .replace(/\r\n|[\r\u2028\u2029\u0085]/g, '\n')
       .replace(singleLine ? /[\p{Zs}\t\v\f\n]/gu : /[\p{Zs}\t\v\f]/gu, ' ')
-      .replace(DOTS, '.'),
+      .replace(DOTS, '.')
+      .replace(DOT_LIKE, '.'),
   ];
   let out = '';
   let prev = '';
@@ -114,57 +118,13 @@ const TECH_WORDS = new Set([
   'web3.js',
   'viem.sh',
 ]);
-const DOT_TLDS = new Set([
-  'com',
-  'org',
-  'net',
-  'io',
-  'xyz',
-  'ai',
-  'app',
-  'dev',
-  'lol',
-  'zip',
-  'fun',
-  // Free and common abuse TLDs; English two-letter words (in, to, me, so, us, …) left out.
-  'tk',
-  'ml',
-  'ga',
-  'cf',
-  'gq',
-  'ru',
-  'cn',
-  'gg',
-  'ly',
-  'cc',
-  'tv',
-  'uk',
-  'de',
-  'eu',
-  'info',
-  'biz',
-  'site',
-  'online',
-  'top',
-  'click',
-  'link',
-  'live',
-  'pro',
-  'vip',
-  'world',
-  'tech',
-  'finance',
-  'money',
-  'cash',
-  'wallet',
-  'claim',
-  'claims',
-  'exchange',
-  'network',
-  'eth',
-  'sol',
-]);
 const RUN_CHAR = /[\p{L}\p{N}-]/u;
+// Words before "dot" or "slash" in plain prose ("connect the dot and go", "to slash fees").
+const PROSE_BEFORE_DOT = new Set(
+  'the a an one each every this that per no polka to and or will we can would could'.split(
+    ' ',
+  ),
+);
 const TLD_PART = /^\p{L}{2,24}(?![\p{L}\p{N}])/u;
 
 /** Any `word.letters{2,24}` in one word, other than a known library name. Linear: one pass per part. */
@@ -196,9 +156,9 @@ const WORD_LINKS = [
 ];
 const IPV6 = /(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi;
 const ENTITY = /&#?[a-z0-9]{1,32};|&#x?[0-9a-f]/i;
-// "evil . xyz/path": a dot with spaces around it, then a lowercase name and a slash.
+// "evil . co" (a space before the dot, which prose never has) or "evil. xyz/path".
 const SPACED_DOMAIN =
-  /\p{L} {1,3}\. {0,3}[a-z]{2,24}\/|\p{L}\. {1,3}[a-z]{2,24}\//u;
+  /\p{L} {1,3}\. {0,3}\p{L}{2,24}(?![\p{L}\p{N}])|\p{L}\. {1,3}[a-z]{2,24}\//u;
 const stripMarks = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '');
 
 /** On the text and on its NFD form without accents ("evil.cóm" is evil.com). */
@@ -214,15 +174,11 @@ function linkIn(s: string) {
         ([m]) => m.includes('::') || m.split(':').length > 5,
       ) ||
       hasDomain(w) ||
-      // Defanged "evil dot xyz".
-      (words[i + 1]?.toLowerCase() === 'dot' &&
+      // Spelled out: "evil dot co", "t dot me slash acme", any ending (re-audit M8).
+      (/^(?:dot|slash)$/i.test(words[i + 1] ?? '') &&
         RUN_CHAR.test(w.slice(-1)) &&
-        (/^[a-z]{2,24}\//i.test(words[i + 2] ?? '') ||
-          DOT_TLDS.has(
-            /^[a-z]{2,24}(?![a-z])/i
-              .exec(words[i + 2] ?? '')?.[0]
-              .toLowerCase() ?? '',
-          ))),
+        !PROSE_BEFORE_DOT.has(w.toLowerCase()) &&
+        /^[\p{L}\p{N}]/u.test(words[i + 2] ?? '')),
   );
 }
 
@@ -245,10 +201,39 @@ export const commandIn = (raw: string, cleaned: string) =>
   /\bcurl\b[^\n|]{0,200}\|/i.test(raw) ||
   COMMANDS.some((re) => re.test(cleaned) || re.test(stripMarks(cleaned)));
 
+// "@acme": a handle to contact off EarnKit (an email is already a link).
+const HANDLE = /(?:^|[^\p{L}\p{N}])@[\p{L}\p{N}]/u;
+// A run of 7+ digits with separators: "+1 415 555 0100", "415-555-0100", "(415) 555.0100".
+const DIGIT_RUN = /\+?\(?\d[\d .()-]{5,30}\d/g;
+const DATE = /^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}[.-]\d{1,2}[.-]\d{4}$/;
+
+/**
+ * A phone-number-like run: 7 or more digits, and a leading "+", or "-", "." or "(" between
+ * digits, or a group of 4+ digits among space-separated groups; a date and a plain
+ * amount ("500 300 200") are not. Pure; exported for tests.
+ */
+export function hasPhone(s: string) {
+  for (const [run] of s.matchAll(DIGIT_RUN)) {
+    const t = run.trim();
+    const groups = t.split(/[^\d]+/).filter(Boolean);
+    if (groups.join('').length < 7 || groups.length < 2 || DATE.test(t))
+      continue;
+    if (
+      t.startsWith('+') ||
+      /\d[-.(]|[)]/.test(t) ||
+      groups.some((g) => g.length >= 4)
+    )
+      return true;
+  }
+  return false;
+}
+
 /** What gets cleaned text rejected, with the word used in the error. */
 const REJECT: [(s: string) => boolean, string][] = [
   [hasLink, 'links'],
   [(s) => ENTITY.test(s), 'HTML entities'],
+  [(s) => HANDLE.test(s), '@handles'],
+  [hasPhone, 'phone numbers'],
 ];
 
 /**
