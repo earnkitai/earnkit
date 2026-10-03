@@ -16,6 +16,8 @@ import {
   wonText,
   firstPageParams,
   needsScore,
+  scoreEntry,
+  scoreIsFinal,
   walletsUsing,
   type TxPage,
   type CampaignConfig,
@@ -343,50 +345,100 @@ test('normalizeLiveUrl: scheme, www, trailing slash, query and fragment are drop
   );
 });
 
-test('needsScore: refreshed every 6 h until the end, then one final score, then frozen', () => {
+test('needsScore / scoreIsFinal: provisional until a full-window score taken after the grace', () => {
   const H = 3_600_000;
   const end = new Date('2026-10-10T00:00:00Z');
   const at = (iso: string) => new Date(iso);
-  assert.equal(needsScore(null, end, at('2026-10-05T00:00:00Z'), 6 * H), true);
+  const later = at('2026-12-01T00:00:00Z');
+  // Before the end: refreshed every 6 h.
   assert.equal(
-    needsScore(
-      at('2026-10-05T00:00:00Z'),
-      end,
-      at('2026-10-05T05:00:00Z'),
-      6 * H,
-    ),
+    needsScore(null, null, end, at('2026-10-05T00:00:00Z'), 6 * H),
+    true,
+  );
+  const t0 = at('2026-10-05T00:00:00Z');
+  assert.equal(
+    needsScore(t0, t0, end, at('2026-10-05T05:00:00Z'), 6 * H),
     false,
   );
   assert.equal(
-    needsScore(
-      at('2026-10-05T00:00:00Z'),
-      end,
-      at('2026-10-05T06:00:00Z'),
-      6 * H,
-    ),
+    needsScore(t0, t0, end, at('2026-10-05T06:00:00Z'), 6 * H),
     true,
   );
-  // Scored an hour before the end; after the end the final score is due at once.
+  // The review's case: reads started at 23:59 (covering through 23:59) and saved after the end
+  // are provisional, and replaced.
+  const t1 = at('2026-10-09T23:59:00Z');
+  assert.equal(scoreIsFinal(t1, t1, end), false);
+  assert.equal(needsScore(t1, t1, end, later, 6 * H), true);
+  // Taken 1 s after the end (explorer lag): covers the window but isn't final yet.
+  const t2 = at('2026-10-10T00:00:01Z');
+  assert.equal(scoreIsFinal(t2, end, end), false);
   assert.equal(
-    needsScore(
-      at('2026-10-09T23:00:00Z'),
-      end,
-      at('2026-10-10T00:10:00Z'),
-      6 * H,
-    ),
-    true,
-  );
-  // Scored at or after the end: final, never again.
-  assert.equal(needsScore(end, end, at('2026-10-20T00:00:00Z'), 6 * H), false);
-  assert.equal(
-    needsScore(
-      at('2026-10-10T00:10:00Z'),
-      end,
-      at('2026-12-01T00:00:00Z'),
-      6 * H,
-    ),
+    needsScore(t2, end, end, at('2026-10-10T00:05:00Z'), 6 * H),
     false,
   );
+  assert.equal(
+    needsScore(t2, end, end, at('2026-10-10T00:15:00Z'), 6 * H),
+    true,
+  );
+  // Taken 15 min after the end and covering it: final, never again.
+  const t3 = at('2026-10-10T00:15:00Z');
+  assert.equal(scoreIsFinal(t3, end, end), true);
+  assert.equal(needsScore(t3, end, end, later, 6 * H), false);
+  // A cut-short read (scored_through null) is always redone, even after the grace.
+  assert.equal(needsScore(t3, null, end, later, 6 * H), true);
+});
+
+test('scoreEntry: a deadline stops the reads and the per-wallet history loop', async () => {
+  const newest = new Date(Date.now() - 1000);
+  const slowHistory = async () => {
+    await new Promise((r) => setTimeout(r, 30));
+    return true;
+  };
+  const ex = fakeExplorer(3, newest);
+  const started = Date.now();
+  const r = await scoreEntry(
+    ['0xc'],
+    new Date(0),
+    new Date(Date.now() + 60_000),
+    {
+      deadline: Date.now() + 100,
+      fetchPage: ex.fetchPage,
+      blockAt: async () => 1n,
+      hadHistory: slowHistory,
+    },
+  );
+  assert.ok(Date.now() - started < 400, 'returned near the deadline');
+  assert.equal(r.timedOut, true);
+  assert.equal(r.complete, false);
+  assert.ok(
+    r.score < 7 && r.seen === 7,
+    `partial count: ${r.score} of ${r.seen}`,
+  );
+  // A page read past the deadline is refused too.
+  const r2 = await scoreEntry(
+    ['0xc'],
+    new Date(0),
+    new Date(Date.now() + 60_000),
+    {
+      deadline: Date.now() - 1,
+      fetchPage: fakeExplorer(3, newest).fetchPage,
+      blockAt: async () => 1n,
+      hadHistory: async () => true,
+    },
+  );
+  assert.deepEqual([r2.timedOut, r2.score, r2.seen], [true, 0, 0]);
+  // No deadline: everything counted.
+  const r3 = await scoreEntry(
+    ['0xc'],
+    new Date(0),
+    new Date(Date.now() + 60_000),
+    {
+      fetchPage: fakeExplorer(3, newest).fetchPage,
+      blockAt: async () => 1n,
+      hadHistory: async () => true,
+    },
+  );
+  assert.deepEqual([r3.timedOut, r3.complete, r3.score], [false, true, 7]);
 });
 
 test('firstPageParams: an ended window starts at its end block (Blockscout keyset cursor)', () => {

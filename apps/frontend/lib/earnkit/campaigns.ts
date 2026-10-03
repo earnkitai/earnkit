@@ -99,6 +99,28 @@ export class EntryError extends Error {}
 const BLOCKSCOUT = 'https://base.blockscout.com';
 
 let lastCall = 0;
+
+/** A scoring read stopped at its deadline (the caller keeps what it had and tries again later). */
+export class ScoreDeadline extends Error {
+  constructor() {
+    super('Scoring ran out of time for this call.');
+  }
+}
+
+/** `p`, or ScoreDeadline once `deadline` (epoch ms) passes first. */
+export function beforeDeadline<T>(p: Promise<T>, deadline?: number) {
+  if (deadline === undefined) return p;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new ScoreDeadline()),
+        Math.max(0, deadline - Date.now()),
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 const MIN_GAP_MS = 250; // the public API rate-limits; stay well under it
 
 /**
@@ -106,18 +128,29 @@ const MIN_GAP_MS = 250; // the public API rate-limits; stay well under it
  * Throttling can arrive as HTTP 429 *or* as a 200 whose body says "Too many requests", so both
  * are retried, and persistent throttling throws instead of passing off as empty data.
  */
-export async function blockscout<T>(path: string): Promise<T> {
+export async function blockscout<T>(
+  path: string,
+  /** Epoch ms: give up (ScoreDeadline) rather than wait or fetch past it. */
+  deadline?: number,
+): Promise<T> {
+  const left = () => (deadline ?? Infinity) - Date.now();
   for (let attempt = 0; attempt < 6; attempt++) {
     const wait = lastCall + MIN_GAP_MS - Date.now();
+    if (wait >= left()) throw new ScoreDeadline();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastCall = Date.now();
     const res = await fetch(`${BLOCKSCOUT}${path}`, {
       headers: { Accept: 'application/json', 'User-Agent': 'earnkit' },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(Math.max(1, Math.min(20_000, left()))),
+    }).catch((err: unknown) => {
+      if (left() <= 0) throw new ScoreDeadline();
+      throw err;
     });
     const text = await res.text();
     if (res.status === 429 || /too many requests/i.test(text)) {
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      const backoff = 1000 * 2 ** attempt;
+      if (backoff >= left()) throw new ScoreDeadline();
+      await new Promise((r) => setTimeout(r, backoff));
       continue;
     }
     if (!res.ok)
@@ -306,13 +339,19 @@ export async function walletsUsing(
   opts: {
     startBlock?: bigint;
     maxPages?: number;
+    /** Epoch ms; past it the read throws ScoreDeadline. */
+    deadline?: number;
     fetchPage?: (path: string) => Promise<TxPage>;
   } = {},
 ) {
-  const fetchPage = opts.fetchPage ?? blockscout<TxPage>;
+  const fetchPage =
+    opts.fetchPage ??
+    ((path: string) => blockscout<TxPage>(path, opts.deadline));
   const wallets = new Set<string>();
   let params = firstPageParams(opts.startBlock);
   for (let page = 0; page < (opts.maxPages ?? SCORE_MAX_PAGES); page++) {
+    if (opts.deadline !== undefined && Date.now() >= opts.deadline)
+      throw new ScoreDeadline();
     const data = await fetchPage(
       `/api/v2/addresses/${contract}/transactions?${params}`,
     );
@@ -360,39 +399,104 @@ export async function hadHistoryBefore(wallet: string, blockBefore: bigint) {
  * Metric `unique_wallets`: distinct wallets with prior history that used any of the entry's
  * contracts during the campaign. Returns the score and the counted wallets as evidence;
  * `complete` is false when a contract had more than SCORE_MAX_PAGES pages in the window.
+ * With a `deadline`, a read that runs out of time returns `timedOut` with what was counted so far
+ * (a lower bound, never a final score).
  */
-export async function scoreEntry(contracts: string[], from: Date, to: Date) {
-  // A window that has ended is read from its last block back, not from now.
-  const startBlock =
-    to.getTime() < Date.now() ? (await baseBlockAt(to)) + 1n : undefined;
+export async function scoreEntry(
+  contracts: string[],
+  from: Date,
+  to: Date,
+  opts: {
+    deadline?: number;
+    fetchPage?: (path: string) => Promise<TxPage>;
+    blockAt?: (at: Date) => Promise<bigint>;
+    hadHistory?: (wallet: string, blockBefore: bigint) => Promise<boolean>;
+  } = {},
+) {
+  const { deadline } = opts;
+  const blockAt = (at: Date) =>
+    beforeDeadline((opts.blockAt ?? baseBlockAt)(at), deadline);
+  const hadHistory = opts.hadHistory ?? hadHistoryBefore;
   const all = new Set<string>();
-  let complete = true;
-  for (const c of contracts) {
-    const r = await walletsUsing(c, from, to, { startBlock });
-    for (const w of r.wallets) all.add(w);
-    complete &&= r.complete;
-  }
-  const blockBefore = await baseBlockAt(from);
   const counted: string[] = [];
-  for (const w of all)
-    if (await hadHistoryBefore(w, blockBefore)) counted.push(w);
-  return { score: counted.length, wallets: counted, seen: all.size, complete };
+  let complete = true;
+  try {
+    // A window that has ended is read from its last block back, not from now.
+    const startBlock =
+      to.getTime() < Date.now() ? (await blockAt(to)) + 1n : undefined;
+    for (const c of contracts) {
+      const r = await walletsUsing(c, from, to, {
+        startBlock,
+        deadline,
+        fetchPage: opts.fetchPage,
+      });
+      for (const w of r.wallets) all.add(w);
+      complete &&= r.complete;
+    }
+    const blockBefore = await blockAt(from);
+    for (const w of all) {
+      if (deadline !== undefined && Date.now() >= deadline)
+        throw new ScoreDeadline();
+      if (await beforeDeadline(hadHistory(w, blockBefore), deadline))
+        counted.push(w);
+    }
+  } catch (err) {
+    if (!(err instanceof ScoreDeadline)) throw err;
+    return {
+      score: counted.length,
+      wallets: counted,
+      seen: all.size,
+      complete: false,
+      timedOut: true,
+    };
+  }
+  return {
+    score: counted.length,
+    wallets: counted,
+    seen: all.size,
+    complete,
+    timedOut: false,
+  };
 }
 
 /**
- * Whether an entry's score should be (re)computed now. Scores freeze at the end: the first score
- * taken at or after `endsAt` is final. Before that, a score older than `maxAgeMs` is refreshed.
- * Pure; exported for tests.
+ * Explorer lag allowance: a score is final only when it was taken this long after the end, so
+ * the last minutes' transactions are indexed.
+ */
+export const FINAL_GRACE_MS = 15 * 60_000;
+
+/**
+ * Final: the score covers the whole window (`scoredThrough` reaches `endsAt`) and was taken at
+ * least FINAL_GRACE_MS after the end. Pure; exported for tests.
+ */
+export const scoreIsFinal = (
+  scoredAt: Date | null,
+  scoredThrough: Date | null,
+  endsAt: Date,
+) =>
+  Boolean(
+    scoredAt &&
+      scoredThrough &&
+      scoredThrough >= endsAt &&
+      scoredAt.getTime() >= endsAt.getTime() + FINAL_GRACE_MS,
+  );
+
+/**
+ * Whether an entry's score should be (re)computed now. A final score never is. A provisional one
+ * (`scoredThrough` null: a read cut short by its deadline) always is. After the grace period the
+ * final score is due; before it, a score older than `maxAgeMs` is refreshed. `scoredAt` is when
+ * the score's reads started. Pure; exported for tests.
  */
 export function needsScore(
   scoredAt: Date | null,
+  scoredThrough: Date | null,
   endsAt: Date,
   now: Date,
   maxAgeMs: number,
 ) {
-  if (!scoredAt) return true;
-  if (scoredAt >= endsAt) return false; // final
-  if (now >= endsAt) return true; // the final score hasn't been taken yet
+  if (scoreIsFinal(scoredAt, scoredThrough, endsAt)) return false;
+  if (!scoredAt || !scoredThrough) return true;
+  if (now.getTime() >= endsAt.getTime() + FINAL_GRACE_MS) return true;
   return now.getTime() - scoredAt.getTime() >= maxAgeMs;
 }
 

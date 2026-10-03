@@ -104,6 +104,9 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS score integer;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS scored_at timestamptz;
 -- v2.2 §5: true when the score read hit the 500-page cap (the oldest traffic in the window wasn't read).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS score_partial boolean NOT NULL DEFAULT false;
+-- v2.2 §5 (T6 review I3): the window end a score covers; null for a provisional, cut-short read.
+-- Final = covers ends_at and scored_at >= ends_at + 15 min (lib/earnkit/campaigns.ts scoreIsFinal).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS scored_through timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_tx text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_paid_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_image bytea;

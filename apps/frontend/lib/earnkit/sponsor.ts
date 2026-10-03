@@ -2,7 +2,12 @@ import { randomBytes } from 'node:crypto';
 import type postgres from 'postgres';
 import { formatUnits, parseUnits } from 'viem';
 import { z } from 'zod';
-import { SCORE_MAX_PAGES, needsScore, scoreEntry } from './campaigns';
+import {
+  SCORE_MAX_PAGES,
+  needsScore,
+  scoreEntry,
+  scoreIsFinal,
+} from './campaigns';
 import { formatDeadline } from './dates';
 import { sql } from './db';
 import {
@@ -555,6 +560,8 @@ type EntryRow = {
   contracts: string[];
   score: number | null;
   scored_at: Date | null;
+  /** The window end the score covers; null for a provisional, cut-short read. */
+  scored_through: Date | null;
   score_partial: boolean;
   prize_tx: string | null;
   repo_created_at: Date | null;
@@ -579,49 +586,103 @@ async function entriesOf(
   db: postgres.Sql | postgres.TransactionSql = sql(),
 ) {
   return db<EntryRow[]>`
-    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, score_partial, prize_tx,
+    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, scored_through, score_partial, prize_tx,
       repo_created_at, repo_pushed_at FROM projects
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
 
 /**
- * Re-scores entries with Base contracts when the last score is over 6 hours old (chain 8453 only).
- * Scores freeze at ends_at: the first score taken after the end is final. Returns true when some
- * entries were left for the next call (this call's time budget ran out).
+ * Runs `fn` while holding this campaign's scoring lock (a transaction-scoped advisory lock), so
+ * concurrent status calls never score the same entries at once. 'busy' when another call holds it.
  */
-async function refreshScores(row: SponsorRow, entries: EntryRow[]) {
-  if (row.chain_id !== 8453) return false;
-  const from = new Date(row.draft.starts_at ?? row.created_at);
-  const endsAt = new Date(row.draft.ends_at);
-  const started = Date.now();
-  for (const e of entries) {
-    if (e.contracts.length === 0) continue;
-    const now = new Date();
-    if (!needsScore(e.scored_at, endsAt, now, SCORE_MAX_AGE_MS)) continue;
-    if (now.getTime() - started > SCORE_BUDGET_MS) return true;
-    const until = new Date(Math.min(now.getTime(), endsAt.getTime()));
-    const r = await scoreEntry(e.contracts, from, until);
-    const [saved] = await sql()<{ scored_at: Date }[]>`
-      UPDATE projects SET score = ${r.score}, scored_at = now(), score_partial = ${!r.complete}
-      WHERE id = ${e.id} RETURNING scored_at`;
-    e.score = r.score;
-    e.scored_at = saved.scored_at;
-    e.score_partial = !r.complete;
-  }
-  return false;
+export async function withScoringLock<T>(
+  programId: string,
+  fn: () => Promise<T>,
+): Promise<T | 'busy'> {
+  return sql().begin(async (tx) => {
+    const [{ locked }] = await tx<{ locked: boolean }[]>`
+      SELECT pg_try_advisory_xact_lock(hashtext(${'score:' + programId})) AS locked`;
+    return locked ? fn() : ('busy' as const);
+  }) as Promise<T | 'busy'>;
 }
 
-/** The status `scores_note` for capped reads and refreshes still pending. Pure; exported for tests. */
+/**
+ * Re-scores entries with Base contracts (chain 8453 only), one pass at a time per campaign and
+ * within SCORE_BUDGET_MS: every read gets the deadline. Scores taken before the end (or within
+ * FINAL_GRACE_MS after it) are provisional and refreshed when over 6 h old; the first full-window
+ * score taken after the grace period is final. A read cut short by the deadline is saved only
+ * where there is no score yet, as provisional (scored_through null), and retried next call.
+ * Returns 'done', 'pending' (time ran out) or 'busy' (another call is scoring).
+ */
+async function refreshScores(
+  row: SponsorRow,
+  entries: EntryRow[],
+): Promise<ScoringState> {
+  if (row.chain_id !== 8453 || !row.program_id) return 'done';
+  const from = new Date(row.draft.starts_at ?? row.created_at);
+  const endsAt = new Date(row.draft.ends_at);
+  const deadline = Date.now() + SCORE_BUDGET_MS;
+  return withScoringLock(row.program_id, async (): Promise<ScoringState> => {
+    for (const e of entries) {
+      if (e.contracts.length === 0) continue;
+      const now = new Date();
+      if (
+        !needsScore(
+          e.scored_at,
+          e.scored_through,
+          endsAt,
+          now,
+          SCORE_MAX_AGE_MS,
+        )
+      )
+        continue;
+      if (now.getTime() >= deadline) return 'pending';
+      const until = new Date(Math.min(now.getTime(), endsAt.getTime()));
+      const r = await scoreEntry(e.contracts, from, until, { deadline });
+      if (r.timedOut) {
+        if (e.score === null) {
+          await sql()`
+            UPDATE projects SET score = ${r.score}, scored_at = ${now}, scored_through = NULL,
+              score_partial = false
+            WHERE id = ${e.id}`;
+          Object.assign(e, {
+            score: r.score,
+            scored_at: now,
+            scored_through: null,
+          });
+        }
+        return 'pending';
+      }
+      await sql()`
+        UPDATE projects SET score = ${r.score}, scored_at = ${now}, scored_through = ${until},
+          score_partial = ${!r.complete}
+        WHERE id = ${e.id}`;
+      Object.assign(e, {
+        score: r.score,
+        scored_at: now,
+        scored_through: until,
+        score_partial: !r.complete,
+      });
+    }
+    return 'done';
+  });
+}
+
+type ScoringState = 'done' | 'pending' | 'busy';
+
+/** The status `scores_note` for capped reads and refreshes not done. Pure; exported for tests. */
 export function scoreNotes(
   entries: Pick<EntryRow, 'id' | 'score_partial'>[],
-  pending: boolean,
+  state: ScoringState,
 ) {
   const partial = entries.filter((e) => e.score_partial).map((e) => `#${e.id}`);
   const notes = [
     partial.length > 0 &&
       `Entry ${partial.join(', ')}: more than ${SCORE_MAX_PAGES * 50} transactions to its contracts in the window, so only the most recent ${SCORE_MAX_PAGES * 50} were read; its score may be low. Check its contracts on the explorer before relying on it.`,
-    pending &&
+    state === 'pending' &&
       'Some scores are still being refreshed; ask for status again in a minute.',
+    state === 'busy' &&
+      'Scoring in progress; showing the stored scores. Ask for status again in a minute.',
   ].filter(Boolean);
   return notes.length ? notes.join(' ') : undefined;
 }
@@ -745,10 +806,10 @@ export async function sponsorStatus(ref: string, installationId: number) {
     return { ...base, ...statusReply(facts), ...notes, entries: [] };
   const entries = await entriesOf(row.program_id);
   let scoresNote: string | undefined;
-  let pending = false;
+  let scoring: ScoringState = 'done';
   if (row.installation_id === installationId) {
     try {
-      pending = await refreshScores(row, entries);
+      scoring = await refreshScores(row, entries);
     } catch (err) {
       // A scoring RPC failure must not fail the whole status call: fall back to the last stored
       // scores (already on `entries`, since `refreshScores` mutates in place only on success).
@@ -758,7 +819,7 @@ export async function sponsorStatus(ref: string, installationId: number) {
     }
   }
   scoresNote =
-    [scoresNote, scoreNotes(entries, pending)].filter(Boolean).join(' ') ||
+    [scoresNote, scoreNotes(entries, scoring)].filter(Boolean).join(' ') ||
     undefined;
   facts.entries = entries.length;
   facts.paid = paidWinners(row, entries);
@@ -781,6 +842,14 @@ export async function sponsorStatus(ref: string, installationId: number) {
       repo_url: e.repo_url,
       ...repoDates(e),
       score: e.score,
+      // Final once it covers the whole window and was taken after the grace period.
+      ...(e.score !== null && {
+        score_final: scoreIsFinal(
+          e.scored_at,
+          e.scored_through,
+          new Date(row.draft.ends_at),
+        ),
+      }),
     })),
   };
 }

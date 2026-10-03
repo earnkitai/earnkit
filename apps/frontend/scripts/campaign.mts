@@ -118,8 +118,10 @@ async function main() {
   if (command === 'score') {
     const until = new Date(Math.min(Date.now(), program.ends_at.getTime()));
     for (const e of await entries()) {
+      const started = new Date();
       const r = await scoreEntry(e.contracts, program.starts_at, until);
-      await db`UPDATE projects SET score = ${r.score}, scored_at = now(), score_partial = ${!r.complete} WHERE id = ${e.id}`;
+      await db`UPDATE projects SET score = ${r.score}, scored_at = ${started}, scored_through = ${until},
+        score_partial = ${!r.complete} WHERE id = ${e.id}`;
       console.log(
         `${e.name}: ${r.score} wallets counted (${r.seen} seen)` +
           (r.complete

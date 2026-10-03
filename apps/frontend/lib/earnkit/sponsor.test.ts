@@ -18,7 +18,9 @@ import {
   expiredText,
   matchFunding,
   scoreNotes,
+  withScoringLock,
 } from './sponsor';
+import { sql } from './db';
 
 const REF = '0x' + 'a'.repeat(64);
 const WALLET = '0x00000000000000000000000000000000000000b0';
@@ -273,14 +275,47 @@ test("award page warnings: the sponsor's own wallet, or one wallet paid twice", 
 });
 
 test('scoreNotes: names capped entries and pending refreshes; nothing when all is well', () => {
-  assert.equal(scoreNotes([{ id: 1, score_partial: false }], false), undefined);
+  assert.equal(
+    scoreNotes([{ id: 1, score_partial: false }], 'done'),
+    undefined,
+  );
   const n = scoreNotes(
     [
       { id: 4, score_partial: true },
       { id: 9, score_partial: true },
     ],
-    true,
+    'pending',
   )!;
   assert.match(n, /Entry #4, #9: more than 25000 transactions/);
   assert.match(n, /still being refreshed/);
+  assert.match(scoreNotes([], 'busy')!, /^Scoring in progress/);
 });
+
+// Against the local database when configured: two passes for one campaign never overlap.
+test(
+  'withScoringLock: a second concurrent pass is busy',
+  {
+    skip: !process.env.DATABASE_URL && 'no DATABASE_URL',
+  },
+  async () => {
+    const id = `lock-test-${process.pid}-${Date.now()}`;
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const first = withScoringLock(id, async () => {
+      await held;
+      return 'done' as const;
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(
+      await withScoringLock(id, async () => 'done' as const),
+      'busy',
+    );
+    release();
+    assert.equal(await first, 'done');
+    assert.equal(
+      await withScoringLock(id, async () => 'done' as const),
+      'done',
+    );
+    await sql().end();
+  },
+);
