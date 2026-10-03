@@ -24,8 +24,9 @@ Sponsor campaigns (by ref; local shell only):
                                                  refund the sponsor (OPERATOR_PRIVATE_KEY; --escrow: a stray
                                                  escrow for this ref that EarnKit doesn't track)
   sync   [<ref>]                                 read the chain and update the database: one campaign, or
-                                                 every draft and live one (and those expired within 30
-                                                 days of their deadline); shows pending fallbacks
+                                                 every draft and live one (and those expired or replaced
+                                                 within 30 days of their deadline); shows pending
+                                                 fallbacks and stray deposits to refund
 
 Without --execute, payout, fallback and refund are dry runs.`;
 

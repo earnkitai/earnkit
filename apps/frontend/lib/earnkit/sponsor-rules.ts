@@ -65,6 +65,11 @@ export const DraftInput = z
     existing_work: z.enum(['allowed', 'new_work_only']).optional(),
     starts_at: z.string().datetime({ offset: true }).optional(),
     ends_at: z.string().datetime({ offset: true }).optional(),
+    /** An unfunded draft of this installation's that this one corrects (same sponsor_wallet). */
+    replaces: z
+      .string()
+      .regex(/^0x[0-9a-f]{64}$/, 'the ref of the draft this one replaces')
+      .optional(),
   })
   .strict();
 /** What create accepts (after parsing; the optional answers may be missing). */
@@ -102,7 +107,13 @@ export const defaultCriteria = (sponsorName: string) =>
  * show_to_sponsor, so the sponsor can correct them). Pure; `now` sets the default deadline.
  */
 export function withDefaults(
-  { sponsor_wallet, theme, what_to_build, ...r }: DraftRequest,
+  {
+    sponsor_wallet,
+    theme,
+    what_to_build,
+    replaces: _replaces,
+    ...r
+  }: DraftRequest,
   now: Date,
 ): { sponsor_wallet: string; draft: Draft; defaults: string[] } {
   if (
@@ -224,6 +235,34 @@ export function checkDraft(
   if (d.starts_at && Date.parse(d.starts_at) >= ends)
     throw new SponsorError('starts_at: must be before ends_at.');
   return { amountUnits };
+}
+
+/**
+ * Why `old` can't be replaced by a new draft from `installationId` bound to `wallet`, or null.
+ * Only the creating installation's unfunded draft (draft or expired) can be replaced, and the
+ * bound wallet can't change: only that wallet's deposit counts, and a deposit for the old ref may
+ * already be on its way. Pure; exported for tests.
+ */
+export function replaceProblem(
+  old: {
+    installation_id: number;
+    state: string;
+    sponsor_wallet: string | null;
+  },
+  installationId: number,
+  wallet: string,
+): string | null {
+  if (old.installation_id !== installationId)
+    return 'replaces: that draft was created by another agent; only its creator can replace it.';
+  if (old.state === 'replaced')
+    return 'replaces: that draft was already replaced; replace the newer one.';
+  if (old.state !== 'draft' && old.state !== 'expired')
+    return `replaces: that campaign is ${old.state.replace('_', ' ')}; only an unfunded draft can be replaced.`;
+  if (!old.sponsor_wallet)
+    return 'replaces: that draft predates wallet binding; create a new campaign without replaces.';
+  if (old.sponsor_wallet.toLowerCase() !== wallet.toLowerCase())
+    return `replaces: a replacement keeps the bound wallet (${old.sponsor_wallet}); for another wallet, create a new campaign without replaces.`;
+  return null;
 }
 
 /** 10% fee (rounded down), the rest is the prize. Mirrors EarnKitCampaign.initialize. */
@@ -692,18 +731,28 @@ export function createReply(a: {
   verificationNote?: string | null;
   /** The defaults filled in for answers the sponsor didn't give (withDefaults). */
   defaults?: string[];
+  /** The draft's ref (for replaces). */
+  ref: string;
+  /** The title of the draft this one replaced, if any. */
+  replacesTitle?: string;
 }) {
   const { prize, fee } = splitUnits(a.poolUnits);
   const defaults = a.defaults?.length
-    ? `Defaults used: ${a.defaults.join('; ')}. To change any, create it again before funding.\n`
+    ? `Defaults used: ${a.defaults.join('; ')}.\n`
     : '';
+  const replaced =
+    a.replacesTitle !== undefined
+      ? `Replaces ${quoted(a.replacesTitle)}; its old link no longer works.\n`
+      : '';
   return {
     show_to_sponsor:
       `Campaign drafted: ${quoted(a.title)}.\n` +
+      replaced +
       `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
       `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
       `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
       defaults +
+      'To change anything, ask me to update it: the update replaces this draft (same wallet), and this link stops working.\n' +
       `${labelText(a.identity, a.sponsorWallet, a.verificationNote)}\n` +
       `Fund it here, from ${a.sponsorWallet}: ${a.fundUrl}`,
     next_step:
@@ -711,13 +760,24 @@ export function createReply(a: {
       'that wallet, send the two `transactions` from it in order (approve, then createCampaign). ' +
       'Then call sponsor_campaign with action=status and ref: EarnKit finds the deposit onchain. ' +
       'Only a deposit from that wallet counts. An unfunded draft expires after 7 days, or 10 ' +
-      'minutes before its deadline.',
+      'minutes before its deadline. To change anything before it is funded, call create again with ' +
+      `all the answers and replaces=${a.ref} (same sponsor_wallet): the old link stops working, and ` +
+      "replacements don't count toward the 5 creates a day (up to 10 a day).",
   };
 }
 
 export type StatusFacts = {
-  state: 'draft' | 'live' | 'awarded' | 'refunded' | 'expired' | 'taken_down';
+  state:
+    | 'draft'
+    | 'live'
+    | 'awarded'
+    | 'refunded'
+    | 'expired'
+    | 'taken_down'
+    | 'replaced';
   title: string;
+  /** replaced: the newer draft's fund link. */
+  replacedByUrl?: string | null;
   /** What winners share, formatted ("90 USDC"). */
   prize: string;
   endsAt: string;
@@ -774,6 +834,18 @@ export function statusReply(s: StatusFacts): {
           ? 'Contact EarnKit to refund that deposit, then create a new campaign with action=create.'
           : 'If the deposit was only just sent, call status again in a minute: EarnKit finds it onchain. ' +
             'Otherwise create a new campaign with action=create.',
+      };
+    case 'replaced':
+      return {
+        show_to_sponsor:
+          `${title} was replaced by a newer draft` +
+          (s.replacedByUrl ? `; fund that one at ${s.replacedByUrl}.` : '.') +
+          (s.fundingProblem
+            ? ` ${s.fundingProblem[0].toUpperCase()}${s.fundingProblem.slice(1)}`
+            : ''),
+        ...(s.fundingProblem && {
+          next_step: 'Contact EarnKit to refund that deposit.',
+        }),
       };
     case 'awarded':
       return {

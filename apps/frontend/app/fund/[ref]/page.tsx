@@ -111,7 +111,23 @@ export default async function FundPage({
             {FUND_WARNING}
           </p>
         ) : null}
-        {fundingProblem ? (
+        {row.state === 'replaced' ? (
+          <p className="mt-8 font-funnel-sans text-base text-ek-white">
+            This draft was replaced.{' '}
+            {row.replaced_by ? (
+              <>
+                Fund{' '}
+                <a className="underline" href={`/fund/${row.replaced_by}`}>
+                  the new draft
+                </a>{' '}
+                instead.
+              </>
+            ) : null}
+            {fundingProblem
+              ? ` ${fundingProblem[0].toUpperCase()}${fundingProblem.slice(1)} Contact EarnKit to have it refunded.`
+              : null}
+          </p>
+        ) : fundingProblem ? (
           <p className="mt-8 font-funnel-sans text-base text-ek-white">
             {fundingProblem[0].toUpperCase()}
             {fundingProblem.slice(1)} Contact EarnKit to have it refunded, then

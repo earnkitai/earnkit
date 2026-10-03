@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
   installation_id integer NOT NULL REFERENCES installations(id),
   sponsor_name    text NOT NULL,
   sponsor_url     text,
-  draft           jsonb NOT NULL,                   -- title, theme, criteria, chains, winners, existing_work, starts_at, ends_at
+  draft           jsonb NOT NULL,                   -- title, what_to_build (theme before v2.2), criteria, chains, winners, existing_work, starts_at, ends_at
   token           text NOT NULL,
   token_symbol    text NOT NULL,
   token_decimals  integer NOT NULL,
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
   escrow_address  text,
   sponsor_wallet  text,                             -- bound at create (lowercase); only its deposit counts
   state           text NOT NULL DEFAULT 'draft'
-                  CHECK (state IN ('draft', 'live', 'awarded', 'refunded', 'expired', 'taken_down')),
+                  CHECK (state IN ('draft', 'live', 'awarded', 'refunded', 'expired', 'taken_down', 'replaced')),
   award_plan      jsonb,                            -- [{entry_id, wallet, amount, reason}] as the sponsor sent it
   award_onchain   jsonb,                            -- [{wallet, amount, entry_id|null}] when the onchain award differs from the plan
   award_tx        text,
@@ -151,6 +151,12 @@ CREATE TABLE IF NOT EXISTS sponsor_campaigns (
 -- reported tx hash. The operator's pending fallback winners live beside the sponsor's plan.
 ALTER TABLE sponsor_campaigns DROP COLUMN IF EXISTS fund_tx;
 ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS fallback_plan jsonb;  -- [{entry_id, wallet, amount, reason}]
+-- v2.2 §6 (T7): an unfunded draft can be replaced by a corrected one (create with replaces); the
+-- old row becomes 'replaced' and points at its successor. Its ref is never published.
+ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS replaced_by text;
+ALTER TABLE sponsor_campaigns DROP CONSTRAINT IF EXISTS sponsor_campaigns_state_check;
+ALTER TABLE sponsor_campaigns ADD CONSTRAINT sponsor_campaigns_state_check
+  CHECK (state IN ('draft', 'live', 'awarded', 'refunded', 'expired', 'taken_down', 'replaced'));
 
 -- v2.2 T2 fix: public chain checks are throttled. One row per ref: when it was last read from the
 -- chain and what came back (reused for 15 s), and how far down the award-log search has got.

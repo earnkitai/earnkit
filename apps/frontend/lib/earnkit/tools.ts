@@ -263,13 +263,21 @@ export const tools = {
       ),
     );
     if (i.action === 'create') {
-      await enforce(
-        'sponsorCreate',
-        ctx.installationId,
-        'This agent has created 5 sponsor campaigns today, the daily limit.',
-      );
       const { action: _a, ...draft } = i;
-      return createSponsorDraft(draft, ctx.installationId);
+      // Charged only once the draft (and any replaces) is valid; a replacement has its own cap.
+      return createSponsorDraft(draft, ctx.installationId, (replacing) =>
+        replacing
+          ? enforce(
+              'sponsorReplace',
+              ctx.installationId,
+              'This agent has replaced 10 sponsor drafts today, the daily limit.',
+            )
+          : enforce(
+              'sponsorCreate',
+              ctx.installationId,
+              'This agent has created 5 sponsor campaigns today, the daily limit.',
+            ),
+      );
     }
     if (i.action === 'award')
       return prepareAward(i.ref, ctx.installationId, {

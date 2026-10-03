@@ -53,6 +53,7 @@ import {
   resolvePicks,
   sponsorProgramFile,
   splitUnits,
+  replaceProblem,
   statusReply,
   withDefaults,
   type AwardPicksInput,
@@ -83,7 +84,16 @@ export type SponsorRow = {
   escrow_address: string | null;
   /** The wallet bound at create (lowercase); null only on drafts from before v2.2. */
   sponsor_wallet: string | null;
-  state: 'draft' | 'live' | 'awarded' | 'refunded' | 'expired' | 'taken_down';
+  state:
+    | 'draft'
+    | 'live'
+    | 'awarded'
+    | 'refunded'
+    | 'expired'
+    | 'taken_down'
+    | 'replaced';
+  /** replaced: the draft that replaced this one (create with replaces). */
+  replaced_by: string | null;
   award_plan: PlanItem[] | null;
   /** The operator's pending fallback winners (`pnpm campaign fallback propose`). */
   fallback_plan: PlanItem[] | null;
@@ -110,15 +120,54 @@ function localMinPool(decimals: number | undefined) {
   return parseUnits(env, decimals);
 }
 
+/**
+ * The unfunded draft `ref` that a new draft from `installationId`, bound to `wallet`, may replace
+ * (see replaceProblem), read fresh from the chain first: a deposit that already landed publishes
+ * it (and then it can't be replaced), and a refused deposit is named.
+ */
+async function replaceableDraft(
+  ref: string,
+  installationId: number,
+  wallet: string,
+): Promise<SponsorRow> {
+  const load = () =>
+    loadCampaign(ref).catch((err) => {
+      if (err instanceof NotFoundError)
+        throw new SponsorError(`replaces: there is no draft ${ref}.`);
+      throw err;
+    });
+  const before = await load();
+  const early = replaceProblem(before, installationId, wallet);
+  if (early) throw new SponsorError(early);
+  const { fundingProblem } = await checkChain(before, { fresh: true });
+  const row = await load();
+  const problem =
+    replaceProblem(row, installationId, wallet) ??
+    (fundingProblem
+      ? `replaces: ${fundingProblem} Contact EarnKit to refund it before replacing this draft.`
+      : null);
+  if (problem) throw new SponsorError(problem);
+  return row;
+}
+
+/**
+ * Creates a draft bound to `sponsor_wallet`. Everything is validated first (the answers, the
+ * domain, sanctions, and `replaces`); only then is `charge` called (the tool's rate limit: a
+ * replacement counts against its own cap), so a refused create costs nothing. With `replaces`,
+ * the old draft is retired (`replaced`, `replaced_by`) in the same transaction that inserts the
+ * new one, under a row lock, so two replacements of one draft can't both succeed.
+ */
 export async function createSponsorDraft(
   request: DraftRequest,
   installationId: number,
+  charge: (replacing: boolean) => Promise<unknown> = async () => {},
 ) {
   if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
   // Five answers are required; the rest default, and the reply says which defaults were used.
   const { draft: d, defaults, ...r } = withDefaults(request, new Date());
   // Already normalized when it came through the tool's schema; checked again for direct callers.
   const sponsor_wallet = SponsorWallet.parse(r.sponsor_wallet);
+  const replaces = request.replaces;
   const token = findToken(d.token);
   const cap = token ? await capOf(token.address) : 0n;
   const { amountUnits } = checkDraft(
@@ -158,21 +207,37 @@ export async function createSponsorDraft(
         ? `${reserved} (${identity.note})`
         : reserved,
     );
+  const old = replaces
+    ? await replaceableDraft(replaces, installationId, sponsor_wallet)
+    : null;
+  // Valid: only now does the create (or replacement) count against the agent's limit.
+  await charge(old !== null);
   const ref = `0x${randomBytes(32).toString('hex')}` as `0x${string}`;
   const { chainId } = escrowConfig();
-  await sql()`INSERT INTO sponsor_campaigns ${sql()({
-    ref,
-    installation_id: installationId,
-    sponsor_name: d.sponsor_name,
-    sponsor_url: d.sponsor_url ?? null,
-    draft: sql().json(d as never),
-    sponsor_wallet,
-    token: token!.address,
-    token_symbol: token!.symbol,
-    token_decimals: token!.decimals,
-    amount: d.amount,
-    chain_id: chainId,
-  })}`;
+  await sql().begin(async (db) => {
+    if (old) {
+      const [locked] = await db<SponsorRow[]>`
+        SELECT * FROM sponsor_campaigns WHERE ref = ${old.ref} FOR UPDATE`;
+      const problem = replaceProblem(locked, installationId, sponsor_wallet);
+      if (problem) throw new SponsorError(problem);
+    }
+    await db`INSERT INTO sponsor_campaigns ${db({
+      ref,
+      installation_id: installationId,
+      sponsor_name: d.sponsor_name,
+      sponsor_url: d.sponsor_url ?? null,
+      draft: db.json(d as never),
+      sponsor_wallet,
+      token: token!.address,
+      token_symbol: token!.symbol,
+      token_decimals: token!.decimals,
+      amount: d.amount,
+      chain_id: chainId,
+    })}`;
+    if (old)
+      await db`UPDATE sponsor_campaigns SET state = 'replaced', replaced_by = ${ref}
+        WHERE ref = ${old.ref}`;
+  });
   const fundUrl = `${baseUrl()}/fund/${ref}`;
   return {
     ref,
@@ -196,7 +261,10 @@ export async function createSponsorDraft(
       identity,
       verificationNote: identity.note,
       defaults,
+      ref,
+      ...(old && { replacesTitle: old.draft.title }),
     }),
+    ...(old && { replaced: old.ref }),
     // A draft has no label: only funding proves the wallet is the sponsor's.
     sponsor_label: null,
   };
@@ -260,7 +328,8 @@ export async function loadCampaign(ref: string) {
  *   the bound wallet's escrow carries this draft's exact terms, so an `expired` row is rescued
  *   rather than lost.
  * - `live` or `awarded` → `already_live`. Publishing already happened.
- * - `refunded`, `taken_down` → `refuse`. Terminal states; funding cannot reopen them.
+ * - `refunded`, `taken_down`, `replaced` → `refuse`. Terminal states; funding cannot reopen them
+ *   (a deposit for a replaced draft's ref is reported by `findFunding`, never published).
  */
 export function confirmableState(
   state: SponsorRow['state'],
@@ -324,24 +393,39 @@ const mismatchText = (wallet: string, problem: string) =>
 
 /**
  * Publishes a draft (or a lazily-expired draft) once its bound wallet's deposit is onchain.
- * Returns what to tell the sponsor when a deposit was found but refused, else null.
+ * Returns what to tell the sponsor when a deposit was found but refused (with the escrow to refund,
+ * unless it already was), else null. A replaced draft's ref is never published: a deposit for it
+ * (e.g. sent before the replacement) is reported for refund.
  */
 export async function findFunding(
   row: SponsorRow,
   reader: EscrowReader = chainReader(),
-): Promise<string | null> {
-  if (confirmableState(row.state) !== 'publish') return null;
+): Promise<{ problem: string; escrow: string | null } | null> {
+  const replaced = row.state === 'replaced';
+  if (!replaced && confirmableState(row.state) !== 'publish') return null;
   const found = await matchFunding(row, reader);
   if (found.status === 'none') return null;
-  if (found.status === 'mismatch') {
-    // Already refunded (by the operator): nothing left to do but start over.
-    if (found.cloneState === 'refunded')
-      return `a deposit from ${row.sponsor_wallet} for this campaign didn't match the draft and was refunded; create a new campaign.`;
+  // Already refunded (by the operator): nothing left to do but start over.
+  if (found.status === 'mismatch' && found.cloneState === 'refunded')
+    return {
+      problem: `a deposit from ${row.sponsor_wallet} for this campaign ${replaced ? 'was made after it was replaced' : "didn't match the draft"} and was refunded; ${replaced ? 'fund the newer draft' : 'create a new campaign'}.`,
+      escrow: null,
+    };
+  if (replaced || found.status === 'mismatch') {
     console.error(
-      `[sponsor] ${row.ref}: escrow ${found.escrow} from ${row.sponsor_wallet} refused (${found.problem}). ` +
+      `[sponsor] ${row.ref}: escrow ${found.escrow} from ${row.sponsor_wallet} refused ` +
+        `(${replaced ? 'the draft was replaced' : (found as { problem: string }).problem}). ` +
         `Refund it: pnpm campaign refund ${row.ref} --escrow ${found.escrow} --reason no-eligible --execute`,
     );
-    return mismatchText(row.sponsor_wallet!, found.problem);
+    return {
+      problem: replaced
+        ? `a deposit from ${row.sponsor_wallet} was found for this draft, but it was replaced by a newer draft, so it wasn't published.`
+        : mismatchText(
+            row.sponsor_wallet!,
+            (found as { problem: string }).problem,
+          ),
+      escrow: found.escrow,
+    };
   }
   await publishFunding(row.ref, found.escrow);
   return null;
@@ -400,6 +484,8 @@ async function publishFunding(ref: string, escrow: string) {
 
 export type ChainCheck = {
   fundingProblem: string | null;
+  /** A refused deposit's escrow, still to be refunded (`pnpm campaign refund <ref> --escrow`). */
+  strayEscrow?: string | null;
   fallbackExecutesAt: Date | null;
   /** Why this check couldn't finish (e.g. the award search continues on the next check). */
   chainNote: string | null;
@@ -476,6 +562,7 @@ export async function findAward(row: SponsorRow): Promise<ChainCheck> {
 
 type CachedCheck = {
   fundingProblem: string | null;
+  strayEscrow?: string | null;
   fallbackExecutesAt: string | null;
   chainNote: string | null;
 };
@@ -500,7 +587,12 @@ export async function checkChain(
   row: SponsorRow,
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<ChainCheck> {
-  if (row.state !== 'draft' && row.state !== 'expired' && row.state !== 'live')
+  if (
+    row.state !== 'draft' &&
+    row.state !== 'expired' &&
+    row.state !== 'live' &&
+    row.state !== 'replaced'
+  )
     return NOTHING;
   if (!fresh) {
     const [prev] = await sql()<
@@ -519,10 +611,15 @@ export async function checkChain(
           ON CONFLICT (ref) DO NOTHING`;
     if (claimed.count === 0) return fromCache(prev?.result ?? null);
   }
+  const funding = row.state === 'live' ? null : await findFunding(row);
   const result =
     row.state === 'live'
       ? await findAward(row)
-      : { ...NOTHING, fundingProblem: await findFunding(row) };
+      : {
+          ...NOTHING,
+          fundingProblem: funding?.problem ?? null,
+          strayEscrow: funding?.escrow ?? null,
+        };
   const cached: CachedCheck = {
     ...result,
     fallbackExecutesAt: result.fallbackExecutesAt?.toISOString() ?? null,
@@ -809,6 +906,9 @@ export async function sponsorStatus(ref: string, installationId: number) {
         : null,
     fallbackExecutesAt: chain.fallbackExecutesAt,
     fundingProblem: chain.fundingProblem,
+    replacedByUrl: row.replaced_by
+      ? `${baseUrl()}/fund/${row.replaced_by}`
+      : null,
   };
   const notes = { ...(chainNote && { chain_note: chainNote }) };
   if (row.state === 'draft')

@@ -16,7 +16,9 @@ import {
   confirmableState,
   draftExpiry,
   expiredText,
+  findFunding,
   matchFunding,
+  type SponsorRow,
   scoreNotes,
   withScoringLock,
 } from './sponsor';
@@ -124,6 +126,31 @@ test('findFunding: addresses compare case-insensitively', async () => {
     ).status,
     'funded',
   );
+});
+
+test("findFunding: a replaced draft's deposit is never published, only reported for refund", async () => {
+  const replaced = { ...row, state: 'replaced' } as unknown as SponsorRow;
+  const at = { [`${WALLET}:${REF}`]: CLONE };
+  // Matching terms or not, it is reported with the escrow to refund (no DB write: never published).
+  const r = await findFunding(replaced, reader(at));
+  assert.deepEqual(r, {
+    problem: `a deposit from ${WALLET} was found for this draft, but it was replaced by a newer draft, so it wasn't published.`,
+    escrow: CLONE,
+  });
+  assert.equal(
+    (await findFunding(replaced, reader(at, { ...good, fee: 1n })))?.escrow,
+    CLONE,
+  );
+  // Already refunded: nothing left to refund.
+  assert.deepEqual(
+    await findFunding(replaced, reader(at, { ...good, state: 'refunded' })),
+    {
+      problem: `a deposit from ${WALLET} for this campaign was made after it was replaced and was refunded; fund the newer draft.`,
+      escrow: null,
+    },
+  );
+  assert.equal(await findFunding(replaced, reader({})), null);
+  assert.equal(confirmableState('replaced'), 'refuse');
 });
 
 test('awardSearchFrom: from about the block at endsAt (2 s blocks), minus 300, never below 0', () => {

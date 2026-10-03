@@ -10,6 +10,8 @@ import { sql } from './db';
 export const LIMITS = {
   /** sponsor_campaign create, per installation. */
   sponsorCreate: { limit: 5, windowSeconds: 86_400 },
+  /** sponsor_campaign create with replaces (correcting an unfunded draft), per installation. */
+  sponsorReplace: { limit: 10, windowSeconds: 86_400 },
   /** record_submission, per installation. */
   recordSubmission: { limit: 20, windowSeconds: 86_400 },
   /** POST /oauth/register, per client IP. */

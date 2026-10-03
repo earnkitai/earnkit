@@ -300,11 +300,11 @@ async function sponsorCommand() {
           await db<{ ref: string }[]>`
           SELECT ref FROM sponsor_campaigns
           WHERE state IN ('draft', 'live')
-            OR (state = 'expired' AND (draft->>'ends_at')::timestamptz > now() - interval '30 days')
+            OR (state IN ('expired', 'replaced') AND (draft->>'ends_at')::timestamptz > now() - interval '30 days')
           ORDER BY created_at`
         ).map((r) => r.ref);
     if (refs.length === 0)
-      console.log('No draft, expired or live sponsor campaigns.');
+      console.log('No draft, expired, replaced or live sponsor campaigns.');
     let failed = 0;
     for (const ref of refs) {
       const before = await loadCampaign(ref);
@@ -327,6 +327,10 @@ async function sponsorCommand() {
             (found.fundingProblem
               ? ` · refused: ${found.fundingProblem}`
               : '') +
+            (found.strayEscrow
+              ? ` · refund it: pnpm campaign refund ${ref} --escrow ${found.strayEscrow} --reason no-eligible --execute`
+              : '') +
+            (after.replaced_by ? ` · replaced by ${after.replaced_by}` : '') +
             (found.chainNote ? ` · ${found.chainNote}` : '') +
             (after.state === 'live' ? ` · ${sponsorLabel(identity)}` : ''),
         );

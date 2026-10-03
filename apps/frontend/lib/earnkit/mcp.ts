@@ -264,7 +264,10 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
         'title, what_to_build, amount and sponsor_wallet (the wallet that will fund it). Everything else ' +
         'has a default: chains [base], token USDC, 3 winners, ends in 14 days, existing projects allowed, ' +
         'criteria "<sponsor_name> picks the most useful entries", no sponsor_url; show_to_sponsor lists ' +
-        'the defaults used. create drafts it and returns fund_url (a page where the sponsor deposits the pool ' +
+        'the defaults used. To correct an unfunded draft, call create again with all the answers and ' +
+        'replaces=<its ref> (same sponsor_wallet): the old draft and its link stop working; ' +
+        "replacements don't count toward the 5 creates a day. create drafts it and returns fund_url " +
+        '(a page where the sponsor deposits the pool ' +
         "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
         'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
         'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
@@ -290,6 +293,12 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
           .string()
           .optional()
           .describe('From create; needed for status and award'),
+        replaces: z
+          .string()
+          .optional()
+          .describe(
+            'create: the ref of an unfunded draft (yours, same sponsor_wallet) that this one corrects',
+          ),
         sponsor_wallet: z
           .string()
           .optional()

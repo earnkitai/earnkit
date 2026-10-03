@@ -15,6 +15,7 @@ import {
   matchAwardToPlan,
   pickedBy,
   planAward,
+  replaceProblem,
   repoLabel,
   resolvePicks,
   splitPrize,
@@ -402,6 +403,7 @@ const USDC_T = { symbol: 'USDC', decimals: 6 };
 
 test('createReply: title, pool, split, winners, formatted deadline, fund link, next step', () => {
   const r = createReply({
+    ref: '0x' + 'a'.repeat(64),
     title: 'Build on Acme',
     poolUnits: 100_000_000n,
     token: USDC_T,
@@ -416,6 +418,7 @@ test('createReply: title, pool, split, winners, formatted deadline, fund link, n
     'Campaign drafted: "Build on Acme".\n' +
       "Pool: 100 USDC. Winners get 90 USDC; EarnKit's 10% (10 USDC) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n" +
       'Winners: 2 planned. Deadline: Oct 6, 2026, 06:51 UTC.\n' +
+      'To change anything, ask me to update it: the update replaces this draft (same wallet), and this link stops working.\n' +
       'Label for builders once funded: Sponsored · verified acme.dev.\n' +
       'Fund it here, from 0x70997970c51812dc3a010c7d01b50e0d17dc79c8: https://earnkit.com/fund/0xabc',
   );
@@ -781,6 +784,7 @@ test('the default criteria uses the cleaned sponsor name and passes the sanitize
 
 test('createReply: lists the defaults used so the sponsor can correct them', () => {
   const r = createReply({
+    ref: '0x' + 'a'.repeat(64),
     title: 'Agents',
     poolUnits: 500_000_000n,
     token: USDC,
@@ -793,9 +797,10 @@ test('createReply: lists the defaults used so the sponsor can correct them', () 
   });
   assert.match(
     r.show_to_sponsor,
-    /Defaults used: winners: 3; token: USDC\. To change any, create it again before funding\./,
+    /Defaults used: winners: 3; token: USDC\.\nTo change anything, ask me to update it: the update replaces this draft/,
   );
   const none = createReply({
+    ref: '0x' + 'a'.repeat(64),
     title: 'Agents',
     poolUnits: 500_000_000n,
     token: USDC,
@@ -988,4 +993,90 @@ test('pickedBy: the default reason is cleaned; an unusable name falls back', () 
   assert.equal(pickedBy('Acme'), 'Picked by Acme');
   assert.equal(pickedBy('Acme‮Labs'), 'Picked by AcmeLabs');
   assert.equal(pickedBy('see https://evil.xyz'), 'Picked by the sponsor');
+});
+
+test('replaceProblem: only your own unfunded draft, with the same wallet', () => {
+  const W1 = '0x' + '1'.repeat(40);
+  const old = { installation_id: 7, state: 'draft', sponsor_wallet: W1 };
+  assert.equal(replaceProblem(old, 7, W1), null);
+  assert.equal(
+    replaceProblem(
+      { ...old, state: 'expired' },
+      7,
+      W1.toUpperCase().replace('0X', '0x'),
+    ),
+    null,
+  );
+  assert.match(replaceProblem(old, 8, W1)!, /created by another agent/);
+  assert.match(
+    replaceProblem({ ...old, state: 'replaced' }, 7, W1)!,
+    /already replaced/,
+  );
+  for (const state of ['live', 'awarded', 'refunded', 'taken_down'])
+    assert.match(
+      replaceProblem({ ...old, state }, 7, W1)!,
+      /only an unfunded draft can be replaced/,
+    );
+  assert.match(
+    replaceProblem({ ...old, state: 'taken_down' }, 7, W1)!,
+    /is taken down;/,
+  );
+  assert.match(
+    replaceProblem(old, 7, '0x' + '2'.repeat(40))!,
+    /keeps the bound wallet/,
+  );
+  assert.match(
+    replaceProblem({ ...old, sponsor_wallet: null }, 7, W1)!,
+    /predates wallet binding/,
+  );
+});
+
+test('createReply: a replacement names the old draft; next_step says how to replace', () => {
+  const r = createReply({
+    ref: '0x' + 'b'.repeat(64),
+    title: 'Agents v2',
+    poolUnits: 500_000_000n,
+    token: USDC,
+    winners: 3,
+    endsAt: days(14),
+    fundUrl: 'https://earnkit.com/fund/0xb',
+    sponsorWallet: W.toLowerCase(),
+    identity: { verified: false, host: null },
+    replacesTitle: 'Agents',
+  });
+  assert.match(
+    r.show_to_sponsor,
+    /^Campaign drafted: "Agents v2"\.\nReplaces "Agents"; its old link no longer works\.\n/,
+  );
+  assert.match(
+    r.next_step,
+    new RegExp(`replaces=0x${'b'.repeat(64)} \\(same sponsor_wallet\\)`),
+  );
+  assert.match(r.next_step, /don't count toward the 5 creates a day/);
+});
+
+test('statusReply: a replaced draft points at the newer one; a stray deposit is named', () => {
+  const r = statusReply(
+    facts({
+      state: 'replaced',
+      replacedByUrl: 'https://earnkit.com/fund/0xnew',
+    }),
+  );
+  assert.equal(
+    r.show_to_sponsor,
+    '"Acme" was replaced by a newer draft; fund that one at https://earnkit.com/fund/0xnew.',
+  );
+  assert.equal(r.next_step, undefined);
+  const stray = statusReply(
+    facts({
+      state: 'replaced',
+      replacedByUrl: null,
+      fundingProblem: 'a deposit was found.',
+    }),
+  );
+  assert.equal(
+    stray.show_to_sponsor,
+    '"Acme" was replaced by a newer draft. A deposit was found.',
+  );
+  assert.equal(stray.next_step, 'Contact EarnKit to refund that deposit.');
 });
