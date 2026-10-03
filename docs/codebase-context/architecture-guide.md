@@ -139,7 +139,11 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   ("try again in a minute"). The oracle is injectable (`setSanctionsOracle`) for tests.
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window
   (Blockscout, paced + retried; throttling throws, never reads as empty) whose nonce at the start
-  block was > 0. Rank is computed on read (score, then earlier entry). `pnpm campaign
+  block was > 0. An ended window is read from its last block back (Blockscout's `block_number`
+  keyset cursor), up to 500 pages (25,000 txs) per contract; a capped read is stored as
+  `projects.score_partial` and named in the sponsor's `scores_note`. Sponsor status rescoring
+  (`needsScore`) refreshes a score older than 6 h until `ends_at`; the first score taken after
+  the end is final (frozen), and one status call starts no new score after 20 s. Rank is computed on read (score, then earlier entry). `pnpm campaign
 payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in campaigns.ts
   branch on `kind` instead). `pnpm campaign payout` runs locally only, refuses before the
   deadline, below min_score, or if already paid, and records prize_tx + prize_amount;
@@ -188,7 +192,8 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   body; the pages poll it every 3 s for up to 2 minutes after sending) and `pnpm campaign sync`.
   Chain reads are throttled: a ref is read at most once per 15 s (`chain_checks`, claimed
   atomically so it holds across instances; checks in between reuse the stored result; the CLI
-  passes `fresh`), `/check` allows 60 requests per IP per minute (`rate-limit.ts`), and the
+  passes `fresh`), `/check` allows 60 requests per IP per minute and sponsor `status` 60 per
+  installation per minute (`rate-limit.ts`), and the
   `Awarded` log search goes newest-first, at most 6 `getLogs` chunks per check, resuming from
   `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
   `/fund` and `/award` show their action only while the connected wallet is the bound wallet
@@ -273,3 +278,25 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   theme is stored in `campaign.what_to_build` (legacy rows: `description`) for the campaign page.
   `SAFETY_LINES` go in the server instructions and the descriptions of list_programs,
   get_program, record_submission and sponsor_campaign. The scheduled-check offer is read-only.
+
+## Abuse limits and response headers (v2.2 §5)
+
+- **Rate limits** live in one place, `lib/earnkit/rate-limit.ts` (`LIMITS`, `enforce`), backed by
+  Postgres `rate_windows` so they hold across instances: sponsor create 5/day and
+  record_submission 20/day per installation; at most 3 entries per installation per campaign
+  (counted in `recordSubmission` under the campaign's advisory lock); OAuth client registration
+  20/hour per IP; GitHub matching 30/hour per installation (when refused, list_programs still
+  answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
+  `RateLimitError` into a readable error; HTTP routes answer 429 with `Retry-After`. The client IP
+  is the rightmost `x-forwarded-for` entry (the one our proxy appended).
+- **Response headers** (`next.config.ts`): every response gets `X-Frame-Options: DENY`,
+  `Content-Security-Policy: frame-ancestors 'none'`, `Referrer-Policy:
+strict-origin-when-cross-origin` and `X-Content-Type-Options: nosniff`. Config headers replace
+  a route's own, so the token image route's stricter CSP is repeated there as a later rule. There
+  is no `script-src` policy: Next's inline bootstrap/RSC scripts and the JSON-LD block would need
+  per-request nonces (a `proxy.ts` that sets them, and dynamic rendering).
+- **Public origin:** OAuth discovery and `WWW-Authenticate` use `EARNKIT_URL`; in production a
+  missing `EARNKIT_URL` is an error, never a fallback to the request Host.
+- **GitHub matching cache:** repo facts (detected chains; commits since each program's start) are
+  cached for an hour per (repo, `pushed_at`) in `github_repo_facts`; a new push is a new key, and
+  incomplete reads (a failed tree, file or commits call) aren't cached.

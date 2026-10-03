@@ -105,11 +105,22 @@ apps/frontend/
                                (24 h pass, 1 h failure): verifySponsor, domainCheck (create/status),
                                sponsorIdentity (funded campaigns only; pages, campaign sync),
                                cachedIdentities (cache only; list_programs, get_program), trackRecord
-    rate-limit.ts(+test)       minimal Postgres fixed-window counter (rate_windows) + clientIp
-                               (rightmost x-forwarded-for); /check allows 60 per IP per minute
+    rate-limit.ts(+test)       Postgres fixed-window counter (rate_windows; atomic upsert) + clientIp
+                               (rightmost x-forwarded-for). LIMITS (v2.2 §5): sponsor create 5/day
+                               and record_submission 20/day per installation, OAuth register
+                               20/hour per IP, GitHub matching (list_programs with a user/repos,
+                               get_program's repo check) 30/hour per installation, chain checks
+                               60/min (/check per IP, sponsor status per installation).
+                               enforce() throws RateLimitError ("… Try again in 18 minutes.");
+                               routes answer 429 + Retry-After. ENTRIES_PER_CAMPAIGN = 3
+                               (recordSubmission counts under the campaign's entry lock)
+    repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
+                               start) in github_repo_facts, 1 h per (repo, pushed_at)
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on,
                                last payout wallet)
-    oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata
+    oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata;
+                               publicOrigin = EARNKIT_URL (production throws without it; no Host
+                               fallback)
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas
     present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
@@ -119,7 +130,8 @@ apps/frontend/
                                last in "Also open"
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs + get_program's eligibility check
-                               (public GitHub reads, GITHUB_TOKEN)
+                               (public GitHub reads, GITHUB_TOKEN; complete reads cached via
+                               repo-cache.ts)
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
                                includes sponsor_campaign (create/status/award)
@@ -153,7 +165,8 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
-                               projects.repo_key + its partial unique index, sponsor_verifications)
+                               projects.repo_key + its partial unique index, sponsor_verifications,
+                               rate_windows, github_repo_facts, projects.score_partial)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
