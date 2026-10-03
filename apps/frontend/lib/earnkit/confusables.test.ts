@@ -224,3 +224,42 @@ test('round 4: accented names decompose to plain letters and pass; whole-word ot
     assert.equal(plainLettersProblem(ok, 'title'), null, ok);
   }
 });
+
+test('round 5: common European letters pass the plain-letters rule but still map in the skeleton', () => {
+  for (const ok of [
+    'Straße',
+    'København',
+    'Łódź Labs',
+    'Æsir DAO',
+    'Øresund Builders',
+    'Þórr Ðóttir Ħal Ŋaa ẞIG',
+  ]) {
+    assert.equal(plainLettersProblem(ok, 'sponsor_name'), null, ok);
+    assert.equal(plainLettersProblem(ok, 'title'), null, ok);
+    assert.deepEqual(reservedBrands(ok), [], ok);
+  }
+  const cases: [string, string][] = [
+    ['Straße', 'strasse'],
+    ['Æsir', 'aesir'],
+    ['Œuvre', 'oeuvre'],
+    ['Þing', 'thing'],
+    ['Ħub', 'hub'],
+    ['Ŋana', 'nana'],
+  ];
+  for (const [s, plain] of cases) assert.equal(skeleton(s), skeleton(plain), s);
+  // Allowed letters, but the brand check still refuses them.
+  const brands: [string, string][] = [
+    ['Mønad', 'monad'],
+    ['Circłe', 'circle'],
+    ['Robinhøød', 'robinhood'],
+    ['Cøinbase', 'coinbase'],
+    ['Monađ', 'monad'],
+    ['Robinħood', 'robinhood'],
+    ['Earnkıt', 'earnkit'],
+  ];
+  for (const [n, brand] of brands)
+    assert.deepEqual(reservedBrands(n), [brand], n);
+  // Any other non-ASCII letter mixed into an ASCII word stays refused (ƀ next to the allowed ħ).
+  assert.ok(plainLettersProblem('Roƀinħood', 'sponsor_name'));
+  assert.ok(plainLettersProblem('Mɵnad', 'sponsor_name'));
+});

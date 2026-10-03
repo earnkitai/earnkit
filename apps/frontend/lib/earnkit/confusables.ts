@@ -33,6 +33,27 @@ const EXTRA = new Map<string, string>();
 for (const [chars, latin] of SUPPLEMENT)
   for (const c of chars) EXTRA.set(c, latin);
 
+/**
+ * Common European letters that don't decompose under NFKD, and their plain spelling (lowercase;
+ * looked up first). specialLetterWords allows them next to ASCII letters, which is safe only
+ * because the skeleton maps every one of them, so "Mønad" and "Circłe" still read as brands.
+ */
+const EUROPEAN = new Map([
+  ['ß', 'ss'],
+  ['ø', 'o'],
+  ['æ', 'ae'],
+  ['œ', 'oe'],
+  ['ł', 'l'],
+  ['đ', 'd'],
+  ['þ', 'th'],
+  ['ð', 'd'],
+  ['ı', 'i'],
+  ['ħ', 'h'],
+  ['ŋ', 'n'],
+]);
+// ẞ Ø Æ Œ Ł Đ Þ Ð Ħ Ŋ lowercase into the map above.
+const EUROPEAN_LETTERS = /[ßẞøØæÆœŒłŁđĐþÞðÐıħĦŋŊ]/gu;
+
 /** Negative circled/squared letters and regional indicators: emoji-like, no decomposition. */
 const ENCLOSED: [number, number][] = [
   [0x1f150, 0x1f169], // negative circled A-Z
@@ -43,6 +64,8 @@ const ENCLOSED: [number, number][] = [
 /** One lowercased character -> ASCII, or itself. */
 function latinOf(c: string): string {
   if (c < '\x80') return c;
+  const european = EUROPEAN.get(c);
+  if (european) return european;
   const cp = c.codePointAt(0)!;
   for (const [lo, hi] of ENCLOSED)
     if (cp >= lo && cp <= hi) return String.fromCharCode(97 + cp - lo);
@@ -89,13 +112,18 @@ export function mixedScriptWords(name: string) {
 
 /**
  * Words (runs of letters and digits, after NFKD and dropping marks) that mix ASCII letters with
- * any other letter: "Roƀinħood", "Mɵnad", "Bаse". "Café" (e + mark) and all-Cyrillic words are
- * not. Pure; exported for tests.
+ * any other letter: "Roƀinhood" (ƀ), "Mɵnad", "Bаse". "Café" (e + mark), all-Cyrillic words and the
+ * common European letters in EUROPEAN ("Straße", "København", "Łódź") are not. Pure; exported for
+ * tests.
  */
 export function specialLetterWords(s: string) {
   return s
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => /[A-Za-z]/.test(w) && /[^\x00-\x7f]/.test(w));
+    .filter(
+      (w) =>
+        /[A-Za-z]/.test(w) &&
+        /[^\x00-\x7f]/.test(w.replace(EUROPEAN_LETTERS, '')),
+    );
 }

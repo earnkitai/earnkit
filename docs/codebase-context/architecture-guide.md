@@ -204,7 +204,8 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   "B.A.S.E") is refused at create unless the verified host is that brand's official domain (apex or www). A
   name or title with a word mixing plain ASCII letters and any other letter after NFKD and
   dropping marks ("Mɵnad", "Bаse") is refused outright ("Use plain letters in names and titles");
-  accented words ("Café", "Zürich") and whole words in another script pass. Unverified sponsor campaigns are listed but are
+  accented words ("Café", "Zürich"), common European letters the skeleton maps (ß ø æ œ ł đ þ ð
+  ı ħ ŋ: "Straße", "Łódź") and whole words in another script pass. Unverified sponsor campaigns are listed but are
   never the "Fastest" headline or the closing offer (`present.ts`), and sort after curated
   programs in "Also open"; the "Since you last checked" line names only curated or verified
   programs and counts new unverified ones ("2 new sponsored campaigns (unverified)"). The track
