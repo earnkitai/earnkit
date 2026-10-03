@@ -19,7 +19,9 @@ export async function GET(
       'Cache-Control': 'public, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
       // Types are allowlisted and byte-checked on upload (decodeImage); this is a second guard.
-      'Content-Security-Policy': "default-src 'none'; sandbox",
+      // Also set in next.config.ts (config headers replace a route's own).
+      'Content-Security-Policy':
+        "default-src 'none'; sandbox; frame-ancestors 'none'",
     },
   });
 }

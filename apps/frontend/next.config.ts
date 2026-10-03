@@ -12,6 +12,9 @@ export const SECURITY_HEADERS = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
 ];
 
+/** Uploaded token images: nothing loads or runs, even if one is opened directly. */
+export const IMAGE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -24,7 +27,15 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
-    return [{ source: '/:path*', headers: SECURITY_HEADERS }];
+    return [
+      { source: '/:path*', headers: SECURITY_HEADERS },
+      // Config headers replace a route's own: keep the token image's stricter policy (a later
+      // rule wins for the same header).
+      {
+        source: '/api/projects/:id/image',
+        headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
+      },
+    ];
   },
 };
 
