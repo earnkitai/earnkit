@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   awardSearchFrom,
@@ -291,12 +291,12 @@ test('scoreNotes: names capped entries and pending refreshes; nothing when all i
   assert.match(scoreNotes([], 'busy')!, /^Scoring in progress/);
 });
 
-// Against the local database when configured: two passes for one campaign never overlap.
+// Against the local database when configured.
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
 test(
-  'withScoringLock: a second concurrent pass is busy',
-  {
-    skip: !process.env.DATABASE_URL && 'no DATABASE_URL',
-  },
+  'withScoringLock: a second concurrent pass for one campaign is busy; the lease frees after',
+  dbTest,
   async () => {
     const id = `lock-test-${process.pid}-${Date.now()}`;
     let release!: () => void;
@@ -316,6 +316,44 @@ test(
       await withScoringLock(id, async () => 'done' as const),
       'done',
     );
-    await sql().end();
   },
 );
+
+test(
+  'withScoringLock: 8 campaigns scoring at once, each writing mid-pass, all finish (pool of 5)',
+  dbTest,
+  async () => {
+    const ids = Array.from(
+      { length: 8 },
+      (_, i) => `pool-test-${process.pid}-${Date.now()}-${i}`,
+    );
+    const passes = Promise.all(
+      ids.map((id) =>
+        withScoringLock(id, async () => {
+          // A pass: slow network reads with no connection held, then a write.
+          await new Promise((r) => setTimeout(r, 200));
+          await sql()`SELECT pg_sleep(0.05)`;
+          await new Promise((r) => setTimeout(r, 100));
+          const [row] = await sql()<{ n: number }[]>`SELECT 1 AS n`;
+          return row.n;
+        }),
+      ),
+    );
+    const timeout = new Promise<'hung'>((r) =>
+      setTimeout(() => r('hung'), 10_000).unref(),
+    );
+    const result = await Promise.race([passes, timeout]);
+    assert.notEqual(result, 'hung', 'every pass completes');
+    assert.deepEqual(
+      result,
+      ids.map(() => 1),
+    );
+    const [{ left }] = await sql()<{ left: number }[]>`
+    SELECT count(*)::int AS left FROM scoring_leases WHERE program_id = ANY(${ids})`;
+    assert.equal(left, 0, 'every lease is released');
+  },
+);
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});

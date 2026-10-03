@@ -50,7 +50,11 @@ function sign(purpose: string, payload: object) {
 }
 
 function verify<T>(purpose: string, value: string): T | null {
-  const [body, sig] = value.split('.');
+  // Exactly body.sig: extra segments ("code.x") would otherwise verify and, as distinct
+  // strings, mint distinct tokens from one code.
+  const parts = value.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
   if (!body || !sig) return null;
   const expected = Buffer.from(mac(purpose, body));
   const given = Buffer.from(sig);

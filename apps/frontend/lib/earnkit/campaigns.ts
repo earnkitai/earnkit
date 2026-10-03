@@ -375,10 +375,28 @@ const baseRpc = createPublicClient({
   chain: base,
   transport: http(process.env.BASE_RPC_URL),
 });
+type BaseRpc = typeof baseRpc;
+
+/**
+ * A Base RPC client whose requests are aborted at `deadline` (epoch ms), so a scoring pass that
+ * runs out of time leaves nothing running in the background. Without a deadline, the shared one.
+ */
+export function baseRpcUntil(deadline?: number): BaseRpc {
+  if (deadline === undefined) return baseRpc;
+  const ms = Math.max(1, deadline - Date.now());
+  return createPublicClient({
+    chain: base,
+    transport: http(process.env.BASE_RPC_URL, {
+      timeout: ms,
+      retryCount: 0,
+      fetchOptions: { signal: AbortSignal.timeout(ms) },
+    }),
+  }) as BaseRpc;
+}
 
 /** The Base block at (or just before) `at`. Base makes exactly one block every 2 seconds. */
-export async function baseBlockAt(at: Date) {
-  const latest = await baseRpc.getBlock();
+export async function baseBlockAt(at: Date, rpc: BaseRpc = baseRpc) {
+  const latest = await rpc.getBlock();
   const secondsAgo = Number(latest.timestamp) - Math.floor(at.getTime() / 1000);
   return latest.number - BigInt(Math.max(0, Math.ceil(secondsAgo / 2)));
 }
@@ -387,8 +405,12 @@ export async function baseBlockAt(at: Date) {
  * True if the wallet had sent transactions before `blockBefore` (filters out wallets made for
  * the campaign). Reads the wallet's nonce at that block from Base's RPC; errors propagate.
  */
-export async function hadHistoryBefore(wallet: string, blockBefore: bigint) {
-  const nonce = await baseRpc.getTransactionCount({
+export async function hadHistoryBefore(
+  wallet: string,
+  blockBefore: bigint,
+  rpc: BaseRpc = baseRpc,
+) {
+  const nonce = await rpc.getTransactionCount({
     address: wallet as `0x${string}`,
     blockNumber: blockBefore,
   });
@@ -414,9 +436,15 @@ export async function scoreEntry(
   } = {},
 ) {
   const { deadline } = opts;
+  // RPC reads are aborted at the deadline too (not just raced), so nothing runs on after it.
+  const rpc = baseRpcUntil(deadline);
   const blockAt = (at: Date) =>
-    beforeDeadline((opts.blockAt ?? baseBlockAt)(at), deadline);
-  const hadHistory = opts.hadHistory ?? hadHistoryBefore;
+    beforeDeadline(
+      opts.blockAt ? opts.blockAt(at) : baseBlockAt(at, rpc),
+      deadline,
+    );
+  const hadHistory =
+    opts.hadHistory ?? ((w: string, b: bigint) => hadHistoryBefore(w, b, rpc));
   const all = new Set<string>();
   const counted: string[] = [];
   let complete = true;
@@ -441,7 +469,11 @@ export async function scoreEntry(
         counted.push(w);
     }
   } catch (err) {
-    if (!(err instanceof ScoreDeadline)) throw err;
+    // An RPC aborted at the deadline throws its own error: past the deadline, any error is it.
+    const timedOut =
+      err instanceof ScoreDeadline ||
+      (deadline !== undefined && Date.now() >= deadline);
+    if (!timedOut) throw err;
     return {
       score: counted.length,
       wallets: counted,

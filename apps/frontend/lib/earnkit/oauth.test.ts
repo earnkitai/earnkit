@@ -144,3 +144,43 @@ test('originFor: EARNKIT_URL wins; production never falls back to the request Ho
     'http://localhost:3000',
   );
 });
+
+test('a code or client id with extra segments is refused (no extra tokens from one code)', () => {
+  const { client_id } = registerClient({
+    redirect_uris: ['https://app.example/cb'],
+  });
+  const back = authorize(
+    new URLSearchParams({
+      client_id,
+      redirect_uri: 'https://app.example/cb',
+      response_type: 'code',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+    }),
+  );
+  const code = new URL(back).searchParams.get('code')!;
+  const exchange = (c: string) =>
+    exchangeCode(
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: c,
+        code_verifier: verifier,
+      }),
+    );
+  for (const forged of [`${code}.x`, `${code}.y`, `${code}.`])
+    assert.throws(() => exchange(forged), OAuthError);
+  assert.match(exchange(code), /^ek_/);
+  assert.throws(
+    () =>
+      authorize(
+        new URLSearchParams({
+          client_id: `${client_id}.x`,
+          redirect_uri: 'https://app.example/cb',
+          response_type: 'code',
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+        }),
+      ),
+    OAuthError,
+  );
+});

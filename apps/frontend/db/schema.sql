@@ -169,6 +169,13 @@ CREATE TABLE IF NOT EXISTS rate_windows (
   PRIMARY KEY (key, window_start)
 );
 
+-- v2.2 §5: one sponsor-status scoring pass per campaign at a time (lib/earnkit/sponsor.ts
+-- withScoringLock). A lease, claimed and released by single statements; expires on its own.
+CREATE TABLE IF NOT EXISTS scoring_leases (
+  program_id      text PRIMARY KEY,
+  until           timestamptz NOT NULL
+);
+
 -- v2.2 §5: GitHub repo facts for matching, cached for an hour per (repo, pushed_at)
 -- (lib/earnkit/repo-cache.ts). commits_since maps an ISO window start to "has commits since".
 CREATE TABLE IF NOT EXISTS github_repo_facts (

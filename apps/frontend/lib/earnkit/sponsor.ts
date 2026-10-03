@@ -591,23 +591,36 @@ async function entriesOf(
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
 
+/** How long a scoring claim lasts: past the pass's budget, so a crashed pass frees it soon. */
+const SCORING_LEASE_MS = 60_000;
+
 /**
- * Runs `fn` while holding this campaign's scoring lock (a transaction-scoped advisory lock), so
- * concurrent status calls never score the same entries at once. 'busy' when another call holds it.
+ * Runs `fn` holding this campaign's scoring lease (a row in scoring_leases, claimed and released
+ * by single statements), so concurrent status calls never score the same entries at once. No
+ * connection is held while `fn` runs its network reads; its writes are single statements.
+ * 'busy' when another call holds an unexpired lease.
  */
 export async function withScoringLock<T>(
   programId: string,
   fn: () => Promise<T>,
 ): Promise<T | 'busy'> {
-  return sql().begin(async (tx) => {
-    const [{ locked }] = await tx<{ locked: boolean }[]>`
-      SELECT pg_try_advisory_xact_lock(hashtext(${'score:' + programId})) AS locked`;
-    return locked ? fn() : ('busy' as const);
-  }) as Promise<T | 'busy'>;
+  const until = new Date(Date.now() + SCORING_LEASE_MS);
+  const [claimed] = await sql()`
+    INSERT INTO scoring_leases (program_id, until) VALUES (${programId}, ${until})
+    ON CONFLICT (program_id) DO UPDATE SET until = EXCLUDED.until
+      WHERE scoring_leases.until < now()
+    RETURNING program_id`;
+  if (!claimed) return 'busy';
+  try {
+    return await fn();
+  } finally {
+    await sql()`DELETE FROM scoring_leases WHERE program_id = ${programId} AND until = ${until}`;
+  }
 }
 
 /**
- * Re-scores entries with Base contracts (chain 8453 only), one pass at a time per campaign and
+ * Re-scores entries with Base contracts (chain 8453 only), one pass at a time per campaign (a
+ * lease, not a held transaction: no pool connection waits on the network reads) and
  * within SCORE_BUDGET_MS: every read gets the deadline. Scores taken before the end (or within
  * FINAL_GRACE_MS after it) are provisional and refreshed when over 6 h old; the first full-window
  * score taken after the grace period is final. A read cut short by the deadline is saved only
