@@ -125,10 +125,11 @@ export async function createSponsorDraft(
     { sponsor_url: d.sponsor_url ?? null, sponsor_wallet },
     { retryFailureAfterMs: 0 },
   );
-  const reserved = reservedNameProblem(
-    d.sponsor_name,
-    identity.verified ? identity.host : null,
-  );
+  const verifiedHost = identity.verified ? identity.host : null;
+  // The title is shown as prominently as the name, so it can't carry a brand either.
+  const reserved =
+    reservedNameProblem(d.sponsor_name, verifiedHost) ??
+    reservedNameProblem(d.title, verifiedHost, 'title');
   if (reserved)
     throw new SponsorError(
       identity.note && identity.host

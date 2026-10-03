@@ -146,6 +146,16 @@ test('reservedNameProblem: refused unless verified on the brand domain', () => {
   assert.ok(reservedNameProblem('Base x Circle', 'base.org'));
   // Not reserved: any sponsor, verified or not.
   assert.equal(reservedNameProblem('Acme Labs', null), null);
+  // The title too (re-review): "Official Bаse Grant" under a harmless sponsor name.
+  assert.match(
+    reservedNameProblem('Official Bɑse Grant', null, 'title')!,
+    /^title: "Official Bɑse Grant" uses the reserved name Base\..*choose another title/,
+  );
+  assert.equal(
+    reservedNameProblem('Official Base Grant', 'base.org', 'title'),
+    null,
+  );
+  assert.equal(reservedNameProblem('Best x402 service', null, 'title'), null);
 });
 
 const row = (r: Partial<TrackRow> = {}): TrackRow => ({

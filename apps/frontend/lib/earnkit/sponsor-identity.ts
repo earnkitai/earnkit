@@ -109,11 +109,12 @@ export function reservedBrands(name: string): Brand[] {
 
 /**
  * Why `name` can't be used, or null: it uses a reserved brand and the sponsor isn't verified on
- * that brand's own domain. Pure; exported for tests.
+ * that brand's own domain. Checked on the sponsor name and the title. Pure; exported for tests.
  */
 export function reservedNameProblem(
   name: string,
   verifiedHost: string | null,
+  field: 'sponsor_name' | 'title' = 'sponsor_name',
 ): string | null {
   for (const b of reservedBrands(name)) {
     const { name: brand, domains } = RESERVED_BRANDS[b];
@@ -122,9 +123,9 @@ export function reservedNameProblem(
     const domain = domains[0];
     const apex = domains.filter((d) => !d.startsWith('www.'));
     return (
-      `sponsor_name: ${quoted(name)} uses the reserved name ${brand}. Only a sponsor verified on ` +
+      `${field}: ${quoted(name)} uses the reserved name ${brand}. Only a sponsor verified on ` +
       `${apex.join(' or ')} can use it (sponsor_url https://${domain}, with ` +
-      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another name: ` +
+      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another ${field === 'title' ? 'title (the chains field already says where to build)' : 'name'}: ` +
       'names are matched as whole words after normalizing look-alike letters, and words that join ' +
       'into a brand count too (e.g. "Coin Base").'
     );
