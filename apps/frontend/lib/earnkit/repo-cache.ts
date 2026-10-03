@@ -21,6 +21,7 @@ export const isFresh = (fetchedAt: Date, now: Date) =>
 
 /** The cached facts for this repo version, if fetched within the hour. Errors read as a miss. */
 export async function loadRepoFacts(fullName: string, pushedAt: string) {
+  if (!pushedAt) return null;
   try {
     const [row] = await sql()<CachedFacts[]>`
       SELECT chains, commits_since, fetched_at FROM github_repo_facts
@@ -43,6 +44,7 @@ export async function saveRepoFacts(
   fetchedAt = new Date(),
 ) {
   const key = fullName.toLowerCase();
+  if (!pushedAt) return; // an empty repo has no pushed_at: nothing to key on, so no cache
   try {
     await sql()`
       INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since, fetched_at)

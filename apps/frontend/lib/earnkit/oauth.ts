@@ -234,7 +234,8 @@ export function originFor(
 ) {
   const configured = env.EARNKIT_URL?.trim();
   if (configured) return configured.replace(/\/$/, '');
-  if (env.NODE_ENV === 'production')
+  // Only local dev and tests may fall back: an unset or unusual NODE_ENV (e.g. "staging") throws.
+  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test')
     throw new Error(
       'EARNKIT_URL is not set. Production needs it (e.g. https://earnkit.com) for OAuth discovery; the request Host is never used.',
     );

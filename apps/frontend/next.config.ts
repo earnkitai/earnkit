@@ -5,11 +5,20 @@ import type { NextConfig } from 'next';
  * to sign), and other sites see only our origin as the referrer. The CSP carries only
  * frame-ancestors: a script-src policy would need per-request nonces for Next's inline scripts.
  */
-export const SECURITY_HEADERS = [
+export const securityHeaders = (production: boolean) => [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
+  // HTTPS only from the first visit on (no SSL-stripping of /fund); never pins local http.
+  ...(production
+    ? [
+        {
+          key: 'Strict-Transport-Security',
+          value: 'max-age=31536000; includeSubDomains',
+        },
+      ]
+    : []),
 ];
 
 /** Uploaded token images: nothing loads or runs, even if one is opened directly. */
@@ -28,7 +37,10 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      { source: '/:path*', headers: SECURITY_HEADERS },
+      {
+        source: '/:path*',
+        headers: securityHeaders(process.env.NODE_ENV === 'production'),
+      },
       // Config headers replace a route's own: keep the token image's stricter policy (a later
       // rule wins for the same header).
       {

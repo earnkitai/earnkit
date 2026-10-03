@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import nextConfig, { IMAGE_CSP, SECURITY_HEADERS } from '../../next.config';
+import nextConfig, { IMAGE_CSP, securityHeaders } from '../../next.config';
 
 test('every response gets the anti-framing and referrer headers', async () => {
   const rules = await nextConfig.headers!();
@@ -10,7 +10,10 @@ test('every response gets the anti-framing and referrer headers', async () => {
   assert.equal(h['X-Frame-Options'], 'DENY');
   assert.match(h['Content-Security-Policy'], /frame-ancestors 'none'/);
   assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
-  assert.equal(all.headers, SECURITY_HEADERS);
+  assert.deepEqual(
+    all.headers,
+    securityHeaders(process.env.NODE_ENV === 'production'),
+  );
 });
 
 test("the token image keeps its sandbox CSP (config headers replace a route's own)", async () => {
@@ -25,4 +28,13 @@ test("the token image keeps its sandbox CSP (config headers replace a route's ow
   ]);
   assert.match(IMAGE_CSP, /default-src 'none'; sandbox/);
   assert.match(IMAGE_CSP, /frame-ancestors 'none'/);
+});
+
+test('HSTS in production only (local http is never pinned)', () => {
+  const hsts = (production: boolean) =>
+    securityHeaders(production).find(
+      (h) => h.key === 'Strict-Transport-Security',
+    )?.value;
+  assert.equal(hsts(true), 'max-age=31536000; includeSubDomains');
+  assert.equal(hsts(false), undefined);
 });

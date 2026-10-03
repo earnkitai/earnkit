@@ -134,6 +134,11 @@ test('originFor: EARNKIT_URL wins; production never falls back to the request Ho
     () => originFor({ NODE_ENV: 'production', EARNKIT_URL: ' ' }, url),
     /EARNKIT_URL is not set/,
   );
+  assert.throws(
+    () => originFor({ NODE_ENV: 'staging' }, url),
+    /EARNKIT_URL is not set/,
+  );
+  assert.throws(() => originFor({}, url), /EARNKIT_URL is not set/);
   assert.equal(
     originFor({ NODE_ENV: 'development' }, 'http://localhost:3000/mcp'),
     'http://localhost:3000',
