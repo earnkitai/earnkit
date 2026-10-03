@@ -314,22 +314,26 @@ export const LOG_CHUNKS_PER_CHECK = 8;
 // requested blocks is 1000", "ranges over 10000 blocks are not supported"). "Too many requests"
 // is a rate limit, not a range limit.
 const RANGE_WORDS =
-  /\branges?\b|limited to|more than [^\n]{0,40}results|too many(?! requests)|requested blocks/i;
+  /\branges?\b|limited to (?:a )?[\d,]+k? ?(?:block|range)|more than [^\n]{0,40}results|too many (?:blocks|results|logs)|requested blocks/i;
+// Rate wording wins over range wording ("limited to 100 requests per second", "daily request
+// limit exceeded; upgrade to increase range").
 const RATE_WORDS =
-  /rate.?limit|too many requests|request (count|rate)|exceeded/i;
+  /rate.?limit|too many (?:requests|concurrent|connections)|requests? (?:count|rate|limit)|requests? per (?:second|minute|hour|day)|per (?:second|minute)|\d ?(?:rps|req\/s)\b/i;
 
 /**
- * What a failed `getLogs` means: `range` when the RPC refuses the range as too large (only when
- * its message says so), with the largest size it names (null: none); `rate` for a rate limit
- * (HTTP 429, or -32005/-32614/-32016 or rate wording without range wording); null for anything
- * else. Walks viem's `cause` chain; each text is cut to 2 KB first (a proxy's HTML page can be
+ * What a failed `getLogs` means: `rate` for HTTP 429 or rate wording ("limited to 100 requests
+ * per second"); else `range` when the message says the range or result set is too large (or a
+ * bare HTTP 413), with the largest size it names (null: none); else `rate` for -32005/-32614/
+ * -32016; null for anything else. Walks viem's `cause` chain; each text is cut to 2 KB first (a proxy's HTML page can be
  * large). Pure; exported for tests.
  */
 export function logError(
   err: unknown,
 ): { kind: 'range'; limit: bigint | null } | { kind: 'rate' } | null {
   let range = false;
+  // A 429 or rate wording beats range wording; a bare -32005/-32614/-32016 doesn't.
   let rate = false;
+  let rateCode = false;
   let limit: bigint | null = null;
   for (
     let e = err as Record<string, unknown> | undefined, i = 0;
@@ -340,15 +344,10 @@ export function logError(
       .filter((t) => typeof t === 'string')
       .map((t) => (t as string).slice(0, 2048))
       .join(' ');
-    if (RANGE_WORDS.test(text)) range = true;
-    if (
-      e.status === 429 ||
-      e.code === -32005 ||
-      e.code === -32614 ||
-      e.code === -32016 ||
-      RATE_WORDS.test(text)
-    )
-      rate = true;
+    if (RANGE_WORDS.test(text) || e.status === 413) range = true;
+    if (e.status === 429 || RATE_WORDS.test(text)) rate = true;
+    if (e.code === -32005 || e.code === -32614 || e.code === -32016)
+      rateCode = true;
     if (limit === null) {
       const pair = text.match(/\[\s*(0x[0-9a-f]+)\s*,\s*(0x[0-9a-f]+)\s*\]/i);
       const n =
@@ -366,8 +365,9 @@ export function logError(
       if (limit !== null && limit <= 0n) limit = null;
     }
   }
+  if (rate) return { kind: 'rate' };
   if (range) return { kind: 'range', limit };
-  return rate ? { kind: 'rate' } : null;
+  return rateCode ? { kind: 'rate' } : null;
 }
 
 /** Waits before retrying a rate-limited `getLogs` (then the check gives up). */

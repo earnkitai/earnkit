@@ -415,6 +415,24 @@ test('logError: a range limit only when the message says so; other -32005/-32614
     { message: 'rate limit reached' },
   ])
     assert.deepEqual(logError(e), { kind: 'rate' }, e.message);
+  // Fix round 2 (re-review N3): rate wording or a 429 beats range wording.
+  for (const e of [
+    { message: 'You are limited to 100 requests per second', status: 429 },
+    { message: 'You are limited to 100 requests per second' },
+    { message: 'limited to 25 requests per minute', code: -32005 },
+    { message: 'Too many concurrent requests', code: -32005 },
+    { message: 'too many connections' },
+    { message: 'daily request limit exceeded; upgrade to increase range' },
+  ])
+    assert.deepEqual(logError(e), { kind: 'rate' }, e.message);
+  // Re-review N4: a bare HTTP 413 is a range refusal with no named limit.
+  assert.deepEqual(
+    logError({ message: 'Request Entity Too Large', status: 413 }),
+    {
+      kind: 'range',
+      limit: null,
+    },
+  );
   assert.equal(logError(new Error('execution reverted')), null);
   assert.equal(logError({ message: 'nonce too low', code: -32000 }), null);
   // Through viem's cause chain.
