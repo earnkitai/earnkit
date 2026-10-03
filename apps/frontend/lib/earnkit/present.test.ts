@@ -175,6 +175,38 @@ test('since-last-check line and per-program flags', () => {
   assert.match(text, /- \*\*Urgent\*\* · s · closes in 1 day · long shot/);
 });
 
+test('review I4: "since you last checked" names only curated or verified items', () => {
+  const card = (id: string, extra: Partial<Card>): Card => ({
+    id,
+    title: `"${id}"`,
+    summary: 's',
+    tag: null,
+    each_time: [],
+    ...extra,
+  });
+  const list = [
+    card('Curated', { is_new: true }),
+    card('Verified Grant', { is_new: true, unverified_sponsor: false }),
+    card('Base Builder Grant — 9,000 USDC', {
+      is_new: true,
+      unverified_sponsor: true,
+    }),
+    card('Scam Two', { is_new: true, unverified_sponsor: true }),
+    card('Scam Closing', { closes_in_days: 0, unverified_sponsor: true }),
+  ];
+  const since = presentSinceLastCheck(list)!;
+  assert.equal(
+    since,
+    'Since you last checked: new: "Curated" · new: "Verified Grant" · 2 new sponsored campaigns (unverified)',
+  );
+  for (const t of ['Base Builder', 'Scam']) assert.ok(!since.includes(t), t);
+  assert.equal(
+    presentSinceLastCheck([list[3]]),
+    'Since you last checked: 1 new sponsored campaign (unverified)',
+  );
+  assert.equal(presentSinceLastCheck([list[4]]), null);
+});
+
 test('repos that only fit programs already shown are named in one line, not hidden', () => {
   const twin = (repo: string) => ({
     repo,

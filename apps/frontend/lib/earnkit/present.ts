@@ -35,16 +35,29 @@ export function closesInDays(endsAt: Date | null, now = new Date()) {
 const soon = (days: number) =>
   days === 0 ? 'closes today' : `closes in ${days} day${days === 1 ? '' : 's'}`;
 
-/** "Since you last checked" line ("Heads up" on a first check), or null when nothing to flag. */
+/**
+ * "Since you last checked" line ("Heads up" on a first check), or null when nothing to flag. Only
+ * curated and verified programs are named: this line opens the answer, so an unverified sponsor's
+ * title never gets it (review I4); new ones are counted instead, and closing ones are left to the list.
+ */
 export function presentSinceLastCheck(
   cards: Card[],
   firstCheck = false,
   news: string[] = [],
 ) {
+  const named = cards.filter((c) => !c.unverified_sponsor);
+  const unverifiedNew = cards.filter(
+    (c) => c.unverified_sponsor && c.is_new,
+  ).length;
   const parts = [
     ...news,
-    ...cards.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
-    ...cards
+    ...named.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
+    ...(unverifiedNew > 0
+      ? [
+          `${unverifiedNew} new sponsored campaign${unverifiedNew === 1 ? '' : 's'} (unverified)`,
+        ]
+      : []),
+    ...named
       .filter((c) => c.closes_in_days != null)
       .map((c) => `${c.title} ${soon(c.closes_in_days!)}`),
   ];
