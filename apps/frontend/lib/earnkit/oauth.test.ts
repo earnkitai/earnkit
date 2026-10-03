@@ -6,6 +6,7 @@ import {
   authorize,
   exchangeCode,
   isAllowedRedirectUri,
+  originFor,
   registerClient,
 } from './oauth';
 
@@ -114,4 +115,27 @@ test('redirect URI policy', () => {
   assert.ok(!isAllowedRedirectUri('javascript:alert(1)'));
   assert.ok(!isAllowedRedirectUri('https://x.com/cb#frag'));
   assert.throws(() => registerClient({ redirect_uris: [] }));
+});
+
+test('originFor: EARNKIT_URL wins; production never falls back to the request Host', () => {
+  const url = 'https://attacker.example/.well-known/x';
+  assert.equal(
+    originFor(
+      { NODE_ENV: 'production', EARNKIT_URL: 'https://earnkit.com/' },
+      url,
+    ),
+    'https://earnkit.com',
+  );
+  assert.throws(
+    () => originFor({ NODE_ENV: 'production' }, url),
+    /EARNKIT_URL is not set/,
+  );
+  assert.throws(
+    () => originFor({ NODE_ENV: 'production', EARNKIT_URL: ' ' }, url),
+    /EARNKIT_URL is not set/,
+  );
+  assert.equal(
+    originFor({ NODE_ENV: 'development' }, 'http://localhost:3000/mcp'),
+    'http://localhost:3000',
+  );
 });

@@ -223,6 +223,23 @@ export function protectedResourceMetadata(origin: string) {
   };
 }
 
-/** Public origin. Set EARNKIT_URL in production; behind a proxy request.url may not be it. */
+/**
+ * The public origin for OAuth discovery and WWW-Authenticate: EARNKIT_URL. Production requires it
+ * and never falls back to the request's Host, which a client controls (v2.2 §5); local dev may.
+ * Pure; exported for tests.
+ */
+export function originFor(
+  env: { NODE_ENV?: string; EARNKIT_URL?: string },
+  requestUrl: string,
+) {
+  const configured = env.EARNKIT_URL?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+  if (env.NODE_ENV === 'production')
+    throw new Error(
+      'EARNKIT_URL is not set. Production needs it (e.g. https://earnkit.com) for OAuth discovery; the request Host is never used.',
+    );
+  return new URL(requestUrl).origin;
+}
+
 export const publicOrigin = (request: Request) =>
-  (process.env.EARNKIT_URL ?? new URL(request.url).origin).replace(/\/$/, '');
+  originFor(process.env, request.url);
