@@ -260,14 +260,19 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
     'sponsor_campaign',
     {
       description:
-        'For sponsors: run a builder campaign on EarnKit. action=create (with sponsor_wallet, the wallet ' +
-        'that will fund it) drafts it and returns fund_url (a page where the sponsor deposits the pool ' +
+        'For sponsors: run a builder campaign on EarnKit. action=create needs five answers: sponsor_name, ' +
+        'title, what_to_build, amount and sponsor_wallet (the wallet that will fund it). Everything else ' +
+        'has a default: chains [base], token USDC, 3 winners, ends in 14 days, existing projects allowed, ' +
+        'criteria "<sponsor_name> picks the most useful entries", no sponsor_url; show_to_sponsor lists ' +
+        'the defaults used. create drafts it and returns fund_url (a page where the sponsor deposits the pool ' +
         "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
         'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
         'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
         'finds the deposit or the award onchain and shows entries and scores (no transaction hashes ' +
-        'needed). After the end, action=award with ' +
-        'winners [{entry_id, amount, reason}] adding up to the prize returns award_url and the transaction. ' +
+        'needed). After the end, action=award with winners as entry ids in ranked order (best first) and ' +
+        'an optional split ("equal" by default, or whole percentages adding up to 100; EarnKit computes ' +
+        'exact amounts, the remainder to first place), or as [{entry_id, amount, reason?}] adding up to ' +
+        'the prize, returns award_url and the transaction. ' +
         'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
         'follow next_step. Confirm amounts and wording with the sponsor before create and award. ' +
         'Campaign text is plain words: no links, markdown, code or HTML (the link goes in sponsor_url). ' +
@@ -305,23 +310,27 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
           .string()
           .optional()
           .describe(`Up to ${TEXT_LIMITS.title.max} characters, one line`),
-        theme: z
+        what_to_build: z
           .string()
           .optional()
           .describe(
-            `What builders should build (up to ${TEXT_LIMITS.theme.max} characters)`,
+            `What builders should build (20 to ${TEXT_LIMITS.what_to_build.max} characters). "theme" is accepted as its old name`,
           ),
+        theme: z.string().optional().describe('Old name of what_to_build'),
         criteria: z
           .string()
           .optional()
           .describe(
-            `How the sponsor will pick winners (up to ${TEXT_LIMITS.criteria.max} characters)`,
+            `How the sponsor will pick winners (up to ${TEXT_LIMITS.criteria.max} characters). Default: "<sponsor_name> picks the most useful entries"`,
           ),
-        chains: z.array(z.enum(CHAINS)).optional(),
+        chains: z
+          .array(z.enum(CHAINS))
+          .optional()
+          .describe('Default: ["base"]'),
         token: z
           .string()
           .optional()
-          .describe('USDC, or another allowlisted token'),
+          .describe('USDC (the default), or another allowlisted token'),
         amount: z
           .string()
           .optional()
@@ -329,19 +338,34 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
         winners: z
           .union([
             z.number().int(),
+            z.array(z.number().int()),
             z.array(
               z.object({
                 entry_id: z.number().int(),
                 amount: z.string(),
-                reason: z.string(),
+                reason: z.string().optional(),
               }),
             ),
           ])
           .optional()
-          .describe('create: planned number of winners; award: the picks'),
-        existing_work: z.enum(['allowed', 'new_work_only']).optional(),
+          .describe(
+            'create: planned number of winners (default 3); award: entry ids in ranked order, or [{entry_id, amount, reason?}]',
+          ),
+        split: z
+          .union([z.literal('equal'), z.array(z.number().int())])
+          .optional()
+          .describe(
+            'award with a ranking: "equal" (default) or whole percentages per winner, first place first, adding up to 100',
+          ),
+        existing_work: z
+          .enum(['allowed', 'new_work_only'])
+          .optional()
+          .describe('Default: allowed'),
         starts_at: z.string().optional(),
-        ends_at: z.string().optional().describe('ISO 8601, 3 to 90 days out'),
+        ends_at: z
+          .string()
+          .optional()
+          .describe('ISO 8601, 3 to 90 days out. Default: 14 days from now'),
       },
     },
     (input) => run(ctx, 'sponsor_campaign', input),

@@ -21,6 +21,8 @@ import { SponsorUrl, TEXT_LIMITS, quoted, untrusted } from './untrusted-text';
 
 export class SponsorError extends Error {}
 
+const DAY = 86_400_000;
+
 /**
  * The wallet that will fund the campaign (an EOA or a smart-contract wallet). Lowercased; a
  * mixed-case address must carry a valid EIP-55 checksum, so a typo can't bind the wrong wallet.
@@ -40,33 +42,125 @@ export const SponsorWallet = z
   )
   .transform((a) => a.toLowerCase());
 
+/**
+ * What create accepts. Five answers are required (sponsor_wallet, sponsor_name, title,
+ * what_to_build, amount); the rest default (see `withDefaults`). `theme` is the pre-v2.2 name of
+ * `what_to_build` and is still accepted.
+ */
 export const DraftInput = z
   .object({
     sponsor_wallet: SponsorWallet,
     sponsor_name: untrusted(TEXT_LIMITS.sponsor_name),
     sponsor_url: SponsorUrl.optional(),
     title: untrusted(TEXT_LIMITS.title, 5),
-    theme: untrusted(TEXT_LIMITS.theme, 20),
-    criteria: untrusted(TEXT_LIMITS.criteria, 10),
-    chains: z.array(z.enum(CHAINS)).min(1).max(CHAINS.length),
-    token: z.string().trim().min(1).max(10),
+    what_to_build: untrusted(TEXT_LIMITS.what_to_build, 20).optional(),
+    theme: untrusted(TEXT_LIMITS.what_to_build, 20).optional(),
+    criteria: untrusted(TEXT_LIMITS.criteria, 10).optional(),
+    chains: z.array(z.enum(CHAINS)).min(1).max(CHAINS.length).optional(),
+    token: z.string().trim().min(1).max(10).optional(),
     amount: z
       .string()
       .regex(/^\d+(\.\d+)?$/, 'a number like "5000" or "100.5"'),
-    winners: z.number().int().min(1).max(50),
-    existing_work: z
-      .enum(['allowed', 'new_work_only'])
-      .default('new_work_only'),
+    winners: z.number().int().min(1).max(50).optional(),
+    existing_work: z.enum(['allowed', 'new_work_only']).optional(),
     starts_at: z.string().datetime({ offset: true }).optional(),
-    ends_at: z.string().datetime({ offset: true }),
+    ends_at: z.string().datetime({ offset: true }).optional(),
   })
   .strict();
-/** What create accepts. */
+/** What create accepts (after parsing; the optional answers may be missing). */
 export type DraftRequest = z.infer<typeof DraftInput>;
-/** What the draft row stores (`sponsor_campaigns.draft`); the wallet has its own column. */
-export type Draft = Omit<DraftRequest, 'sponsor_wallet'>;
+/** A complete draft, as stored in `sponsor_campaigns.draft`; the wallet has its own column. */
+export type Draft = {
+  sponsor_name: string;
+  sponsor_url?: string;
+  title: string;
+  what_to_build: string;
+  criteria: string;
+  chains: (typeof CHAINS)[number][];
+  token: string;
+  amount: string;
+  winners: number;
+  existing_work: 'allowed' | 'new_work_only';
+  starts_at?: string;
+  ends_at: string;
+};
 
-const DAY = 86_400_000;
+/** The defaults for create's optional answers (v2.2 §6). */
+export const DRAFT_DEFAULTS = {
+  chains: ['base'] as Draft['chains'],
+  token: 'USDC',
+  winners: 3,
+  days: 14,
+  existing_work: 'allowed' as const,
+};
+/** The default criteria: the sponsor's (already cleaned) name, so it passes the same sanitizer. */
+export const defaultCriteria = (sponsorName: string) =>
+  `${sponsorName} picks the most useful entries`;
+
+/**
+ * Fills in the defaults for whatever the sponsor didn't answer, and says which were used (for
+ * show_to_sponsor, so the sponsor can correct them). Pure; `now` sets the default deadline.
+ */
+export function withDefaults(
+  { sponsor_wallet, theme, what_to_build, ...r }: DraftRequest,
+  now: Date,
+): { sponsor_wallet: string; draft: Draft; defaults: string[] } {
+  if (
+    what_to_build !== undefined &&
+    theme !== undefined &&
+    what_to_build !== theme
+  )
+    throw new SponsorError(
+      'what_to_build: give it once (theme is its old name); the two differ.',
+    );
+  const build = what_to_build ?? theme;
+  if (build === undefined)
+    throw new SponsorError(
+      'what_to_build: required (what builders should build, 20 characters or more).',
+    );
+  const defaults: string[] = [];
+  const pick = <T>(v: T | undefined, d: T, text: (d: T) => string): T => {
+    if (v !== undefined) return v;
+    defaults.push(text(d));
+    return d;
+  };
+  const draft: Draft = {
+    sponsor_name: r.sponsor_name,
+    ...(r.sponsor_url !== undefined && { sponsor_url: r.sponsor_url }),
+    title: r.title,
+    what_to_build: build,
+    criteria: pick(
+      r.criteria,
+      // Cleaned like any criteria a sponsor writes (the name passed the sanitizer already).
+      untrusted(TEXT_LIMITS.criteria, 10).parse(
+        defaultCriteria(r.sponsor_name),
+      ),
+      (c) => `criteria: ${quoted(c)}`,
+    ),
+    chains: pick(
+      r.chains,
+      DRAFT_DEFAULTS.chains,
+      (c) => `chains: ${c.join(', ')}`,
+    ),
+    token: pick(r.token, DRAFT_DEFAULTS.token, (t) => `token: ${t}`),
+    amount: r.amount,
+    winners: pick(r.winners, DRAFT_DEFAULTS.winners, (w) => `winners: ${w}`),
+    existing_work: pick(
+      r.existing_work,
+      DRAFT_DEFAULTS.existing_work,
+      () => 'existing projects can enter',
+    ),
+    ...(r.starts_at !== undefined && { starts_at: r.starts_at }),
+    ends_at: pick(
+      r.ends_at,
+      new Date(now.getTime() + DRAFT_DEFAULTS.days * DAY).toISOString(),
+      (e) => `ends ${formatDeadline(e)} (${DRAFT_DEFAULTS.days} days)`,
+    ),
+  };
+  if (r.sponsor_url === undefined)
+    defaults.push('no sponsor_url (the campaign shows as unverified)');
+  return { sponsor_wallet, draft, defaults };
+}
 
 /**
  * Parses a decimal amount string into token units, rejecting anything with more fraction digits
@@ -307,7 +401,9 @@ export function sponsorProgramFile(a: {
         name: d.sponsor_name,
         ...(d.sponsor_url && { url: d.sponsor_url }),
       },
-      what_to_build: d.theme,
+      // Drafts stored before v2.2 call it theme.
+      what_to_build:
+        d.what_to_build ?? (d as Draft & { theme?: string }).theme ?? '',
       criteria: d.criteria,
       escrow: a.escrow,
       ref: a.ref,
@@ -324,13 +420,105 @@ export type PlanItem = {
   reason: string;
 };
 
+/** An explicit pick: an entry, its exact amount, and (optionally) why it won. */
 export const AwardWinner = z
   .object({
     entry_id: z.number().int().positive(),
     amount: z.string().regex(/^\d+(\.\d+)?$/),
-    reason: untrusted(TEXT_LIMITS.reason, 3),
+    reason: untrusted(TEXT_LIMITS.reason, 3).optional(),
   })
   .strict();
+
+/** How a ranking shares the prize: equally, or integer percentages (first place first) summing to 100. */
+export const AwardSplit = z.union([
+  z.literal('equal'),
+  z.array(z.number().int().min(1).max(100)).min(1).max(50),
+]);
+
+/**
+ * The award picks: a ranking of entry ids (best first) with an optional split, or explicit
+ * [{entry_id, amount, reason?}].
+ */
+export const AwardPicks = {
+  winners: z.union([
+    z.array(z.number().int().positive()).min(1).max(50),
+    z.array(AwardWinner).min(1).max(50),
+  ]),
+  split: AwardSplit.optional(),
+};
+export type AwardPicksInput = {
+  winners: number[] | z.infer<typeof AwardWinner>[];
+  split?: z.infer<typeof AwardSplit>;
+};
+
+/** A pick with its exact amount and reason, as planAward takes it. */
+export type PlannedWinner = {
+  entry_id: number;
+  amount: string;
+  reason: string;
+};
+
+/**
+ * Exact shares of `prizeUnits` for a ranking of `count` winners: equal, or by integer
+ * percentages summing to 100. Every share is rounded down and the remainder goes to first place,
+ * so the shares always add up to the prize exactly. Pure.
+ */
+export function splitPrize(
+  prizeUnits: bigint,
+  count: number,
+  split: z.infer<typeof AwardSplit> = 'equal',
+): bigint[] {
+  let shares: bigint[];
+  if (split === 'equal') {
+    shares = Array.from({ length: count }, () => prizeUnits / BigInt(count));
+  } else {
+    if (split.length !== count)
+      throw new SponsorError(
+        `split: give one percentage per winner (${count}); got ${split.length}.`,
+      );
+    const sum = split.reduce((a, b) => a + b, 0);
+    if (sum !== 100)
+      throw new SponsorError(
+        `split: percentages must add up to 100 (got ${sum}).`,
+      );
+    shares = split.map((pct) => (prizeUnits * BigInt(pct)) / 100n);
+  }
+  shares[0] += prizeUnits - shares.reduce((a, b) => a + b, 0n);
+  return shares;
+}
+
+/**
+ * Turns the picks into planAward's winners: a ranking gets exact amounts from splitPrize (the
+ * remainder to first place); explicit amounts pass through. A missing reason becomes
+ * `defaultReason` ("Picked by <sponsor>"). Pure.
+ */
+export function resolvePicks(
+  picks: AwardPicksInput,
+  a: { prizeUnits: bigint; decimals: number; defaultReason: string },
+): PlannedWinner[] {
+  const ranking = picks.winners.every((w) => typeof w === 'number');
+  if (!ranking) {
+    if (picks.split !== undefined)
+      throw new SponsorError(
+        'split: only for a ranking (winners as entry ids); explicit amounts are paid as given.',
+      );
+    return (picks.winners as z.infer<typeof AwardWinner>[]).map((w) => ({
+      entry_id: w.entry_id,
+      amount: w.amount,
+      reason: w.reason ?? a.defaultReason,
+    }));
+  }
+  const ids = picks.winners as number[];
+  const shares = splitPrize(a.prizeUnits, ids.length, picks.split);
+  return ids.map((entry_id, i) => ({
+    entry_id,
+    amount: formatUnits(shares[i], a.decimals),
+    reason: a.defaultReason,
+  }));
+}
+
+/** The reason recorded for a winner the sponsor didn't explain. */
+export const pickedBy = (sponsorName: string) => `Picked by ${sponsorName}`;
 
 /**
  * Checks the sponsor's (or the operator fallback's) picks and returns what the award transaction
@@ -338,7 +526,7 @@ export const AwardWinner = z
  * escrow clone (the contract only excludes itself) and the sponsor's own wallet.
  */
 export function planAward(a: {
-  winners: z.infer<typeof AwardWinner>[];
+  winners: PlannedWinner[];
   entries: { id: number; payout_wallet: string }[];
   prizeUnits: bigint;
   decimals: number;
@@ -488,14 +676,20 @@ export function createReply(a: {
   sponsorWallet: string;
   identity: SponsorIdentity;
   verificationNote?: string | null;
+  /** The defaults filled in for answers the sponsor didn't give (withDefaults). */
+  defaults?: string[];
 }) {
   const { prize, fee } = splitUnits(a.poolUnits);
+  const defaults = a.defaults?.length
+    ? `Defaults used: ${a.defaults.join('; ')}. To change any, create it again before funding.\n`
+    : '';
   return {
     show_to_sponsor:
       `Campaign drafted: ${quoted(a.title)}.\n` +
       `Pool: ${amt(a.poolUnits, a.token)}. Winners get ${amt(prize, a.token)}; EarnKit's 10% ` +
       `(${amt(fee, a.token)}) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n` +
       `Winners: ${a.winners} planned. Deadline: ${formatDeadline(a.endsAt)}.\n` +
+      defaults +
       `${labelText(a.identity, a.sponsorWallet, a.verificationNote)}\n` +
       `Fund it here, from ${a.sponsorWallet}: ${a.fundUrl}`,
     next_step:
@@ -598,7 +792,7 @@ export function statusReply(s: StatusFacts): {
           ? `The sponsor signs the prepared award at ${s.awardUrl} (or you send its transaction from the wallet that funded the campaign). Then call status with ref: EarnKit reads the award onchain.`
           : s.entries === 0
             ? 'Nobody entered. Contact EarnKit to refund the pool (fee included).'
-            : `Call award with winners [{entry_id, amount, reason}] adding up to ${s.prize} exactly. If the sponsor hasn't picked winners 7 days after the deadline, EarnKit may propose the top entries; they can be paid 3 days later unless the sponsor awards first.`,
+            : `Call award with winners: the entry ids in ranked order (split "equal" by default, or percentages adding up to 100), or [{entry_id, amount}] adding up to ${s.prize} exactly. If the sponsor hasn't picked winners 7 days after the deadline, EarnKit may propose the top entries; they can be paid 3 days later unless the sponsor awards first.`,
       };
     }
   }

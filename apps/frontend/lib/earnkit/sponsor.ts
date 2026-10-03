@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type postgres from 'postgres';
 import { formatUnits, parseUnits } from 'viem';
-import { z } from 'zod';
 import {
   SCORE_MAX_PAGES,
   needsScore,
@@ -40,7 +39,6 @@ import {
   DRAFT_EXPIRED,
 } from './sponsor-text';
 import {
-  AwardWinner,
   SponsorError,
   SponsorWallet,
   awardReply,
@@ -49,11 +47,15 @@ import {
   labelText,
   mapOffPlanAward,
   matchAwardToPlan,
+  pickedBy,
   planAward,
   repoLabel,
+  resolvePicks,
   sponsorProgramFile,
   splitUnits,
   statusReply,
+  withDefaults,
+  type AwardPicksInput,
   type Draft,
   type DraftRequest,
   type PlanItem,
@@ -109,12 +111,14 @@ function localMinPool(decimals: number | undefined) {
 }
 
 export async function createSponsorDraft(
-  { sponsor_wallet: wallet, ...d }: DraftRequest,
+  request: DraftRequest,
   installationId: number,
 ) {
   if (!escrowEnabled()) throw new SponsorError(SPONSOR_NOT_OPEN);
+  // Five answers are required; the rest default, and the reply says which defaults were used.
+  const { draft: d, defaults, ...r } = withDefaults(request, new Date());
   // Already normalized when it came through the tool's schema; checked again for direct callers.
-  const sponsor_wallet = SponsorWallet.parse(wallet);
+  const sponsor_wallet = SponsorWallet.parse(r.sponsor_wallet);
   const token = findToken(d.token);
   const cap = token ? await capOf(token.address) : 0n;
   const { amountUnits } = checkDraft(
@@ -191,6 +195,7 @@ export async function createSponsorDraft(
       sponsorWallet: sponsor_wallet,
       identity,
       verificationNote: identity.note,
+      defaults,
     }),
     // A draft has no label: only funding proves the wallet is the sponsor's.
     sponsor_label: null,
@@ -870,12 +875,18 @@ export async function sponsorStatus(ref: string, installationId: number) {
 export async function prepareAward(
   ref: string,
   installationId: number,
-  winners: z.infer<typeof AwardWinner>[],
+  picks: AwardPicksInput,
 ) {
   const row = await loadCampaign(ref);
   assertCanAward(row, installationId, new Date());
   const entries = await entriesOf(row.program_id!);
   const { prize } = splitUnits(parseUnits(row.amount, row.token_decimals));
+  // A ranking gets exact shares (the remainder to first place); planAward checks them like any picks.
+  const winners = resolvePicks(picks, {
+    prizeUnits: prize,
+    decimals: row.token_decimals,
+    defaultReason: pickedBy(row.sponsor_name),
+  });
   const { wallets, amountsUnits, plan } = planAward({
     winners,
     entries,

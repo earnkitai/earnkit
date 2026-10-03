@@ -15,7 +15,7 @@ export type TextRule = { max: number; singleLine?: boolean };
 export const TEXT_LIMITS = {
   sponsor_name: { max: 40, singleLine: true },
   title: { max: 80, singleLine: true },
-  theme: { max: 600 },
+  what_to_build: { max: 600 },
   criteria: { max: 400 },
   reason: { max: 200, singleLine: true },
   project_name: { max: 60, singleLine: true },

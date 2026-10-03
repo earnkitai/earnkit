@@ -196,7 +196,7 @@ test('limits apply after cleaning, in characters', () => {
     {
       sponsor_name: 40,
       title: 80,
-      theme: 600,
+      what_to_build: 600,
       criteria: 400,
       reason: 200,
       project_name: 60,

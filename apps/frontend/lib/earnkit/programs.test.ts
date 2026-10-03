@@ -10,7 +10,7 @@ import {
 } from './programs';
 import { presentPrograms } from './present';
 import { trackRecordOf } from './sponsor-identity';
-import { DraftInput, sponsorProgramFile } from './sponsor-rules';
+import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
 
 test('trust: within 7 days the agent is told not to re-read the source; older, just the date', () => {
   const now = new Date('2026-10-02T12:00:00Z');
@@ -86,19 +86,22 @@ const THEME =
   'Ship an x402 service on Base that other agents pay to use, with docs and a live link.';
 const CRITERIA = 'Usage by other agents, code quality, and docs.';
 const sponsorRow = (legacy = false): ProgramRow => {
-  const draft = DraftInput.parse({
-    sponsor_wallet: '0x' + 'd'.repeat(40),
-    sponsor_name: 'Acme Labs',
-    sponsor_url: 'https://acme.xyz',
-    title: 'Best x402 service',
-    theme: THEME,
-    criteria: CRITERIA,
-    chains: ['base'],
-    token: 'USDC',
-    amount: '1000',
-    winners: 2,
-    ends_at: '2026-10-06T12:00:00Z',
-  });
+  const { draft } = withDefaults(
+    DraftInput.parse({
+      sponsor_wallet: '0x' + 'd'.repeat(40),
+      sponsor_name: 'Acme Labs',
+      sponsor_url: 'https://acme.xyz',
+      title: 'Best x402 service',
+      theme: THEME,
+      criteria: CRITERIA,
+      chains: ['base'],
+      token: 'USDC',
+      amount: '1000',
+      winners: 2,
+      ends_at: '2026-10-06T12:00:00Z',
+    }),
+    new Date('2026-10-01T00:00:00Z'),
+  );
   const f = sponsorProgramFile({
     ref: '0x' + 'a'.repeat(64),
     draft,

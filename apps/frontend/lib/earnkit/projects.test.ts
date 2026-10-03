@@ -36,7 +36,7 @@ test('missingAnswersProblem: a sponsor campaign entry must answer every required
     draft: {
       sponsor_name: 'Acme',
       title: 'Agents',
-      theme: 'Build agents.',
+      what_to_build: 'Build agents.',
       criteria: 'Best one.',
       chains: ['base'],
       token: 'USDC',

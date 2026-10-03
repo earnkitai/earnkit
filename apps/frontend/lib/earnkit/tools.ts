@@ -23,7 +23,7 @@ import {
 } from './present';
 import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
 import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
-import { AwardWinner, DraftInput, SponsorError } from './sponsor-rules';
+import { AwardPicks, DraftInput, SponsorError } from './sponsor-rules';
 import {
   ProjectInfo,
   prefillPayoutWallet,
@@ -66,7 +66,7 @@ export const SponsorCampaignInput = z.discriminatedUnion('action', [
     .object({
       action: z.literal('award'),
       ref: Ref,
-      winners: z.array(AwardWinner).min(1).max(50),
+      ...AwardPicks,
     })
     .strict(),
 ]);
@@ -272,7 +272,10 @@ export const tools = {
       return createSponsorDraft(draft, ctx.installationId);
     }
     if (i.action === 'award')
-      return prepareAward(i.ref, ctx.installationId, i.winners);
+      return prepareAward(i.ref, ctx.installationId, {
+        winners: i.winners,
+        split: i.split,
+      });
     // status reads the chain (and may rescore entries).
     await enforce(
       'chainChecks',
