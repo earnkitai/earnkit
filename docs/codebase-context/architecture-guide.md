@@ -193,7 +193,9 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   refunded, taken down) shows an identity: a draft can bind anyone's wallet, so an unfunded
   draft's `/fund` page shows only the title and "Draft: the sponsor's identity is confirmed only
   after it is funded from the bound wallet." `sponsor_url` reaches
-  agents only once verified. A sponsor name or title using a reserved brand (EarnKit, Base,
+  agents only once verified. A sponsor name using a reserved brand (or a title that reads as by or
+  official to one: "Official", "by/from <brand>", "<brand> Grant/Foundation/Labs…", or just the
+  brand; "Build on Base" is fine) (EarnKit, Base,
   Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words of the confusable
   skeleton in `confusables.ts` — NFKD, marks dropped, lowercase, the UTS #39 table generated into
   `confusables-table.ts` by `scripts/gen-confusables.mts` plus stroke letters and small capitals,

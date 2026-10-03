@@ -8,6 +8,7 @@ import {
   sponsorHost,
   sponsorLabel,
   trackRecordOf,
+  titleBrands,
   trackRecordText,
   type TrackRow,
 } from './sponsor-identity';
@@ -149,7 +150,7 @@ test('reservedNameProblem: refused unless verified on the brand domain', () => {
   // The title too (re-review): "Official Bаse Grant" under a harmless sponsor name.
   assert.match(
     reservedNameProblem('Official Bɑse Grant', null, 'title')!,
-    /^title: "Official Bɑse Grant" uses the reserved name Base\..*choose another title/,
+    /^title: "Official Bɑse Grant" uses the reserved name Base\..*choose another title: a title may say where to build/,
   );
   assert.equal(
     reservedNameProblem('Official Base Grant', 'base.org', 'title'),
@@ -255,4 +256,39 @@ test('trackRecordOf (review I3 PoC): dust, self-awarded and fallback awards neve
     /0 awarded by the sponsor, 2 paid by EarnKit's fallback, 0 refunded/,
   );
   assert.match(trackRecordText(self), /1 paid to the sponsor's own wallet/);
+});
+
+test('titleBrands: a title may mention a chain, but not read as by or official to it', () => {
+  for (const ok of [
+    'Build on Base',
+    'Best x402 service on Base',
+    'Arc payments sprint',
+    'Agents on Monad',
+    'Ship USDC payments on Arc and Base',
+    'Basecamp grant', // not the brand word
+  ]) {
+    assert.deepEqual(titleBrands(ok), [], ok);
+    assert.equal(reservedNameProblem(ok, null, 'title'), null, ok);
+  }
+  const refused: [string, string][] = [
+    ['Base Builder Grants', 'base'],
+    ['Official Mønad Grant', 'monad'],
+    ['Grants by Coinbase', 'coinbase'],
+    ['Arc Foundation bounty', 'arc'],
+    ['Base', 'base'],
+    ['Bɑse', 'base'], // look-alike, alone
+    ['Payments sprint from Circle', 'circle'],
+    ['Tempo Labs agents', 'tempo'],
+    ['Build on Base (official)', 'base'],
+    ['The Monad DAO prize', 'monad'],
+  ];
+  for (const [title, brand] of refused) {
+    assert.deepEqual(titleBrands(title), [brand], title);
+    assert.ok(reservedNameProblem(title, null, 'title'), title);
+  }
+  // Verified on the brand's own domain: exempt.
+  assert.equal(
+    reservedNameProblem('Base Builder Grants', 'base.org', 'title'),
+    null,
+  );
 });

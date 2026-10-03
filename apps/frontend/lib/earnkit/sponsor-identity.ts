@@ -86,14 +86,9 @@ export const nameWords = (name: string) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 
-/**
- * The reserved brands a sponsor name uses: a whole word ("Base Builders"), or consecutive words
- * that join into one ("tokens.fun" -> tokens fun, "Coin Base", "B.A.S.E", "E A R N K I T"). A
- * brand inside a longer word ("Basecamp", "Arcade") is not a match. Pure; exported for tests.
- */
-export function reservedBrands(name: string): Brand[] {
-  const words = nameWords(name);
-  const found = new Set<Brand>();
+/** Where a brand appears in `words`: words[i..j] join into it. */
+function brandSpans(words: string[]) {
+  const spans: { brand: Brand; i: number; j: number }[] = [];
   for (let i = 0; i < words.length; i++) {
     let joined = '';
     for (let j = i; j < words.length; j++) {
@@ -101,22 +96,67 @@ export function reservedBrands(name: string): Brand[] {
       // "rn" may only meet across a word break ("Ear nkit"), so it is folded again here.
       if (joined.length > LONGEST * 2) break;
       const brand = SKELETONS.get(joined.replace(/rn/g, 'm'));
-      if (brand) found.add(brand);
+      if (brand) spans.push({ brand, i, j });
     }
+  }
+  return spans;
+}
+
+/**
+ * The reserved brands a sponsor name uses: a whole word ("Base Builders"), or consecutive words
+ * that join into one ("tokens.fun" -> tokens fun, "Coin Base", "B.A.S.E", "E A R N K I T"). A
+ * brand inside a longer word ("Basecamp", "Arcade") is not a match. Pure; exported for tests.
+ */
+export function reservedBrands(name: string): Brand[] {
+  const found = new Set(brandSpans(nameWords(name)).map((s) => s.brand));
+  return BRANDS.filter((b) => found.has(b));
+}
+
+// Words that, next to a brand, make a title read as the brand's own (compared as skeletons).
+const OFFICIAL_WORDS = new Set(
+  'official grant grants program programme foundation team labs ecosystem fund funds council dao'
+    .split(' ')
+    .map(skeleton),
+);
+const OFFICIAL = skeleton('official');
+const BY = new Set(['by', 'from'].map(skeleton));
+
+/**
+ * The reserved brands a title presents itself as by or official to (a title may mention a chain:
+ * "Build on Base" is fine). A brand counts when the title is just the brand, says "by/from
+ * <brand>", has "official" anywhere, or has one of OFFICIAL_WORDS right before the brand or within
+ * the two words after it ("Base Builder Grants", "Arc Foundation bounty"). Pure; exported for tests.
+ */
+export function titleBrands(title: string): Brand[] {
+  const words = nameWords(title);
+  const official = words.includes(OFFICIAL);
+  const found = new Set<Brand>();
+  for (const { brand, i, j } of brandSpans(words)) {
+    const near = [words[i - 1], words[j + 1], words[j + 2]];
+    if (
+      official ||
+      (i === 0 && j === words.length - 1) ||
+      BY.has(words[i - 1]) ||
+      near.some((w) => w !== undefined && OFFICIAL_WORDS.has(w))
+    )
+      found.add(brand);
   }
   return BRANDS.filter((b) => found.has(b));
 }
 
 /**
  * Why `name` can't be used, or null: it uses a reserved brand and the sponsor isn't verified on
- * that brand's own domain. Checked on the sponsor name and the title. Pure; exported for tests.
+ * that brand's own domain. Checked on the sponsor name (any brand word) and the title (only when
+ * it reads as by or official to the brand, see titleBrands). Pure; exported for tests.
  */
 export function reservedNameProblem(
   name: string,
   verifiedHost: string | null,
   field: 'sponsor_name' | 'title' = 'sponsor_name',
 ): string | null {
-  for (const b of reservedBrands(name)) {
+  for (const b of field === 'title'
+    ? titleBrands(name)
+    : reservedBrands(name)) {
     const { name: brand, domains } = RESERVED_BRANDS[b];
     if (verifiedHost && (domains as readonly string[]).includes(verifiedHost))
       continue;
@@ -125,9 +165,12 @@ export function reservedNameProblem(
     return (
       `${field}: ${quoted(name)} uses the reserved name ${brand}. Only a sponsor verified on ` +
       `${apex.join(' or ')} can use it (sponsor_url https://${domain}, with ` +
-      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another ${field === 'title' ? 'title (the chains field already says where to build)' : 'name'}: ` +
-      'names are matched as whole words after normalizing look-alike letters, and words that join ' +
-      'into a brand count too (e.g. "Coin Base").'
+      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another ${field}: ` +
+      (field === 'title'
+        ? 'a title may say where to build ("Build on Base"), but not read as by or official to the ' +
+          'brand ("Official", "by/from <brand>", or "<brand> Grant/Foundation/Labs/…").'
+        : 'names are matched as whole words after normalizing look-alike letters, and words that join ' +
+          'into a brand count too (e.g. "Coin Base").')
     );
   }
   return null;
