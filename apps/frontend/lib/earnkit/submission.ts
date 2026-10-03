@@ -1,16 +1,17 @@
 import { z } from 'zod';
 import type { ProjectField, SubmissionRequirement } from './program-file';
-import { RAW_CAP } from './untrusted-text';
+import { BuilderUrl, RAW_CAP, builderUrlProblem } from './untrusted-text';
 
 export const ProjectInfo = z
   .object({
     // Bounded before any cleaning; campaign entries are then held to TEXT_LIMITS (cleanProject).
     name: z.string().max(RAW_CAP).optional(),
     description: z.string().max(RAW_CAP).optional(),
-    repo_url: z.string().optional(),
-    live_url: z.string().optional(),
-    demo_url: z.string().optional(),
-    token_url: z.string().optional(),
+    // Links reach other people's agents and pages: https, one line, at most 200 characters.
+    repo_url: BuilderUrl.optional(),
+    live_url: BuilderUrl.optional(),
+    demo_url: BuilderUrl.optional(),
+    token_url: BuilderUrl.optional(),
   })
   .strict();
 export type ProjectInfo = z.infer<typeof ProjectInfo>;
@@ -21,16 +22,9 @@ export type KnownInfo = {
   answers?: Record<string, string>;
 };
 
-const isUrl = (v: string) => {
-  try {
-    return ['http:', 'https:'].includes(new URL(v).protocol);
-  } catch {
-    return false;
-  }
-};
-
 function problemWith(req: SubmissionRequirement, value: string): string | null {
-  if (req.type === 'url' && !isUrl(value)) return 'Not a valid http(s) link.';
+  const urlProblem = req.type === 'url' ? builderUrlProblem(value) : null;
+  if (urlProblem) return `Not a valid link: ${urlProblem}.`;
   if (req.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
     return 'Not a valid email.';
   if (req.type === 'choice' && req.options && !req.options.includes(value)) {

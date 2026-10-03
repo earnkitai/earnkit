@@ -1,6 +1,7 @@
 import type { CampaignConfig, SponsorState, YourEntry } from './campaigns';
 import { sql } from './db';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
+import { shownUrl } from './untrusted-text';
 
 export type BoardRow = {
   id: number;
@@ -58,7 +59,12 @@ export async function getCampaignBoard(slug: string) {
     return null;
   return {
     program: { ...program, campaign: program.campaign },
-    rows,
+    // Builder links are data: a stored value that isn't a plain https link is not shown.
+    rows: rows.map((r) => ({
+      ...r,
+      live_url: shownUrl(r.live_url),
+      repo_url: shownUrl(r.repo_url),
+    })),
     sponsorState: sponsorRow?.state ?? null,
     offPlan: sponsorRow?.award_onchain ?? null,
     // Who the sponsor is (lazily re-verified) and what its wallet has done before.
@@ -110,7 +116,13 @@ export async function getProjectPage(id: number) {
       WHERE pr.campaign IS NOT NULL AND p.payout_wallet IS NOT NULL
         AND sc.state IS DISTINCT FROM 'taken_down'
     ) x WHERE x.id = ${id}`;
-  return row ?? null;
+  return row
+    ? {
+        ...row,
+        live_url: shownUrl(row.live_url),
+        repo_url: shownUrl(row.repo_url),
+      }
+    : null;
 }
 
 /**

@@ -32,6 +32,7 @@ import {
   sponsorLabel,
 } from './sponsor-identity';
 import { domainCheck, isFunded } from './sponsor-verify';
+import { plainText, shownUrl } from './untrusted-text';
 import { CANT_FUND, screenWinners, screenWallet } from './sanctions';
 import {
   DEADLINE_MARGIN_MS,
@@ -955,9 +956,10 @@ export async function sponsorStatus(ref: string, installationId: number) {
     note: ENTRIES_NOTE,
     entries: entries.map((e) => ({
       entry_id: e.id,
-      name: e.name,
-      live_url: e.live_url,
-      repo_url: e.repo_url,
+      // Data: cleaned on read too (rows stored before v2.2's checks).
+      name: plainText(e.name, true),
+      live_url: shownUrl(e.live_url),
+      repo_url: shownUrl(e.repo_url),
       ...repoDates(e),
       score: e.score,
       // Final once it covers the whole window and was taken after the grace period.

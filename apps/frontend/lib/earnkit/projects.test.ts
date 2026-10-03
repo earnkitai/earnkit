@@ -81,7 +81,7 @@ test('missingAnswersProblem: a sponsor campaign entry must answer every required
       },
       { payout_wallet: W },
     ),
-    'Missing required answers: description (What it does and who uses it), live_url (Live link: Not a valid http(s) link.). ' +
+    'Missing required answers: description (What it does and who uses it), live_url (Live link: Not a valid link: must be a full https:// link.). ' +
       'Call prepare_submission to see what each needs, then record_submission again.',
   );
   assert.match(

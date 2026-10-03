@@ -334,6 +334,40 @@ export const SponsorUrl = z
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
   });
 
+/** Longest builder link (live, repo, demo, token) EarnKit accepts. */
+export const BUILDER_URL_MAX = 200;
+
+/**
+ * Why a builder's link (`live_url`, `repo_url`, `demo_url`, `token_url`, url answers) can't be
+ * stored, or null: https only, at most 200 characters, no whitespace, control or format
+ * characters anywhere in the raw string (the URL parser silently drops tabs and newlines, so a
+ * multi-line block would pass it), and no user or password. Pure; exported for tests.
+ */
+export function builderUrlProblem(v: string): string | null {
+  if (v.length > BUILDER_URL_MAX)
+    return `at most ${BUILDER_URL_MAX} characters`;
+  if (/[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(v))
+    return 'no spaces, line breaks or hidden characters in a link';
+  if (!URL.canParse(v)) return 'must be a full https:// link';
+  const u = new URL(v);
+  if (u.protocol !== 'https:') return 'must start with https://';
+  if (u.username || u.password) return 'no user or password in the link';
+  return null;
+}
+
+/** A builder's link, checked by `builderUrlProblem`. */
+export const BuilderUrl = z.string().superRefine((v, ctx) => {
+  const problem = builderUrlProblem(v);
+  if (problem) ctx.addIssue({ code: 'custom', message: problem });
+});
+
+/**
+ * A stored builder link as data for display (status entries, campaign and project pages): the
+ * link when it passes `builderUrlProblem`, else null (rows stored before the check).
+ */
+export const shownUrl = (v: string | null | undefined) =>
+  v && !builderUrlProblem(v) ? v : null;
+
 /** A campaign entry's project name and description, cleaned (other fields untouched). */
 export function cleanProject<P extends { name?: string; description?: string }>(
   p: P,
