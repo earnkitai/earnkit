@@ -6,12 +6,13 @@ import { EntryError, blockscout, normalizeRepoUrl } from './campaigns';
  * The repo (public GitHub) has `earnkit.txt` at its root on the default branch:
  *
  *   payout_wallet: 0x…
- *   contracts: 0x…, 0x…        (optional)
  *
- * The file's wallet must equal the entry's payout_wallet, and each entered contract must have been
- * created by that wallet (Base Blockscout `creator_address_hash`) or be listed in the file. Only
- * someone who can push to the repo can write the file, so a squatter can't enter someone else's
- * repo with their own wallet.
+ * The file's wallet must equal the entry's payout_wallet. Each entered contract must have been
+ * deployed by a transaction sent from that wallet (Base Blockscout: the address's
+ * `creation_transaction_hash`, then that transaction's `from`), which covers direct and
+ * factory/CREATE2 deploys alike. A `contracts:` line (v2.2 drafts) is accepted but ignored: listing
+ * a contract proves nothing. Only someone who can push to the repo can write the file, and only the
+ * deployer's wallet can claim a contract, so a squatter can enter neither.
  */
 
 export const OWNERSHIP_FILE = 'earnkit.txt';
@@ -61,8 +62,6 @@ export const ownershipFileUrl = (
 export type OwnershipFile = {
   /** Lowercase; null when the file has no payout_wallet line. */
   payoutWallet: string | null;
-  /** Lowercase, unique. */
-  contracts: string[];
   /** 1-based line numbers and what's wrong; the file's text is never echoed. */
   problems: string[];
 };
@@ -70,37 +69,26 @@ export type OwnershipFile = {
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /**
- * Parses earnkit.txt: `payout_wallet: 0x…` and `contracts: 0x…, 0x…` lines (keys case-insensitive,
- * `#` starts a comment, other lines ignored, so a sponsor's `earnkit-sponsor:` line can share the
- * file). Pure; exported for tests.
+ * Parses earnkit.txt: the `payout_wallet: 0x…` line (key case-insensitive, `#` starts a comment).
+ * Every other line is ignored, including `contracts:` (accepted for compatibility, never trusted)
+ * and a sponsor's `earnkit-sponsor:` line. Pure; exported for tests.
  */
 export function parseOwnershipFile(text: string): OwnershipFile {
   const wallets = new Set<string>();
-  const contracts = new Set<string>();
   const problems: string[] = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.replace(/#.*$/, '').trim();
-    const m = /^(payout_wallet|contracts)\s*:\s*(.*)$/i.exec(line);
+    const m = /^payout_wallet\s*:\s*(.*)$/i.exec(line);
     if (!m) return;
-    const key = m[1].toLowerCase();
-    const values = m[2].split(/[\s,]+/).filter(Boolean);
-    if (values.length === 0 || values.some((v) => !ADDRESS.test(v))) {
-      problems.push(
-        `line ${i + 1}: ${key} needs ${key === 'payout_wallet' ? 'one 0x address' : '0x addresses separated by commas'}`,
-      );
-      return;
-    }
-    if (key === 'payout_wallet') {
-      if (values.length > 1)
-        problems.push(`line ${i + 1}: payout_wallet takes one address`);
-      else wallets.add(values[0].toLowerCase());
-    } else for (const v of values) contracts.add(v.toLowerCase());
+    const values = m[1].split(/[\s,]+/).filter(Boolean);
+    if (values.length !== 1 || !ADDRESS.test(values[0]))
+      problems.push(`line ${i + 1}: payout_wallet needs one 0x address`);
+    else wallets.add(values[0].toLowerCase());
   });
   if (wallets.size > 1)
     problems.push('payout_wallet appears with different addresses; keep one');
   return {
     payoutWallet: wallets.size === 1 ? [...wallets][0] : null,
-    contracts: [...contracts],
     problems,
   };
 }
@@ -162,19 +150,38 @@ const tooLarge = (): FetchResult => ({
   message: `it is larger than ${FETCH_MAX_BYTES} bytes`,
 });
 
-/** Who created `contract` on Base (lowercase), from Blockscout; null when it has no creator. */
-export type CreatorLookup = (contract: string) => Promise<string | null>;
-export const blockscoutCreator: CreatorLookup = async (contract) => {
-  const a = await blockscout<{ creator_address_hash?: string | null }>(
-    `/api/v2/addresses/${contract}`,
-  );
-  return a.creator_address_hash?.toLowerCase() ?? null;
+/**
+ * Who deployed a contract: the sender of the transaction that created it. Two Blockscout reads,
+ * injectable for tests: the address's creation transaction (null when it has none on record), then
+ * that transaction's sender.
+ */
+export type DeployerLookup = {
+  creationTx: (contract: string) => Promise<string | null>;
+  txSender: (hash: string) => Promise<string>;
+};
+export const blockscoutDeployer: DeployerLookup = {
+  creationTx: async (contract) =>
+    (
+      await blockscout<{ creation_transaction_hash?: string | null }>(
+        `/api/v2/addresses/${contract}`,
+      )
+    ).creation_transaction_hash ?? null,
+  txSender: async (hash) =>
+    (
+      await blockscout<{ from: { hash: string } }>(
+        `/api/v2/transactions/${hash}`,
+      )
+    ).from.hash,
 };
 
-/** The exact lines the builder should have in earnkit.txt. */
-const wantedLines = (wallet: string, contracts: string[]) =>
-  `"payout_wallet: ${wallet}"` +
-  (contracts.length ? ` and "contracts: ${contracts.join(', ')}"` : '');
+/** The deployer of `contract` (lowercase), or null when no creation transaction is on record. */
+export async function deployerOf(contract: string, lookup: DeployerLookup) {
+  const tx = await lookup.creationTx(contract);
+  return tx ? (await lookup.txSender(tx)).toLowerCase() : null;
+}
+
+/** The exact line the builder should have in earnkit.txt. */
+const wantedLine = (wallet: string) => `"payout_wallet: ${wallet}"`;
 
 export type OwnershipInput = {
   repoUrl: string;
@@ -185,73 +192,62 @@ export type OwnershipInput = {
 };
 
 /**
- * The decision once the file is read: why the entry isn't proven, or null. `creators` holds the
- * Blockscout creator of each entered contract the file doesn't list (null = none known, undefined
- * = the lookup failed). Pure; exported for tests.
+ * The decision once the file is read: why the entry isn't proven, or null. `deployers` holds the
+ * deployer of each entered contract (null = no creation transaction on record, undefined = the
+ * lookup failed). Pure; exported for tests.
  */
 export function ownershipProblem(
   where: { repo: string; fileUrl: string },
   file: OwnershipFile | null,
   entry: Omit<OwnershipInput, 'repoUrl'>,
-  creators: Record<string, string | null | undefined> = {},
+  deployers: Record<string, string | null | undefined> = {},
 ): string | null {
   const add = `Add a file named ${OWNERSHIP_FILE} at the root of ${where.repo} on its default branch with the line `;
   const again = ', push it, then call record_submission again';
   if (!file)
     return (
       `repo_url: EarnKit needs proof you own ${where.repo}: no ${OWNERSHIP_FILE} found at ${where.fileUrl} ` +
-      `(the repo must be public). ${add}${wantedLines(entry.payoutWallet, entry.contracts)}${again}. ` +
+      `(the repo must be public). ${add}${wantedLine(entry.payoutWallet)}${again}. ` +
       'A just-pushed file can take a few minutes to appear.'
     );
   if (file.problems.length)
     return (
       `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has a problem (${file.problems.join('; ')}). ` +
-      `It should contain ${wantedLines(entry.payoutWallet, entry.contracts)}.`
+      `It should contain ${wantedLine(entry.payoutWallet)}.`
     );
   if (!file.payoutWallet)
-    return `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has no payout_wallet line. ${add}${wantedLines(entry.payoutWallet, entry.contracts)}${again}.`;
+    return `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has no payout_wallet line. ${add}${wantedLine(entry.payoutWallet)}${again}.`;
   if (file.payoutWallet !== entry.payoutWallet)
     return (
       `payout_wallet: ${OWNERSHIP_FILE} in ${where.repo} says payout_wallet: ${file.payoutWallet}, not ${entry.payoutWallet}. ` +
       `Enter with the wallet in the file, or (if the builder owns the repo) change that line to ` +
       `"payout_wallet: ${entry.payoutWallet}"${again}.`
     );
-  const listed = new Set(file.contracts);
-  const unproven = entry.contracts.filter(
-    (c) => !listed.has(c) && creators[c] !== entry.payoutWallet,
+  const failed = entry.contracts.find((c) => deployers[c] === undefined);
+  if (failed)
+    return `contracts: EarnKit couldn't read who deployed ${failed} from Base's explorer. Try again in a minute.`;
+  const other = entry.contracts.find(
+    (c) => deployers[c] !== entry.payoutWallet,
   );
-  if (unproven.length === 0) return null;
-  const why = unproven
-    .map((c) =>
-      creators[c] === undefined
-        ? `${c} (EarnKit couldn't read its creator)`
-        : creators[c] === null
-          ? `${c} (no creator on record)`
-          : `${c} (created by ${creators[c]})`,
-    )
-    .join(', ');
-  return (
-    `contracts: ${why} ${unproven.length === 1 ? "wasn't" : "weren't"} created by ${entry.payoutWallet} and ` +
-    `${unproven.length === 1 ? "isn't" : "aren't"} listed in ${OWNERSHIP_FILE}. If the builder deployed ` +
-    `${unproven.length === 1 ? 'it' : 'them'}, add the line "contracts: ${[...new Set([...file.contracts, ...unproven])].join(', ')}" ` +
-    `to ${OWNERSHIP_FILE} in ${where.repo}${again}.`
-  );
+  if (other)
+    return `Contract ${other} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`;
+  return null;
 }
 
 /**
  * Checks that the entry's repo carries earnkit.txt naming its payout wallet, and that every
- * contract was created by that wallet or is listed in the file. Throws EntryError saying exactly
- * what to add. `fetchFile` and `creatorOf` are injectable for tests.
+ * contract was deployed by a transaction from that wallet. Throws EntryError saying exactly what to
+ * fix. `fetchFile` and `deployer` (the Blockscout reads) are injectable for tests and the e2e.
  */
 export async function checkOwnership(
   input: OwnershipInput,
   {
     fetchFile = fetchOwnershipFile,
-    creatorOf = blockscoutCreator,
+    deployer = blockscoutDeployer,
     baseUrl = ownershipBaseUrl(),
   }: {
     fetchFile?: OwnershipFetcher;
-    creatorOf?: CreatorLookup;
+    deployer?: DeployerLookup;
     baseUrl?: string;
   } = {},
 ) {
@@ -271,15 +267,15 @@ export async function checkOwnership(
       `repo_url: EarnKit couldn't read ${where.fileUrl} (${got.message}). Try again in a minute.`,
     );
   const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
-  const creators: Record<string, string | null | undefined> = {};
-  // Blockscout is asked only about contracts the file doesn't list, once the wallet matches.
+  const deployers: Record<string, string | null | undefined> = {};
+  // Blockscout is asked about the contracts only once the file names this wallet.
   if (file?.payoutWallet === input.payoutWallet && !file.problems.length)
-    for (const c of input.contracts.filter((c) => !file.contracts.includes(c)))
-      creators[c] = await creatorOf(c).catch((err) => {
-        console.error('[ownership] creator lookup failed:', err);
+    for (const c of input.contracts)
+      deployers[c] = await deployerOf(c, deployer).catch((err) => {
+        console.error('[ownership] deployer lookup failed:', err);
         return undefined;
       });
-  const problem = ownershipProblem(where, file, input, creators);
+  const problem = ownershipProblem(where, file, input, deployers);
   if (problem) throw new EntryError(problem);
   return where;
 }

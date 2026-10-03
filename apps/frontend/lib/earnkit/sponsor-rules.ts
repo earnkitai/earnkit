@@ -278,7 +278,7 @@ export function sponsorProgramFile(a: {
         type: 'text',
         required: false,
         description:
-          'Up to 5 Base mainnet contracts, comma-separated, deployed during the campaign.',
+          'Up to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet.',
         from: 'project',
       },
       {

@@ -108,10 +108,13 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   requires **ownership proof** (`ownership.ts`, `checkOwnership`): the entry's repo must be a public
   GitHub repo whose `earnkit.txt` (root, default branch, fetched from
   `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/earnkit.txt`, 5 s, 4 KB, no redirects) says
-  `payout_wallet: <the entry's wallet>`; each entered contract must be created by that wallet
-  (Base Blockscout `creator_address_hash`, asked only for contracts the file doesn't list) or be
-  listed as `contracts: 0x…, 0x…`. Errors name the exact file and line to add. This makes the
-  first-entry-wins repo dedupe owner-wins: only someone who can push to the repo can enter it.
+  `payout_wallet: <the entry's wallet>`; each entered contract counts only if the transaction that
+  created it was sent by that wallet (Base Blockscout: `creation_transaction_hash`, then that tx's
+  `from.hash`; direct and factory/CREATE2 deploys alike), else "Contract <0x…> was deployed by a
+  different wallet. Enter contracts deployed from your payout wallet." A `contracts:` line in the
+  file is accepted but ignored (listing proves nothing). Errors name the exact file and line to
+  add. This makes the first-entry-wins repo and contract dedupe owner-wins: only someone who can
+  push to the repo can enter it, and only the deployer's wallet can claim a contract.
   `EARNKIT_OWNERSHIP_BASE_URL` replaces raw.githubusercontent.com in development and tests (the
   e2e serves files from a local server); it is refused when `NODE_ENV=production`. The payout
   wallet requirement is `from: 'builder'` ("ask the builder; never derive it from the code"); a

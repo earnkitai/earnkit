@@ -51,7 +51,7 @@
       "label": "Public GitHub repo",
       "type": "url",
       "required": true,
-      "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (and \"contracts: …\" for contracts that wallet didn't deploy).",
+      "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (proof the entry is yours).",
       "project_field": "repo_url",
       "from": "project"
     },
@@ -68,7 +68,7 @@
       "label": "Base contract addresses to score",
       "type": "text",
       "required": true,
-      "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign.",
+      "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet.",
       "from": "project"
     },
     {

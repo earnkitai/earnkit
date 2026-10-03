@@ -5,9 +5,10 @@ import {
   normalizeRepoUrl,
   sameRepoEntry,
   validateEntry,
+  type Deployment,
 } from './campaigns';
 import { formatDeadline } from './dates';
-import { checkOwnership } from './ownership';
+import { checkOwnership, type DeployerLookup } from './ownership';
 import { getProgramRow, isOpen, type ProgramRow } from './programs';
 import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
@@ -95,6 +96,11 @@ function entryRepoUrl(
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
   installationId: number,
+  /** Chain and explorer reads, injectable for the local e2e (contracts on anvil, not Base). */
+  deps: {
+    status?: (contract: string) => Promise<Deployment>;
+    deployer?: DeployerLookup;
+  } = {},
 ) {
   const program = await getProgramRow(input.program_id);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
@@ -123,6 +129,7 @@ export async function recordSubmission(
     repo_url = entryRepoUrl(repo_url, input.submission_data);
     entry = await validateEntry(input.submission_data, program, {
       requireContracts: program.campaign.kind === 'earnkit',
+      status: deps.status,
     });
     const self = selfEntryProblem(
       sponsor ?? null,
@@ -142,11 +149,14 @@ export async function recordSubmission(
       throw new EntryError(
         'repo_url: campaign entries need the public GitHub repo of the project.',
       );
-    await checkOwnership({
-      repoUrl: repo_url,
-      payoutWallet: entry.payoutWallet,
-      contracts: entry.contracts,
-    });
+    await checkOwnership(
+      {
+        repoUrl: repo_url,
+        payoutWallet: entry.payoutWallet,
+        contracts: entry.contracts,
+      },
+      { deployer: deps.deployer },
+    );
   }
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs

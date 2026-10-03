@@ -822,6 +822,98 @@ const iota = await enter(
   'Iota',
   '0x00000000000000000000000000000000000000e6',
 );
+// ---------------------------------------------------------------------------
+// Contracts in an entry count only if the transaction that created them was sent from the payout
+// wallet (a contracts: line in earnkit.txt is ignored). On Base, EarnKit reads that from Blockscout
+// (creation_transaction_hash, then the tx's from); here anvil stands in: the creation tx of each
+// contract this script deployed, and that tx's sender. Contract status is read from anvil too.
+// ---------------------------------------------------------------------------
+const { fundTxs, findToken } = await import('../lib/earnkit/escrow');
+const deployer = walletOf(
+  '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba', // anvil #5
+);
+const DEPLOYER = deployer.account.address.toLowerCase();
+const creationTxs = new Map<string, `0x${string}`>();
+const chainReads = {
+  deployer: {
+    creationTx: async (c: string) => creationTxs.get(c.toLowerCase()) ?? null,
+    txSender: async (h: string) =>
+      (await wallet.getTransaction({ hash: h as `0x${string}` })).from,
+  },
+  status: async (c: string) => {
+    const code = await wallet.getCode({ address: c as `0x${string}` });
+    return code && code !== '0x'
+      ? ('during' as const)
+      : ('not_contract' as const);
+  },
+};
+// A factory (CREATE2) deploy sent by anvil #5: its own escrow clone, opened through the factory.
+await mint(deployer.account.address, '1');
+const cloneRef = `0x${'5'.repeat(64)}` as `0x${string}`;
+const [approveTx, createTx] = fundTxs(
+  cloneRef,
+  findToken('USDC')!,
+  parseUnits('1', 6),
+  Number((await wallet.getBlock()).timestamp) + 4 * 86_400,
+);
+await deployer.waitForTransactionReceipt({
+  hash: await deployer.sendTransaction({
+    to: approveTx.to,
+    data: approveTx.data,
+  }),
+});
+const createHash = await deployer.sendTransaction({
+  to: createTx.to,
+  data: createTx.data,
+});
+await deployer.waitForTransactionReceipt({ hash: createHash });
+const factoryBuilt = (await campaignOf(DEPLOYER, cloneRef)).toLowerCase();
+creationTxs.set(factoryBuilt, createHash);
+const { ref: contractsRef } = await createAndFund(
+  mkDraft('E2E contracts', '5', 4),
+);
+check(
+  (await status(contractsRef)).state === 'live',
+  'campaign "E2E contracts" is live',
+);
+const contractsProgram = await prog(contractsRef);
+const enterWith = (name: string, payout: string, contracts: string[]) => {
+  const repo_url = `https://github.com/x/${name.toLowerCase()}`;
+  // The squatter's file lists the contract too: listing proves nothing.
+  ownRepo(repo_url, payout, contracts);
+  return recordSubmission(
+    {
+      program_id: contractsProgram,
+      project: {
+        name,
+        description: `${name} on Base.`,
+        repo_url,
+        live_url: `https://${name.toLowerCase()}.app`,
+      },
+      submission_data: { payout_wallet: payout, contracts },
+    },
+    builder,
+    chainReads,
+  );
+};
+// A squat of someone else's contract (from the squatter's own repo, file naming their own wallet
+// and listing the contract) is refused; the deployer's entry then gets in.
+let contractSquat = '';
+await enterWith(
+  'Squatter',
+  '0x976ea74026e726554db657fa54763abd0c3a0aa9', // anvil #6
+  [factoryBuilt],
+).catch((err) => (contractSquat = (err as Error).message));
+check(
+  contractSquat ===
+    `Contract ${factoryBuilt} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+  `a squat of someone else's contract is refused: ${contractSquat}`,
+);
+const built = await enterWith('Builder5', DEPLOYER, [factoryBuilt]);
+check(
+  built.recorded === true,
+  'a factory-deployed contract enters: the deploying tx was sent by the payout wallet',
+);
 
 // Warp past campaign A's and 3's end dates and reset A's stored ends_at to the real past, the
 // same way a sponsor's deadline actually arrives.

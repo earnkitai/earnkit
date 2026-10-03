@@ -67,7 +67,9 @@ apps/frontend/
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile, githubRepo, ownershipProblem (pure),
-                               checkOwnership (fetcher + Blockscout creator lookup injectable)
+                               deployerOf (creation tx sender), checkOwnership (fetcher and
+                               Blockscout DeployerLookup injectable; recordSubmission passes deps
+                               through for the e2e)
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
                                screenWinners (award plans), fails closed

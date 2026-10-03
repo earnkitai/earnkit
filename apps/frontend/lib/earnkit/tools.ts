@@ -220,9 +220,8 @@ export const tools = {
             how_to_submit:
               'This is an EarnKit campaign: when ready, submit by calling record_submission. ' +
               `First the project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root ` +
-              '(default branch) with the line "payout_wallet: <the payout wallet>", plus ' +
-              '"contracts: 0x…, 0x…" for any entered contract that wallet didn\'t deploy. It proves ' +
-              "the entry is the builder's.",
+              '(default branch) with the line "payout_wallet: <the payout wallet>", and every entered ' +
+              "contract must have been deployed from that wallet. It proves the entry is the builder's.",
           }
         : { submission_url: program.submission_url }),
     };
