@@ -1460,7 +1460,8 @@ const badFallbackSplit = runCampaignCliFails(
   '60,30',
 );
 check(
-  badFallbackSplit.stderr === 'split: one percentage per winner (1); got 2.',
+  badFallbackSplit.stderr ===
+    'split: give one percentage per winner (1); got 2.',
   `the fallback refuses a split that doesn't match the ranking: ${badFallbackSplit.stderr}`,
 );
 const reproposed =
