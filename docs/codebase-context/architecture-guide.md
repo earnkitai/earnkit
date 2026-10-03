@@ -187,15 +187,18 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   never `dns.lookup`, so slow nameservers can't tie up libuv's threadpool. It fetches at create (a
   failure is always re-fetched), on status (the creating agent retries a failure after 1 minute),
   on the pages and in `pnpm campaign sync`; list_programs and get_program read the cache only (one
-  query) and never fetch. Any error reads as unverified. Only a funded campaign (live, awarded,
+  query) and never wait on a fetch: missing or stale entries are refreshed in the background
+  (fire-and-forget, deduped per (host, wallet), at most 4 at once). A safe A answer is used
+  without waiting for AAAA. Any error reads as unverified. Only a funded campaign (live, awarded,
   refunded, taken down) shows an identity: a draft can bind anyone's wallet, so an unfunded
   draft's `/fund` page shows only the title and "Draft: the sponsor's identity is confirmed only
   after it is funded from the bound wallet." `sponsor_url` reaches
-  agents only once verified. A sponsor name using a reserved brand (EarnKit, Base, Coinbase,
-  Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words of the confusable skeleton
-  in `confusables.ts` — NFKD, marks dropped, Greek/Cyrillic/IPA/small-capital/Cherokee/Lisu/
-  enclosed look-alikes mapped to Latin, "l"→"i", "rn"→"m" — incl. split letters like "B.A.S.E") is
-  refused at create unless the verified host is that brand's official domain (apex or www). A
+  agents only once verified. A sponsor name or title using a reserved brand (EarnKit, Base,
+  Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words of the confusable
+  skeleton in `confusables.ts` — NFKD, marks dropped, lowercase, the UTS #39 table generated into
+  `confusables-table.ts` by `scripts/gen-confusables.mts` plus stroke letters and small capitals,
+  other non-ASCII as word breaks, "d"→"cl", "l"→"i", "rn"→"m" — incl. split letters like
+  "B.A.S.E") is refused at create unless the verified host is that brand's official domain (apex or www). A
   sponsor name that mixes Latin with a look-alike script inside one word is refused outright. Unverified sponsor campaigns are listed but are
   never the "Fastest" headline or the closing offer (`present.ts`), and sort after curated
   programs in "Also open"; the "Since you last checked" line names only curated or verified

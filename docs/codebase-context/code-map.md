@@ -84,8 +84,9 @@ apps/frontend/
                                whole words incl. split letters; brand -> official domains),
                                mixedScriptProblem, trackRecordOf/trackRecordText (100+ USDC pools;
                                sponsor-made awards apart from fallback and self-paid)
-    confusables.ts(+test)      pure: skeleton (NFKD, marks dropped, Greek/Cyrillic/IPA/small caps/
-                               Cherokee/Lisu/enclosed look-alikes -> Latin) and mixedScriptWords
+    confusables.ts(+test)      pure: skeleton (NFKD, marks dropped, UTS #39 look-alikes + stroke
+                               letters -> ASCII) and mixedScriptWords
+    confusables-table.ts       generated (scripts/gen-confusables.mts) from Unicode confusables.txt
     sponsor-verify.ts(+test)   domain verification over safe-fetch, cached in sponsor_verifications
                                (24 h pass, 1 h failure): verifySponsor, domainCheck (create/status),
                                sponsorIdentity (funded campaigns only; pages, campaign sync),
