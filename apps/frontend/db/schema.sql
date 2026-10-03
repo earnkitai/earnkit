@@ -166,6 +166,17 @@ CREATE TABLE IF NOT EXISTS rate_windows (
   PRIMARY KEY (key, window_start)
 );
 
+-- v2.2 §5: GitHub repo facts for matching, cached for an hour per (repo, pushed_at)
+-- (lib/earnkit/repo-cache.ts). commits_since maps an ISO window start to "has commits since".
+CREATE TABLE IF NOT EXISTS github_repo_facts (
+  full_name       text NOT NULL,          -- lowercased owner/repo
+  pushed_at       timestamptz NOT NULL,
+  chains          jsonb NOT NULL,
+  commits_since   jsonb NOT NULL DEFAULT '{}',
+  fetched_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (full_name, pushed_at)
+);
+
 -- v2.2 §3: sponsor domain verification, cached per (host, wallet): a pass for 24 h, a failure for
 -- 1 h (lib/earnkit/sponsor-verify.ts). note says why a check failed (shown to the sponsor).
 CREATE TABLE IF NOT EXISTS sponsor_verifications (

@@ -10,6 +10,7 @@ import {
   type RepoFacts,
 } from './match';
 import { openProgramFacts } from './programs';
+import { loadRepoFacts, saveRepoFacts } from './repo-cache';
 
 /**
  * Reads public GitHub data with EarnKit's own token (GITHUB_TOKEN). Builders only give a
@@ -105,13 +106,20 @@ async function contributedRepos(user: string, skip: Set<string>) {
 
 export const repoByName = (fullName: string) => gh<Repo>(`/repos/${fullName}`);
 
-/** Reads a handful of config-like files and detects which chains the repo targets. */
-export async function repoChains(repo: Repo): Promise<Detection> {
+/**
+ * Reads a handful of config-like files and detects which chains the repo targets. `complete` is
+ * false when the tree or a file couldn't be read (such a result isn't cached).
+ */
+async function readRepoChains(repo: Repo) {
+  let complete = true;
   const tree = await gh<{
     tree: { path: string; type: string; size?: number }[];
   }>(
     `/repos/${repo.full_name}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`,
-  ).catch(() => ({ tree: [] }));
+  ).catch(() => {
+    complete = false;
+    return { tree: [] };
+  });
   const paths = pickFiles(
     tree.tree
       .filter((t) => t.type === 'blob')
@@ -127,19 +135,29 @@ export async function repoChains(repo: Repo): Promise<Detection> {
           .join('/')}`,
         { signal: AbortSignal.timeout(10_000) },
       ).catch(() => null);
+      if (!res?.ok) complete = false;
       return { path, text: res?.ok ? await res.text() : '' };
     }),
   );
-  return detectChains(files);
+  return { chains: detectChains(files), complete };
+}
+
+export const repoChains = async (repo: Repo): Promise<Detection> =>
+  (await readRepoChains(repo)).chains;
+
+/** Whether the repo has a commit at or after `since`; null when GitHub couldn't say. */
+async function commitsSince(repo: Repo, since: Date) {
+  return gh<unknown[]>(
+    `/repos/${repo.full_name}/commits?per_page=1&since=${since.toISOString()}`,
+  ).then(
+    (commits) => commits.length > 0,
+    () => null,
+  );
 }
 
 /** True if the repo has at least one commit at or after `since`. */
-export async function hasCommitsSince(repo: Repo, since: Date) {
-  const commits = await gh<unknown[]>(
-    `/repos/${repo.full_name}/commits?per_page=1&since=${since.toISOString()}`,
-  ).catch(() => []);
-  return commits.length > 0;
-}
+export const hasCommitsSince = async (repo: Repo, since: Date) =>
+  (await commitsSince(repo, since)) ?? false;
 
 /** Runs `fn` over `items` with at most `n` in flight. */
 export async function mapLimit<T, R>(
@@ -210,9 +228,22 @@ function fullName(ref: string) {
   return m[1];
 }
 
-/** One repo's facts and its verdicts against the given programs. */
+/**
+ * One repo's facts and its verdicts against the given programs. Facts come from the hour-long
+ * cache for this repo version (pushed_at) when present; only complete reads are cached.
+ */
 async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
-  const chains = await repoChains(repo);
+  const cached = await loadRepoFacts(repo.full_name, repo.pushed_at);
+  let changed = false;
+  let cacheable = true;
+  let chains = cached?.chains;
+  if (!chains) {
+    const read = await readRepoChains(repo);
+    chains = read.chains;
+    cacheable = read.complete;
+    changed = true;
+  }
+  const commitsSinceKnown = { ...cached?.commits_since };
   const commits_in_window: Record<string, boolean> = {};
   for (const p of programs) {
     if (
@@ -220,9 +251,25 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
       p.starts_at &&
       p.chains.some((c) => chains[c])
     ) {
-      commits_in_window[p.id] = await hasCommitsSince(repo, p.starts_at);
+      const key = p.starts_at.toISOString();
+      if (!(key in commitsSinceKnown)) {
+        const has = await commitsSince(repo, p.starts_at);
+        if (has === null) cacheable = false;
+        else {
+          commitsSinceKnown[key] = has;
+          changed = true;
+        }
+      }
+      commits_in_window[p.id] = commitsSinceKnown[key] ?? false;
     }
   }
+  if (changed && cacheable)
+    await saveRepoFacts(
+      repo.full_name,
+      repo.pushed_at,
+      { chains, commits_since: commitsSinceKnown },
+      cached?.fetched_at,
+    );
   const facts: RepoFacts = {
     name: repo.name,
     url: repo.html_url,
