@@ -1,4 +1,9 @@
-import { mixedScriptWords, skeleton, specialLetterWords } from './confusables';
+import {
+  brandSkeletons,
+  mixedScriptWords,
+  skeleton,
+  specialLetterWords,
+} from './confusables';
 import { quoted } from './untrusted-text';
 
 /**
@@ -81,10 +86,10 @@ const LONGEST = Math.max(...[...SKELETONS.keys()].map((k) => k.length));
  * look-alikes from other scripts mapped to Latin, lowercased), split on anything but letters and
  * digits. Pure; exported for tests.
  */
-export const nameWords = (name: string) =>
-  skeleton(name)
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
+export const nameWords = (name: string) => toWords(skeleton(name));
+const toWords = (sk: string) => sk.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+/** nameWords for each brand skeleton (spelling, and the ß -> b reading when it differs). */
+const wordReadings = (name: string) => brandSkeletons(name).map(toWords);
 
 /** Where a brand appears in `words`: words[i..j] join into it. */
 function brandSpans(words: string[]) {
@@ -108,7 +113,9 @@ function brandSpans(words: string[]) {
  * brand inside a longer word ("Basecamp", "Arcade") is not a match. Pure; exported for tests.
  */
 export function reservedBrands(name: string): Brand[] {
-  const found = new Set(brandSpans(nameWords(name)).map((s) => s.brand));
+  const found = new Set(
+    wordReadings(name).flatMap((w) => brandSpans(w).map((s) => s.brand)),
+  );
   return BRANDS.filter((b) => found.has(b));
 }
 
@@ -142,9 +149,13 @@ const GLUED = new Map(
  * program") are accepted: the error says to reword or verify the domain. Pure; exported for tests.
  */
 export function titleBrands(title: string): Brand[] {
-  const words = nameWords(title);
-  const official = words.includes(OFFICIAL);
   const found = new Set<Brand>();
+  for (const words of wordReadings(title)) addTitleBrands(words, found);
+  return BRANDS.filter((b) => found.has(b));
+}
+
+function addTitleBrands(words: string[], found: Set<Brand>) {
+  const official = words.includes(OFFICIAL);
   for (const w of words) {
     const glued = GLUED.get(w);
     if (glued) found.add(glued);
@@ -163,7 +174,6 @@ export function titleBrands(title: string): Brand[] {
     )
       found.add(brand);
   }
-  return BRANDS.filter((b) => found.has(b));
 }
 
 /**

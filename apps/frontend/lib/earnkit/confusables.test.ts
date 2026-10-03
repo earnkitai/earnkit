@@ -1,11 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mixedScriptWords, skeleton, specialLetterWords } from './confusables';
+import {
+  brandSkeletons,
+  mixedScriptWords,
+  skeleton,
+  specialLetterWords,
+} from './confusables';
 import { CONFUSABLES_VERSION } from './confusables-table';
 import {
   mixedScriptProblem,
   plainLettersProblem,
   reservedBrands,
+  titleBrands,
 } from './sponsor-identity';
 
 test('skeleton: look-alikes from other scripts fold to the plain spelling', () => {
@@ -262,4 +268,31 @@ test('round 5: common European letters pass the plain-letters rule but still map
   // Any other non-ASCII letter mixed into an ASCII word stays refused (ƀ next to the allowed ħ).
   assert.ok(plainLettersProblem('Roƀinħood', 'sponsor_name'));
   assert.ok(plainLettersProblem('Mɵnad', 'sponsor_name'));
+});
+
+test('round 6: special Latin letters are refused with no ASCII letter; ß/þ/ð also read as b/p/o', () => {
+  // Whole words of special Latin letters: refused by the plain-letters rule.
+  for (const n of ['ɱɵɲɑɖ', 'ƈɨɾƈʟɇ'])
+    for (const field of ['sponsor_name', 'title'] as const)
+      assert.ok(plainLettersProblem(n, field), `${field}: ${n}`);
+  // European letters that look like another: allowed letters, but a brand in the look-alike reading.
+  const brands: [string, string][] = [
+    ['ẞase', 'base'],
+    ['Coinßase', 'coinbase'],
+    ['Temþo', 'tempo'],
+    ['Mðnad', 'monad'],
+  ];
+  for (const [n, brand] of brands) {
+    assert.equal(plainLettersProblem(n, 'sponsor_name'), null, n);
+    assert.deepEqual(reservedBrands(n), [brand], n);
+    assert.deepEqual(titleBrands(`Official ${n} Grant`), [brand], n);
+  }
+  assert.deepEqual(brandSkeletons('Coinßase'), ['coinssase', 'coinbase']);
+  assert.deepEqual(brandSkeletons('Café'), ['cafe']);
+  // Real European words still pass both rules.
+  for (const ok of ['Straße', 'København', 'Łódź Labs', 'Café Labs']) {
+    assert.deepEqual(specialLetterWords(ok), [], ok);
+    assert.equal(plainLettersProblem(ok, 'title'), null, ok);
+    assert.deepEqual(reservedBrands(ok), [], ok);
+  }
 });

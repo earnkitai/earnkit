@@ -61,10 +61,20 @@ const ENCLOSED: [number, number][] = [
   [0x1f1e6, 0x1f1ff], // regional indicators A-Z
 ];
 
+/**
+ * The second reading of the letters that look like another one (ß like b, þ like p, ð like o). The
+ * brand check runs on both skeletons, so "Coinßase", "Temþo" and "Mðnad" read as brands too.
+ */
+const EUROPEAN_LOOKALIKE = new Map([
+  ['ß', 'b'],
+  ['þ', 'p'],
+  ['ð', 'o'],
+]);
+
 /** One lowercased character -> ASCII, or itself. */
-function latinOf(c: string): string {
+function latinOf(c: string, lookalike = false): string {
   if (c < '\x80') return c;
-  const european = EUROPEAN.get(c);
+  const european = (lookalike && EUROPEAN_LOOKALIKE.get(c)) || EUROPEAN.get(c);
   if (european) return european;
   const cp = c.codePointAt(0)!;
   for (const [lo, hi] of ENCLOSED)
@@ -81,18 +91,30 @@ function latinOf(c: string): string {
  * (UTS #39 table + supplement), lowercased again, any other non-ASCII character turned into a word
  * break (words are joined again when matching, so "B🚀ase" still reads "base"), then "d" -> "cl",
  * "l" -> "i" and "rn" -> "m" (so "Monacl", "CircIe" and "Ternpo" match; the skeleton isn't meant
- * to be read). Brands go through the same function, so both
- * sides compare equal. Pure; exported for tests.
+ * to be read). Brands go through the same function, so both sides compare equal. skeletonOf(s, true) reads
+ * ß/ẞ as b, þ as p and ð as o instead of their spelling (see brandSkeletons). Pure; exported for
+ * tests.
  */
-export const skeleton = (s: string) =>
+export const skeleton = (s: string) => skeletonOf(s, false);
+const skeletonOf = (s: string, lookalike: boolean) =>
   [...s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()]
-    .map(latinOf)
+    .map((c) => latinOf(c, lookalike))
     .join('')
     .toLowerCase()
     .replace(/[^\x00-\x7f]+/g, ' ')
     .replace(/d/g, 'cl')
     .replace(/l/g, 'i')
     .replace(/rn/g, 'm');
+
+/**
+ * The skeletons a brand check must try: the spelling (ß -> ss) and, when the text has ß, þ or ð,
+ * the look-alike reading (ß -> b). A text matches a brand when either does. Pure; exported for tests.
+ */
+export const brandSkeletons = (s: string) => {
+  const plain = skeleton(s);
+  const lookalike = skeletonOf(s, true);
+  return lookalike === plain ? [plain] : [plain, lookalike];
+};
 
 // Scripts whose letters pass for Latin ones.
 const LOOKALIKE_SCRIPTS =
@@ -112,18 +134,23 @@ export function mixedScriptWords(name: string) {
 
 /**
  * Words (runs of letters and digits, after NFKD and dropping marks) that mix ASCII letters with
- * any other letter: "Roƀinhood" (ƀ), "Mɵnad", "Bаse". "Café" (e + mark), all-Cyrillic words and the
- * common European letters in EUROPEAN ("Straße", "København", "Łódź") are not. Pure; exported for
- * tests.
+ * any other letter ("Roƀinhood" (ƀ), "Mɵnad", "Bаse"), or that have any non-ASCII Latin letter
+ * outside the common European ones, even with no ASCII letter at all ("ɱɵɲɑɖ", "ƈɨɾƈʟɇ"). "Café"
+ * (e + mark), all-Cyrillic words and the European letters in EUROPEAN ("Straße", "København",
+ * "Łódź") are not. Pure; exported for tests.
  */
 export function specialLetterWords(s: string) {
   return s
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .split(/[^\p{L}\p{N}]+/u)
-    .filter(
-      (w) =>
-        /[A-Za-z]/.test(w) &&
-        /[^\x00-\x7f]/.test(w.replace(EUROPEAN_LETTERS, '')),
-    );
+    .filter((w) => {
+      const rest = w.replace(EUROPEAN_LETTERS, '');
+      return (
+        (/[A-Za-z]/.test(w) && /[^\x00-\x7f]/.test(rest)) ||
+        SPECIAL_LATIN.test(rest)
+      );
+    });
 }
+// A Latin-script letter that isn't ASCII (checked after the European letters are removed).
+const SPECIAL_LATIN = /(?![A-Za-z])\p{Script=Latin}/u;
