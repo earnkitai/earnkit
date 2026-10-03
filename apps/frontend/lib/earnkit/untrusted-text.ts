@@ -13,18 +13,12 @@ export class UntrustedTextError extends Error {}
 export type TextRule = {
   max: number;
   singleLine?: boolean;
-  /**
-   * A name or title, shown quoted to builders: also refuse "@" and runs of 7+ digits (handles and
-   * phone numbers). Multi-line fields don't get such word rules: they refused real briefs, and the
-   * structure (sponsor_content/entries envelopes, the fixed safety lines) is the defense.
-   */
-  quotedName?: boolean;
 };
 
 /** Limits per field (v2.2 spec §2). */
 export const TEXT_LIMITS = {
-  sponsor_name: { max: 40, singleLine: true, quotedName: true },
-  title: { max: 80, singleLine: true, quotedName: true },
+  sponsor_name: { max: 40, singleLine: true },
+  title: { max: 80, singleLine: true },
   what_to_build: { max: 600 },
   criteria: { max: 400 },
   reason: { max: 200, singleLine: true },
@@ -175,9 +169,13 @@ function linkIn(s: string) {
   );
 }
 
-// In a quoted name or title: "@acme" handles and 7+ digit runs ("+1 415 555 0100").
+// Single-line fields (names, titles, reasons; shown quoted or as one line): "@acme" handles and
+// 7+ digit runs ("+1 415 555 0100"), year ranges ("2026-2027") aside. Multi-line fields get no
+// such word rules: they refused real briefs, and the structure (sponsor_content/entries
+// envelopes, the fixed safety lines) is the defense.
 const AT = /@/;
 const DIGIT_RUN = /\d(?:[ .()\-\u2013\u2014/]?\d){6}/;
+const YEAR_RANGE = /\b\d{4} ?[-\u2013\u2014/] ?\d{4}\b/g;
 
 /** What gets cleaned text rejected, with the word used in the error. */
 const REJECT: [(s: string) => boolean, string][] = [
@@ -186,7 +184,10 @@ const REJECT: [(s: string) => boolean, string][] = [
 ];
 const REJECT_IN_NAMES: [(s: string) => boolean, string][] = [
   [(s) => AT.test(s), '@ signs'],
-  [(s) => DIGIT_RUN.test(s), 'runs of 7 or more digits'],
+  [
+    (s) => DIGIT_RUN.test(s.replace(YEAR_RANGE, '')),
+    'runs of 7 or more digits',
+  ],
 ];
 
 /**
@@ -204,19 +205,14 @@ export const plainText = (s: string, singleLine = false) =>
  */
 export function cleanText(
   value: string,
-  {
-    max,
-    singleLine = false,
-    quotedName = false,
-    field = 'text',
-  }: TextRule & { field?: string },
+  { max, singleLine = false, field = 'text' }: TextRule & { field?: string },
 ) {
   if (value.length > max * 4 || value.length > RAW_CAP)
     throw new UntrustedTextError(
       `${field}: at most ${max} characters (got ${value.length}).`,
     );
   const s = allow(value, singleLine);
-  for (const [bad, what] of quotedName
+  for (const [bad, what] of singleLine
     ? [...REJECT, ...REJECT_IN_NAMES]
     : REJECT)
     if (bad(s))
@@ -306,15 +302,22 @@ export const SponsorUrl = z
 
 /** Longest builder link (live, repo, demo, token) EarnKit accepts, as typed. */
 export const BUILDER_URL_MAX = 200;
-const BUILDER_PATH = /^[A-Za-z0-9\-._~/]{1,100}$/;
+// The path (letters, digits, - . _ ~ / and @ for profile links like medium.com/@user), then an
+// optional query and fragment (also = & % +), together at most 120 characters.
+const BUILDER_PATH = /^[A-Za-z0-9\-._~/@]+$/;
+const BUILDER_TAIL =
+  /^(?:\?[A-Za-z0-9\-._~/=&%+]*)?(?:#[A-Za-z0-9\-._~/=&%+]*)?$/;
+export const BUILDER_TAIL_MAX = 120;
 
 /**
  * A builder's link (`live_url`, `repo_url`, `demo_url`, `token_url`, url answers) in canonical
  * form, or why it has none: at most 200 characters as typed, with no whitespace, control or format
- * characters (the URL parser silently drops tabs and newlines); no scheme means https; then https
- * only, no user info, a path of at most 100 characters from [A-Za-z0-9-._~/]. The canonical link
- * is `https://<lowercase host>[:port]<path>`: query and fragment are dropped, so nothing but a
- * plain address is stored or shown. Pure; exported for tests.
+ * characters (the URL parser silently drops tabs and newlines); no scheme means https and http://
+ * is upgraded to https://; other schemes and user info are refused; the path may use
+ * [A-Za-z0-9-._~/@], the query and fragment [A-Za-z0-9-._~/=&%+] (as typed), and path, query and
+ * fragment together at most 120 characters. The canonical link is
+ * `https://<lowercase host>[:port]<path>[?query][#fragment]`: stored and shown as is. Pure;
+ * exported for tests.
  */
 export function canonicalBuilderUrl(
   raw: string,
@@ -323,7 +326,11 @@ export function canonicalBuilderUrl(
     return { problem: `at most ${BUILDER_URL_MAX} characters` };
   if (/[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(raw))
     return { problem: 'no spaces, line breaks or hidden characters in a link' };
-  const v = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+  const v = /^http:\/\//i.test(raw)
+    ? `https://${raw.slice(7)}`
+    : /^[a-z][a-z0-9+.-]*:/i.test(raw)
+      ? raw
+      : `https://${raw}`;
   if (!URL.canParse(v)) return { problem: 'must be a full https:// link' };
   const u = new URL(v);
   if (u.protocol !== 'https:') return { problem: 'must start with https://' };
@@ -331,12 +338,19 @@ export function canonicalBuilderUrl(
     return { problem: 'no user or password in the link' };
   if (!u.hostname.includes('.'))
     return { problem: 'must be a full https:// link' };
-  if (!BUILDER_PATH.test(u.pathname))
+  const at = v.search(/[?#]/);
+  const tail = at < 0 ? '' : v.slice(at);
+  if (!BUILDER_PATH.test(u.pathname) || !BUILDER_TAIL.test(tail))
     return {
       problem:
-        'the path may only use letters, digits and - . _ ~ / (up to 100 characters)',
+        'the path may only use letters, digits and - . _ ~ / @, and the part after ? or # letters, digits and - . _ ~ / = & % +',
     };
-  return { url: `https://${u.host}${u.pathname}` };
+  const rest = `${u.pathname}${u.search}${u.hash}`;
+  if (rest.length > BUILDER_TAIL_MAX)
+    return {
+      problem: `the part after the domain may be at most ${BUILDER_TAIL_MAX} characters`,
+    };
+  return { url: `https://${u.host}${rest}` };
 }
 
 /** Why a builder's link can't be stored, or null (`canonicalBuilderUrl`). */

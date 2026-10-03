@@ -119,7 +119,8 @@ export const brandSkeletons = (s: string) => {
 /**
  * Characters that pass for a full stop: UTS #39's (Lisu ꓸ, Syriac ܁ ܂, Vai ꘎, Arabic-Indic zero, …)
  * plus look-alikes it leaves out (Latin ꞏ U+A78F, Hebrew mark ׅ U+05C5, Arabic ۔ U+06D4, Tibetan ༌
- * U+0F0C and ་ U+0F0B, ⸳ U+2E33, runic ᛫ U+16EB). untrusted-text reads them as "." before link detection.
+ * U+0F0C, ⸳ U+2E33, runic ᛫ U+16EB). Not the Tibetan tsheg U+0F0B: it separates every Tibetan
+ * syllable. untrusted-text reads them as "." before link detection.
  */
 export const DOT_LOOKALIKES = [
   // Not the Arabic-Indic and Persian zeros (U+0660, U+06F0): every such number would be mangled.
@@ -131,7 +132,6 @@ export const DOT_LOOKALIKES = [
   '\u06D4',
   '\u0F0C',
   '\u2E33',
-  '\u0F0B',
   '\u16EB',
 ].join('');
 

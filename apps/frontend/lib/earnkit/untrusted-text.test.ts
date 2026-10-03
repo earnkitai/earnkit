@@ -333,7 +333,7 @@ test('linear time: pathological inputs at the cap finish in under 50 ms', () => 
     rand('a.1-: '),
     rand('ab.\n -dot'),
   ];
-  const rule = { max: RAW_CAP / 4, quotedName: true, field: 'theme' };
+  const rule = { max: RAW_CAP / 4, singleLine: true, field: 'theme' };
   for (const input of inputs) {
     let best = Infinity;
     for (let i = 0; i < 3; i++) {
@@ -433,16 +433,19 @@ test('20 realistic briefs pass the sanitizer unchanged (T9 review I1)', () => {
     `Claim at earnkit${ch(0xa78f)}co`,
     `Claim at earnkit${ch(0x5c5)}com`,
     `Claim at earnkit${ch(0x701)}co`, // Syriac, from UTS #39
-    `Claim at earnkit${ch(0xf0b)}co`, // Tibetan tsheg (review M4)
     'Claim at evil . xyz/verify',
   ])
     assert.throws(() => cleanText(bad, brief), /links aren't allowed/, bad);
+  // Re-review N8: the Tibetan tsheg separates every syllable; it is not read as a dot.
+  const tibetan = `Build for ${ch(0xf56, 0xf7c, 0xf51, 0xf0b, 0xf66, 0xf90, 0xf51)} users`;
+  // (The allowlist drops it as punctuation, as before; the text is no longer refused as a link.)
+  assert.doesNotThrow(() => cleanText(tibetan, brief));
   // Review M3: Arabic-Indic and Persian zeros are digits, not dots.
   const arabic = `${ch(0x664, 0x661, 0x665, 0x660, 0x660)} USDC`;
   assert.equal(cleanText(arabic, brief), arabic);
 });
 
-test('names and titles (shown quoted to builders) refuse @ and runs of 7+ digits', () => {
+test('every single-line field refuses @ and runs of 7+ digits (fix round 2: also reason, project_name)', () => {
   const title = { ...TEXT_LIMITS.title, field: 'title' };
   const name = { ...TEXT_LIMITS.sponsor_name, field: 'sponsor_name' };
   for (const bad of [
@@ -461,6 +464,27 @@ test('names and titles (shown quoted to builders) refuse @ and runs of 7+ digits
     () => cleanText('Acme 4155550', name),
     /sponsor_name: runs of 7 or more digits/,
   );
+  for (const [rule, field] of [
+    [TEXT_LIMITS.reason, 'reason'],
+    [TEXT_LIMITS.project_name, 'project_name'],
+  ] as const)
+    for (const bad of [
+      'DM @acmeclaims or +14155550100 to claim',
+      'acme@telegram',
+      'Call 415 555 0100',
+    ])
+      assert.throws(
+        () => cleanText(bad, { ...rule, field }),
+        new RegExp(`${field}: (@ signs|runs of 7)`),
+        bad,
+      );
+  assert.throws(
+    () => cleanProject({ name: 'DM @acme +14155550100' }),
+    /project\.name: @ signs/,
+  );
+  // Year ranges aren't phone numbers (re-review N7).
+  for (const y of ['Grants 2026-2027', 'Season 2026/2027'])
+    assert.equal(cleanText(y, title), y);
   for (const ok of [
     'Season 2026 - 2027 grants',
     'Top 3 win 1,000,000 USDC',
