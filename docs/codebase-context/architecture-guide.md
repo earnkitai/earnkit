@@ -227,6 +227,24 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   set by the sponsor and backed by the escrow. The operator CLI turns every error into one
   readable line (contract reverts named, e.g. "…reverted: NotAllowed.") and checks the escrow
   onchain before signing (refund only a Funded escrow, naming who receives it).
+- **Less friction** (v2.2 §6): `create` needs five answers (`sponsor_wallet`, `sponsor_name`,
+  `title`, `what_to_build` — `theme` is accepted as its old name — and `amount`); `withDefaults`
+  (`sponsor-rules.ts`, pure) fills the rest (chains [base], USDC, 3 winners, ends in 14 days,
+  existing work allowed, criteria "<sponsor_name> picks the most useful entries" run through the
+  same sanitizer, no sponsor_url) and `createReply` lists the defaults used in `show_to_sponsor`.
+  Drafts store `what_to_build` (rows from before keep `theme`; `sponsorProgramFile` reads either).
+  `award` takes a ranking (`winners: [entry_id, …]`, best first, `split` "equal" or integer
+  percentages summing to 100) or explicit `[{entry_id, amount, reason?}]`; `resolvePicks` turns a
+  ranking into exact units with `splitPrize` (each share rounded down, the remainder to first
+  place) and fills a missing reason with "Picked by <sponsor_name>", then everything goes through
+  `planAward` (duplicates, non-entries, excluded wallets, exact sum) and the sanctions screen as
+  before. `pnpm campaign fallback propose --winners <id>,<id> [--split …]` does the same
+  (`parseFallbackPicks`, default reason "Top entry (EarnKit fallback)"). The fund page asks the
+  wallet for EIP-5792 capabilities (`sendBatched` in `app/components/wallet.ts`): if
+  `atomic.status` is supported (or ready) on the chain, approve + createCampaign go in one
+  `wallet_sendCalls` batch (one signature, `waitForCallsStatus`); otherwise, or when the wallet
+  doesn't know the method, they are sent in order. Either way the page then polls `/check`, which
+  finds the deposit by reading the chain. The award page sends its single tx with `sendAll`.
 - **Sponsored isn't curated** (v2.2 §3): every sponsor campaign carries a fixed label, "Sponsored ·
   unverified" or "Sponsored · verified <host>" (`sponsor-identity.ts` `sponsorLabel`), in the
   list_programs line, get_program (`description` and `campaign.sponsor`: name, label, verified,
@@ -275,16 +293,17 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   bidi and markup characters are dropped; then links in any form and HTML entities are rejected;
   per-field limits) at the input boundary; `sponsor_url` is https, at most 100 characters, a plain
   host, no query or fragment (`SponsorUrl`): `DraftInput`
-  (sponsor_name, title, theme, criteria), `AwardWinner.reason`, and campaign entries' project
+  (sponsor_name, title, what_to_build, criteria), `AwardWinner.reason`, and campaign entries' project
   name/description (`cleanProject` in record_submission and prepare_submission; other programs'
   projects go only to the builder's own submission, so they are not restricted). Where it is
   shown, it is either quoted single-line (`quoted()`: list lines, "Fastest", get_program
   title/organizer, show_to_sponsor) or inside an envelope that says who wrote it:
-  `get_program.sponsor_content` (theme, criteria, sponsor_url) and `sponsor_campaign` `entries`
+  `get_program.sponsor_content` (what_to_build, criteria, sponsor_url) and `sponsor_campaign` `entries`
   with `note`; award reasons come back in prepareAward's `sponsor_content.reasons`. Errors refer
   to other entries by number only, never by name. Sponsor programs' description, summary and rules are EarnKit's words only, rebuilt
   at read time (`programCard`/`programDetails`), so rows published before v2.2 read the same; the
-  theme is stored in `campaign.what_to_build` (legacy rows: `description`) for the campaign page.
+  sponsor's what_to_build is stored in `campaign.what_to_build` (legacy rows: `description`) for
+  the campaign page.
   `SAFETY_LINES` go in the server instructions and the descriptions of list_programs,
   get_program, record_submission and sponsor_campaign. The scheduled-check offer is read-only.
 

@@ -38,6 +38,7 @@ import type { DraftRequest } from '../lib/earnkit/sponsor-rules';
  *      after 60 days and status records the refund
  *   8. the same repo entered twice is refused; lazily expiring drafts; entry statuses (board,
  *      entry page, "Your campaign entries"); sponsor replies with no tx hashes; CLI refusals
+ *   9. v2.2 §6: create with five answers (defaults listed), awards and a fallback by ranking
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
