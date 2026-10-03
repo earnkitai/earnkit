@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   awardSearchFrom,
   LOG_CHUNK_MIN,
-  logRangeLimit,
+  RATE_BACKOFF_MS,
+  logError,
   scanLogsNewestFirst,
   type CloneFacts,
   type EscrowReader,
@@ -277,7 +278,7 @@ test('award log search: newest first in 2,000-block chunks, at most 8 calls per 
   assert.equal(rpc.calls.length, 8);
   assert.deepEqual(rpc.calls[0], [98_001n, 100_000n]);
   assert.deepEqual(rpc.calls[7], [84_001n, 86_000n]);
-  assert.deepEqual(first, { found: null, next: 84_000n, chunk: 2_000n });
+  assert.deepEqual(first, { found: null, next: 84_000n });
   // The next check (with new blocks on top) continues below where this one stopped.
   rpc.calls.length = 0;
   const second = await scanLogsNewestFirst({
@@ -298,7 +299,7 @@ test('award log search: newest first in 2,000-block chunks, at most 8 calls per 
       resumeHi: null,
       get: rpc.get,
     }),
-    { found: null, next: null, chunk: 2_000n },
+    { found: null, next: null },
   );
   assert.equal(rpc.calls.length, 0);
 });
@@ -313,7 +314,6 @@ test('award log search: finds the event on an RPC with a 2,000-block limit (the 
     get: rpc.get,
   });
   assert.equal(r.found, 'log@95500');
-  assert.equal(r.chunk, 2_000n);
   assert.deepEqual(rpc.calls, [
     [91_001n, 100_000n],
     [98_001n, 100_000n],
@@ -332,7 +332,6 @@ test('award log search: an unnamed limit halves the chunk until accepted, never 
     get: rpc.get,
   });
   // 2,000 → 1,000 → 500 accepted.
-  assert.equal(r.chunk, 500n);
   assert.deepEqual(rpc.calls.slice(0, 3), [
     [98_001n, 100_000n],
     [99_001n, 100_000n],
@@ -372,22 +371,110 @@ test('award log search: an unnamed limit halves the chunk until accepted, never 
   assert.equal(n, 1);
 });
 
-test('logRangeLimit: reads the limit from common RPC wordings', () => {
-  const lim = (message: string, extra: object = {}) =>
-    logRangeLimit({ message, ...extra })?.limit ?? null;
-  assert.equal(lim('eth_getLogs is limited to a 2,000 range'), 2_000n);
-  assert.equal(lim('maximum block range: 500'), 500n);
-  assert.equal(lim('exceed maximum block range: 10000'), 10_000n);
+test('logError: a range limit only when the message says so; other -32005/-32614/429 are rate limits (T9 review I5, M1, M2)', () => {
+  const range = (message: string, extra: object = {}) => {
+    const r = logError({ message, ...extra });
+    assert.equal(r?.kind, 'range', message);
+    return r?.kind === 'range' ? r.limit : undefined;
+  };
   assert.equal(
-    lim(
+    range('eth_getLogs is limited to a 2,000 range', {
+      code: -32614,
+      status: 413,
+    }),
+    2_000n,
+  );
+  assert.equal(range('maximum block range: 500'), 500n);
+  assert.equal(range('exceed maximum block range: 10000'), 10_000n);
+  assert.equal(
+    range(
       'Log response size exceeded. this block range should work: [0x10, 0x4f]',
     ),
     64n,
   );
-  assert.equal(lim('Request entity too large', { status: 413 }), null);
-  assert.ok(logRangeLimit({ message: 'x', status: 413 }));
-  assert.equal(logRangeLimit(new Error('execution reverted')), null);
-  assert.equal(logRangeLimit({ message: 'nonce too low', code: -32000 }), null);
+  assert.equal(
+    range('query returned more than 10000 results', { code: -32005 }),
+    null,
+  );
+  assert.equal(range('too many blocks requested'), null);
+  // Review M1: dRPC, thirdweb, a K suffix.
+  assert.equal(range('ranges over 10000 blocks are not supported'), 10_000n);
+  assert.equal(
+    range('Maximum allowed number of requested blocks is 1000'),
+    1_000n,
+  );
+  assert.equal(range('eth_getLogs is limited to 10K blocks'), 10_000n);
+  // Rate limits: the codes without range wording, 429, rate wording.
+  for (const e of [
+    {
+      message: 'daily request count exceeded, request rate limited',
+      code: -32005,
+    },
+    { message: 'busy', code: -32614 },
+    { message: 'Too Many Requests', status: 429 },
+    { message: 'rate limit reached' },
+  ])
+    assert.deepEqual(logError(e), { kind: 'rate' }, e.message);
+  assert.equal(logError(new Error('execution reverted')), null);
+  assert.equal(logError({ message: 'nonce too low', code: -32000 }), null);
+  // Through viem's cause chain.
+  assert.equal(
+    logError({
+      message: 'HTTP request failed.',
+      cause: { message: 'block range too large' },
+    })?.kind,
+    'range',
+  );
+  // Review M2: a huge error page is cut to 2 KB per text, so this stays fast.
+  const t = performance.now();
+  logError({
+    message: 'x',
+    details: '<html>' + 'range '.repeat(20_000) + 'a'.repeat(100_000),
+  });
+  assert.ok(performance.now() - t < 50);
+});
+
+test('award log search: a rate limit backs off 250 ms, 1 s, 3 s, then stops this check where it was (T9 review I5)', async () => {
+  const waits: number[] = [];
+  let n = 0;
+  const r = await scanLogsNewestFirst({
+    latest: 100_000n,
+    floor: 0n,
+    resumeHi: 50_000n,
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+    get: async () => {
+      n++;
+      throw Object.assign(new Error('rate limited'), { code: -32005 });
+    },
+  });
+  assert.deepEqual(waits, RATE_BACKOFF_MS);
+  assert.equal(n, 4);
+  // Nothing searched: resume from the same block; no range was shrunk.
+  assert.deepEqual(r, { found: null, next: 50_000n, rateLimited: true });
+  // A rate limit that clears: the search goes on at full size.
+  const calls: [bigint, bigint][] = [];
+  let first = true;
+  const ok = await scanLogsNewestFirst({
+    latest: 10_000n,
+    floor: 0n,
+    resumeHi: null,
+    sleep: async () => {},
+    get: async (lo, hi) => {
+      calls.push([lo, hi]);
+      if (first) {
+        first = false;
+        throw Object.assign(new Error('Too Many Requests'), { status: 429 });
+      }
+      return lo <= 7_000n && 7_000n <= hi ? 'hit' : null;
+    },
+  });
+  assert.equal(ok.found, 'hit');
+  assert.deepEqual(calls.slice(0, 2), [
+    [8_001n, 10_000n],
+    [8_001n, 10_000n],
+  ]);
 });
 
 test("award page warnings: the sponsor's own wallet, or one wallet paid twice", () => {

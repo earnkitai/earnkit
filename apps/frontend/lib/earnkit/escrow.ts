@@ -306,18 +306,30 @@ export function awardSearchFrom(
   return latest > back ? latest - back : 0n;
 }
 
-/** At most this many `getLogs` calls per request (refused ones included); a longer search resumes on the next check. */
+/** At most this many `getLogs` calls per check (refused and rate-limited ones included); a longer search resumes on the next check. */
 export const LOG_CHUNKS_PER_CHECK = 8;
 
+// What a range or result limit says ("limited to a 2,000 range", "block range is too large",
+// "query returned more than 10000 results", "too many blocks", "Maximum allowed number of
+// requested blocks is 1000", "ranges over 10000 blocks are not supported"). "Too many requests"
+// is a rate limit, not a range limit.
+const RANGE_WORDS =
+  /\branges?\b|limited to|more than [^\n]{0,40}results|too many(?! requests)|requested blocks/i;
+const RATE_WORDS =
+  /rate.?limit|too many requests|request (count|rate)|exceeded/i;
+
 /**
- * Whether `err` is an RPC refusing a `getLogs` range as too large, and the largest range it names
- * (null: it names none). Covers HTTP 413, JSON-RPC -32614 / -32005, and the usual wordings
- * ("limited to a 2,000 range", "block range is too large", "maximum block range: 500", Alchemy's
- * "this block range should work: [0x.., 0x..]"). Walks viem's `cause` chain. Pure; exported for
- * tests.
+ * What a failed `getLogs` means: `range` when the RPC refuses the range as too large (only when
+ * its message says so), with the largest size it names (null: none); `rate` for a rate limit
+ * (HTTP 429, or -32005/-32614/-32016 or rate wording without range wording); null for anything
+ * else. Walks viem's `cause` chain; each text is cut to 2 KB first (a proxy's HTML page can be
+ * large). Pure; exported for tests.
  */
-export function logRangeLimit(err: unknown): { limit: bigint | null } | null {
-  let hit = false;
+export function logError(
+  err: unknown,
+): { kind: 'range'; limit: bigint | null } | { kind: 'rate' } | null {
+  let range = false;
+  let rate = false;
   let limit: bigint | null = null;
   for (
     let e = err as Record<string, unknown> | undefined, i = 0;
@@ -326,37 +338,48 @@ export function logRangeLimit(err: unknown): { limit: bigint | null } | null {
   ) {
     const text = [e.message, e.details, e.shortMessage]
       .filter((t) => typeof t === 'string')
+      .map((t) => (t as string).slice(0, 2048))
       .join(' ');
+    if (RANGE_WORDS.test(text)) range = true;
     if (
-      e.status === 413 ||
-      e.code === -32614 ||
+      e.status === 429 ||
       e.code === -32005 ||
-      /\b(block )?range\b.*\b(limit|too (large|wide|big)|exceed)|limited to .*range|max(imum)? (block )?range|query returned more than|response size exceeded|too many blocks/i.test(
-        text,
-      )
+      e.code === -32614 ||
+      e.code === -32016 ||
+      RATE_WORDS.test(text)
     )
-      hit = true;
+      rate = true;
     if (limit === null) {
       const pair = text.match(/\[\s*(0x[0-9a-f]+)\s*,\s*(0x[0-9a-f]+)\s*\]/i);
       const n =
-        text.match(/limited to (?:a )?([\d,]+)/i) ??
-        text.match(/max(?:imum)?(?: block)? range(?: of| is|:)?\s*([\d,]+)/i) ??
-        text.match(/([\d,]+)\s*(?:-)?\s*block range/i) ??
-        text.match(/range (?:limit|of|is)\s*(?:of\s*)?([\d,]+)/i);
+        text.match(/limited to (?:a )?([\d,]+)(k?)/i) ??
+        text.match(
+          /max(?:imum)?(?: block)? range(?: of| is|:)?\s*([\d,]+)(k?)/i,
+        ) ??
+        text.match(/requested blocks is\s*([\d,]+)(k?)/i) ??
+        text.match(/ranges? over\s*([\d,]+)(k?)/i) ??
+        text.match(/([\d,]+)(k?)\s*-?\s*block range/i) ??
+        text.match(/range (?:limit|of|is)\s*(?:of\s*)?([\d,]+)(k?)/i);
       if (pair) limit = BigInt(pair[2]) - BigInt(pair[1]) + 1n;
-      else if (n) limit = BigInt(n[1].replace(/,/g, ''));
+      else if (n)
+        limit = BigInt(n[1].replace(/,/g, '') || '0') * (n[2] ? 1000n : 1n);
       if (limit !== null && limit <= 0n) limit = null;
     }
   }
-  return hit ? { limit } : null;
+  if (range) return { kind: 'range', limit };
+  return rate ? { kind: 'rate' } : null;
 }
+
+/** Waits before retrying a rate-limited `getLogs` (then the check gives up). */
+export const RATE_BACKOFF_MS = [250, 1_000, 3_000];
 
 /**
  * Searches `floor..hi` newest first, where `hi` is `resumeHi` (where the previous check stopped)
- * or `latest`, calling `get(lo, hi)` on ranges of at most `chunk` blocks, at most `maxCalls`
- * times. A range the RPC refuses as too large is retried smaller: the size it names, or half,
- * never below `LOG_CHUNK_MIN` (then the error is thrown). Returns the first hit, the chunk size
- * that worked (to start from next time), and `next`: where to resume, or null when the search
+ * or `latest`, calling `get(lo, hi)` on ranges of at most `chunk` blocks (2,000 at the start of
+ * every check), at most `maxCalls` times. A range the RPC refuses as too large is retried
+ * smaller: the size it names, or half, never below `LOG_CHUNK_MIN` (then the error is thrown). A
+ * rate limit is retried after 250 ms, 1 s and 3 s; then the check stops with `rateLimited`. Other
+ * errors are thrown. Returns the first hit and `next`: where to resume, or null when the search
  * reached `floor`.
  */
 export async function scanLogsNewestFirst<T>(a: {
@@ -366,8 +389,12 @@ export async function scanLogsNewestFirst<T>(a: {
   chunk?: bigint;
   maxCalls?: number;
   get: (lo: bigint, hi: bigint) => Promise<T | null>;
-}): Promise<{ found: T | null; next: bigint | null; chunk: bigint }> {
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<{ found: T | null; next: bigint | null; rateLimited?: true }> {
+  const sleep =
+    a.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let chunk = a.chunk ?? LOG_CHUNK;
+  let backoffs = 0;
   let hi = a.resumeHi !== null && a.resumeHi < a.latest ? a.resumeHi : a.latest;
   for (
     let calls = 0;
@@ -379,24 +406,25 @@ export async function scanLogsNewestFirst<T>(a: {
     try {
       found = await a.get(lo, hi);
     } catch (err) {
-      const refused = logRangeLimit(err);
+      const kind = logError(err);
+      if (kind?.kind === 'rate') {
+        if (backoffs === RATE_BACKOFF_MS.length)
+          return { found: null, next: hi, rateLimited: true };
+        await sleep(RATE_BACKOFF_MS[backoffs++]);
+        continue;
+      }
       const size = hi - lo + 1n;
-      if (!refused || size <= LOG_CHUNK_MIN) throw err;
+      if (kind?.kind !== 'range' || size <= LOG_CHUNK_MIN) throw err;
       const smaller =
-        refused.limit !== null && refused.limit < size
-          ? refused.limit
-          : size / 2n;
+        kind.limit !== null && kind.limit < size ? kind.limit : size / 2n;
       chunk = smaller > LOG_CHUNK_MIN ? smaller : LOG_CHUNK_MIN;
       continue;
     }
-    if (found !== null) return { found, next: null, chunk };
+    if (found !== null) return { found, next: null };
     hi = lo - 1n;
   }
-  return { found: null, next: hi >= a.floor ? hi : null, chunk };
+  return { found: null, next: hi >= a.floor ? hi : null };
 }
-
-/** The range size the RPC last accepted, so later checks in this process skip the refusals. */
-let learnedChunk = LOG_CHUNK;
 
 /**
  * The clone's `Awarded` event (there is at most one), searched newest first from the latest block
@@ -415,7 +443,6 @@ export async function readAwardedLog(
     latest: latest.number,
     floor: awardSearchFrom(latest.number, latest.timestamp, endsAt),
     resumeHi,
-    chunk: learnedChunk,
     get: async (lo, hi) => {
       const [log] = await c.getContractEvents({
         address: escrow as `0x${string}`,
@@ -434,6 +461,5 @@ export async function readAwardedLog(
         : null;
     },
   });
-  learnedChunk = scan.chunk;
-  return { log: scan.found, next: scan.next };
+  return { log: scan.found, next: scan.next, rateLimited: !!scan.rateLimited };
 }

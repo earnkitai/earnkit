@@ -506,6 +506,8 @@ export const checkIsFresh = (checkedAt: Date | null, now: Date) =>
   now.getTime() - checkedAt.getTime() < CHAIN_CHECK_TTL_MS &&
   checkedAt.getTime() <= now.getTime();
 
+const RATE_LIMITED =
+  "EarnKit's chain provider is rate-limiting it; the award is onchain and EarnKit is still finding its details. Check again in a minute.";
 const STILL_SEARCHING =
   'The award is onchain; EarnKit is still finding its details. Check again in a minute.';
 
@@ -536,6 +538,7 @@ export async function findAward(row: SponsorRow): Promise<ChainCheck> {
       return NOTHING;
     }
     await saveScan(found.next);
+    if (found.rateLimited) return { ...NOTHING, chainNote: RATE_LIMITED };
     if (found.next === null)
       // Searched down to the estimate without finding it; start over next time.
       console.error(
