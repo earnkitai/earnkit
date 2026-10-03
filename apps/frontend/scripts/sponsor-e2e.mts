@@ -774,7 +774,7 @@ check(
   `prepare_submission prefills the last payout wallet: ${prepared.payout_wallet_note}`,
 );
 // Copied work: a fork is refused; a second entry of the same live link (spelled differently) is
-// refused; the sponsor sees each entry's repo dates.
+// accepted and flagged to the sponsor (re-audit M5); the sponsor sees each entry's repo dates.
 forks.add('x/forked');
 ownRepo(
   'https://github.com/x/forked',
@@ -815,9 +815,19 @@ const liveDup = await copyEntry(
   'HTTPS://www.Alpha.app/?ref=copy#top',
 );
 check(
-  liveDup === `This live link is already entered (entry #${a.project_id}).`,
-  `a second entry of the same live link is refused: ${liveDup}`,
+  liveDup === '',
+  `a second entry of the same live link is accepted: ${liveDup}`,
 );
+const dupEntries = (await sponsorStatus(draft.ref, inst)).entries;
+const dup = dupEntries.find((e) => e.name === 'Alpha clone');
+check(
+  dup?.live_link_note === `same live link as entry #${a.project_id}` &&
+    dupEntries.find((e) => e.entry_id === a.project_id)?.live_link_note ===
+      null,
+  `the sponsor sees the shared live link: ${dup?.live_link_note}`,
+);
+// Out of the way of the rest of the run (entry counts, award picks).
+await sql()`DELETE FROM projects WHERE id = ${dup!.entry_id}`;
 const labelled = (await sponsorStatus(draft.ref, inst)).entries.find(
   (e) => e.entry_id === a.project_id,
 ) as { repo_label?: string; repo_created_at?: string } | undefined;

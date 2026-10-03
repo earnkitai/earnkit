@@ -20,6 +20,7 @@ import {
   expiredText,
   findFunding,
   matchFunding,
+  sameLiveLink,
   type SponsorRow,
   scoreNotes,
   withScoringLock,
@@ -498,4 +499,18 @@ test(
 
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
+});
+
+// Re-audit M5: live links aren't proven, so a unique live link let the first comer squat it.
+test('a shared live link is flagged to the sponsor, not refused (re-audit M5)', () => {
+  const entries = [
+    { id: 4, live_key: 'alpha.app' },
+    { id: 7, live_key: null },
+    { id: 9, live_key: 'alpha.app' },
+    { id: 12, live_key: 'beta.app' },
+  ];
+  assert.equal(sameLiveLink(entries[0], entries), null);
+  assert.equal(sameLiveLink(entries[1], entries), null);
+  assert.equal(sameLiveLink(entries[2], entries), 'same live link as entry #4');
+  assert.equal(sameLiveLink(entries[3], entries), null);
 });

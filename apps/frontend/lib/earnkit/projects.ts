@@ -190,10 +190,9 @@ export async function recordSubmission(
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
   const repoKey = (entry && repo_url && normalizeRepoUrl(repo_url)) || null;
-  // One entry per live link too (copied work pointing at someone else's site).
+  // The live link, normalized: not unique (it isn't proven, so uniqueness let anyone squat it);
+  // the sponsor sees entries that share one (sponsor.ts sameLiveLink).
   const liveKey = (entry && live_url && normalizeLiveUrl(live_url)) || null;
-  const liveEntered = (same: { id: number }) =>
-    new EntryError(`This live link is already entered (entry #${same.id}).`);
   // Other entries are referred to by number only: never repeat another builder's text.
   const alreadyEntered = (same: { id: number }) =>
     new EntryError(
@@ -223,11 +222,6 @@ export async function recordSubmission(
             WHERE program_id = ${program.id} AND repo_url IS NOT NULL`,
           );
           if (same) throw alreadyEntered(same);
-        }
-        if (liveKey) {
-          const [same] = await tx<{ id: number }[]>`
-          SELECT id FROM projects WHERE program_id = ${program.id} AND live_key = ${liveKey}`;
-          if (same) throw liveEntered(same);
         }
         if (entry.contracts.length > 0) {
           const [taken] = await tx<{ id: number }[]>`
@@ -292,16 +286,6 @@ export async function recordSubmission(
         const [same] = await sql()<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND repo_key = ${repoKey}`;
         if (same) throw alreadyEntered(same);
-      }
-      if (
-        liveKey &&
-        (err as { code?: string }).code === '23505' &&
-        (err as { constraint_name?: string }).constraint_name ===
-          'projects_campaign_live_key'
-      ) {
-        const [same] = await sql()<{ id: number }[]>`
-          SELECT id FROM projects WHERE program_id = ${program.id} AND live_key = ${liveKey}`;
-        if (same) throw liveEntered(same);
       }
       throw err;
     });

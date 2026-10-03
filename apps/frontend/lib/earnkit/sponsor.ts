@@ -658,6 +658,8 @@ type EntryRow = {
   id: number;
   name: string;
   live_url: string | null;
+  /** The normalized live link (campaigns.ts normalizeLiveUrl); not unique. */
+  live_key: string | null;
   repo_url: string | null;
   payout_wallet: string;
   contracts: string[];
@@ -683,13 +685,30 @@ const repoDates = (e: Pick<EntryRow, 'repo_created_at' | 'repo_pushed_at'>) =>
       }
     : {};
 
+/**
+ * "same live link as entry #N" for an entry whose live link an earlier entry (in `entries`, oldest
+ * first) already used, else null. Live links aren't proven, so a shared one is shown to the
+ * sponsor instead of blocking the later entry (re-audit M5). Pure; exported for tests.
+ */
+export function sameLiveLink(
+  e: Pick<EntryRow, 'id' | 'live_key'>,
+  entries: Pick<EntryRow, 'id' | 'live_key'>[],
+) {
+  const first = e.live_key
+    ? entries.find((o) => o.live_key === e.live_key)
+    : undefined;
+  return first && first.id !== e.id
+    ? `same live link as entry #${first.id}`
+    : null;
+}
+
 /** Entries with a payout wallet for `programId`. `db` reuses a caller's transaction, if any. */
 async function entriesOf(
   programId: string,
   db: postgres.Sql | postgres.TransactionSql = sql(),
 ) {
   return db<EntryRow[]>`
-    SELECT id, name, live_url, repo_url, payout_wallet, contracts, score, scored_at, scored_through, score_partial, prize_tx,
+    SELECT id, name, live_url, live_key, repo_url, payout_wallet, contracts, score, scored_at, scored_through, score_partial, prize_tx,
       repo_created_at, repo_pushed_at FROM projects
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
@@ -960,6 +979,7 @@ export async function sponsorStatus(ref: string, installationId: number) {
       name: plainText(e.name, true),
       live_url: shownUrl(e.live_url),
       repo_url: shownUrl(e.repo_url),
+      live_link_note: sameLiveLink(e, entries),
       ...repoDates(e),
       score: e.score,
       // Final once it covers the whole window and was taken after the grace period.
