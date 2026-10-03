@@ -301,7 +301,7 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   across a boundary; daily windows reset at UTC midnight.
 - **Response headers** (`next.config.ts`): every response gets `X-Frame-Options: DENY`,
   `Content-Security-Policy: frame-ancestors 'none'`, `Referrer-Policy:
-strict-origin-when-cross-origin` and `X-Content-Type-Options: nosniff`. Config headers replace
+strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in production `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Config headers replace
   a route's own, so the token image route's stricter CSP is repeated there as a later rule. There
   is no `script-src` policy: Next's inline bootstrap/RSC scripts and the JSON-LD block would need
   per-request nonces (a `proxy.ts` that sets them, and dynamic rendering).
