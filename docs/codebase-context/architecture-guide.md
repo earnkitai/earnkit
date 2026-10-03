@@ -26,7 +26,7 @@
   is a discriminated union on `kind`: `'earnkit'` (EarnKit's own: fixed amount per winner, top
   scores win, paid by `pnpm campaign payout`) or `'sponsor'` (v2.1: a sponsor's pool held in a
   Base escrow clone, sponsor picks winners — see
-  `sponsor_campaigns` in `db/schema.sql`). record_submission _is_ the entry (payout wallet
+  `sponsor_campaigns` in `db/schema.sql`). record*submission \_is* the entry (payout wallet
   always; Base contracts required for `earnkit`, optional for `sponsor`). See
   `docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md`.
 - **Sponsor campaign**: a `sponsor_campaigns` row, keyed by a random `ref` (bytes32), that walks
@@ -114,8 +114,10 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
 - Human-facing dates use one format (`dates.ts` `formatDeadline`, "Oct 6, 2026, 06:51 UTC");
   machine fields (`ends_at`, `deadline`) stay ISO.
 - "Fastest" and per-repo ordering in list_programs: quickest first; between equally quick fits,
-  the larger known per-winner award (`perWinnerUsd`: a USDC sponsor campaign's prize / winners,
-  or a program file's optional `max_award_usd`; unknown is 0).
+  the larger known per-winner award (`perWinnerUsd`: a USDC sponsor campaign's prize /
+  max(winners, 3), so one big single-winner prize can't buy the top spot, or a program file's
+  optional `max_award_usd`; unknown is 0). Within a repo's list, unverified sponsor campaigns
+  come last.
 - No auth beyond the installation token. Anyone can get one (by design), so the agent count
   can be inflated by someone scripting the sign-in flow.
 - **Sponsor campaigns** (v2.1): the escrow (`contracts/`) is the only place a sponsor's funds
@@ -180,17 +182,29 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   `earnkit-sponsor: <sponsor_wallet>`; it is fetched by `safe-fetch.ts` (https/443, domain names
   only, every resolved address public, the socket pinned to the vetted address while SNI, the
   certificate check and Host stay on the hostname, no redirects, 5 s, 4 KB) and cached per
-  (host, wallet) in `sponsor_verifications` (pass 24 h, failure 1 h). It runs at create (a failure
-  is always re-fetched), lazily on status (the creating agent retries a failure after 1 minute),
-  list_programs, get_program and the pages; any error reads as unverified. `sponsor_url` reaches
+  (host, wallet) in `sponsor_verifications` (pass 24 h, failure 1 h). DNS goes through c-ares
+  (`dns.promises.Resolver`, resolve4 + resolve6, 2 s timeout, 1 try, cancelled at the deadline),
+  never `dns.lookup`, so slow nameservers can't tie up libuv's threadpool. It fetches at create (a
+  failure is always re-fetched), on status (the creating agent retries a failure after 1 minute),
+  on the pages and in `pnpm campaign sync`; list_programs and get_program read the cache only (one
+  query) and never fetch. Any error reads as unverified. Only a funded campaign (live, awarded,
+  refunded, taken down) shows an identity: a draft can bind anyone's wallet, so an unfunded
+  draft's `/fund` page shows only the title and "Draft: the sponsor's identity is confirmed only
+  after it is funded from the bound wallet." `sponsor_url` reaches
   agents only once verified. A sponsor name using a reserved brand (EarnKit, Base, Coinbase,
-  Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words after NFKC, Cyrillic/Greek
-  look-alikes and accents, incl. split letters like "B.A.S.E") is refused at create unless the
-  verified host is that brand's official domain. Unverified sponsor campaigns are listed but are
+  Circle, USDC, Arc, Tempo, Monad, Robinhood, tokens.fun; whole words of the confusable skeleton
+  in `confusables.ts` — NFKD, marks dropped, Greek/Cyrillic/IPA/small-capital/Cherokee/Lisu/
+  enclosed look-alikes mapped to Latin, "l"→"i", "rn"→"m" — incl. split letters like "B.A.S.E") is
+  refused at create unless the verified host is that brand's official domain (apex or www). A
+  sponsor name that mixes Latin with a look-alike script inside one word is refused outright. Unverified sponsor campaigns are listed but are
   never the "Fastest" headline or the closing offer (`present.ts`), and sort after curated
-  programs in "Also open". The track record counts a sponsor wallet's funded campaigns (live,
-  awarded, refunded, taken down); drafts and expired drafts don't count, since anyone can bind
-  any wallet to a draft.
+  programs in "Also open"; the "Since you last checked" line names only curated or verified
+  programs and counts new unverified ones ("2 new sponsored campaigns (unverified)"). The track
+  record counts a sponsor wallet's funded USDC campaigns of 100 USDC or more (drafts never count,
+  since anyone can bind any wallet to a draft); "awarded" is only awards the sponsor made
+  (`sponsor_campaigns.award_source`) that paid nothing to the sponsor wallet, with the operator
+  fallback, self-paid and refunded counts shown apart. A pool must be at least 50 USDC
+  (`checkDraft`; `SPONSOR_MIN_POOL` lowers it on the local chain only).
 - **Third-party text is data** (v2.2 §2): anything a sponsor or builder writes reaches other
   people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
   an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,

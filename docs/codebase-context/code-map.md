@@ -73,19 +73,23 @@ apps/frontend/
                                for a winner that is the sponsor or a repeated wallet) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
     safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS
-                               resolved once and every address public (isPublicAddress: IPv4
+                               resolved once via a cancellable c-ares Resolver (not dns.lookup) and every address public (isPublicAddress: IPv4
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
                                mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
                                cert check and Host on the hostname (pinnedLookup), no redirects, 5 s,
                                4 KB; resolver and transport injectable
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
                                <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
-                               names (reservedBrands/reservedNameProblem: NFKC, Cyrillic/Greek
-                               look-alikes, accents, whole words incl. split letters; brand ->
-                               official domains), trackRecordOf/trackRecordText
+                               names (reservedBrands/reservedNameProblem: confusable skeleton,
+                               whole words incl. split letters; brand -> official domains),
+                               mixedScriptProblem, trackRecordOf/trackRecordText (100+ USDC pools;
+                               sponsor-made awards apart from fallback and self-paid)
+    confusables.ts(+test)      pure: skeleton (NFKD, marks dropped, Greek/Cyrillic/IPA/small caps/
+                               Cherokee/Lisu/enclosed look-alikes -> Latin) and mixedScriptWords
     sponsor-verify.ts(+test)   domain verification over safe-fetch, cached in sponsor_verifications
-                               (24 h pass, 1 h failure): verifySponsor, sponsorIdentity (never
-                               throws), trackRecord (per sponsor wallet; only funded states count)
+                               (24 h pass, 1 h failure): verifySponsor, domainCheck (create/status),
+                               sponsorIdentity (funded campaigns only; pages, campaign sync),
+                               cachedIdentities (cache only; list_programs, get_program), trackRecord
     rate-limit.ts(+test)       minimal Postgres fixed-window counter (rate_windows) + clientIp
                                (rightmost x-forwarded-for); /check allows 60 per IP per minute
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on)
