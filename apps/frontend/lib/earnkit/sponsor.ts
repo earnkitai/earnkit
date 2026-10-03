@@ -28,6 +28,7 @@ import {
   sponsorLabel,
 } from './sponsor-identity';
 import { domainCheck, isFunded } from './sponsor-verify';
+import { CANT_FUND, screenWinners, screenWallet } from './sanctions';
 import {
   DEADLINE_MARGIN_MS,
   DEADLINE_PASSED,
@@ -124,6 +125,11 @@ export async function createSponsorDraft(
     mixedScriptProblem(d.sponsor_name) ??
     mixedScriptProblem(d.title, 'title');
   if (letters) throw new SponsorError(letters);
+  await screenWallet(
+    sponsor_wallet,
+    escrowConfig().chainId,
+    `sponsor_wallet: ${CANT_FUND}`,
+  );
   // The domain is checked now (a failure is always re-fetched here, so a fixed file counts at
   // once); a reserved name needs a pass on that brand's own domain. Builders see the result only
   // once the campaign is funded from the bound wallet.
@@ -744,6 +750,7 @@ export async function prepareAward(
     decimals: row.token_decimals,
     excluded: await excludedWinners(row),
   });
+  await screenWinners(plan, row.chain_id);
   // Conditional on state and ownership so a plan written while a confirm is in flight (or after
   // the campaign stopped being this installation's live campaign) can't overwrite the plan that
   // was actually awarded — see assertCanAward's unlocked read above.

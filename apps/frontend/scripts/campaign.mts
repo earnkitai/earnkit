@@ -227,6 +227,7 @@ async function sponsorCommand() {
   const { planAward, splitUnits } = await import(
     '../lib/earnkit/sponsor-rules'
   );
+  const { screenWinners } = await import('../lib/earnkit/sanctions');
   const { escrowConfig, escrowClient, readEscrow } = await import(
     '../lib/earnkit/escrow'
   );
@@ -459,6 +460,7 @@ async function sponsorCommand() {
       decimals: row.token_decimals,
       excluded: await excludedWinners(row, db),
     });
+    await screenWinners(plan, row.chain_id);
     for (const p of plan)
       console.log(
         `  #${p.entry_id} ${p.wallet} ${p.amount} ${row.token_symbol}: ${p.reason}`,
