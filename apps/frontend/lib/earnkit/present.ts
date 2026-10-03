@@ -181,6 +181,9 @@ export function presentPrograms(
           })
         : [];
     if (lines.length === 0) {
+      // Fits only sponsored campaigns: those are listed under Sponsored already.
+      if (fit.verdicts.every((v) => byId.get(v.program_id)?.sponsored))
+        continue;
       others.push(fit.repo);
       continue;
     }

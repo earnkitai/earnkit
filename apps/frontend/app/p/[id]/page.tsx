@@ -90,9 +90,9 @@ export default async function ProjectPage({
               Code: <A href={p.repo_url}>{p.repo_url}</A>
             </li>
           ) : null}
-          {p.token_url && p.token_url !== 'pending' ? (
+          {/^https:\/\/(www\.)?tokens\.fun\//.test(p.token_url ?? '') ? (
             <li>
-              Token: <A href={p.token_url}>tokens.fun</A>
+              Token: <A href={p.token_url!}>tokens.fun</A>
             </li>
           ) : null}
           {p.contracts.map((a) => (

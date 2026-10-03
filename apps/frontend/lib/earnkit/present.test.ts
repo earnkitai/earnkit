@@ -396,3 +396,19 @@ test("review m3, re-audit M6: a sponsor campaign is never in a repo's list", () 
     /"Official Base Grant".* · existing work counts/,
   );
 });
+
+test('a repo whose only fits are sponsored campaigns is not named in "More of your repos" (T9 review M10)', () => {
+  const onlySponsored = {
+    checked: 2,
+    fits: [
+      captureFits.fits[0],
+      {
+        repo: 'side',
+        repo_url: 'https://github.com/dev/side',
+        verdicts: [v('sponsor-x', 'likely', 'existing work counts', 'none')],
+      },
+    ],
+  };
+  const text = presentPrograms([capture, ...cards], true, onlySponsored);
+  assert.doesNotMatch(text, /More of your repos fit too/);
+});
