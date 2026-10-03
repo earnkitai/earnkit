@@ -66,8 +66,9 @@ apps/frontend/
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
-                               stores repo_key and live_key (unique indexes projects_campaign_repo_key
-                               and projects_campaign_live_key) and the repo's GitHub dates;
+                               stores repo_key (unique index projects_campaign_repo_key) and
+                               live_key (not unique: shared ones are flagged, sponsor.ts
+                               sameLiveLink) and the repo's GitHub dates;
                                remembers installations.payout_wallet)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
@@ -78,12 +79,16 @@ apps/frontend/
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
                                screenWinners (award plans, fallback execute,
-                               campaign payout); production fails closed on a wrong or failing
+                               campaign payout), planScreenProblem (the award page re-screens the
+                               stored plan); production fails closed on a wrong or failing
                                RPC; clean results cached 10 min
     untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, then an
                                allowlist of letters/numbers/fixed punctuation/emoji, quotes -> ',
-                               reject links incl. defanged/IP/confusable-dot/bare domains and HTML
-                               entities, TEXT_LIMITS), SponsorUrl, untrusted() (zod), cleanProject
+                               reject links incl. defanged/spelled/spaced/IP/confusable-dot/bare
+                               domains, HTML entities, @handles and phone numbers (hasPhone),
+                               setup commands in briefs (commandIn), TEXT_LIMITS), SponsorUrl,
+                               BuilderUrl/builderUrlProblem/shownUrl (builder links), untrusted()
+                               (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions)
     sponsor-text.ts            client-safe sponsor texts (DEADLINE_PASSED, DRAFT_EXPIRED, the fixed
@@ -101,10 +106,12 @@ apps/frontend/
                                names (reservedBrands/reservedNameProblem: confusable skeleton,
                                whole words incl. split letters; brand -> official domains),
                                mixedScriptProblem, trackRecordOf/trackRecordText (100+ USDC pools;
-                               sponsor-made awards apart from fallback and self-paid)
+                               sponsor-made awards apart from fallback, self-paid and off-plan)
     confusables.ts(+test)      pure: skeleton (NFKD, marks dropped, UTS #39 look-alikes + stroke
-                               letters -> ASCII) and mixedScriptWords
+                               letters -> ASCII), mixedScriptWords and DOT_LOOKALIKES (read as "."
+                               by the sanitizer)
     confusables-table.ts       generated (scripts/gen-confusables.mts) from Unicode confusables.txt
+                               (letter, digit and full-stop prototypes)
     sponsor-verify.ts(+test)   domain verification over safe-fetch, cached in sponsor_verifications
                                (24 h pass, 1 h failure): verifySponsor, domainCheck (create/status),
                                sponsorIdentity (funded campaigns only; pages, campaign sync),
@@ -132,9 +139,10 @@ apps/frontend/
                                escrow is configured; descriptions and schemas
     present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
                                one line per program, who-does-what said once; equally quick fits
-                               ordered by the larger known per-winner award (byFit); unverified
-                               sponsor campaigns are never "Fastest" or the closing offer and sort
-                               last in "Also open"
+                               ordered by the larger known per-winner award (byFit); sponsor
+                               campaigns (Card.sponsored, verified or not) are never "Fastest", the
+                               closing offer or in a repo's list: one labeled line each in their
+                               own "Sponsored" section last
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs + get_program's eligibility check
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
@@ -155,7 +163,9 @@ apps/frontend/
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
                                approve/createCampaign/award transactions; chain reads: chainReader
                                (EscrowReader: campaignOf, clone facts), readEscrow (state + pending
-                               fallback), readAwardedLog (+ awardSearchFrom). Never signs.
+                               fallback), readAwardedLog (+ awardSearchFrom, scanLogsNewestFirst:
+                               2,000-block getLogs ranges that shrink on a range-limit refusal,
+                               logRangeLimit). Never signs.
     escrow-abi.ts               generated by contracts/script/export-abi.sh; campaignsAbi/campaignAbi
     wallet-batch.ts(+test)     pure: atomicBatching (EIP-5792 "supported" only, chain or 0x0),
                                batchUnsupported (57xx -> send in order), batchStatusProblem
