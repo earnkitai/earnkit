@@ -99,9 +99,11 @@ const LEET: Record<string, string> = {
   '8': 'b',
   '@': 'a',
   $: 's',
+  '!': 'i',
+  '|': 'l',
 };
 // 1 -> l is covered too: the skeleton reads every l as i.
-const leet = (s: string) => s.replace(/[0134578@$]/g, (c) => LEET[c]);
+const leet = (s: string) => s.replace(/[0134578@$!|]/g, (c) => LEET[c]);
 
 /**
  * nameWords for each brand skeleton: the spelling, the ß -> b reading when it differs, and the
@@ -146,23 +148,25 @@ export function reservedBrands(name: string): Brand[] {
 
 // Words that, next to a brand, make a title read as the brand's own (compared as skeletons).
 const ORG_WORDS = (
-  'official grant grants program programme foundation team labs ecosystem fund funds council dao ' +
-  'accelerator hackathon ventures studio collective'
+  'official officially verified sponsored grant grants program programme foundation team labs ' +
+  'ecosystem fund funds council dao accelerator hackathon ventures studio collective'
 ).split(' ');
 const OFFICIAL_WORDS = new Set(ORG_WORDS.map(skeleton));
 const OFFICIAL = skeleton('official');
 const BY = new Set(['by', 'from'].map(skeleton));
 const ARTICLES = new Set(['the', 'a', 'an'].map(skeleton));
 const EARNKIT = skeleton('earnkit').replace(/rn/g, 'm');
-// USDC is the payout currency, so a title may say "100 USDC grant".
-const TITLE_BRANDS = BRANDS.filter((b) => b !== 'usdc');
-// A brand glued to an org word ("Basegrants", "BaseGrants"), either way round.
+// A word that is a brand followed by one of these ("BaseGrants", "CoinbaseHQ", "CircleUSDC").
+// No general prefix rule: "Baseline", "Arcade", "Basel" and "Monadic" stay allowed. Other glued
+// forms are a documented residual: sponsored campaigns are always labeled, never placed first,
+// and can be taken down.
+const BRAND_SUFFIXES = (
+  'org app hq dev labs lab team pay chain network net foundation fdn grants grant ventures usdc ' +
+  'official inc io xyz ecosystem dao fund'
+).split(' ');
 const GLUED = new Map(
-  TITLE_BRANDS.flatMap((b) =>
-    ORG_WORDS.flatMap((o) => [
-      [skeleton(b + o), b] as const,
-      [skeleton(o + b), b] as const,
-    ]),
+  BRANDS.flatMap((b) =>
+    BRAND_SUFFIXES.map((x) => [skeleton(b + x), b] as const),
   ),
 );
 
@@ -181,8 +185,8 @@ export function titleBrands(title: string): Brand[] {
 }
 
 /**
- * Brands glued to an org word in one word ("CoinbaseVentures", "MonadFoundation"), and EarnKit
- * inside any word ("EarnKitHQ"): EarnKit's name is never a sponsor's.
+ * Brands glued to a suffix in one word ("CoinbaseVentures", "BaseApp", see BRAND_SUFFIXES), and
+ * EarnKit inside any word ("EarnKitHQ"): EarnKit's name is never a sponsor's.
  */
 function addGlued(words: string[], found: Set<Brand>) {
   for (const w of words) {
@@ -195,6 +199,8 @@ function addGlued(words: string[], found: Set<Brand>) {
 function addTitleBrands(words: string[], found: Set<Brand>) {
   const official = words.includes(OFFICIAL);
   addGlued(words, found);
+  // USDC is the payout currency, so a title may say "100 USDC grant" (or "USDCGrants").
+  found.delete('usdc');
   for (const { brand, i, j } of brandSpans(words)) {
     if (brand === 'usdc') continue;
     // EarnKit anywhere in a title ("EarnKit Prize Claim", "Season 2 of EarnKit").
@@ -368,7 +374,9 @@ export function mixedScriptProblem(
  */
 // Scripts with whole-word Latin look-alikes UTS #39 doesn't map to the brand ("ᗷᗩᔕᗴ",
 // "ⲂⲀⲤⲈ"): refused in names and titles outright (re-audit H3).
-const REFUSED_SCRIPTS = /[\p{Script=Canadian_Aboriginal}\p{Script=Coptic}]/u;
+// Known cost: real Inuktitut, Coptic or Old Italic names are refused too.
+const REFUSED_SCRIPTS =
+  /[\p{Script=Canadian_Aboriginal}\p{Script=Coptic}\p{Script=Old_Italic}]/u;
 
 export function plainLettersProblem(
   text: string,
@@ -377,5 +385,5 @@ export function plainLettersProblem(
   return specialLetterWords(text).length === 0 &&
     !REFUSED_SCRIPTS.test(text.normalize('NFKC'))
     ? null
-    : `${field}: ${quoted(text)}. Use plain letters in names and titles (no special letter forms, Canadian Syllabics or Coptic).`;
+    : `${field}: ${quoted(text)}. Use plain letters in names and titles (no special letter forms, Canadian Syllabics, Coptic or Old Italic).`;
 }

@@ -379,3 +379,53 @@ test('re-audit H3 / F1: glued, leet and EarnKit look-alikes are refused in names
     assert.ok(plainLettersProblem(n, 'sponsor_name'), n);
   assert.equal(plainLettersProblem('Café Zürich', 'sponsor_name'), null);
 });
+
+// T9 review I2: a name refused spaced ("Base App") must not pass glued ("BaseApp"). A brand
+// followed by a fixed suffix is refused; there is no general prefix rule, so real words stay.
+test('brand + suffix glued in one word is refused in names and titles; real words are not (review I2)', () => {
+  for (const n of [
+    'BaseOrg',
+    'BaseApp',
+    'RobinhoodChain',
+    'CircleUSDC',
+    'ArcNetwork',
+    'Coinbasedev',
+    'Monadxyz',
+    'CoinbaseHQ',
+    'CoinbaseInc',
+    'CoinbasePay',
+    'BasePay',
+    'MonadDev',
+    'TempoXYZ',
+    'Rob!nhood',
+    'Ba5eLabs',
+    'MonadFdn',
+  ])
+    assert.ok(reservedNameProblem(n, null), n);
+  for (const t of [
+    'RobinhoodChain Builder Grants',
+    'BaseApp bounty',
+    'Coinbase Verified Bounty',
+    'Monad Officially Sponsored',
+  ])
+    assert.ok(reservedNameProblem(t, null, 'title'), t);
+  for (const ok of [
+    'Baseline',
+    'Arcade',
+    'Basel',
+    'Monadic',
+    'Basecamp',
+    'Arcana',
+    'Database Labs',
+    'Circlet',
+    'Tempora',
+  ])
+    assert.equal(reservedNameProblem(ok, null), null, ok);
+  // USDC is the payout currency: never a brand in a title, even glued.
+  assert.equal(
+    reservedNameProblem('USDCGrants for builders', null, 'title'),
+    null,
+  );
+  // Old Italic is refused like Canadian Syllabics and Coptic (review M5).
+  assert.ok(plainLettersProblem('𐌁𐌀𐌔𐌄', 'sponsor_name'));
+});

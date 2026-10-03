@@ -207,7 +207,7 @@ test('round 4 (r23 probes): every special-letter or look-alike brand is refused 
   // Plain letters with a special form inside a word: the exact refusal.
   assert.equal(
     plainLettersProblem('Mɵnad', 'sponsor_name'),
-    'sponsor_name: "Mɵnad". Use plain letters in names and titles (no special letter forms, Canadian Syllabics or Coptic).',
+    'sponsor_name: "Mɵnad". Use plain letters in names and titles (no special letter forms, Canadian Syllabics, Coptic or Old Italic).',
   );
   // Coptic and Canadian Syllabics are refused outright (re-audit H3).
   assert.ok(plainLettersProblem('Ⲃⲁⲋⲉ', 'sponsor_name'));
