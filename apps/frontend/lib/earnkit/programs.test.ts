@@ -37,8 +37,8 @@ test('trustFor: a sponsor campaign points at its escrow and claims no verified_a
   );
 });
 
-test('perWinnerUsd: USDC sponsor prize / winners, else the file value, else null', () => {
-  const sponsor = (symbol: string) =>
+test('perWinnerUsd: USDC sponsor prize / max(winners, 3), else the file value, else null', () => {
+  const sponsor = (symbol: string, winners = 3) =>
     ({
       kind: 'sponsor',
       prize: {
@@ -49,7 +49,7 @@ test('perWinnerUsd: USDC sponsor prize / winners, else the file value, else null
       },
       pool: '100',
       prize_total: '90',
-      winners: 3,
+      winners,
       metric: 'unique_wallets',
       sponsor: { name: 'Acme' },
       criteria: 'Best',
@@ -63,6 +63,19 @@ test('perWinnerUsd: USDC sponsor prize / winners, else the file value, else null
   assert.equal(
     perWinnerUsd({ campaign: sponsor('MINI'), max_award_usd: null }),
     null,
+  );
+  // Review I6: one winner (or two) ranks as if the prize were split three ways.
+  assert.equal(
+    perWinnerUsd({ campaign: sponsor('USDC', 1), max_award_usd: null }),
+    30,
+  );
+  assert.equal(
+    perWinnerUsd({ campaign: sponsor('USDC', 2), max_award_usd: null }),
+    30,
+  );
+  assert.equal(
+    perWinnerUsd({ campaign: sponsor('USDC', 6), max_award_usd: null }),
+    15,
   );
   assert.equal(perWinnerUsd({ campaign: null, max_award_usd: '5000' }), 5000);
   assert.equal(perWinnerUsd({ campaign: null, max_award_usd: null }), null);

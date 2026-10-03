@@ -369,3 +369,11 @@ test('unverified sponsor campaigns come after curated programs in "Also open"', 
     /^- \*\*Micro\*\*.*\n- \*\*Grant\*\*.*\n- \*\*Big Hack\*\*.*\n- \*\*"Official Base Grant"\*\*/,
   );
 });
+
+test("review m3: an unverified sponsor campaign never tops a repo's list", () => {
+  const text = presentPrograms([capture, ...cards], true, captureFits);
+  const section = text.slice(text.indexOf('tipjar'));
+  const micro = section.indexOf('**Micro**');
+  const sponsor = section.indexOf('**"Official Base Grant"**');
+  assert.ok(micro >= 0 && sponsor > micro, section);
+});

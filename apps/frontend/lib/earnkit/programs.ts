@@ -83,9 +83,10 @@ export const trustFor = (
     : trust(verifiedAt, now);
 
 /**
- * The known per-winner award in USD, or null: a USDC sponsor campaign's prize_total / winners, or
- * a program file's max_award_usd (set only where the source states it). Breaks ties between
- * equally quick fits ("Fastest"). Pure; exported for tests.
+ * The known per-winner award in USD, or null: a USDC sponsor campaign's prize_total /
+ * max(winners, 3), or a program file's max_award_usd (set only where the source states it). Breaks
+ * ties between equally quick fits ("Fastest"). The floor of 3 stops a sponsor buying the top spot
+ * with one large single-winner prize (review I6, audit M4). Pure; exported for tests.
  */
 export function perWinnerUsd(p: {
   campaign: CampaignConfig | null;
@@ -93,7 +94,7 @@ export function perWinnerUsd(p: {
 }) {
   if (p.campaign?.kind === 'sponsor')
     return p.campaign.prize.symbol === 'USDC'
-      ? Number(p.campaign.prize_total) / p.campaign.winners
+      ? Number(p.campaign.prize_total) / Math.max(p.campaign.winners, 3)
       : null;
   return p.max_award_usd == null ? null : Number(p.max_award_usd);
 }

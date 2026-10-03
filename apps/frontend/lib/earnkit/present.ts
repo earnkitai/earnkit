@@ -104,8 +104,14 @@ const MAX_REPOS = 5;
 const quickness = (v: Verdict) =>
   (v.status === 'likely' ? 0 : 10) + EFFORT_ORDER.indexOf(v.effort);
 
-/** Quickest first; between equally quick fits, the larger known per-winner award. */
+/**
+ * Curated and verified first (an unverified sponsor never tops a repo's list, review m3), then
+ * quickest; between equally quick fits, the larger known per-winner award.
+ */
+const unverified = (byId: Map<string, Card>, v: Verdict) =>
+  byId.get(v.program_id)?.unverified_sponsor ? 1 : 0;
 const byFit = (byId: Map<string, Card>) => (a: Verdict, b: Verdict) =>
+  unverified(byId, a) - unverified(byId, b) ||
   quickness(a) - quickness(b) ||
   (byId.get(b.program_id)?.max_award_usd ?? 0) -
     (byId.get(a.program_id)?.max_award_usd ?? 0);
