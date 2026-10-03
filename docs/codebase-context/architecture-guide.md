@@ -207,10 +207,10 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   `Awarded` log search goes newest-first (`scanLogsNewestFirst`), at most 8 `getLogs` calls per
   check, resuming from `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
   Ranges start at 2,000 blocks (Base's public RPC refuses more: HTTP 413 / -32614 "limited to a
-  2,000 range"), afresh on every check; a refusal whose message names a range or result limit
-  (`logError`) retries with the size the RPC names, or half, never below 100; other
-  -32005/-32614/-32016/429 errors are rate limits, retried after 250 ms, 1 s and 3 s, then the
-  check stops with a `chain_note` and resumes next time.
+  2,000 range"), afresh on every check. `logError`: a 429 or rate wording is a rate limit;
+  otherwise range or result-limit wording (or a bare 413) retries with the size the RPC names,
+  or half, never below 100; a bare -32005/-32614/-32016 is a rate limit. Rate limits are retried
+  after 250 ms, 1 s and 3 s, then the check stops with a `chain_note` and resumes next time.
   `/fund` and `/award` show their action only while the connected wallet is the bound wallet
   (`WalletGate`: "Connect 0xABCD…1234 to continue"). Because anyone's agent can bind someone
   else's wallet and send them the link, `/fund` shows a fixed warning (only fund a campaign your
@@ -323,13 +323,15 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
   an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,
   bidi and markup characters are dropped; then links in any form and HTML entities are rejected;
-  per-field limits; dot look-alikes from UTS #39 and a few it leaves out read as dots first; names
-  and titles (`quotedName`) also refuse `@` and runs of 7+ digits; multi-line text gets no word
+  per-field limits; dot look-alikes from UTS #39 and a few it leaves out read as dots first; every
+  single-line field (names, titles, award reasons, project names) also refuses `@` and runs of
+  7+ digits; multi-line text gets no word
   heuristics (commands, handles, phone numbers, spelled links): they refused real briefs, and
   the structure is the defense) at the input boundary; builder links (`live_url`, `repo_url`,
   `demo_url`, `token_url`, url answers) are `BuilderUrl`, stored and shown only in canonical form
-  (`canonicalBuilderUrl`: https, lowercase host, a plain path of up to 100 characters, no query,
-  fragment or user info; `shownUrl` for status entries, campaign and project pages; entry names
+  (`canonicalBuilderUrl`: http and scheme-less upgraded to https, lowercase host, no user info,
+  path `[A-Za-z0-9-._~/@]`, query and fragment kept when they use `[A-Za-z0-9-._~/=&%+]`, at
+  most 120 characters after the domain; `shownUrl` for status entries, campaign and project pages; entry names
   are cleaned on read) (T9, re-audit H1, fix round 1 I6); `sponsor_url` is https, at most 100 characters, a plain
   host, no query or fragment (`SponsorUrl`): `DraftInput`
   (sponsor_name, title, what_to_build, criteria), `AwardWinner.reason`, and campaign entries' project

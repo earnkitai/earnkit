@@ -85,7 +85,7 @@ apps/frontend/
     untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, then an
                                allowlist of letters/numbers/fixed punctuation/emoji, quotes -> ',
                                reject links incl. defanged/IP/confusable-dot/bare domains and HTML
-                               entities; names/titles also @ and 7+ digit runs; TEXT_LIMITS),
+                               entities; single-line fields also @ and 7+ digit runs; TEXT_LIMITS),
                                SponsorUrl, BuilderUrl/canonicalBuilderUrl/builderUrlProblem/
                                shownUrl (builder links, canonical form), untrusted()
                                (zod), cleanProject
