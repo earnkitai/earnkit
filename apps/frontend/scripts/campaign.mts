@@ -161,6 +161,15 @@ async function main() {
       if (w.prize_tx) fail(`${w.name} was already paid: ${w.prize_tx}`);
     }
 
+    // Every winner is screened before anything is printed or signed (the dry run fails too).
+    const { screenWinners, BASE_MAINNET } = await import(
+      '../lib/earnkit/sanctions'
+    );
+    await screenWinners(
+      winners.map((w) => ({ entry_id: w.id, wallet: w.payout_wallet })),
+      BASE_MAINNET,
+    );
+
     const amount = parseUnits(campaign.amount_each, campaign.prize.decimals);
     const token = campaign.prize.token as `0x${string}`;
     const reader = createPublicClient({
@@ -540,6 +549,10 @@ async function sponsorCommand() {
     console.log(
       `  #${p.entry_id} ${p.wallet} ${p.amount} ${row.token_symbol}: ${p.reason}`,
     );
+  // A winner listed since the proposal: refuse to sign (the guardian should veto).
+  await screenWinners(plan, row.chain_id).catch((err) =>
+    fail(`${cliErrorLine(err)} Veto this fallback (guardian) instead.`),
+  );
   const notYet = executeProblem(
     seconds(chain.fallbackExecutesAt),
     await chainNow(),

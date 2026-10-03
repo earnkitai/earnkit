@@ -630,3 +630,13 @@ export function awardReply(a: {
       'that wallet, send `transaction`). Then call status with ref: EarnKit reads the award onchain.',
   };
 }
+
+/**
+ * The sponsor-facing line for an entry's repo dates (read from GitHub at entry), so a fresh clone
+ * of an older project stands out; null for entries from before v2.2. Pure; exported for tests.
+ */
+export function repoLabel(createdAt: Date | null, pushedAt: Date | null) {
+  if (!createdAt) return null;
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  return `repo created ${day(createdAt)}${pushedAt ? ` · last push ${day(pushedAt)} (at entry)` : ''}`;
+}

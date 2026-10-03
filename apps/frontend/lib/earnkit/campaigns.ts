@@ -174,6 +174,23 @@ export function normalizeRepoUrl(url: string) {
   return u;
 }
 
+/**
+ * A live link in the form used to spot the same site entered twice (stored as projects.live_key):
+ * lowercased, without the scheme, user info, "www.", query, fragment or trailing "/".
+ * "HTTPS://www.App.xyz/?ref=x#top" and "http://app.xyz" -> "app.xyz". Pure; exported for tests.
+ */
+export function normalizeLiveUrl(url: string) {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .replace(/^\/\//, '')
+    .replace(/[?#].*$/, '')
+    .replace(/^[^/@]*@/, '')
+    .replace(/^www\./, '')
+    .replace(/\/+$/, '');
+}
+
 /** The entry already holding this repo in the same campaign, if any. Pure; exported for tests. */
 export function sameRepoEntry<T extends { repo_url: string | null }>(
   repoUrl: string,

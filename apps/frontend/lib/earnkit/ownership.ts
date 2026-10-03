@@ -1,5 +1,6 @@
 import { FETCH_MAX_BYTES, FETCH_TIMEOUT_MS } from './safe-fetch';
 import { EntryError, blockscout, normalizeRepoUrl } from './campaigns';
+import { GitHubError, repoByName } from './match-projects';
 
 /**
  * Proof that a campaign entry belongs to the person entering it (v2.2 §1 Builders; audits H2/F1).
@@ -12,24 +13,29 @@ import { EntryError, blockscout, normalizeRepoUrl } from './campaigns';
  * `creation_transaction_hash`, then that transaction's `from`), which covers direct and
  * factory/CREATE2 deploys alike. A `contracts:` line (v2.2 drafts) is accepted but ignored: listing
  * a contract proves nothing. Only someone who can push to the repo can write the file, and only the
- * deployer's wallet can claim a contract, so a squatter can enter neither.
+ * deployer's wallet can claim a contract, so a squatter can't take someone else's repo slot or
+ * contract.
+ *
+ * Copied work is only partly covered: forks are refused (GitHub `fork: true`), a live link enters
+ * once per campaign, and the sponsor sees when the repo was created. A non-fork clone of someone
+ * else's project with a different live link still enters (spec §1, residual risk).
  */
 
 export const OWNERSHIP_FILE = 'earnkit.txt';
 const RAW_GITHUB = 'https://raw.githubusercontent.com';
 
 /**
- * Where earnkit.txt is read from: raw.githubusercontent.com, or EARNKIT_OWNERSHIP_BASE_URL in
- * development and tests (the e2e serves files locally). The override is refused in production.
+ * Where earnkit.txt is read from: raw.githubusercontent.com, or EARNKIT_OWNERSHIP_BASE_URL when
+ * NODE_ENV is exactly `development` or `test` (the e2e serves files locally); refused otherwise.
  */
 export function ownershipBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ) {
   const override = env.EARNKIT_OWNERSHIP_BASE_URL;
   if (!override) return RAW_GITHUB;
-  if (env.NODE_ENV === 'production')
+  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test')
     throw new Error(
-      'EARNKIT_OWNERSHIP_BASE_URL is for development and tests only; unset it in production.',
+      'EARNKIT_OWNERSHIP_BASE_URL is for development and tests only (NODE_ENV=development or test); unset it.',
     );
   return override.replace(/\/+$/, '');
 }
@@ -45,7 +51,8 @@ export function githubRepo(
   if (!/^github\.com\/[a-z0-9-]{1,39}\/[a-z0-9._-]{1,100}$/.test(key))
     return null;
   const [, owner, repo] = key.split('/');
-  if (repo === '.' || repo === '..') return null;
+  // Wikis are world-editable by default; names of only dots aren't repos.
+  if (/^\.+$/.test(repo) || repo.endsWith('.wiki')) return null;
   // The original spelling of the same path, so the raw link keeps its case.
   const m = new RegExp(
     `github\\.com/(${owner})/(${repo.replace(/\./g, '\\.')})`,
@@ -183,6 +190,21 @@ export async function deployerOf(contract: string, lookup: DeployerLookup) {
 /** The exact line the builder should have in earnkit.txt. */
 const wantedLine = (wallet: string) => `"payout_wallet: ${wallet}"`;
 
+/** What GitHub says about the repo; injectable for tests and the e2e. */
+export type RepoFacts = {
+  fork: boolean;
+  created_at: string;
+  pushed_at: string;
+};
+export type RepoFactsLookup = (
+  owner: string,
+  repo: string,
+) => Promise<RepoFacts>;
+export const githubRepoFacts: RepoFactsLookup = (owner, repo) =>
+  repoByName(`${owner}/${repo}`);
+
+export const FORK_REFUSED = "Forks can't be entered; enter the original repo.";
+
 export type OwnershipInput = {
   repoUrl: string;
   /** Lowercase. */
@@ -235,18 +257,22 @@ export function ownershipProblem(
 }
 
 /**
- * Checks that the entry's repo carries earnkit.txt naming its payout wallet, and that every
- * contract was deployed by a transaction from that wallet. Throws EntryError saying exactly what to
- * fix. `fetchFile` and `deployer` (the Blockscout reads) are injectable for tests and the e2e.
+ * Checks that the entry's repo is a public, non-fork GitHub repo carrying earnkit.txt naming its
+ * payout wallet, and that every contract was deployed by a transaction from that wallet. Throws
+ * EntryError saying exactly what to fix. Returns the repo's GitHub dates (shown to the sponsor) and
+ * each contract's deployer. `repoFacts`, `fetchFile` and `deployer` are injectable for tests and
+ * the e2e.
  */
 export async function checkOwnership(
   input: OwnershipInput,
   {
     fetchFile = fetchOwnershipFile,
     deployer = blockscoutDeployer,
+    repoFacts = githubRepoFacts,
     baseUrl = ownershipBaseUrl(),
   }: {
     fetchFile?: OwnershipFetcher;
+    repoFacts?: RepoFactsLookup;
     deployer?: DeployerLookup;
     baseUrl?: string;
   } = {},
@@ -261,6 +287,20 @@ export async function checkOwnership(
     repo: `github.com/${gh.owner}/${gh.repo}`,
     fileUrl: ownershipFileUrl(gh, baseUrl),
   };
+  let facts: RepoFacts;
+  try {
+    facts = await repoFacts(gh.owner, gh.repo);
+  } catch (err) {
+    if (err instanceof GitHubError && /not found/.test(err.message))
+      throw new EntryError(
+        `repo_url: GitHub doesn't show ${where.repo}; campaign entries need a public repo.`,
+      );
+    console.error('[ownership] GitHub repo read failed:', err);
+    throw new EntryError(
+      `repo_url: EarnKit couldn't read ${where.repo} from GitHub. Try again in a minute.`,
+    );
+  }
+  if (facts.fork) throw new EntryError(FORK_REFUSED);
   const got = await fetchFile(where.fileUrl);
   if (got.status === 'error')
     throw new EntryError(
@@ -277,5 +317,10 @@ export async function checkOwnership(
       });
   const problem = ownershipProblem(where, file, input, deployers);
   if (problem) throw new EntryError(problem);
-  return where;
+  return {
+    ...where,
+    repo_created_at: new Date(facts.created_at),
+    repo_pushed_at: new Date(facts.pushed_at),
+    deployers: deployers as Record<string, string>,
+  };
 }

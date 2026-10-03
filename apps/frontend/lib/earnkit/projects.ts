@@ -2,13 +2,18 @@ import { z } from 'zod';
 import { sql } from './db';
 import {
   EntryError,
+  normalizeLiveUrl,
   normalizeRepoUrl,
   sameRepoEntry,
   validateEntry,
   type Deployment,
 } from './campaigns';
 import { formatDeadline } from './dates';
-import { checkOwnership, type DeployerLookup } from './ownership';
+import {
+  checkOwnership,
+  type DeployerLookup,
+  type RepoFactsLookup,
+} from './ownership';
 import { getProgramRow, isOpen, type ProgramRow } from './programs';
 import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
@@ -100,6 +105,7 @@ export async function recordSubmission(
   deps: {
     status?: (contract: string) => Promise<Deployment>;
     deployer?: DeployerLookup;
+    repoFacts?: RepoFactsLookup;
   } = {},
 ) {
   const program = await getProgramRow(input.program_id);
@@ -113,6 +119,7 @@ export async function recordSubmission(
 
   // EarnKit campaigns: this call *is* the entry, so check it before storing anything.
   let entry: { contracts: string[]; payoutWallet: string } | null = null;
+  let proof: Awaited<ReturnType<typeof checkOwnership>> | null = null;
   if (program.campaign) {
     if (!isOpen(program)) throw new EntryError('This campaign is closed.');
     const [sponsor] = await sql()<
@@ -137,6 +144,19 @@ export async function recordSubmission(
       entry.payoutWallet,
     );
     if (self) throw new EntryError(self);
+    // Proof of ownership: the repo's earnkit.txt names this payout wallet (and the contracts).
+    if (!repo_url)
+      throw new EntryError(
+        'repo_url: campaign entries need the public GitHub repo of the project.',
+      );
+    proof = await checkOwnership(
+      {
+        repoUrl: repo_url,
+        payoutWallet: entry.payoutWallet,
+        contracts: entry.contracts,
+      },
+      { deployer: deps.deployer, repoFacts: deps.repoFacts },
+    );
     await screenWallet(
       entry.payoutWallet,
       program.campaign.kind === 'sponsor'
@@ -144,24 +164,15 @@ export async function recordSubmission(
         : BASE_MAINNET,
       `payout_wallet: ${CANT_RECEIVE}`,
     );
-    // Proof of ownership: the repo's earnkit.txt names this payout wallet (and the contracts).
-    if (!repo_url)
-      throw new EntryError(
-        'repo_url: campaign entries need the public GitHub repo of the project.',
-      );
-    await checkOwnership(
-      {
-        repoUrl: repo_url,
-        payoutWallet: entry.payoutWallet,
-        contracts: entry.contracts,
-      },
-      { deployer: deps.deployer },
-    );
   }
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
   const repoKey = (entry && repo_url && normalizeRepoUrl(repo_url)) || null;
+  // One entry per live link too (copied work pointing at someone else's site).
+  const liveKey = (entry && live_url && normalizeLiveUrl(live_url)) || null;
+  const liveEntered = (same: { id: number }) =>
+    new EntryError(`This live link is already entered (entry #${same.id}).`);
   // Other entries are referred to by number only: never repeat another builder's text.
   const alreadyEntered = (same: { id: number }) =>
     new EntryError(
@@ -182,6 +193,11 @@ export async function recordSubmission(
             WHERE program_id = ${program.id} AND repo_url IS NOT NULL`,
           );
           if (same) throw alreadyEntered(same);
+        }
+        if (liveKey) {
+          const [same] = await tx<{ id: number }[]>`
+          SELECT id FROM projects WHERE program_id = ${program.id} AND live_key = ${liveKey}`;
+          if (same) throw liveEntered(same);
         }
         if (entry.contracts.length > 0) {
           const [taken] = await tx<{ id: number }[]>`
@@ -205,6 +221,9 @@ export async function recordSubmission(
         installation_id: installationId,
         payout_wallet: entry?.payoutWallet ?? null,
         repo_key: repoKey,
+        live_key: liveKey,
+        repo_created_at: proof?.repo_created_at ?? null,
+        repo_pushed_at: proof?.repo_pushed_at ?? null,
         contracts: entry?.contracts ?? null,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission prefills it).
@@ -243,6 +262,16 @@ export async function recordSubmission(
         const [same] = await sql()<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND repo_key = ${repoKey}`;
         if (same) throw alreadyEntered(same);
+      }
+      if (
+        liveKey &&
+        (err as { code?: string }).code === '23505' &&
+        (err as { constraint_name?: string }).constraint_name ===
+          'projects_campaign_live_key'
+      ) {
+        const [same] = await sql()<{ id: number }[]>`
+          SELECT id FROM projects WHERE program_id = ${program.id} AND live_key = ${liveKey}`;
+        if (same) throw liveEntered(same);
       }
       throw err;
     });

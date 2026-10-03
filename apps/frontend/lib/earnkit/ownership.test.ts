@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EntryError } from './campaigns';
+import { GitHubError } from './match-projects';
 import {
   checkOwnership,
   githubRepo,
@@ -11,12 +12,20 @@ import {
   deployerOf,
   type DeployerLookup,
   type FetchResult,
+  type RepoFacts,
+  FORK_REFUSED,
 } from './ownership';
 
 const W = '0x00000000000000000000000000000000000000a1';
 const OTHER = '0x00000000000000000000000000000000000000b2';
 const C1 = '0x00000000000000000000000000000000000000c1';
 const C2 = '0x00000000000000000000000000000000000000c2';
+const original: RepoFacts = {
+  fork: false,
+  created_at: '2026-01-02T00:00:00Z',
+  pushed_at: '2026-10-01T00:00:00Z',
+};
+const repoFacts = async () => original;
 const where = {
   repo: 'github.com/acme/app',
   fileUrl: 'https://raw.githubusercontent.com/acme/app/HEAD/earnkit.txt',
@@ -84,6 +93,8 @@ test('githubRepo: public GitHub repo links only, original case kept', () => {
     'https://github.com.evil.com/acme/app',
     'https://evil.com/github.com/acme/app',
     'https://github.com/acme/..',
+    'https://github.com/victim/proj.wiki',
+    'https://github.com/victim/...',
   ])
     assert.equal(githubRepo(bad), null, bad);
   assert.equal(
@@ -92,23 +103,26 @@ test('githubRepo: public GitHub repo links only, original case kept', () => {
   );
 });
 
-test('ownershipBaseUrl: the dev/test override is refused in production', () => {
+test('ownershipBaseUrl: the override only when NODE_ENV is development or test (allow-list)', () => {
   assert.equal(ownershipBaseUrl({}), 'https://raw.githubusercontent.com');
-  assert.equal(
-    ownershipBaseUrl({
-      EARNKIT_OWNERSHIP_BASE_URL: 'http://127.0.0.1:9999/',
-      NODE_ENV: 'test',
-    }),
-    'http://127.0.0.1:9999',
-  );
-  assert.throws(
-    () =>
+  for (const NODE_ENV of ['test', 'development'])
+    assert.equal(
       ownershipBaseUrl({
-        EARNKIT_OWNERSHIP_BASE_URL: 'http://127.0.0.1:9999',
-        NODE_ENV: 'production',
+        EARNKIT_OWNERSHIP_BASE_URL: 'http://127.0.0.1:9999/',
+        NODE_ENV,
       }),
-    /development and tests only/,
-  );
+      'http://127.0.0.1:9999',
+    );
+  for (const NODE_ENV of ['production', 'Production', 'staging', undefined])
+    assert.throws(
+      () =>
+        ownershipBaseUrl({
+          EARNKIT_OWNERSHIP_BASE_URL: 'http://127.0.0.1:9999',
+          NODE_ENV,
+        }),
+      /development and tests only/,
+      String(NODE_ENV),
+    );
 });
 
 test('ownershipProblem: wallet match and mismatch', () => {
@@ -220,7 +234,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
       payoutWallet: W,
       contracts: [C1],
     },
-    { fetchFile, deployer, baseUrl: 'http://127.0.0.1:1' },
+    { fetchFile, deployer, repoFacts, baseUrl: 'http://127.0.0.1:1' },
   );
   assert.deepEqual(fetched, ['http://127.0.0.1:1/Acme/App/HEAD/earnkit.txt']);
   assert.deepEqual(asked, [C1]);
@@ -232,7 +246,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
         payoutWallet: W,
         contracts: [C1, C2],
       },
-      { fetchFile, deployer },
+      { fetchFile, deployer, repoFacts },
     ),
     (e) =>
       e instanceof EntryError &&
@@ -248,7 +262,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
         payoutWallet: OTHER,
         contracts: [C2],
       },
-      { fetchFile, deployer },
+      { fetchFile, deployer, repoFacts },
     ),
     (e) => e instanceof EntryError && /says payout_wallet/.test(e.message),
   );
@@ -257,14 +271,14 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
   await assert.rejects(
     checkOwnership(
       { repoUrl: 'https://gitlab.com/a/b', payoutWallet: W, contracts: [] },
-      { fetchFile, deployer },
+      { fetchFile, deployer, repoFacts },
     ),
     /public GitHub repo/,
   );
   await assert.rejects(
     checkOwnership(
       { repoUrl: 'https://github.com/a/b', payoutWallet: W, contracts: [] },
-      { fetchFile: async () => ({ status: 'missing' }), deployer },
+      { fetchFile: async () => ({ status: 'missing' }), deployer, repoFacts },
     ),
     /no earnkit\.txt found/,
   );
@@ -277,6 +291,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
           message: 'no answer within 5 s',
         }),
         deployer,
+        repoFacts,
       },
     ),
     /couldn't read .*\(no answer within 5 s\)\. Try again/,
@@ -287,6 +302,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
       { repoUrl: 'https://github.com/a/b', payoutWallet: W, contracts: [C1] },
       {
         fetchFile,
+        repoFacts,
         deployer: {
           creationTx: async () => {
             throw new Error('explorer down');
@@ -297,4 +313,54 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
     ),
     /couldn't read who deployed/,
   );
+});
+
+test('checkOwnership: forks are refused; GitHub errors are clear; the repo dates come back', async () => {
+  const fetchFile = async (): Promise<FetchResult> => ({
+    status: 'ok',
+    text: `payout_wallet: ${W}`,
+  });
+  const deployer = explorer({}, {});
+  const input = {
+    repoUrl: 'https://github.com/attacker/app',
+    payoutWallet: W,
+    contracts: [],
+  };
+  await assert.rejects(
+    checkOwnership(input, {
+      fetchFile,
+      deployer,
+      repoFacts: async () => ({ ...original, fork: true }),
+    }),
+    (e) => e instanceof EntryError && e.message === FORK_REFUSED,
+  );
+  assert.equal(
+    FORK_REFUSED,
+    "Forks can't be entered; enter the original repo.",
+  );
+  await assert.rejects(
+    checkOwnership(input, {
+      fetchFile,
+      deployer,
+      repoFacts: async () => {
+        throw new GitHubError(
+          'GitHub: /repos/attacker/app not found (or private)',
+        );
+      },
+    }),
+    /GitHub doesn't show github\.com\/attacker\/app; campaign entries need a public repo/,
+  );
+  await assert.rejects(
+    checkOwnership(input, {
+      fetchFile,
+      deployer,
+      repoFacts: async () => {
+        throw new GitHubError('GitHub request failed (403)');
+      },
+    }),
+    /couldn't read github\.com\/attacker\/app from GitHub\. Try again/,
+  );
+  const ok = await checkOwnership(input, { fetchFile, deployer, repoFacts });
+  assert.equal(ok.repo_created_at.toISOString(), '2026-01-02T00:00:00.000Z');
+  assert.equal(ok.repo_pushed_at.toISOString(), '2026-10-01T00:00:00.000Z');
 });

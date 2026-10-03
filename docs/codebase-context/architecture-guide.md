@@ -114,18 +114,27 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   different wallet. Enter contracts deployed from your payout wallet." A `contracts:` line in the
   file is accepted but ignored (listing proves nothing). Errors name the exact file and line to
   add. This makes the first-entry-wins repo and contract dedupe owner-wins: only someone who can
-  push to the repo can enter it, and only the deployer's wallet can claim a contract.
-  `EARNKIT_OWNERSHIP_BASE_URL` replaces raw.githubusercontent.com in development and tests (the
-  e2e serves files from a local server); it is refused when `NODE_ENV=production`. The payout
+  push to the repo can enter it, and only the deployer's wallet can claim a contract. Copied work:
+  repos GitHub reports as forks are refused (`repoFacts`, one GitHub API read, injectable), one
+  entry per live link per campaign (`normalizeLiveUrl` -> `projects.live_key`, unique index
+  `projects_campaign_live_key`, checked under the same lock), and the repo's GitHub `created_at` /
+  `pushed_at` at entry are stored (`projects.repo_created_at/repo_pushed_at`) and shown to the
+  sponsor in status entries and the award plan (`repo_label`: "repo created <date>"). A non-fork
+  clone with another live link remains a documented risk (spec, Risks). `.wiki` repos are refused.
+  `EARNKIT_OWNERSHIP_BASE_URL` replaces raw.githubusercontent.com only when `NODE_ENV` is
+  `development` or `test` (the e2e serves files from a local server); refused otherwise. The payout
   wallet requirement is `from: 'builder'` ("ask the builder; never derive it from the code"); a
   successful entry saves it as `installations.payout_wallet`, and `prepare_submission` prefills it
   next time with `payout_wallet_note` ("Using <wallet> from your last entry; confirm with the
   builder"). **Sanctions** (`sanctions.ts`): Chainalysis's oracle
   (`0x3A91A31cB3dC49b4db9Ce721F50a9D076c8D739B`, `isSanctioned`) over `BASE_RPC_URL`, on Base
-  mainnet (chain 8453) only — elsewhere (and when BASE_RPC_URL isn't chain 8453) it is skipped
-  with a logged note. Screened: payout wallets at entry (on the prize chain; Base for EarnKit
+  mainnet (chain 8453) only — elsewhere it is skipped with a logged note. For a Base mainnet
+  payment the RPC must report chain 8453: in production a mismatched or failing RPC refuses ("Can't
+  check this wallet right now; try again shortly."), outside production it is logged and skipped.
+  Clean results are cached for 10 minutes. Screened: payout wallets at entry (on the prize chain; Base for EarnKit
   campaigns), the sponsor wallet at create (the escrow chain), and every winner of an award plan
-  (`prepareAward` and `campaign fallback propose`). A listed wallet gets "This wallet can't
+  (`prepareAward`, `campaign fallback propose` and `execute`) and every winner of EarnKit's own
+  `campaign payout` (before the dry-run print, so it fails too). A listed wallet gets "This wallet can't
   receive prizes on EarnKit." (or "…can't fund campaigns…"); an unreadable oracle fails closed
   ("try again in a minute"). The oracle is injectable (`setSanctionsOracle`) for tests.
   `pnpm campaign score` counts distinct senders of successful txs to the contracts in the window

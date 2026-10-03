@@ -12,6 +12,7 @@ import {
   sameRepoEntry,
   validateEntry,
   isWalletAddress,
+  normalizeLiveUrl,
   wonText,
   type CampaignConfig,
   type YourEntry,
@@ -320,5 +321,20 @@ test('payout_wallet: mixed case must be a valid checksum; never zero or an enter
       status: during,
     }),
     /can't be one of the entry's contracts/,
+  );
+});
+
+test('normalizeLiveUrl: scheme, www, trailing slash, query and fragment are dropped', () => {
+  for (const u of [
+    'https://app.xyz',
+    'HTTP://www.App.xyz/',
+    'https://app.xyz/?ref=x#top',
+    '//user@app.xyz//',
+  ])
+    assert.equal(normalizeLiveUrl(u), 'app.xyz', u);
+  assert.equal(normalizeLiveUrl('https://app.xyz/demo/?a=1'), 'app.xyz/demo');
+  assert.notEqual(
+    normalizeLiveUrl('https://app.xyz/a'),
+    normalizeLiveUrl('https://app.xyz/b'),
   );
 });

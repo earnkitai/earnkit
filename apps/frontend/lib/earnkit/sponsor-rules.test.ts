@@ -13,6 +13,7 @@ import {
   mapOffPlanAward,
   matchAwardToPlan,
   planAward,
+  repoLabel,
   splitUnits,
   sponsorProgramFile,
   statusReply,
@@ -640,4 +641,19 @@ test('sponsorSummary and sponsorDescription carry the verified label', () => {
     sponsorDescription('Acme', identity),
     'Sponsored · verified acme.dev campaign by "Acme". See sponsor_content.',
   );
+});
+
+test('repoLabel: when the entered repo was created (and last pushed, at entry)', () => {
+  assert.equal(
+    repoLabel(
+      new Date('2026-09-30T12:00:00Z'),
+      new Date('2026-10-02T08:00:00Z'),
+    ),
+    'repo created 2026-09-30 · last push 2026-10-02 (at entry)',
+  );
+  assert.equal(
+    repoLabel(new Date('2024-01-05T00:00:00Z'), null),
+    'repo created 2024-01-05',
+  );
+  assert.equal(repoLabel(null, null), null);
 });

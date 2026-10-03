@@ -123,6 +123,18 @@ const warpDays = async (days: number) => {
   await rpc('evm_mine', []);
 };
 
+// The earnkit.txt override below is honoured only when NODE_ENV is development or test.
+(process.env as Record<string, string>).NODE_ENV ??= 'test';
+// GitHub's repo facts (fork, created_at, pushed_at), stood in for: no network.
+const forks = new Set<string>();
+const github = {
+  repoFacts: async (owner: string, repo: string) => ({
+    fork: forks.has(`${owner}/${repo}`.toLowerCase()),
+    created_at: '2026-09-01T00:00:00Z',
+    pushed_at: '2026-10-01T00:00:00Z',
+  }),
+};
+
 // Builders prove they own the repo they enter with earnkit.txt at its root (v2.2 §1). The real
 // fetch goes to raw.githubusercontent.com; here a tiny local static server stands in for it
 // (EARNKIT_OWNERSHIP_BASE_URL, refused in production), serving /<owner>/<repo>/HEAD/earnkit.txt.
@@ -340,6 +352,7 @@ async function enter(programId: string, name: string, payout: string) {
       submission_data: { payout_wallet: payout },
     },
     builder,
+    github,
   );
 }
 
@@ -458,6 +471,7 @@ try {
       },
     },
     builder,
+    github,
   );
 } catch (err) {
   dupErr = (err as Error).message;
@@ -484,6 +498,7 @@ await recordSubmission(
     },
   },
   builder,
+  github,
 ).catch((err) => (squatErr = (err as Error).message));
 check(
   squatErr.startsWith(
@@ -507,6 +522,7 @@ await recordSubmission(
     },
   },
   builder,
+  github,
 ).catch((err) => (noFileErr = (err as Error).message));
 check(
   noFileErr.includes(
@@ -533,6 +549,7 @@ await recordSubmission(
     },
   },
   inst,
+  github,
 ).catch((err) => (selfErr = (err as Error).message));
 check(
   selfErr === "You created this campaign, so you can't enter it.",
@@ -547,6 +564,60 @@ check(
   prepared.payout_wallet_note ===
     'Using 0x00000000000000000000000000000000000000b2 from your last entry; confirm with the builder.',
   `prepare_submission prefills the last payout wallet: ${prepared.payout_wallet_note}`,
+);
+// Copied work: a fork is refused; a second entry of the same live link (spelled differently) is
+// refused; the sponsor sees each entry's repo dates.
+forks.add('x/forked');
+ownRepo(
+  'https://github.com/x/forked',
+  '0x00000000000000000000000000000000000000a7',
+);
+const copyEntry = (name: string, repo: string, live: string) =>
+  recordSubmission(
+    {
+      program_id: programA,
+      project: {
+        name,
+        description: 'A copy.',
+        repo_url: `https://github.com/x/${repo}`,
+        live_url: live,
+      },
+      submission_data: {
+        payout_wallet: '0x00000000000000000000000000000000000000a7',
+      },
+    },
+    builder,
+    github,
+  ).then(
+    () => '',
+    (err) => (err as Error).message,
+  );
+check(
+  (await copyEntry('Forked', 'forked', 'https://forked.app')) ===
+    "Forks can't be entered; enter the original repo.",
+  'a fork is refused',
+);
+ownRepo(
+  'https://github.com/x/alphaclone',
+  '0x00000000000000000000000000000000000000a7',
+);
+const liveDup = await copyEntry(
+  'Alpha clone',
+  'alphaclone',
+  'HTTPS://www.Alpha.app/?ref=copy#top',
+);
+check(
+  liveDup === `This live link is already entered (entry #${a.project_id}).`,
+  `a second entry of the same live link is refused: ${liveDup}`,
+);
+const labelled = (await sponsorStatus(draft.ref, inst)).entries.find(
+  (e) => e.entry_id === a.project_id,
+) as { repo_label?: string; repo_created_at?: string } | undefined;
+check(
+  labelled?.repo_label ===
+    'repo created 2026-09-01 · last push 2026-10-01 (at entry)' &&
+    labelled.repo_created_at === '2026-09-01T00:00:00.000Z',
+  `the sponsor sees the repo dates: ${labelled?.repo_label}`,
 );
 // Two concurrent entries of one new repo: exactly one gets in.
 ownRepo(
@@ -570,6 +641,7 @@ const racers = await Promise.allSettled(
           },
         },
         builder,
+        github,
       ),
   ),
 );
@@ -835,6 +907,7 @@ const deployer = walletOf(
 const DEPLOYER = deployer.account.address.toLowerCase();
 const creationTxs = new Map<string, `0x${string}`>();
 const chainReads = {
+  ...github,
   deployer: {
     creationTx: async (c: string) => creationTxs.get(c.toLowerCase()) ?? null,
     txSender: async (h: string) =>
@@ -1404,6 +1477,30 @@ check(
 
 // ---------------------------------------------------------------------------
 // No sponsor reply asks for or shows a transaction hash.
+// ---------------------------------------------------------------------------
+// EarnKit's own campaign payout screens every winner before printing or signing. In production
+// with BASE_RPC_URL not on Base mainnet (here: anvil), the screen refuses (fails closed), even for
+// a dry run; the real oracle is never called.
+// ---------------------------------------------------------------------------
+await db`UPDATE programs SET ends_at = now() - interval '1 day' WHERE id = 'earnkit-campaign-1-base'`;
+const [ekEntry] = await db<{ id: number }[]>`
+  INSERT INTO projects (program_id, name, payout_wallet, contracts, score)
+  VALUES ('earnkit-campaign-1-base', 'EK winner', '0x00000000000000000000000000000000000000c9',
+    ${['0x00000000000000000000000000000000000000ca']}::text[], 100) RETURNING id`;
+const payoutRefused = runCampaignCliFails(
+  { NODE_ENV: 'production', BASE_RPC_URL: RPC },
+  'payout',
+  'earnkit-campaign-1-base',
+  '--winners',
+  String(ekEntry.id),
+);
+check(
+  payoutRefused.stderr.includes(
+    "Can't check this wallet right now; try again shortly.",
+  ),
+  `campaign payout screens winners before signing (fails closed): ${payoutRefused.stderr}`,
+);
+
 // ---------------------------------------------------------------------------
 // Refs (64 hex) appear in fund/award links; any other 64-hex value would be a tx hash.
 const refs = new Set(

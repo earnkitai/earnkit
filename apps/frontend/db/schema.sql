@@ -183,3 +183,10 @@ ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS award_winners text[];
 -- v2.2 §1 Builders: the payout wallet of this installation's last campaign entry (lowercase),
 -- prefilled by prepare_submission with a confirm note.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS payout_wallet text;
+-- v2.2 T5 fix 1: one entry per live link per campaign (campaigns.ts normalizeLiveUrl), and the
+-- entered repo's GitHub dates at entry (shown to the sponsor: a fresh clone of an older project).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS live_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_campaign_live_key
+  ON projects (program_id, live_key) WHERE live_key IS NOT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_created_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_pushed_at timestamptz;

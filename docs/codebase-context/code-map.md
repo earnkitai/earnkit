@@ -62,17 +62,20 @@ apps/frontend/
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
-                               stores repo_key, backed by the unique index projects_campaign_repo_key;
+                               stores repo_key and live_key (unique indexes projects_campaign_repo_key
+                               and projects_campaign_live_key) and the repo's GitHub dates;
                                remembers installations.payout_wallet)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile, githubRepo, ownershipProblem (pure),
-                               deployerOf (creation tx sender), checkOwnership (fetcher and
-                               Blockscout DeployerLookup injectable; recordSubmission passes deps
-                               through for the e2e)
+                               deployerOf (creation tx sender), checkOwnership (fork refusal via
+                               GitHub repoFacts, fetcher and Blockscout DeployerLookup injectable;
+                               recordSubmission passes deps through for the e2e)
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
-                               screenWinners (award plans), fails closed
+                               screenWinners (award plans, fallback execute,
+                               campaign payout); production fails closed on a wrong or failing
+                               RPC; clean results cached 10 min
     untrusted-text.ts(+test)   the one sanitizer for sponsor/builder text (cleanText: NFKC, then an
                                allowlist of letters/numbers/fixed punctuation/emoji, quotes -> ',
                                reject links incl. defanged/IP/confusable-dot/bare domains and HTML
