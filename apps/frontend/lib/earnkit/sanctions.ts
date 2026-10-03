@@ -65,7 +65,7 @@ const noted = new Set<string>();
 function skipNote(why: string) {
   if (noted.has(why)) return;
   noted.add(why);
-  console.warn(`[sanctions] screening skipped: ${why}`);
+  console.info(`[sanctions] screening skipped: ${why}`);
 }
 
 /**

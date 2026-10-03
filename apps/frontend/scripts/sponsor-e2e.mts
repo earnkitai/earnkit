@@ -1,5 +1,7 @@
 import './env.mts';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import {
   createWalletClient,
@@ -121,6 +123,29 @@ const warpDays = async (days: number) => {
   await rpc('evm_mine', []);
 };
 
+// Builders prove they own the repo they enter with earnkit.txt at its root (v2.2 §1). The real
+// fetch goes to raw.githubusercontent.com; here a tiny local static server stands in for it
+// (EARNKIT_OWNERSHIP_BASE_URL, refused in production), serving /<owner>/<repo>/HEAD/earnkit.txt.
+const ownershipFiles = new Map<string, string>();
+const ownershipServer = createServer((req, res) => {
+  const body = ownershipFiles.get((req.url ?? '').toLowerCase());
+  res.writeHead(body === undefined ? 404 : 200, {
+    'content-type': 'text/plain',
+  });
+  res.end(body ?? 'not found');
+});
+await new Promise<void>((r) => ownershipServer.listen(0, '127.0.0.1', r));
+ownershipServer.unref();
+process.env.EARNKIT_OWNERSHIP_BASE_URL = `http://127.0.0.1:${(ownershipServer.address() as AddressInfo).port}`;
+/** Publishes earnkit.txt for a github.com/<owner>/<repo> link, naming `payout`. */
+const ownRepo = (repoUrl: string, payout: string, contracts: string[] = []) => {
+  const [, owner, repo] = new URL(repoUrl).pathname.split('/');
+  ownershipFiles.set(
+    `/${owner}/${repo}/head/earnkit.txt`.toLowerCase(),
+    `payout_wallet: ${payout}\n${contracts.length ? `contracts: ${contracts.join(', ')}\n` : ''}`,
+  );
+};
+
 const { sql } = await import('../lib/earnkit/db');
 const {
   createSponsorDraft,
@@ -196,6 +221,9 @@ const runCampaignCli = (...args: string[]) => runCampaignCliAs({}, ...args);
 
 const [{ id: inst }] = await db<{ id: number }[]>`
   INSERT INTO installations (token_hash) VALUES (${'e2e-' + Date.now()}) RETURNING id`;
+// Builders enter from their own installation: a sponsor's installation can't enter its campaigns.
+const [{ id: builder }] = await db<{ id: number }[]>`
+  INSERT INTO installations (token_hash) VALUES (${'e2e-builder-' + Date.now()}) RETURNING id`;
 const token = process.env.ESCROW_LOCAL_TOKEN as `0x${string}`;
 const mintAbi = [
   {
@@ -297,17 +325,21 @@ const campaignOf = (sponsor: string, ref: string) =>
   }) as Promise<string>;
 
 async function enter(programId: string, name: string, payout: string) {
+  const slug = name.toLowerCase().replace(/\W/g, '');
+  const repo_url = `https://github.com/x/${slug}`;
+  ownRepo(repo_url, payout);
   return recordSubmission(
     {
       program_id: programId,
       project: {
         name,
-        repo_url: `https://github.com/x/${name.toLowerCase().replace(/\W/g, '')}`,
-        live_url: `https://${name.toLowerCase().replace(/\W/g, '')}.app`,
+        description: `${name} does one useful thing on Base.`,
+        repo_url,
+        live_url: `https://${slug}.app`,
       },
       submission_data: { payout_wallet: payout },
     },
-    inst,
+    builder,
   );
 }
 
@@ -417,14 +449,15 @@ try {
       program_id: programA,
       project: {
         name: 'Alpha again',
+        description: 'Alpha, entered again by its owner.',
         repo_url: 'https://www.GitHub.com/X/Alpha.git/',
         live_url: 'https://a2.app',
       },
       submission_data: {
-        payout_wallet: '0x00000000000000000000000000000000000000a9',
+        payout_wallet: '0x00000000000000000000000000000000000000a1',
       },
     },
-    inst,
+    builder,
   );
 } catch (err) {
   dupErr = (err as Error).message;
@@ -434,19 +467,109 @@ check(
     `repo_url: this repo is already entered in this campaign (entry #${a.project_id}).`,
   `a second entry of the same repo is refused: ${dupErr}`,
 );
+// A squatter enters someone else's repo with their own wallet: the repo's earnkit.txt names the
+// owner's wallet, so it is refused, and the owner's entry stands.
+let squatErr = '';
+await recordSubmission(
+  {
+    program_id: programA,
+    project: {
+      name: 'Beta copy',
+      description: 'Not mine.',
+      repo_url: 'https://github.com/x/beta',
+      live_url: 'https://b.app',
+    },
+    submission_data: {
+      payout_wallet: '0x00000000000000000000000000000000000000ee',
+    },
+  },
+  builder,
+).catch((err) => (squatErr = (err as Error).message));
+check(
+  squatErr.startsWith(
+    'payout_wallet: earnkit.txt in github.com/x/beta says payout_wallet: 0x00000000000000000000000000000000000000b2',
+  ),
+  `a squatter can't enter someone else's repo: ${squatErr}`,
+);
+// A repo with no earnkit.txt is told exactly what to add; the sponsor can't enter its own campaign.
+let noFileErr = '';
+await recordSubmission(
+  {
+    program_id: programA,
+    project: {
+      name: 'No file',
+      description: 'No proof.',
+      repo_url: 'https://github.com/x/nofile',
+      live_url: 'https://n.app',
+    },
+    submission_data: {
+      payout_wallet: '0x00000000000000000000000000000000000000ef',
+    },
+  },
+  builder,
+).catch((err) => (noFileErr = (err as Error).message));
+check(
+  noFileErr.includes(
+    'Add a file named earnkit.txt at the root of github.com/x/nofile on its default branch with the line "payout_wallet: 0x00000000000000000000000000000000000000ef"',
+  ),
+  'an entry without earnkit.txt is told which file and line to add',
+);
+ownRepo(
+  'https://github.com/x/selfie',
+  '0x00000000000000000000000000000000000000ab',
+);
+let selfErr = '';
+await recordSubmission(
+  {
+    program_id: programA,
+    project: {
+      name: 'Selfie',
+      description: 'The sponsor enters.',
+      repo_url: 'https://github.com/x/selfie',
+      live_url: 'https://s.app',
+    },
+    submission_data: {
+      payout_wallet: '0x00000000000000000000000000000000000000ab',
+    },
+  },
+  inst,
+).catch((err) => (selfErr = (err as Error).message));
+check(
+  selfErr === "You created this campaign, so you can't enter it.",
+  `the sponsor's installation can't enter its own campaign: ${selfErr}`,
+);
+// The last entry's payout wallet is remembered and prefilled, with a confirm note.
+const prepared = (await tools.prepare_submission(
+  { program_id: programA },
+  { installationId: builder },
+)) as { payout_wallet_note?: string };
+check(
+  prepared.payout_wallet_note ===
+    'Using 0x00000000000000000000000000000000000000b2 from your last entry; confirm with the builder.',
+  `prepare_submission prefills the last payout wallet: ${prepared.payout_wallet_note}`,
+);
 // Two concurrent entries of one new repo: exactly one gets in.
+ownRepo(
+  'https://github.com/x/race',
+  '0x00000000000000000000000000000000000000f1',
+);
 const racers = await Promise.allSettled(
   ['https://github.com/x/race', 'https://github.com/x/race/'].map(
     (repo_url, i) =>
       recordSubmission(
         {
           program_id: programA,
-          project: { name: `Racer ${i}`, repo_url, live_url: 'https://r.app' },
+          project: {
+            name: `Racer ${i}`,
+            description: 'Races.',
+            repo_url,
+            live_url: 'https://r.app',
+          },
           submission_data: {
             payout_wallet: '0x00000000000000000000000000000000000000f1',
           },
         },
-        inst,
+        builder,
       ),
   ),
 );
@@ -826,7 +949,7 @@ check(
   'prepareAward refuses campaign A once it is awarded too',
 );
 check(
-  presentYourEntries(await yourCampaignEntries(inst), null).wins.includes(
+  presentYourEntries(await yourCampaignEntries(builder), null).wins.includes(
     'you won 60 USDC with Alpha',
   ),
   '"you won 60 USDC with Alpha"',
@@ -955,7 +1078,7 @@ check(
   'a taken-down campaign board and entry page are 404',
 );
 const yours =
-  presentYourEntries(await yourCampaignEntries(inst), null).section ?? '';
+  presentYourEntries(await yourCampaignEntries(builder), null).section ?? '';
 const lineFor = (name: string) =>
   yours
     .split('\n')
