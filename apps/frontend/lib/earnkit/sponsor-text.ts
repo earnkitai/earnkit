@@ -26,6 +26,14 @@ export const FUND_WARNING =
   'Only fund a campaign you asked your own agent to create. EarnKit never asks you to fund ' +
   "someone else's campaign, and nobody from EarnKit will send you this link.";
 
+/**
+ * What an unfunded draft's /fund page says instead of "by <sponsor> · <label>" (review I1): a draft
+ * can bind anyone's wallet, e.g. a brand's published one, so no name or verification shows until the
+ * bound wallet itself funds it.
+ */
+export const UNFUNDED_IDENTITY =
+  "Draft: the sponsor's identity is confirmed only after it is funded from the bound wallet.";
+
 export const AWARD_PROVENANCE =
   'These winners were proposed by the agent that created this campaign. Check every winner ' +
   'before signing; this payment is final.';

@@ -6,8 +6,8 @@ import { formatExact } from '@/lib/earnkit/format-units';
 import { checkChain, expiredText, loadCampaign } from '@/lib/earnkit/sponsor';
 import { splitUnits } from '@/lib/earnkit/sponsor-rules';
 import { sponsorLabel } from '@/lib/earnkit/sponsor-identity';
-import { FUND_WARNING } from '@/lib/earnkit/sponsor-text';
-import { sponsorIdentity } from '@/lib/earnkit/sponsor-verify';
+import { FUND_WARNING, UNFUNDED_IDENTITY } from '@/lib/earnkit/sponsor-text';
+import { isFunded, sponsorIdentity } from '@/lib/earnkit/sponsor-verify';
 import FundClient from './FundClient';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,10 @@ export default async function FundPage({
     return { fundingProblem: null };
   });
   const row = await loadCampaign(ref);
-  const identity = await sponsorIdentity(row);
+  // Only a funded campaign shows who it is by: until the bound wallet deposits, anyone could have
+  // bound a brand's published wallet to this draft (review I1).
+  const funded = isFunded(row.state);
+  const identity = funded ? await sponsorIdentity(row) : null;
   // Sign exactly the token the draft stored (and that findFunding matches), never a
   // token looked up from the current config.
   const token = {
@@ -57,7 +60,13 @@ export default async function FundPage({
           {row.draft.title}
         </h1>
         <p className="mt-2 font-funnel-sans text-base text-ek-blue-light">
-          by &ldquo;{row.sponsor_name}&rdquo; · {sponsorLabel(identity)}
+          {identity ? (
+            <>
+              by &ldquo;{row.sponsor_name}&rdquo; · {sponsorLabel(identity)}
+            </>
+          ) : (
+            UNFUNDED_IDENTITY
+          )}
         </p>
         <dl className="mt-8 grid gap-4 font-funnel-sans text-ek-white sm:grid-cols-3">
           <div>
