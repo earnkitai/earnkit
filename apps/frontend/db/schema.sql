@@ -176,3 +176,7 @@ CREATE TABLE IF NOT EXISTS sponsor_verifications (
 );
 -- Track records are counted per sponsor wallet.
 CREATE INDEX IF NOT EXISTS sponsor_campaigns_wallet ON sponsor_campaigns (sponsor_wallet);
+-- v2.2 T4 fix: who made the award ('sponsor' | 'fallback' | 'off_plan') and every wallet it paid,
+-- for the sponsor wallet's track record.
+ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS award_source text;
+ALTER TABLE sponsor_campaigns ADD COLUMN IF NOT EXISTS award_winners text[];

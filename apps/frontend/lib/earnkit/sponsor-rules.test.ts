@@ -385,7 +385,7 @@ test('createReply: title, pool, split, winners, formatted deadline, fund link, n
     'Campaign drafted: "Build on Acme".\n' +
       "Pool: 100 USDC. Winners get 90 USDC; EarnKit's 10% (10 USDC) is paid only when prizes are paid, and you get everything back if nobody qualifies.\n" +
       'Winners: 2 planned. Deadline: Oct 6, 2026, 06:51 UTC.\n' +
-      'Label for builders: Sponsored · verified acme.dev.\n' +
+      'Label for builders once funded: Sponsored · verified acme.dev.\n' +
       'Fund it here, from 0x70997970c51812dc3a010c7d01b50e0d17dc79c8: https://earnkit.com/fund/0xabc',
   );
   assert.match(r.next_step, /https:\/\/earnkit\.com\/fund\/0xabc/);
@@ -580,6 +580,10 @@ test('labelText: verified, unverified with a domain (how to verify), no domain',
   const w = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8';
   assert.equal(
     labelText({ verified: true, host: 'acme.dev' }, w),
+    'Label for builders once funded: Sponsored · verified acme.dev.',
+  );
+  assert.equal(
+    labelText({ verified: true, host: 'acme.dev' }, w, null, true),
     'Label for builders: Sponsored · verified acme.dev.',
   );
   assert.equal(
@@ -588,13 +592,13 @@ test('labelText: verified, unverified with a domain (how to verify), no domain',
       w,
       "EarnKit couldn't read https://acme.dev/.well-known/earnkit.txt: answered 404, not 200.",
     ),
-    "Label for builders: Sponsored · unverified. EarnKit couldn't read https://acme.dev/.well-known/earnkit.txt: answered 404, not 200. " +
+    "Label for builders once funded: Sponsored · unverified. EarnKit couldn't read https://acme.dev/.well-known/earnkit.txt: answered 404, not 200. " +
       `To show as verified acme.dev, publish the line "earnkit-sponsor: ${w}" at https://acme.dev/.well-known/earnkit.txt; ` +
       "EarnKit checks it again when the campaign is viewed. Unverified campaigns are listed, but never as builders' top pick.",
   );
   assert.match(
     labelText({ verified: false, host: null }, w),
-    /^Label for builders: Sponsored · unverified\. Without a sponsor_url there is no domain to verify/,
+    /^Label for builders once funded: Sponsored · unverified\. Without a sponsor_url there is no domain to verify/,
   );
 });
 

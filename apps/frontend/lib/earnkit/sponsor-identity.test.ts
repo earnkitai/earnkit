@@ -9,9 +9,11 @@ import {
   sponsorLabel,
   trackRecordOf,
   trackRecordText,
+  type TrackRow,
 } from './sponsor-identity';
 
 const W = '0x1111111111111111111111111111111111111111';
+const B = '0x2222222222222222222222222222222222222222';
 
 test('sponsorLabel: unverified unless verified with a host', () => {
   assert.equal(
@@ -67,7 +69,7 @@ test('earnkitTxtNames: a matching earnkit-sponsor line, case-insensitive', () =>
 });
 
 test('nameWords: NFKC, look-alikes, accents, lowercase, split', () => {
-  assert.deepEqual(nameWords('Ｂase Builders'), ['base', 'builders']);
+  assert.deepEqual(nameWords('Ｂase Grants'), ['base', 'grants']);
   assert.deepEqual(nameWords('tokens.fun'), ['tokens', 'fun']);
   assert.deepEqual(nameWords('Вase'), ['base']); // Cyrillic Ve
   assert.deepEqual(nameWords('Bаse'), ['base']); // Cyrillic a
@@ -127,10 +129,12 @@ test('reservedNameProblem: refused unless verified on the brand domain', () => {
   );
   // Verified, but on another domain (or a look-alike one).
   assert.ok(reservedNameProblem('Base', 'base-grants.xyz'));
-  assert.ok(reservedNameProblem('Base', 'www.base.org'));
+  assert.ok(reservedNameProblem('Base', 'base.org.evil.xyz'));
   assert.ok(reservedNameProblem('Coinbase', 'base.org'));
   // Verified on the brand's own domain: allowed.
   assert.equal(reservedNameProblem('Base', 'base.org'), null);
+  // m8: brands whose apex redirects serve the file on www.
+  assert.equal(reservedNameProblem('Base', 'www.base.org'), null);
   assert.equal(reservedNameProblem('Base Builders', 'base.dev'), null);
   assert.equal(reservedNameProblem('USDC Rewards', 'circle.com'), null);
   assert.equal(reservedNameProblem('tokens.fun', 'tokens.fun'), null);
@@ -141,28 +145,101 @@ test('reservedNameProblem: refused unless verified on the brand domain', () => {
   assert.equal(reservedNameProblem('Acme Labs', null), null);
 });
 
-test('trackRecordOf: only campaigns that reached the chain count', () => {
-  const t = trackRecordOf([
-    { state: 'live', n: 1 },
-    { state: 'awarded', n: 2 },
-    { state: 'refunded', n: 1 },
-    { state: 'taken_down', n: 1 },
-    { state: 'expired', n: 9 },
-    { state: 'draft', n: 4 },
-  ]);
+const row = (r: Partial<TrackRow> = {}): TrackRow => ({
+  state: 'live',
+  amount: '100',
+  token_symbol: 'USDC',
+  award_source: null,
+  fallback_plan: null,
+  winners: [],
+  ...r,
+});
+
+test('trackRecordOf: only funded campaigns of 100 USDC or more count', () => {
+  const t = trackRecordOf(
+    [
+      row(),
+      row({ state: 'awarded', award_source: 'sponsor', winners: [B] }),
+      row({ state: 'awarded', award_source: 'off_plan', winners: [B] }),
+      row({ state: 'refunded' }),
+      row({ state: 'taken_down' }),
+      row({ state: 'expired' }),
+      row({ state: 'draft' }),
+    ],
+    W,
+  );
   assert.deepEqual(t, {
     funded: 5,
     live: 1,
     awarded: 2,
+    fallback: 0,
+    self_awarded: 0,
     refunded: 1,
     taken_down: 1,
   });
   assert.equal(
     trackRecordText(t),
-    'This sponsor wallet has funded 5 campaigns on EarnKit: 2 awarded, 1 refunded with no winners, 1 taken down by EarnKit, 1 live.',
+    "This sponsor wallet has funded 5 campaigns of 100 USDC or more on EarnKit: 2 awarded by the sponsor, 0 paid by EarnKit's fallback, 1 refunded with no winners, 1 taken down by EarnKit, 1 live.",
   );
   assert.equal(
-    trackRecordText(trackRecordOf([{ state: 'live', n: 1 }])),
-    "This is the sponsor wallet's first funded campaign on EarnKit.",
+    trackRecordText(trackRecordOf([row()], W)),
+    'This sponsor wallet has no earlier funded campaigns of 100 USDC or more on EarnKit.',
   );
+});
+
+test('trackRecordOf (review I3 PoC): dust, self-awarded and fallback awards never read as "awarded"', () => {
+  // N dust campaigns self-funded and self-awarded: none count.
+  const dust = Array.from({ length: 20 }, () =>
+    row({
+      state: 'awarded',
+      amount: '0.01',
+      award_source: 'sponsor',
+      winners: [B],
+    }),
+  );
+  // Just under the bar, and a non-USDC pool: don't count either.
+  dust.push(
+    row({
+      state: 'awarded',
+      amount: '99.999999',
+      award_source: 'sponsor',
+      winners: [B],
+    }),
+  );
+  dust.push(
+    row({
+      state: 'awarded',
+      amount: '500',
+      token_symbol: 'WETH',
+      award_source: 'sponsor',
+      winners: [B],
+    }),
+  );
+  assert.equal(trackRecordOf(dust, W).funded, 0);
+  // At the bar: an award to the sponsor's own wallet (any case) is counted apart.
+  const self = trackRecordOf(
+    [
+      row({
+        state: 'awarded',
+        award_source: 'sponsor',
+        winners: [B, W.toUpperCase().replace('0X', '0x')],
+      }),
+    ],
+    W,
+  );
+  assert.deepEqual([self.awarded, self.self_awarded], [0, 1]);
+  // The operator's fallback, recorded or (older rows) inferred from a pending fallback plan.
+  const fb = trackRecordOf(
+    [
+      row({ state: 'awarded', award_source: 'fallback', winners: [B] }),
+      row({ state: 'awarded', fallback_plan: [{}], winners: [B] }),
+    ],
+    W,
+  );
+  assert.deepEqual([fb.awarded, fb.fallback, fb.funded], [0, 2, 2]);
+  assert.match(
+    trackRecordText(fb),
+    /0 awarded by the sponsor, 2 paid by EarnKit's fallback, 0 refunded/,
+  );
+  assert.match(trackRecordText(self), /1 paid to the sponsor's own wallet/);
 });

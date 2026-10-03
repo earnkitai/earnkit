@@ -1,3 +1,4 @@
+import { mixedScriptWords, skeleton } from './confusables';
 import { quoted } from './untrusted-text';
 
 /**
@@ -49,46 +50,36 @@ export function earnkitTxtNames(body: string, wallet: string) {
 
 /** Reserved brands and the only domains that may use them. */
 export const RESERVED_BRANDS = {
-  earnkit: { name: 'EarnKit', domains: ['earnkit.com'] },
-  base: { name: 'Base', domains: ['base.org', 'base.dev'] },
-  coinbase: { name: 'Coinbase', domains: ['coinbase.com'] },
-  circle: { name: 'Circle', domains: ['circle.com'] },
-  usdc: { name: 'USDC', domains: ['circle.com'] },
-  arc: { name: 'Arc', domains: ['arc.network'] },
-  tempo: { name: 'Tempo', domains: ['tempo.xyz'] },
-  monad: { name: 'Monad', domains: ['monad.xyz'] },
-  robinhood: { name: 'Robinhood', domains: ['robinhood.com'] },
-  tokensfun: { name: 'tokens.fun', domains: ['tokens.fun'] },
+  earnkit: { name: 'EarnKit', domains: ['earnkit.com', 'www.earnkit.com'] },
+  base: {
+    name: 'Base',
+    domains: ['base.org', 'base.dev', 'www.base.org', 'www.base.dev'],
+  },
+  coinbase: { name: 'Coinbase', domains: ['coinbase.com', 'www.coinbase.com'] },
+  circle: { name: 'Circle', domains: ['circle.com', 'www.circle.com'] },
+  usdc: { name: 'USDC', domains: ['circle.com', 'www.circle.com'] },
+  arc: { name: 'Arc', domains: ['arc.network', 'www.arc.network'] },
+  tempo: { name: 'Tempo', domains: ['tempo.xyz', 'www.tempo.xyz'] },
+  monad: { name: 'Monad', domains: ['monad.xyz', 'www.monad.xyz'] },
+  robinhood: {
+    name: 'Robinhood',
+    domains: ['robinhood.com', 'www.robinhood.com'],
+  },
+  tokensfun: { name: 'tokens.fun', domains: ['tokens.fun', 'www.tokens.fun'] },
 } as const;
 export type Brand = keyof typeof RESERVED_BRANDS;
 const BRANDS = Object.keys(RESERVED_BRANDS) as Brand[];
-const LONGEST = Math.max(...BRANDS.map((b) => b.length));
 
-// Latin look-alikes NFKC leaves alone (Cyrillic and Greek), mapped before lowercasing so an
-// uppercase Greek Nu (N) and a lowercase nu (v) map differently.
-const SKELETON = Object.fromEntries(
-  [
-    'АA ВB ЕE КK МM НH ОO РP СC ТT ХX УY ЅS ІI ЈJ ӀI аa еe оo рp сc уy хx',
-    'ѕs іi јj ԁd һh ӏl ԛq ԝw ΑA ΒB ΕE ΖZ ΗH ΙI ΚK ΜM ΝN ΟO ΡP ΤT ΥY ΧX αa',
-    'εe ιi κk νv οo ρp τt υu χx ϲc ıi',
-  ]
-    .join(' ')
-    .split(' ')
-    .map((pair) => [pair[0], pair[1]]),
-);
+const SKELETONS = new Map(BRANDS.map((b) => [skeleton(b), b]));
+const LONGEST = Math.max(...[...SKELETONS.keys()].map((k) => k.length));
 
 /**
- * The name as words for matching: NFKC (fullwidth and styled letters become plain), Cyrillic/Greek
- * look-alikes mapped to Latin, accents dropped, lowercased, split on anything but letters and
+ * The name as words for matching: its confusable skeleton (confusables.ts: NFKD, marks dropped,
+ * look-alikes from other scripts mapped to Latin, lowercased), split on anything but letters and
  * digits. Pure; exported for tests.
  */
 export const nameWords = (name: string) =>
-  [...name.normalize('NFKC')]
-    .map((c) => SKELETON[c] ?? c)
-    .join('')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
+  skeleton(name)
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 
@@ -104,8 +95,10 @@ export function reservedBrands(name: string): Brand[] {
     let joined = '';
     for (let j = i; j < words.length; j++) {
       joined += words[j];
-      if (joined.length > LONGEST) break;
-      if ((BRANDS as string[]).includes(joined)) found.add(joined as Brand);
+      // "rn" may only meet across a word break ("Ear nkit"), so it is folded again here.
+      if (joined.length > LONGEST * 2) break;
+      const brand = SKELETONS.get(joined.replace(/rn/g, 'm'));
+      if (brand) found.add(brand);
     }
   }
   return BRANDS.filter((b) => found.has(b));
@@ -124,48 +117,110 @@ export function reservedNameProblem(
     if (verifiedHost && (domains as readonly string[]).includes(verifiedHost))
       continue;
     const domain = domains[0];
+    const apex = domains.filter((d) => !d.startsWith('www.'));
     return (
       `sponsor_name: ${quoted(name)} uses the reserved name ${brand}. Only a sponsor verified on ` +
-      `${domains.join(' or ')} can use it (sponsor_url https://${domain}, with ` +
-      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another name.`
+      `${apex.join(' or ')} can use it (sponsor_url https://${domain}, with ` +
+      `"earnkit-sponsor: <sponsor_wallet>" at ${earnkitTxtUrl(domain)}). Otherwise choose another name: ` +
+      'names are matched as whole words after normalizing look-alike letters, and words that join ' +
+      'into a brand count too (e.g. "Coin Base").'
     );
   }
   return null;
 }
 
-/** A sponsor wallet's campaigns that reached the chain (drafts never count: anyone can bind a wallet). */
+/** Only campaigns with at least this pool (USDC) count toward a track record. */
+export const TRACK_RECORD_MIN_POOL_USDC = 100;
+
+/**
+ * A sponsor wallet's funded campaigns of at least 100 USDC (drafts never count: anyone can bind a
+ * wallet to one; dust campaigns don't either). `awarded` counts only awards the sponsor made
+ * that paid nobody at the sponsor's own wallet; operator-fallback payouts are counted apart.
+ */
 export type TrackRecord = {
   funded: number;
   live: number;
   awarded: number;
+  /** Paid out by EarnKit's operator fallback because the sponsor didn't award. */
+  fallback: number;
+  /** Awarded by the sponsor, but some prize went to the sponsor's own wallet. */
+  self_awarded: number;
   refunded: number;
   taken_down: number;
 };
 
-/** Counts by sponsor_campaigns.state -> the track record. Pure; exported for tests. */
-export function trackRecordOf(rows: { state: string; n: number }[]) {
-  const n = (s: string) => rows.find((r) => r.state === s)?.n ?? 0;
-  const t = {
-    live: n('live'),
-    awarded: n('awarded'),
-    refunded: n('refunded'),
-    taken_down: n('taken_down'),
+/** One sponsor_campaigns row, as trackRecordOf needs it. */
+export type TrackRow = {
+  state: string;
+  amount: string;
+  token_symbol: string;
+  /** 'sponsor' | 'fallback' | 'off_plan' (a direct award: only the sponsor can); null on rows from before it was recorded. */
+  award_source: string | null;
+  fallback_plan: unknown | null;
+  /** Every wallet the award paid (lowercase). */
+  winners: string[];
+};
+
+/** Rows of one sponsor wallet -> its track record. Pure; exported for tests. */
+export function trackRecordOf(rows: TrackRow[], wallet: string | null) {
+  const t: TrackRecord = {
+    funded: 0,
+    live: 0,
+    awarded: 0,
+    fallback: 0,
+    self_awarded: 0,
+    refunded: 0,
+    taken_down: 0,
   };
-  return {
-    funded: t.live + t.awarded + t.refunded + t.taken_down,
-    ...t,
-  } satisfies TrackRecord;
+  const self = wallet?.toLowerCase();
+  for (const r of rows) {
+    if (
+      r.token_symbol !== 'USDC' ||
+      !(Number(r.amount) >= TRACK_RECORD_MIN_POOL_USDC)
+    )
+      continue;
+    if (r.state === 'live') t.live++;
+    else if (r.state === 'refunded') t.refunded++;
+    else if (r.state === 'taken_down') t.taken_down++;
+    else if (r.state === 'awarded') {
+      const source =
+        r.award_source ?? (r.fallback_plan ? 'fallback' : 'sponsor');
+      if (source === 'fallback') t.fallback++;
+      else if (self && r.winners.some((w) => w.toLowerCase() === self))
+        t.self_awarded++;
+      else t.awarded++;
+    } else continue;
+    t.funded++;
+  }
+  return t;
 }
 
 /** One line for builders. Pure; exported for tests. */
 export function trackRecordText(t: TrackRecord) {
-  if (t.funded <= 1 && t.awarded + t.refunded + t.taken_down === 0)
-    return "This is the sponsor wallet's first funded campaign on EarnKit.";
+  const past =
+    t.awarded + t.fallback + t.self_awarded + t.refunded + t.taken_down;
+  if (t.funded <= 1 && past === 0)
+    return `This sponsor wallet has no earlier funded campaigns of ${TRACK_RECORD_MIN_POOL_USDC} USDC or more on EarnKit.`;
   const parts = [
-    `${t.awarded} awarded`,
+    `${t.awarded} awarded by the sponsor`,
+    `${t.fallback} paid by EarnKit's fallback`,
     `${t.refunded} refunded with no winners`,
     `${t.taken_down} taken down by EarnKit`,
+    ...(t.self_awarded > 0
+      ? [`${t.self_awarded} paid to the sponsor's own wallet`]
+      : []),
     ...(t.live > 0 ? [`${t.live} live`] : []),
   ];
-  return `This sponsor wallet has funded ${t.funded} campaign${t.funded === 1 ? '' : 's'} on EarnKit: ${parts.join(', ')}.`;
+  return `This sponsor wallet has funded ${t.funded} campaign${t.funded === 1 ? '' : 's'} of ${TRACK_RECORD_MIN_POOL_USDC} USDC or more on EarnKit: ${parts.join(', ')}.`;
+}
+
+/**
+ * Why a sponsor name mixes scripts inside a word (Latin with Cyrillic, Greek or another
+ * look-alike script), or null. Pure; exported for tests.
+ */
+export function mixedScriptProblem(name: string): string | null {
+  const words = mixedScriptWords(name);
+  return words.length === 0
+    ? null
+    : `sponsor_name: ${quoted(name)} mixes Latin letters with look-alike letters from another script in one word. Write each word in one script.`;
 }

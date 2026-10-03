@@ -90,11 +90,22 @@ export function toUnits(
   return parseUnits(value, decimals);
 }
 
+/** The smallest pool a campaign may have, in USDC (dust pools would only buy a track record). */
+export const MIN_POOL_USDC = 50;
+
+/** The minimum pool in token units: 50 for USDC; other allowlisted tokens have none. */
+export const minPoolUnits = (token: { symbol: string; decimals: number }) =>
+  token.symbol === 'USDC'
+    ? BigInt(MIN_POOL_USDC) * 10n ** BigInt(token.decimals)
+    : 0n;
+
 export function checkDraft(
   d: Draft,
   token: TokenInfo | null,
   cap: bigint,
   now: Date,
+  /** Overrides minPoolUnits (the local test chain only). */
+  minPool?: bigint,
 ) {
   if (!token)
     throw new SponsorError(
@@ -102,6 +113,11 @@ export function checkDraft(
     );
   const amountUnits = toUnits('amount', d.amount, token.decimals, token.symbol);
   if (amountUnits <= 0n) throw new SponsorError('amount: must be more than 0.');
+  const min = minPool ?? minPoolUnits(token);
+  if (amountUnits < min)
+    throw new SponsorError(
+      `amount: the pool must be at least ${formatUnits(min, token.decimals)} ${token.symbol}.`,
+    );
   if (amountUnits > cap)
     throw new SponsorError(
       `amount: over the current cap of ${formatUnits(cap, token.decimals)} ${token.symbol} per campaign.`,
@@ -445,8 +461,10 @@ export function labelText(
   identity: SponsorIdentity,
   wallet: string,
   note?: string | null,
+  /** A draft's label is what builders will see once it is funded from the bound wallet. */
+  funded = false,
 ) {
-  const label = `Label for builders: ${sponsorLabel(identity)}.`;
+  const label = `Label for builders${funded ? '' : ' once funded'}: ${sponsorLabel(identity)}.`;
   if (identity.verified) return label;
   if (!identity.host)
     return `${label} Without a sponsor_url there is no domain to verify; a campaign can't be the top pick for builders while unverified.`;

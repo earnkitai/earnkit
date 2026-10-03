@@ -21,8 +21,12 @@ import {
   type EscrowReader,
 } from './escrow';
 import { NotFoundError, upsertProgram } from './programs';
-import { reservedNameProblem, sponsorLabel } from './sponsor-identity';
-import { sponsorIdentity } from './sponsor-verify';
+import {
+  mixedScriptProblem,
+  reservedNameProblem,
+  sponsorLabel,
+} from './sponsor-identity';
+import { domainCheck, isFunded } from './sponsor-verify';
 import {
   DEADLINE_MARGIN_MS,
   DEADLINE_PASSED,
@@ -85,6 +89,17 @@ const baseUrl = () =>
   (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
 const DRAFT_TTL_MS = 7 * 86_400_000;
 
+/**
+ * The minimum pool: 50 USDC (sponsor-rules minPoolUnits), except on the local test chain, where
+ * SPONSOR_MIN_POOL (whole tokens) may lower it for the e2e script's small pools.
+ */
+function localMinPool(decimals: number | undefined) {
+  const env = process.env.SPONSOR_MIN_POOL;
+  if (decimals === undefined || !env || escrowConfig().chain !== 'local')
+    return undefined;
+  return parseUnits(env, decimals);
+}
+
 export async function createSponsorDraft(
   { sponsor_wallet: wallet, ...d }: DraftRequest,
   installationId: number,
@@ -94,10 +109,19 @@ export async function createSponsorDraft(
   const sponsor_wallet = SponsorWallet.parse(wallet);
   const token = findToken(d.token);
   const cap = token ? await capOf(token.address) : 0n;
-  const { amountUnits } = checkDraft(d, token, cap, new Date());
+  const { amountUnits } = checkDraft(
+    d,
+    token,
+    cap,
+    new Date(),
+    localMinPool(token?.decimals),
+  );
+  const mixed = mixedScriptProblem(d.sponsor_name);
+  if (mixed) throw new SponsorError(mixed);
   // The domain is checked now (a failure is always re-fetched here, so a fixed file counts at
-  // once); a reserved name needs a pass on that brand's own domain.
-  const identity = await sponsorIdentity(
+  // once); a reserved name needs a pass on that brand's own domain. Builders see the result only
+  // once the campaign is funded from the bound wallet.
+  const identity = await domainCheck(
     { sponsor_url: d.sponsor_url ?? null, sponsor_wallet },
     { retryFailureAfterMs: 0 },
   );
@@ -149,7 +173,8 @@ export async function createSponsorDraft(
       identity,
       verificationNote: identity.note,
     }),
-    sponsor_label: sponsorLabel(identity),
+    // A draft has no label: only funding proves the wallet is the sponsor's.
+    sponsor_label: null,
   };
 }
 
@@ -597,7 +622,8 @@ export async function sponsorStatus(ref: string, installationId: number) {
   const now = new Date();
   // Lazily re-verified; the creating agent gets a failed check retried after a minute, so a
   // sponsor who just published earnkit.txt sees it count.
-  const identity = await sponsorIdentity(row, {
+  const funded = isFunded(row.state);
+  const identity = await domainCheck(row, {
     ...(row.installation_id === installationId && {
       retryFailureAfterMs: 60_000,
     }),
@@ -605,11 +631,17 @@ export async function sponsorStatus(ref: string, installationId: number) {
   const base = {
     state: row.state,
     title: row.draft.title,
-    sponsor_label: sponsorLabel(identity),
+    // Builders see an identity only once the bound wallet has funded the campaign.
+    sponsor_label: funded ? sponsorLabel(identity) : null,
     ...(!identity.verified &&
       row.sponsor_wallet &&
       row.installation_id === installationId && {
-        verification: labelText(identity, row.sponsor_wallet, identity.note),
+        verification: labelText(
+          identity,
+          row.sponsor_wallet,
+          identity.note,
+          funded,
+        ),
       }),
     pool: `${row.amount} ${row.token_symbol}`,
     prize: `${prize} ${row.token_symbol}`,
@@ -776,7 +808,13 @@ async function recordAward(
     let offPlan:
       | { wallet: string; amount: string; entry_id: number | null }[]
       | null = null;
-    let matched = planned(row.award_plan) ?? planned(row.fallback_plan);
+    // Who made the award (track record). A payout matching the operator's fallback counts as the
+    // fallback even if the sponsor's plan matches too (conservative: it never inflates "awarded");
+    // anything else is the sponsor's (executeFallback must match the proposed fallback exactly).
+    const byFallback = planned(row.fallback_plan);
+    const bySponsor = byFallback ? null : planned(row.award_plan);
+    const source = byFallback ? 'fallback' : bySponsor ? 'sponsor' : 'off_plan';
+    let matched = byFallback ?? bySponsor;
     if (!matched) {
       // Paid outside EarnKit's plans (e.g. straight to the contract): record what happened onchain
       // and flag any winner that isn't an entry's payout wallet. The leaderboard shows these publicly.
@@ -794,7 +832,8 @@ async function recordAward(
         prize_reason = ${m.reason} WHERE id = ${m.entry_id}`;
     }
     await db`UPDATE sponsor_campaigns SET state = 'awarded', award_tx = ${ev.tx}, awarded_at = now(),
-      award_onchain = ${offPlan ? db.json(offPlan as never) : null} WHERE ref = ${ref}`;
+      award_onchain = ${offPlan ? db.json(offPlan as never) : null}, award_source = ${source},
+      award_winners = ${ev.winners.map((w) => w.toLowerCase())} WHERE ref = ${ref}`;
     await db`UPDATE programs SET status = 'closed' WHERE id = ${row.program_id}`;
   });
 }

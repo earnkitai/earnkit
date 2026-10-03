@@ -128,7 +128,7 @@ test("get_program: a sponsor's theme, criteria and link only inside sponsor_cont
   for (const legacy of [false, true]) {
     const d = programDetails(sponsorRow(legacy), [], [], {
       identity: { verified: true, host: 'acme.xyz' },
-      track_record: trackRecordOf([{ state: 'live', n: 1 }]),
+      track_record: trackRecordOf([], null),
     });
     assert.deepEqual(d.sponsor_content, {
       written_by: 'the sponsor',
@@ -156,10 +156,27 @@ test("get_program: a sponsor's theme, criteria and link only inside sponsor_cont
 test('get_program: an unverified sponsor is labeled, and its link is not passed on', () => {
   const d = programDetails(sponsorRow(false), [], [], {
     identity: { verified: false, host: 'acme.xyz' },
-    track_record: trackRecordOf([
-      { state: 'live', n: 1 },
-      { state: 'refunded', n: 2 },
-    ]),
+    track_record: trackRecordOf(
+      [
+        {
+          state: 'live',
+          amount: '1000',
+          token_symbol: 'USDC',
+          award_source: null,
+          fallback_plan: null,
+          winners: [],
+        },
+        ...[1, 2].map(() => ({
+          state: 'refunded',
+          amount: '100',
+          token_symbol: 'USDC',
+          award_source: null,
+          fallback_plan: null,
+          winners: [],
+        })),
+      ],
+      null,
+    ),
   });
   assert.equal(d.sponsor_content?.sponsor_url, undefined);
   assert.ok(!JSON.stringify(d).includes('acme.xyz'));
@@ -178,10 +195,12 @@ test('get_program: an unverified sponsor is labeled, and its link is not passed 
         funded: 3,
         live: 1,
         awarded: 0,
+        fallback: 0,
+        self_awarded: 0,
         refunded: 2,
         taken_down: 0,
         summary:
-          'This sponsor wallet has funded 3 campaigns on EarnKit: 0 awarded, 2 refunded with no winners, 0 taken down by EarnKit, 1 live.',
+          "This sponsor wallet has funded 3 campaigns of 100 USDC or more on EarnKit: 0 awarded by the sponsor, 0 paid by EarnKit's fallback, 2 refunded with no winners, 0 taken down by EarnKit, 1 live.",
       },
     });
   // No identity passed (e.g. no sponsor row): unverified.
@@ -192,7 +211,7 @@ test('get_program: an unverified sponsor is labeled, and its link is not passed 
 test('get_program: a verified sponsor shows its host', () => {
   const d = programDetails(sponsorRow(false), [], [], {
     identity: { verified: true, host: 'acme.xyz' },
-    track_record: trackRecordOf([{ state: 'live', n: 1 }]),
+    track_record: trackRecordOf([], null),
   });
   const sponsor =
     d.campaign && 'sponsor' in d.campaign ? d.campaign.sponsor : undefined;

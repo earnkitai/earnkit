@@ -7,14 +7,16 @@ import {
   sponsorHost,
   trackRecordOf,
   type SponsorIdentity,
+  type TrackRow,
 } from './sponsor-identity';
 
 /**
  * Sponsor domain verification (v2.2 §3): EarnKit fetches https://<host>/.well-known/earnkit.txt
  * (SSRF-safe, safe-fetch.ts) and looks for `earnkit-sponsor: <sponsor_wallet>`. Results are cached
  * per (host, wallet) in `sponsor_verifications`: a pass for 24 h, a failure for 1 h (so a slow or
- * hostile host can't make every page load wait on it). Runs at create and lazily wherever a
- * label is shown.
+ * hostile host can't make every page load wait on it). It fetches at create, on the sponsor's
+ * status, on page loads and in `pnpm campaign sync`; list_programs and get_program read the cache
+ * only. Only funded campaigns show an identity to builders (`sponsorIdentity`).
  */
 
 export const VERIFIED_TTL_MS = 24 * 3_600_000;
@@ -91,12 +93,22 @@ export async function verifySponsor(
   return pending;
 }
 
+/** States in which the bound wallet has signed the deposit itself, so its identity can be shown. */
+export const FUNDED_STATES = ['live', 'awarded', 'refunded', 'taken_down'];
+export const isFunded = (state: string) => FUNDED_STATES.includes(state);
+
+type IdentityRow = {
+  sponsor_url: string | null;
+  sponsor_wallet: string | null;
+};
+
 /**
- * A sponsor campaign's identity: verified on its sponsor_url's host for its bound wallet, else
- * unverified (no link, no wallet, or the check failed). Never throws: a failure is unverified.
+ * Checks (cached, fetching when stale) whether `row`'s domain names its wallet, whatever the
+ * state: for create and the sponsor's own status, where the result is a preview for the sponsor.
+ * Never throws: a failure is unverified.
  */
-export async function sponsorIdentity(
-  row: { sponsor_url: string | null; sponsor_wallet: string | null },
+export async function domainCheck(
+  row: IdentityRow,
   opts?: { retryFailureAfterMs?: number },
 ): Promise<SponsorIdentity & { note: string | null }> {
   const host = sponsorHost(row.sponsor_url);
@@ -110,19 +122,66 @@ export async function sponsorIdentity(
   }
 }
 
+/**
+ * A sponsor campaign's identity as builders see it (pages, `pnpm campaign sync`): only a funded
+ * campaign has one, because only funding proves the bound wallet is the sponsor's (a draft can
+ * bind anyone's wallet, e.g. a brand's published one). Re-verified when the cache is stale.
+ */
+export async function sponsorIdentity(
+  row: IdentityRow & { state: string },
+): Promise<SponsorIdentity & { note: string | null }> {
+  if (!isFunded(row.state)) return { ...UNVERIFIED, note: null };
+  return domainCheck(row);
+}
+
+/**
+ * Identities from the cache only, never fetching (list_programs, get_program): verified when a
+ * fresh pass is cached for a funded campaign's (host, wallet). One query for all rows.
+ */
+export async function cachedIdentities(
+  rows: (IdentityRow & { state: string | null })[],
+): Promise<SponsorIdentity[]> {
+  const keys = rows.map((r) =>
+    r.state && isFunded(r.state) && r.sponsor_wallet
+      ? {
+          host: sponsorHost(r.sponsor_url),
+          wallet: r.sponsor_wallet.toLowerCase(),
+        }
+      : { host: null, wallet: '' },
+  );
+  const hosts = [...new Set(keys.flatMap((k) => (k.host ? [k.host] : [])))];
+  if (hosts.length === 0) return rows.map(() => UNVERIFIED);
+  const cached = await sql()<
+    { host: string; wallet: string; verified: boolean; checked_at: Date }[]
+  >`SELECT host, wallet, verified, checked_at FROM sponsor_verifications
+    WHERE host IN ${sql()(hosts)} AND wallet IN ${sql()(keys.map((k) => k.wallet))}`;
+  const now = new Date();
+  return keys.map(({ host, wallet }) => {
+    const c = cached.find((x) => x.host === host && x.wallet === wallet);
+    return c?.verified && verificationIsFresh(c, now)
+      ? { verified: true, host }
+      : { verified: false, host };
+  });
+}
+
 /** The track record of a sponsor wallet (see trackRecordOf). */
 export async function trackRecord(wallet: string | null) {
-  if (!wallet) return trackRecordOf([]);
-  const rows = await sql()<{ state: string; n: number }[]>`
-    SELECT state, count(*)::int AS n FROM sponsor_campaigns
-    WHERE sponsor_wallet = ${wallet.toLowerCase()} GROUP BY state`;
-  return trackRecordOf(rows);
+  if (!wallet) return trackRecordOf([], null);
+  const rows = await sql()<TrackRow[]>`
+    SELECT state, amount, token_symbol, award_source, fallback_plan,
+      COALESCE(award_winners, ARRAY(
+        SELECT lower(p.payout_wallet) FROM projects p
+        WHERE p.program_id = sc.program_id AND p.prize_tx IS NOT NULL)) AS winners
+    FROM sponsor_campaigns sc
+    WHERE sponsor_wallet = ${wallet.toLowerCase()}
+      AND state IN ('live', 'awarded', 'refunded', 'taken_down')`;
+  return trackRecordOf(rows, wallet);
 }
 
 /** The sponsor row behind a published program (null for curated programs). */
 export async function sponsorOfProgram(programId: string) {
   const [row] = await sql()<
-    { sponsor_url: string | null; sponsor_wallet: string | null }[]
-  >`SELECT sponsor_url, sponsor_wallet FROM sponsor_campaigns WHERE program_id = ${programId}`;
+    (IdentityRow & { state: string })[]
+  >`SELECT sponsor_url, sponsor_wallet, state FROM sponsor_campaigns WHERE program_id = ${programId}`;
   return row ?? null;
 }

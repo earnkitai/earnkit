@@ -17,7 +17,7 @@ import {
   sponsorSummary,
 } from './sponsor-rules';
 import {
-  sponsorIdentity,
+  cachedIdentities,
   sponsorOfProgram,
   trackRecord,
 } from './sponsor-verify';
@@ -156,11 +156,15 @@ export async function listPrograms() {
       | 'source'
       | 'campaign'
       | 'max_award_usd'
-    > & { sponsor_url: string | null; sponsor_wallet: string | null })[]
+    > & {
+      sponsor_url: string | null;
+      sponsor_wallet: string | null;
+      sponsor_state: string | null;
+    })[]
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
-      sc.sponsor_url, sc.sponsor_wallet
+      sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST`;
@@ -169,11 +173,13 @@ export async function listPrograms() {
     WHERE program_id IN ${db(programs.map((p) => p.id).concat(''))}
     ORDER BY id`;
 
-  // Who each sponsor is, as far as EarnKit can vouch (cached; lazily re-checked).
-  const identities = await Promise.all(
-    programs.map((p) =>
-      p.campaign?.kind === 'sponsor' ? sponsorIdentity(p) : UNVERIFIED,
-    ),
+  // Who each sponsor is, as far as EarnKit can vouch: cached results only, never a fetch here.
+  const identities = await cachedIdentities(
+    programs.map((p) => ({
+      sponsor_url: p.sponsor_url,
+      sponsor_wallet: p.sponsor_wallet,
+      state: p.campaign?.kind === 'sponsor' ? p.sponsor_state : null,
+    })),
   );
 
   return programs.map((p, i) =>
@@ -303,7 +309,8 @@ export async function getProgram(programId: string) {
       : null;
   const who = sponsorRow
     ? {
-        identity: await sponsorIdentity(sponsorRow),
+        // Cached only: get_program never triggers a fetch.
+        identity: (await cachedIdentities([sponsorRow]))[0],
         track_record: await trackRecord(sponsorRow.sponsor_wallet),
       }
     : undefined;
