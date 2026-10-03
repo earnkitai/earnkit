@@ -207,8 +207,10 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   `Awarded` log search goes newest-first (`scanLogsNewestFirst`), at most 8 `getLogs` calls per
   check, resuming from `chain_checks.award_scan_hi` (status says it's still searching meanwhile).
   Ranges start at 2,000 blocks (Base's public RPC refuses more: HTTP 413 / -32614 "limited to a
-  2,000 range"); a range-limit refusal (`logRangeLimit`) retries with the size the RPC names, or
-  half, never below 100, and the accepted size is remembered for the process.
+  2,000 range"), afresh on every check; a refusal whose message names a range or result limit
+  (`logError`) retries with the size the RPC names, or half, never below 100; other
+  -32005/-32614/-32016/429 errors are rate limits, retried after 250 ms, 1 s and 3 s, then the
+  check stops with a `chain_note` and resumes next time.
   `/fund` and `/award` show their action only while the connected wallet is the bound wallet
   (`WalletGate`: "Connect 0xABCD…1234 to continue"). Because anyone's agent can bind someone
   else's wallet and send them the link, `/fund` shows a fixed warning (only fund a campaign your
@@ -299,10 +301,13 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   titles"); accented words ("Café", "Zürich"), common European letters the skeleton maps (ß ø æ œ
   ł đ þ ð ı ħ ŋ: "Straße", "Łódź") and whole words in another script pass. The brand check also
   runs on a second skeleton reading ß/ẞ as b, þ as p and ð as o ("Coinßase", "Temþo", "Mðnad"),
-  and on one reading digits and `@`/`$` as letters ("M0nad", "Ba5e"). Sponsor names, like titles,
-  refuse a brand glued to an org word ("CoinbaseVentures"); "EarnKit" in any form (also inside a
-  word, "EarnKitHQ") is refused in names and titles for everyone, verified or not; Canadian
-  Syllabics and Coptic letters are refused in names and titles (T9, re-audit H3/F1). Sponsor
+  and on one reading digits and `@ $ ! |` as letters ("M0nad", "Ba5e"). A name or title word that
+  is a brand followed by a fixed suffix (`BRAND_SUFFIXES`: org, app, hq, dev, labs, pay, chain,
+  network, foundation, grants, ventures, usdc, xyz, …) is refused ("CoinbaseVentures", "BaseApp");
+  there is no general prefix rule ("Baseline", "Arcade" pass), and other glued forms are an
+  accepted residual. "EarnKit" in any form (also inside a word, "EarnKitHQ") is refused in names
+  and titles for everyone, verified or not; Canadian Syllabics, Coptic and Old Italic letters are
+  refused in names and titles (T9, re-audit H3/F1 and fix round 1). Sponsor
   campaigns, verified or not (verification is free and brand-blind: it changes only the label),
   are never the "Fastest" headline, the closing offer or in a repo's fit list (`present.ts`,
   `Card.sponsored`); they are listed one labeled line each in their own "Sponsored" section after
@@ -318,14 +323,14 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   people's agents, so it goes through one sanitizer (`untrusted-text.ts` `cleanText`: after NFKC
   an allowlist — letters, numbers, a fixed punctuation set, dashes, emoji — so invisible, tag,
   bidi and markup characters are dropped; then links in any form and HTML entities are rejected;
-  per-field limits; dot look-alikes from UTS #39 and a few it leaves out read as dots first;
-  spelled links with any ending ("word dot word", "slash"), spaced domains, `@handles` and
-  phone-number-like digit runs are refused; `what_to_build`/`criteria` also refuse setup
-  commands, `commandIn`: T9, re-audit H2/M8) at the input boundary; builder links (`live_url`,
-  `repo_url`, `demo_url`, `token_url`, url answers) are `BuilderUrl` (https, at most 200
-  characters, no whitespace/control/format characters in the raw string, no user info) and stored
-  ones are shown only when they pass (`shownUrl`: status entries, campaign and project pages;
-  entry names are cleaned on read) (T9, re-audit H1); `sponsor_url` is https, at most 100 characters, a plain
+  per-field limits; dot look-alikes from UTS #39 and a few it leaves out read as dots first; names
+  and titles (`quotedName`) also refuse `@` and runs of 7+ digits; multi-line text gets no word
+  heuristics (commands, handles, phone numbers, spelled links): they refused real briefs, and
+  the structure is the defense) at the input boundary; builder links (`live_url`, `repo_url`,
+  `demo_url`, `token_url`, url answers) are `BuilderUrl`, stored and shown only in canonical form
+  (`canonicalBuilderUrl`: https, lowercase host, a plain path of up to 100 characters, no query,
+  fragment or user info; `shownUrl` for status entries, campaign and project pages; entry names
+  are cleaned on read) (T9, re-audit H1, fix round 1 I6); `sponsor_url` is https, at most 100 characters, a plain
   host, no query or fragment (`SponsorUrl`): `DraftInput`
   (sponsor_name, title, what_to_build, criteria), `AwardWinner.reason`, and campaign entries' project
   name/description (`cleanProject` in record_submission and prepare_submission; other programs'
