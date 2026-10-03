@@ -11,11 +11,12 @@ export const securityHeaders = (production: boolean) => [
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   // HTTPS only from the first visit on (no SSL-stripping of /fund); never pins local http.
+  // No includeSubDomains until every earnkit.com subdomain is confirmed to serve HTTPS.
   ...(production
     ? [
         {
           key: 'Strict-Transport-Security',
-          value: 'max-age=31536000; includeSubDomains',
+          value: 'max-age=31536000',
         },
       ]
     : []),

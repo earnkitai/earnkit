@@ -35,6 +35,6 @@ test('HSTS in production only (local http is never pinned)', () => {
     securityHeaders(production).find(
       (h) => h.key === 'Strict-Transport-Security',
     )?.value;
-  assert.equal(hsts(true), 'max-age=31536000; includeSubDomains');
+  assert.equal(hsts(true), 'max-age=31536000');
   assert.equal(hsts(false), undefined);
 });
