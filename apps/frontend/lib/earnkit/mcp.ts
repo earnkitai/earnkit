@@ -5,6 +5,7 @@ import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
 import { EntryError } from './campaigns';
 import { escrowConfigProblem } from './escrow';
+import { RateLimitError } from './rate-limit';
 import { SanctionsError } from './sanctions';
 import { SponsorError } from './sponsor-rules';
 import { LaunchError } from './tokens';
@@ -42,6 +43,7 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
       err instanceof EntryError ||
       err instanceof SponsorError ||
       err instanceof SanctionsError ||
+      err instanceof RateLimitError ||
       err instanceof UntrustedTextError
     ) {
       const text =

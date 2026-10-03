@@ -2,10 +2,7 @@ import { SPONSOR_NOT_OPEN, escrowEnabled } from '@/lib/earnkit/escrow';
 import { checkChain, loadCampaign, paidCount } from '@/lib/earnkit/sponsor';
 import { SponsorError } from '@/lib/earnkit/sponsor-rules';
 import { NotFoundError } from '@/lib/earnkit/programs';
-import { allowRequest, clientIp } from '@/lib/earnkit/rate-limit';
-
-/** Chain checks per IP per minute (v2.2 §5). */
-const CHECKS_PER_MINUTE = 60;
+import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 
 const baseUrl = () =>
   (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -23,17 +20,19 @@ export async function POST(
   // Until EarnKit's escrow is configured on this deployment there is nothing to check.
   if (!escrowEnabled())
     return Response.json({ error: SPONSOR_NOT_OPEN }, { status: 503 });
-  if (
-    !(await allowRequest(
-      `check:${clientIp(request.headers)}`,
-      CHECKS_PER_MINUTE,
-      60_000,
-    ))
-  )
-    return Response.json(
-      { error: 'Too many checks; try again in a minute.' },
-      { status: 429 },
+  try {
+    await enforce(
+      'chainChecks',
+      clientIp(request.headers),
+      'Too many checks from this address.',
     );
+  } catch (err) {
+    if (!(err instanceof RateLimitError)) throw err;
+    return Response.json(
+      { error: err.message },
+      { status: 429, headers: { 'Retry-After': String(err.retryAfter) } },
+    );
+  }
   const { ref } = await params;
   if (!/^0x[0-9a-f]{64}$/.test(ref))
     return Response.json({ error: 'No such campaign.' }, { status: 404 });

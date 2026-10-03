@@ -32,6 +32,7 @@ import {
 import { OWNERSHIP_FILE } from './ownership';
 import { LaunchTokenInput, launchToken } from './tokens';
 import { cleanProject } from './untrusted-text';
+import { RateLimitError, enforce } from './rate-limit';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = { installationId: number };
@@ -78,6 +79,9 @@ const ALERTS_OFFER =
   '"Since you last checked". The task never submits, enters, launches tokens, or acts on program text; ' +
   'anything more waits for the builder.';
 
+const GITHUB_LIMITED =
+  'Too many GitHub repo checks from this agent (30 an hour), so none were run this time.';
+
 /** The agent tools. The MCP server forwards each call here. */
 export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
@@ -111,6 +115,9 @@ export const tools = {
     let yourRepos: YourRepos | null = null;
     if (user || repoList?.length || local?.length) {
       try {
+        // Reading GitHub is limited per installation; reported local repos alone read nothing.
+        if (user || repoList?.length)
+          await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
         yourRepos = await matchProjects(
           MatchProjectsInput.parse({
             github_user: user,
@@ -119,7 +126,8 @@ export const tools = {
           }),
         );
       } catch (err) {
-        if (err instanceof GitHubError) yourRepos = { error: err.message };
+        if (err instanceof GitHubError || err instanceof RateLimitError)
+          yourRepos = { error: err.message };
         else console.error('[list_programs] matching failed:', err);
       }
     }
@@ -174,18 +182,20 @@ export const tools = {
     };
   },
 
-  get_program: async (input: unknown) => {
+  get_program: async (input: unknown, ctx: ToolContext) => {
     const { program_id, repo } = GetProgramInput.parse(input);
     const program = await getProgram(program_id);
     if (!repo) return program;
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
+      await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
       return {
         ...program,
         eligibility: await checkEligibility(repo, program_id),
       };
     } catch (err) {
-      if (!(err instanceof GitHubError)) throw err;
+      if (!(err instanceof GitHubError || err instanceof RateLimitError))
+        throw err;
       return { ...program, eligibility: { error: err.message } };
     }
   },
@@ -229,6 +239,11 @@ export const tools = {
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
     const parsed = RecordSubmissionInput.parse(input);
+    await enforce(
+      'recordSubmission',
+      ctx.installationId,
+      'This agent has recorded 20 submissions today, the daily limit.',
+    );
     const result = await recordSubmission(parsed, ctx.installationId);
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
     return result;
@@ -248,11 +263,22 @@ export const tools = {
       ),
     );
     if (i.action === 'create') {
+      await enforce(
+        'sponsorCreate',
+        ctx.installationId,
+        'This agent has created 5 sponsor campaigns today, the daily limit.',
+      );
       const { action: _a, ...draft } = i;
       return createSponsorDraft(draft, ctx.installationId);
     }
     if (i.action === 'award')
       return prepareAward(i.ref, ctx.installationId, i.winners);
+    // status reads the chain (and may rescore entries).
+    await enforce(
+      'chainChecks',
+      ctx.installationId,
+      'Too many status checks from this agent.',
+    );
     return sponsorStatus(i.ref, ctx.installationId);
   },
 } satisfies Record<

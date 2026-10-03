@@ -17,6 +17,7 @@ import {
 import { getProgramRow, isOpen, type ProgramRow } from './programs';
 import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
+import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import { tokenOffer } from './tokens';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 
@@ -185,6 +186,15 @@ export async function recordSubmission(
         // One entry per repo and per contract in a campaign. Entries for the same campaign are
         // serialized, so two agents entering the same repo at once can't both get in.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${'entry:' + program.id}))`;
+        // At most 3 entries per installation per campaign (v2.2 §5); the lock makes the count exact.
+        const [{ n }] = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM projects
+          WHERE program_id = ${program.id} AND installation_id = ${installationId}
+            AND payout_wallet IS NOT NULL`;
+        if (n >= ENTRIES_PER_CAMPAIGN)
+          throw new EntryError(
+            `This agent already has ${n} entries in this campaign, the most allowed (${ENTRIES_PER_CAMPAIGN}).`,
+          );
         if (repo_url) {
           const same = sameRepoEntry(
             repo_url,
