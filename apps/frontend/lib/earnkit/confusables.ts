@@ -1,42 +1,37 @@
+import { CONFUSABLES } from './confusables-table';
+
 /**
- * A small confusable skeleton (UTS #39-lite) for matching sponsor names against reserved brands,
- * plus a mixed-script check. Not a general-purpose confusables table: it covers the look-alikes of
- * Latin letters that can survive the text sanitizer (Greek, Cyrillic, Armenian, IPA, small
- * capitals, Cherokee, Lisu, enclosed and squared letters); letterlike symbols, math alphanumerics,
- * fullwidth, circled and superscript letters already fold under NFKD.
+ * A confusable skeleton for matching sponsor names against reserved brands, plus a mixed-script
+ * check. The table is generated from Unicode UTS #39 confusables.txt (confusables-table.ts,
+ * scripts/gen-confusables.mts); a small supplement adds what UTS #39 leaves out on purpose
+ * (stroke letters such as ł ø đ, small capitals, emoji-like enclosed letters).
  */
 
-// [look-alikes, Latin letter]. Uppercase and lowercase look-alikes are both listed: this runs
-// before lowercasing.
-const GROUPS: [string, string][] = [
-  ['ΑАᎪꓮᴀɑꭤαа⍺', 'a'],
-  ['ΒВᏴꓐʙƄƅЬьɓβв', 'b'],
-  ['СϹᏟꓚᴄϲсⅽ', 'c'],
-  ['Ꭰꓓᴅԁꓒɗ', 'd'],
-  ['ΕЕᎬꓰᴇеҽε', 'e'],
-  ['ꓝϜ', 'f'],
-  ['Ꮐꓖɢɡԍ', 'g'],
-  ['ΗНҺᎻꓧʜһ', 'h'],
-  ['ΙІӀᎥꓲɪіιıǀ', 'i'],
-  ['ЈᎫꓙᴊјϳ', 'j'],
-  ['ΚКᏦꓗᴋκк', 'k'],
-  ['Ꮮꓡʟӏ', 'l'],
-  ['ΜМᎷꓟᴍм', 'm'],
-  ['Νꓠɴո', 'n'],
-  ['ΟОՕꓳᴏοоօσ', 'o'],
-  ['ΡРᏢꓑᴘρр', 'p'],
-  ['ᏒᎡꓣʀгᴦ', 'r'],
-  ['ЅᏚꓢꜱѕʂ', 's'],
-  ['ΤТᎢꓔᴛτт', 't'],
-  ['ꓴᴜυս', 'u'],
-  ['Ꮩꓦᴠνѵ', 'v'],
-  ['Ꮃꓪᴡԝѡ', 'w'],
-  ['ΧХꓫχх', 'x'],
-  ['ΥУҮᎩꓬʏүу', 'y'],
-  ['ΖᏃꓜᴢ', 'z'],
+// [look-alikes, Latin letter], lowercase (looked up after lowercasing): stroke and hook letters
+// UTS #39 treats as distinct, small capitals, and lowercase letters the table lists only in
+// uppercase with another prototype (Cyrillic п, Greek η).
+const SUPPLEMENT: [string, string][] = [
+  ['ⱥᴀ', 'a'],
+  ['ƀʙƅɓ', 'b'],
+  ['ȼƈꞓ', 'c'],
+  ['đᴅɗ', 'd'],
+  ['ɇᴇ', 'e'],
+  ['ɢԍ', 'g'],
+  ['ʜ', 'h'],
+  ['ᴊ', 'j'],
+  ['ƙĸᴋ', 'k'],
+  ['łʟ', 'l'],
+  ['ɱᴍʍմ', 'm'],
+  ['ɴпη', 'n'],
+  ['ø', 'o'],
+  ['ᴘ', 'p'],
+  ['ɍʀ', 'r'],
+  ['ȿꞩʂ', 's'],
+  ['ŧƭᴛ', 't'],
 ];
-const MAP = new Map<string, string>();
-for (const [chars, latin] of GROUPS) for (const c of chars) MAP.set(c, latin);
+const EXTRA = new Map<string, string>();
+for (const [chars, latin] of SUPPLEMENT)
+  for (const c of chars) EXTRA.set(c, latin);
 
 /** Negative circled/squared letters and regional indicators: emoji-like, no decomposition. */
 const ENCLOSED: [number, number][] = [
@@ -45,25 +40,34 @@ const ENCLOSED: [number, number][] = [
   [0x1f1e6, 0x1f1ff], // regional indicators A-Z
 ];
 
+/** One lowercased character -> ASCII, or itself. */
 function latinOf(c: string): string {
+  if (c < '\x80') return c;
   const cp = c.codePointAt(0)!;
   for (const [lo, hi] of ENCLOSED)
     if (cp >= lo && cp <= hi) return String.fromCharCode(97 + cp - lo);
-  // Cherokee small letters fold to the capitals listed above.
-  if (cp >= 0xab70 && cp <= 0xabbf) return MAP.get(c.toUpperCase()) ?? c;
-  return MAP.get(c) ?? c;
+  // The table lists some letters only in one case (Cyrillic "В" but not "в"), so the uppercase
+  // form is tried too.
+  return (
+    CONFUSABLES.get(c) ?? EXTRA.get(c) ?? CONFUSABLES.get(c.toUpperCase()) ?? c
+  );
 }
 
 /**
- * The skeleton of `s`: NFKD, combining marks dropped, look-alikes mapped to Latin, lowercased,
- * then "l" -> "i" and "rn" -> "m" (so "CircIe" and "Ternpo" match). Brands go through the same
- * function, so both sides compare equal. Pure; exported for tests.
+ * The skeleton of `s`: NFKD, combining marks dropped, lowercased, look-alikes mapped to ASCII
+ * (UTS #39 table + supplement), lowercased again, any other non-ASCII character turned into a word
+ * break (words are joined again when matching, so "B🚀ase" still reads "base"), then "d" -> "cl",
+ * "l" -> "i" and "rn" -> "m" (so "Monacl", "CircIe" and "Ternpo" match; the skeleton isn't meant
+ * to be read). Brands go through the same function, so both
+ * sides compare equal. Pure; exported for tests.
  */
 export const skeleton = (s: string) =>
-  [...s.normalize('NFKD').replace(/\p{M}/gu, '')]
+  [...s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()]
     .map(latinOf)
     .join('')
     .toLowerCase()
+    .replace(/[^\x00-\x7f]+/g, ' ')
+    .replace(/d/g, 'cl')
     .replace(/l/g, 'i')
     .replace(/rn/g, 'm');
 

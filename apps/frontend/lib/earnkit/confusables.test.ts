@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mixedScriptWords, skeleton } from './confusables';
+import { CONFUSABLES_VERSION } from './confusables-table';
 import { mixedScriptProblem, reservedBrands } from './sponsor-identity';
 
-test('skeleton: look-alikes from other scripts fold to Latin', () => {
+test('skeleton: look-alikes from other scripts fold to the plain spelling', () => {
   const cases: [string, string][] = [
     ['Base', 'base'],
     ['Bâsé', 'base'], // marks dropped after NFKD
@@ -16,17 +17,87 @@ test('skeleton: look-alikes from other scripts fold to Latin', () => {
     ['Bɑse', 'base'], // Latin alpha (IPA)
     ['ʙase', 'base'], // small capital B
     ['Ƅase', 'base'], // tone six
-    ['Bꭤse', 'base'], // Latin small letter a with... (Latin Extended-E)
-    ['Ꮯircle', 'circie'], // Cherokee C (l folds to i on both sides)
-    ['ꮯircle', 'circie'], // Cherokee small letter
-    ['ꓚircle', 'circie'], // Lisu
+    ['Bꭤse', 'base'],
+    ['Ꮯircle', 'circle'], // Cherokee C
+    ['ꮯircle', 'circle'], // Cherokee small letter
+    ['ꓚircle', 'circle'], // Lisu
     ['Βase', 'base'], // Greek Beta
     ['аеосрх', 'aeocpx'], // Cyrillic а е о с р х
     ['АЕОСРХ', 'aeocpx'], // and their capitals
-    ['CircIe', 'circie'], // capital I for l
+    ['CircIe', 'circle'], // capital I for l
     ['Ternpo', 'tempo'], // rn for m
+    ['Monacl', 'monad'], // cl for d
   ];
-  for (const [s, want] of cases) assert.equal(skeleton(s), want, s);
+  for (const [s, plain] of cases) assert.equal(skeleton(s), skeleton(plain), s);
+  // Plain ASCII only, whatever the input; other characters become word breaks.
+  assert.equal(skeleton('B🚀ase 東京'), 'b ase  ');
+  assert.match(CONFUSABLES_VERSION, /^\d+\.\d+\.\d+$/);
+});
+
+test('reservedBrands (re-review I2 PoCs, skel2.mts): every look-alike brand is reserved', () => {
+  const cases: [string, string][] = [
+    // fullwidth / math / letterlike
+    ['Ｂａｓｅ', 'base'],
+    ['𝐁𝐚𝐬𝐞', 'base'],
+    ['𝔅𝔞𝔰𝔢', 'base'],
+    ['𝕭𝖆𝖘𝖊', 'base'],
+    ['𝖡𝖺𝗌𝖾', 'base'],
+    ['ℬase', 'base'],
+    ['Ｃｉｒｃｌｅ', 'circle'],
+    ['𝙐𝙎𝘿𝘾', 'usdc'],
+    // whole-word Cyrillic / Greek (single script)
+    ['Ваѕе', 'base'],
+    ['ВАЅЕ', 'base'],
+    ['Агс', 'arc'],
+    ['Темро', 'tempo'],
+    ['ТЕМРО', 'tempo'],
+    ['Мопаԁ', 'monad'],
+    ['Μοηαԁ', 'monad'],
+    ['гоЬіпһооԁ', 'robinhood'],
+    ['Сігсӏе', 'circle'],
+    // uppercase of mapped lowercase; Armenian
+    ['ՍЅDС', 'usdc'],
+    ['ՍSDC', 'usdc'],
+    ['Moոad', 'monad'],
+    ['Մonad', 'monad'],
+    // Latin letters with strokes and hooks (no NFKD decomposition)
+    ['Circłe', 'circle'],
+    ['Mønad', 'monad'],
+    ['Tempø', 'tempo'],
+    ['Cøinbase', 'coinbase'],
+    ['Robinhøød', 'robinhood'],
+    ['Bⱥse', 'base'],
+    ['Baȿe', 'base'],
+    ['Basɇ', 'base'],
+    ['ƀase', 'base'],
+    ['Ƀase', 'base'],
+    ['Ꞵase', 'base'],
+    ['ȼircle', 'circle'],
+    ['Ꞓircle', 'circle'],
+    ['Monađ', 'monad'],
+    ['Arƈ', 'arc'],
+    ['Aɍc', 'arc'],
+    ['Tеmpo', 'tempo'],
+    ['Ŧempo', 'tempo'],
+    ['Tęmpo', 'tempo'],
+    ['EarnƘit', 'earnkit'],
+    ['Earnĸit', 'earnkit'],
+    ['Baꞩe', 'base'],
+    ['ꓴSDC', 'usdc'],
+    ['UꞨDC', 'usdc'],
+    ['ŰSDC', 'usdc'],
+    ['Monacl', 'monad'],
+    ['Earnkıt', 'earnkit'],
+    ['Ɑrc', 'arc'],
+    ['Ʀobinhood', 'robinhood'],
+    ['Tokensꬵun', 'tokensfun'],
+    ['Ƭempo', 'tempo'],
+    ['ʍonad', 'monad'],
+    ['Ɱonad', 'monad'],
+    ['Arç', 'arc'],
+  ];
+  for (const [name, brand] of cases)
+    assert.deepEqual(reservedBrands(name), [brand], name);
 });
 
 test('reservedBrands (review I2 PoCs): homoglyph names are reserved', () => {
