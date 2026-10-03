@@ -233,6 +233,19 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   existing work allowed, criteria "<sponsor_name> picks the most useful entries" run through the
   same sanitizer, no sponsor_url) and `createReply` lists the defaults used in `show_to_sponsor`.
   Drafts store `what_to_build` (rows from before keep `theme`; `sponsorProgramFile` reads either).
+  `existing_work: allowed` also accepts entry contracts deployed before the start
+  (`entryRules` → `validateEntry`'s `allowExisting`); scoring still counts only in-window use;
+  `new_work_only` refuses them as before. **Correcting a draft:** `create` with `replaces: <ref>`
+  (`createSponsorDraft`): the old row must be the same installation's, unfunded (`draft` or
+  `expired`, read fresh from the chain first) and keep the same `sponsor_wallet`
+  (`replaceProblem`); everything is validated before any limit is charged (the tool passes a
+  `charge` callback: `sponsorCreate` 5/day, or `sponsorReplace` 10/day for a replacement), and the
+  old row becomes `replaced` (`replaced_by`) in the transaction that inserts the new one, under
+  `FOR UPDATE`. A replaced ref is never published: `findFunding` reports a deposit to it as a
+  funding problem with its escrow (`strayEscrow`), `status` points at the new draft, its `/fund`
+  page shows "This draft was replaced" with a link to the new `/fund/<ref>` and no button, and
+  `pnpm campaign sync` (which sweeps replaced rows like expired ones) prints the
+  `refund <ref> --escrow <address>` command.
   `award` takes a ranking (`winners: [entry_id, …]`, best first, `split` "equal" or integer
   percentages summing to 100) or explicit `[{entry_id, amount, reason?}]`; `resolvePicks` turns a
   ranking into exact units with `splitPrize` (each share rounded down, the remainder to first
@@ -241,9 +254,12 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   before. `pnpm campaign fallback propose --winners <id>,<id> [--split …]` does the same
   (`parseFallbackPicks`, default reason "Top entry (EarnKit fallback)"). The fund page asks the
   wallet for EIP-5792 capabilities (`sendBatched` in `app/components/wallet.ts`): if
-  `atomic.status` is supported (or ready) on the chain, approve + createCampaign go in one
-  `wallet_sendCalls` batch (one signature, `waitForCallsStatus`); otherwise, or when the wallet
-  doesn't know the method, they are sent in order. Either way the page then polls `/check`, which
+  `atomic.status` is `supported` on the chain (or on all chains, `0x0`; never `ready`, which
+  would upgrade the sponsor's account via EIP-7702 without saying so), approve (of exactly the
+  pool) + createCampaign go in one `wallet_sendCalls` batch (one signature,
+  `waitForCallsStatus`; a 4xx status is "not sent", 5xx/6xx "reverted"); otherwise, when the
+  wallet doesn't know the method, or when it refuses the batch with a 57xx error, they are sent
+  in order. The page lists what the wallet will ask to sign before the button. Either way the page then polls `/check`, which
   finds the deposit by reading the chain. The award page sends its single tx with `sendAll`.
 - **Sponsored isn't curated** (v2.2 §3): every sponsor campaign carries a fixed label, "Sponsored ·
   unverified" or "Sponsored · verified <host>" (`sponsor-identity.ts` `sponsorLabel`), in the
@@ -310,7 +326,8 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
 ## Abuse limits and response headers (v2.2 §5)
 
 - **Rate limits** live in one place, `lib/earnkit/rate-limit.ts` (`LIMITS`, `enforce`), backed by
-  Postgres `rate_windows` so they hold across instances: sponsor create 5/day and
+  Postgres `rate_windows` so they hold across instances: sponsor create 5/day (charged only for a
+  valid create), sponsor draft replacements 10/day and
   record_submission 20/day per installation; at most 3 entries per installation per campaign
   (counted in `recordSubmission` under the campaign's advisory lock); OAuth client registration
   20/hour, authorize 60/hour and new installations 10/hour and 30/day per IP (the token endpoint
