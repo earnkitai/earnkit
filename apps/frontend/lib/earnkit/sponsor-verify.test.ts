@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SafeFetchError } from './safe-fetch';
-import { checkEarnkitTxt, verificationIsFresh } from './sponsor-verify';
+import {
+  checkEarnkitTxt,
+  staleKeys,
+  verificationIsFresh,
+} from './sponsor-verify';
 
 const W = '0x1111111111111111111111111111111111111111';
 
@@ -66,5 +70,45 @@ test('verificationIsFresh: a pass for 24 h, a failure for 1 h (or the retry wind
   assert.equal(
     verificationIsFresh({ verified: true, checked_at: ago(-60_000) }, now),
     false,
+  );
+});
+
+test('staleKeys: missing or stale funded pairs, each once (background refresh)', () => {
+  const now = new Date('2026-10-03T12:00:00Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  const H = 3_600_000;
+  const keys = [
+    { host: 'fresh.xyz', wallet: '0xa' },
+    { host: 'stale.xyz', wallet: '0xa' },
+    { host: 'failed.xyz', wallet: '0xa' },
+    { host: 'retry.xyz', wallet: '0xa' },
+    { host: 'new.xyz', wallet: '0xa' },
+    { host: 'new.xyz', wallet: '0xa' }, // twice in one listing: refreshed once
+    { host: null, wallet: '' }, // unfunded or no link: never fetched
+  ];
+  const cached = [
+    { host: 'fresh.xyz', wallet: '0xa', verified: true, checked_at: ago(H) },
+    {
+      host: 'stale.xyz',
+      wallet: '0xa',
+      verified: true,
+      checked_at: ago(25 * H),
+    },
+    {
+      host: 'failed.xyz',
+      wallet: '0xa',
+      verified: false,
+      checked_at: ago(10 * 60_000),
+    },
+    {
+      host: 'retry.xyz',
+      wallet: '0xa',
+      verified: false,
+      checked_at: ago(2 * H),
+    },
+  ];
+  assert.deepEqual(
+    staleKeys(keys, cached, now).map((k) => k.host),
+    ['stale.xyz', 'retry.xyz', 'new.xyz'],
   );
 });

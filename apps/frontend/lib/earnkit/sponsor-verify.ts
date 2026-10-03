@@ -16,7 +16,8 @@ import {
  * per (host, wallet) in `sponsor_verifications`: a pass for 24 h, a failure for 1 h (so a slow or
  * hostile host can't make every page load wait on it). It fetches at create, on the sponsor's
  * status, on page loads and in `pnpm campaign sync`; list_programs and get_program read the cache
- * only. Only funded campaigns show an identity to builders (`sponsorIdentity`).
+ * only and queue a fire-and-forget refresh of missing or stale entries. Only funded campaigns
+ * show an identity to builders (`sponsorIdentity`).
  */
 
 export const VERIFIED_TTL_MS = 24 * 3_600_000;
@@ -156,12 +157,54 @@ export async function cachedIdentities(
   >`SELECT host, wallet, verified, checked_at FROM sponsor_verifications
     WHERE host IN ${sql()(hosts)} AND wallet IN ${sql()(keys.map((k) => k.wallet))}`;
   const now = new Date();
+  // Missing or stale entries are re-checked in the background; this request never waits on it.
+  for (const k of staleKeys(keys, cached, now))
+    refreshInBackground(k.host, k.wallet);
   return keys.map(({ host, wallet }) => {
     const c = cached.find((x) => x.host === host && x.wallet === wallet);
     return c?.verified && verificationIsFresh(c, now)
       ? { verified: true, host }
       : { verified: false, host };
   });
+}
+
+/**
+ * The funded (host, wallet) pairs whose cache entry is missing or stale (a pass after 24 h, a
+ * failure after 1 h), each once. Pure; exported for tests.
+ */
+export function staleKeys(
+  keys: { host: string | null; wallet: string }[],
+  cached: {
+    host: string;
+    wallet: string;
+    verified: boolean;
+    checked_at: Date;
+  }[],
+  now: Date,
+) {
+  const seen = new Set<string>();
+  return keys.flatMap(({ host, wallet }) => {
+    if (!host || !wallet || seen.has(`${host} ${wallet}`)) return [];
+    seen.add(`${host} ${wallet}`);
+    const c = cached.find((x) => x.host === host && x.wallet === wallet);
+    return c && verificationIsFresh(c, now) ? [] : [{ host, wallet }];
+  });
+}
+
+/** At most this many verification fetches run at once in this process (background refreshes only). */
+const BACKGROUND_LIMIT = 4;
+
+/**
+ * Fire-and-forget re-verification of (host, wallet), deduped per pair by verifySponsor's in-flight
+ * map. Never awaited by the request; skipped while BACKGROUND_LIMIT fetches are already running
+ * (a later request retries). Errors are logged, never thrown.
+ */
+function refreshInBackground(host: string, wallet: string) {
+  if (inFlight.has(`${host} ${wallet}`) || inFlight.size >= BACKGROUND_LIMIT)
+    return;
+  void verifySponsor(host, wallet).catch((err) =>
+    console.error('[sponsor-verify] background refresh failed:', err),
+  );
 }
 
 /** The track record of a sponsor wallet (see trackRecordOf). */
