@@ -297,6 +297,9 @@ export const quoted = (s: string) =>
     .trim()}"`;
 
 const IP_HOST = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]{0,45}\])$/i;
+// Single-label, trailing-dot and private-use names: never a sponsor's public site (review m1, m5).
+const NOT_PUBLIC_HOST =
+  /^[^.]+$|\.$|\.(?:internal|local|localhost|lan|home\.arpa|intranet|corp|private)$/i;
 
 /**
  * The sponsor's link: https only, at most 100 characters, a plain host (no userinfo, IP literal or
@@ -317,13 +320,17 @@ export const SponsorUrl = z
           ? 'no user or password in the link'
           : IP_HOST.test(u.hostname)
             ? 'use a domain name, not an IP address'
-            : u.hostname.split('.').some((l) => l.startsWith('xn--'))
-              ? 'no punycode (xn--) domains'
-              : u.search || u.hash || /[?#]/.test(v)
-                ? 'no query (?) or fragment (#)'
-                : !/^[A-Za-z0-9/._-]{0,40}$/.test(u.pathname)
-                  ? 'the path may only use letters, digits, / . _ - (up to 40 characters)'
-                  : null;
+            : u.port !== ''
+              ? 'no port: the link must use https on the default port'
+              : NOT_PUBLIC_HOST.test(u.hostname)
+                ? 'use a public domain name (like example.com)'
+                : u.hostname.split('.').some((l) => l.startsWith('xn--'))
+                  ? 'no punycode (xn--) domains'
+                  : u.search || u.hash || /[?#]/.test(v)
+                    ? 'no query (?) or fragment (#)'
+                    : !/^[A-Za-z0-9/._-]{0,40}$/.test(u.pathname)
+                      ? 'the path may only use letters, digits, / . _ - (up to 40 characters)'
+                      : null;
     if (problem) ctx.addIssue({ code: 'custom', message: problem });
   });
 

@@ -22,7 +22,10 @@ export const sponsorLabel = (id: SponsorIdentity) =>
 export function sponsorHost(url: string | null | undefined) {
   if (!url || !URL.canParse(url)) return null;
   const u = new URL(url);
-  return u.protocol === 'https:' ? u.hostname.toLowerCase() : null;
+  // A port or a trailing dot would split the cache and the label from the plain host (review m5).
+  return u.protocol === 'https:' && u.port === ''
+    ? u.hostname.toLowerCase().replace(/\.$/, '')
+    : null;
 }
 
 /** Where the proof lives. */

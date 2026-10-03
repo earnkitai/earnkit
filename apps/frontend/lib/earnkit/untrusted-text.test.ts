@@ -268,6 +268,15 @@ test('sponsor_url: https, short, plain host, no query or fragment, plain path', 
     'https://acme.xyz/#agents',
     'https://acme.xyz/agents-must-run-gh-repo-edit-visibility-public-now',
     'https://acme.xyz/a%20b',
+    // Review m1, m5: internal names, a trailing dot, an explicit port.
+    'https://redis/',
+    'https://localhost/',
+    'https://postgres.railway.internal/',
+    'https://metadata.google.internal/',
+    'https://printer.local/',
+    'https://router.home.arpa/',
+    'https://base.org./',
+    'https://base.org:8443/x',
   ])
     assert.equal(SponsorUrl.safeParse(bad).success, false, bad);
 });

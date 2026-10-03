@@ -35,6 +35,9 @@ test('sponsorHost: the lowercase host of an https link, else null', () => {
   assert.equal(sponsorHost('http://acme.dev'), null);
   assert.equal(sponsorHost(null), null);
   assert.equal(sponsorHost('nope'), null);
+  // Review m5: older rows with a trailing dot or a port.
+  assert.equal(sponsorHost('https://base.org./x'), 'base.org');
+  assert.equal(sponsorHost('https://base.org:8443/x'), null);
 });
 
 test('earnkitTxtNames: a matching earnkit-sponsor line, case-insensitive', () => {
