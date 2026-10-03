@@ -66,6 +66,28 @@ test('rejects unknown tokens, over-cap pools, and bad windows', () => {
   );
 });
 
+test('review I3: a pool under 50 USDC is refused with a clear error', () => {
+  const cap = 10_000_000_000n;
+  assert.throws(
+    () => checkDraft({ ...draft, amount: '0.01' }, USDC, cap, now),
+    /^Error: amount: the pool must be at least 50 USDC\.$/,
+  );
+  assert.throws(
+    () => checkDraft({ ...draft, amount: '49.999999' }, USDC, cap, now),
+    /at least 50 USDC/,
+  );
+  assert.equal(
+    checkDraft({ ...draft, amount: '50' }, USDC, cap, now).amountUnits,
+    50_000_000n,
+  );
+  // The local test chain may lower it (sponsor.ts localMinPool).
+  assert.equal(
+    checkDraft({ ...draft, amount: '5' }, USDC, cap, now, 1_000_000n)
+      .amountUnits,
+    5_000_000n,
+  );
+});
+
 test("rejects amounts finer than the token's decimals", () => {
   assert.throws(
     () =>

@@ -51,6 +51,8 @@ if (process.env.ESCROW_CHAIN !== 'local') {
     `ESCROW_CHAIN must be "local" to run this script (got ${JSON.stringify(process.env.ESCROW_CHAIN ?? null)}).`,
   );
 }
+// The 50 USDC minimum pool is lowered on the local chain only, for this script's small pools.
+process.env.SPONSOR_MIN_POOL ??= '1';
 const guardDbUrl = process.env.DATABASE_URL ?? '';
 let guardDbHost = '';
 try {
