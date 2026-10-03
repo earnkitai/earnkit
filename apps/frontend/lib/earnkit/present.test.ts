@@ -186,23 +186,25 @@ test('review I4: "since you last checked" names only curated or verified items',
   });
   const list = [
     card('Curated', { is_new: true }),
-    card('Verified Grant', { is_new: true, unverified_sponsor: false }),
+    // Verified or not, a sponsor's title is never named here (re-audit H4).
+    card('Verified Grant', { is_new: true, sponsored: true }),
     card('Base Builder Grant — 9,000 USDC', {
       is_new: true,
-      unverified_sponsor: true,
+      sponsored: true,
     }),
-    card('Scam Two', { is_new: true, unverified_sponsor: true }),
-    card('Scam Closing', { closes_in_days: 0, unverified_sponsor: true }),
+    card('Scam Two', { is_new: true, sponsored: true }),
+    card('Scam Closing', { closes_in_days: 0, sponsored: true }),
   ];
   const since = presentSinceLastCheck(list)!;
   assert.equal(
     since,
-    'Since you last checked: new: "Curated" · new: "Verified Grant" · 2 new sponsored campaigns (unverified)',
+    'Since you last checked: new: "Curated" · 3 new sponsored campaigns',
   );
-  for (const t of ['Base Builder', 'Scam']) assert.ok(!since.includes(t), t);
+  for (const t of ['Verified', 'Base Builder', 'Scam'])
+    assert.ok(!since.includes(t), t);
   assert.equal(
     presentSinceLastCheck([list[3]]),
-    'Since you last checked: 1 new sponsored campaign (unverified)',
+    'Since you last checked: 1 new sponsored campaign',
   );
   assert.equal(presentSinceLastCheck([list[4]]), null);
 });
@@ -305,7 +307,7 @@ const capture: Card = {
   tag: null,
   each_time: [],
   max_award_usd: 9000,
-  unverified_sponsor: true,
+  sponsored: true,
 };
 const captureFits = {
   checked: 1,
@@ -321,7 +323,7 @@ const captureFits = {
   ],
 };
 
-test('unverified sponsor campaign: listed, but never "Fastest" or the closing offer', () => {
+test('sponsor campaign: listed, but never "Fastest" or the closing offer', () => {
   const text = presentPrograms([capture, ...cards], true, captureFits);
   assert.match(
     text,
@@ -336,7 +338,7 @@ test('unverified sponsor campaign: listed, but never "Fastest" or the closing of
   assert.doesNotMatch(text, /Fastest: \*\*sponsor-x|start on sponsor-x/);
 });
 
-test('unverified sponsor campaign: the only fit gets no "Fastest" and no offer', () => {
+test('sponsor campaign: the only fit gets no "Fastest" and no offer', () => {
   const only = {
     checked: 1,
     fits: [
@@ -355,25 +357,42 @@ test('unverified sponsor campaign: the only fit gets no "Fastest" and no offer',
   assert.match(working, /Pick one and I'll start\./);
 });
 
-test('verified sponsor campaign can be "Fastest" and the offer', () => {
-  const verified = { ...capture, unverified_sponsor: false };
+// Re-audit H4: "verified" is free (any domain the sponsor controls) and brand-blind, so it earns
+// no placement; it only changes the label.
+test('a verified sponsor campaign is never "Fastest" or the offer either (re-audit H4)', () => {
+  const verified = {
+    ...capture,
+    summary: capture.summary.replace(
+      'unverified',
+      'verified coinbase-grants.vercel.app',
+    ),
+  };
   const text = presentPrograms([verified, ...cards], true, captureFits);
-  assert.match(text, /Fastest: \*\*sponsor-x\*\* with tipjar/);
-  assert.match(text, /Want me to start on sponsor-x\?/);
+  assert.doesNotMatch(text, /Fastest: \*\*sponsor-x|start on sponsor-x/);
+  assert.match(text, /Fastest: \*\*Micro\*\*/);
+  assert.match(text, /Sponsored · verified coinbase-grants\.vercel\.app/);
 });
 
-test('unverified sponsor campaigns come after curated programs in "Also open"', () => {
+// Re-audit M6: sponsor campaigns get their own short section after curated programs.
+test('sponsor campaigns come last, in their own labeled "Sponsored" section (re-audit M6)', () => {
   const text = presentPrograms([capture, ...cards], true);
   assert.match(
     text,
-    /^- \*\*Micro\*\*.*\n- \*\*Grant\*\*.*\n- \*\*Big Hack\*\*.*\n- \*\*"Official Base Grant"\*\*/,
+    /^- \*\*Micro\*\*.*\n- \*\*Grant\*\*.*\n- \*\*Big Hack\*\*.*\n\n\*\*Sponsored\*\* \(set by sponsors; EarnKit didn't write or check them\)\n- \*\*"Official Base Grant"\*\* · by "Base" · Sponsored · unverified/,
   );
 });
 
-test("review m3: an unverified sponsor campaign never tops a repo's list", () => {
+test("review m3, re-audit M6: a sponsor campaign is never in a repo's list", () => {
   const text = presentPrograms([capture, ...cards], true, captureFits);
-  const section = text.slice(text.indexOf('tipjar'));
-  const micro = section.indexOf('**Micro**');
-  const sponsor = section.indexOf('**"Official Base Grant"**');
-  assert.ok(micro >= 0 && sponsor > micro, section);
+  const repo = text.slice(
+    text.indexOf('**[tipjar]'),
+    text.indexOf('**Sponsored**'),
+  );
+  assert.match(repo, /\*\*Micro\*\*/);
+  assert.doesNotMatch(repo, /Official Base Grant/);
+  // Listed under Sponsored with what it needs from the repo.
+  assert.match(
+    text.slice(text.indexOf('**Sponsored**')),
+    /"Official Base Grant".* · existing work counts/,
+  );
 });

@@ -17,10 +17,11 @@ export type Card = {
   /** The known per-winner award in USD (programs.ts perWinnerUsd); unknown sorts as 0. */
   max_award_usd?: number | null;
   /**
-   * A sponsor campaign whose sponsor isn't domain-verified: listed, but never the "Fastest"
-   * headline or the closing offer, and after curated programs in "Also open".
+   * A sponsor campaign (verified or not): listed one line each in its own "Sponsored" section
+   * after curated programs, never in a repo's fit list, the "Fastest" headline, the closing offer
+   * or by name in the since-line. Prime placement is for curated programs only (re-audit H4, M6).
    */
-  unverified_sponsor?: boolean;
+  sponsored?: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,24 +38,22 @@ const soon = (days: number) =>
 
 /**
  * "Since you last checked" line ("Heads up" on a first check), or null when nothing to flag. Only
- * curated and verified programs are named: this line opens the answer, so an unverified sponsor's
- * title never gets it (review I4); new ones are counted instead, and closing ones are left to the list.
+ * curated programs are named: this line opens the answer, so a sponsor's title never gets it
+ * (review I4, re-audit H4); new ones are counted instead, and closing ones are left to the list.
  */
 export function presentSinceLastCheck(
   cards: Card[],
   firstCheck = false,
   news: string[] = [],
 ) {
-  const named = cards.filter((c) => !c.unverified_sponsor);
-  const unverifiedNew = cards.filter(
-    (c) => c.unverified_sponsor && c.is_new,
-  ).length;
+  const named = cards.filter((c) => !c.sponsored);
+  const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
   const parts = [
     ...news,
     ...named.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
-    ...(unverifiedNew > 0
+    ...(sponsoredNew > 0
       ? [
-          `${unverifiedNew} new sponsored campaign${unverifiedNew === 1 ? '' : 's'} (unverified)`,
+          `${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`,
         ]
       : []),
     ...named
@@ -76,15 +75,10 @@ export type YourRepos =
 
 /**
  * Programs where the builder only approves come first; tagged ones (long shot, needs a live
- * product) and unverified sponsor campaigns last.
+ * product) last.
  */
-function rank(card: Card) {
-  return (
-    (card.unverified_sponsor ? 4 : 0) +
-    (card.tag ? 2 : 0) +
-    (card.each_time.length > 0 ? 1 : 0)
-  );
-}
+const rank = (card: Card) =>
+  (card.tag ? 2 : 0) + (card.each_time.length > 0 ? 1 : 0);
 
 /** One line per program: title, reward and deadline, flags, then what it needs from this repo. */
 function line(c: Card, note?: string | null) {
@@ -104,14 +98,8 @@ const MAX_REPOS = 5;
 const quickness = (v: Verdict) =>
   (v.status === 'likely' ? 0 : 10) + EFFORT_ORDER.indexOf(v.effort);
 
-/**
- * Curated and verified first (an unverified sponsor never tops a repo's list, review m3), then
- * quickest; between equally quick fits, the larger known per-winner award.
- */
-const unverified = (byId: Map<string, Card>, v: Verdict) =>
-  byId.get(v.program_id)?.unverified_sponsor ? 1 : 0;
+/** Quickest first; between equally quick fits, the larger known per-winner award. */
 const byFit = (byId: Map<string, Card>) => (a: Verdict, b: Verdict) =>
-  unverified(byId, a) - unverified(byId, b) ||
   quickness(a) - quickness(b) ||
   (byId.get(b.program_id)?.max_award_usd ?? 0) -
     (byId.get(a.program_id)?.max_award_usd ?? 0);
@@ -147,12 +135,11 @@ export function presentPrograms(
       .flatMap((f) => f.verdicts.map((v) => v.program_id))
       .filter((id) => byId.has(id)),
   );
-  // Anything can be listed, but only curated programs and verified sponsors are put forward.
-  const canLead = (id: string) =>
-    byId.has(id) && !byId.get(id)!.unverified_sponsor;
+  // Anything can be listed, but only curated programs are put forward.
+  const curated = (id: string) => byId.has(id) && !byId.get(id)!.sponsored;
   const fastest = fits
     .flatMap((f) => f.verdicts.map((v) => ({ repo: f.repo, v })))
-    .filter(({ v }) => canLead(v.program_id))
+    .filter(({ v }) => curated(v.program_id))
     .sort((a, b) => order(a.v, b.v))[0];
   if (repos && 'error' in repos)
     sections.push(`Couldn't read your repos: ${repos.error}`);
@@ -187,7 +174,8 @@ export function presentPrograms(
       repoSections < MAX_REPOS
         ? [...fit.verdicts].sort(order).flatMap((v) => {
             const card = byId.get(v.program_id);
-            if (!card || shown.has(card.id)) return [];
+            // Sponsor campaigns are listed in their own section, never in a repo's list.
+            if (!card || card.sponsored || shown.has(card.id)) return [];
             shown.add(card.id);
             return [line(card, v.note)];
           })
@@ -210,15 +198,21 @@ export function presentPrograms(
   }
 
   const rest = cards
-    .filter((c) => !shown.has(c.id))
+    .filter((c) => !shown.has(c.id) && !c.sponsored)
     .sort((a, b) => rank(a) - rank(b));
   if (rest.length > 0)
     sections.push(
       `${shown.size > 0 ? '**Also open**\n' : ''}${rest.map((c) => line(c)).join('\n')}`,
     );
+  // Sponsor campaigns last, one labeled line each (the summary carries "Sponsored · …").
+  const sponsored = cards.filter((c) => c.sponsored && !shown.has(c.id));
+  if (sponsored.length > 0)
+    sections.push(
+      `**Sponsored** (set by sponsors; EarnKit didn't write or check them)\n${sponsored.map((c) => line(c, noteFor(c.id))).join('\n')}`,
+    );
 
-  // One offer, not five equal options; never an unverified sponsor campaign.
-  const resume = working.find((c) => !c.unverified_sponsor);
+  // One offer, not five equal options; never a sponsor campaign.
+  const resume = working.find((c) => !c.sponsored);
   const next = resume
     ? `Want me to keep going on ${resume.title}?`
     : fastest

@@ -243,8 +243,8 @@ export function programCard(
     // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
     verified_at: p.source === 'sponsor' ? null : p.verified_at,
     max_award_usd: perWinnerUsd(p),
-    // Never the "Fastest" headline or the closing offer (present.ts).
-    unverified_sponsor: sponsored && !identity.verified,
+    // Its own "Sponsored" section; never the "Fastest" headline or the closing offer (present.ts).
+    sponsored,
     tracks,
   };
 }

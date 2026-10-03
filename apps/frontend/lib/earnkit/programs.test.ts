@@ -244,12 +244,12 @@ test('list_programs: a sponsor campaign shows only its quoted title and sponsor 
       text,
       /^- \*\*"Best x402 service"\*\* · by "Acme Labs" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 6$/m,
     );
-    assert.equal(card.unverified_sponsor, true);
+    assert.equal(card.sponsored, true);
     const verified = programCard(sponsorRow(legacy), [], {
       verified: true,
       host: 'acme.xyz',
     });
-    assert.equal(verified.unverified_sponsor, false);
+    assert.equal(verified.sponsored, true);
     assert.match(
       verified.summary,
       /^by "Acme Labs" · Sponsored · verified acme\.xyz · 1,000 USDC/,
