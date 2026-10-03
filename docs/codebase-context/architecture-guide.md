@@ -142,8 +142,14 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   block was > 0. An ended window is read from its last block back (Blockscout's `block_number`
   keyset cursor), up to 500 pages (25,000 txs) per contract; a capped read is stored as
   `projects.score_partial` and named in the sponsor's `scores_note`. Sponsor status rescoring
-  (`needsScore`) refreshes a score older than 6 h until `ends_at`; the first score taken after
-  the end is final (frozen), and one status call starts no new score after 20 s. Rank is computed on read (score, then earlier entry). `pnpm campaign
+  (`refreshScores`) runs under a per-campaign advisory lock (a concurrent call gets the stored
+  scores and "Scoring in progress"), with a 20 s deadline passed into every Blockscout and RPC
+  read, including the per-wallet history loop. `projects.scored_through` records the window end
+  a score covers. A score is final (`scoreIsFinal`) only when it covers `ends_at` and was taken
+  at least 15 minutes after it (explorer lag); earlier scores are provisional, refreshed when over
+  6 h old and replaced after the grace. A read cut short by the deadline is saved only where
+  there is no score yet, as provisional (`scored_through` null), and retried. Status entries
+  carry `score_final`. Rank is computed on read (score, then earlier entry). `pnpm campaign
 payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in campaigns.ts
   branch on `kind` instead). `pnpm campaign payout` runs locally only, refuses before the
   deadline, below min_score, or if already paid, and records prize_tx + prize_amount;
@@ -285,18 +291,22 @@ payout`/`rank` refuse on sponsor campaigns (`minScore`/`prizeText`/`wonText` in 
   Postgres `rate_windows` so they hold across instances: sponsor create 5/day and
   record_submission 20/day per installation; at most 3 entries per installation per campaign
   (counted in `recordSubmission` under the campaign's advisory lock); OAuth client registration
-  20/hour per IP; GitHub matching 30/hour per installation (when refused, list_programs still
+  20/hour, authorize 60/hour and new installations 10/hour and 30/day per IP (the token endpoint
+  counts only codes that create an installation; a replayed code is free), since installations
+  are the identity every per-installation limit keys on; GitHub matching 30/hour per installation (when refused, list_programs still
   answers, with the readable reason in place of "your repos"); chain checks 60/min. MCP tools turn
   `RateLimitError` into a readable error; HTTP routes answer 429 with `Retry-After`. The client IP
-  is the rightmost `x-forwarded-for` entry (the one our proxy appended).
+  is `X-Real-IP` (set by Railway's edge, which serves earnkit.com directly), else the rightmost
+  `x-forwarded-for` entry; IPv6 is keyed on its /64. Fixed windows can pass up to 2x a limit
+  across a boundary; daily windows reset at UTC midnight.
 - **Response headers** (`next.config.ts`): every response gets `X-Frame-Options: DENY`,
   `Content-Security-Policy: frame-ancestors 'none'`, `Referrer-Policy:
 strict-origin-when-cross-origin` and `X-Content-Type-Options: nosniff`. Config headers replace
   a route's own, so the token image route's stricter CSP is repeated there as a later rule. There
   is no `script-src` policy: Next's inline bootstrap/RSC scripts and the JSON-LD block would need
   per-request nonces (a `proxy.ts` that sets them, and dynamic rendering).
-- **Public origin:** OAuth discovery and `WWW-Authenticate` use `EARNKIT_URL`; in production a
-  missing `EARNKIT_URL` is an error, never a fallback to the request Host.
+- **Public origin:** OAuth discovery and `WWW-Authenticate` use `EARNKIT_URL`; outside
+  development and test a missing `EARNKIT_URL` is an error, never a fallback to the request Host.
 - **GitHub matching cache:** repo facts (detected chains; commits since each program's start) are
   cached for an hour per (repo, `pushed_at`) in `github_repo_facts`; a new push is a new key, and
   incomplete reads (a failed tree, file or commits call) aren't cached.

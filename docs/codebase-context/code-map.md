@@ -106,9 +106,11 @@ apps/frontend/
                                sponsorIdentity (funded campaigns only; pages, campaign sync),
                                cachedIdentities (cache only; list_programs, get_program), trackRecord
     rate-limit.ts(+test)       Postgres fixed-window counter (rate_windows; atomic upsert) + clientIp
-                               (rightmost x-forwarded-for). LIMITS (v2.2 §5): sponsor create 5/day
+                               (X-Real-IP from Railway's edge, else rightmost x-forwarded-for;
+                               IPv6 keyed on its /64). LIMITS (v2.2 §5): sponsor create 5/day
                                and record_submission 20/day per installation, OAuth register
-                               20/hour per IP, GitHub matching (list_programs with a user/repos,
+                               20/hour, authorize 60/hour and new installations 10/hour + 30/day
+                               per IP (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
                                60/min (/check per IP, sponsor status per installation).
                                enforce() throws RateLimitError ("… Try again in 18 minutes.");
@@ -118,6 +120,7 @@ apps/frontend/
                                start) in github_repo_facts, 1 h per (repo, pushed_at)
     installations.ts           save / touch installation by token hash; memory (GitHub, working_on,
                                last payout wallet)
+    oauth-routes.ts(+limits test) token + authorize handlers (app/oauth/* re-export them)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
@@ -166,7 +169,8 @@ apps/frontend/
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
                                projects.repo_key + its partial unique index, sponsor_verifications,
-                               rate_windows, github_repo_facts, projects.score_partial)
+                               rate_windows, github_repo_facts, projects.score_partial and
+                               scored_through)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
