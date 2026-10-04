@@ -6,6 +6,7 @@ import {
   getAddress,
   http,
   keccak256,
+  parseTransaction,
   parseUnits,
   type Hex,
 } from 'viem';
@@ -37,29 +38,46 @@ export type PayoutRpc = {
   fees: () => Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
   estimateGas: (a: { account: Hex; to: Hex; data: Hex }) => Promise<bigint>;
   receipt: (hash: Hex) => Promise<Receipt | null>;
-  broadcast: (raw: Hex) => Promise<void>;
+  /**
+   * 'sent' (accepted), 'known' (the node already has these bytes) or 'stale' (rejected as "nonce
+   * too low": that nonce is already used). Anything else throws.
+   */
+  broadcast: (raw: Hex) => Promise<'sent' | 'known' | 'stale'>;
   waitFor: (hash: Hex, timeoutMs: number) => Promise<Receipt | null>;
   balanceOf: (token: Hex, holder: Hex) => Promise<bigint>;
 };
 
+/** EIP-1559 caps with headroom: twice the base fee plus the tip, so a rising base fee can't strand it. Pure. */
+export const feeCaps = (baseFee: bigint, tip: bigint) => ({
+  maxFeePerGas: 2n * baseFee + tip,
+  maxPriorityFeePerGas: tip,
+});
+
 /** Base over BASE_RPC_URL (the public RPC by default). */
 export function payoutRpc(url = process.env.BASE_RPC_URL): PayoutRpc {
   const c = createPublicClient({ chain: base, transport: http(url) });
+  // No client-side retry for the one write: a retried send could read back its own success as
+  // "nonce too low" and get the transfer cleared and signed again.
+  const once = createPublicClient({ chain: base, transport: http(url, { retryCount: 0 }) });
   return {
     getChainId: () => c.getChainId(),
     nonce: (address) => c.getTransactionCount({ address, blockTag: 'pending' }),
     fees: async () => {
-      const f = await c.estimateFeesPerGas();
-      return { maxFeePerGas: f.maxFeePerGas!, maxPriorityFeePerGas: f.maxPriorityFeePerGas! };
+      const [block, tip] = await Promise.all([c.getBlock(), c.estimateMaxPriorityFeePerGas()]);
+      return feeCaps(block.baseFeePerGas ?? 0n, tip);
     },
     estimateGas: (a) => c.estimateGas(a),
     receipt: (hash) => c.getTransactionReceipt({ hash }).then((r) => ({ status: r.status }), () => null),
-    broadcast: async (raw) => {
-      await c.sendRawTransaction({ serializedTransaction: raw }).catch((err: unknown) => {
-        // Rebroadcasting a known transaction is fine: it can only be mined once.
-        if (!/already known|known transaction|nonce too low/i.test(String(err))) throw err;
-      });
-    },
+    broadcast: (raw) =>
+      once.sendRawTransaction({ serializedTransaction: raw }).then(
+        () => 'sent' as const,
+        (err: unknown) => {
+          const text = String(err);
+          if (/already known|known transaction/i.test(text)) return 'known' as const;
+          if (/nonce too low/i.test(text)) return 'stale' as const;
+          throw err;
+        },
+      ),
     waitFor: (hash, timeout) =>
       c.waitForTransactionReceipt({ hash, timeout }).then((r) => ({ status: r.status }), () => null),
     balanceOf: (token, holder) =>
@@ -72,8 +90,11 @@ export type PayoutStore = {
   /** Stores the signed transfer before it is sent; false when another run already did. */
   sending: (id: number, hash: Hex, raw: Hex) => Promise<boolean>;
   paid: (id: number, amount: string) => Promise<void>;
-  /** A reverted transfer: cleared so the next run signs a new one. */
-  failed: (id: number) => Promise<void>;
+  /**
+   * A transfer that will never be mined (reverted, or its nonce was already used): cleared so the
+   * next run signs a new one. `reverted` counts it; returns the entry's revert count.
+   */
+  failed: (id: number, reverted: boolean) => Promise<number>;
   /** The payout wallet is on the sanctions list: the next entry takes the slot. */
   refused: (id: number) => Promise<void>;
 };
@@ -90,10 +111,13 @@ export const dbPayoutStore: PayoutStore = {
       UPDATE projects SET payout_status = 'paid', prize_paid_at = now(), prize_amount = ${amount}, prize_raw_tx = NULL
       WHERE id = ${id}`;
   },
-  failed: async (id) => {
-    await sql()`
-      UPDATE projects SET payout_status = NULL, prize_tx = NULL, prize_raw_tx = NULL
-      WHERE id = ${id} AND payout_status = 'sending'`;
+  failed: async (id, reverted) => {
+    const [r] = await sql()<{ payout_reverts: number }[]>`
+      UPDATE projects SET payout_status = NULL, prize_tx = NULL, prize_raw_tx = NULL,
+        payout_reverts = payout_reverts + ${reverted ? 1 : 0}
+      WHERE id = ${id} AND payout_status = 'sending'
+      RETURNING payout_reverts`;
+    return r?.payout_reverts ?? 0;
   },
   refused: async (id) => {
     await sql()`UPDATE projects SET payout_status = 'refused' WHERE id = ${id} AND prize_tx IS NULL`;
@@ -102,7 +126,12 @@ export const dbPayoutStore: PayoutStore = {
 
 export type PayoutRow = Pick<Candidate, 'id' | 'payout_status' | 'prize_tx' | 'payout_wallet'> & {
   prize_raw_tx: string | null;
+  /** How many of its transfers reverted (2 refuse the entry: v2.4 fix round 1, M4). */
+  payout_reverts?: number;
 };
+
+/** Reverted transfers after which an entry is refused, so it can't block the others. */
+export const MAX_REVERTS = 2;
 
 /**
  * Paid: 'paid', or a transfer hash with no signed bytes kept (only 'paid' clears them; an entry
@@ -114,7 +143,11 @@ const settled = (row: PayoutRow) => row.payout_status === 'paid' || Boolean(row.
  * Pays one winner, idempotently (v2.4 §3; Review Focus 3): the ERC-20 transfer is signed, and its
  * hash and raw bytes stored ('sending') before it is broadcast. A crash, or another run, finds
  * them and rebroadcasts the same bytes (one nonce: mined at most once) instead of signing again.
- * 'paid' once mined; 'pending' while not; 'failed' (cleared for a retry) if it reverted.
+ * 'paid' once mined; 'pending' while not; 'failed' (cleared for a retry) if it reverted, or if
+ * its first broadcast was refused as "nonce too low" and it isn't mined (a stale RPC nonce: those
+ * bytes were never accepted anywhere). Rebroadcast bytes refused that way are only waited on: an
+ * earlier send may be the one that used the nonce. `nonces.next` (one payout run) is the lowest
+ * nonce to sign with, raised past every transfer mined in the run.
  */
 export async function payWinner(
   row: PayoutRow,
@@ -127,11 +160,13 @@ export async function payWinner(
     store: PayoutStore;
     /** Epoch ms: the wait for the receipt ends by then (at least 5 s, at most 60 s). */
     deadline?: number;
+    nonces?: { next: number };
   },
 ): Promise<'paid' | 'pending' | 'failed'> {
   if (settled(row)) return 'paid';
   let raw = row.prize_raw_tx as Hex | null;
   let hash = row.prize_tx as Hex | null;
+  const fresh = !raw || !hash;
   if (!raw || !hash) {
     const data = encodeFunctionData({
       abi: erc20Abi,
@@ -150,7 +185,7 @@ export async function payWinner(
       type: 'eip1559',
       to: a.token,
       data,
-      nonce,
+      nonce: Math.max(nonce, a.nonces?.next ?? 0),
       gas: (gas * 12n) / 10n,
       maxFeePerGas: fees.maxFeePerGas,
       maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
@@ -159,21 +194,26 @@ export async function payWinner(
     if (!(await a.store.sending(row.id, hash, raw))) return 'pending';
     Object.assign(row, { prize_tx: hash, prize_raw_tx: raw, payout_status: 'sending' });
   }
+  const clear = async (reverted: boolean) => {
+    row.payout_reverts = await a.store.failed(row.id, reverted);
+    Object.assign(row, { prize_tx: null, prize_raw_tx: null, payout_status: null });
+    return 'failed' as const;
+  };
   let receipt = await a.rpc.receipt(hash);
   if (!receipt) {
-    await a.rpc.broadcast(raw);
+    const sent = await a.rpc.broadcast(raw);
     const left = (a.deadline ?? Infinity) - Date.now();
-    receipt = await a.rpc.waitFor(hash, Math.max(5_000, Math.min(60_000, left)));
+    receipt = await a.rpc.waitFor(hash, Math.max(5_000, Math.min(sent === 'stale' ? 10_000 : 60_000, left)));
+    if (!receipt && sent === 'stale' && fresh) return clear(false);
   }
   if (!receipt) return 'pending';
+  if (a.nonces) a.nonces.next = Math.max(a.nonces.next, parseTransaction(raw).nonce! + 1);
   if (receipt.status === 'success') {
     await a.store.paid(row.id, a.amountText);
     row.payout_status = 'paid';
     return 'paid';
   }
-  await a.store.failed(row.id);
-  Object.assign(row, { prize_tx: null, prize_raw_tx: null, payout_status: null });
-  return 'failed';
+  return clear(true);
 }
 
 export type PayDeps = {
@@ -186,6 +226,42 @@ export type PayDeps = {
   deadline?: number;
 };
 
+/** What a payout pays: frozen in campaign_runs.terms when the review opens (v2.4 fix round 1, I2). */
+export type PayoutTerms = {
+  prize: Pick<EarnKitCampaign['prize'], 'token' | 'symbol' | 'decimals'>;
+  amount_each: string;
+  winners: number;
+  min_score: number;
+};
+
+/** The terms to freeze, flat (campaign_runs.terms). Pure; exported for tests. */
+export const termsOf = (c: PayoutTerms) => ({
+  token: c.prize.token,
+  symbol: c.prize.symbol,
+  decimals: c.prize.decimals,
+  amount_each: c.amount_each,
+  winners: c.winners,
+  min_score: c.min_score,
+});
+export type FrozenTerms = ReturnType<typeof termsOf>;
+
+/** Frozen terms back in campaign shape. Pure. */
+export const fromTerms = (t: FrozenTerms): PayoutTerms => ({
+  prize: { token: t.token, symbol: t.symbol, decimals: t.decimals },
+  amount_each: t.amount_each,
+  winners: t.winners,
+  min_score: t.min_score,
+});
+
+/** Whether two sets of terms pay the same (token compared in any case). Pure; exported for tests. */
+export const sameTerms = (a: FrozenTerms, b: FrozenTerms) =>
+  a.token.toLowerCase() === b.token.toLowerCase() &&
+  a.symbol === b.symbol &&
+  a.decimals === b.decimals &&
+  a.amount_each === b.amount_each &&
+  a.winners === b.winners &&
+  a.min_score === b.min_score;
+
 /** The payout wallet can't pay gas: viem's InsufficientFundsError, or the node's own words. Pure. */
 const outOfGas = (err: unknown) =>
   /insufficient funds|exceeds the balance of the account/i.test(
@@ -193,16 +269,22 @@ const outOfGas = (err: unknown) =>
   );
 
 /**
- * Pays an EarnKit campaign's frozen winners (v2.4 §3, §8), in rank order: only winners from
- * pickWinners (one prize per payout wallet and per installation, vetoes applied), amount_each from
- * the program file, to their payout wallet only, each screened first (a listed wallet is skipped
- * and the next entry moves up). Stops with a note when the wallet holds less than the next prize
- * or too little ETH for gas, a transfer isn't mined yet, or the deadline passes; the next run
- * continues. Never sends off Base mainnet.
+ * Pays an EarnKit campaign's frozen winners (v2.4 §3, §8) from its frozen terms, in rank order.
+ * - A transfer in flight ('sending') is followed to paid or failed first, before anything new is
+ *   signed, even if its entry has since left the winners.
+ * - Entries with a transfer (paid) count toward `winners`, with their wallet and installation;
+ *   the rest of the slots go to pickWinners over the others (one prize per payout wallet and per
+ *   installation, vetoes and refusals applied).
+ * - amount_each from the terms, to the winner's payout wallet only, each screened first (a listed
+ *   wallet is refused and the next entry moves up); a transfer that reverts MAX_REVERTS times
+ *   refuses its entry the same way, with a note.
+ * - Stops with a note when the wallet holds less than the next prize or too little ETH for gas, a
+ *   transfer isn't mined yet, or the deadline passes; the next run continues. Never sends off
+ *   Base mainnet.
  */
 export async function payCampaign(
-  c: EarnKitCampaign,
-  entries: (Candidate & { prize_raw_tx: string | null })[],
+  c: PayoutTerms,
+  entries: (Candidate & { prize_raw_tx: string | null; payout_reverts?: number })[],
   deps: PayDeps = {},
 ): Promise<{ done: boolean; note: string | null }> {
   const account = deps.account === undefined ? payoutAccount() : deps.account;
@@ -217,12 +299,30 @@ export async function payCampaign(
   const token = c.prize.token as Hex;
   const amount = parseUnits(c.amount_each, c.prize.decimals);
   const deadline = deps.deadline ?? Infinity;
-  for (let step = 0; step <= entries.length + c.winners; step++) {
-    const { winners } = pickWinners(entries, c.winners, c.min_score);
-    const next = winners.find((w) => !settled(w));
-    if (!next)
-      return { done: true, note: winners.length ? null : 'No entry reached the minimum score; nothing to pay.' };
-    if (!next.prize_tx) {
+  const nonces = { next: 0 };
+  const notes: string[] = [];
+  const stop = (note: string) => ({ done: false, note: [...notes, note].join(' ') });
+  for (let step = 0; step <= 2 * entries.length + c.winners; step++) {
+    let next = entries.find((e) => e.payout_status === 'sending' && e.prize_tx && e.prize_raw_tx);
+    if (!next) {
+      const taken = entries.filter((e) => e.prize_tx);
+      const wallets = new Set(taken.map((e) => e.payout_wallet.toLowerCase()));
+      const agents = new Set(taken.map((e) => e.installation_id).filter((i) => i !== null));
+      const left = c.winners - taken.length;
+      const pool = entries.filter(
+        (e) =>
+          !e.prize_tx &&
+          !wallets.has(e.payout_wallet.toLowerCase()) &&
+          !(e.installation_id !== null && agents.has(e.installation_id)),
+      );
+      next = left > 0 ? pickWinners(pool, left, c.min_score).winners[0] : undefined;
+      if (!next)
+        return {
+          done: true,
+          note: taken.length || notes.length
+            ? notes.join(' ') || null
+            : 'No entry reached the minimum score; nothing to pay.',
+        };
       if (Date.now() >= deadline) break;
       if (await listed(next.payout_wallet)) {
         await store.refused(next.id);
@@ -231,30 +331,31 @@ export async function payCampaign(
       }
       const balance = await rpc.balanceOf(token, account.address);
       if (balance < amount)
-        return {
-          done: false,
-          note: `The payout wallet ${account.address} holds ${formatUnits(balance, c.prize.decimals)} ${c.prize.symbol}, less than the next prize (${c.amount_each}). Payouts resume once it is topped up.`,
-        };
+        return stop(
+          `The payout wallet ${account.address} holds ${formatUnits(balance, c.prize.decimals)} ${c.prize.symbol}, less than the next prize (${c.amount_each}). Payouts resume once it is topped up.`,
+        );
     }
     let r: Awaited<ReturnType<typeof payWinner>>;
     try {
-      r = await payWinner(next, { token, amount, amountText: c.amount_each, account, rpc, store, deadline });
+      r = await payWinner(next, { token, amount, amountText: c.amount_each, account, rpc, store, deadline, nonces });
     } catch (err) {
       if (!outOfGas(err)) throw err;
-      return {
-        done: false,
-        note: `The payout wallet ${account.address} needs a little ETH for gas. Payouts resume once it is topped up.`,
-      };
+      return stop(`The payout wallet ${account.address} needs a little ETH for gas. Payouts resume once it is topped up.`);
     }
     if (r === 'paid') continue;
-    return {
-      done: false,
-      note: r === 'failed'
+    if (r === 'failed' && (next.payout_reverts ?? 0) >= MAX_REVERTS) {
+      await store.refused(next.id);
+      next.payout_status = 'refused';
+      notes.push(`The transfer to entry #${next.id} reverted twice; that entry was skipped and the next one moved up.`);
+      continue;
+    }
+    return stop(
+      r === 'failed'
         ? `The transfer to entry #${next.id} failed; it is retried on the next run.`
         : `Waiting for the transfer to entry #${next.id} to be mined.`,
-    };
+    );
   }
-  return { done: false, note: 'Payout stopped early; it continues on the next run.' };
+  return stop('Payout stopped early; it continues on the next run.');
 }
 
 /** Proof of funds for the campaign page (v2.4 §3): the payout wallet and its live prize balance. */

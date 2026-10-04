@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { keccak256, type Hex } from 'viem';
+import { decodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
@@ -79,7 +79,7 @@ const result = (score: number, complete = true) => ({
   score, wallets: [], counted: [], seen: score, complete, timedOut: false, codeShare: null,
 });
 
-function chain() {
+function chain(funds: () => bigint = () => 10n ** 30n) {
   const sent: Hex[] = [];
   const mined = new Set<Hex>();
   const rpc: PayoutRpc = {
@@ -88,9 +88,9 @@ function chain() {
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => (mined.has(h) ? { status: 'success' } : null),
-    broadcast: async (raw) => { sent.push(raw); mined.add(keccak256(raw)); },
+    broadcast: async (raw) => { sent.push(raw); mined.add(keccak256(raw)); return 'sent'; },
     waitFor: async (h) => (mined.has(h) ? { status: 'success' } : null),
-    balanceOf: async () => 10n ** 30n,
+    balanceOf: async () => funds(),
   };
   return { rpc, sent };
 }
@@ -244,4 +244,73 @@ test('Ruling 5: token fees are refreshed only for wallets read over 6 h ago (or 
     await sql()`DELETE FROM token_fees WHERE wallet IN ${sql()([stale, fresh, never])}`;
     await teardown(tag);
   }
+});
+
+test('I2: the payout terms are frozen when the review opens; an edit pauses the payout and never changes the amount', db, async () => {
+  const tag = `test-cron-terms-${process.pid}-${Date.now()}`;
+  const [a, b] = await setup(tag, 2);
+  let funds = 3n * 10n ** 18n; // one prize of 3
+  const f = chain(() => funds - 3n * 10n ** 18n * BigInt(f.sent.length));
+  const deps = {
+    score: { score: async (contracts: string[]) => result(contracts[0] === `0x${'1'.repeat(40)}` ? 9 : 8) },
+    pay: { account, rpc: f.rpc, listed: async () => false },
+    refreshFees: async () => 0,
+  };
+  const run = async (now: Date) => mine(await runCron({ now, deps, only: [tag] }), tag)!;
+  try {
+    assert.equal((await run(at(16))).review, true);
+    const [r0] = await sql()`SELECT terms FROM campaign_runs WHERE program_id = ${tag}`;
+    assert.deepEqual(r0.terms, { token: TOKEN, symbol: 'MINI', decimals: 18, amount_each: '3', winners: 2, min_score: 1 });
+    const first = await run(at(16 + 2880));
+    assert.match(String(first.note), /less than the next prize \(3\)/);
+    // The program file changes mid-payout: nothing more is sent, and the page says why.
+    await sql()`UPDATE programs SET campaign = jsonb_set(campaign, '{amount_each}', '"30"') WHERE id = ${tag}`;
+    funds += 100n * 10n ** 18n;
+    const paused = await run(at(16 + 2940));
+    assert.deepEqual([paused.done, paused.note], [false, "Payout paused: the campaign's prize terms changed after the review opened."]);
+    assert.equal(f.sent.length, 1);
+    const [r1] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
+    assert.deepEqual([r1.state, r1.note], ['paying', paused.note]);
+    // Put back: it resumes at the frozen amount; prize_amount matches what was signed.
+    await sql()`UPDATE programs SET campaign = jsonb_set(campaign, '{amount_each}', '"3"') WHERE id = ${tag}`;
+    assert.equal((await run(at(16 + 3000))).done, true);
+    const rows = await sql()`SELECT id, prize_amount FROM projects WHERE program_id = ${tag} ORDER BY id`;
+    assert.deepEqual(rows.map((r) => [r.id, r.prize_amount]), [[a, '3'], [b, '3']]);
+    const amounts = f.sent.map((raw) => decodeFunctionData({ abi: erc20Abi, data: parseTransaction(raw).data! }).args![1]);
+    assert.deepEqual(amounts, [3n * 10n ** 18n, 3n * 10n ** 18n]);
+  } finally {
+    await teardown(tag);
+  }
+});
+
+test('M2/M3: a failing pay step answers with a fixed error and a sanitized note (no RPC URL leaks)', db, async () => {
+  const tag = `test-cron-err-${process.pid}-${Date.now()}`;
+  await setup(tag, 1);
+  const secretUrl = 'https://base-mainnet.example/v2/SECRETKEY';
+  const deps = {
+    score: { score: async () => result(5) },
+    pay: { account, rpc: chain().rpc, listed: async () => { throw new Error(`fetch failed: ${secretUrl}`); } },
+    refreshFees: async () => 0,
+  };
+  try {
+    await runCron({ now: at(16), deps, only: [tag] });
+    const out = await runCron({ now: at(16 + 2880), deps, only: [tag] });
+    assert.deepEqual(mine(out, tag), { id: tag, step: 'error', note: 'This step failed; it is retried on the next run.' });
+    assert.doesNotMatch(JSON.stringify(out), /SECRETKEY/);
+    const [r] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
+    assert.deepEqual([r.state, r.note], ['paying', 'Payouts paused: a check failed; retrying hourly.']);
+  } finally {
+    await teardown(tag);
+  }
+});
+
+test('M2: when the whole run fails, the response is a fixed error (the Actions log never sees the cause)', async () => {
+  process.env.CRON_SECRET = SECRET;
+  const res = await cronPost(req(`Bearer ${SECRET}`), {
+    limit: async () => {},
+    run: async () => { throw new Error('connect ECONNREFUSED postgres://user:pw@db:5432'); },
+  });
+  assert.equal(res.status, 500);
+  assert.deepEqual(await res.json(), { error: 'The cron run failed; see the server log.' });
+  delete process.env.CRON_SECRET;
 });

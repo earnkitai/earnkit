@@ -307,6 +307,10 @@ CREATE TABLE IF NOT EXISTS campaign_runs (
   note         text,                                   -- shown on the campaign page (e.g. wallet short)
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
+-- v2.4 fix round 1: the payout terms (token, symbol, decimals, amount_each, winners, min_score),
+-- frozen when the review opens; payouts pay only these. A transfer that reverts twice refuses its entry.
+ALTER TABLE campaign_runs ADD COLUMN IF NOT EXISTS terms jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_reverts integer NOT NULL DEFAULT 0;
 
 -- Token fees waiting in Clanker's FeeLocker (WETH), per creator wallet, cached 6 h (spec §4).
 CREATE TABLE IF NOT EXISTS token_fees (

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   decodeFunctionData,
+  encodeFunctionData,
   erc20Abi,
   keccak256,
   parseTransaction,
@@ -10,7 +11,7 @@ import {
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { payCampaign, payWinner, payoutAccount, type PayoutRpc, type PayoutStore } from './payout';
+import { feeCaps, payCampaign, payWinner, payoutAccount, type PayoutRpc, type PayoutStore } from './payout';
 import type { EarnKitCampaign } from './campaigns';
 
 const account = privateKeyToAccount('0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6'); // anvil #3
@@ -29,6 +30,7 @@ function fakeRpc(o: { chainId?: number; balance?: () => bigint; mined?: 'success
     broadcast: async (raw) => {
       sent.push(raw);
       if (o.mined !== null) receipts.set(keccak256(raw), { status: o.mined ?? 'success' });
+      return 'sent';
     },
     waitFor: async (h) => receipts.get(h) ?? null,
     balanceOf: async () => (o.balance ? o.balance() : 10n ** 30n),
@@ -38,10 +40,15 @@ function fakeRpc(o: { chainId?: number; balance?: () => bigint; mined?: 'success
 
 function memStore(sentSoFar: () => number = () => 0) {
   const calls: unknown[][] = [];
+  const reverts = new Map<number, number>();
   const store: PayoutStore = {
     sending: async (id, hash) => { calls.push(['sending', id, hash, sentSoFar()]); return true; },
     paid: async (id, amount) => { calls.push(['paid', id, amount]); },
-    failed: async (id) => { calls.push(['failed', id]); },
+    failed: async (id, reverted) => {
+      calls.push(['failed', id]);
+      reverts.set(id, (reverts.get(id) ?? 0) + (reverted ? 1 : 0));
+      return reverts.get(id)!;
+    },
     refused: async (id) => { calls.push(['refused', id]); },
   };
   return { store, calls };
@@ -265,4 +272,111 @@ test('safety: an entry already paid before v2.4 (prize_tx kept, no signed bytes,
   assert.deepEqual((await Promise.all(f.sent.map(decodeSent))).map((d) => d.recipient), [row(2).payout_wallet]);
   assert.equal(await payWinner(row(1, { prize_tx: '0x' + '2'.repeat(64) }), { token: TOKEN, amount: ONE, amountText: '1', account, rpc: f.rpc, store: s.store }), 'paid');
   assert.equal(f.sent.length, 1);
+});
+
+// Fix round 1 (Ruling 30).
+
+/** A chain that checks nonces: below the confirmed nonce is "nonce too low"; `rpcNonce` is what the RPC reports. */
+function nonceChain(o: { confirmed: number; rpcNonce: () => number; revertTo?: string }) {
+  const f = fakeRpc();
+  let confirmed = o.confirmed;
+  const nonces: number[] = [];
+  f.rpc.nonce = async () => o.rpcNonce();
+  f.rpc.broadcast = async (raw) => {
+    const tx = parseTransaction(raw);
+    if (tx.nonce! < confirmed) return 'stale';
+    f.sent.push(raw);
+    nonces.push(tx.nonce!);
+    confirmed = tx.nonce! + 1;
+    const { args } = decodeFunctionData({ abi: erc20Abi, data: tx.data! });
+    const reverts = o.revertTo && (args![0] as string).toLowerCase() === o.revertTo.toLowerCase();
+    f.receipts.set(keccak256(raw), { status: reverts ? 'reverted' : 'success' });
+    return 'sent';
+  };
+  return { ...f, nonces };
+}
+
+test('I1: a first broadcast rejected as "nonce too low" is cleared for a new signature, not waited on forever', async () => {
+  const c = nonceChain({ confirmed: 9, rpcNonce: () => 7 });
+  const s = memStore();
+  assert.equal(await payWinner(row(1), { token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: s.store }), 'failed');
+  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['sending', 1], ['failed', 1]]);
+  assert.equal(c.sent.length, 0);
+  // Stored bytes rebroadcast as "nonce too low" may already be mined elsewhere: waited on, never cleared.
+  const signed = await account.signTransaction({
+    chainId: 8453, type: 'eip1559', to: TOKEN, data: '0xa9059cbb', nonce: 7, gas: 60_000n,
+    maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n,
+  });
+  const t = memStore();
+  const r = await payWinner(row(2, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed }), {
+    token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: t.store,
+  });
+  assert.equal(r, 'pending');
+  assert.deepEqual(t.calls, []);
+});
+
+test('I1: with an RPC that keeps reporting a stale pending nonce, winners in one run still get consecutive nonces', async () => {
+  const c = nonceChain({ confirmed: 7, rpcNonce: () => 7 });
+  const s = memStore();
+  const r = await payCampaign(campaign, [entry(1, 50), entry(2, 40)], { account, rpc: c.rpc, store: s.store, listed: async () => false });
+  assert.deepEqual(r, { done: true, note: null });
+  assert.deepEqual(c.nonces, [7, 8]);
+  assert.deepEqual(s.calls.filter((x) => x[0] === 'paid').map((x) => x[1]), [1, 2]);
+});
+
+test('I2: prize_amount is the amount signed, from the terms passed in', async () => {
+  const f = fakeRpc();
+  const s = memStore();
+  await payCampaign({ ...campaign, amount_each: '125' }, [entry(1, 50)], { account, rpc: f.rpc, store: s.store, listed: async () => false });
+  const [d] = await Promise.all(f.sent.map(decodeSent));
+  const paid = s.calls.find((x) => x[0] === 'paid')!;
+  assert.equal(parseUnits(paid[2] as string, 18), d.amount);
+  assert.equal(d.amount, parseUnits('125', 18));
+});
+
+test('I3: a transfer in flight is followed to paid even after its entry left the winners, and it takes a slot', async () => {
+  const W1 = row(1).payout_wallet as Hex;
+  const signed = await account.signTransaction({
+    chainId: 8453, type: 'eip1559', to: TOKEN, nonce: 7, gas: 60_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [W1, ONE] }),
+  });
+  const f = fakeRpc();
+  f.receipts.set(keccak256(signed), { status: 'success' });
+  const s = memStore();
+  const entries = [
+    entry(1, 10, { vetoed_at: new Date(), payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed }),
+    entry(2, 50), entry(3, 40), entry(4, 30),
+  ];
+  const r = await payCampaign(campaign, entries, { account, rpc: f.rpc, store: s.store, listed: async () => false });
+  assert.deepEqual(r, { done: true, note: null });
+  assert.deepEqual(s.calls.filter((x) => x[0] === 'paid').map((x) => x[1]), [1, 2], 'winners = 2: the mined transfer counts');
+  assert.equal(f.sent.length, 1);
+});
+
+test('I3: an entry already paid counts toward the winners even when it no longer ranks', async () => {
+  const f = fakeRpc();
+  const s = memStore();
+  const entries = [entry(1, 5, { payout_status: 'paid', prize_tx: '0x' + '3'.repeat(64) }), entry(2, 50), entry(3, 40)];
+  await payCampaign(campaign, entries, { account, rpc: f.rpc, store: s.store, listed: async () => false });
+  assert.deepEqual(s.calls.filter((x) => x[0] === 'paid').map((x) => x[1]), [2]);
+});
+
+test('M1: the fee cap is twice the base fee plus the tip', () => {
+  assert.deepEqual(feeCaps(100n, 3n), { maxFeePerGas: 203n, maxPriorityFeePerGas: 3n });
+});
+
+test('M4: a transfer that reverts twice refuses that entry with a note, and the next entry is paid', async () => {
+  const c = nonceChain({ confirmed: 7, rpcNonce: () => 7, revertTo: row(1).payout_wallet });
+  let nonce = 7;
+  c.rpc.nonce = async () => nonce;
+  const s = memStore();
+  const deps = { account, rpc: c.rpc, store: s.store, listed: async () => false };
+  const entries = [entry(1, 50), entry(2, 40), entry(3, 30)];
+  const first = await payCampaign(campaign, entries, deps);
+  assert.match(first.note!, /The transfer to entry #1 failed; it is retried on the next run\./);
+  nonce = 8;
+  const second = await payCampaign(campaign, entries, deps);
+  assert.equal(second.done, true);
+  assert.match(second.note!, /The transfer to entry #1 reverted twice; that entry was skipped and the next one moved up\./);
+  assert.deepEqual(s.calls.filter((x) => x[0] === 'refused' || x[0] === 'paid').map((x) => x.slice(0, 2)), [['refused', 1], ['paid', 2], ['paid', 3]]);
 });

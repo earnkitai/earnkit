@@ -3,7 +3,7 @@ import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } 
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { bearerMatches, json } from './http';
-import { payCampaign, type PayDeps } from './payout';
+import { fromTerms, payCampaign, sameTerms, termsOf, type FrozenTerms, type PayDeps } from './payout';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { withScoringLock } from './sponsor';
 import type { Candidate, RunState } from './winners';
@@ -36,14 +36,14 @@ type Program = {
   state: RunState | null;
   review_until: Date | null;
 };
-type Entry = ScoreRow & Candidate & { prize_raw_tx: string | null; score_partial: boolean };
+type Entry = ScoreRow & Candidate & { prize_raw_tx: string | null; score_partial: boolean; payout_reverts: number };
 
 // score_attempted_at drives scoring rotation (a slow entry goes last next pass); score_partial is
 // flagged in the review (a final score whose reads were capped stays payable).
 const entriesOf = (programId: string) => sql()<Entry[]>`
   SELECT id, contracts, payout_wallet, deployers, score, scored_at, scored_through, score_final,
     score_attempted_at, score_partial, submitted_at, installation_id, vetoed_at, payout_status,
-    prize_tx, prize_raw_tx
+    prize_tx, prize_raw_tx, payout_reverts
   FROM projects
   WHERE program_id = ${programId} AND payout_wallet IS NOT NULL AND contracts IS NOT NULL
   ORDER BY id`;
@@ -51,11 +51,19 @@ const entriesOf = (programId: string) => sql()<Entry[]>`
 /** Injection for the e2e (scoring reads, payout chain and wallet, the fee source). */
 export type CronDeps = { score?: ScoreDeps; pay?: PayDeps; refreshFees?: (wallets: string[]) => Promise<number> };
 
-/** Opens the 48 h review (once: only from 'running'). */
-const openReview = (programId: string, now: Date) => sql()`
+/** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
+const openReview = (p: Program, now: Date) => sql()`
   UPDATE campaign_runs SET state = 'review', frozen_at = ${now},
-    review_until = ${new Date(now.getTime() + REVIEW_MS)}, updated_at = now()
-  WHERE program_id = ${programId} AND state = 'running'`;
+    review_until = ${new Date(now.getTime() + REVIEW_MS)},
+    terms = ${sql().json(termsOf(p.campaign as EarnKitCampaign))}, updated_at = now()
+  WHERE program_id = ${p.id} AND state = 'running'`;
+
+/** Shown on the campaign page when the program's prize terms no longer match the frozen ones. */
+export const TERMS_CHANGED = "Payout paused: the campaign's prize terms changed after the review opened.";
+/** Shown on the campaign page when a payout step fails (the cause stays in the server log). */
+export const PAY_FAILED = 'Payouts paused: a check failed; retrying hourly.';
+/** A failed step in the cron's answer (the GitHub Actions log): fixed, so no RPC URL or key leaks. */
+export const STEP_FAILED = 'This step failed; it is retried on the next run.';
 
 /** Final scores whose reads were capped (score_partial): payable, flagged in the review. */
 const partialIds = (entries: Entry[]) => entries.filter((e) => e.score_final && e.score_partial).map((e) => e.id);
@@ -86,7 +94,7 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
         WHERE program_id = ${p.id} AND payout_wallet IS NOT NULL AND NOT score_final`;
     const frozen = await entriesOf(p.id);
     const review = frozen.every((e) => e.score_final);
-    if (review) await openReview(p.id, now);
+    if (review) await openReview(p, now);
     return {
       step,
       final: out.filter((o) => o.result === 'final').length,
@@ -96,16 +104,33 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
     };
   }
   if (step === 'review') {
-    await openReview(p.id, now);
+    await openReview(p, now);
     return { step, partial: partialIds(entries) };
   }
   if (step === 'pay') {
-    await sql()`UPDATE campaign_runs SET state = 'paying', updated_at = now() WHERE program_id = ${p.id} AND state = 'review'`;
-    const fresh = (await entriesOf(p.id)).filter((e) => e.score_final);
-    const r = await payCampaign(p.campaign as EarnKitCampaign, fresh, { deadline, ...deps.pay });
-    await sql()`
-      UPDATE campaign_runs SET state = ${r.done ? 'paid' : 'paying'}, note = ${r.note}, updated_at = now()
+    // Terms frozen when the review opened; a run opened before they were stored freezes them now.
+    const [run] = await sql()<{ terms: FrozenTerms }[]>`
+      UPDATE campaign_runs SET state = 'paying', updated_at = now(),
+        terms = COALESCE(terms, ${sql().json(termsOf(p.campaign as EarnKitCampaign))})
+      WHERE program_id = ${p.id} AND state IN ('review', 'paying')
+      RETURNING terms`;
+    if (!run) return { step };
+    const setNote = (note: string | null, done = false) => sql()`
+      UPDATE campaign_runs SET state = ${done ? 'paid' : 'paying'}, note = ${note}, updated_at = now()
       WHERE program_id = ${p.id}`;
+    if (!sameTerms(run.terms, termsOf(p.campaign as EarnKitCampaign))) {
+      await setNote(TERMS_CHANGED);
+      return { step, done: false, note: TERMS_CHANGED };
+    }
+    let r: { done: boolean; note: string | null };
+    try {
+      const fresh = (await entriesOf(p.id)).filter((e) => e.score_final || e.prize_tx);
+      r = await payCampaign(fromTerms(run.terms), fresh, { deadline, ...deps.pay });
+    } catch (err) {
+      await setNote(PAY_FAILED).catch(() => {});
+      throw err;
+    }
+    await setNote(r.note, r.done);
     return { step, done: r.done, note: r.note };
   }
   return { step };
@@ -161,7 +186,7 @@ export async function runCron(
       campaigns.push({ id: p.id, ...(r === 'busy' ? { step: 'busy' } : r) });
     } catch (err) {
       console.error('[cron]', p.id, err);
-      campaigns.push({ id: p.id, step: 'error', note: String(err).slice(0, 200) });
+      campaigns.push({ id: p.id, step: 'error', note: STEP_FAILED });
     }
   }
   let fees = 0;
@@ -192,5 +217,10 @@ export async function cronPost(
   }
   if (!bearerMatches(request.headers.get('authorization'), process.env.CRON_SECRET))
     return json({ error: 'unauthorized' }, 401);
-  return json(await (deps.run ?? (() => runCron()))());
+  try {
+    return json(await (deps.run ?? (() => runCron()))());
+  } catch (err) {
+    console.error('[cron]', err);
+    return json({ error: 'The cron run failed; see the server log.' }, 500);
+  }
 }
