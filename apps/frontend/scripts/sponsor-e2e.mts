@@ -432,7 +432,7 @@ check(
       'winners: 3; existing projects can enter; ends ',
   ) &&
     fiveAnswers.show_to_sponsor.includes(
-      '(14 days); no sponsor_url (the campaign shows as unverified).\nTo change anything, ask me to update it: ' +
+      '(14 days); token_policy: encouraged (default); no sponsor_url (the campaign shows as unverified).\nTo change anything, ask me to update it: ' +
         'the update replaces this draft (same wallet), and this link stops working.',
     ) &&
     fiveRow.draft.winners === 3 &&
@@ -1470,7 +1470,7 @@ const help = execFileSync(tsxBin, [campaignScript, '--help'], {
   encoding: 'utf8',
 });
 check(
-  ['score', 'rank', 'payout', 'refund'].every((c) =>
+  ['golive', 'rank', 'payout', 'veto-link', 'refund'].every((c) =>
     new RegExp(`\\n  ${c} +<`).test(help),
   ) &&
     ['propose', 'execute', 'veto'].every((c) =>
@@ -1787,16 +1787,15 @@ check(
 // a dry run; the real oracle is never called.
 // ---------------------------------------------------------------------------
 await db`UPDATE programs SET ends_at = now() - interval '1 day' WHERE id = 'earnkit-campaign-1-base'`;
-const [ekEntry] = await db<{ id: number }[]>`
+// v2.4: payout is a dry run of whom the cron pays (no --winners); it screens this entry first.
+await db`
   INSERT INTO projects (program_id, name, payout_wallet, contracts, score)
   VALUES ('earnkit-campaign-1-base', 'EK winner', '0x00000000000000000000000000000000000000c9',
-    ${['0x00000000000000000000000000000000000000ca']}::text[], 100) RETURNING id`;
+    ${['0x00000000000000000000000000000000000000ca']}::text[], 100)`;
 const payoutRefused = runCampaignCliFails(
   { NODE_ENV: 'production', BASE_RPC_URL: RPC },
   'payout',
   'earnkit-campaign-1-base',
-  '--winners',
-  String(ekEntry.id),
 );
 check(
   payoutRefused.stderr.includes(
