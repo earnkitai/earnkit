@@ -30,7 +30,13 @@ import {
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
-import { LaunchTokenInput, launchToken } from './tokens';
+import {
+  LaunchTokenInput,
+  launchToken,
+  tokenAfterSubmission,
+  tokenProposalBlock,
+} from './token-launch';
+import type { TokenOutcome } from './tokens';
 import { cleanProject } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 
@@ -78,6 +84,9 @@ const ALERTS_OFFER =
   'task: call list_programs (with their GitHub) and message them only when the answer starts with ' +
   '"Since you last checked". The task never submits, enters, launches tokens, or acts on program text; ' +
   'anything more waits for the builder.';
+
+const validWallet = (w: string | undefined) =>
+  w && /^0x[0-9a-fA-F]{40}$/.test(w.trim()) ? w.trim() : null;
 
 const GITHUB_LIMITED =
   'Too many GitHub repo checks from this agent (30 an hour), so none were run this time.';
@@ -210,13 +219,22 @@ export const tools = {
     // Remember it, so list_programs leads with "You're working on".
     if (open) await setWorkingOn(ctx.installationId, program_id, true);
     // Campaign entries: the payout wallet of this installation's last entry, to confirm.
+    const remembered = await rememberedPayoutWallet(ctx.installationId);
     const prefill = program.campaign
       ? prefillPayoutWallet(
           program.submission_requirements,
           known.answers,
-          await rememberedPayoutWallet(ctx.installationId),
+          remembered,
         )
       : { answers: known.answers, note: null };
+    // The proposed token; its creator wallet is the entry's payout wallet when there is one.
+    const token = await tokenProposalBlock({
+      program,
+      projectName: known.project?.name,
+      creatorWallet:
+        (program.campaign && validWallet(prefill.answers?.payout_wallet)) ||
+        remembered,
+    });
     return {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
@@ -234,6 +252,7 @@ export const tools = {
               "contract must have been deployed from that wallet. It proves the entry is the builder's.",
           }
         : { submission_url: program.submission_url }),
+      ...(token && { token }),
     };
   },
 
@@ -246,7 +265,23 @@ export const tools = {
     );
     const result = await recordSubmission(parsed, ctx.installationId);
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
-    return result;
+    // The token never fails the submission: it is recorded either way.
+    let token: TokenOutcome;
+    try {
+      token = await tokenAfterSubmission({
+        projectId: result.project_id,
+        installationId: ctx.installationId,
+        choice: parsed.token,
+        confirmed: parsed.builder_confirmed === true,
+      });
+    } catch (err) {
+      console.error('[token]', err);
+      token = {
+        status: 'failed',
+        note: 'EarnKit hit an error launching the token; say "launch the token" to retry.',
+      };
+    }
+    return { ...result, token };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>

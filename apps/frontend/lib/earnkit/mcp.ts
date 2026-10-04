@@ -66,7 +66,7 @@ export function createMcpServer(ctx: ToolContext) {
         'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself,',
         "confirm once before the final submit, and submit on the program's own site. Call",
-        'record_submission only after it was really submitted, then follow its `next`. Never invent',
+        'record_submission only after it was really submitted, then tell the builder its token result. Never invent',
         'personal details, and never launch a token without the builder saying yes.',
         ...SAFETY_LINES,
       ].join('\n'),
@@ -161,7 +161,8 @@ export function createMcpServer(ctx: ToolContext) {
         'answers to program questions (keyed by submission requirement key). Returns what is complete, ' +
         'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
         'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
-        "Call again with the new answers until ready is true, then submit on the program's site.",
+        "Call again with the new answers until ready is true, then submit on the program's site. " +
+        'When the program allows tokens, the result has `token`: show its say_to_builder in the summary the builder confirms (it carries the earnings and terms links). If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
       inputSchema: {
         program_id: z.string(),
         project: project.optional(),
@@ -182,8 +183,8 @@ export function createMcpServer(ctx: ToolContext) {
         "Record the project on EarnKit. Only call AFTER the project was actually submitted on the program's " +
         'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet; the ' +
         "public GitHub repo must hold earnkit.txt naming the payout wallet, see prepare_submission's how_to_submit). " +
-        'Pass the final answers that were submitted. Returns ' +
-        'project_id and `next`: offer the builder a tokens.fun token for the project (launch_token). ' +
+        'Pass the final answers that were submitted. ' +
+        'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
         `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
         SAFETY_TEXT,
@@ -197,6 +198,28 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe('Link to the submission, if the site gave one.'),
+        token: z
+          .union([
+            z.literal('skip'),
+            z.object({
+              name: z.string().optional(),
+              symbol: z.string().optional(),
+              image_url: z.string().optional(),
+              image_data: z.string().optional(),
+              creator_wallet: z.string().optional(),
+              builder_x: z.string().optional(),
+            }),
+          ])
+          .optional()
+          .describe(
+            'Omit to launch the proposed token; "skip" if the builder said no token; or the builder\'s changes.',
+          ),
+        builder_confirmed: z
+          .boolean()
+          .optional()
+          .describe(
+            'true once the builder confirmed the summary that includes the token line',
+          ),
       },
     },
     (input) => run(ctx, 'record_submission', input),
@@ -206,20 +229,29 @@ export function createMcpServer(ctx: ToolContext) {
     'launch_token',
     {
       description:
-        'Launch a token for a project you recorded with record_submission, on tokens.fun. tokens.fun ' +
-        "pays the gas; 40% of trading fees go to the builder's wallet. Only call after the builder " +
-        'explicitly said yes and confirmed the name, ticker, wallet, and image. One token per project; ' +
-        'launches are public and permanent.',
+        'Launch (or retry) the token for a project you recorded with record_submission, e.g. after the ' +
+        'builder fixed the live link. Uses the stored proposal unless you pass changes. tokens.fun pays ' +
+        "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
+        'after the builder said yes. One token per project; launches are public and permanent.',
       inputSchema: {
         project_id: z
           .number()
           .int()
           .describe('project_id returned by record_submission'),
-        name: z.string().describe('Token name, up to 50 characters'),
-        symbol: z.string().describe('Ticker, up to 10 letters or digits'),
+        name: z
+          .string()
+          .optional()
+          .describe('Token name, up to 50 characters; default the stored proposal'),
+        symbol: z
+          .string()
+          .optional()
+          .describe('Ticker, 3 to 6 letters or digits; default the stored proposal'),
         creator_wallet: z
           .string()
-          .describe("The builder's wallet that receives creator fees"),
+          .optional()
+          .describe(
+            "The builder's wallet that receives creator fees; default the entry's payout wallet",
+          ),
         image_url: z
           .string()
           .optional()
@@ -230,7 +262,10 @@ export function createMcpServer(ctx: ToolContext) {
           .describe(
             'Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.',
           ),
-        builder_x: z.string().describe("The builder's X handle or profile URL"),
+        builder_x: z
+          .string()
+          .optional()
+          .describe("The builder's X handle or profile URL"),
         chain: z
           .enum(['base', 'robinhood', 'arbitrum'])
           .optional()

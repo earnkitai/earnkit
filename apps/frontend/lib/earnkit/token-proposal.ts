@@ -23,7 +23,7 @@ export const TICKER_RESERVED = [
  * never echo back the raw, un-normalized input. Pure; shared by `tokenNameProblem` and
  * `proposeToken`.
  */
-function cleanTokenName(name: string): { name: string } | { problem: string } {
+export function cleanTokenName(name: string): { name: string } | { problem: string } {
   let clean: string;
   try {
     clean = cleanText(name, { max: 50, singleLine: true, field: 'name' });

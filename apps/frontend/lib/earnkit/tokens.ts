@@ -32,34 +32,6 @@ export function xProfileUrl(value: string) {
   return `https://x.com/${handle}`;
 }
 
-export const LaunchTokenInput = z
-  .object({
-    project_id: z.number().int().positive(),
-    name: z.string().trim().min(1).max(50),
-    symbol: z
-      .string()
-      .trim()
-      .regex(/^[A-Za-z0-9]{1,10}$/, 'ticker: up to 10 letters or digits'),
-    creator_wallet: z
-      .string()
-      .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x wallet address'),
-    image_url: z
-      .string()
-      .url()
-      .startsWith('https://', 'must start with https://')
-      .optional(),
-    /** Or the image itself as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB); EarnKit hosts it. */
-    image_data: z.string().optional(),
-    builder_x: z.string().trim().min(1),
-    chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
-    builder_confirmed: z.literal(true),
-  })
-  .strict()
-  .refine((i) => Boolean(i.image_url) !== Boolean(i.image_data), {
-    message: 'give image_url (https) or image_data (a data URL), not both',
-    path: ['image_url'],
-  });
-
 const IMAGE_TYPES: Record<string, (b: Buffer) => boolean> = {
   'image/png': (b) =>
     b
@@ -327,36 +299,4 @@ export async function deployToken(
   }
 
   return { ...outcome, name: a.name, symbol: a.symbol };
-}
-
-/** Thin wrapper kept so `tools.ts`/`mcp.ts` compile; Task 7 moves this to `token-launch.ts`. */
-export async function launchToken(
-  input: z.infer<typeof LaunchTokenInput>,
-  installationId: number,
-) {
-  const image = input.image_data ? decodeImage(input.image_data) : null;
-  const outcome = await deployToken({
-    projectId: input.project_id,
-    installationId,
-    name: input.name,
-    symbol: input.symbol,
-    creatorWallet: input.creator_wallet,
-    image,
-    imageUrl: input.image_url,
-    builderX: input.builder_x,
-    chain: input.chain,
-  });
-  if (outcome.status !== 'launched')
-    throw new LaunchError(outcome.note ?? 'Token not launched.');
-  return {
-    launched: true,
-    token_address: outcome.token_address,
-    chain: input.chain,
-    tx_hash: outcome.tx_hash,
-    tokens_fun: outcome.tokens_fun,
-    explorer: outcome.explorer,
-    fees:
-      "40% of trading fees go to the creator wallet in WETH (after Clanker's 20% protocol cut); " +
-      'the rest is platform 50% and MINI buyback 10%.',
-  };
 }
