@@ -87,7 +87,7 @@ test('fallbackProblem: refuses before endsAt + 7 days with the opening date', ()
 });
 
 test('USAGE lists every command', () => {
-  for (const c of ['score', 'rank', 'payout', 'refund'])
+  for (const c of ['score', 'rank', 'payout', 'refund', 'golive'])
     assert.match(USAGE, new RegExp(`\\n  ${c} +<`));
   for (const c of ['propose', 'execute', 'veto'])
     assert.match(USAGE, new RegExp(`\\n  fallback ${c} +<ref>`));

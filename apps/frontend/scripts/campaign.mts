@@ -52,7 +52,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['score', 'rank', 'payout', 'fallback', 'refund', 'sync'];
+const COMMANDS = ['score', 'rank', 'payout', 'golive', 'fallback', 'refund', 'sync'];
 const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
@@ -64,13 +64,13 @@ if (command === 'fallback' && !FALLBACK.includes(sub ?? ''))
   fail(`pnpm campaign fallback needs propose, execute or veto.\n\n${USAGE}`);
 if (!slug && command !== 'sync')
   fail(
-    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['score', 'rank', 'payout'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
+    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['score', 'rank', 'payout', 'golive'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
   );
 
-// Set inside the try, so a missing DATABASE_URL is a readable line too.
+// Set inside main(), only for commands that need it: golive edits the program file directly and
+// must work with no DATABASE_URL (it runs before the owner provisions anything, v2.4 ruling 2).
 let db!: ReturnType<typeof sql>;
 try {
-  db = sql();
   await main();
 } catch (err) {
   // One readable line, never a stack trace (the operator reads this, not a developer).
@@ -78,6 +78,12 @@ try {
 }
 
 async function main() {
+  if (command === 'golive') {
+    await goLiveCommand();
+    process.exit(0);
+  }
+
+  db = sql();
   if (['fallback', 'refund', 'sync'].includes(command)) {
     await sponsorCommand();
     await db.end();
@@ -236,6 +242,45 @@ async function main() {
     fail(USAGE);
   }
   await db.end();
+}
+
+/** golive <slug>: edits programs/<slug>.json only (no database); the owner commits and pushes it. */
+async function goLiveCommand() {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { ProgramFile } = await import('../lib/earnkit/program-file');
+  const { earnkitTexts, goLive } = await import('../lib/earnkit/campaign-text');
+  const path = join(import.meta.dirname, '..', '..', '..', 'programs', `${slug}.json`);
+  const raw = JSON.parse(readFileSync(path, 'utf8'));
+  if (raw.campaign?.kind !== 'earnkit') fail(`${slug} isn't an EarnKit campaign.`);
+  let next: typeof raw;
+  if (process.argv.includes('--texts-only')) {
+    next = { ...raw, ...earnkitTexts(raw) };
+  } else {
+    const days = Number(flag('days') ?? 14);
+    if (!Number.isInteger(days) || days < 1 || days > 60)
+      fail('--days must be a whole number from 1 to 60.');
+    const { llamaPrice } = await import('../lib/earnkit/prices');
+    const { price } = await llamaPrice(`base:${raw.campaign.prize.token}`);
+    next = goLive(raw, { now: new Date(), price, days });
+    const c = next.campaign;
+    const total = BigInt(c.amount_each) * BigInt(c.winners);
+    console.log(
+      `${next.title}\n  ${next.starts_at} -> ${next.ends_at}\n` +
+        `  ${c.prize.symbol} at $${price}: ${Number(c.amount_each).toLocaleString('en-US')} each\n` +
+        `  Fund the payout wallet with ${total.toLocaleString('en-US')} ${c.prize.symbol} plus a little ETH for gas.`,
+    );
+  }
+  const parsed = ProgramFile.safeParse(next);
+  if (!parsed.success)
+    fail(`The new file isn't valid: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+  if (!process.argv.includes('--write')) {
+    console.log('\nDry run. Add --write to update the file, then commit and push it.');
+    return;
+  }
+  // The raw object, not the parsed one: parsing adds defaults (token_policy) the file leaves out.
+  writeFileSync(path, JSON.stringify(next, null, 2) + '\n');
+  console.log(`\nWrote programs/${slug}.json. Commit and push it to go live.`);
 }
 
 /** fallback | refund | sync: sponsor campaigns, by ref. */

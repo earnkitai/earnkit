@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
+import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
 
 /**
@@ -145,6 +146,15 @@ export const ProgramFile = z
       }
       if (!p.starts_at || !p.ends_at)
         issue('campaigns need starts_at and ends_at (the scoring window)');
+      if (p.campaign.kind === 'earnkit' && p.starts_at && p.ends_at) {
+        // v2.4 §3: dates and amounts are never hand-written in an EarnKit campaign's texts.
+        const t = earnkitTexts({ starts_at: p.starts_at, ends_at: p.ends_at, campaign: p.campaign });
+        const fix = 'run pnpm campaign golive <slug> --texts-only --write';
+        if (p.reward !== t.reward) issue(`reward must be the generated text (${fix}): "${t.reward}"`);
+        if (p.summary !== t.summary) issue(`summary must be the generated text (${fix}): "${t.summary}"`);
+        if (JSON.stringify(p.rules) !== JSON.stringify(t.rules))
+          issue(`rules must be the generated rules (${fix})`);
+      }
     }
     if (new Set(keys).size !== keys.length)
       issue('submission requirement keys must be unique');

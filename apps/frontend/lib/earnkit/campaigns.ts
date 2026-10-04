@@ -7,7 +7,8 @@ import { quoted } from './untrusted-text';
 /**
  * EarnKit's own campaigns (v2.0): a program with a `campaign` block. Builders submit to
  * EarnKit; EarnKit scores each entry from Base onchain data; a human approves winners; the
- * prize token is sent straight to each winner's payout wallet (scripts/campaign-payout.mts).
+ * prize token is sent straight to each winner's payout wallet (paid automatically by the cron:
+ * lib/earnkit/cron.ts).
  * See docs/design-docs-and-implementation-plans/v2-earnkit-campaigns.md.
  */
 
@@ -28,8 +29,12 @@ export const EarnKitCampaign = z
     kind: z.literal('earnkit'),
     prize: EarnKitPrize,
     winners: z.number().int().min(1).max(50),
-    /** Whole tokens per winner, as a string (e.g. "75000000"). */
+    /** Whole tokens per winner ("84800000"): the USD prize at the go-live price (pnpm campaign golive). */
     amount_each: z.string().regex(/^\d+$/),
+    /** v2.4: the prize in USD, all winners together; each gets prize_usd_total / winners. */
+    prize_usd_total: z.number().positive(),
+    /** v2.4: the day amount_each was priced (DefiLlama, at go-live). */
+    priced_at: z.string().date().optional(),
     metric: z.literal('unique_wallets'),
     /** Minimum score to be eligible. */
     min_score: z.number().int().min(0),
@@ -72,6 +77,7 @@ export const CampaignConfig = z.discriminatedUnion('kind', [
   SponsorCampaign,
 ]);
 export type CampaignConfig = z.infer<typeof CampaignConfig>;
+export type EarnKitCampaign = z.infer<typeof EarnKitCampaign>;
 
 const fmt = (n: string) =>
   Number(n).toLocaleString('en-US', { maximumFractionDigits: 18 });
@@ -79,10 +85,29 @@ const fmt = (n: string) =>
 export const minScore = (c: CampaignConfig) =>
   c.kind === 'earnkit' ? c.min_score : 0;
 
+/** "$5,000": whole dollars (cents only under $10). Pure; exported for tests. */
+export const usd = (n: number) =>
+  `$${n.toLocaleString('en-US', { maximumFractionDigits: n < 10 ? 2 : 0 })}`;
+
+/** USD per winner of an EarnKit campaign. Pure. */
+export const prizeUsdEach = (c: EarnKitCampaign) => c.prize_usd_total / c.winners;
+
 export const prizeText = (c: CampaignConfig) =>
   c.kind === 'earnkit'
-    ? `${fmt(c.amount_each)} ${c.prize.symbol} each to ${c.winners} winners`
+    ? `${usd(prizeUsdEach(c))} each to the top ${c.winners} (${fmt(c.amount_each)} ${c.prize.symbol} each)`
     : `${fmt(c.pool)} ${c.prize.symbol} pool (${fmt(c.prize_total)} to winners)`;
+
+/** list_programs' prize column (v2.4 §1): "$100 each to top 5 (in MINI)". Pure. */
+export const prizeColumn = (c: CampaignConfig) =>
+  c.kind === 'earnkit'
+    ? `${usd(prizeUsdEach(c))} each to top ${c.winners} (in ${c.prize.symbol})`
+    : prizeText(c);
+
+/** What one winner got, money first: "$100 in MINI" for EarnKit campaigns, else wonText. Pure. */
+export const wonUsdText = (c: CampaignConfig, prizeAmount: string | null) =>
+  c.kind === 'earnkit'
+    ? `${usd(prizeUsdEach(c))} in ${c.prize.symbol}`
+    : wonText(c, prizeAmount);
 
 /** What one winner got: the recorded amount, else the fixed amount (EarnKit kind). */
 export const wonText = (c: CampaignConfig, prizeAmount: string | null) =>
@@ -499,6 +524,16 @@ export async function scoreEntry(
  * the last minutes' transactions are indexed.
  */
 export const FINAL_GRACE_MS = 15 * 60_000;
+
+/** The public review after an EarnKit campaign ends, before its automatic payout (v2.4 §3). */
+export const REVIEW_MS = 48 * 3_600_000;
+
+/**
+ * When winners are paid at the latest: the end, the explorer grace, the first cron after it (the
+ * review opens), the 48 h review, and the next hourly cron. Pure; exported for tests.
+ */
+export const payoutBy = (endsAt: Date) =>
+  new Date(endsAt.getTime() + FINAL_GRACE_MS + REVIEW_MS + 2 * 3_600_000);
 
 /**
  * Final: the score covers the whole window (`scoredThrough` reaches `endsAt`) and was taken at

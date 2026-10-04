@@ -8,12 +8,17 @@ import {
   normalizeRepoUrl,
   parseAddresses,
   presentYourEntries,
+  prizeColumn,
   prizeText,
+  prizeUsdEach,
   sameRepoEntry,
+  usd,
   validateEntry,
   isWalletAddress,
   normalizeLiveUrl,
   wonText,
+  wonUsdText,
+  payoutBy,
   firstPageParams,
   needsScore,
   scoreEntry,
@@ -84,6 +89,7 @@ const campaign: CampaignConfig = {
   prize: { token: A, symbol: 'MINI', decimals: 18, chain: 'base' },
   winners: 5,
   amount_each: '75000000',
+  prize_usd_total: 500,
   metric: 'unique_wallets',
   min_score: 10,
 };
@@ -109,7 +115,18 @@ test('both campaign kinds parse; a campaign without kind is rejected', () => {
 });
 
 test('prize and win text per kind', () => {
-  assert.equal(prizeText(campaign), '75,000,000 MINI each to 5 winners');
+  assert.equal(prizeText(campaign), '$100 each to the top 5 (75,000,000 MINI each)');
+  assert.equal(prizeColumn(campaign), '$100 each to top 5 (in MINI)');
+  assert.equal(prizeColumn(sponsored), '5,000 USDC pool (4,500 to winners)');
+  assert.equal(prizeUsdEach(campaign), 100);
+  assert.equal(wonUsdText(campaign, null), '$100 in MINI');
+  assert.equal(wonUsdText(sponsored, '1500.5'), '1,500.5 USDC');
+  assert.equal(usd(5000), '$5,000');
+  assert.equal(usd(2.5), '$2.5');
+  assert.equal(
+    payoutBy(new Date('2026-10-18T23:59:00Z')).toISOString(),
+    '2026-10-21T02:14:00.000Z',
+  );
   assert.equal(prizeText(sponsored), '5,000 USDC pool (4,500 to winners)');
   assert.equal(wonText(campaign, null), '75,000,000 MINI');
   assert.equal(wonText(sponsored, '1500.5'), '1,500.5 USDC');

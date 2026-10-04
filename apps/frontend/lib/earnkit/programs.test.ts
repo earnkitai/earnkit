@@ -79,6 +79,11 @@ test('perWinnerUsd: USDC sponsor prize / max(winners, 3), else the file value, e
   );
   assert.equal(perWinnerUsd({ campaign: null, max_award_usd: '5000' }), 5000);
   assert.equal(perWinnerUsd({ campaign: null, max_award_usd: null }), null);
+  const earnkit = {
+    kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },
+    winners: 5, amount_each: '1', prize_usd_total: 500, metric: 'unique_wallets', min_score: 10,
+  } as const;
+  assert.equal(perWinnerUsd({ campaign: earnkit, max_award_usd: null }), 100);
 });
 
 // A funded sponsor campaign as stored, from the real program file.

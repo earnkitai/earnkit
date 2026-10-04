@@ -24,3 +24,9 @@ export function formatDeadline(d: Date | string) {
     `${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} UTC`
   );
 }
+
+/** "Oct 18": a short UTC day for tables and builder text. */
+export function shortDate(d: Date | string) {
+  const t = typeof d === 'string' ? new Date(d) : d;
+  return `${MONTHS[t.getUTCMonth()]} ${t.getUTCDate()}`;
+}

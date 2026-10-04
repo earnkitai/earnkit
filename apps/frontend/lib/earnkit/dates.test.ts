@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDeadline } from './dates';
+import { formatDeadline, shortDate } from './dates';
 
 test('formatDeadline: "Mon D, YYYY, HH:MM UTC" from a Date or an ISO string', () => {
   assert.equal(
@@ -26,4 +26,9 @@ test('formatDeadline converts offsets to UTC and pads hours and minutes', () => 
     formatDeadline('2026-12-31T09:00:00Z'),
     'Dec 31, 2026, 09:00 UTC',
   );
+});
+
+test('shortDate: "Oct 18" in UTC', () => {
+  assert.equal(shortDate(new Date('2026-10-18T23:59:00Z')), 'Oct 18');
+  assert.equal(shortDate('2026-10-14T23:59:00-04:00'), 'Oct 15');
 });

@@ -6,6 +6,9 @@ import { formatDeadline } from './dates';
 export const USAGE = `Usage: pnpm campaign <command> <slug|ref> [options]
 
 EarnKit's own campaigns (by program slug):
+  golive <slug> [--days 14] [--write]            price MINI on DefiLlama now, set the 14-day window, status
+                                                 active and the generated texts in programs/<slug>.json
+  golive <slug> --texts-only [--write]           only regenerate the reward, summary and rules
   score  <slug>                                  update every entry's score from Base data
   rank   <slug>                                  leaderboard with evidence, for review
   payout <slug> --winners <id>,<id>,... [--execute]
