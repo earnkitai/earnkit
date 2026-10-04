@@ -162,7 +162,7 @@ async function goLiveCommand() {
   const { readFileSync, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { ProgramFile } = await import('../lib/earnkit/program-file');
-  const { earnkitTexts, goLive } = await import('../lib/earnkit/campaign-text');
+  const { earnkitTexts, goLive, goLiveBlocker } = await import('../lib/earnkit/campaign-text');
   const path = join(import.meta.dirname, '..', '..', '..', 'programs', `${slug}.json`);
   const raw = JSON.parse(readFileSync(path, 'utf8'));
   if (raw.campaign?.kind !== 'earnkit') fail(`${slug} isn't an EarnKit campaign.`);
@@ -170,6 +170,11 @@ async function goLiveCommand() {
   if (process.argv.includes('--texts-only')) {
     next = { ...raw, ...earnkitTexts(raw) };
   } else {
+    const blocker = goLiveBlocker(raw, new Date());
+    if (blocker && !process.argv.includes('--force')) {
+      if (process.argv.includes('--write')) fail(`Refused: ${blocker}`);
+      console.log(`Warning: ${blocker}\n`);
+    }
     const days = Number(flag('days') ?? 14);
     if (!Number.isInteger(days) || days < 1 || days > 60)
       fail('--days must be a whole number from 1 to 60.');
@@ -193,7 +198,9 @@ async function goLiveCommand() {
   }
   // The raw object, not the parsed one: parsing adds defaults (token_policy) the file leaves out.
   writeFileSync(path, JSON.stringify(next, null, 2) + '\n');
-  console.log(`\nWrote programs/${slug}.json. Commit and push it to go live.`);
+  console.log(
+    `\nWrote programs/${slug}.json. ${process.argv.includes('--texts-only') ? 'Commit and push it.' : 'Commit and push it to go live.'}`,
+  );
 }
 
 /** fallback | refund | sync: sponsor campaigns, by ref. */

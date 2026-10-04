@@ -6,8 +6,9 @@ import { formatDeadline } from './dates';
 export const USAGE = `Usage: pnpm campaign <command> <slug|ref> [options]
 
 EarnKit's own campaigns (by program slug). The cron (POST /api/cron) scores, freezes and pays them:
-  golive <slug> [--days 14] [--write]            price MINI on DefiLlama now, set the 14-day window, status
+  golive <slug> [--days 14] [--write] [--force]  price MINI on DefiLlama now, set the 14-day window, status
                                                  active and the generated texts in programs/<slug>.json
+                                                 (refused on an active or started campaign without --force)
   golive <slug> --texts-only [--write]           only regenerate the reward, summary and rules
   rank   <slug>                                  ranked entries with evidence (users, smart, shared, code share)
   payout <slug>                                  dry run: who the cron pays, in order, after screening
