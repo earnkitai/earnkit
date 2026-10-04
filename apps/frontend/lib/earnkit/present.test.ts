@@ -205,7 +205,9 @@ test('I3 offers: no repos known asks to check them; repos known with no fit offe
   assert.match(noRepos, /\n\nWant me to check which of your repos already qualify\?$/);
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // Base pays more but needs a Loom and 10 personal answers: Arc is the top program without forms.
-  assert.match(noFit, /\n\nWant me to start on Arc Microgrants \(500 USDC × 20 grants\)\?$/);
+  // Ruling 28: the repo was ruled out, so the offer is to build something new, never "start on".
+  assert.match(noFit, /\n\nWant me to build something new for Arc Microgrants \(500 USDC × 20 grants\)\?$/);
+  assert.doesNotMatch(noFit, /start on/);
   // A repo error counts as "no repos known".
   assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /check which of your repos already qualify\?$/);
   // An open campaign without an entry stays the top choice.
@@ -218,4 +220,17 @@ test('days left counts UTC calendar days: never "ends today" a day early', () =>
   assert.match(at('2026-10-17T23:00:00Z'), /\| Oct 18, 1 day left \|/);
   assert.match(at('2026-10-18T01:00:00Z'), /\| Oct 18, ends today \|/);
   assert.match(at('2026-10-04T12:00:00Z'), /\| Oct 18, 14 days left \|/);
+});
+
+test('Ruling 28: repos known, nothing fits, only forms programs open: build something new, saying what it needs', () => {
+  const text = presentFirstMessage(msg({
+    cards: [circle, base], repos: repos(v('base-builder-grants', 'no', 'not on Base')),
+  }));
+  assert.match(text, /None of your 1 repo fits an open program yet\./);
+  assert.match(text, /\n\nWant me to build something new for Base Builder Grant Program \(up to \$5,000\)\? It needs a short Loom from you\.$/);
+  assert.doesNotMatch(text, /Pick one/);
+  const answers = presentFirstMessage(msg({
+    cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'no', 'not on Arc')),
+  }));
+  assert.match(answers, /Want me to build something new for Arc Microgrants \(500 USDC × 20 grants\)\? It needs 3 answers only you can give\.$/);
 });

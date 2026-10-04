@@ -170,6 +170,12 @@ const byPrize = (a: Card, b: Card) =>
 const byCampaignPrize = (a: CampaignRow, b: CampaignRow) =>
   b.prize_usd_each - a.prize_usd_each || a.ends_at.getTime() - b.ends_at.getTime();
 
+/** " It needs a short Loom from you." for a program with forms (needsForms). */
+const needsText = (c: Card) =>
+  c.each_time[0]
+    ? ` It needs ${c.each_time[0]} from you.`
+    : ` It needs ${c.builder_fields} answers only you can give.`;
+
 const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 
 const CHAT_ONLY =
@@ -253,7 +259,8 @@ export function presentFirstMessage(m: FirstMessage): string {
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
  * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
  * without forms; a fit that needs forms, saying what only they can give; with no repos known, check
- * them; with repos known and no fit, the top program without forms; else wait for results or news.
+ * them; with repos known and no fit, build something new for the top program (without forms first,
+ * Ruling 28); else wait for results or news.
  */
 function offer(
   m: FirstMessage,
@@ -276,17 +283,14 @@ function offer(
   const fastest = byHour.find((r) => !needsForms(r.card));
   if (fastest) return `Want me to start on ${fastest.card.title} with ${fastest.repo}?`;
   const forms = byHour[0];
-  if (forms) {
-    const needs = forms.card.each_time[0]
-      ? `${forms.card.each_time[0]} from you`
-      : `${forms.card.builder_fields} answers only you can give`;
-    return `Want me to start on ${forms.card.title} with ${forms.repo}? It needs ${needs}.`;
-  }
+  if (forms) return `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`;
   const curated = m.cards.filter((c) => !c.sponsored);
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';
-  const top = curated.filter((c) => !needsForms(c)).sort(byPrize)[0];
-  if (top) return `Want me to start on ${top.title} (${prizeOf(top)})?`;
+  // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.
+  const top = [...curated].sort((a, b) => Number(needsForms(a)) - Number(needsForms(b)) || byPrize(a, b))[0];
+  if (top)
+    return `Want me to build something new for ${top.title} (${prizeOf(top)})?${needsForms(top) ? needsText(top) : ''}`;
   // Only sponsor campaigns open: never offered by name.
   if (m.cards.length > 0) return "Pick one and I'll start.";
   if (m.campaigns.some((r) => r.you === 'in review'))
