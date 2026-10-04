@@ -4,6 +4,7 @@ import {
   answersOf,
   campaignEntryProblems,
   submissionDataProblem,
+  OTHER_VALUE_MAX,
   entryRules,
   missingAnswersProblem,
   selfEntryProblem,
@@ -258,6 +259,9 @@ test('fix I1: submission_data is capped at 50 keys and 4 KB a value, before any 
   );
   assert.deepEqual(calls, { status: 0, creationTx: 0, txSender: 0 });
   assert.equal(submissionDataProblem({ a: 'x'.repeat(4096), b: ['y'] }), null);
+  // M4: other programs allow 16 KB an answer (an essay already submitted elsewhere).
+  assert.equal(submissionDataProblem({ essay: 'x'.repeat(16_384) }, OTHER_VALUE_MAX), null);
+  assert.match(submissionDataProblem({ essay: 'x'.repeat(16_385) }, OTHER_VALUE_MAX)!, /^submission_data: essay is over 16 KB/);
 });
 
 test('fix minor: a missing repo is reported with the other missing answers', async () => {

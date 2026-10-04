@@ -166,8 +166,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
 }
 
 /**
- * The daily jobs (v2.4 §3, §4), idempotent: for every EarnKit campaign that is live or not yet
- * paid out, one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
+ * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
+ * (and one closed after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
  * whose cached fees are over 6 h old. `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
@@ -183,7 +183,9 @@ export async function runCron(
     SELECT p.id, p.starts_at, p.ends_at, p.campaign, r.state, r.review_until
     FROM programs p LEFT JOIN campaign_runs r ON r.program_id = p.id
     WHERE p.campaign->>'kind' = 'earnkit' AND p.starts_at IS NOT NULL AND p.ends_at IS NOT NULL
-      AND p.status = 'active' AND COALESCE(r.state, 'running') <> 'paid'
+      AND COALESCE(r.state, 'running') <> 'paid'
+      -- M6: a campaign closed after its review opened is still paid out.
+      AND (p.status = 'active' OR r.state IN ('review', 'paying'))
       ${opts.only ? sql()`AND p.id IN ${sql()(opts.only)}` : sql()``}
     ORDER BY p.ends_at`;
   const campaigns: Record<string, unknown>[] = [];

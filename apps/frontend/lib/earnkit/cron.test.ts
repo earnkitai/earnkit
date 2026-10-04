@@ -235,6 +235,29 @@ test('Ruling 35: after the end, one unfinished entry per call gets the whole bud
   }
 });
 
+test('M6: closing a campaign after its review opened never stops its payout; closed before that, it is skipped', db, async () => {
+  const tag = `test-cron-closed-${process.pid}-${Date.now()}`;
+  await setup(tag, 2);
+  const f = chain();
+  const deps = {
+    score: { score: async (contracts: string[]) => result(contracts[0] === `0x${'1'.repeat(40)}` ? 9 : 8) },
+    pay: { account, rpc: f.rpc, listed: async () => false },
+    refreshFees: async () => 0,
+  };
+  const run = async (min: number) => mine(await runCron({ now: at(min), deps, only: [tag] }), tag);
+  try {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${tag}`;
+    assert.equal(await run(-60), undefined, 'closed while running: skipped');
+    await sql()`UPDATE programs SET status = 'active' WHERE id = ${tag}`;
+    assert.equal((await run(16))!.review, true);
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${tag}`;
+    assert.deepEqual(await run(16 + 48 * 60), { id: tag, step: 'pay', done: true, note: null });
+    assert.equal(f.sent.length, 2);
+  } finally {
+    await teardown(tag);
+  }
+});
+
 test('a campaign another call is advancing is skipped as busy; the payout key is never needed before the review ends', db, async () => {
   const tag = `test-cron-busy-${process.pid}-${Date.now()}`;
   await setup(tag, 1);

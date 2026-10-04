@@ -139,20 +139,22 @@ export const entryRules = (
 /** At most this many submission_data answers, each at most SUBMISSION_VALUE_MAX bytes. */
 export const SUBMISSION_KEYS_MAX = 50;
 export const SUBMISSION_VALUE_MAX = 4096;
+/** Programs that aren't campaigns: an answer may be a long essay already submitted elsewhere (M4). */
+export const OTHER_VALUE_MAX = 16_384;
 
 /**
  * Why submission_data is too large to check or store, or null: more than 50 answers, or an answer
- * over 4 KB (a list counts as its JSON). Checked before any read. Pure; exported for tests.
+ * over `max` bytes (4 KB for campaign entries; a list counts as its JSON). Pure; exported for tests.
  */
-export function submissionDataProblem(data: Record<string, unknown>) {
+export function submissionDataProblem(data: Record<string, unknown>, max = SUBMISSION_VALUE_MAX) {
   const keys = Object.keys(data);
   if (keys.length > SUBMISSION_KEYS_MAX)
     return `submission_data: at most ${SUBMISSION_KEYS_MAX} answers (got ${keys.length}); pass only the program's questions.`;
   for (const k of keys) {
     const v = data[k];
     const text = typeof v === 'string' ? v : (JSON.stringify(v) ?? '');
-    if (Buffer.byteLength(text, 'utf8') > SUBMISSION_VALUE_MAX)
-      return `submission_data: ${k.slice(0, 64)} is over 4 KB; shorten it.`;
+    if (Buffer.byteLength(text, 'utf8') > max)
+      return `submission_data: ${k.slice(0, 64)} is over ${max / 1024} KB; shorten it.`;
   }
   return null;
 }
@@ -288,9 +290,12 @@ export async function recordSubmission(
    */
   deps: EntryDeps & { charge?: () => Promise<unknown> } = {},
 ) {
-  const tooLarge = submissionDataProblem(input.submission_data);
-  if (tooLarge) throw new EntryError(tooLarge);
   const program = await getProgramRow(input.program_id);
+  const tooLarge = submissionDataProblem(
+    input.submission_data,
+    program.campaign ? SUBMISSION_VALUE_MAX : OTHER_VALUE_MAX,
+  );
+  if (tooLarge) throw new EntryError(tooLarge);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
   // third-party text. Other programs' projects go only to the builder's own submission.
   const cleaned = program.campaign

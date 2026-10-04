@@ -286,6 +286,8 @@ CREATE TABLE IF NOT EXISTS entry_wallets (
   PRIMARY KEY (project_id, wallet)
 );
 CREATE INDEX IF NOT EXISTS entry_wallets_wallet ON entry_wallets (wallet);
+-- Alerts and standings look entries up by payout wallet in any case (M10).
+CREATE INDEX IF NOT EXISTS projects_payout_wallet_lower ON projects (lower(payout_wallet));
 
 -- The automatic lifecycle of EarnKit campaigns (spec §3): the final score, review vetoes, and an
 -- idempotent payout (the signed transfer is stored before it is broadcast).
