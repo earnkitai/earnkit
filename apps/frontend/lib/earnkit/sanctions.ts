@@ -70,7 +70,10 @@ export const setSanctionsOracle = (o: SanctionsOracle | null) => {
 };
 
 const noted = new Set<string>();
+/** Screens skipped so far (screenedWallets reports whether a call skipped). */
+let skips = 0;
 function skipNote(why: string) {
+  skips++;
   if (noted.has(why)) return;
   noted.add(why);
   console.info(`[sanctions] screening skipped: ${why}`);
@@ -128,6 +131,16 @@ export async function sanctionedWallets(
     else clean.set(w, now + CLEAN_TTL_MS);
   }
   return hits;
+}
+
+/**
+ * sanctionedWallets, plus whether the screen actually ran (false: skipped off Base mainnet or, outside
+ * production, with an unreadable RPC). For the CLI's dry run, which says so.
+ */
+export async function screenedWallets(wallets: string[], chainId: number) {
+  const before = skips;
+  const listed = await sanctionedWallets(wallets, chainId);
+  return { listed, screened: skips === before };
 }
 
 /** Throws SanctionsError(`message`) when `wallet` is listed. */

@@ -5,9 +5,10 @@ import { sql } from '@/lib/earnkit/db';
 import type { CampaignConfig } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { payingCampaign, reviewRows } from '@/lib/earnkit/leaderboard';
-import { payoutFunds, type FrozenTerms } from '@/lib/earnkit/payout';
+import { prizeFunds } from '@/lib/earnkit/funds';
+import type { FrozenTerms } from '@/lib/earnkit/payout';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
-import { vetoKeyMatches } from '@/lib/earnkit/veto';
+import { VETO_ERRORS, vetoKeyMatches } from '@/lib/earnkit/veto';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { robots: { index: false, follow: false } };
@@ -24,18 +25,18 @@ export default async function VetoPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ key?: string; removed?: string }>;
+  searchParams: Promise<{ key?: string; removed?: string; error?: string }>;
 }) {
   const { slug } = await params;
-  const { key, removed } = await searchParams;
+  const { key, removed, error } = await searchParams;
   try {
-    await enforce('veto', clientIp(await headers()), 'Too many review page loads from this address.');
+    await enforce('veto', clientIp(await headers()), VETO_ERRORS['rate-limited']);
   } catch (err) {
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
         <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
-          {err.message}
+          {VETO_ERRORS['rate-limited']}
         </p>
       </div>
     );
@@ -50,9 +51,11 @@ export default async function VetoPage({
   const paying = payingCampaign(program.campaign, run?.terms);
   const [{ ranked, picks, skipped }, funds] = await Promise.all([
     reviewRows(slug, program.campaign),
-    payoutFunds(paying),
+    // The owner reads the balance now, not the public page's cached one.
+    prizeFunds(paying, { fresh: true }),
   ]);
-  const open = run?.state === 'review';
+  // The same rule as the veto itself: open while review_until is ahead.
+  const open = run?.state === 'review' && run.review_until !== null && run.review_until.getTime() > Date.now();
   const removedId = Number(removed);
   return (
     <div className="w-full pt-4">
@@ -61,14 +64,19 @@ export default async function VetoPage({
         <h1 className="mt-4 font-funnel-display text-3xl text-ek-white">Review</h1>
         <p className="mt-2 break-all text-sm">
           {funds
-            ? `Prize wallet ${funds.wallet} holds ${Number(funds.balance).toLocaleString('en-US')} ${paying.prize.symbol}; the cron pays ${paying.amount_each} ${paying.prize.symbol} each to ${picks.length} of ${paying.winners}.`
+            ? `Prize wallet ${funds.wallet} holds ${Number(funds.balance).toLocaleString('en-US')} ${funds.symbol}; the cron pays ${paying.amount_each} ${paying.prize.symbol} each to ${picks.length} of ${paying.winners}.`
             : 'Prize wallet: not set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY), or its balance could not be read.'}
         </p>
         {run?.note ? <p className="mt-2 text-sm text-ek-white">{run.note}</p> : null}
+        {error && Object.hasOwn(VETO_ERRORS, error) ? (
+          <p className="mt-2 text-sm text-ek-white">{VETO_ERRORS[error as keyof typeof VETO_ERRORS]}</p>
+        ) : null}
         <p className="mt-2 text-sm">
           {open && run?.review_until
             ? `Open until ${formatDeadline(run.review_until)}. Removing an entry moves the next one up.`
-            : `Removing is possible only during the 48-hour review (now: ${run?.state ?? 'running'}).`}
+            : run?.state === 'review'
+              ? 'The review has closed; the cron pays on its next run.'
+              : `Removing is possible only during the 48-hour review (now: ${run?.state ?? 'running'}).`}
           {Number.isInteger(removedId) && removedId > 0 ? ` Removed entry #${removedId}.` : ''}
         </p>
         <table className="mt-6 w-full text-sm">

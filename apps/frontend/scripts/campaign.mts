@@ -132,10 +132,11 @@ async function main() {
     } else {
       // The cron screens each winner before paying; a listed wallet is refused and the next entry
       // moves up. Same here, without sending anything.
-      const { sanctionedWallets, BASE_MAINNET } = await import('../lib/earnkit/sanctions');
+      const { screenedWallets, BASE_MAINNET } = await import('../lib/earnkit/sanctions');
       const { pickWinners } = await import('../lib/earnkit/winners');
       const eligible = ranked.filter((e) => (e.score ?? 0) >= terms.min_score && !e.prize_tx);
-      const listed = new Set(await sanctionedWallets(eligible.map((e) => e.payout_wallet), BASE_MAINNET));
+      const screen = await screenedWallets(eligible.map((e) => e.payout_wallet), BASE_MAINNET);
+      const listed = new Set(screen.listed);
       const screened = ranked.map((e) =>
         listed.has(e.payout_wallet.toLowerCase()) ? { ...e, payout_status: 'refused' } : e,
       );
@@ -148,6 +149,8 @@ async function main() {
         console.log(`  #${w.rank} id ${w.id} ${w.name} -> ${w.payout_wallet}${w.prize_tx ? ` (paid ${w.prize_tx})` : ''}`);
       if (plan.winners.length === 0) console.log('  nobody yet: no entry reached the minimum.');
       for (const s of plan.skipped) console.log(`  skipped id ${s.id}: ${s.reason}`);
+      if (!screen.screened)
+        console.log('\nSanctions not screened (the Base RPC could not be read); the cron screens each winner before paying.');
       console.log('\nDry run: nothing is sent from here.');
     }
   }

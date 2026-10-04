@@ -102,7 +102,7 @@ export default async function CampaignPage({
                   >
                     {funds.wallet}
                   </a>{' '}
-                  holds {Number(funds.balance).toLocaleString('en-US')} {c.prize.symbol}.
+                  holds {Number(funds.balance).toLocaleString('en-US')} {funds.symbol}.
                 </>
               ) : (
                 'Prize wallet: not set up yet.'

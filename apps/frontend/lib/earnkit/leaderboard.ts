@@ -7,7 +7,8 @@ import {
   type YourEntry,
 } from './campaigns';
 import { sql, type Db } from './db';
-import { fromTerms, payoutFunds, type FrozenTerms } from './payout';
+import { prizeFunds } from './funds';
+import { fromTerms, type FrozenTerms } from './payout';
 import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
@@ -40,6 +41,18 @@ export const payingCampaign = (c: EarnKitCampaign, terms: FrozenTerms | null | u
   const t = fromTerms(terms);
   return { ...c, prize: { ...c.prize, ...t.prize }, amount_each: t.amount_each, winners: t.winners, min_score: t.min_score };
 };
+
+/**
+ * The payout state as the public reads it (fix round 1): campaign_runs.note is for the owner (it
+ * can name env vars or wallets), so the public page shows one of three short sentences. Pure;
+ * exported for tests.
+ */
+export function publicNote(run: { state: RunState; note: string | null } | null | undefined) {
+  if (run?.state !== 'paying') return null;
+  if (run.note && /^Waiting for the transfer/.test(run.note)) return 'Waiting for a transfer to confirm.';
+  if (run.note) return 'Payouts paused; they resume automatically.';
+  return 'Paying winners now.';
+}
 
 /** One entry with its review evidence (v2.4 §3): counted users, smart accounts, users shared with other entries, Builder Code share. */
 export type ReviewRow = Candidate & {
@@ -155,9 +168,10 @@ export async function getCampaignBoard(slug: string) {
         ? { rank: r.score === null ? null : r.rank, standing: standingText(r, rows, paying, { state, ended }) }
         : { rank: r.rank }),
     })),
-    run: run ? { state: run.state, review_until: run.review_until, note: run.note } : null,
+    run: run ? { state: run.state, review_until: run.review_until, note: publicNote(run) } : null,
     review: earnkit && state !== 'running' ? await reviewRows(slug, earnkit) : null,
-    funds: paying ? await payoutFunds(paying) : null,
+    // Memoized (60 s): anonymous views share one balance read.
+    funds: paying ? await prizeFunds(paying) : null,
     sponsorState: sponsorRow?.state ?? null,
     offPlan: sponsorRow?.award_onchain ?? null,
     // Who the sponsor is (lazily re-verified) and what its wallet has done before.

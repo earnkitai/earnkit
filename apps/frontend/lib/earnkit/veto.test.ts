@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { reviewRows } from './leaderboard';
-import { VetoError, vetoEntry, vetoKey, vetoKeyMatches, vetoLink, vetoPost } from './veto';
+import { publicNote, reviewRows } from './leaderboard';
+import { VETO_ERRORS, VetoError, vetoEntry, vetoKey, vetoKeyMatches, vetoLink, vetoPost } from './veto';
 
 const SECRET = 'v'.repeat(48);
 const KEY = vetoKey('c1', SECRET)!;
@@ -27,35 +27,55 @@ const post = (fields: Record<string, string>) =>
     body: new URLSearchParams(fields).toString(),
   });
 
-test('POST /api/admin/veto: the key, an entry id, then the veto; a closed review is a 409', async () => {
+const loc = (code: string) => `/admin/veto/c1?key=${KEY}&${code}`;
+
+test('POST /api/admin/veto: the key, an entry id, then the veto; errors go back to the page as a code', async () => {
   process.env.ADMIN_VETO_SECRET = SECRET;
   const calls: unknown[][] = [];
   const deps = { limit: async () => {}, veto: async (...a: unknown[]) => { calls.push(a); } };
   assert.equal((await vetoPost(post({ slug: 'c1', key: 'nope', entry: '7' }), deps)).status, 404);
-  assert.equal((await vetoPost(post({ slug: 'c1', key: KEY, entry: 'x' }), deps)).status, 400);
+  const bad = await vetoPost(post({ slug: 'c1', key: KEY, entry: 'x' }), deps);
+  assert.deepEqual([bad.status, bad.headers.get('location')], [303, loc('error=entry')]);
   assert.equal(calls.length, 0);
   const ok = await vetoPost(post({ slug: 'c1', key: KEY, entry: '7', reason: 'wash trading' }), deps);
-  assert.equal(ok.status, 303);
-  assert.equal(ok.headers.get('location'), `/admin/veto/c1?key=${KEY}&removed=7`);
+  assert.deepEqual([ok.status, ok.headers.get('location')], [303, loc('removed=7')]);
   assert.deepEqual(calls, [['c1', 7, 'wash trading']]);
   const closed = await vetoPost(post({ slug: 'c1', key: KEY, entry: '7' }), {
     ...deps,
     veto: async () => { throw new VetoError('closed'); },
   });
-  assert.equal(closed.status, 409);
+  assert.deepEqual([closed.status, closed.headers.get('location')], [303, loc('error=closed')]);
+  for (const code of ['entry', 'closed', 'rate-limited'] as const) assert.match(VETO_ERRORS[code], /^[A-Z][^\n]*\.$/);
   delete process.env.ADMIN_VETO_SECRET;
 });
 
-test('POST /api/admin/veto: rate limited per IP before the key is checked', async () => {
+test('POST /api/admin/veto: rate limited per IP; never a veto then (a wrong key is still a 404)', async () => {
+  process.env.ADMIN_VETO_SECRET = SECRET;
   const { RateLimitError } = await import('./rate-limit');
   const ips: string[] = [];
-  const r = await vetoPost(post({ slug: 'c1', key: KEY, entry: '7' }), {
-    limit: async (ip) => { ips.push(ip); throw new RateLimitError('Too many.', 60); },
+  const deps = {
+    limit: async (ip: string) => { ips.push(ip); throw new RateLimitError('Too many.', 60); },
     veto: async () => assert.fail('no veto when rate limited'),
-  });
-  assert.equal(r.status, 429);
-  assert.equal(r.headers.get('retry-after'), '60');
-  assert.deepEqual(ips, ['1.2.3.4']);
+  };
+  const r = await vetoPost(post({ slug: 'c1', key: KEY, entry: '7' }), deps);
+  assert.deepEqual([r.status, r.headers.get('location')], [303, loc('error=rate-limited')]);
+  assert.equal((await vetoPost(post({ slug: 'c1', key: 'nope', entry: '7' }), deps)).status, 404);
+  assert.deepEqual(ips, ['1.2.3.4', '1.2.3.4']);
+  delete process.env.ADMIN_VETO_SECRET;
+});
+
+test('publicNote: the public page never shows the raw payout note', () => {
+  assert.equal(publicNote(null), null);
+  assert.equal(publicNote({ state: 'review', note: null }), null);
+  assert.equal(publicNote({ state: 'paid', note: 'No entry reached the minimum score; nothing to pay.' }), null);
+  assert.equal(publicNote({ state: 'paying', note: null }), 'Paying winners now.');
+  assert.equal(publicNote({ state: 'paying', note: 'Waiting for the transfer to entry #4 to be mined.' }), 'Waiting for a transfer to confirm.');
+  for (const note of [
+    "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent.",
+    'BASE_RPC_URL is not Base mainnet; nothing was sent.',
+    'Payouts paused: a check failed; retrying hourly.',
+  ])
+    assert.equal(publicNote({ state: 'paying', note }), 'Payouts paused; they resume automatically.');
 });
 
 test('Review Focus 4: opening the link (GET) never removes anything; the page is rate limited and flags partial scores', () => {
@@ -131,6 +151,10 @@ test('vetoEntry: only an unpaid entry, only while the review is open; the next e
     // Twice: refused (already removed).
     await assert.rejects(vetoEntry(tag, a, 'x'), VetoError);
     assert.deepEqual((await reviewRows(tag, campaign)).picks.map((p) => p.id), [b, c]);
+    // The review deadline passed, before the cron moved on: refused (the page says so too).
+    await sql()`UPDATE campaign_runs SET review_until = now() - interval '1 second' WHERE program_id = ${tag}`;
+    await assert.rejects(vetoEntry(tag, b, 'x'), VetoError);
+    await sql()`UPDATE campaign_runs SET review_until = now() + interval '1 hour' WHERE program_id = ${tag}`;
     // Once the payout started: refused.
     await sql()`UPDATE campaign_runs SET state = 'paying' WHERE program_id = ${tag}`;
     await assert.rejects(vetoEntry(tag, b, 'x'), VetoError);
@@ -142,7 +166,7 @@ test('vetoEntry: only an unpaid entry, only while the review is open; the next e
 test('vetoEntry races the cron: a veto waits for the switch to paying and is then refused', db, async () => {
   const tag = `test-veto-race-${process.pid}-${Date.now()}`;
   const [a] = await setup(tag, 2);
-  await sql()`INSERT INTO campaign_runs (program_id, state) VALUES (${tag}, 'review')`;
+  await sql()`INSERT INTO campaign_runs (program_id, state, review_until) VALUES (${tag}, 'review', now() + interval '1 hour')`;
   try {
     let veto: Promise<unknown> | undefined;
     await sql().begin(async (tx) => {
