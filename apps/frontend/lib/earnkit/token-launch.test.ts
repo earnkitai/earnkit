@@ -6,6 +6,7 @@ import { RateLimitError } from './rate-limit';
 import { EARNINGS_LINE, LaunchError, TOKEN_TERMS, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
 import { tokenLineFor } from './token-gate';
+import { TOKEN_FOOTNOTE, tokenFootnote, tokenRow } from './entry-text';
 import {
   LaunchTokenInput,
   decideToken,
@@ -90,15 +91,10 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   assert.equal(b.earnings, EARNINGS_LINE('0xW'));
   assert.equal(b.policy, 'encouraged');
   assert.match(b.terms.agreement, /^https:\/\/tokens\.fun\//);
-  assert.match(b.say_to_builder, /Chain Kits/);
-  assert.match(b.say_to_builder, /\$CHAIN/);
-  assert.match(b.say_to_builder, /no token/);
-  assert.match(b.say_to_builder, /Base Batches/);
-  // Showing say_to_builder alone is complete consent: earnings and both terms links.
-  assert.ok(b.say_to_builder.includes(EARNINGS_LINE('0xW')));
-  assert.ok(b.say_to_builder.includes(TOKEN_TERMS.agreement));
-  assert.ok(b.say_to_builder.includes(TOKEN_TERMS.risks));
-  assert.match(b.say_to_builder, /earnkit\.txt/);
+  // v2.4: the token is one row in the confirmation, with the terms under it; nothing more.
+  // Ruling 14: the footnote names the fee wallet when it is known.
+  assert.equal(b.say_to_builder, `${tokenRow('CHAIN')}\n\n${tokenFootnote('0xW')}`);
+  assert.ok(TOKEN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && TOKEN_FOOTNOTE.includes(TOKEN_TERMS.risks));
   // The repo proof is spelled out for the agent; without a repo there is no token line yet.
   assert.match(b.note, /earnkit\.txt at its root with the line "payout_wallet: 0xW"/);
   assert.match(b.note, /pass the project's repo_url/);
@@ -110,7 +106,7 @@ test("tokenProposalBlock: with the repo known, this agent's own token line", asy
   assert.ok(b);
   const line = tokenLineFor(1, repoUrl, 'CHAIN')!;
   assert.match(line, /^token: CHAIN [0-9a-f]{10}$/);
-  assert.ok(b.say_to_builder.includes(`"${line}"`));
+  assert.ok(!b.say_to_builder.includes(line));
   assert.ok(b.note.includes(`"${line}"`));
   // Another agent asking about the same repo is shown its own line, never this one.
   const other = await tokenProposalBlock({ program: program('encouraged'), installationId: 2, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);
@@ -138,15 +134,14 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
   assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
   assert.match(b.note, /^Ask the builder for the wallet that receives creator fees\. /);
   assert.match(b.note, /"payout_wallet: <creator wallet>"/);
-  assert.ok(b.say_to_builder.includes(EARNINGS_LINE('<your wallet>')));
+  assert.equal(b.say_to_builder, `${tokenRow('CHAIN')}\n\n${TOKEN_FOOTNOTE}`);
 });
 
 test('tokenProposalBlock: no proposal asks the builder to pick one', async () => {
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => false, available: () => true });
   assert.ok(b);
   assert.equal(b.proposed, null);
-  assert.match(b.say_to_builder, /pick a name and ticker/);
-  assert.ok(b.say_to_builder.includes(EARNINGS_LINE('0xW')) && b.say_to_builder.includes(TOKEN_TERMS.risks));
+  assert.equal(b.say_to_builder, `${tokenRow(null)}\n\n${tokenFootnote('0xW')}`);
   assert.match(b.note, /taken/);
 });
 

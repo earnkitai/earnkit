@@ -14,6 +14,8 @@ export const LIMITS = {
   sponsorReplace: { limit: 10, windowSeconds: 86_400 },
   /** record_submission, per installation. */
   recordSubmission: { limit: 20, windowSeconds: 86_400 },
+  /** record_submission checks (each reads GitHub, Base and the explorer), per installation (v2.4 §2). */
+  entryChecks: { limit: 60, windowSeconds: 3_600 },
   /** POST /oauth/register, per client IP. */
   oauthRegister: { limit: 20, windowSeconds: 3_600 },
   /** list_programs with GitHub matching (a user or repos), per installation. */

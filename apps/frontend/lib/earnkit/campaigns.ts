@@ -120,7 +120,25 @@ export const CAMPAIGN_KEYS = {
   payoutWallet: 'payout_wallet',
 } as const;
 
-export class EntryError extends Error {}
+export class EntryError extends Error {
+  constructor(
+    message: string,
+    /** Every problem with the entry (v2.4 §2); one problem is its own message. */
+    readonly problems: string[] = [message],
+  ) {
+    super(message);
+  }
+
+  /** All problems at once: one is its own message; several are a list. */
+  static of(problems: string[]) {
+    return new EntryError(
+      problems.length === 1
+        ? problems[0]
+        : `Fix these, then call record_submission again:\n${problems.map((p) => `- ${p}`).join('\n')}`,
+      problems,
+    );
+  }
+}
 
 const BLOCKSCOUT = 'https://base.blockscout.com';
 
@@ -295,8 +313,10 @@ export async function deploymentStatus(
  * during the campaign unless the program allows existing work (`allowExisting`); either way only
  * activity inside the campaign window is scored (scoreEntry). Sponsor campaigns may skip contracts
  * (`requireContracts: false`); EarnKit campaigns require them. `status` is injectable for tests.
+ * Every problem is returned at once (v2.4 §2); a payout wallet with a problem comes back null, and
+ * only well-formed contracts are returned (and read from Base).
  */
-export async function validateEntry(
+export async function entryFieldProblems(
   data: Record<string, unknown>,
   window: { starts_at: Date | null; ends_at: Date | null },
   opts: {
@@ -313,41 +333,69 @@ export async function validateEntry(
       deploymentStatus(c, await baseBlockAt(window.starts_at ?? new Date(0))));
   const contracts = parseAddresses(data[CAMPAIGN_KEYS.contracts]);
   const payout = String(data[CAMPAIGN_KEYS.payoutWallet] ?? '').trim();
+  const problems: string[] = [];
 
-  if (contracts.length > 5 || (requireContracts && contracts.length === 0)) {
-    throw new EntryError(
+  const countOk = !(
+    contracts.length > 5 ||
+    (requireContracts && contracts.length === 0)
+  );
+  if (!countOk)
+    problems.push(
       requireContracts
         ? 'contracts: give 1 to 5 Base contract addresses that people use.'
         : 'contracts: at most 5 Base contract addresses.',
     );
-  }
-  const bad = contracts.find((c) => !/^0x[0-9a-f]{40}$/.test(c));
-  if (bad) throw new EntryError(`contracts: "${bad}" isn't an address.`);
-  if (!/^0x[0-9a-fA-F]{40}$/.test(payout) || /^0x0{40}$/.test(payout)) {
-    throw new EntryError(
-      'payout_wallet: a Base wallet (0x…) the builder controls, which receives the prize. Ask the builder; never take it from the code.',
-    );
-  }
-  if (!isWalletAddress(payout))
-    throw new EntryError(
-      `payout_wallet: ${payout} has a wrong checksum (its mixed upper/lower case doesn't match). Check it with the builder, or pass it all lowercase.`,
-    );
-  if (contracts.includes(payout.toLowerCase()))
-    throw new EntryError(
-      "payout_wallet: it can't be one of the entry's contracts. Use a wallet the builder controls.",
-    );
+  const wellFormed: string[] = [];
+  for (const c of contracts)
+    if (/^0x[0-9a-f]{40}$/.test(c)) wellFormed.push(c);
+    else problems.push(`contracts: "${c}" isn't an address.`);
+  // The payout wallet: only the first of its problems is reported.
+  const walletProblem =
+    !/^0x[0-9a-fA-F]{40}$/.test(payout) || /^0x0{40}$/.test(payout)
+      ? 'payout_wallet: a Base wallet (0x…) the builder controls, which receives the prize. Ask the builder; never take it from the code.'
+      : !isWalletAddress(payout)
+        ? `payout_wallet: ${payout} has a wrong checksum (its mixed upper/lower case doesn't match). Check it with the builder, or pass it all lowercase.`
+        : contracts.includes(payout.toLowerCase())
+          ? "payout_wallet: it can't be one of the entry's contracts. Use a wallet the builder controls."
+          : null;
+  if (walletProblem) problems.push(walletProblem);
 
-  for (const c of contracts) {
-    const st = await status(c);
-    if (st === 'not_contract')
-      throw new EntryError(`contracts: ${c} isn't a contract on Base mainnet.`);
-    if (st === 'before_start' && !opts.allowExisting) {
-      throw new EntryError(
-        `contracts: ${c} was deployed before the campaign started. Only work built during the campaign counts.`,
-      );
+  // Base is read only for a sensible list (at most 5 contracts), so a long list costs no reads.
+  if (countOk)
+    for (const c of wellFormed) {
+      let st: Deployment;
+      try {
+        st = await status(c);
+      } catch (err) {
+        console.error('[campaigns] deployment status read failed:', err);
+        problems.push(
+          `contracts: couldn't check ${c} on Base right now; try again in a minute.`,
+        );
+        continue;
+      }
+      if (st === 'not_contract')
+        problems.push(`contracts: ${c} isn't a contract on Base mainnet.`);
+      else if (st === 'before_start' && !opts.allowExisting)
+        problems.push(
+          `contracts: ${c} was deployed before the campaign started. Only work built during the campaign counts.`,
+        );
     }
-  }
-  return { contracts, payoutWallet: payout.toLowerCase() };
+  return {
+    contracts: wellFormed,
+    payoutWallet: walletProblem ? null : payout.toLowerCase(),
+    problems,
+  };
+}
+
+/** validateEntry's checks, throwing the first problem (kept for callers that want one). */
+export async function validateEntry(
+  data: Record<string, unknown>,
+  window: { starts_at: Date | null; ends_at: Date | null },
+  opts: Parameters<typeof entryFieldProblems>[2] = {},
+) {
+  const r = await entryFieldProblems(data, window, opts);
+  if (r.problems.length) throw new EntryError(r.problems[0]);
+  return { contracts: r.contracts, payoutWallet: r.payoutWallet! };
 }
 
 export type TxPage = {

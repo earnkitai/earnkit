@@ -11,7 +11,10 @@ import { GitHubError, repoByName } from './match-projects';
  * The file's wallet must equal the entry's payout_wallet. Each entered contract must have been
  * deployed by a transaction sent from that wallet (Base Blockscout: the address's
  * `creation_transaction_hash`, then that transaction's `from`), which covers direct and
- * factory/CREATE2 deploys alike. A `contracts:` line (v2.2 drafts) is accepted but ignored: listing
+ * factory/CREATE2 deploys alike. v2.4 §2: a contract deployed from another wallet (the agent's own)
+ * counts when that wallet signed the entry message (entry-proof.ts, deployer_signature); the signer
+ * is matched to the creation transaction's sender, never to Blockscout's creator_address_hash (the
+ * factory, for factory deploys). A `contracts:` line (v2.2 drafts) is accepted but ignored: listing
  * a contract proves nothing. Only someone who can push to the repo can write the file, and only the
  * deployer's wallet can claim a contract, so a squatter can't take someone else's repo slot or
  * contract.
@@ -242,55 +245,69 @@ export type OwnershipInput = {
   payoutWallet: string;
   /** Lowercase. */
   contracts: string[];
+  /** v2.4 §2: the wallet that signed the entry message (deployer_signature), lowercase. */
+  signer?: string | null;
 };
 
 /**
- * The decision once the file is read: why the entry isn't proven, or null. `deployers` holds the
- * deployer of each entered contract (null = no creation transaction on record, undefined = the
- * lookup failed). Pure; exported for tests.
+ * The decision once the file is read: why the entry isn't proven, or an empty list. A file problem
+ * is the only problem; otherwise every contract not proven is listed. A contract is proven when
+ * its deployer (the creation transaction's sender) is the payout wallet or the wallet that signed
+ * the entry (`entry.signer`, v2.4 §2). `deployers` holds the deployer of each entered contract
+ * (null = no creation transaction on record, undefined = the lookup failed). Pure; exported for tests.
  */
-export function ownershipProblem(
+export function ownershipProblems(
   where: { repo: string; fileUrl: string },
   file: OwnershipFile | null,
   entry: Omit<OwnershipInput, 'repoUrl'>,
   deployers: Record<string, string | null | undefined> = {},
-): string | null {
+): string[] {
   const add = `Add a file named ${OWNERSHIP_FILE} at the root of ${where.repo} on its default branch with the line `;
   const again = ', push it, then call record_submission again';
   if (!file)
-    return (
+    return [
       `repo_url: EarnKit needs proof you own ${where.repo}: no ${OWNERSHIP_FILE} found at ${where.fileUrl} ` +
       `(the repo must be public). ${add}${wantedLine(entry.payoutWallet)}${again}. ` +
-      'A just-pushed file can take a few minutes to appear.'
-    );
+      'A just-pushed file can take a few minutes to appear.',
+    ];
   if (file.problems.length)
-    return (
+    return [
       `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has a problem (${file.problems.join('; ')}). ` +
-      `It should contain ${wantedLine(entry.payoutWallet)}.`
-    );
+      `It should contain ${wantedLine(entry.payoutWallet)}.`,
+    ];
   if (!file.payoutWallet)
-    return `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has no payout_wallet line. ${add}${wantedLine(entry.payoutWallet)}${again}.`;
+    return [
+      `repo_url: ${OWNERSHIP_FILE} in ${where.repo} has no payout_wallet line. ${add}${wantedLine(entry.payoutWallet)}${again}.`,
+    ];
   if (file.payoutWallet !== entry.payoutWallet)
-    return (
+    return [
       `payout_wallet: ${OWNERSHIP_FILE} in ${where.repo} says payout_wallet: ${file.payoutWallet}, not ${entry.payoutWallet}. ` +
       `Enter with the wallet in the file, or (if the builder owns the repo) change that line to ` +
-      `"payout_wallet: ${entry.payoutWallet}"${again}.`
-    );
-  const failed = entry.contracts.find((c) => deployers[c] === undefined);
-  if (failed)
-    return `contracts: EarnKit couldn't read who deployed ${failed} from Base's explorer. Try again in a minute.`;
-  const other = entry.contracts.find(
-    (c) => deployers[c] !== entry.payoutWallet,
-  );
-  if (other)
-    return `Contract ${other} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`;
-  return null;
+      `"payout_wallet: ${entry.payoutWallet}"${again}.`,
+    ];
+  const problems: string[] = [];
+  for (const c of entry.contracts) {
+    const d = deployers[c];
+    if (d === undefined)
+      problems.push(`contracts: EarnKit couldn't read who deployed ${c} from Base's explorer. Try again in a minute.`);
+    else if (d !== entry.payoutWallet && !(entry.signer && d === entry.signer))
+      problems.push(
+        entry.signer
+          ? `Contract ${c} was deployed by ${d ?? 'an unknown wallet'}, not by the wallet that signed the entry (${entry.signer}) or the payout wallet.`
+          : `Contract ${c} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+      );
+  }
+  return problems;
 }
+
+/** The first ownership problem, or null (kept for existing callers and tests). Pure. */
+export const ownershipProblem = (...a: Parameters<typeof ownershipProblems>) =>
+  ownershipProblems(...a)[0] ?? null;
 
 /**
  * Checks that the entry's repo is a public, non-fork GitHub repo carrying earnkit.txt naming its
- * payout wallet, and that every contract was deployed by a transaction from that wallet. Throws
- * EntryError saying exactly what to fix. Returns the repo's GitHub dates (shown to the sponsor) and
+ * payout wallet, and that every contract was deployed by a transaction from that wallet (or from
+ * the wallet that signed the entry, `input.signer`). Throws EntryError listing what to fix. Returns the repo's GitHub dates (shown to the sponsor) and
  * each contract's deployer. `repoFacts`, `fetchFile` and `deployer` are injectable for tests and
  * the e2e.
  */
@@ -346,8 +363,8 @@ export async function checkOwnership(
         console.error('[ownership] deployer lookup failed:', err);
         return undefined;
       });
-  const problem = ownershipProblem(where, file, input, deployers);
-  if (problem) throw new EntryError(problem);
+  const problems = ownershipProblems(where, file, input, deployers);
+  if (problems.length) throw EntryError.of(problems);
   return {
     ...where,
     repo_created_at: new Date(facts.created_at),

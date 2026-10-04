@@ -8,6 +8,7 @@ import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { tokenFootnote, tokenRow } from './entry-text';
 import {
   cleanTokenName,
   proposeToken,
@@ -164,8 +165,9 @@ const ownershipLine = (wallet: string | null, tokenLine: string | null) =>
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
- * configured, or no name is known yet. `say_to_builder` alone is the complete consent text: the
- * ticker, the earnings line, both terms links and what the repo needs.
+ * configured, or no name is known yet. `say_to_builder` is the consent text (v2.4): the one token
+ * row (the ticker, a default the builder can turn off) and the footnote with the earnings, the fee
+ * wallet when known, and both terms links. What the repo needs is in `note`, for the agent.
  */
 export async function tokenProposalBlock(
   a: {
@@ -185,7 +187,6 @@ export async function tokenProposalBlock(
   if (!projectName) return null;
   const proposal = await proposeToken(projectName, deps.check);
   const earnings = EARNINGS_LINE(a.creatorWallet ?? '<your wallet>');
-  const terms = `Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}.`;
   const notes: string[] = [];
   if (proposal.name === null) notes.push(proposal.reason);
   else if (proposal.note) notes.push(proposal.note);
@@ -205,12 +206,10 @@ export async function tokenProposalBlock(
     earnings,
     terms: TOKEN_TERMS,
     policy: program.token_policy,
-    say_to_builder:
-      (proposal.name === null
-        ? 'This entry can get a token on tokens.fun: pick a name and ticker (3–6 letters or digits).'
-        : `Submitting ${projectName} to ${program.title}, and launching $${proposal.symbol} (${proposal.name}) with your entry on tokens.fun.`) +
-      ` ${earnings} ${terms} Your repo needs ${OWNERSHIP_FILE} at its root with "payout_wallet: ${a.creatorWallet ?? '<your wallet>'}" ` +
-      `and ${tokenLine ? `"${tokenLine}"` : 'the token line EarnKit gives for this launch'}. Change the name, ticker or logo, or say "no token".`,
+    // v2.4: one row in the confirmation (prepare_submission's show_to_builder carries it), with
+    // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
+    // the repo needs is the agent's job (note).
+    say_to_builder: `${tokenRow(proposal.name === null ? null : proposal.symbol)}\n\n${tokenFootnote(a.creatorWallet)}`,
     note: notes.join(' '),
   };
 }

@@ -171,8 +171,7 @@ export function createMcpServer(ctx: ToolContext) {
         'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
         'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
         "Call again with the new answers until ready is true, then submit on the program's site. " +
-        'When the program allows tokens, the result has `token`: show its say_to_builder, as written, in the summary the builder confirms; ' +
-        'it carries the ticker, the earnings line, both terms links and what the repo needs. ' +
+        'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one token row (a default the builder can turn off with "no token"). ' +
         `${OWNERSHIP_FOR_TOKEN} ` +
         `In record_submission: ${TO_LAUNCH} ` +
         'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
@@ -199,6 +198,7 @@ export function createMcpServer(ctx: ToolContext) {
         'Pass the final answers that were submitted. ' +
         `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
+        'Campaign entries also return show_to_builder (rank, leaderboard, payout date): show it exactly as written. ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
         `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
         SAFETY_TEXT,
@@ -239,6 +239,12 @@ export function createMcpServer(ctx: ToolContext) {
           .optional()
           .describe(
             'true once the builder confirmed the summary that includes the token line',
+          ),
+        deployer_signature: z
+          .string()
+          .optional()
+          .describe(
+            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: github.com/<owner>/<repo> <payout wallet>", lowercase).',
           ),
       },
     },

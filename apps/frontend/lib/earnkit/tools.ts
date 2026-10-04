@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
-import { RecordSubmissionInput, recordSubmission } from './projects';
-import { presentYourEntries } from './campaigns';
+import {
+  RecordSubmissionInput,
+  recordSubmission,
+  type EntryDeps,
+} from './projects';
+import { normalizeRepoUrl, presentYourEntries } from './campaigns';
+import { entryMessage } from './entry-proof';
+import { confirmTable } from './entry-text';
 import { yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -37,7 +43,7 @@ import {
   tokenProposalBlock,
   type TokenFlowDeps,
 } from './token-launch';
-import { cleanProject } from './untrusted-text';
+import { cleanProject, quoted } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 
 /** Who is calling: the installation behind the MCP connection. */
@@ -45,6 +51,8 @@ export type ToolContext = {
   installationId: number;
   /** Test and e2e injection only; never set by the MCP route. */
   tokenDeps?: TokenFlowDeps;
+  /** Test and e2e injection only; never set by the MCP route. */
+  entryDeps?: EntryDeps;
 };
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
@@ -242,9 +250,30 @@ export const tools = {
       installationId: ctx.installationId,
       repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
     });
+    // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
+    const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
+    const payoutWallet = validWallet(prefill.answers?.payout_wallet);
+    const show_to_builder = confirmTable({
+      project: known.project?.name?.trim() || 'Your project',
+      programTitle:
+        program.campaign?.kind === 'sponsor'
+          ? quoted(program.title)
+          : program.title,
+      campaign: program.campaign,
+      prize: program.summary.split(' · ')[0],
+      endsAt: program.ends_at,
+      payoutWallet,
+      token: token
+        ? {
+            symbol: token.proposed?.symbol ?? null,
+            wallet: token.creator_wallet,
+          }
+        : null,
+    });
     return {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
+      show_to_builder,
       ...prepareSubmission(program.submission_requirements, {
         ...known,
         answers: prefill.answers,
@@ -253,10 +282,16 @@ export const tools = {
       ...(program.campaign
         ? {
             how_to_submit:
-              'This is an EarnKit campaign: when ready, submit by calling record_submission. ' +
-              `First the project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root ` +
-              '(default branch) with the line "payout_wallet: <the payout wallet>", and every entered ' +
-              "contract must have been deployed from that wallet. It proves the entry is the builder's.",
+              'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
+              `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
+              "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter.",
+            ...(repoUrl &&
+              payoutWallet && {
+                sign_to_enter: entryMessage(
+                  normalizeRepoUrl(repoUrl),
+                  payoutWallet,
+                ),
+              }),
           }
         : { submission_url: program.submission_url }),
       ...(token && { token }),
@@ -265,12 +300,22 @@ export const tools = {
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
     const parsed = RecordSubmissionInput.parse(input);
+    // Every attempt reads GitHub, Base and the explorer: bounded per hour. Only a recorded entry
+    // uses one of the 20 a day (v2.4 §2).
     await enforce(
-      'recordSubmission',
+      'entryChecks',
       ctx.installationId,
-      'This agent has recorded 20 submissions today, the daily limit.',
+      'This agent has checked 60 entries in the last hour.',
     );
-    const result = await recordSubmission(parsed, ctx.installationId);
+    const result = await recordSubmission(parsed, ctx.installationId, {
+      ...ctx.entryDeps,
+      charge: () =>
+        enforce(
+          'recordSubmission',
+          ctx.installationId,
+          'This agent has recorded 20 submissions today, the daily limit.',
+        ),
+    });
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
     // The token never fails the submission: it is recorded either way.
     const token = await submissionToken(

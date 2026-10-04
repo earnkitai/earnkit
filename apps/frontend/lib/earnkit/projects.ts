@@ -2,20 +2,28 @@ import { z } from 'zod';
 import { sql } from './db';
 import {
   EntryError,
+  entryFieldProblems,
   normalizeLiveUrl,
   normalizeRepoUrl,
   sameRepoEntry,
-  validateEntry,
   type Deployment,
 } from './campaigns';
 import { formatDeadline } from './dates';
+import { entryMessage, entrySigner } from './entry-proof';
+import { enteredTable, siteUrl } from './entry-text';
 import {
   checkOwnership,
   type DeployerLookup,
+  type OwnershipFetcher,
   type RepoFactsLookup,
 } from './ownership';
 import { getProgramRow, isOpen, type ProgramRow } from './programs';
-import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
+import {
+  BASE_MAINNET,
+  CANT_RECEIVE,
+  SanctionsError,
+  screenWallet,
+} from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
@@ -41,6 +49,11 @@ export const RecordSubmissionInput = z
     token: z.unknown().optional(),
     /** The builder confirmed the summary that included the token line: only `true` counts. */
     builder_confirmed: z.unknown().optional(),
+    /**
+     * v2.4 §2: when the agent deployed the contracts from its own wallet, that wallet's EIP-191
+     * signature of "EarnKit entry: <repo key> <payout wallet>" (prepare_submission's sign_to_enter).
+     */
+    deployer_signature: z.string().optional(),
   })
   .strict();
 
@@ -122,16 +135,128 @@ export const entryRules = (
   allowExisting: existingWork === 'allowed',
 });
 
+/** Chain, explorer and GitHub reads, injectable for tests and the e2e. */
+export type EntryDeps = {
+  status?: (contract: string) => Promise<Deployment>;
+  deployer?: DeployerLookup;
+  repoFacts?: RepoFactsLookup;
+  fetchFile?: OwnershipFetcher;
+};
+
+/**
+ * Every check of a campaign entry, all problems at once (v2.4 §2): required answers, the repo
+ * link, the contracts and payout wallet, the sponsor's own wallet, the deployer signature,
+ * ownership (earnkit.txt and who deployed each contract) and the sanctions screen. Checks that
+ * need an earlier answer (ownership needs a valid repo and wallet) run only once it is valid.
+ * Throws EntryError.of(problems); otherwise returns the entry, its proof and deployers.
+ */
+export async function campaignEntryProblems(
+  program: ProgramRow,
+  input: z.infer<typeof RecordSubmissionInput>,
+  installationId: number,
+  sponsor: { installation_id: number; sponsor_wallet: string | null } | null,
+  deps: EntryDeps = {},
+) {
+  const c = program.campaign!;
+  const cleaned = cleanProject(input.project);
+  const problems: string[] = [];
+  const missing = missingAnswersProblem(
+    program.submission_requirements,
+    cleaned,
+    input.submission_data,
+  );
+  if (missing) problems.push(missing);
+  let repoUrl: string | undefined;
+  try {
+    repoUrl = entryRepoUrl(cleaned.repo_url, input.submission_data);
+    if (repoUrl) {
+      const canon = canonicalBuilderUrl(repoUrl);
+      if (canon.problem) {
+        problems.push(`repo_url: ${canon.problem}.`);
+        repoUrl = undefined;
+      } else repoUrl = canon.url;
+    } else if (!missing)
+      problems.push(
+        'repo_url: campaign entries need the public GitHub repo of the project.',
+      );
+  } catch (err) {
+    if (!(err instanceof EntryError)) throw err;
+    problems.push(err.message);
+  }
+  const fields = await entryFieldProblems(input.submission_data, program, {
+    ...entryRules(c.kind, program.existing_work),
+    status: deps.status,
+  });
+  problems.push(...fields.problems);
+  const wallet = fields.payoutWallet;
+  if (wallet) {
+    const self = selfEntryProblem(sponsor, installationId, wallet);
+    if (self) problems.push(self);
+  }
+  let signer: string | null = null;
+  if (input.deployer_signature && repoUrl && wallet) {
+    signer = await entrySigner(repoUrl, wallet, input.deployer_signature);
+    if (!signer)
+      problems.push(
+        'deployer_signature: it is not a valid signature (0x + 130 hex characters).',
+      );
+  }
+  let proof: Awaited<ReturnType<typeof checkOwnership>> | null = null;
+  if (repoUrl && wallet) {
+    try {
+      proof = await checkOwnership(
+        { repoUrl, payoutWallet: wallet, contracts: fields.contracts, signer },
+        {
+          deployer: deps.deployer,
+          repoFacts: deps.repoFacts,
+          fetchFile: deps.fetchFile,
+        },
+      );
+    } catch (err) {
+      if (!(err instanceof EntryError)) throw err;
+      problems.push(...err.problems);
+      // A signature over other text recovers another wallet: say exactly what to sign.
+      if (
+        input.deployer_signature &&
+        err.problems.some((p) => p.startsWith('Contract '))
+      )
+        problems.push(
+          `deployer_signature: sign exactly "${entryMessage(normalizeRepoUrl(repoUrl), wallet)}" with the wallet that deployed the contracts.`,
+        );
+    }
+  }
+  if (wallet) {
+    try {
+      await screenWallet(
+        wallet,
+        c.kind === 'sponsor' ? c.prize.chain_id : BASE_MAINNET,
+        `payout_wallet: ${CANT_RECEIVE}`,
+      );
+    } catch (err) {
+      if (!(err instanceof SanctionsError)) throw err;
+      problems.push(err.message);
+    }
+  }
+  if (problems.length) throw EntryError.of(problems);
+  return {
+    repoUrl: repoUrl!,
+    entry: { contracts: fields.contracts, payoutWallet: wallet! },
+    proof: proof!,
+    deployers: [
+      ...new Set(Object.values(proof!.deployers).filter(Boolean)),
+    ] as string[],
+  };
+}
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
   installationId: number,
-  /** Chain and explorer reads, injectable for the local e2e (contracts on anvil, not Base). */
-  deps: {
-    status?: (contract: string) => Promise<Deployment>;
-    deployer?: DeployerLookup;
-    repoFacts?: RepoFactsLookup;
-  } = {},
+  /**
+   * Chain, explorer and GitHub reads (injectable for tests and the e2e), and `charge`: the daily
+   * limit, counted right before the insert.
+   */
+  deps: EntryDeps & { charge?: () => Promise<unknown> } = {},
 ) {
   const program = await getProgramRow(input.program_id);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
@@ -145,6 +270,7 @@ export async function recordSubmission(
   // EarnKit campaigns: this call *is* the entry, so check it before storing anything.
   let entry: { contracts: string[]; payoutWallet: string } | null = null;
   let proof: Awaited<ReturnType<typeof checkOwnership>> | null = null;
+  let deployers: string[] | null = null;
   if (program.campaign) {
     if (!isOpen(program)) throw new EntryError('This campaign is closed.');
     const [sponsor] = await sql()<
@@ -152,48 +278,17 @@ export async function recordSubmission(
     >`SELECT installation_id, sponsor_wallet FROM sponsor_campaigns WHERE program_id = ${program.id}`;
     if (sponsor?.installation_id === installationId)
       throw new EntryError(selfEntryProblem(sponsor, installationId, '')!);
-    const missing = missingAnswersProblem(
-      program.submission_requirements,
-      cleaned,
-      input.submission_data,
-    );
-    if (missing) throw new EntryError(missing);
-    repo_url = entryRepoUrl(repo_url, input.submission_data);
-    if (repo_url) {
-      const c = canonicalBuilderUrl(repo_url);
-      if (c.problem) throw new EntryError(`repo_url: ${c.problem}.`);
-      repo_url = c.url;
-    }
-    entry = await validateEntry(input.submission_data, program, {
-      ...entryRules(program.campaign.kind, program.existing_work),
-      status: deps.status,
-    });
-    const self = selfEntryProblem(
-      sponsor ?? null,
+    const checked = await campaignEntryProblems(
+      program,
+      input,
       installationId,
-      entry.payoutWallet,
+      sponsor ?? null,
+      deps,
     );
-    if (self) throw new EntryError(self);
-    // Proof of ownership: the repo's earnkit.txt names this payout wallet (and the contracts).
-    if (!repo_url)
-      throw new EntryError(
-        'repo_url: campaign entries need the public GitHub repo of the project.',
-      );
-    proof = await checkOwnership(
-      {
-        repoUrl: repo_url,
-        payoutWallet: entry.payoutWallet,
-        contracts: entry.contracts,
-      },
-      { deployer: deps.deployer, repoFacts: deps.repoFacts },
-    );
-    await screenWallet(
-      entry.payoutWallet,
-      program.campaign.kind === 'sponsor'
-        ? program.campaign.prize.chain_id
-        : BASE_MAINNET,
-      `payout_wallet: ${CANT_RECEIVE}`,
-    );
+    repo_url = checked.repoUrl;
+    entry = checked.entry;
+    proof = checked.proof;
+    deployers = checked.deployers;
   }
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
@@ -242,6 +337,8 @@ export async function recordSubmission(
             );
         }
       }
+      // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
+      await deps.charge?.();
       const [project] = await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
         program_id: input.program_id,
@@ -258,6 +355,7 @@ export async function recordSubmission(
         repo_created_at: proof?.repo_created_at ?? null,
         repo_pushed_at: proof?.repo_pushed_at ?? null,
         contracts: entry?.contracts ?? null,
+        deployers,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission prefills it).
       if (entry)
@@ -283,6 +381,21 @@ export async function recordSubmission(
                   `at least ${program.campaign.min_score} to be eligible. `
                 : `The sponsor picks winners after ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
               `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure they control that wallet.`,
+          }),
+        ...(entry &&
+          program.campaign && {
+            show_to_builder: enteredTable({
+              project: name,
+              programTitle:
+                program.campaign.kind === 'sponsor'
+                  ? quoted(program.title)
+                  : program.title,
+              standing: 'not scored yet (scores update daily)',
+              leaderboard: `${siteUrl()}/campaigns/${program.id}`,
+              campaign: program.campaign,
+              endsAt: program.ends_at,
+              payoutWallet: entry.payoutWallet,
+            }),
           }),
       };
     })

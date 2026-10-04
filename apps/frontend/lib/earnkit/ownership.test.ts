@@ -8,6 +8,7 @@ import {
   ownershipBaseUrl,
   ownershipFileUrl,
   ownershipProblem,
+  ownershipProblems,
   parseOwnershipFile,
   deployerOf,
   type DeployerLookup,
@@ -15,6 +16,7 @@ import {
   type RepoFacts,
   FORK_REFUSED,
 } from './ownership';
+import { entryMessage } from './entry-proof';
 
 const W = '0x00000000000000000000000000000000000000a1';
 const OTHER = '0x00000000000000000000000000000000000000b2';
@@ -407,4 +409,30 @@ test('checkOwnership: forks are refused; GitHub errors are clear; the repo dates
   const ok = await checkOwnership(input, { fetchFile, deployer, repoFacts });
   assert.equal(ok.repo_created_at.toISOString(), '2026-01-02T00:00:00.000Z');
   assert.equal(ok.repo_pushed_at.toISOString(), '2026-10-01T00:00:00.000Z');
+});
+
+test('v2.4: a contract deployed by the wallet that signed the entry is proven; every wrong one is listed', () => {
+  const where = { repo: 'github.com/alice/tipjar', fileUrl: 'https://raw.githubusercontent.com/alice/tipjar/HEAD/earnkit.txt' };
+  const PAYOUT = '0x' + 'a'.repeat(40);
+  const AGENT = '0x' + 'b'.repeat(40);
+  const OTHER = '0x' + 'e'.repeat(40);
+  const C1 = '0x' + '1'.repeat(40);
+  const C2 = '0x' + '2'.repeat(40);
+  const C3 = '0x' + '3'.repeat(40);
+  const file = { payoutWallet: PAYOUT, creatorWallets: [], tokens: [], problems: [] };
+  const deployers = { [C1]: AGENT, [C2]: PAYOUT, [C3]: OTHER };
+  assert.deepEqual(
+    ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C2], signer: AGENT }, deployers),
+    [],
+  );
+  assert.deepEqual(
+    ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C3], signer: AGENT }, deployers),
+    [`Contract ${C3} was deployed by ${OTHER}, not by the wallet that signed the entry (${AGENT}) or the payout wallet.`],
+  );
+  // Without a signature, the v2.2 message is unchanged.
+  assert.deepEqual(
+    ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C3] }, deployers),
+    [C1, C3].map((c) => `Contract ${c} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`),
+  );
+  assert.equal(entryMessage('github.com/alice/tipjar', PAYOUT), `EarnKit entry: github.com/alice/tipjar ${PAYOUT}`);
 });
