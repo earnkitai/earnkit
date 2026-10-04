@@ -192,17 +192,22 @@ export const MANUAL_CHECK = 'Payouts paused: a transfer needs a manual check.';
 /** The run note when the program's prize terms no longer match the frozen ones. */
 export const TERMS_CHANGED = "Payout paused: the campaign's prize terms changed after the review opened.";
 
+/** The run note when CAMPAIGN_PAYOUT_PRIVATE_KEY is unset: waits on the owner. */
+export const NO_PAYOUT_KEY = "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent.";
+/** The run note when BASE_RPC_URL answers another chain: waits on the owner. */
+export const NOT_MAINNET = 'BASE_RPC_URL is not Base mainnet; nothing was sent.';
 /** Ends the note when the payout wallet is short of the prize token or of ETH for gas. */
 export const TOP_UP = 'Payouts resume once it is topped up.';
 
 /**
- * A payout note that waits on the owner (I6): a manual check or changed terms (never clear by
- * themselves), or a payout wallet short of the prize token or of ETH for gas (clears only once the
+ * A payout note that waits on the owner (I6): a manual check, changed terms, the payout key unset
+ * or BASE_RPC_URL not Base mainnet (never clear by themselves), or a payout wallet short of the prize token or of ETH for gas (clears only once the
  * owner tops it up). The cron answers 503 so the GitHub Actions run fails and emails the owner;
  * the public page still reads "Payouts paused; they resume automatically." for a top-up. Pure.
  */
 export const needsOwner = (note: string | null | undefined) =>
-  Boolean(note && (note.includes(MANUAL_CHECK) || note.includes(TERMS_CHANGED) || note.includes(TOP_UP)));
+  Boolean(note && (note.includes(MANUAL_CHECK) || note.includes(TERMS_CHANGED) || note.includes(TOP_UP) ||
+      note.includes(NO_PAYOUT_KEY) || note.includes(NOT_MAINNET)));
 
 /** The nonce of a signed transaction, when the payout key signed it; null otherwise. */
 async function ownNonce(raw: Hex, account: LocalAccount) {
@@ -422,13 +427,13 @@ export async function payCampaign(
 ): Promise<{ done: boolean; note: string | null }> {
   const account = deps.account === undefined ? payoutAccount() : deps.account;
   if (!account)
-    return { done: false, note: "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent." };
+    return { done: false, note: NO_PAYOUT_KEY };
   const rpc = deps.rpc ?? payoutRpc();
   const store = deps.store ?? dbPayoutStore;
   const listed =
     deps.listed ?? (async (w: string) => (await sanctionedWallets([w], BASE_MAINNET)).length > 0);
   if ((await rpc.getChainId()) !== BASE_MAINNET)
-    return { done: false, note: 'BASE_RPC_URL is not Base mainnet; nothing was sent.' };
+    return { done: false, note: NOT_MAINNET };
   const token = c.prize.token as Hex;
   const amount = parseUnits(c.amount_each, c.prize.decimals);
   const deadline = deps.deadline ?? Infinity;

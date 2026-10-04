@@ -237,7 +237,7 @@ apps/frontend/
                                sinceLine, SCHEDULE_NOTE
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling), payCampaign, dbPayoutStore,
-                               termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP,
+                               termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
                                campaign under its lease, then the fee refresh; needs_owner incl.

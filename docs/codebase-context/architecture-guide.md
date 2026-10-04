@@ -574,7 +574,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
   - While a payout waits on the owner, `POST /api/cron` answers 503 with its usual body
     (`needs_owner` lists the campaigns), so the hourly GitHub Actions run fails and GitHub emails
     the owner every hour until it is resolved (final review I6). That is: a manual check, changed
-    terms, a payout wallet short of the prize token or of ETH for gas (`needsOwner`), or a pay
+    terms, the payout key unset, `BASE_RPC_URL` not Base mainnet, a payout wallet short of the prize token or of ETH for gas (`needsOwner`), or a pay
     step that failed 6 runs in a row (`campaign_runs.pay_failures`, reset by any pay step that
     completes; PAY_FAILED_RUNS). Every other run answers 200. The public page still reads
     "Payouts paused; they resume automatically." for a short wallet or a failing check.

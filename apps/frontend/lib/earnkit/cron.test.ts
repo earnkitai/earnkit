@@ -6,7 +6,7 @@ import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTrans
 import { privateKeyToAccount } from 'viem/accounts';
 import { PAY_FAILED_RUNS, TERMS_CHANGED, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
-import { MANUAL_CHECK, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
+import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
 
 const ENDS = new Date('2026-10-18T23:59:00Z');
@@ -32,6 +32,8 @@ test('I6 needsOwner: a manual check, changed terms, or a wallet short of the pri
   assert.equal(needsOwner(TERMS_CHANGED), true);
   assert.equal(needsOwner(`The payout wallet 0xabc holds 0.5 MINI, less than the next prize (1). ${TOP_UP}`), true);
   assert.equal(needsOwner(`The payout wallet 0xabc needs a little ETH for gas. ${TOP_UP}`), true);
+  assert.equal(needsOwner(NO_PAYOUT_KEY), true);
+  assert.equal(needsOwner(NOT_MAINNET), true);
   for (const note of [null, undefined, '', 'Waiting for the transfer to entry #4 to be mined.', 'Payouts paused: a check failed; retrying hourly.'])
     assert.equal(needsOwner(note), false);
 });
@@ -483,6 +485,28 @@ test(`a pay step failing ${PAY_FAILED_RUNS} runs in a row waits on the owner (50
     assert.deepEqual(mine(ok, tag), { id: tag, step: 'pay', done: true, note: null });
     assert.deepEqual(ok.needs_owner, []);
     assert.equal(await failures(), 0, 'reset on a completed step');
+  } finally {
+    await teardown(tag);
+  }
+});
+
+test('the payout key unset or BASE_RPC_URL off Base mainnet wait on the owner (503); nothing is sent', db, async () => {
+  const tag = `test-cron-misconf-${process.pid}-${Date.now()}`;
+  await setup(tag, 1);
+  const f = chain();
+  const base = { score: { score: async () => result(5) }, refreshFees: async () => 0 };
+  try {
+    await runCron({ now: at(16), deps: base, only: [tag] });
+    const noKey = await runCron({ now: at(16 + 2880), deps: { ...base, pay: { account: null, rpc: f.rpc, listed: async () => false } }, only: [tag] });
+    assert.deepEqual(mine(noKey, tag), { id: tag, step: 'pay', done: false, note: NO_PAYOUT_KEY });
+    assert.deepEqual(noKey.needs_owner, [tag]);
+    const wrong = { ...f.rpc, getChainId: async () => 1 };
+    const offChain = await runCron({ now: at(16 + 2940), deps: { ...base, pay: { account, rpc: wrong, listed: async () => false } }, only: [tag] });
+    assert.deepEqual(mine(offChain, tag), { id: tag, step: 'pay', done: false, note: NOT_MAINNET });
+    assert.deepEqual(offChain.needs_owner, [tag]);
+    const [r] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
+    assert.deepEqual([r.state, r.note], ['paying', NOT_MAINNET]);
+    assert.equal(f.sent.length, 0);
   } finally {
     await teardown(tag);
   }
