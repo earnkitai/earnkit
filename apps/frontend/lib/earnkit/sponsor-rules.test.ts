@@ -746,7 +746,7 @@ test('create: five answers; the rest default, and the defaults used are listed',
     'winners: 3',
     'existing projects can enter',
     'ends Oct 15, 2026, 00:00 UTC (14 days)',
-    'token_policy: encouraged (entries get a token by default; the builder can skip)',
+    'token_policy: encouraged (default)',
     'no sponsor_url (the campaign shows as unverified)',
   ]);
   // The defaults pass the draft rules (50 USDC minimum, 3 to 90 days).

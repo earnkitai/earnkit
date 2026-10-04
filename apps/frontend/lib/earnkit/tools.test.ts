@@ -135,6 +135,22 @@ test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses on
   }
 });
 
+test('v2.4 §6 (audit C22): prepare_submission on a closed program has no token block', dbTest, async () => {
+  const f = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
+  );
+  Object.assign(f, { id: `t9-closed-${process.pid}-${Date.now()}`, status: 'closed' });
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t9-closed-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const result = (await tools.prepare_submission(
+    { program_id: f.id, project: { name: 'Tip Jar' } },
+    { installationId: id },
+  )) as Record<string, unknown>;
+  assert.equal(result.warning, 'This program is closed or past its deadline.');
+  assert.ok(!('token' in result));
+});
+
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });

@@ -178,8 +178,7 @@ export function withDefaults(
     token_policy: pick(
       r.token_policy,
       DRAFT_DEFAULTS.token_policy,
-      (p) =>
-        `token_policy: ${p} (entries get a token by default; the builder can skip)`,
+      (p) => `token_policy: ${p} (default)`,
     ),
   };
   if (r.sponsor_url === undefined)
