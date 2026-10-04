@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { cronPost, nextStep, runCron, scoreMaxAge } from './cron';
+import { TERMS_CHANGED, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
-import { dbPayoutStore, type PayoutRpc } from './payout';
+import { MANUAL_CHECK, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
 
 const ENDS = new Date('2026-10-18T23:59:00Z');
@@ -24,6 +24,14 @@ test('nextStep: score, freeze, review, wait, pay, done', () => {
   assert.equal(s('review', at(2900), true, at(2900)), 'pay');
   assert.equal(s('paying', at(3000), true), 'pay');
   assert.equal(s('paid', at(3000), true), 'done');
+});
+
+test('I6 needsOwner: a manual check or changed terms wait on the owner; other notes do not', () => {
+  assert.equal(needsOwner(MANUAL_CHECK), true);
+  assert.equal(needsOwner(`Paid entry #3. ${MANUAL_CHECK}`), true);
+  assert.equal(needsOwner(TERMS_CHANGED), true);
+  for (const note of [null, undefined, '', 'Waiting for the transfer to entry #4 to be mined.', 'Payouts paused: a check failed; retrying hourly.'])
+    assert.equal(needsOwner(note), false);
 });
 
 test('scoreMaxAge: 20 h, or 1 h in the last day', () => {
@@ -46,6 +54,12 @@ test('POST /api/cron: the secret is required (timing-safe), rate limited, and ru
   assert.equal(ok.status, 200);
   assert.deepEqual(await ok.json(), { ok: true });
   assert.equal(runs, 1);
+  // I6: a payout waiting on the owner fails the GitHub run (503, same body); a normal run is 200.
+  const stuck = { needs_owner: ['c1'], campaigns: [{ id: 'c1', step: 'pay', note: MANUAL_CHECK }] };
+  const paused = await cronPost(req(`Bearer ${SECRET}`), { ...deps, run: async () => stuck });
+  assert.equal(paused.status, 503);
+  assert.deepEqual(await paused.json(), stuck);
+  assert.equal((await cronPost(req(`Bearer ${SECRET}`), { ...deps, run: async () => ({ needs_owner: [] }) })).status, 200);
   const limited = await cronPost(req(`Bearer ${SECRET}`), { ...deps, limit: async () => { throw new RateLimitError('Too many cron calls.', 60); } });
   assert.equal(limited.status, 429);
   assert.equal(runs, 1);
@@ -58,6 +72,7 @@ test('the route is a plain POST wrapper (Next 16 route types) and the workflow p
   assert.doesNotMatch(route, /\bGET\b/);
   const yml = readFileSync(join(import.meta.dirname, '../../../../.github/workflows/earnkit-cron.yml'), 'utf8');
   assert.match(yml, /cron: '15 \* \* \* \*'/);
+  assert.match(yml, /curl -sS --fail-with-body/, 'a 503 fails the run and shows why');
   assert.match(yml, /Authorization: Bearer \$CRON_SECRET/);
   assert.match(yml, /CRON_SECRET: \$\{\{ secrets\.CRON_SECRET \}\}/);
 });
@@ -274,12 +289,16 @@ test('I2: the payout terms are frozen when the review opens; an edit pauses the 
     assert.equal((await run(at(16))).review, true);
     const [r0] = await sql()`SELECT terms FROM campaign_runs WHERE program_id = ${tag}`;
     assert.deepEqual(r0.terms, { token: TOKEN, symbol: 'MINI', decimals: 18, amount_each: '3', winners: 2, min_score: 1 });
-    const first = await run(at(16 + 2880));
+    const firstOut = await runCron({ now: at(16 + 2880), deps, only: [tag] });
+    const first = mine(firstOut, tag)!;
     assert.match(String(first.note), /less than the next prize \(3\)/);
+    assert.deepEqual(firstOut.needs_owner, [], 'a normal pause keeps the run green');
     // The program file changes mid-payout: nothing more is sent, and the page says why.
     await sql()`UPDATE programs SET campaign = jsonb_set(campaign, '{amount_each}', '"30"') WHERE id = ${tag}`;
     funds += 100n * 10n ** 18n;
-    const paused = await run(at(16 + 2940));
+    const pausedOut = await runCron({ now: at(16 + 2940), deps, only: [tag] });
+    const paused = mine(pausedOut, tag)!;
+    assert.deepEqual(pausedOut.needs_owner, [tag], 'I6: changed terms wait on the owner (503)');
     assert.deepEqual([paused.done, paused.note], [false, "Payout paused: the campaign's prize terms changed after the review opened."]);
     assert.equal(f.sent.length, 1);
     const [r1] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;

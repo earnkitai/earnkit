@@ -3,7 +3,16 @@ import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } 
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { bearerMatches, json } from './http';
-import { fromTerms, payCampaign, sameTerms, termsOf, type FrozenTerms, type PayDeps } from './payout';
+import {
+  TERMS_CHANGED,
+  fromTerms,
+  needsOwner,
+  payCampaign,
+  sameTerms,
+  termsOf,
+  type FrozenTerms,
+  type PayDeps,
+} from './payout';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { withScoringLock } from './sponsor';
 import type { Candidate, RunState } from './winners';
@@ -57,8 +66,7 @@ const openReview = (p: Program, now: Date) => sql()`
     terms = ${sql().json(termsOf(p.campaign as EarnKitCampaign))}, updated_at = now()
   WHERE program_id = ${p.id} AND state = 'running'`;
 
-/** Shown on the campaign page when the program's prize terms no longer match the frozen ones. */
-export const TERMS_CHANGED = "Payout paused: the campaign's prize terms changed after the review opened.";
+export { TERMS_CHANGED };
 /** Shown on the campaign page when a payout step fails (the cause stays in the server log). */
 export const PAY_FAILED = 'Payouts paused: a check failed; retrying hourly.';
 /** A failed step in the cron's answer (the GitHub Actions log): fixed, so no RPC URL or key leaks. */
@@ -161,7 +169,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * The daily jobs (v2.4 §3, §4), idempotent: for every EarnKit campaign that is live or not yet
  * paid out, one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
- * whose cached fees are over 6 h old. `now` is injectable for the e2e (production: the real
+ * whose cached fees are over 6 h old. `needs_owner` lists the campaigns whose payout waits on the
+ * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).
  */
 export async function runCron(
@@ -193,12 +202,16 @@ export async function runCron(
   } catch (err) {
     console.error('[cron] fees', err);
   }
-  return { now: now.toISOString(), campaigns, fee_wallets: fees };
+  // Campaigns whose payout waits on the owner (manual check, changed terms): the endpoint answers 503.
+  const needs_owner = campaigns.filter((c) => needsOwner(c.note as string | null | undefined)).map((c) => c.id as string);
+  return { now: now.toISOString(), campaigns, fee_wallets: fees, needs_owner };
 }
 
 /**
  * POST /api/cron (app/api/cron/route.ts calls it): rate limited per IP, then Bearer CRON_SECRET
- * compared in constant time, then the jobs. `deps` for tests.
+ * compared in constant time, then the jobs. 200 normally; 503 (same body) when a campaign's payout
+ * waits on the owner (`needs_owner`), so the GitHub Actions run fails and GitHub emails the owner.
+ * `deps` for tests.
  */
 export async function cronPost(
   request: Request,
@@ -216,7 +229,9 @@ export async function cronPost(
   if (!bearerMatches(request.headers.get('authorization'), process.env.CRON_SECRET))
     return json({ error: 'unauthorized' }, 401);
   try {
-    return json(await (deps.run ?? (() => runCron()))());
+    const out = await (deps.run ?? (() => runCron()))();
+    const stuck = (out as { needs_owner?: unknown } | null)?.needs_owner;
+    return json(out, Array.isArray(stuck) && stuck.length > 0 ? 503 : 200);
   } catch (err) {
     console.error('[cron]', err);
     return json({ error: 'The cron run failed; see the server log.' }, 500);

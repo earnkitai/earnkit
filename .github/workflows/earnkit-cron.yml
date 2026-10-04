@@ -21,6 +21,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CRON_SECRET" || { echo "CRON_SECRET is not set"; exit 1; }
-          curl -fsS --max-time 540 -X POST \
+          # 503 (body shown): a campaign's payout waits on the owner; the failed run emails them.
+          curl -sS --fail-with-body --max-time 540 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             https://earnkit.com/api/cron

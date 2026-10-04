@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
 import { publicNote, reviewRows } from './leaderboard';
+import { MANUAL_CHECK, TERMS_CHANGED } from './payout';
 import { VETO_ERRORS, VetoError, vetoEntry, vetoKey, vetoKeyMatches, vetoLink, vetoPost } from './veto';
 
 const SECRET = 'v'.repeat(48);
@@ -76,6 +77,10 @@ test('publicNote: the public page never shows the raw payout note', () => {
     'Payouts paused: a check failed; retrying hourly.',
   ])
     assert.equal(publicNote({ state: 'paying', note }), 'Payouts paused; they resume automatically.');
+  // I6: states that wait on the owner never promise to resume by themselves.
+  assert.equal(publicNote({ state: 'paying', note: MANUAL_CHECK }), 'Payouts paused; EarnKit is checking a transfer.');
+  assert.equal(publicNote({ state: 'paying', note: `Paid entry #3. ${MANUAL_CHECK}` }), 'Payouts paused; EarnKit is checking a transfer.');
+  assert.equal(publicNote({ state: 'paying', note: TERMS_CHANGED }), 'Payouts paused; EarnKit is checking the prize terms.');
 });
 
 test('Review Focus 4: opening the link (GET) never removes anything; the page is rate limited and flags partial scores', () => {

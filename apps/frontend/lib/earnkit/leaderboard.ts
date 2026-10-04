@@ -8,7 +8,7 @@ import {
 } from './campaigns';
 import { sql, type Db } from './db';
 import { prizeFunds } from './funds';
-import { fromTerms, type FrozenTerms } from './payout';
+import { MANUAL_CHECK, TERMS_CHANGED, fromTerms, type FrozenTerms } from './payout';
 import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
@@ -44,12 +44,14 @@ export const payingCampaign = (c: EarnKitCampaign, terms: FrozenTerms | null | u
 
 /**
  * The payout state as the public reads it (fix round 1): campaign_runs.note is for the owner (it
- * can name env vars or wallets), so the public page shows one of three short sentences. Pure;
+ * can name env vars or wallets), so the public page shows a short sentence. Pure;
  * exported for tests.
  */
 export function publicNote(run: { state: RunState; note: string | null } | null | undefined) {
   if (run?.state !== 'paying') return null;
   if (run.note && /^Waiting for the transfer/.test(run.note)) return 'Waiting for a transfer to confirm.';
+  if (run.note?.includes(MANUAL_CHECK)) return 'Payouts paused; EarnKit is checking a transfer.';
+  if (run.note?.includes(TERMS_CHANGED)) return 'Payouts paused; EarnKit is checking the prize terms.';
   if (run.note) return 'Payouts paused; they resume automatically.';
   return 'Paying winners now.';
 }

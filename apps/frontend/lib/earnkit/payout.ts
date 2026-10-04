@@ -175,6 +175,15 @@ export const STALE_CLEAR_MS = 30 * 60_000;
 
 /** The page note when a stuck transfer can't be proven dead (Ruling 33). */
 export const MANUAL_CHECK = 'Payouts paused: a transfer needs a manual check.';
+/** The run note when the program's prize terms no longer match the frozen ones. */
+export const TERMS_CHANGED = "Payout paused: the campaign's prize terms changed after the review opened.";
+
+/**
+ * A payout note that waits on the owner and never clears by itself (a manual check, changed terms):
+ * the cron answers 503 so the GitHub Actions run fails and emails the owner (I6). Pure.
+ */
+export const needsOwner = (note: string | null | undefined) =>
+  Boolean(note && (note.includes(MANUAL_CHECK) || note.includes(TERMS_CHANGED)));
 
 /** The nonce of a signed transaction, when the payout key signed it; null otherwise. */
 async function ownNonce(raw: Hex, account: LocalAccount) {
