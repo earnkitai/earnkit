@@ -150,7 +150,7 @@ test('lifecycle: score, freeze and open the 48 h review in one call, wait, then 
 
     // Ruling 16: the freeze pass opens the review in the same call; Ruling 20: the partial final score is flagged.
     const freeze = mine(await run(at(16)), tag)!;
-    assert.deepEqual(freeze, { id: tag, step: 'freeze', final: 4, failed: 0, review: true, partial: [b] });
+    assert.deepEqual(freeze, { id: tag, step: 'freeze', final: 4, failed: 0, gave_up: [], review: true, partial: [b] });
     const [r1] = await sql()`SELECT state, frozen_at, review_until FROM campaign_runs WHERE program_id = ${tag}`;
     assert.equal(r1.state, 'review');
     assert.equal(r1.review_until.getTime(), at(16).getTime() + 48 * 3_600_000);
@@ -183,7 +183,7 @@ test('lifecycle: score, freeze and open the 48 h review in one call, wait, then 
   }
 });
 
-test('freeze: an entry that cannot be scored is frozen with its last score after 24 h, then the review opens', db, async () => {
+test('Ruling 35: after the end, one unfinished entry per call gets the whole budget; 3 failed final attempts freeze it flagged partial', db, async () => {
   const tag = `test-cron-giveup-${process.pid}-${Date.now()}`;
   const [a, b] = await setup(tag, 2);
   const deps = {
@@ -195,15 +195,25 @@ test('freeze: an entry that cannot be scored is frozen with its last score after
     },
     refreshFees: async () => 0,
   };
+  const run = async (min: number) => mine(await runCron({ now: at(min), deps, only: [tag] }), tag);
   try {
     await sql()`UPDATE projects SET score = 4, scored_at = ${at(-60)}, scored_through = ${at(-60)} WHERE id = ${b}`;
-    assert.deepEqual(mine(await runCron({ now: at(16), deps, only: [tag] }), tag), { id: tag, step: 'freeze', final: 1, failed: 1, review: false, partial: [] });
+    // Call 1: a has the whole budget and finishes; b is tried with what is left, so its failure is no strike.
+    assert.deepEqual(await run(16), { id: tag, step: 'freeze', final: 1, failed: 1, gave_up: [], review: false, partial: [] });
+    const attempts = async () => (await sql()`SELECT final_attempts FROM projects WHERE id = ${b}`)[0].final_attempts;
+    assert.equal(await attempts(), 0);
+    // Calls 2 and 3: b alone, full budget, fails: strikes 1 and 2; no 24 h clock, no review yet.
+    assert.deepEqual(await run(76), { id: tag, step: 'freeze', final: 0, failed: 1, gave_up: [], review: false, partial: [] });
+    assert.deepEqual(await run(16 + 1440 * 3), { id: tag, step: 'freeze', final: 0, failed: 1, gave_up: [], review: false, partial: [] });
+    assert.equal(await attempts(), 2);
     const [r1] = await sql()`SELECT state FROM campaign_runs WHERE program_id = ${tag}`;
     assert.equal(r1.state, 'running');
-    const later = mine(await runCron({ now: at(16 + 1440), deps, only: [tag] }), tag);
-    assert.deepEqual(later, { id: tag, step: 'freeze', final: 0, failed: 1, review: true, partial: [] });
-    const rows = await sql()`SELECT id, score, score_final, score_error FROM projects WHERE program_id = ${tag} ORDER BY id`;
-    assert.deepEqual(rows.map((r) => [r.id, r.score, r.score_final, r.score_error]), [[a, 5, true, null], [b, 4, true, 'Base explorer returned 502']]);
+    // Call 4: the third failed final attempt freezes b with its last score, flagged; the review opens.
+    assert.deepEqual(await run(16 + 1440 * 3 + 60), { id: tag, step: 'freeze', final: 0, failed: 0, gave_up: [b], review: true, partial: [b] });
+    const rows = await sql()`SELECT id, score, score_final, score_partial, score_error FROM projects WHERE program_id = ${tag} ORDER BY id`;
+    assert.deepEqual(rows.map((r) => [r.id, r.score, r.score_final, r.score_partial]), [[a, 5, true, false], [b, 4, true, true]]);
+    assert.equal(rows[0].score_error, null);
+    assert.match(rows[1].score_error, /did not finish after 3 tries \(last: Base explorer returned 502\); the last score is shown/);
   } finally {
     await teardown(tag);
   }

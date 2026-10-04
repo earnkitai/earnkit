@@ -10,8 +10,6 @@ import type { Candidate, RunState } from './winners';
 
 /** Work per cron call; the hourly run picks up the rest. */
 export const CRON_BUDGET_MS = 4 * 60_000;
-/** An entry still unscorable this long after the end is frozen with its last score (its error shown in the review). */
-export const FREEZE_GIVE_UP_MS = 24 * 3_600_000;
 
 /** How old a running score may get: 20 h, or 1 h in the campaign's last day (v2.4 §3 Scheduler). Pure. */
 export const scoreMaxAge = (endsAt: Date, now: Date) =>
@@ -66,7 +64,7 @@ export const PAY_FAILED = 'Payouts paused: a check failed; retrying hourly.';
 /** A failed step in the cron's answer (the GitHub Actions log): fixed, so no RPC URL or key leaks. */
 export const STEP_FAILED = 'This step failed; it is retried on the next run.';
 
-/** Final scores whose reads were capped (score_partial): payable, flagged in the review. */
+/** Final scores whose reads were capped or never finished (score_partial): payable, flagged in the review. */
 const partialIds = (entries: Entry[]) => entries.filter((e) => e.score_final && e.score_partial).map((e) => e.id);
 
 /**
@@ -88,11 +86,9 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
     return { step, scored: out.filter((o) => o.result === 'scored').length, failed: out.filter((o) => o.result === 'failed').length };
   }
   if (step === 'freeze') {
+    // Ruling 35: one unfinished entry at a time with the whole budget, rotating by last attempt;
+    // after 3 failed final attempts an entry is frozen with its last score, flagged partial.
     const out = await scoreCampaignEntries(p, entries, { now, deadline, final: true, maxAgeMs: 0 }, deps.score);
-    if (now.getTime() >= p.ends_at.getTime() + FREEZE_GIVE_UP_MS)
-      await sql()`
-        UPDATE projects SET score_final = true
-        WHERE program_id = ${p.id} AND payout_wallet IS NOT NULL AND NOT score_final`;
     const frozen = await entriesOf(p.id);
     const review = frozen.every((e) => e.score_final);
     if (review) await openReview(p, now);
@@ -100,6 +96,7 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
       step,
       final: out.filter((o) => o.result === 'final').length,
       failed: out.filter((o) => o.result === 'failed').length,
+      gave_up: out.filter((o) => o.result === 'gave_up').map((o) => o.id),
       review,
       partial: partialIds(frozen),
     };

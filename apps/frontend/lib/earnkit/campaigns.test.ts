@@ -787,7 +787,7 @@ test('scoreEntry: a smart account needs EntryPoint nonce (key 0) >= 3 at the sta
   assert.deepEqual(asked.sort(), [[V7, A, 41n], [V7, B, 41n]]);
 });
 
-test('scoreEntry: a failed receipt or nonce lookup means not counted (logged, cached), never a failed entry', async () => {
+test('scoreEntry: a receipt or nonce lookup that fails twice means not counted and a partial score, never a failed entry', async () => {
   const [A, B, C2] = [7, 8, 9].map(addr);
   const lookups: string[] = [];
   const errors: unknown[] = [];
@@ -806,9 +806,38 @@ test('scoreEntry: a failed receipt or nonce lookup means not counted (logged, ca
       epNonce: async () => { throw new Error('execution reverted'); },
       history: async () => 'smart',
     });
-    assert.deepEqual([r.score, r.timedOut], [0, false]);
-    assert.deepEqual(lookups.sort(), ['0xbad', '0xok'], 'the failed receipt is cached, not retried');
+    assert.deepEqual([r.score, r.timedOut, r.complete], [0, false, false]);
+    assert.deepEqual(lookups.sort(), ['0xbad', '0xbad', '0xok'], 'the failed receipt is retried once, then cached');
     assert.equal(errors.length, 2, 'one log for the receipt, one for the nonce');
+  } finally {
+    console.error = original;
+  }
+});
+
+test('scoreEntry (I2): a lookup that fails once and then works counts the user; the score stays complete', async () => {
+  const S = addr(7);
+  let receiptTries = 0;
+  let nonceTries = 0;
+  const original = console.error;
+  console.error = () => {};
+  try {
+    const r = await scoreEntry([addr('c')], ...window5, {
+      blockAt: async () => 1n,
+      fetchPage: noDirect,
+      fetchInternal: internalFrom([[S, '0xops']]),
+      userOps: async () => {
+        if (receiptTries++ === 0) throw new Error('429 Too Many Requests');
+        return [{ entryPoint: V7, sender: S, success: true }];
+      },
+      epNonce: async () => {
+        if (nonceTries++ === 0) throw new Error('429 Too Many Requests');
+        return 5n;
+      },
+      history: async () => 'smart',
+    });
+    assert.deepEqual(r.counted, [{ wallet: S, kind: 'smart' }]);
+    assert.equal(r.complete, true);
+    assert.deepEqual([receiptTries, nonceTries], [2, 2]);
   } finally {
     console.error = original;
   }

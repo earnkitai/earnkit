@@ -638,6 +638,9 @@ export function userOpsIn(
   return ops;
 }
 
+/** Pause before the one retry of a failed receipt or EntryPoint-nonce lookup in scoring. */
+export const SOFT_RETRY_MS = 300;
+
 const GET_NONCE_ABI = [
   {
     type: 'function',
@@ -661,13 +664,14 @@ const GET_NONCE_ABI = [
  *   EntryPoint's getNonce(sender, 0) >= MIN_EOA_NONCE at the start block (v2.4 ruling 22). Clones
  *   a UserOp or an ordinary transaction fans out to never count. Known limitations: users who reach
  *   the contract through Multicall, routers, relayers or a Safe executed by its owner aren't
- *   counted, nor accounts that only use non-zero nonce keys. A failed receipt or nonce lookup means
- *   "not counted" (logged), never a failed entry.
+ *   counted, nor accounts that only use non-zero nonce keys. A receipt or nonce lookup is retried
+ *   once; still failing, that user is not counted and the score is marked incomplete (partial,
+ *   flagged in the review), never a failed entry.
  *
  * Never counted: `exclude` (the payout wallet and deployers), the entry's own contracts and the
  * EntryPoints. Returns the score, the counted wallets with their kind, `codeShare` (the share of
  * the counted wallets' direct transactions carrying EarnKit's Builder Code; null without any), and
- * `complete` (false when a read hit its page cap) and `timedOut`. `fetchPage` and `fetchInternal`
+ * `complete` (false when a read hit its page cap or a lookup failed twice) and `timedOut`. `fetchPage` and `fetchInternal`
  * are injected together (tests); `userOps` (a receipt's UserOps) is read once per transaction and
  * `epNonce` reads an EntryPoint nonce at a block.
  */
@@ -710,15 +714,27 @@ export async function scoreEntry(
         args: [sender as `0x${string}`, 0n],
         blockNumber: block,
       }));
-  /** A lookup that may fail without failing the entry: logged, then `fallback`. The deadline still stops it. */
-  const soft = async <T,>(what: string, p: Promise<T>, fallback: T): Promise<T> => {
-    try {
-      return await beforeDeadline(p, deadline);
-    } catch (err) {
-      if (err instanceof ScoreDeadline || (deadline !== undefined && Date.now() >= deadline))
-        throw err;
-      console.error(`[score] ${what} failed; not counted:`, err instanceof Error ? err.message : err);
-      return fallback;
+  let complete = true;
+  /**
+   * A lookup that may fail without failing the entry: tried twice; still failing, it is logged,
+   * gives `fallback` (not counted) and marks the score incomplete (score_partial, flagged in the
+   * review). The deadline still stops it.
+   */
+  const soft = async <T,>(what: string, read: () => Promise<T>, fallback: T): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await beforeDeadline(read(), deadline);
+      } catch (err) {
+        if (err instanceof ScoreDeadline || (deadline !== undefined && Date.now() >= deadline))
+          throw err;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, SOFT_RETRY_MS));
+          continue;
+        }
+        console.error(`[score] ${what} failed twice; not counted, score partial:`, err instanceof Error ? err.message : err);
+        complete = false;
+        return fallback;
+      }
     }
   };
   const receipts = new Map<string, Promise<UserOp[]>>();
@@ -726,7 +742,7 @@ export async function scoreEntry(
   const userOpEntryPoint = async (w: string, hashes: string[]) => {
     for (const h of hashes) {
       let p = receipts.get(h);
-      if (!p) receipts.set(h, (p = soft(`receipt of ${h}`, userOps(h), [])));
+      if (!p) receipts.set(h, (p = soft(`receipt of ${h}`, () => userOps(h), [])));
       const op = (await p).find((o) => o.sender === w && o.success);
       if (op) return op.entryPoint;
     }
@@ -739,7 +755,6 @@ export async function scoreEntry(
   const internal = new Map<string, string[]>();
   const all = new Set<string>();
   const counted: { wallet: string; kind: WalletKind }[] = [];
-  let complete = true;
   const out = (timedOut: boolean) => {
     let txs = 0;
     let coded = 0;
@@ -793,7 +808,7 @@ export async function scoreEntry(
       if (!entryPoint) continue;
       const nonce = await soft(
         `EntryPoint nonce of ${w}`,
-        epNonce(entryPoint, w, blockBefore),
+        () => epNonce(entryPoint, w, blockBefore),
         null,
       );
       if (nonce !== null && nonce >= BigInt(MIN_EOA_NONCE))

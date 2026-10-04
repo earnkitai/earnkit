@@ -291,6 +291,7 @@ CREATE INDEX IF NOT EXISTS entry_wallets_wallet ON entry_wallets (wallet);
 -- idempotent payout (the signed transfer is stored before it is broadcast).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS score_final boolean NOT NULL DEFAULT false;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS score_attempted_at timestamptz; -- when scoring last started on it: oldest attempt goes first, so a slow entry cannot starve the rest
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS final_attempts integer NOT NULL DEFAULT 0; -- failed full-budget final reads; the 3rd freezes the last score, flagged partial
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS vetoed_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS veto_reason text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_status text;
