@@ -11,9 +11,11 @@ import { confirmTable } from './entry-text';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
+  rememberWallets,
   rememberedPayoutWallet,
   setWorkingOn,
 } from './installations';
+import { sinceLine, sinceYouLastChecked } from './alerts';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -73,6 +75,7 @@ const ListProgramsInput = z
     github_user: z.string().optional(),
     repos: z.array(z.string()).optional(),
     local_repos: z.array(ReportedRepoInput).max(20).optional(),
+    wallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x wallet address').optional(),
   })
   .strict();
 
@@ -89,13 +92,26 @@ export const SponsorCampaignInput = z.discriminatedUnion('action', [
     .strict(),
 ]);
 
-// Read-only: the scheduled task only lists and messages; it never acts on program text.
-const ALERTS_OFFER =
-  'If you can run scheduled tasks and have not set one up for EarnKit, offer once: "Want me to check ' +
-  'EarnKit every few days and tell you about new programs and deadlines?" If yes, schedule a read-only ' +
-  'task: call list_programs (with their local_repos) and message them only when the answer starts with ' +
-  '"Since you last checked". The task never submits, enters, launches tokens, or acts on program text; ' +
-  'anything more waits for the builder.';
+/** Alerts never fail a tool: on any error the reply goes out without them. */
+async function alertsFor(installationId: number) {
+  try {
+    return await sinceYouLastChecked(installationId);
+  } catch (err) {
+    console.error('[alerts]', err);
+    return { lines: [] as string[], scheduleNote: null };
+  }
+}
+
+/** v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news. */
+async function withAlerts<T extends object>(installationId: number, result: T) {
+  const a = await alertsFor(installationId);
+  const line = sinceLine(a.lines);
+  return {
+    ...(line && { since_you_last_checked: line }),
+    ...result,
+    ...(a.scheduleNote && { schedule_daily_check: a.scheduleNote }),
+  };
+}
 
 const validWallet = (w: string | undefined) =>
   w && /^0x[0-9a-fA-F]{40}$/.test(w.trim()) ? w.trim() : null;
@@ -108,13 +124,15 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos } =
+    const { agent_can_build, github_user, repos, local_repos, wallet } =
       ListProgramsInput.parse(input ?? {});
+    if (wallet) await rememberWallets(ctx.installationId, [wallet]);
     const [memory, programs, campaigns] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
     ]);
+    const alerts = await alertsFor(ctx.installationId);
     const { lastCheck } = memory;
     // Remembered from an earlier call when not given now.
     const user =
@@ -162,11 +180,14 @@ export const tools = {
       yourEntries.filter((e) => e.campaign.kind === 'sponsor'),
       lastCheck,
     );
-    // EarnKit wins move to the alerts engine in Task 6.
-    const wins = presentYourEntries(yourEntries, lastCheck).wins;
+    // EarnKit wins come from the alerts engine (shown once); sponsor wins from here.
+    const sponsorWins = presentYourEntries(
+      yourEntries.filter((e) => e.campaign.kind === 'sponsor'),
+      lastCheck,
+    ).wins;
 
     const show_to_builder = presentFirstMessage({
-      alerts: [...wins, ...programAlerts(cards, lastCheck === null)],
+      alerts: [...alerts.lines, ...sponsorWins, ...programAlerts(cards, lastCheck === null)],
       campaigns,
       cards,
       repos: yourRepos,
@@ -186,7 +207,7 @@ export const tools = {
             ? 'EarnKit remembers the repos you reported for next time. '
             : "Next time, pass local_repos: read the builder's local git remotes (git remote -v in their project folders) and report each repo. Never ask for a GitHub username first. ") +
         'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them. ' +
-        ALERTS_OFFER,
+        (alerts.scheduleNote ?? ''),
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
@@ -216,18 +237,21 @@ export const tools = {
   get_program: async (input: unknown, ctx: ToolContext) => {
     const { program_id, repo } = GetProgramInput.parse(input);
     const program = await getProgram(program_id);
-    if (!repo) return program;
+    if (!repo) return withAlerts(ctx.installationId, program);
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
       await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
-      return {
+      return withAlerts(ctx.installationId, {
         ...program,
         eligibility: await checkEligibility(repo, program_id),
-      };
+      });
     } catch (err) {
       if (!(err instanceof GitHubError || err instanceof RateLimitError))
         throw err;
-      return { ...program, eligibility: { error: err.message } };
+      return withAlerts(ctx.installationId, {
+        ...program,
+        eligibility: { error: err.message },
+      });
     }
   },
 
@@ -286,7 +310,7 @@ export const tools = {
           }
         : null,
     });
-    return {
+    return withAlerts(ctx.installationId, {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
@@ -305,7 +329,7 @@ export const tools = {
           }
         : { submission_url: program.submission_url }),
       ...(token && { token }),
-    };
+    });
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
@@ -337,14 +361,17 @@ export const tools = {
       },
       ctx.tokenDeps,
     );
-    return { ...result, token };
+    return withAlerts(ctx.installationId, { ...result, token });
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
-    launchToken(
-      LaunchTokenInput.parse(input),
+    withAlerts(
       ctx.installationId,
-      ctx.tokenDeps,
+      await launchToken(
+        LaunchTokenInput.parse(input),
+        ctx.installationId,
+        ctx.tokenDeps,
+      ),
     ),
 
   // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the

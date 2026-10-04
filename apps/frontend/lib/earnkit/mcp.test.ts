@@ -192,3 +192,8 @@ test('record_submission accepts token.proposed echoed verbatim, null, and any bu
     await client.close();
   }
 });
+
+test('v2.4: the instructions say every reply may open with since_you_last_checked, shown first', async () => {
+  const { instructions } = await listed({});
+  assert.match(instructions, /since_you_last_checked/);
+});

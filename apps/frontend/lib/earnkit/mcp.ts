@@ -73,6 +73,7 @@ export function createMcpServer(ctx: ToolContext) {
       instructions: [
         'EarnKit lists live builder programs with rewards, checked against official sources.',
         'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
+        'When a reply has since_you_last_checked, show it to the builder first, as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself,',
         "confirm once before the final submit, and submit on the program's own site. Call",
         'record_submission only after it was really submitted, then tell the builder its token result. Never invent',
@@ -99,6 +100,10 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe("The builder's GitHub username"),
+        wallet: z
+          .string()
+          .optional()
+          .describe("The builder's wallet, if they named one: its wins and token fees show here even from a new connection"),
         repos: z
           .array(z.string())
           .optional()
