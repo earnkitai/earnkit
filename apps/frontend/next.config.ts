@@ -48,6 +48,10 @@ const nextConfig: NextConfig = {
         source: '/api/projects/:id/image',
         headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
       },
+      {
+        source: '/api/projects/:id/token-image',
+        headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
+      },
     ];
   },
 };

@@ -224,3 +224,10 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_pushed_at timestamptz;
 -- v2.3: whether entries get a token at submission (encouraged/allowed launch by default; off: never).
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS token_policy text NOT NULL DEFAULT 'encouraged'
   CHECK (token_policy IN ('encouraged', 'allowed', 'off'));
+
+-- v2.3: the token proposed or launched for this entry, and what happened.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_name   text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_symbol text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_status text
+  CHECK (token_status IN ('skipped', 'gate_failed', 'pending', 'launched', 'failed'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_note   text;
