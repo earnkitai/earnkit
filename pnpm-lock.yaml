@@ -39,6 +39,9 @@ importers:
       next:
         specifier: 16.1.5
         version: 16.1.5(react-dom@19.0.0)(react@19.0.0)
+      ox:
+        specifier: 0.14.45
+        version: 0.14.45(typescript@5.8.3)(zod@4.6.5)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

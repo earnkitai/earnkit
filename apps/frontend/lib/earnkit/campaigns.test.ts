@@ -24,6 +24,10 @@ import {
   scoreEntry,
   scoreIsFinal,
   walletsUsing,
+  internalCallers,
+  walletHistory,
+  ENTRY_POINTS,
+  type InternalPage,
   type TxPage,
   type CampaignConfig,
   type YourEntry,
@@ -409,7 +413,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
   const newest = new Date(Date.now() - 1000);
   const slowHistory = async () => {
     await new Promise((r) => setTimeout(r, 30));
-    return true;
+    return 'eoa' as const;
   };
   const ex = fakeExplorer(3, newest);
   const started = Date.now();
@@ -421,7 +425,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
       deadline: Date.now() + 100,
       fetchPage: ex.fetchPage,
       blockAt: async () => 1n,
-      hadHistory: slowHistory,
+      history: slowHistory,
     },
   );
   assert.ok(Date.now() - started < 400, 'returned near the deadline');
@@ -440,7 +444,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
       deadline: Date.now() - 1,
       fetchPage: fakeExplorer(3, newest).fetchPage,
       blockAt: async () => 1n,
-      hadHistory: async () => true,
+      history: async () => 'eoa' as const,
     },
   );
   assert.deepEqual([r2.timedOut, r2.score, r2.seen], [true, 0, 0]);
@@ -452,7 +456,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
     {
       fetchPage: fakeExplorer(3, newest).fetchPage,
       blockAt: async () => 1n,
-      hadHistory: async () => true,
+      history: async () => 'eoa' as const,
     },
   );
   assert.deepEqual([r3.timedOut, r3.complete, r3.score], [false, true, 7]);
@@ -557,4 +561,82 @@ test('existing work allowed: a contract deployed before the start is accepted; n
     }),
     /isn't a contract/,
   );
+});
+
+const at = (h: number) => new Date(Date.UTC(2026, 9, 5, h)).toISOString();
+const page = <T,>(items: T[]) => ({ items, next_page_params: null });
+
+test('internalCallers: successful calls inside the window only', async () => {
+  const r = await internalCallers('0xc', new Date(Date.UTC(2026, 9, 5, 1)), new Date(Date.UTC(2026, 9, 5, 20)), {
+    fetchPage: async (path) => {
+      assert.match(path, /^\/api\/v2\/addresses\/0xc\/internal-transactions\?filter=to$/);
+      return page([
+        { timestamp: at(10), success: true, type: 'call', from: { hash: '0xAA' } },
+        { timestamp: at(9), success: false, type: 'call', from: { hash: '0xbb' } },
+        { timestamp: at(8), success: true, type: 'delegatecall', from: { hash: '0xcc' } },
+        { timestamp: at(21), success: true, type: 'call', from: { hash: '0xdd' } },
+        { timestamp: at(0), success: true, type: 'call', from: { hash: '0xee' } },
+      ]) as InternalPage;
+    },
+  });
+  assert.deepEqual([...r.wallets], ['0xaa']);
+  assert.equal(r.complete, true);
+});
+
+test('walletHistory: EOAs need 3+ transactions before the start; smart accounts must have existed', async () => {
+  const rpc = (code: { now: string; then: string }, nonce: number) =>
+    ({
+      getCode: async ({ blockNumber }: { blockNumber?: bigint }) => (blockNumber === undefined ? code.now : code.then),
+      getTransactionCount: async () => nonce,
+    }) as never;
+  assert.equal(await walletHistory('0x1', 5n, rpc({ now: '0x', then: '0x' }, 2)), null);
+  assert.equal(await walletHistory('0x1', 5n, rpc({ now: '0x', then: '0x' }, 3)), 'eoa');
+  assert.equal(await walletHistory('0x1', 5n, rpc({ now: '0x6080', then: '0x6080' }, 0)), 'smart');
+  assert.equal(await walletHistory('0x1', 5n, rpc({ now: '0x6080', then: '0x' }, 0)), null);
+  // An EIP-7702 delegated EOA has code "0xef0100<address>": still an EOA.
+  assert.equal(await walletHistory('0x1', 5n, rpc({ now: '0xef0100' + 'ab'.repeat(20), then: '0x' }, 4)), 'eoa');
+});
+
+test('scoreEntry v2: internal callers count; the payout wallet, deployers, contracts and EntryPoints never do', async () => {
+  const C = '0x' + 'c'.repeat(40);
+  const USER = '0x' + '1'.repeat(40);
+  const SMART = '0x' + '2'.repeat(40);
+  const PAYOUT = '0x' + '3'.repeat(40);
+  const DEPLOYER = '0x' + '4'.repeat(40);
+  const NEW = '0x' + '5'.repeat(40);
+  const from = new Date(Date.UTC(2026, 9, 5, 0));
+  const to = new Date(Date.UTC(2026, 9, 6, 0));
+  const r = await scoreEntry([C], from, to, {
+    blockAt: async () => 1n,
+    fetchPage: async () =>
+      page([USER, PAYOUT, DEPLOYER, NEW, C].map((w, i) => ({ timestamp: at(10 + i), status: 'ok', from: { hash: w } }))) as TxPage,
+    fetchInternal: async () =>
+      page([SMART, ENTRY_POINTS[1]].map((w) => ({ timestamp: at(12), success: true, type: 'call', from: { hash: w } }))) as InternalPage,
+    history: async (w) => (w === SMART ? 'smart' : w === NEW ? null : 'eoa'),
+    exclude: [PAYOUT, DEPLOYER.toUpperCase().replace('0X', '0x')],
+  });
+  assert.deepEqual(r.counted.sort((a, b) => a.wallet.localeCompare(b.wallet)), [
+    { wallet: USER, kind: 'eoa' },
+    { wallet: SMART, kind: 'smart' },
+  ]);
+  assert.equal(r.score, 2);
+  assert.equal(r.seen, 3); // USER, NEW, SMART: the excluded ones are never looked at
+});
+
+test('scoreEntry v2: the share of direct transactions carrying EarnKit\'s Builder Code', async () => {
+  const { Attribution } = await import('ox/erc8021');
+  const coded = '0xa9059cbb' + Attribution.toDataSuffix({ codes: ['earnkit'] }).slice(2);
+  const from = new Date(Date.UTC(2026, 9, 5, 0));
+  const r = await scoreEntry(['0xc'], from, new Date(Date.UTC(2026, 9, 6)), {
+    blockAt: async () => 1n,
+    history: async () => 'eoa',
+    fetchPage: async () =>
+      page([
+        { timestamp: at(10), status: 'ok', from: { hash: '0x01' }, raw_input: coded },
+        { timestamp: at(11), status: 'ok', from: { hash: '0x02' }, raw_input: '0xa9059cbb' },
+        { timestamp: at(12), status: 'ok', from: { hash: '0x03' } },
+        { timestamp: at(13), status: 'error', from: { hash: '0x04' }, raw_input: coded },
+      ]) as TxPage,
+  });
+  assert.equal(r.codeShare, 1 / 3);
 });
