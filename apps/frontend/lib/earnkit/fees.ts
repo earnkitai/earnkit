@@ -1,6 +1,6 @@
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { llamaPrice } from './prices';
 
 /** Clanker's FeeLocker on Base: creator fees wait here until claimed (v2.4 §4). */
@@ -87,13 +87,13 @@ export const FEE_RETRY_MS = 3_600_000;
 /**
  * The cached fees (USD) waiting for these wallets, summed; null when none was ever read. Never
  * waits on a read: missing or stale (over 6 h) wallets are refreshed in the background, at most 4
- * at a time, so the next reply has them; a failed read is not retried for an hour (per process).
+ * at a time (on the pool, after this returns), so the next reply has them; a failed read is not retried for an hour (per process).
  */
-export async function cachedFeesUsd(wallets: string[], now = Date.now()) {
+export async function cachedFeesUsd(wallets: string[], now = Date.now(), db: Db = sql()) {
   const list = [...new Set(wallets.map((w) => w.toLowerCase()))];
   if (list.length === 0) return null;
-  const rows = await sql()<{ wallet: string; usd: string; read_at: Date }[]>`
-    SELECT wallet, usd, read_at FROM token_fees WHERE wallet IN ${sql()(list)}`;
+  const rows = await db<{ wallet: string; usd: string; read_at: Date }[]>`
+    SELECT wallet, usd, read_at FROM token_fees WHERE wallet IN ${db(list)}`;
   const stale = list.filter((w) => {
     const r = rows.find((x) => x.wallet === w);
     const failed = failedAt.get(w);

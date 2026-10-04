@@ -24,7 +24,7 @@ test('a prize paid between the facts read and the write (paid before checkedAt) 
   ]);
 });
 
-test('a wallet added later shows its old win once; at most the 3 most recent prizes per check', () => {
+test('a wallet added later shows its old win once; at most the 3 most recent prizes per check, the rest next time', () => {
   const prize = (id: number, h: number) => ({ project_id: id, name: `P${id}`, won: '$100 in MINI', prize_tx: `0x${id}`, paid_at: t(h) });
   const seen = alertLines({ checkedAt: t(1), state: { top: {} }, feeAlertedUsd: null }, empty).state;
   const old: AlertFacts = { ...empty, prizes: [prize(9, 0)] };
@@ -34,7 +34,10 @@ test('a wallet added later shows its old win once; at most the 3 most recent pri
   const many: AlertFacts = { ...empty, prizes: [prize(1, 1), prize(2, 4), prize(3, 2), prize(4, 3)] };
   const m = alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, many);
   assert.deepEqual(m.lines.map((l) => l.split(' with ')[1].split(' ')[0]), ['P2', 'P4', 'P3']);
-  assert.deepEqual(alertLines({ checkedAt: t(5), state: m.state, feeAlertedUsd: null }, many).lines, []);
+  // The 4th waits for the next check (not lost), then nothing.
+  const next = alertLines({ checkedAt: t(5), state: m.state, feeAlertedUsd: null }, many);
+  assert.deepEqual(next.lines, ['you won $100 in MINI with P1 (basescan.org/tx/0x1)']);
+  assert.deepEqual(alertLines({ checkedAt: t(6), state: next.state, feeAlertedUsd: null }, many).lines, []);
 });
 
 test('other wins (sponsor) come right after EarnKit wins, before fees and other news', () => {
@@ -196,7 +199,27 @@ test('sinceYouLastChecked: over budget or row locked, no alerts and nothing mark
   await seeded(async ({ tag, me, wallet }) => {
     await sql()`INSERT INTO projects (program_id, name, installation_id, payout_wallet, score, prize_tx, prize_paid_at)
       VALUES (${tag + '-ek'}, 'EK win', ${me}, ${wallet}, 40, '0xek', now())`;
-    assert.deepEqual(await sinceYouLastChecked(me, { budgetMs: 0, otherWins: ['w'] }), { lines: ['w'], scheduleNote: null });
+    // Over budget: a facts read blocked past statement_timeout is cancelled by the server (57014).
+    {
+      let release!: () => void;
+      const held = new Promise<void>((r) => (release = r));
+      let locked!: () => void;
+      const isLocked = new Promise<void>((r) => (locked = r));
+      const holder = sql().begin(async (tx) => {
+        await tx`LOCK TABLE installation_wallets IN ACCESS EXCLUSIVE MODE`;
+        locked();
+        await held;
+      });
+      await isLocked;
+      const started = Date.now();
+      try {
+        assert.deepEqual(await sinceYouLastChecked(me, { budgetMs: 100, otherWins: ['w'] }), { lines: ['w'], scheduleNote: null });
+      } finally {
+        release();
+        await holder;
+      }
+      assert.ok(Date.now() - started < 1_000);
+    }
     const [row] = await sql()`SELECT alerts_checked_at, alert_state FROM installations WHERE id = ${me}`;
     assert.deepEqual([row.alerts_checked_at, row.alert_state], [null, null]);
     let release!: () => void;
@@ -216,6 +239,22 @@ test('sinceYouLastChecked: over budget or row locked, no alerts and nothing mark
     await holder;
     assert.ok((await sinceYouLastChecked(me)).lines.includes('you won $100 in MINI with EK win (basescan.org/tx/0xek)'));
   });
+});
+
+test('sinceYouLastChecked: one connection per check, so more concurrent checks than the pool (5) all finish', db, async () => {
+  const tag = `test-alerts-pool-${process.pid}-${Date.now()}`;
+  const ids = (await sql()`
+    INSERT INTO installations (token_hash) SELECT ${tag} || g FROM generate_series(1, 12) g RETURNING id`).map((r) => r.id as number);
+  try {
+    const started = Date.now();
+    const results = await Promise.all(ids.map((id) => sinceYouLastChecked(id)));
+    assert.equal(results.length, 12);
+    assert.ok(Date.now() - started < 1_500, `took ${Date.now() - started} ms`);
+    const rows = await sql()`SELECT count(*)::int AS n FROM installations WHERE id IN ${sql()(ids)} AND alerts_checked_at IS NOT NULL`;
+    assert.equal(rows[0].n, 12); // every check committed: none starved into a timeout
+  } finally {
+    await sql()`DELETE FROM installations WHERE id IN ${sql()(ids)}`;
+  }
 });
 
 test('list_programs: EarnKit wins, then sponsor wins, then other news (Ruling 26); wallet input is remembered', db, async () => {

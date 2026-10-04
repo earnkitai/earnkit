@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
@@ -20,7 +20,7 @@ export type AlertFacts = {
 
 /** At most this many prize lines per check (a wallet added later may bring several old wins). */
 export const MAX_PRIZE_LINES = 3;
-/** The read-only facts must arrive within this, or the reply goes out without alerts. */
+/** Each read-only facts query must finish within this (statement_timeout), or the reply goes out without alerts. */
 export const FACTS_BUDGET_MS = 1_500;
 
 /** The one-time note asking the agent to schedule a daily check (v2.4 §4); list_programs only. */
@@ -32,7 +32,7 @@ export const SCHEDULE_NOTE =
 
 /**
  * What changed since the last check, money first (v2.4 §4): prizes not yet announced (the 3 most
- * recent), then `otherWins` (sponsor wins, already worded), token fees (feeAlert), rank changes
+ * recent; the rest wait for the next check), then `otherWins` (sponsor wins, already worded), token fees (feeAlert), rank changes
  * into or out of the top N (scored entries), and EarnKit campaigns not yet announced. The
  * first-ever check (no checkedAt) is quiet for ranks and campaigns; it still shows prizes. Returns
  * the new memory too. Pure; exported for tests.
@@ -44,7 +44,8 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   const fresh = f.prizes
     .filter((p) => !seenPrizes.has(p.project_id))
     .sort((a, b) => b.paid_at.getTime() - a.paid_at.getTime());
-  for (const p of fresh.slice(0, MAX_PRIZE_LINES))
+  const shown = fresh.slice(0, MAX_PRIZE_LINES);
+  for (const p of shown)
     lines.push(`you won ${p.won} with ${p.name} (basescan.org/tx/${p.prize_tx})`);
   lines.push(...otherWins);
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
@@ -80,7 +81,8 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     top,
     // Open campaigns only: closed ones drop out of the facts, and out of the list.
     campaigns: f.newCampaigns.map((c) => c.id),
-    prizes: [...new Set([...seenPrizes, ...f.prizes.map((p) => p.project_id)])],
+    // Prizes over the cap stay unseen: they show on the next check.
+    prizes: [...new Set([...seenPrizes, ...shown.map((p) => p.project_id)])],
   };
   return { lines, state, feeAlertedUsd: fee.next };
 }
@@ -89,9 +91,11 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
 export const sinceLine = (lines: string[]) =>
   lines.length ? `Since you last checked: ${lines.join('; ')}.` : null;
 
-/** The facts alerts compare, for this installation and every wallet it has used (v2.4 §5). */
-export async function alertFacts(installationId: number): Promise<AlertFacts> {
-  const db = sql();
+/**
+ * The facts alerts compare, for this installation and every wallet it has used (v2.4 §5). Runs on
+ * `db`: sinceYouLastChecked passes its transaction, so a check uses one connection (pipelined).
+ */
+export async function alertFacts(installationId: number, db: Db = sql()): Promise<AlertFacts> {
   const mine = () => db`(p.installation_id = ${installationId}
     OR lower(p.payout_wallet) IN (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
   const [opened, prizes, open, tokens] = await Promise.all([
@@ -116,8 +120,8 @@ export async function alertFacts(installationId: number): Promise<AlertFacts> {
   ]);
   const wallets = tokens.map((t) => t.wallet).filter((w): w is string => !!w);
   const [all, feesUsd] = await Promise.all([
-    campaignCandidates([...new Set(open.map((e) => e.program_id))]),
-    cachedFeesUsd(wallets),
+    campaignCandidates([...new Set(open.map((e) => e.program_id))], db),
+    cachedFeesUsd(wallets, Date.now(), db),
   ]);
   return {
     newCampaigns: opened.map((c) => ({ id: c.id, title: c.title, prize: prizeColumn(c.campaign), opened_at: c.opened_at })),
@@ -147,33 +151,24 @@ export async function alertFacts(installationId: number): Promise<AlertFacts> {
   };
 }
 
-class AlertsSkipped extends Error {}
-
-/** `p`, or AlertsSkipped after `ms` (at once when ms <= 0); `p` may still settle later (read-only, ignored). */
-function within<T>(ms: number, p: Promise<T>) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  p.catch(() => {});
-  if (ms <= 0) return Promise.reject(new AlertsSkipped('no budget'));
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new AlertsSkipped('facts over budget')), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
+/** Postgres codes that mean "no alerts this time": lock_not_available, query_canceled (statement_timeout). */
+const SKIP_CODES = new Set(['55P03', '57014']);
 
 /**
- * The alerts for one reply (v2.4 §4). Under the installation's row lock (waits at most 500 ms),
- * reads the facts (within FACTS_BUDGET_MS), compares and stores the new memory, so two replies at
- * once show news once and never write a stale memory. Over budget or locked: no alerts this time
- * and nothing is marked seen. `offer` (list_programs only) also returns the daily-check note, once
- * per installation. `otherWins` are placed right after EarnKit wins and returned even without alerts.
+ * The alerts for one reply (v2.4 §4), all on one transaction's connection: locks the
+ * installation's row (lock_timeout 500 ms), reads the facts (statement_timeout FACTS_BUDGET_MS,
+ * enforced by the server, which cancels the read), compares and stores the new memory. Two
+ * replies at once show news once and never write a stale memory. Locked or over budget: the
+ * transaction rolls back, no alerts this time, nothing marked seen. `offer` (list_programs only)
+ * also returns the daily-check note, once per installation. `otherWins` are placed right after
+ * EarnKit wins and returned even without alerts. `budgetMs` is for tests.
  */
 export async function sinceYouLastChecked(
   installationId: number,
   opts: { offer?: boolean; otherWins?: string[]; budgetMs?: number } = {},
 ) {
   const otherWins = opts.otherWins ?? [];
+  const budget = Math.max(1, Math.floor(opts.budgetMs ?? FACTS_BUDGET_MS));
   let lines: string[];
   try {
     lines = await sql().begin(async (tx) => {
@@ -181,7 +176,8 @@ export async function sinceYouLastChecked(
       const [row] = await tx<{ alerts_checked_at: Date | null; alert_state: AlertState | null; fee_alerted_usd: string | null }[]>`
         SELECT alerts_checked_at, alert_state, fee_alerted_usd FROM installations WHERE id = ${installationId} FOR UPDATE`;
       if (!row) return otherWins;
-      const facts = await within(opts.budgetMs ?? FACTS_BUDGET_MS, alertFacts(installationId));
+      await tx.unsafe(`SET LOCAL statement_timeout = '${budget}ms'`);
+      const facts = await alertFacts(installationId, tx);
       const out = alertLines(
         {
           checkedAt: row.alerts_checked_at,
@@ -198,8 +194,7 @@ export async function sinceYouLastChecked(
       return out.lines;
     });
   } catch (err) {
-    // lock_not_available: another reply holds the row; it shows the news.
-    if (!(err instanceof AlertsSkipped) && (err as { code?: string }).code !== '55P03') throw err;
+    if (!SKIP_CODES.has((err as { code?: string }).code ?? '')) throw err;
     lines = otherWins;
   }
   if (!opts.offer) return { lines, scheduleNote: null };

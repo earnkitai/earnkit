@@ -6,7 +6,7 @@ import {
   type SponsorState,
   type YourEntry,
 } from './campaigns';
-import { sql } from './db';
+import { sql, type Db } from './db';
 import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
@@ -163,14 +163,14 @@ export async function entryNames(ids: number[]) {
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
-/** Every entry of these campaigns as winner selection reads it. */
-export async function campaignCandidates(programIds: string[]) {
+/** Every entry of these campaigns as winner selection reads it (on `db`: the pool or a transaction). */
+export async function campaignCandidates(programIds: string[], db: Db = sql()) {
   if (programIds.length === 0) return [];
-  return sql()<(Candidate & { program_id: string })[]>`
+  return db<(Candidate & { program_id: string })[]>`
     SELECT id, program_id, score, submitted_at, payout_wallet, installation_id, vetoed_at,
       payout_status, prize_tx
     FROM projects
-    WHERE program_id IN ${sql()(programIds)} AND payout_wallet IS NOT NULL`;
+    WHERE program_id IN ${db(programIds)} AND payout_wallet IS NOT NULL`;
 }
 
 /** One EarnKit campaign row for list_programs (v2.4 §1): live numbers and the builder's best standing. Pure; exported for tests. */
