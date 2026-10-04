@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { TERMS_CHANGED, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
+import { PAY_FAILED_RUNS, TERMS_CHANGED, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
-import { MANUAL_CHECK, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
+import { MANUAL_CHECK, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
 
 const ENDS = new Date('2026-10-18T23:59:00Z');
@@ -26,10 +26,12 @@ test('nextStep: score, freeze, review, wait, pay, done', () => {
   assert.equal(s('paid', at(3000), true), 'done');
 });
 
-test('I6 needsOwner: a manual check or changed terms wait on the owner; other notes do not', () => {
+test('I6 needsOwner: a manual check, changed terms, or a wallet short of the prize or of gas wait on the owner; other notes do not', () => {
   assert.equal(needsOwner(MANUAL_CHECK), true);
   assert.equal(needsOwner(`Paid entry #3. ${MANUAL_CHECK}`), true);
   assert.equal(needsOwner(TERMS_CHANGED), true);
+  assert.equal(needsOwner(`The payout wallet 0xabc holds 0.5 MINI, less than the next prize (1). ${TOP_UP}`), true);
+  assert.equal(needsOwner(`The payout wallet 0xabc needs a little ETH for gas. ${TOP_UP}`), true);
   for (const note of [null, undefined, '', 'Waiting for the transfer to entry #4 to be mined.', 'Payouts paused: a check failed; retrying hourly.'])
     assert.equal(needsOwner(note), false);
 });
@@ -316,7 +318,7 @@ test('I2: the payout terms are frozen when the review opens; an edit pauses the 
     const firstOut = await runCron({ now: at(16 + 2880), deps, only: [tag] });
     const first = mine(firstOut, tag)!;
     assert.match(String(first.note), /less than the next prize \(3\)/);
-    assert.deepEqual(firstOut.needs_owner, [], 'a normal pause keeps the run green');
+    assert.deepEqual(firstOut.needs_owner, [tag], 'a wallet short of the prize waits on the owner (503)');
     // The program file changes mid-payout: nothing more is sent, and the page says why.
     await sql()`UPDATE programs SET campaign = jsonb_set(campaign, '{amount_each}', '"30"') WHERE id = ${tag}`;
     funds += 100n * 10n ** 18n;
@@ -351,7 +353,7 @@ test('M2/M3: a failing pay step answers with a fixed error and a sanitized note 
   try {
     await runCron({ now: at(16), deps, only: [tag] });
     const out = await runCron({ now: at(16 + 2880), deps, only: [tag] });
-    assert.deepEqual(mine(out, tag), { id: tag, step: 'error', note: 'This step failed; it is retried on the next run.' });
+    assert.deepEqual(mine(out, tag), { id: tag, step: 'error', note: 'This step failed; it is retried on the next run.', pay_failures: 1 });
     assert.doesNotMatch(JSON.stringify(out), /SECRETKEY/);
     const [r] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
     assert.deepEqual([r.state, r.note], ['paying', 'Payouts paused: a check failed; retrying hourly.']);
@@ -418,6 +420,69 @@ test('Ruling 32: the store keeps the first stale time, and a new signature or a 
     assert.equal(await dbPayoutStore.failed(a, false), 0);
     const [r2] = await sql()`SELECT payout_status, prize_tx, payout_stale_at, payout_reverts FROM projects WHERE id = ${a}`;
     assert.deepEqual([r2.payout_status, r2.prize_tx, r2.payout_stale_at, r2.payout_reverts], [null, null, null, 0]);
+  } finally {
+    await teardown(tag);
+  }
+});
+
+test('M6: a campaign closed after it ended but before its review is still frozen and paid; a never-launched one is never picked up', db, async () => {
+  const tag = `test-cron-closed-end-${process.pid}-${Date.now()}`;
+  const never = `test-cron-never-${process.pid}-${Date.now()}`;
+  await setup(tag, 2);
+  await setup(never, 1);
+  const f = chain();
+  const deps = {
+    score: { score: async (contracts: string[]) => result(contracts[0] === `0x${'1'.repeat(40)}` ? 9 : 8) },
+    pay: { account, rpc: f.rpc, listed: async () => false },
+    refreshFees: async () => 0,
+  };
+  const run = async (min: number) => mine(await runCron({ now: at(min), deps, only: [tag, never] }), tag);
+  try {
+    // Never active: no run row, so closed it is skipped, even after its end.
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${never}`;
+    // The campaign ran while active (its run row exists), then is closed after its end, before the freeze.
+    assert.equal((await run(-60))!.step, 'score');
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${tag}`;
+    const frozen = await runCron({ now: at(16), deps, only: [tag, never] });
+    assert.equal(mine(frozen, tag)!.review, true, 'freeze and review still happen');
+    assert.equal(mine(frozen, never), undefined, 'never launched: skipped');
+    assert.deepEqual(await run(16 + 48 * 60), { id: tag, step: 'pay', done: true, note: null });
+    assert.equal(f.sent.length, 2);
+    const [none] = await sql()`SELECT count(*)::int AS n FROM campaign_runs WHERE program_id = ${never}`;
+    assert.equal(none.n, 0);
+  } finally {
+    await teardown(tag);
+    await teardown(never);
+  }
+});
+
+test(`a pay step failing ${PAY_FAILED_RUNS} runs in a row waits on the owner (503); a completed step resets the count`, db, async () => {
+  const tag = `test-cron-payfail-${process.pid}-${Date.now()}`;
+  await setup(tag, 1);
+  let broken = true;
+  const deps = {
+    score: { score: async () => result(5) },
+    pay: { account, rpc: chain().rpc, listed: async () => { if (broken) throw new Error('screen down'); return false; } },
+    refreshFees: async () => 0,
+  };
+  const failures = async () => (await sql()`SELECT pay_failures FROM campaign_runs WHERE program_id = ${tag}`)[0].pay_failures;
+  try {
+    await runCron({ now: at(16), deps, only: [tag] });
+    for (let i = 1; i < PAY_FAILED_RUNS; i++) {
+      const out = await runCron({ now: at(16 + 2880 + i * 60), deps, only: [tag] });
+      assert.equal(mine(out, tag)!.pay_failures, i);
+      assert.deepEqual(out.needs_owner, [], `${i} failed runs: still green`);
+    }
+    const sixth = await runCron({ now: at(16 + 2880 + PAY_FAILED_RUNS * 60), deps, only: [tag] });
+    assert.deepEqual(sixth.needs_owner, [tag], 'six in a row: the owner is emailed');
+    assert.equal(await failures(), PAY_FAILED_RUNS);
+    const [r] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
+    assert.deepEqual([r.state, r.note], ['paying', 'Payouts paused: a check failed; retrying hourly.']);
+    broken = false;
+    const ok = await runCron({ now: at(16 + 3600), deps, only: [tag] });
+    assert.deepEqual(mine(ok, tag), { id: tag, step: 'pay', done: true, note: null });
+    assert.deepEqual(ok.needs_owner, []);
+    assert.equal(await failures(), 0, 'reset on a completed step');
   } finally {
     await teardown(tag);
   }

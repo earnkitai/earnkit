@@ -192,12 +192,17 @@ export const MANUAL_CHECK = 'Payouts paused: a transfer needs a manual check.';
 /** The run note when the program's prize terms no longer match the frozen ones. */
 export const TERMS_CHANGED = "Payout paused: the campaign's prize terms changed after the review opened.";
 
+/** Ends the note when the payout wallet is short of the prize token or of ETH for gas. */
+export const TOP_UP = 'Payouts resume once it is topped up.';
+
 /**
- * A payout note that waits on the owner and never clears by itself (a manual check, changed terms):
- * the cron answers 503 so the GitHub Actions run fails and emails the owner (I6). Pure.
+ * A payout note that waits on the owner (I6): a manual check or changed terms (never clear by
+ * themselves), or a payout wallet short of the prize token or of ETH for gas (clears only once the
+ * owner tops it up). The cron answers 503 so the GitHub Actions run fails and emails the owner;
+ * the public page still reads "Payouts paused; they resume automatically." for a top-up. Pure.
  */
 export const needsOwner = (note: string | null | undefined) =>
-  Boolean(note && (note.includes(MANUAL_CHECK) || note.includes(TERMS_CHANGED)));
+  Boolean(note && (note.includes(MANUAL_CHECK) || note.includes(TERMS_CHANGED) || note.includes(TOP_UP)));
 
 /** The nonce of a signed transaction, when the payout key signed it; null otherwise. */
 async function ownNonce(raw: Hex, account: LocalAccount) {
@@ -461,7 +466,7 @@ export async function payCampaign(
       const balance = await rpc.balanceOf(token, account.address);
       if (balance < amount)
         return stop(
-          `The payout wallet ${account.address} holds ${formatUnits(balance, c.prize.decimals)} ${c.prize.symbol}, less than the next prize (${c.amount_each}). Payouts resume once it is topped up.`,
+          `The payout wallet ${account.address} holds ${formatUnits(balance, c.prize.decimals)} ${c.prize.symbol}, less than the next prize (${c.amount_each}). ${TOP_UP}`,
         );
     }
     let r: Awaited<ReturnType<typeof payWinner>>;
@@ -472,7 +477,7 @@ export async function payCampaign(
       r = await payWinner(next, { token, amount, amountText: c.amount_each, account, rpc, store, deadline, nonces, now: deps.now, otherPaid });
     } catch (err) {
       if (!outOfGas(err)) throw err;
-      return stop(`The payout wallet ${account.address} needs a little ETH for gas. Payouts resume once it is topped up.`);
+      return stop(`The payout wallet ${account.address} needs a little ETH for gas. ${TOP_UP}`);
     }
     if (r === 'paid' || r === 'dropped') continue;
     if (r === 'manual') return stop(MANUAL_CHECK);

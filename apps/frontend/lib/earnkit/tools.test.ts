@@ -185,6 +185,48 @@ test('I8: prepare_submission asks about the remembered payout wallet in full and
   assert.equal(ok.payout_wallet_note, undefined);
 });
 
+test('campaign fee wallet: only a payout wallet given in this call, never the remembered one; other programs keep it', dbTest, async () => {
+  const W = '0x' + 'c'.repeat(39) + '7';
+  const GIVEN = '0x' + 'd'.repeat(39) + '1';
+  const stamp = `${process.pid}-${Date.now()}`;
+  const camp = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
+  );
+  Object.assign(camp, { id: `fee-camp-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  Object.assign(camp, earnkitTexts(camp));
+  await upsertProgram(ProgramFile.parse(camp));
+  const plain = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  Object.assign(plain, { id: `fee-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(plain));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, payout_wallet) VALUES (${`fee-${stamp}`}, ${W}) RETURNING id`;
+  // Token launches on, the ticker check unreachable (no network in tests).
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const realFetch = globalThis.fetch;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
+  type Token = { creator_wallet: string | null; note: string; say_to_builder: string };
+  const prep = async (program_id: string, answers?: Record<string, string>) =>
+    ((await tools.prepare_submission({ program_id, project: { name: 'Tip Jar' }, ...(answers && { answers }) }, { installationId: id })) as {
+      token?: Token;
+    }).token!;
+  try {
+    const none = await prep(camp.id);
+    assert.equal(none.creator_wallet, null, 'the remembered wallet is never the fee wallet in a campaign');
+    assert.match(none.note, /Ask the builder for the wallet that receives creator fees\./);
+    assert.ok(!none.say_to_builder.includes(W) && !none.note.includes(W));
+    const given = await prep(camp.id, { payout_wallet: GIVEN });
+    assert.equal(given.creator_wallet, GIVEN);
+    assert.doesNotMatch(given.note, /Ask the builder for the wallet/);
+    // Not a campaign: v2.3 unchanged, the remembered wallet is the fee wallet.
+    assert.equal((await prep(plain.id)).creator_wallet, W);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+});
+
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });

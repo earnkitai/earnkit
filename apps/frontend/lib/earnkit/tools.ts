@@ -280,10 +280,12 @@ export const tools = {
       ? await tokenProposalBlock({
           program,
           projectName: known.project?.name,
-          // v2.3 unchanged: the remembered wallet is the fee wallet, named in full in the footnote.
-          creatorWallet:
-            (program.campaign && validWallet(known.answers?.payout_wallet)) ||
-            remembered,
+          // Campaigns: only a payout wallet given in this call (never the remembered one, which
+          // is asked about, not assumed); without one the block asks the builder for the fee
+          // wallet. Other programs, v2.3 unchanged: the remembered wallet, named in full in the footnote.
+          creatorWallet: program.campaign
+            ? validWallet(known.answers?.payout_wallet)
+            : remembered,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl: known.project?.repo_url ?? known.answers?.repo_url,

@@ -237,9 +237,11 @@ apps/frontend/
                                sinceLine, SCHEDULE_NOTE
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling), payCampaign, dbPayoutStore,
-                               termsOf/fromTerms/sameTerms, MANUAL_CHECK, payoutFunds
+                               termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP,
+                               needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
-                               campaign under its lease, then the fee refresh), cronPost
+                               campaign under its lease, then the fee refresh; needs_owner incl.
+                               PAY_FAILED_RUNS failed pay steps in a row), cronPost
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds

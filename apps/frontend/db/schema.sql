@@ -317,6 +317,9 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_reverts integer NOT NULL DE
 -- v2.4 fix round 2: when a send was first answered "nonce too low". The row stays 'sending'; a run
 -- 30+ min later clears it only if there is no receipt and the mined nonce is past the transfer's.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_stale_at timestamptz;
+-- Pay steps that failed in a row (PAY_FAILED); 6 make the cron answer 503 so the owner is emailed.
+-- Any pay step that completes resets it.
+ALTER TABLE campaign_runs ADD COLUMN IF NOT EXISTS pay_failures integer NOT NULL DEFAULT 0;
 
 -- Token fees waiting in Clanker's FeeLocker (WETH), per creator wallet, cached 6 h (spec §4).
 CREATE TABLE IF NOT EXISTS token_fees (

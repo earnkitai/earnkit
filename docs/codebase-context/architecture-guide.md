@@ -16,8 +16,11 @@
   prizes, campaigns, top-N flags), never by time, so nothing is lost to clock or ordering skew.
   The facts are read in one transaction on one connection (`FOR UPDATE` on the installation row,
   `lock_timeout` 500 ms, `statement_timeout` 1.5 s): locked or slow means no alerts this time and
-  nothing marked seen. `list_programs` puts them first in `show_to_builder`, followed by new
-  curated programs and deadlines within 3 days, and carries `schedule_daily_check` once per
+  nothing marked seen. `list_programs` puts them first in `show_to_builder`. New curated
+  programs and curated deadlines within 3 days are not alerts (I7): they go in an "Updates:" line
+  at the end of the first message, after the tables and just before the one offer
+  (`present.ts` programUpdates; new sponsored campaigns only counted; none on a first check). It
+  carries `schedule_daily_check` once per
   installation, asking the agent to schedule a daily read-only `list_programs` that messages the
   builder only when that line is there ("a win, a new campaign, your rank"; token fees are never
   advertised there).
@@ -470,7 +473,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
   3. "Your repos already qualify for" (prize per winner first);
   4. at most 5 other open programs;
   5. sponsor campaigns;
-  6. one offer: keep going, else the campaign entry, else the fastest fit (prize per hour of
+  6. "Updates:" (new curated programs, curated deadlines within 3 days; never alerts);
+  7. one offer: keep going, else the campaign entry, else the fastest fit (prize per hour of
      effort; programs needing videos or forms never first), else, when repos are known and none
      fits, "Want me to build something new for <program> (<prize>)?" (Ruling 28).
 
@@ -540,6 +544,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
   - `paying`;
   - `paid` (the cron skips it from then on).
 
+  Which campaigns (M6): every active one, plus a closed one whose run is `running` and whose
+  `ends_at` has passed, or whose run is in `review` or `paying`. So closing a campaign after it
+  ends never stops its freeze, review or payout. A run row exists only once the cron saw the
+  campaign active, so a campaign closed before it ever launched is never picked up.
+
   The payout (`payCampaign`, `payWinner`):
   - It covers only frozen winners from `pickWinners` under the frozen terms: rank order, ties to
     the earlier entry, one prize per payout wallet and per installation, vetoes and
@@ -562,12 +571,15 @@ during the build); plan: `v2.4-money-first-plan.md`.
     stops with "Payouts paused: a transfer needs a manual check." (only reachable when the payout
     key is used outside EarnKit; runbook below). The public page then says "Payouts paused;
     EarnKit is checking a transfer."
-  - While a payout waits on the owner (a manual check, or changed terms), `POST /api/cron`
-    answers 503 with its usual body (`needs_owner` lists the campaigns), so the hourly GitHub
-    Actions run fails and GitHub emails the owner every hour until it is resolved (final review
-    I6). Every other run answers 200.
+  - While a payout waits on the owner, `POST /api/cron` answers 503 with its usual body
+    (`needs_owner` lists the campaigns), so the hourly GitHub Actions run fails and GitHub emails
+    the owner every hour until it is resolved (final review I6). That is: a manual check, changed
+    terms, a payout wallet short of the prize token or of ETH for gas (`needsOwner`), or a pay
+    step that failed 6 runs in a row (`campaign_runs.pay_failures`, reset by any pay step that
+    completes; PAY_FAILED_RUNS). Every other run answers 200. The public page still reads
+    "Payouts paused; they resume automatically." for a short wallet or a failing check.
   - It stops with a note when the wallet holds less than the next prize or too little ETH for gas;
-    the next hourly run resumes. The campaign page shows the payout wallet and its live balance
+    the next hourly run after the top-up resumes. The campaign page shows the payout wallet and its live balance
     (`funds.ts` prizeFunds: one read per 60 s shared by all views, 15 s after a failure, 3 s
     timeout, no retries).
   - The winner hears it on their next tool call ("Since you last checked: you won $100 in MINI

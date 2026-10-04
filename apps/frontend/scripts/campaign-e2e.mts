@@ -34,8 +34,8 @@ import { base } from 'viem/chains';
  *   4. The freeze; the 48 h review opens in the same call.
  *   5. A veto through the real POST /api/admin/veto route with the campaign's key.
  *   6. The next entry moves up.
- *   7. The automatic payout from the capped payout wallet: it stops when the wallet is short and
- *      resumes once topped up.
+ *   7. The automatic payout from the capped payout wallet: it stops when the wallet is short (503,
+ *      so the owner is emailed) and resumes once topped up.
  *   8. The winner hears it on the next list_programs ("you won $100 ...").
  *   9. More cron runs send nothing.
  * Time: the cron route reads the clock, so this script runs the app on a shifted clock (Date only;
@@ -464,10 +464,11 @@ ok((await balance(PAYOUT_A.address)) === PRIZE, 'pays #1 first: Tip Jar, to its 
 const [short] = await db<{ state: string; note: string | null }[]>`SELECT state, note FROM campaign_runs WHERE program_id = ${SLUG}`;
 ok(short.state === 'paying' && /less than the next prize/.test(short.note ?? ''), 'stops when the wallet holds less than the next prize, and says so');
 ok((await balance(PAYOUT_C.address)) === 0n, 'nothing sent past the shortfall');
+ok(pay1.status === 503, 'a payout wallet short of the prize answers 503, so GitHub emails the owner');
 await mint(HOT.address, AMOUNT);
 const pay2 = await cron(new RealDate(payAt.getTime() + 3_600_000));
 show('cron payout 2', pay2.body);
-ok((await balance(PAYOUT_C.address)) === PRIZE, 'resumes once topped up: Carol One paid');
+ok((await balance(PAYOUT_C.address)) === PRIZE && pay2.status === 200, 'resumes once topped up: Carol One paid, and the run is green again');
 ok((await balance(PAYOUT_B.address)) === 0n && (await balance(lc(DEPLOYER_A))) === 0n, 'the vetoed entry and the deployer got nothing');
 ok((await balance(HOT.address)) === 0n, 'the capped payout wallet is empty');
 const paid = await db<{ id: number; payout_status: string | null; prize_tx: Hex | null; prize_amount: string | null }[]>`

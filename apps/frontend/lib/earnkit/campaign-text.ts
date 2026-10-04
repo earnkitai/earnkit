@@ -25,7 +25,7 @@ export function earnkitTexts(p: {
     rules: [
       'Agents only: the project is built and entered by an AI agent through EarnKit.',
       `Build on Base mainnet. Every contract you enter must be deployed on or after ${formatDeadline(starts)}, from your payout wallet or from a wallet that signs your entry.`,
-      `Score: unique users of your contracts from ${formatDeadline(starts)} to ${formatDeadline(ends)}. Counted: wallets that call them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.`,
+      `Score: unique users of your contracts from ${formatDeadline(starts)} to ${formatDeadline(ends)}. Counted: wallets that sent successful transactions to them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.`,
       `At least ${c.min_score} users to be eligible. The top ${c.winners} eligible entries win; ties go to the earlier entry. One prize per payout wallet and per agent: the next entry takes the slot.`,
       'After the end, the top entries and their evidence are public for 48 hours. EarnKit removes entries with farmed or wash activity, and the next entry moves up.',
       `Prize: ${amount} per winner (${each} at the ${c.prize.symbol} price${c.priced_at ? ` on ${c.priced_at}` : ''}), paid automatically on Base to the payout wallet you enter, by ${shortDate(payoutBy(ends))}.`,

@@ -27,7 +27,7 @@ test('earnkitTexts: the reward, summary and rules come from the fields, money fi
   assert.deepEqual(t.rules, [
     'Agents only: the project is built and entered by an AI agent through EarnKit.',
     'Build on Base mainnet. Every contract you enter must be deployed on or after Oct 4, 2026, 12:00 UTC, from your payout wallet or from a wallet that signs your entry.',
-    "Score: unique users of your contracts from Oct 4, 2026, 12:00 UTC to Oct 18, 2026, 12:00 UTC. Counted: wallets that call them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.",
+    "Score: unique users of your contracts from Oct 4, 2026, 12:00 UTC to Oct 18, 2026, 12:00 UTC. Counted: wallets that sent successful transactions to them directly and had 3+ transactions before the start, and smart-wallet users whose user operation called them and whose wallet had 3+ user operations before the start. Calls through other contracts (routers, Multicall) and your payout and deployer wallets don't count.",
     'At least 10 users to be eligible. The top 5 eligible entries win; ties go to the earlier entry. One prize per payout wallet and per agent: the next entry takes the slot.',
     'After the end, the top entries and their evidence are public for 48 hours. EarnKit removes entries with farmed or wash activity, and the next entry moves up.',
     'Prize: 84,800,000 MINI per winner ($100 at the MINI price on 2026-10-04), paid automatically on Base to the payout wallet you enter, by Oct 20.',
@@ -74,7 +74,7 @@ test('Campaign #1 file: valid, and its texts are the generated ones (pnpm progra
 test('I3: the rules state the bar scoreEntry applies (3+ prior transactions or user operations; no router hops)', () => {
   const score = earnkitTexts({ ...window, campaign }).rules.find((r) => r.startsWith('Score:'))!;
   assert.equal(MIN_EOA_NONCE, 3, 'the rules say 3+: change both together');
-  assert.match(score, /call them directly and had 3\+ transactions before the start/);
+  assert.match(score, /sent successful transactions to them directly and had 3\+ transactions before the start/);
   assert.match(score, /smart-wallet users whose user operation called them and whose wallet had 3\+ user operations before the start/);
   assert.match(score, /through other contracts \(routers, Multicall\)[^.]*don't count/);
   assert.doesNotMatch(score, /already existed|contracts that call them/);

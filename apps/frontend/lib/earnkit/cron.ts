@@ -69,6 +69,16 @@ const openReview = (p: Program, now: Date) => sql()`
 export { TERMS_CHANGED };
 /** Shown on the campaign page when a payout step fails (the cause stays in the server log). */
 export const PAY_FAILED = 'Payouts paused: a check failed; retrying hourly.';
+/** Consecutive failed pay steps after which the run waits on the owner (503): six hourly runs. */
+export const PAY_FAILED_RUNS = 6;
+/** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
+class PayStepFailed extends Error {
+  readonly failures: number;
+  constructor(failures: number, cause: unknown) {
+    super('pay step failed', { cause });
+    this.failures = failures;
+  }
+}
 /** A failed step in the cron's answer (the GitHub Actions log): fixed, so no RPC URL or key leaks. */
 export const STEP_FAILED = 'This step failed; it is retried on the next run.';
 
@@ -121,8 +131,9 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
       WHERE program_id = ${p.id} AND state IN ('review', 'paying')
       RETURNING terms`;
     if (!run) return { step };
+    // A step that completes (whatever its note) resets the failure count.
     const setNote = (note: string | null, done = false) => sql()`
-      UPDATE campaign_runs SET state = ${done ? 'paid' : 'paying'}, note = ${note}, updated_at = now()
+      UPDATE campaign_runs SET state = ${done ? 'paid' : 'paying'}, note = ${note}, pay_failures = 0, updated_at = now()
       WHERE program_id = ${p.id}`;
     const changed = !sameTerms(run.terms, termsOf(p.campaign as EarnKitCampaign));
     let r: { done: boolean; note: string | null };
@@ -133,8 +144,10 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
       r = await payCampaign(fromTerms(run.terms), fresh, { deadline, now, ...deps.pay, followOnly: changed });
       if (changed) r = { done: false, note: TERMS_CHANGED };
     } catch (err) {
-      await setNote(PAY_FAILED).catch(() => {});
-      throw err;
+      const [row] = await sql()<{ pay_failures: number }[]>`
+        UPDATE campaign_runs SET note = ${PAY_FAILED}, pay_failures = pay_failures + 1, updated_at = now()
+        WHERE program_id = ${p.id} RETURNING pay_failures`.catch(() => []);
+      throw new PayStepFailed(row?.pay_failures ?? 0, err);
     }
     await setNote(r.note, r.done);
     return { step, done: r.done, note: r.note };
@@ -167,7 +180,7 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
 
 /**
  * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
- * (and one closed after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
+ * (and one closed after it ended or after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
  * whose cached fees are over 6 h old. `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
@@ -184,8 +197,9 @@ export async function runCron(
     FROM programs p LEFT JOIN campaign_runs r ON r.program_id = p.id
     WHERE p.campaign->>'kind' = 'earnkit' AND p.starts_at IS NOT NULL AND p.ends_at IS NOT NULL
       AND COALESCE(r.state, 'running') <> 'paid'
-      -- M6: a campaign closed after its review opened is still paid out.
-      AND (p.status = 'active' OR r.state IN ('review', 'paying'))
+      -- M6: a closed campaign is still frozen and paid out once it has ended (its run row exists
+      -- only if it was ever active), or once its review opened. Never launched: no row, skipped.
+      AND (p.status = 'active' OR r.state IN ('review', 'paying') OR (r.state = 'running' AND p.ends_at <= ${now}))
       ${opts.only ? sql()`AND p.id IN ${sql()(opts.only)}` : sql()``}
     ORDER BY p.ends_at`;
   const campaigns: Record<string, unknown>[] = [];
@@ -194,8 +208,13 @@ export async function runCron(
       const r = await withScoringLock(p.id, () => advance(p, now, deadline, deps), (opts.budgetMs ?? CRON_BUDGET_MS) + 60_000);
       campaigns.push({ id: p.id, ...(r === 'busy' ? { step: 'busy' } : r) });
     } catch (err) {
-      console.error('[cron]', p.id, err);
-      campaigns.push({ id: p.id, step: 'error', note: STEP_FAILED });
+      console.error('[cron]', p.id, err instanceof PayStepFailed ? err.cause : err);
+      campaigns.push({
+        id: p.id,
+        step: 'error',
+        note: STEP_FAILED,
+        ...(err instanceof PayStepFailed && { pay_failures: err.failures }),
+      });
     }
   }
   let fees = 0;
@@ -204,8 +223,11 @@ export async function runCron(
   } catch (err) {
     console.error('[cron] fees', err);
   }
-  // Campaigns whose payout waits on the owner (manual check, changed terms): the endpoint answers 503.
-  const needs_owner = campaigns.filter((c) => needsOwner(c.note as string | null | undefined)).map((c) => c.id as string);
+  // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
+  // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
+  const needs_owner = campaigns
+    .filter((c) => needsOwner(c.note as string | null | undefined) || Number(c.pay_failures ?? 0) >= PAY_FAILED_RUNS)
+    .map((c) => c.id as string);
   return { now: now.toISOString(), campaigns, fee_wallets: fees, needs_owner };
 }
 
