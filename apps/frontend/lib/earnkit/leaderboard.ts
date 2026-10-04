@@ -11,7 +11,7 @@ import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
 import { shownUrl } from './untrusted-text';
-import { rankEntries, standingText, type Candidate, type RunState } from './winners';
+import { pickWinners, rankEntries, standingText, type Candidate, type RunState } from './winners';
 
 export type BoardRow = {
   id: number;
@@ -181,7 +181,8 @@ export function campaignRow(
   now: Date,
 ): CampaignRow {
   const c = p.campaign as EarnKitCampaign;
-  const ranked = rankEntries(entries);
+  // The payout bar: the last payable pick, not the raw score at #winners (fix round 1, I1).
+  const picks = pickWinners(entries, c.winners, c.min_score).winners;
   const ended = p.ends_at <= now;
   const state = p.state ?? 'running';
   const own = entries.filter((e) => mine.has(e.id));
@@ -194,8 +195,10 @@ export function campaignRow(
     prize_usd_each: prizeUsdEach(c),
     ends_at: p.ends_at,
     entries: entries.length,
-    cutoff: ranked.length >= c.winners ? ranked[c.winners - 1].score : null,
+    cutoff: picks.length >= c.winners ? picks[c.winners - 1].score : null,
+    scored: entries.filter((e) => e.score !== null).length,
     winners: c.winners,
+    min_score: c.min_score,
     you: best ? standingText(best, entries, c, { state, ended }) : null,
     open: !ended && p.status === 'active',
   };

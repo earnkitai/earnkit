@@ -22,7 +22,9 @@ const campaign: CampaignRow = {
   ends_at: new Date('2026-10-18T23:59:00Z'),
   entries: 12,
   cutoff: 14,
+  scored: 12,
   winners: 5,
+  min_score: 10,
   you: null,
   open: true,
 };
@@ -117,9 +119,13 @@ test('Fastest: prize per hour of effort; programs needing videos or forms never 
     repos: repos(v('base-builder-grants', 'likely', 'looks eligible', 'none'), v('arc-microgrants', 'after_step', 'needs a live link', 'minutes')),
   }));
   assert.match(text, /Want me to start on Arc Microgrants with tipjar\?$/);
-  // Only forms programs fit: no "start on", the generic offer.
+  // Only forms programs fit: offered, saying up front what only the builder can give.
   const only = presentFirstMessage(msg({ cards: [base], repos: repos(v('base-builder-grants', 'likely', 'looks eligible')) }));
-  assert.match(only, /Pick one and I'll start\.$/);
+  assert.match(only, /Want me to start on Base Builder Grant Program with tipjar\? It needs a short Loom from you\.$/);
+  const answers = presentFirstMessage(msg({
+    cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'likely', 'looks eligible')),
+  }));
+  assert.match(answers, /Want me to start on Arc Microgrants with tipjar\? It needs 3 answers only you can give\.$/);
 });
 
 test('one offer: keep going beats the campaign; a sponsor campaign is never offered or in the repo table', () => {
@@ -127,17 +133,17 @@ test('one offer: keep going beats the campaign; a sponsor campaign is never offe
   assert.match(resume, /Want me to keep going on Arc Microgrants\?$/);
   const sponsorOnly = presentFirstMessage(msg({ cards: [sponsored], repos: repos(v('sponsor-abc', 'likely', 'looks eligible')) }));
   assert.doesNotMatch(sponsorOnly, /Your repos/);
-  assert.match(sponsorOnly, /None of your 1 repos fits an open program yet\./);
+  assert.match(sponsorOnly, /None of your 1 repo fits an open program yet\./);
   assert.match(sponsorOnly, /Pick one and I'll start\.$/);
 });
 
 test('chat-only agents are told honestly; repo errors in one line; nothing open', () => {
   assert.match(presentFirstMessage(msg({ cards: [arc], agentCanBuild: false })), /can't build or deploy from here/);
   assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /^Couldn't read your repos: GitHub said no/);
-  assert.equal(presentFirstMessage(msg({})), 'No open programs right now. Check back soon.');
+  assert.equal(presentFirstMessage(msg({})), 'Nothing is open right now. Want me to tell you when something opens?');
   assert.equal(
     presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'] })),
-    'Since you last checked: you won $100 in MINI with Tip Jar (basescan.org/tx/0x1).\n\nNo open programs right now. Check back soon.',
+    'Since you last checked: you won $100 in MINI with Tip Jar (basescan.org/tx/0x1).\n\nNothing is open right now. Want me to tell you when something opens?',
   );
 });
 
@@ -145,6 +151,9 @@ test('an ended campaign the builder is in shows how it ended for them', () => {
   const text = presentFirstMessage(msg({ campaigns: [{ ...campaign, open: false, you: 'in review' }] }));
   assert.match(text, /\| EarnKit Campaign #1: Base apps with real users \| \$100 each to top 5 \(in MINI\) \| ended Oct 18 \| in review \|/);
   assert.doesNotMatch(text, /build your entry/);
+  assert.match(text, /\n\nNothing else is open right now\. Want me to tell you when the results are in\?$/);
+  const lost = presentFirstMessage(msg({ campaigns: [{ ...campaign, open: false, you: 'not in top 5' }] }));
+  assert.match(lost, /\n\nNothing else is open right now\. Want me to tell you when something opens\?$/);
 });
 
 test('Review Focus 5: a "|" in a cell is escaped so the table renders', () => {
@@ -154,8 +163,10 @@ test('Review Focus 5: a "|" in a cell is escaped so the table renders', () => {
 });
 
 test('fieldText and endsOf', () => {
-  assert.equal(fieldText({ ...campaign, entries: 0, cutoff: null }), 'no entries yet');
-  assert.equal(fieldText({ ...campaign, entries: 3, cutoff: null }), '3 entered, top 5 not full');
+  assert.equal(fieldText({ ...campaign, entries: 0, scored: 0, cutoff: null }), 'no entries yet');
+  assert.equal(fieldText({ ...campaign, entries: 3, scored: 3, cutoff: null }), '3 entered, top 5 not full (10 users to qualify)');
+  // I2: before the first scoring a full field isn't "not full".
+  assert.equal(fieldText({ ...campaign, entries: 12, scored: 0, cutoff: null }), '12 entered, not scored yet');
   assert.equal(endsOf(arc), 'Oct 14');
   assert.equal(endsOf(base), 'rolling');
   assert.equal(endsOf({ ...arc, summary: '500 USDC' }), 'Oct 15');
@@ -187,4 +198,24 @@ test('ruling 12: EarnKit campaigns by prize per winner, then the earlier end; th
   const order = [...text.matchAll(/^\| (Small|Big late|Big soon) \|/gm)].map((m) => m[1]);
   assert.deepEqual(order, ['Big soon', 'Big late', 'Small']);
   assert.match(text, /Want me to build your entry for the \$200\?$/);
+});
+
+test('I3 offers: no repos known asks to check them; repos known with no fit offers the top quick program', () => {
+  const noRepos = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny] }));
+  assert.match(noRepos, /\n\nWant me to check which of your repos already qualify\?$/);
+  const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
+  // Base pays more but needs a Loom and 10 personal answers: Arc is the top program without forms.
+  assert.match(noFit, /\n\nWant me to start on Arc Microgrants \(500 USDC × 20 grants\)\?$/);
+  // A repo error counts as "no repos known".
+  assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /check which of your repos already qualify\?$/);
+  // An open campaign without an entry stays the top choice.
+  assert.match(presentFirstMessage(msg({ campaigns: [campaign], cards: [arc] })), /build your entry for the \$100\?$/);
+});
+
+test('days left counts UTC calendar days: never "ends today" a day early', () => {
+  const ends = new Date('2026-10-18T06:00:00Z');
+  const at = (now: string) => presentFirstMessage(msg({ campaigns: [{ ...campaign, ends_at: ends }], now: new Date(now) }));
+  assert.match(at('2026-10-17T23:00:00Z'), /\| Oct 18, 1 day left \|/);
+  assert.match(at('2026-10-18T01:00:00Z'), /\| Oct 18, ends today \|/);
+  assert.match(at('2026-10-04T12:00:00Z'), /\| Oct 18, 14 days left \|/);
 });

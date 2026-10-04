@@ -40,9 +40,16 @@ export type CampaignRow = {
   prize_usd_each: number;
   ends_at: Date;
   entries: number;
-  /** The score at #winners (rank order), or null while fewer entries are scored. */
+  /**
+   * The score of the last payable pick (winners.ts pickWinners: min score, vetoes, one prize per
+   * wallet and agent) when all prizes are taken, else null.
+   */
   cutoff: number | null;
+  /** Entries with a score; 0 before the first scoring. */
+  scored: number;
   winners: number;
+  /** Users an entry needs to win anything. */
+  min_score: number;
   /** The builder's standing (winners.ts standingText), or null without an entry. */
   you: string | null;
   open: boolean;
@@ -127,16 +134,19 @@ export function endsOf(c: Card) {
   return c.ends_at ? shortDate(c.ends_at) : 'rolling';
 }
 
+/** Whole UTC calendar days from now to the end: "ends today" only on the last day. */
 const left = (endsAt: Date, now: Date) => {
-  const days = Math.floor((endsAt.getTime() - now.getTime()) / DAY_MS);
+  const day = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const days = Math.round((day(endsAt) - day(now)) / DAY_MS);
   return days <= 0 ? 'ends today' : `${days} day${days === 1 ? '' : 's'} left`;
 };
 
 /** A campaign's "You" cell without an entry: "12 entered, #5 has 14 users". Pure; exported for tests. */
 export function fieldText(r: CampaignRow) {
   if (r.entries === 0) return 'no entries yet';
+  if (r.scored === 0) return `${r.entries} entered, not scored yet`;
   return r.cutoff === null
-    ? `${r.entries} entered, top ${r.winners} not full`
+    ? `${r.entries} entered, top ${r.winners} not full (${r.min_score} users to qualify)`
     : `${r.entries} entered, #${r.winners} has ${r.cutoff} users`;
 }
 
@@ -160,6 +170,8 @@ const byPrize = (a: Card, b: Card) =>
 const byCampaignPrize = (a: CampaignRow, b: CampaignRow) =>
   b.prize_usd_each - a.prize_usd_each || a.ends_at.getTime() - b.ends_at.getTime();
 
+const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
+
 const CHAT_ONLY =
   "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
 
@@ -168,7 +180,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   const sections: string[] = [];
   if (m.alerts.length) sections.push(`Since you last checked: ${m.alerts.join('; ')}.`);
   if (m.campaigns.length === 0 && m.cards.length === 0)
-    return [...sections, 'No open programs right now. Check back soon.'].join('\n\n');
+    return [...sections, `Nothing is open right now. ${TELL_WHEN_OPENS}`].join('\n\n');
 
   if (m.campaigns.length > 0)
     sections.push(
@@ -196,7 +208,9 @@ export function presentFirstMessage(m: FirstMessage): string {
   const rows = [...matched.values()].sort((a, b) => byPrize(a.card, b.card));
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && rows.length === 0)
-    sections.push(`None of your ${m.repos.checked} repos fits an open program yet.`);
+    sections.push(
+      `None of your ${m.repos.checked} repo${m.repos.checked === 1 ? '' : 's'} fits an open program yet.`,
+    );
   else if (rows.length > 0)
     sections.push(
       `${rows.every((r) => r.v.status === 'likely') ? 'Your repos already qualify for:' : 'Your repos can enter:'}\n\n` +
@@ -235,7 +249,12 @@ export function presentFirstMessage(m: FirstMessage): string {
   return sections.join('\n\n');
 }
 
-/** One closing offer, never a menu and never a sponsor campaign. */
+/**
+ * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
+ * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
+ * without forms; a fit that needs forms, saying what only they can give; with no repos known, check
+ * them; with repos known and no fit, the top program without forms; else wait for results or news.
+ */
 function offer(
   m: FirstMessage,
   byId: Map<string, Card>,
@@ -251,9 +270,26 @@ function offer(
   if (resume) return `Want me to keep going on ${resume}?`;
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
   if (campaign) return `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`;
-  const fastest = rows
-    .filter((r) => !needsForms(r.card))
-    .sort((a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v))[0];
+  const byHour = [...rows].sort(
+    (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
+  );
+  const fastest = byHour.find((r) => !needsForms(r.card));
   if (fastest) return `Want me to start on ${fastest.card.title} with ${fastest.repo}?`;
-  return "Pick one and I'll start.";
+  const forms = byHour[0];
+  if (forms) {
+    const needs = forms.card.each_time[0]
+      ? `${forms.card.each_time[0]} from you`
+      : `${forms.card.builder_fields} answers only you can give`;
+    return `Want me to start on ${forms.card.title} with ${forms.repo}? It needs ${needs}.`;
+  }
+  const curated = m.cards.filter((c) => !c.sponsored);
+  const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
+  if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';
+  const top = curated.filter((c) => !needsForms(c)).sort(byPrize)[0];
+  if (top) return `Want me to start on ${top.title} (${prizeOf(top)})?`;
+  // Only sponsor campaigns open: never offered by name.
+  if (m.cards.length > 0) return "Pick one and I'll start.";
+  if (m.campaigns.some((r) => r.you === 'in review'))
+    return 'Nothing else is open right now. Want me to tell you when the results are in?';
+  return `Nothing else is open right now. ${TELL_WHEN_OPENS}`;
 }
