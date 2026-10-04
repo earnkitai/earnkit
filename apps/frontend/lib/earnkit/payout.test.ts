@@ -21,11 +21,14 @@ const ONE = parseUnits('1', 18);
 function fakeRpc(o: { chainId?: number; balance?: () => bigint; mined?: 'success' | 'reverted' | null } = {}) {
   const sent: Hex[] = [];
   const receipts = new Map<Hex, { status: 'success' | 'reverted' }>();
+  /** Receipts at or below the finalized block. */
+  const final = new Set<Hex>();
   const rpc: PayoutRpc = {
     getChainId: async () => o.chainId ?? 8453,
     nonce: async () => 7,
     finalizedNonce: async () => 0,
     transaction: async (h) => receipts.has(h),
+    finalReceipt: async (h) => final.has(h),
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => receipts.get(h) ?? null,
@@ -37,7 +40,7 @@ function fakeRpc(o: { chainId?: number; balance?: () => bigint; mined?: 'success
     waitFor: async (h) => receipts.get(h) ?? null,
     balanceOf: async () => (o.balance ? o.balance() : 10n ** 30n),
   };
-  return { rpc, sent, receipts };
+  return { rpc, sent, receipts, final };
 }
 
 function memStore(sentSoFar: () => number = () => 0) {
@@ -334,10 +337,12 @@ const otherAt = (nonce: number) =>
     data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [row(9).payout_wallet as Hex, ONE] }),
   });
 
-test('Ruling 33: stale 30+ min, typed not-found, finalized nonce taken by our own other PAID transfer: cleared once, re-signed once', async () => {
+test('Ruling 33 + M1: stale 30+ min, typed not-found, finalized nonce taken by our own other PAID transfer whose receipt is final: cleared once, re-signed once', async () => {
   const signed = await signedAt(7);
   const ours = await otherAt(7);
   const c = nonceChain({ confirmed: 8, rpcNonce: () => 8 });
+  // M1: the other paid transfer's receipt is found at or below the finalized block.
+  c.final.add(keccak256(ours));
   const s = memStore();
   const paidOther = entry(9, 60, { payout_status: 'paid', prize_tx: keccak256(ours), prize_raw_tx: ours });
   const stuck = entry(1, 50, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed, payout_stale_at: minutesAgo(31) });
@@ -346,6 +351,27 @@ test('Ruling 33: stale 30+ min, typed not-found, finalized nonce taken by our ow
   assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['failed', 1], ['sending', 1], ['paid', 1]]);
   assert.deepEqual(c.nonces, [8]);
   assert.equal((await decodeSent(c.sent[0])).recipient, row(1).payout_wallet);
+});
+
+test('M1: until the other paid transfer\'s receipt is final, the stale send is not cleared (pending); then it is', async () => {
+  const signed = await signedAt(7);
+  const ours = await otherAt(7);
+  const c = nonceChain({ confirmed: 8, rpcNonce: () => 8 });
+  const asked: Hex[] = [];
+  c.rpc.finalReceipt = async (h) => { asked.push(h); return c.final.has(h); };
+  const s = memStore();
+  const entries = () => [
+    entry(9, 60, { payout_status: 'paid', prize_tx: keccak256(ours), prize_raw_tx: ours }),
+    entry(1, 50, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed, payout_stale_at: minutesAgo(31) }),
+  ];
+  const pay = () => payCampaign(campaign, entries(), { account, rpc: c.rpc, store: s.store, listed: async () => false, now: NOW });
+  assert.deepEqual(await pay(), { done: false, note: 'Waiting for the transfer to entry #1 to be mined.' });
+  assert.deepEqual(asked, [keccak256(ours)], 'the receipt asked about is the other paid transfer\'s');
+  assert.deepEqual(s.calls, []);
+  assert.equal(c.sent.length, 0);
+  c.final.add(keccak256(ours));
+  assert.deepEqual(await pay(), { done: true, note: null });
+  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['failed', 1], ['sending', 1], ['paid', 1]]);
 });
 
 test('Ruling 33: a nonce taken by an unknown transaction is never cleared; the page asks for a manual check', async () => {

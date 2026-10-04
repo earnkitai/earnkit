@@ -52,6 +52,35 @@ test('prizeFunds: a failed read is null and cached 15 s; no payout key is null w
   assert.equal(reads, 2);
 });
 
+test('M2: a failed fresh (owner) read never replaces a cached read that is still valid', async () => {
+  process.env.CAMPAIGN_PAYOUT_PRIVATE_KEY = KEY;
+  const c = clock();
+  let reads = 0;
+  let fail = false;
+  const read = async () => { reads++; if (fail) throw new Error('timeout'); return 5n * 10n ** 18n; };
+  assert.equal((await prizeFunds(terms, { read, now: c.now }))?.balance, '5');
+  fail = true;
+  assert.equal(await prizeFunds(terms, { read, now: c.now, fresh: true }), null, 'the owner sees the failed fresh read');
+  c.tick(1_000);
+  assert.equal((await prizeFunds(terms, { read, now: c.now }))?.balance, '5', 'the public page keeps the cached success');
+  assert.equal(reads, 2);
+  // A successful fresh read does replace it.
+  fail = false;
+  assert.equal((await prizeFunds(terms, { read, now: c.now, fresh: true }))?.balance, '5');
+  assert.equal(reads, 3);
+});
+
+test('M3: a malformed payout key is null on the page, not an error', async () => {
+  process.env.CAMPAIGN_PAYOUT_PRIVATE_KEY = '0x1234';
+  const original = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await prizeFunds(terms, { read: async () => 1n }), null);
+  } finally {
+    console.error = original;
+  }
+});
+
 test('screenedWallets: says whether the screen ran (the dry run prints "sanctions not screened")', async () => {
   try {
     setSanctionsOracle({ chainId: async () => BASE_MAINNET, isSanctioned: async (w) => w.endsWith('1') });

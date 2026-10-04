@@ -47,6 +47,11 @@ export type PayoutRpc = {
   /** Whether the node knows the transaction; false ONLY on a typed not-found, any other error throws. */
   transaction: (hash: Hex) => Promise<boolean>;
   /**
+   * Whether the transaction's receipt is at or below the finalized block (it can't be reorged
+   * away); false when not found or not final yet, any other error throws.
+   */
+  finalReceipt: (hash: Hex) => Promise<boolean>;
+  /**
    * 'sent' (accepted), 'known' (the node already has these bytes) or 'stale' (rejected as "nonce
    * too low": that nonce is already used). Anything else throws.
    */
@@ -86,6 +91,15 @@ export function payoutRpc(url = process.env.BASE_RPC_URL): PayoutRpc {
           throw err;
         },
       ),
+    finalReceipt: async (hash) => {
+      const r = await c.getTransactionReceipt({ hash }).catch((err: unknown) => {
+        if (err instanceof TransactionReceiptNotFoundError) return null;
+        throw err;
+      });
+      if (!r) return false;
+      const finalized = await c.getBlock({ blockTag: 'finalized' });
+      return r.blockNumber <= finalized.number;
+    },
     transaction: (hash) =>
       c.getTransaction({ hash }).then(
         () => true,
@@ -211,16 +225,19 @@ const settled = (row: PayoutRow) => row.payout_status === 'paid' || Boolean(row.
  * when a later send is accepted. A later run clears it ('dropped', then re-signed) only when that
  * is provably safe (Ruling 33): STALE_CLEAR_MS have passed; the receipt AND the transaction are
  * both a typed not-found (any other read error throws: the run fails and retries); the finalized
- * nonce is past the transfer's; and that nonce is the one of another entry's PAID transfer from
+ * nonce is past the transfer's; that nonce is the one of another entry's PAID transfer from
  * this wallet (`otherPaid`, its kept signed bytes): EarnKit's own payout took it, so these bytes
- * can never land. Every other case past STALE_CLEAR_MS with nothing found and the nonce finalized
+ * can never land; and that paid transfer's receipt is at or below the finalized block (until it
+ * is, 'pending'). Every other case past STALE_CLEAR_MS with nothing found and the nonce finalized
  * returns 'manual' (the page: MANUAL_CHECK); only a use of the key outside EarnKit gets there.
  *
- * Manual runbook for 'manual': on Basescan, find the payout wallet's transaction with the stuck
- * transfer's nonce (decode projects.prize_raw_tx). If it is not this transfer and this winner was
- * not paid by any other transaction, clear the row (payout_status, prize_tx, prize_raw_tx,
- * payout_stale_at to NULL) and the next hourly run signs a new transfer. If the winner was paid,
- * set payout_status = 'paid' and prize_tx to that transaction's hash.
+ * Manual runbook for 'manual' (docs/codebase-context/architecture-guide.md, Runbooks): on
+ * Basescan, find the payout wallet's transaction with the stuck transfer's nonce (decode
+ * projects.prize_raw_tx). If it is not this transfer and this winner was not paid by any other
+ * transaction, clear the row (payout_status, prize_tx, prize_raw_tx, payout_stale_at to NULL) and
+ * the next hourly run signs a new transfer. If the winner was paid, set payout_status = 'paid',
+ * prize_tx to that transaction's hash and prize_raw_tx = NULL (the stored bytes never landed;
+ * kept, their nonce would read as one EarnKit's own payout used).
  *
  * `nonces.next` (one payout run) is the lowest nonce to sign with, raised past every transfer
  * mined in the run. `now` is the run's time (injectable for the e2e).
@@ -286,8 +303,12 @@ export async function payWinner(
       !(await a.rpc.transaction(hash)) &&
       (await a.rpc.finalizedNonce(a.account.address)) > txNonce
     ) {
-      const taken = await Promise.all((a.otherPaid ?? []).map((r) => ownNonce(r as Hex, a.account)));
-      if (!taken.includes(txNonce)) return 'manual';
+      const others = a.otherPaid ?? [];
+      const taken = await Promise.all(others.map((r) => ownNonce(r as Hex, a.account)));
+      const by = taken.indexOf(txNonce);
+      if (by === -1) return 'manual';
+      // That paid transfer is final itself, so no reorg can bring these bytes back to life.
+      if (!(await a.rpc.finalReceipt(keccak256(others[by] as Hex)))) return 'pending';
       // Read last, right before clearing: still no receipt.
       if (await a.rpc.receipt(hash)) return 'pending';
       await clear(false);
@@ -468,17 +489,4 @@ export async function payCampaign(
     );
   }
   return stop('Payout stopped early; it continues on the next run.');
-}
-
-/** Proof of funds for the campaign page (v2.4 §3): the payout wallet and its live prize balance. */
-export async function payoutFunds(c: EarnKitCampaign) {
-  try {
-    const account = payoutAccount();
-    if (!account) return null;
-    const balance = await payoutRpc().balanceOf(c.prize.token as Hex, account.address);
-    return { wallet: account.address, balance: formatUnits(balance, c.prize.decimals) };
-  } catch (err) {
-    console.error('[funds]', err);
-    return null;
-  }
 }

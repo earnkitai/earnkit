@@ -102,6 +102,7 @@ function chain(funds: () => bigint = () => 10n ** 30n) {
     nonce: async () => sent.length,
     finalizedNonce: async () => sent.length,
     transaction: async (h) => mined.has(h),
+    finalReceipt: async (h) => mined.has(h),
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => (mined.has(h) ? { status: 'success' } : null),
