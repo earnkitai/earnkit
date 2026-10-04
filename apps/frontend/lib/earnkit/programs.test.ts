@@ -12,6 +12,29 @@ import { presentFirstMessage } from './present';
 import { trackRecordOf } from './sponsor-identity';
 import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
 
+/** A program file's row (v2.4 tests). */
+const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
+  id: 'p', organizer: 'O', title: 'T', description: 'D', source_url: 'https://o.example',
+  submission_url: 'https://o.example/s', reward: 'R', starts_at: null, ends_at: null, status: 'active',
+  verified_at: null, existing_work: 'allowed', token_policy: 'encouraged', setup: [], each_time: [],
+  summary: 'S', tag: null, chains: ['base'], campaign, created_at: new Date(), opened_at: null, rules: [],
+  source: 'file', max_award_usd: null, submission_requirements: [],
+});
+const earnkitCampaign = {
+  kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },
+  winners: 5, amount_each: '1', prize_usd_total: 500, metric: 'unique_wallets', min_score: 10,
+} as const;
+
+test('v2.4: get_program never advertises tokens (any program, any policy)', () => {
+  for (const policy of ['encouraged', 'allowed', 'off'] as const)
+    for (const c of [null, earnkitCampaign]) {
+      const d = programDetails({ ...fileRow(c), token_policy: policy }, [], []);
+      assert.ok(!('token' in d), `top-level token (${policy})`);
+      assert.ok(!d.campaign || !('token' in d.campaign), `campaign.token (${policy})`);
+      assert.doesNotMatch(JSON.stringify(d), /Entries get a token/);
+    }
+});
+
 test('trust: within 7 days the agent is told not to re-read the source; older, just the date', () => {
   const now = new Date('2026-10-02T12:00:00Z');
   assert.deepEqual(trust(new Date('2026-09-30'), now), {

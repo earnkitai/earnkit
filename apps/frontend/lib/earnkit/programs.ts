@@ -4,7 +4,6 @@ import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
 import {
-  tokenPolicyLine,
   type ProgramFile,
   type SubmissionRequirement,
   type TokenPolicy,
@@ -385,9 +384,6 @@ export function programDetails(
     ...trustFor(program.source, program.verified_at),
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
-    ...(!program.campaign && {
-      token: tokenPolicyLine(program.token_policy) ?? undefined,
-    }),
     ...(program.campaign && {
       campaign:
         program.campaign.kind === 'earnkit'
@@ -395,11 +391,10 @@ export function programDetails(
               by: 'EarnKit',
               prize: `${prizeText(program.campaign)}, sent to their payout wallet on Base`,
               judged_by:
-                'unique wallets (with onchain history before the campaign) that used your contracts during the campaign; a human approves winners',
+                'unique users of your contracts during the campaign (with history before it); the top entries are public for 48 hours, then paid automatically',
               min_score: program.campaign.min_score,
               how_to_submit:
                 'Submit to EarnKit: call record_submission with the answers. There is no external site.',
-              token: tokenPolicyLine(program.token_policy) ?? undefined,
             }
           : {
               by: quoted(program.campaign.sponsor.name),
@@ -425,7 +420,6 @@ export function programDetails(
                 "the sponsor, using EarnKit's score as a guide; picks and reasons are public",
               how_to_submit:
                 'Submit to EarnKit: call record_submission with the answers (contracts optional). There is no external site.',
-              token: tokenPolicyLine(program.token_policy) ?? undefined,
             },
     }),
     ...(sponsor && {

@@ -4,7 +4,6 @@ import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { entryStatus, prizeText } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
-import { tokenPolicyLine } from '@/lib/earnkit/program-file';
 import {
   UNVERIFIED,
   sponsorLabel,
@@ -60,11 +59,6 @@ export default async function CampaignPage({
           {prizeText(c)} ·{' '}
           {ended ? 'closed' : `closes ${formatDeadline(program.ends_at)}`}
         </p>
-        {tokenPolicyLine(program.token_policy) ? (
-          <p className="mt-3 font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft">
-            {tokenPolicyLine(program.token_policy)}
-          </p>
-        ) : null}
         {c.kind === 'sponsor' ? (
           <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
             By &ldquo;{c.sponsor.name}&rdquo;
@@ -146,11 +140,6 @@ export default async function CampaignPage({
                     >
                       {r.name}
                     </Link>
-                    {r.token_url ? (
-                      <span className="ml-2 text-xs text-ek-blue-soft">
-                        token
-                      </span>
-                    ) : null}
                     {!ranked && r.live_url ? (
                       <Ext href={r.live_url} label="live" />
                     ) : null}

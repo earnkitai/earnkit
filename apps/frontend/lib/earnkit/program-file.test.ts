@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ProgramFile, tokenPolicyLine } from './program-file';
+import { ProgramFile } from './program-file';
 
 /** The repo's first program file (any one will do; they all predate token_policy). */
 function firstProgramFile() {
@@ -26,10 +26,4 @@ test('ProgramFile: token_policy defaults to encouraged and refuses unknown value
   assert.throws(() =>
     ProgramFile.parse({ ...base, token_policy: 'sometimes' }),
   );
-});
-
-test('tokenPolicyLine', () => {
-  assert.equal(tokenPolicyLine('encouraged'), 'Entries get a token');
-  assert.equal(tokenPolicyLine('allowed'), null);
-  assert.equal(tokenPolicyLine('off'), 'No tokens for entries');
 });

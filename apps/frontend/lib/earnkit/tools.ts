@@ -273,16 +273,19 @@ export const tools = {
         )
       : { answers: known.answers, note: null };
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
-    const token = await tokenProposalBlock({
-      program,
-      projectName: known.project?.name,
-      creatorWallet:
-        (program.campaign && validWallet(prefill.answers?.payout_wallet)) ||
-        remembered,
-      // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
-      installationId: ctx.installationId,
-      repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
-    });
+    // No token block on a closed program (v2.4 §6, audit C22).
+    const token = open
+      ? await tokenProposalBlock({
+          program,
+          projectName: known.project?.name,
+          creatorWallet:
+            (program.campaign && validWallet(prefill.answers?.payout_wallet)) ||
+            remembered,
+          // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
+          installationId: ctx.installationId,
+          repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
+        })
+      : null;
     // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     const payoutWallet = validWallet(prefill.answers?.payout_wallet);

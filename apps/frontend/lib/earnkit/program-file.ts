@@ -23,16 +23,9 @@ export const PROJECT_FIELDS = [
 ] as const;
 export type ProjectField = (typeof PROJECT_FIELDS)[number];
 
-/** Whether entries get a token at submission (v2.3): encouraged and allowed launch by default. */
+/** Whether entries get a token at submission (v2.3): encouraged and allowed launch by default; off never. A funder setting, never displayed (v2.4). */
 export const TOKEN_POLICIES = ['encouraged', 'allowed', 'off'] as const;
 export type TokenPolicy = (typeof TOKEN_POLICIES)[number];
-/** The one line builders see about the policy, or null (allowed says nothing extra). */
-export const tokenPolicyLine = (p: TokenPolicy) =>
-  p === 'encouraged'
-    ? 'Entries get a token'
-    : p === 'off'
-      ? 'No tokens for entries'
-      : null;
 
 export const SubmissionRequirement = z
   .object({

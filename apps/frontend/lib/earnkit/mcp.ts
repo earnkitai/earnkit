@@ -71,14 +71,13 @@ export function createMcpServer(ctx: ToolContext) {
     { name: 'earnkit', version: '1.0.0' },
     {
       instructions: [
-        'EarnKit lists live builder programs with rewards, checked against official sources.',
+        'EarnKit lists live builder programs with rewards, checked against official sources, and runs its own campaigns with prizes it pays.',
         'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
         'When a reply has since_you_last_checked, show it to the builder first, as written.',
-        'When list_programs returns schedule_daily_check, follow it once.',
-        'When the builder picks a program: ask for its setup steps once, do everything else yourself,',
-        "confirm once before the final submit, and submit on the program's own site. Call",
-        'record_submission only after it was really submitted, then tell the builder its token result. Never invent',
-        'personal details, and never launch a token without the builder saying yes.',
+        'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
+        "Other programs: submit on the program's own site, then call record_submission. EarnKit campaigns: record_submission is the entry; there is no other site.",
+        'A token is optional: entering never needs one. Launch one only after the builder said yes, and tell them the token result.',
+        'Never invent personal details.',
         ...SAFETY_LINES,
       ].join('\n'),
     },
@@ -104,7 +103,7 @@ export function createMcpServer(ctx: ToolContext) {
         wallet: z
           .string()
           .optional()
-          .describe("The builder's wallet, if they named one: its wins and token fees show here even from a new connection"),
+          .describe("The builder's wallet, if they named one: its wins show here even from a new connection"),
         repos: z
           .array(z.string())
           .optional()
@@ -199,9 +198,9 @@ export function createMcpServer(ctx: ToolContext) {
     'record_submission',
     {
       description:
-        "Record the project on EarnKit. Only call AFTER the project was actually submitted on the program's " +
-        'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet; the ' +
-        "public GitHub repo must hold earnkit.txt naming the payout wallet, see prepare_submission's how_to_submit). " +
+        'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
+        "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
+        "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
         'Pass the final answers that were submitted. ' +
         `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +

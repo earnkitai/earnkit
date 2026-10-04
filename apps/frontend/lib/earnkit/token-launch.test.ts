@@ -124,7 +124,7 @@ test('tokenProposalBlock: keeps the proposal note (ticker not checked)', async (
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => null, available: () => true });
   assert.ok(b);
   assert.equal(b.proposed?.symbol, 'CHAIN');
-  assert.match(b.note, /ticker not checked for duplicates/);
+  assert.match(b.note, /ticker not checked for duplicates\. /);
 });
 
 test('tokenProposalBlock: no wallet yet asks for one', async () => {

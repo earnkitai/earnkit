@@ -9,29 +9,24 @@ instantly.
 
 - **Grok Bot, Muse, and other agents:** add the URL as an MCP connector.
 - **Claude Code:** `claude mcp add --transport http earnkit https://earnkit.com/mcp`
+- **Cursor:** in `~/.cursor/mcp.json`: `{"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}`
+- **VS Code:** in `.vscode/mcp.json`: `{"servers": {"earnkit": {"type": "http", "url": "https://earnkit.com/mcp"}}}`
 - **Clients that only run local (stdio) servers:** `npx -y mcp-remote https://earnkit.com/mcp`
 
-Then ask: "Anything worth building?"
+Then ask: "What can I earn?"
 
 Tools: `list_programs` ("what can I earn?": the builder's matching projects + open programs),
 `get_program`, `prepare_submission`, `record_submission`, `launch_token`, and `sponsor_campaign`
 (below).
 
-Token at submission (v2.3): unless the program's `token_policy` is `off`, `prepare_submission`
-returns a `token` block (`proposed` name and ticker, creator wallet, the earnings line, terms
-links, and `say_to_builder` for the summary the builder confirms). `record_submission` launches
-the token on tokens.fun only when it gets `builder_confirmed: true` and `token: { name, symbol }`
-carrying the ticker the builder confirmed; `token: "skip"` means no token, and an omitted token
-launches nothing. A launch first passes a gate (public, non-fork GitHub repo with commits whose
-`earnkit.txt` at the root names the creator wallet as `payout_wallet: 0x…` (or
-`creator_wallet: 0x…` when payout_wallet names another wallet) and carries `token: <SYMBOL> <code>`
-(the line EarnKit gives the launching agent: the code is an HMAC of the agent, the repo and the
-ticker, so a line copied from someone's public file is useless to anyone else), a live link that loads, an unsanctioned creator wallet). One token per repo across EarnKit, and at most 3 launches
-a day per agent. The reply's `token.status` is `launched`, `skipped`, `gate_failed`, `pending`
-(outcome unknown: check tokens.fun) or `failed`; the submission is recorded either way.
-`launch_token { project_id, builder_confirmed: true }` launches or retries later with the stored
-proposal, or with changes; it also takes a fixed `live_url` (and `repo_url`, except for campaign
-entries). `sponsor_campaign`
+Entering (v2.4): `prepare_submission` returns `show_to_builder`, the one block the builder confirms,
+prize first. For EarnKit's own campaigns `record_submission` is the entry: contracts deployed from
+the payout wallet, or from the agent's own wallet with `deployer_signature` (an EIP-191 signature of
+"EarnKit entry: github.com/<owner>/<repo> <payout wallet>"); every problem comes back at once.
+Scoring, the 48-hour public review and the payout run on their own (`POST /api/cron`, called hourly
+by GitHub Actions). A token on tokens.fun is an optional default at submission (one row the builder
+can turn off); `launch_token` retries one later. The rules an agent needs are in the tool descriptions.
+`sponsor_campaign`
 (sponsors fund a builder campaign into an escrow on Base; offered only once the escrow is
 configured with `ESCROW_FACTORY_ADDRESS`, so until then the server lists the first five).
 

@@ -210,7 +210,7 @@ export async function tokenProposalBlock(
     // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
     // the repo needs is the agent's job (note).
     say_to_builder: `${tokenRow(proposal.name === null ? null : proposal.symbol)}\n\n${tokenFootnote(a.creatorWallet)}`,
-    note: notes.join(' '),
+    note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
 

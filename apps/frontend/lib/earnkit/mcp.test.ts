@@ -203,3 +203,10 @@ test('v2.4: the instructions say every reply may open with since_you_last_checke
   const { instructions } = await listed({});
   assert.match(instructions, /since_you_last_checked/);
 });
+
+test('v2.4: the instructions say record_submission is the campaign entry, and a token is optional', async () => {
+  const { instructions } = await listed({});
+  assert.match(instructions, /EarnKit campaigns: record_submission is the entry; there is no other site\./);
+  assert.match(instructions, /A token is optional: entering never needs one\./);
+  assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
+});
