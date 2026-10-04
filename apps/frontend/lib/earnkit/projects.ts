@@ -38,10 +38,7 @@ export const RecordSubmissionInput = z
      * The token: 'skip' is "no token"; else the name and symbol the builder confirmed. Accepted
      * loosely here and checked in the token flow, so a bad token field never fails the entry.
      */
-    token: z
-      .union([z.literal('skip'), z.record(z.string(), z.unknown())])
-      .nullable()
-      .optional(),
+    token: z.unknown().optional(),
     /** The builder confirmed the summary that included the token line: only `true` counts. */
     builder_confirmed: z.unknown().optional(),
   })

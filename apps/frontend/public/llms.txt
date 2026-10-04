@@ -39,8 +39,10 @@ which EarnKit approves instantly.
   true and token: { name, symbol } carrying the ticker the builder
   confirmed; token: "skip" means no token, and without a symbol nothing
   launches. A token needs a public, non-fork GitHub repo with commits, an
-  earnkit.txt at its root with the line "payout_wallet: <creator wallet>",
-  and a live link that loads. One token per repo; at most 3 launches a day
+  earnkit.txt at its root with the lines "payout_wallet: <creator wallet>"
+  (or "creator_wallet: <creator wallet>" when payout_wallet names another
+  wallet) and "token: <SYMBOL>" with the exact ticker of this launch, and a
+  live link that loads. One token per repo; at most 3 launches a day
   per agent. The reply's token.status is launched, skipped,
   gate_failed, pending (outcome unknown: check tokens.fun before retrying)
   or failed; the submission is recorded either way

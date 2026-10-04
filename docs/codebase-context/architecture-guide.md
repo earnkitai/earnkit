@@ -100,10 +100,13 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   configured; `decideToken` (policy, "skip", an existing token, confirmation, explicit ticker at
   submission, edits, name/ticker rules, creator wallet); one token per repo (another project with
   the same `token_repo_key` and a token or claim); the gate (`tokenGate`: policy not off; the
-  public GitHub repo exists, isn't a fork, has commits; **ownership** — its `earnkit.txt` names
-  the creator wallet on `payout_wallet:` (or `creator_wallet:` for a campaign entry whose creator
-  differs from its proven payout wallet; a campaign entry launching to its payout wallet needs no
-  second read); a `live_url` that answers 2xx via `safeProbe` (User-Agent `EarnKit-linkcheck/1`);
+  public GitHub repo exists, isn't a fork, has commits; **ownership** — its `earnkit.txt` is read
+  for every launch, campaign entries included, and must (1) name the creator wallet on
+  `payout_wallet:`, or on `creator_wallet:` when payout_wallet names another wallet (a campaign
+  entry's proven payout wallet also counts), and (2) carry `token: <SYMBOL>` for the exact ticker
+  being launched, a per-launch line only someone who can push to the repo can add, so a wallet
+  copied from another repo's file proves nothing (malformed `creator_wallet:`/`token:` lines are
+  ignored and never affect campaign checks); a `live_url` that answers 2xx via `safeProbe` (User-Agent `EarnKit-linkcheck/1`);
   the creator wallet passes the sanctions screen; never cached); the per-installation limit
   (`LIMITS.tokenLaunch`, 3 a day, counted only right before a deploy); then `deployToken`.
   **Policy:** `encouraged | allowed | off` on programs (program files, sponsor campaigns via
@@ -116,7 +119,12 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   refused, the daily limit, or — on `launch_token` — a refused edit or an existing/pending token on
   the project or repo). Status writes from the flow only touch rows with `token_url IS NULL`.
   **Claim:** `deployToken` claims the project atomically (`token_url = 'pending'`, only this
-  installation's project, only if NULL, only if no other project with the same normalized repo
+  installation's project, only if NULL, only while its `repo_url`/`live_url` are still exactly the
+  ones the gate checked — the flow passes them in; `token_repo_key` and tokens.fun's
+  website/appUrl come from them, never a re-read; a row changed in between, e.g. by a concurrent
+  `launch_token` override, gives `failed` "The project's links changed during the launch; call
+  launch_token again." and nothing is claimed — only if no other project with the same normalized
+  repo
   holds a token or claim; it sets `token_repo_key`, and the unique partial index
   `projects_token_repo_key ... WHERE token_url IS NOT NULL` makes two concurrent claims on one repo
   impossible) and releases it only on a 4xx with a JSON body (a refusal before minting); no

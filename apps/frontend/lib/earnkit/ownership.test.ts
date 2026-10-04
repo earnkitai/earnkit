@@ -42,22 +42,37 @@ test('parseOwnershipFile: the payout_wallet line; contracts and other lines are 
       'anything else',
     ].join('\r\n'),
   );
-  assert.deepEqual(f, { payoutWallet: W, creatorWallets: [], problems: [] });
+  assert.deepEqual(f, {
+    payoutWallet: W,
+    creatorWallets: [],
+    tokens: [],
+    problems: [],
+  });
   assert.deepEqual(parseOwnershipFile(''), {
     payoutWallet: null,
     creatorWallets: [],
+    tokens: [],
     problems: [],
   });
 });
 
-test('parseOwnershipFile: creator_wallet lines (a token creator other than the payout wallet)', () => {
+test('parseOwnershipFile: creator_wallet and token lines; malformed ones are ignored, never a problem', () => {
   const C = '0x' + 'c'.repeat(40);
   const f = parseOwnershipFile(
-    `payout_wallet: ${W}\nCreator_Wallet: ${C.toUpperCase().replace('0X', '0x')}\ncreator_wallet: nope`,
+    `payout_wallet: ${W}\nCreator_Wallet: ${C}\ncreator_wallet: nope\ntoken: kits\nTOKEN: CHAIN # this launch\ntoken: two words\ntoken:`,
   );
   assert.equal(f.payoutWallet, W.toLowerCase());
   assert.deepEqual(f.creatorWallets, [C]);
-  assert.deepEqual(f.problems, ['line 3: creator_wallet needs one 0x address']);
+  assert.deepEqual(f.tokens, ['KITS', 'CHAIN']);
+  assert.deepEqual(f.problems, []);
+  // A campaign entry's check is unaffected by them.
+  assert.equal(
+    ownershipProblem(where, f, {
+      payoutWallet: W.toLowerCase(),
+      contracts: [],
+    }),
+    null,
+  );
 });
 
 test('parseOwnershipFile: bad lines are named by number, never echoed', () => {
@@ -137,7 +152,12 @@ test('ownershipBaseUrl: the override only when NODE_ENV is development or test (
 });
 
 test('ownershipProblem: wallet match and mismatch', () => {
-  const file = { payoutWallet: W, creatorWallets: [], problems: [] };
+  const file = {
+    payoutWallet: W,
+    creatorWallets: [],
+    tokens: [],
+    problems: [],
+  };
   assert.equal(
     ownershipProblem(where, file, { payoutWallet: W, contracts: [] }),
     null,
@@ -164,7 +184,7 @@ test('ownershipProblem: wallet match and mismatch', () => {
   assert.match(
     ownershipProblem(
       where,
-      { payoutWallet: null, creatorWallets: [], problems: [] },
+      { payoutWallet: null, creatorWallets: [], tokens: [], problems: [] },
       { payoutWallet: W, contracts: [] },
     )!,
     /has no payout_wallet line/,
@@ -172,7 +192,12 @@ test('ownershipProblem: wallet match and mismatch', () => {
   assert.match(
     ownershipProblem(
       where,
-      { payoutWallet: null, creatorWallets: [], problems: ['line 1: x'] },
+      {
+        payoutWallet: null,
+        creatorWallets: [],
+        tokens: [],
+        problems: ['line 1: x'],
+      },
       { payoutWallet: W, contracts: [] },
     )!,
     /has a problem \(line 1: x\)/,
@@ -181,7 +206,12 @@ test('ownershipProblem: wallet match and mismatch', () => {
 
 test('ownershipProblem: every contract must be deployed from the payout wallet (no listing escape)', () => {
   const entry = { payoutWallet: W, contracts: [C1, C2] };
-  const file = { payoutWallet: W, creatorWallets: [], problems: [] };
+  const file = {
+    payoutWallet: W,
+    creatorWallets: [],
+    tokens: [],
+    problems: [],
+  };
   assert.equal(
     ownershipProblem(where, file, entry, { [C1]: W, [C2]: W }),
     null,

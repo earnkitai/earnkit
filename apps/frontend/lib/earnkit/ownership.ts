@@ -74,6 +74,11 @@ export type OwnershipFile = {
    * campaign entry's payout wallet. Campaign checks ignore them.
    */
   creatorWallets: string[];
+  /**
+   * Uppercase tickers on `token:` lines (v2.3): each launch needs its own ticker here, a line only
+   * someone who can push to the repo can add. Campaign checks ignore them.
+   */
+  tokens: string[];
   /** 1-based line numbers and what's wrong; the file's text is never echoed. */
   problems: string[];
 };
@@ -82,31 +87,38 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /**
  * Parses earnkit.txt: the `payout_wallet: 0x…` line (key case-insensitive, `#` starts a comment),
- * and any `creator_wallet: 0x…` lines (a token's creator wallet, v2.3). Every other line is ignored, including `contracts:` (accepted for compatibility, never trusted)
+ * plus `creator_wallet: 0x…` and `token: <SYMBOL>` lines for token launches (v2.3; malformed ones
+ * are ignored, never a problem). Every other line is ignored, including `contracts:` (accepted for compatibility, never trusted)
  * and a sponsor's `earnkit-sponsor:` line. Pure; exported for tests.
  */
 export function parseOwnershipFile(text: string): OwnershipFile {
   const wallets = new Set<string>();
   const creators = new Set<string>();
+  const tokens = new Set<string>();
   const problems: string[] = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.replace(/#.*$/, '').trim();
-    const m = /^(payout_wallet|creator_wallet)\s*:\s*(.*)$/i.exec(line);
+    const m = /^(payout_wallet|creator_wallet|token)\s*:\s*(.*)$/i.exec(line);
     if (!m) return;
     const key = m[1].toLowerCase();
     const values = m[2].split(/[\s,]+/).filter(Boolean);
-    if (values.length !== 1 || !ADDRESS.test(values[0]))
-      problems.push(`line ${i + 1}: ${key} needs one 0x address`);
-    else
-      (key === 'payout_wallet' ? wallets : creators).add(
-        values[0].toLowerCase(),
-      );
+    const one = values.length === 1 ? values[0] : null;
+    // Only payout_wallet lines can make the file wrong: creator_wallet and token lines are for
+    // token launches, and a malformed one is ignored (it never fails a campaign entry).
+    if (key === 'token') {
+      if (one && /^[A-Za-z0-9]{1,10}$/.test(one)) tokens.add(one.toUpperCase());
+    } else if (key === 'creator_wallet') {
+      if (one && ADDRESS.test(one)) creators.add(one.toLowerCase());
+    } else if (!one || !ADDRESS.test(one))
+      problems.push(`line ${i + 1}: payout_wallet needs one 0x address`);
+    else wallets.add(one.toLowerCase());
   });
   if (wallets.size > 1)
     problems.push('payout_wallet appears with different addresses; keep one');
   return {
     payoutWallet: wallets.size === 1 ? [...wallets][0] : null,
     creatorWallets: [...creators],
+    tokens: [...tokens],
     problems,
   };
 }

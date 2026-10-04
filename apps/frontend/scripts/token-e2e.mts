@@ -30,8 +30,12 @@ import { join } from 'node:path';
  *   p. the per-installation limit: a fresh agent launches 3, the 4th is failed
  *   q. no deploy key: no token block, and record_submission → skipped, nothing checked or sent
  *   r. through the MCP server: token.proposed echoed verbatim (with `image`) launches
- * The mock also serves earnkit.txt (EARNKIT_OWNERSHIP_BASE_URL, NODE_ENV=test), naming the
- * builder's wallet for every repo except those named "noproof"; the real ownership fetch reads it.
+ *   s. earnkit.txt without this launch's "token:" line → gate_failed
+ *   t. a wallet copied from someone else's earnkit.txt (no token line for this ticker) → refused
+ *   u. the links change between the gate and the claim (a concurrent launch_token) → failed, no deploy
+ * The mock also serves earnkit.txt (EARNKIT_OWNERSHIP_BASE_URL, NODE_ENV=test), read by the real
+ * ownership fetch: the builder's wallet plus a "token:" line for each ticker in TICKERS, except for
+ * repos named "noproof" (no file), "notoken" (no token lines) and "victim" (another builder's file).
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -60,7 +64,13 @@ delete process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS;
 // ---- the mock tokens.fun ----
 const TOKEN_ADDRESS = '0x' + 'ab'.repeat(20);
 const WALLET = '0x' + '12'.repeat(20);
+const VICTIM_WALLET = '0x' + '34'.repeat(20);
 const ownershipReads: string[] = [];
+// Every ticker this script launches has its "token:" line in the builder's earnkit.txt.
+const TICKERS = [
+  'CHAIN', 'KITS', 'RETRY', 'FORKD', 'OFFL', 'OFFP', 'FAIL4', 'KITS2', 'UNCF', 'HANG5', 'KAPPA',
+  'UNKN6', 'UNKN7', 'HAST', 'NOTMN', 'CHAN2', 'LIMA', 'LIMB', 'LIMC', 'LIMD', 'KEYL', 'ECHO', 'RACE',
+];
 const deploys: Record<string, unknown>[] = [];
 let authFailures = 0;
 const hanging = new Set<IncomingMessage>();
@@ -84,8 +94,12 @@ const server = createServer(async (req, res) => {
       res.writeHead(404);
       return res.end('404: Not Found');
     }
+    const text = file[2].includes('victim')
+      ? `payout_wallet: ${VICTIM_WALLET}\ntoken: VICT\n`
+      : `# e2e\npayout_wallet: ${WALLET}\n` +
+        (file[2].includes('notoken') ? '' : TICKERS.map((t) => `token: ${t}\n`).join(''));
     res.writeHead(200, { 'content-type': 'text/plain' });
-    return res.end(`# e2e\npayout_wallet: ${WALLET}\n`);
+    return res.end(text);
   }
   if (req.headers.authorization !== `Bearer ${KEY}`) {
     authFailures++;
@@ -478,6 +492,49 @@ let retryProjectId = 0;
   const out = JSON.parse(text(res)) as Recorded;
   check(!res.isError && out.token.status === 'launched' && out.token.symbol === prep.token.proposed.symbol, '(r) echoed proposal launches through MCP', text(res));
   await client.close();
+}
+
+// (s) earnkit.txt names the wallet but has no "token:" line for this launch.
+{
+  const before = deploys.length;
+  const r = await submit({ project: project('No Token Line', {}, 'notoken-'), token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
+  check(
+    r.token.status === 'gate_failed' && r.token.note?.includes('Add the line "token: NOTOK" to earnkit.txt at the repo root (default branch), then call launch_token.'),
+    '(s) no token line → gate_failed with the line to add',
+    r.token,
+  );
+  check(deploys.length === before, '(s) no deploy sent');
+}
+
+// (t) someone else's repo, launched with the wallet its earnkit.txt names (copied), new ticker.
+{
+  const before = deploys.length;
+  const r = await submit({
+    project: project('Not My Project', {}, 'victim-'),
+    token: { name: 'Not My Project', symbol: 'STEAL', creator_wallet: VICTIM_WALLET },
+    confirmed: true,
+  });
+  check(r.token.status === 'gate_failed' && /"token: STEAL"/.test(r.token.note ?? ''), '(t) copied wallet without the token line → refused', r.token);
+  check(deploys.length === before, '(t) no deploy sent');
+}
+
+// (u) the repo link changes between the gate and the claim (as a concurrent launch_token would).
+{
+  const before = deploys.length;
+  const p = project('Race Case');
+  const swapped = 'https://github.com/someone-else/their-repo';
+  const raceGate: GateDeps = {
+    ...passGate,
+    // The gate's last step: by now ownership and the live link were checked for p's repo.
+    screen: async () => {
+      await db`UPDATE projects SET repo_url = ${swapped} WHERE repo_url = ${p.repo_url}`;
+    },
+  };
+  const r = await submit({ project: p, token: { name: 'Race Case', symbol: 'RACE' }, confirmed: true }, raceGate);
+  check(r.token.status === 'failed' && r.token.note === "The project's links changed during the launch; call launch_token again.", '(u) links changed → failed', r.token);
+  check(deploys.length === before, '(u) no deploy sent');
+  const saved = await row(r.project_id);
+  check(saved.token_url === null && saved.token_repo_key === null, '(u) nothing claimed for the swapped repo', saved);
 }
 
 check(authFailures === 0, 'every mock call carried the deploy key');

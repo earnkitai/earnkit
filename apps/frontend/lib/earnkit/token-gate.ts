@@ -17,9 +17,11 @@ export type GateInput = {
   repoUrl: string | null;
   liveUrl: string | null;
   wallet: string;
+  /** The ticker being launched: earnkit.txt must carry `token: <SYMBOL>` for it. */
+  symbol: string;
   /**
-   * A campaign entry's payout wallet: its earnkit.txt was proven at entry, so a creator wallet
-   * equal to it needs no second read. Null for other programs.
+   * A campaign entry's payout wallet, proven by earnkit.txt at entry: a creator wallet equal to it
+   * counts as named. The file is still read for the token line. Null for other programs.
    */
   provenWallet?: string | null;
 };
@@ -46,35 +48,56 @@ const msg = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const RETRY = " Fix it and say 'launch the token'.";
 
 /**
- * Why the repo's earnkit.txt doesn't prove the creator wallet, or null (v2.3 Ruling 12). The file
- * must name the wallet on its `payout_wallet:` line or on a `creator_wallet:` line (for a campaign
- * entry whose payout wallet differs). Pure; exported for tests.
+ * Why the repo's earnkit.txt doesn't prove this launch, or null (v2.3 Ruling 12 and the owner's
+ * fix round). The file must name the creator wallet (its `payout_wallet:` line, a
+ * `creator_wallet:` line, or — for a campaign entry — the payout wallet proven at entry) AND carry
+ * `token: <SYMBOL>` for the exact ticker: a per-launch line only someone who can push to the repo
+ * can add, so a wallet copied from someone else's file proves nothing. Pure; exported for tests.
  */
 export function ownerProblem(
   repo: string,
   got: FetchResult,
   wallet: string,
+  symbol: string,
   provenWallet: string | null = null,
 ): string | null {
   const w = wallet.toLowerCase();
-  // A campaign entry keeps payout_wallet for the prize; another creator wallet goes on its own line.
-  const line = provenWallet && provenWallet !== w ? `creator_wallet: ${wallet}` : `payout_wallet: ${wallet}`;
-  const add = `add a file named ${OWNERSHIP_FILE} at the root of ${repo} (default branch) with the line "${line}", push it, and say 'launch the token'.`;
+  const sym = symbol.toUpperCase();
   if (got.status === 'error')
     return `EarnKit couldn't read ${OWNERSHIP_FILE} in ${repo} (${got.message}). Say 'launch the token' to retry.`;
-  if (got.status === 'missing')
-    return `A token needs proof the builder owns ${repo}: ${add} A just-pushed file can take a few minutes to appear.`;
-  const file = parseOwnershipFile(got.text);
+  const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
+  // The wallet goes on payout_wallet unless that line is (or must stay) another wallet.
+  const otherPayout =
+    (file?.payoutWallet && file.payoutWallet !== w) || (provenWallet && provenWallet !== w);
+  const walletLine = otherPayout ? `creator_wallet: ${wallet}` : `payout_wallet: ${wallet}`;
+  const tokenLine = `token: ${sym}`;
+  const where = `to ${OWNERSHIP_FILE} at the repo root (default branch), then call launch_token.`;
+  if (!file)
+    return (
+      `A token needs proof the builder owns ${repo}: add a file named ${OWNERSHIP_FILE} at its root ` +
+      `(default branch) with the lines "${walletLine}" and "${tokenLine}", push it, then call launch_token. ` +
+      'A just-pushed file can take a few minutes to appear.'
+    );
   if (file.problems.length)
-    return `${OWNERSHIP_FILE} in ${repo} has a problem (${file.problems.join('; ')}). It should contain "${line}".`;
-  if (file.payoutWallet === w || file.creatorWallets.includes(w)) return null;
-  return `${OWNERSHIP_FILE} in ${repo} doesn't name the creator wallet ${wallet}. Launch with the wallet the file names, or (if the builder owns the repo) ${add}`;
+    return `${OWNERSHIP_FILE} in ${repo} has a problem (${file.problems.join('; ')}). Fix it, then call launch_token.`;
+  const walletOk = file.payoutWallet === w || file.creatorWallets.includes(w) || provenWallet === w;
+  const tokenOk = file.tokens.includes(sym);
+  if (!walletOk)
+    return (
+      `${OWNERSHIP_FILE} in ${repo} doesn't name the creator wallet ${wallet}. Launch with the wallet the ` +
+      `file names, or (if the builder owns the repo) add the line "${walletLine}"` +
+      `${tokenOk ? '' : ` and the line "${tokenLine}"`} ${where}`
+    );
+  if (!tokenOk)
+    return `Each launch needs its own line in ${OWNERSHIP_FILE} in ${repo}. Add the line "${tokenLine}" ${where}`;
+  return null;
 }
 
 /**
  * Whether a recorded project may get a token (v2.3 §3): the program allows tokens, the public
- * GitHub repo exists with commits and isn't a fork, its earnkit.txt names the creator wallet, the
- * live link loads, and the creator wallet isn't sanctioned. Stops at the first failure; never cached.
+ * GitHub repo exists with commits and isn't a fork, its earnkit.txt names the creator wallet and
+ * carries `token: <SYMBOL>` for this ticker, the live link loads, and the creator wallet isn't
+ * sanctioned. Stops at the first failure; never cached.
  */
 export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<GateResult> {
   const d = { ...defaults, ...deps };
@@ -91,11 +114,14 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
       ? { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub.` + RETRY }
       : { ok: false, reason: "EarnKit couldn't check the repo on GitHub right now. Say 'launch the token' to retry." };
   }
-  const proven = input.provenWallet?.toLowerCase() ?? null;
-  if (proven !== input.wallet.toLowerCase()) {
-    const problem = ownerProblem(`github.com/${gh.owner}/${gh.repo}`, await d.owner(gh), input.wallet, proven);
-    if (problem) return { ok: false, reason: problem };
-  }
+  const problem = ownerProblem(
+    `github.com/${gh.owner}/${gh.repo}`,
+    await d.owner(gh),
+    input.wallet,
+    input.symbol,
+    input.provenWallet?.toLowerCase() ?? null,
+  );
+  if (problem) return { ok: false, reason: problem };
   if (!input.liveUrl)
     return { ok: false, reason: 'There is no live link. A token needs a project that runs: call launch_token with live_url.' };
   try {

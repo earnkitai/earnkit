@@ -171,6 +171,9 @@ test('record_submission accepts token.proposed echoed verbatim, null, and any bu
       { token: { name: 'Chain Kits', symbol: 'CHAIN', image: 'monogram' }, builder_confirmed: true },
       { token: null, builder_confirmed: 'yes' },
       { token: 'skip' },
+      // Neither "skip" nor an object: EarnKit skips the token with a note, never fails the entry.
+      { token: 'CHAIN', builder_confirmed: true },
+      { token: [], builder_confirmed: true },
     ]) {
       // The schema lets it through to the tool; with no database here the tool itself then fails,
       // which is not an input validation error.

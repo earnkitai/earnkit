@@ -59,8 +59,10 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
 const TO_LAUNCH =
   "To launch, pass token with the name and symbol the builder confirmed (token.proposed from prepare_submission, or their changes); 'skip' if they said no token.";
 const OWNERSHIP_FOR_TOKEN =
-  "A token needs the project's public GitHub repo to hold earnkit.txt at its root with the line " +
-  '"payout_wallet: <creator wallet>" (campaign entries already have it), and one token per repo.';
+  "A token needs the project's public GitHub repo to hold earnkit.txt at its root with the lines " +
+  '"payout_wallet: <creator wallet>" (campaign entries already have it; if it names another wallet, ' +
+  'add "creator_wallet: <creator wallet>") and "token: <SYMBOL>" with the exact ticker of this launch. ' +
+  'One token per repo.';
 
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
@@ -194,7 +196,7 @@ export function createMcpServer(ctx: ToolContext) {
         'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet; the ' +
         "public GitHub repo must hold earnkit.txt naming the payout wallet, see prepare_submission's how_to_submit). " +
         'Pass the final answers that were submitted. ' +
-        `${TO_LAUNCH} ` +
+        `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
         `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
@@ -224,6 +226,9 @@ export function createMcpServer(ctx: ToolContext) {
               // Loose: echoing token.proposed verbatim (with its `image`) must never fail the
               // entry. EarnKit checks the fields in the token flow and names an unknown key.
               .passthrough(),
+            // Anything else (a bare ticker, a list) reaches EarnKit, which skips the token with a
+            // note instead of failing the entry.
+            z.any(),
           ])
           .nullable()
           .optional()

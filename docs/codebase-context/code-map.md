@@ -76,8 +76,9 @@ apps/frontend/
                                remembers installations.payout_wallet)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
-                               parseOwnershipFile (payout_wallet, plus creator_wallet lines for
-                               token creators), githubRepo, ownershipProblem (pure),
+                               parseOwnershipFile (payout_wallet; plus creator_wallet and token lines
+                               for token launches, malformed ones ignored), githubRepo,
+                               ownershipProblem (pure),
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Blockscout DeployerLookup injectable;
                                recordSubmission passes deps through for the e2e)
@@ -174,8 +175,8 @@ apps/frontend/
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette)
     token-gate.ts(+test)       tokenGate: policy, public non-fork repo with commits, ownership
-                               (ownerProblem: earnkit.txt names the creator wallet on payout_wallet:
-                               or creator_wallet:; a campaign's proven payout wallet skips the read),
+                               (ownerProblem: earnkit.txt, read for every launch, names the creator
+                               wallet on payout_wallet: or creator_wallet: and has token: <SYMBOL>),
                                live link via safeProbe, sanctions screen; first failure as a reason
                                with the fix; GitHub/owner/probe/screen injectable (GateDeps)
     token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token),
@@ -236,6 +237,7 @@ apps/frontend/
                                 failures, policy off, retry with a fixed live_url, 400 refusal (claim
                                 released), unconfirmed, monogram PNG (?s= checked), timeout and 502
                                 (pending, claim kept), omitted token, existing token, no earnkit.txt,
+                                no token: line, a copied wallet, links changed before the claim,
                                 one token per repo (incl. the unique index), the 3-a-day limit, no
                                 deploy key, token.proposed echoed through the MCP server; the mock
                                 also serves earnkit.txt; `pnpm token:e2e`

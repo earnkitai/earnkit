@@ -153,10 +153,12 @@ export function decideToken(a: {
   return { action: 'launch', name: name.name, symbol };
 }
 
-/** What the builder must have in the repo before a launch (v2.3 Ruling 12). */
-const ownershipLine = (wallet: string | null) =>
+/** What the builder must have in the repo before a launch (v2.3 Ruling 12 and its fix round). */
+const ownershipLine = (wallet: string | null, symbol: string | null) =>
   `The project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root with the line ` +
-  `"payout_wallet: ${wallet ?? '<creator wallet>'}" (campaign entries already have it).`;
+  `"payout_wallet: ${wallet ?? '<creator wallet>'}" (campaign entries already have it; if that line ` +
+  `names another wallet, add "creator_wallet: ${wallet ?? '<creator wallet>'}") and, for each launch, ` +
+  `the line "token: ${symbol ?? '<SYMBOL>'}" with the exact ticker.`;
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
@@ -179,7 +181,7 @@ export async function tokenProposalBlock(
   if (proposal.name === null) notes.push(proposal.reason);
   else if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
-  notes.push(ownershipLine(a.creatorWallet));
+  notes.push(ownershipLine(a.creatorWallet, proposal.symbol));
   return {
     proposed:
       proposal.name === null
@@ -195,7 +197,8 @@ export async function tokenProposalBlock(
       (proposal.name === null
         ? 'This entry can get a token on tokens.fun: pick a name and ticker (3–6 letters or digits).'
         : `Submitting ${projectName} to ${program.title}, and launching $${proposal.symbol} (${proposal.name}) with your entry on tokens.fun.`) +
-      ` ${earnings} ${terms} Your repo needs ${OWNERSHIP_FILE} naming that wallet. Change the name, ticker or logo, or say "no token".`,
+      ` ${earnings} ${terms} Your repo needs ${OWNERSHIP_FILE} at its root with "payout_wallet: ${a.creatorWallet ?? '<your wallet>'}" ` +
+      `and "token: ${proposal.symbol ?? '<TICKER>'}". Change the name, ticker or logo, or say "no token".`,
     note: notes.join(' '),
   };
 }
@@ -365,6 +368,7 @@ async function runTokenFlow(
       repoUrl: project.repo_url,
       liveUrl: project.live_url,
       wallet: wallet!,
+      symbol,
       provenWallet: project.payout_wallet,
     },
     deps.gate,
@@ -394,6 +398,9 @@ async function runTokenFlow(
       imageUrl: choice?.image_url,
       builderX: choice?.builder_x,
       chain: a.chain,
+      // The links the gate just checked: the claim is bound to them.
+      repoUrl: project.repo_url,
+      liveUrl: project.live_url,
     });
     // Another entry of the repo claimed a token at the same moment: at submission, skipped.
     return out.status === 'failed' && out.note?.startsWith(REPO_HAS_TOKEN)
@@ -439,9 +446,13 @@ export async function tokenAfterSubmission(
   const project = await ownProject(store, a.projectId, a.installationId);
   let choice: 'skip' | Choice | undefined;
   if (a.choice === 'skip' || a.choice === undefined || a.choice === null) choice = a.choice ?? undefined;
-  else {
-    const { image: _image, ...rest } = (typeof a.choice === 'object' ? a.choice : {}) as Record<string, unknown>;
-    const parsed = TokenChoice.safeParse(typeof a.choice === 'object' ? rest : a.choice);
+  else if (typeof a.choice !== 'object' || Array.isArray(a.choice)) {
+    const note = 'token: pass "skip", or an object like { "name": "…", "symbol": "…" }.';
+    if (!project.token_url) await store.setStatus(project.id, { status: 'skipped', note });
+    return { status: 'skipped', note };
+  } else {
+    const { image: _image, ...rest } = a.choice as Record<string, unknown>;
+    const parsed = TokenChoice.safeParse(rest);
     if (!parsed.success) {
       const note = `token: ${issuesText(parsed.error.issues)}`;
       if (!project.token_url) await store.setStatus(project.id, { status: 'skipped', note });
