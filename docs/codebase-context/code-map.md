@@ -43,7 +43,9 @@ apps/frontend/
   app/components/WalletGate.tsx  shows a page's action only for the bound wallet, else "Connect
                                0xABCD…1234 to continue"
   app/sponsor-terms/page.tsx   sponsor terms (linked from the fund page)
-  app/api/projects/[id]/image/ serves a token image the agent uploaded (launch_token image_data)
+  app/api/projects/[id]/image/ serves a token image the agent uploaded (token image_data)
+  app/api/projects/[id]/token-image/  the default token logo: a 512x512 next/og PNG monogram of the
+                               stored ticker (validated A-Z0-9 only) on a colour from the project id
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/.well-known/             OAuth discovery metadata
@@ -54,7 +56,8 @@ apps/frontend/
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
-    program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd)
+    program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
+                               token_policy encouraged|allowed|off, default encouraged; tokenPolicyLine)
     programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
@@ -100,7 +103,8 @@ apps/frontend/
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
                                mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
                                cert check and Host on the hostname (pinnedLookup), no redirects, 5 s,
-                               4 KB; resolver and transport injectable
+                               4 KB; resolver and transport injectable. safeProbe: the token gate's
+                               live-link check (any 2xx, body unread, one same-site redirect)
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
                                <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
                                names (reservedBrands/reservedNameProblem: confusable skeleton,
@@ -149,8 +153,26 @@ apps/frontend/
                                repo-cache.ts)
     http.ts                    CORS + small response helpers
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
-                               includes sponsor_campaign (create/status/award)
-    tokens.ts(+test)           launch_token via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY)
+                               includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
+                               (gate/check/deploy fakes) is test and e2e injection only; the MCP
+                               route never sets it
+    tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
+                               EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
+                               (token_url='pending'), released only on a 4xx with a JSON body
+                               (outcomeOf); TokenStatus/TokenOutcome, setTokenStatus, EARNINGS_LINE,
+                               TOKEN_TERMS, decodeImage, xProfileUrl
+    token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
+                               (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
+                               (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
+                               monogramFor (12-colour palette)
+    token-gate.ts(+test)       tokenGate: policy, public non-fork repo with commits, live link via
+                               safeProbe, sanctions screen; first failure as a reason with the fix;
+                               GitHub/probe/screen injectable (GateDeps)
+    token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token),
+                               decideToken (pure rules; record_submission needs the confirmed
+                               symbol), submissionToken (record_submission's token part, never
+                               throws), launchToken (launch_token); TokenFlowDeps (gate, check,
+                               deploy, store) for tests
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'), minScore/prizeText/wonText,
                                entry checks (contracts optional for 'sponsor'; isWalletAddress:
                                mixed-case payout wallets must be EIP-55), normalizeRepoUrl/
@@ -194,6 +216,12 @@ apps/frontend/
                                rate_windows, github_repo_facts, scoring_leases, projects.score_partial and
                                scored_through)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
+    token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
+                                and a mock tokens.fun on 127.0.0.1 (gate faked via
+                                ToolContext.tokenDeps): default launch, edited ticker, skip, gate
+                                failures, policy off, retry, 400 refusal (claim released), unconfirmed,
+                                monogram PNG, timeout and 502 (pending, claim kept), omitted token,
+                                existing token; `pnpm token:e2e`
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
                                 campaigns; local only; sync reads the chain for one ref or sweeps
@@ -214,11 +242,14 @@ Root commands: `pnpm programs:check` (validate program files), `pnpm test`,
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
 `refund <ref> --escrow <address>` refunds a stray escrow for that ref), `pnpm campaign sync [<ref>]`
 (reads the chain and updates the database: one campaign, or every draft/expired/live one), `pnpm sponsor:e2e` (full sponsor flow on a local
-anvil + Postgres, see `contracts/README.md` and `sponsor-e2e.mts`'s header for the exact env).
+anvil + Postgres, see `contracts/README.md` and `sponsor-e2e.mts`'s header for the exact env),
+`pnpm token:e2e` (v2.3 token flows against a local Postgres and a mock tokens.fun; env in
+`token-e2e.mts`'s header).
 Railway runs `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
 `GITHUB_TOKEN` (one server-side read-only token for repo matching), `TOKENSFUN_DEPLOY_API_KEY`
-(tokens.fun deploy key for launch_token; `TOKENSFUN_API_URL` overrides the host for tests),
+(tokens.fun deploy key for token launches; `TOKENSFUN_API_URL` overrides the host for tests;
+`EARNKIT_TOKENSFUN_TIMEOUT_MS` bounds the deploy call, default 120000),
 `BASE_RPC_URL` (optional; default public Base RPC). `PAYOUT_PRIVATE_KEY` is local only, never on
 Railway.
 

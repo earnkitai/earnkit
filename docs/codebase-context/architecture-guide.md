@@ -80,10 +80,39 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - Repo matching (list_programs with github_user) reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".
-- launch_token calls tokens.fun's deploy API server-side (tokens.fun pays gas). It only works on
-  a project the same installation recorded (projects.installation_id), once per project: the
-  project is claimed atomically (token_url='pending') and the claim is kept if tokens.fun's
-  response is lost, so a retry can never mint a second token. Requires builder_confirmed=true.
+- **Token at submission (v2.3)** (`token-proposal.ts`, `token-gate.ts`, `token-launch.ts`,
+  `tokens.ts`). Flow: `prepare_submission` returns a `token` block (EarnKit's proposed name and
+  ticker — the project name, ticker candidates checked against brands and tokens.fun's
+  `check-ticker` —, creator wallet, the verbatim earnings line, terms links, `say_to_builder`)
+  unless the program's `token_policy` is `off`. `record_submission` records the entry first, then
+  runs the token part (`submissionToken`, which never throws: the entry is never failed or rolled
+  back by its token). It launches only with `builder_confirmed: true` **and** an explicit
+  `token: { name, symbol }` echoing the ticker the builder confirmed (ruling 10); an omitted token,
+  or one without a symbol, is `skipped` with a note to pass it, and the proposal is stored for a
+  later `launch_token`. `launch_token { project_id, builder_confirmed: true }` launches or retries
+  with the stored proposal unless given changes. Both go through one flow: `decideToken` (policy,
+  "skip", an existing token, confirmation, ticker/name rules, creator wallet), then the gate
+  (`tokenGate`: policy not off; the public GitHub repo exists, isn't a fork, has commits; a
+  `live_url` that answers 2xx via `safeProbe`; the creator wallet passes the sanctions screen;
+  never cached), then `deployToken`. **Policy:** `encouraged | allowed | off` on programs (program
+  files, sponsor campaigns via `sponsor_campaign create`, default `encouraged`); encouraged and
+  allowed both launch by default, encouraged adds "Entries get a token" (get_program and the
+  campaign page; not list_programs rows), off never launches. **Statuses** (`projects.token_status`,
+  with `token_note`): `launched`, `skipped` (no token, unconfirmed, policy off, no symbol, or the
+  project already has a token), `gate_failed` (the reason and fix), `pending` (outcome unknown:
+  claim kept), `failed` (tokens.fun refused; on the `launch_token` path an existing or pending
+  token is also `failed`). **Claim:** `deployToken` claims the project atomically
+  (`token_url = 'pending'`, only this installation's project, only if NULL) and releases it only
+  on a 4xx with a JSON body (a refusal before minting); no answer, any 5xx (e.g. tokens.fun's 502
+  "Deployment status unknown") or an unparsed body keeps it pending, so a retry can never mint a
+  second token. The deploy is bounded by `EARNKIT_TOKENSFUN_TIMEOUT_MS` (default 120 s). **Key:**
+  `TOKENSFUN_DEPLOY_API_KEY` stays server-side (EarnKit's own key on tokens.fun, which skips
+  tokens.fun's per-IP limits; the 2-a-day per creator wallet cap stays). The image is the agent's
+  upload (`/api/projects/:id/image`) or the monogram (`/api/projects/:id/token-image`, the stored,
+  validated ticker only). Fees are unchanged (WETH pair; Clanker 20%, then platform 50% / creator
+  40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
+  unless `TREASURY` is `0xc8A889577446153e28D42254B75238Ae31EC7D57`. `pnpm token:e2e` runs every
+  flow against a local Postgres and a mock tokens.fun.
 - `prepareSubmission` is pure (no DB) and never invents values. It reports what is filled,
   what is missing, and whether the agent drafts it (`from: project`) or asks the builder
   (`from: builder`).

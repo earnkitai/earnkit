@@ -35,12 +35,17 @@ import {
   launchToken,
   submissionToken,
   tokenProposalBlock,
+  type TokenFlowDeps,
 } from './token-launch';
 import { cleanProject } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 
 /** Who is calling: the installation behind the MCP connection. */
-export type ToolContext = { installationId: number };
+export type ToolContext = {
+  installationId: number;
+  /** Test and e2e injection only; never set by the MCP route. */
+  tokenDeps?: TokenFlowDeps;
+};
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
 
@@ -270,12 +275,12 @@ export const tools = {
       installationId: ctx.installationId,
       choice: parsed.token,
       confirmed: parsed.builder_confirmed === true,
-    });
+    }, ctx.tokenDeps);
     return { ...result, token };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
-    launchToken(LaunchTokenInput.parse(input), ctx.installationId),
+    launchToken(LaunchTokenInput.parse(input), ctx.installationId, ctx.tokenDeps),
 
   // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
   // chain for the bound wallet's deposit or award), award it.
