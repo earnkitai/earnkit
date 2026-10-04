@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   answersOf,
   campaignEntryProblems,
+  submissionDataProblem,
   entryRules,
   missingAnswersProblem,
   selfEntryProblem,
@@ -167,10 +168,20 @@ test("v2.4 §2: contracts deployed from the agent's own wallet enter with its si
   try {
     const agent = agentKey.address.toLowerCase();
     const deps = entryDeps({ [`0x${C1.slice(2, 10)}`]: agent, [`0x${C2.slice(2, 10)}`]: PAY });
-    const signature = await agentKey.signMessage({ message: entryMessage('github.com/alice/tipjar', PAY) });
+    const P = 'earnkit-campaign-1-base';
+    const signature = await agentKey.signMessage({ message: entryMessage(P, 'github.com/alice/tipjar', PAY, [C1, C2]) });
     const ok = await campaignEntryProblems(campaignProgram(), input({}, { deployer_signature: signature }) as never, 1, null, deps);
     assert.deepEqual(ok.entry, { contracts: [C1, C2], payoutWallet: PAY });
     assert.deepEqual(ok.deployers.sort(), [agent, PAY].sort());
+    // Ruling 23: the contracts are sorted, so the order they are entered in doesn't matter.
+    await campaignEntryProblems(campaignProgram(), input({ contracts: `${C2},${C1}` }, { deployer_signature: signature }) as never, 1, null, deps);
+    // A signature for another contract set or another program doesn't prove this entry.
+    const notProven = (err: unknown) =>
+      err instanceof EntryError && err.problems.some((p) => p.startsWith(`Contract ${C1} was deployed by ${agent}, not by the wallet that signed`));
+    const otherSet = await agentKey.signMessage({ message: entryMessage(P, 'github.com/alice/tipjar', PAY, [C1]) });
+    await assert.rejects(campaignEntryProblems(campaignProgram(), input({}, { deployer_signature: otherSet }) as never, 1, null, deps), notProven);
+    const otherProgram = await agentKey.signMessage({ message: entryMessage('another-campaign', 'github.com/alice/tipjar', PAY, [C1, C2]) });
+    await assert.rejects(campaignEntryProblems(campaignProgram(), input({}, { deployer_signature: otherProgram }) as never, 1, null, deps), notProven);
     // Review Focus 2: a signature over the link form, or a checksummed wallet, isn't the entry message.
     const loose = await agentKey.signMessage({ message: `EarnKit entry: https://github.com/Alice/TipJar ${PAY.toUpperCase().replace('0X', '0x')}` });
     await assert.rejects(
@@ -181,8 +192,72 @@ test("v2.4 §2: contracts deployed from the agent's own wallet enter with its si
           p.startsWith(`Contract ${C1} was deployed by ${agent}, not by the wallet that signed the entry`),
         ) &&
         err.problems.includes(
-          `deployer_signature: sign exactly "EarnKit entry: github.com/alice/tipjar ${PAY}" with the wallet that deployed the contracts.`,
+          `deployer_signature: sign exactly "EarnKit entry: earnkit-campaign-1-base github.com/alice/tipjar ${PAY} ${C1},${C2}" with the wallet that deployed the contracts.`,
         ),
+    );
+  } finally {
+    setSanctionsOracle(null);
+  }
+});
+
+/** entryDeps that count every chain and explorer read. */
+const countingDeps = () => {
+  const calls = { status: 0, creationTx: 0, txSender: 0 };
+  const d = entryDeps({});
+  return {
+    calls,
+    deps: {
+      ...d,
+      status: async () => (calls.status++, 'during' as const),
+      deployer: {
+        creationTx: async (c: string) => (calls.creationTx++, `0x${c.slice(2, 10)}`),
+        txSender: async () => (calls.txSender++, PAY),
+      },
+    },
+  };
+};
+
+test('fix I1: more than 5 contracts read nothing from Base or the explorer', async () => {
+  setSanctionsOracle({ chainId: async () => 8453, isSanctioned: async () => false });
+  try {
+    const many = Array.from({ length: 8 }, (_, i) => '0x' + String(i + 1).repeat(40)).join(',');
+    const { calls, deps } = countingDeps();
+    await assert.rejects(
+      campaignEntryProblems(campaignProgram(), input({ contracts: many }) as never, 1, null, deps),
+      (err: unknown) => err instanceof EntryError && err.problems.some((p) => /give 1 to 5 Base contract addresses/.test(p)),
+    );
+    assert.deepEqual(calls, { status: 0, creationTx: 0, txSender: 0 });
+  } finally {
+    setSanctionsOracle(null);
+  }
+});
+
+test('fix I1: submission_data is capped at 50 keys and 4 KB a value, before any read', async () => {
+  const { calls, deps } = countingDeps();
+  const keys = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, 'x']));
+  await assert.rejects(
+    campaignEntryProblems(campaignProgram(), input(keys) as never, 1, null, deps),
+    (err: unknown) => err instanceof EntryError && /^submission_data: at most 50 answers/.test(err.message),
+  );
+  await assert.rejects(
+    campaignEntryProblems(campaignProgram(), input({ description: 'x'.repeat(4097) }) as never, 1, null, deps),
+    (err: unknown) => err instanceof EntryError && /^submission_data: description is over 4 KB/.test(err.message),
+  );
+  assert.deepEqual(calls, { status: 0, creationTx: 0, txSender: 0 });
+  assert.equal(submissionDataProblem({ a: 'x'.repeat(4096), b: ['y'] }), null);
+});
+
+test('fix minor: a missing repo is reported with the other missing answers', async () => {
+  setSanctionsOracle({ chainId: async () => 8453, isSanctioned: async () => false });
+  try {
+    const i = input({ repo_url: undefined, description: '' });
+    i.project = { name: 'Tip Jar', live_url: 'https://tipjar.example' } as never;
+    await assert.rejects(
+      campaignEntryProblems(campaignProgram(), i as never, 1, null, entryDeps({})),
+      (err: unknown) =>
+        err instanceof EntryError &&
+        /Missing required answers: description .*repo_url/.test(err.problems[0]) &&
+        err.problems.includes('repo_url: campaign entries need the public GitHub repo of the project.'),
     );
   } finally {
     setSanctionsOracle(null);

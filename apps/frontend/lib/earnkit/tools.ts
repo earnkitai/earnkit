@@ -5,8 +5,8 @@ import {
   recordSubmission,
   type EntryDeps,
 } from './projects';
-import { normalizeRepoUrl, presentYourEntries } from './campaigns';
-import { entryMessage } from './entry-proof';
+import { presentYourEntries } from './campaigns';
+import { signToEnter } from './entry-proof';
 import { confirmTable } from './entry-text';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
@@ -263,6 +263,12 @@ export const tools = {
     // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     const payoutWallet = validWallet(prefill.answers?.payout_wallet);
+    const sign_to_enter = signToEnter(
+      program_id,
+      repoUrl,
+      payoutWallet,
+      known.answers?.contracts,
+    );
     const show_to_builder = confirmTable({
       project: known.project?.name?.trim() || 'Your project',
       programTitle:
@@ -294,14 +300,8 @@ export const tools = {
             how_to_submit:
               'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
               `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
-              "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter.",
-            ...(repoUrl &&
-              payoutWallet && {
-                sign_to_enter: entryMessage(
-                  normalizeRepoUrl(repoUrl),
-                  payoutWallet,
-                ),
-              }),
+              "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
+            ...(sign_to_enter && { sign_to_enter }),
           }
         : { submission_url: program.submission_url }),
       ...(token && { token }),

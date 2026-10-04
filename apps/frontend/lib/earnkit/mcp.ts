@@ -245,7 +245,7 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe(
-            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: github.com/<owner>/<repo> <payout wallet>", lowercase).',
+            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase). It binds this program, repo, payout wallet and contract set.',
           ),
       },
     },

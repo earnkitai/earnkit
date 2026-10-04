@@ -434,5 +434,8 @@ test('v2.4: a contract deployed by the wallet that signed the entry is proven; e
     ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C3] }, deployers),
     [C1, C3].map((c) => `Contract ${c} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`),
   );
-  assert.equal(entryMessage('github.com/alice/tipjar', PAYOUT), `EarnKit entry: github.com/alice/tipjar ${PAYOUT}`);
+  assert.equal(
+    entryMessage('earnkit-campaign-1-base', 'github.com/alice/tipjar', PAYOUT, [C2, C1]),
+    `EarnKit entry: earnkit-campaign-1-base github.com/alice/tipjar ${PAYOUT} ${C1},${C2}`,
+  );
 });

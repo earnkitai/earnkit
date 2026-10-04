@@ -1,6 +1,14 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SponsorCampaignInput } from './tools';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { SponsorCampaignInput, tools } from './tools';
+import { sql } from './db';
+import { EntryError } from './campaigns';
+import { earnkitTexts } from './campaign-text';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
+import { setSanctionsOracle } from './sanctions';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -69,4 +77,64 @@ test('SponsorCampaignInput rejects an award whose winners is a number', () => {
     winners: 3,
   });
   assert.equal(result.success, false);
+});
+
+// Against the local database when configured.
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async () => {
+  const PAY = '0x' + 'a'.repeat(40);
+  const C1 = '0x' + '1'.repeat(40);
+  const f = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
+  );
+  Object.assign(f, {
+    id: `t4-limit-${process.pid}-${Date.now()}`,
+    status: 'active',
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2099-01-01T00:00:00Z',
+  });
+  Object.assign(f, earnkitTexts(f));
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t4-limit-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const used = async () =>
+    (
+      await sql()<{ n: number }[]>`
+        SELECT coalesce(sum(count), 0)::int AS n FROM rate_windows WHERE key = ${`recordSubmission:${id}`}`
+    )[0].n;
+  let deployer = '0x' + 'e'.repeat(40);
+  const ctx = {
+    installationId: id,
+    entryDeps: {
+      status: async () => 'during' as const,
+      repoFacts: async () => ({ fork: false, created_at: '2026-10-01T00:00:00Z', pushed_at: '2026-10-06T00:00:00Z' }),
+      fetchFile: async () => ({ status: 'ok' as const, text: `payout_wallet: ${PAY}\n` }),
+      deployer: { creationTx: async () => '0xabc', txSender: async () => deployer },
+    },
+  };
+  const project = { name: 'Tip Jar', description: 'Tips for creators', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.example' };
+  const entry = {
+    program_id: f.id,
+    project,
+    submission_data: { project_name: 'Tip Jar', description: 'Tips for creators', repo_url: project.repo_url, live_url: project.live_url, contracts: C1, payout_wallet: PAY },
+    token: 'skip',
+  };
+  setSanctionsOracle({ chainId: async () => 8453, isSanctioned: async () => false });
+  try {
+    // Deployed by another wallet: refused, and the daily limit is untouched.
+    await assert.rejects(tools.record_submission(entry, ctx), EntryError);
+    assert.equal(await used(), 0);
+    deployer = PAY;
+    const r = (await tools.record_submission(entry, ctx)) as { recorded: boolean; show_to_builder?: string };
+    assert.equal(r.recorded, true);
+    assert.match(r.show_to_builder ?? '', /^\| Entered \| Tip Jar in /);
+    assert.equal(await used(), 1);
+  } finally {
+    setSanctionsOracle(null);
+  }
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

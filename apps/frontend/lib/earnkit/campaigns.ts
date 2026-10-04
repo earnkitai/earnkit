@@ -381,7 +381,8 @@ export async function entryFieldProblems(
         );
     }
   return {
-    contracts: wellFormed,
+    // An invalid count returns no contracts, so no ownership or explorer reads follow (bounded).
+    contracts: countOk ? wellFormed : [],
     payoutWallet: walletProblem ? null : payout.toLowerCase(),
     problems,
   };

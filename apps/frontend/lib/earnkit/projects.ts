@@ -51,7 +51,8 @@ export const RecordSubmissionInput = z
     builder_confirmed: z.unknown().optional(),
     /**
      * v2.4 §2: when the agent deployed the contracts from its own wallet, that wallet's EIP-191
-     * signature of "EarnKit entry: <repo key> <payout wallet>" (prepare_submission's sign_to_enter).
+     * signature of "EarnKit entry: <program id> <repo key> <payout wallet> <contracts>"
+     * (prepare_submission's sign_to_enter).
      */
     deployer_signature: z.string().optional(),
   })
@@ -135,6 +136,27 @@ export const entryRules = (
   allowExisting: existingWork === 'allowed',
 });
 
+/** At most this many submission_data answers, each at most SUBMISSION_VALUE_MAX bytes. */
+export const SUBMISSION_KEYS_MAX = 50;
+export const SUBMISSION_VALUE_MAX = 4096;
+
+/**
+ * Why submission_data is too large to check or store, or null: more than 50 answers, or an answer
+ * over 4 KB (a list counts as its JSON). Checked before any read. Pure; exported for tests.
+ */
+export function submissionDataProblem(data: Record<string, unknown>) {
+  const keys = Object.keys(data);
+  if (keys.length > SUBMISSION_KEYS_MAX)
+    return `submission_data: at most ${SUBMISSION_KEYS_MAX} answers (got ${keys.length}); pass only the program's questions.`;
+  for (const k of keys) {
+    const v = data[k];
+    const text = typeof v === 'string' ? v : (JSON.stringify(v) ?? '');
+    if (Buffer.byteLength(text, 'utf8') > SUBMISSION_VALUE_MAX)
+      return `submission_data: ${k.slice(0, 64)} is over 4 KB; shorten it.`;
+  }
+  return null;
+}
+
 /** Chain, explorer and GitHub reads, injectable for tests and the e2e. */
 export type EntryDeps = {
   status?: (contract: string) => Promise<Deployment>;
@@ -158,6 +180,9 @@ export async function campaignEntryProblems(
   deps: EntryDeps = {},
 ) {
   const c = program.campaign!;
+  // Too much data is refused before anything is read.
+  const tooLarge = submissionDataProblem(input.submission_data);
+  if (tooLarge) throw new EntryError(tooLarge);
   const cleaned = cleanProject(input.project);
   const problems: string[] = [];
   const missing = missingAnswersProblem(
@@ -175,7 +200,7 @@ export async function campaignEntryProblems(
         problems.push(`repo_url: ${canon.problem}.`);
         repoUrl = undefined;
       } else repoUrl = canon.url;
-    } else if (!missing)
+    } else
       problems.push(
         'repo_url: campaign entries need the public GitHub repo of the project.',
       );
@@ -195,7 +220,13 @@ export async function campaignEntryProblems(
   }
   let signer: string | null = null;
   if (input.deployer_signature && repoUrl && wallet) {
-    signer = await entrySigner(repoUrl, wallet, input.deployer_signature);
+    signer = await entrySigner(
+      program.id,
+      repoUrl,
+      wallet,
+      fields.contracts,
+      input.deployer_signature,
+    );
     if (!signer)
       problems.push(
         'deployer_signature: it is not a valid signature (0x + 130 hex characters).',
@@ -221,7 +252,7 @@ export async function campaignEntryProblems(
         err.problems.some((p) => p.startsWith('Contract '))
       )
         problems.push(
-          `deployer_signature: sign exactly "${entryMessage(normalizeRepoUrl(repoUrl), wallet)}" with the wallet that deployed the contracts.`,
+          `deployer_signature: sign exactly "${entryMessage(program.id, normalizeRepoUrl(repoUrl), wallet, fields.contracts)}" with the wallet that deployed the contracts.`,
         );
     }
   }
@@ -258,6 +289,8 @@ export async function recordSubmission(
    */
   deps: EntryDeps & { charge?: () => Promise<unknown> } = {},
 ) {
+  const tooLarge = submissionDataProblem(input.submission_data);
+  if (tooLarge) throw new EntryError(tooLarge);
   const program = await getProgramRow(input.program_id);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
   // third-party text. Other programs' projects go only to the builder's own submission.
