@@ -3,7 +3,12 @@ import { prizeText, type CampaignConfig } from './campaigns';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
-import type { ProgramFile, SubmissionRequirement } from './program-file';
+import {
+  tokenPolicyLine,
+  type ProgramFile,
+  type SubmissionRequirement,
+  type TokenPolicy,
+} from './program-file';
 import {
   UNVERIFIED,
   sponsorLabel,
@@ -122,6 +127,7 @@ export type ProgramRow = {
   status: 'active' | 'closed';
   verified_at: Date | null;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
+  token_policy: TokenPolicy;
   setup: string[];
   each_time: string[];
   summary: string;
@@ -366,6 +372,9 @@ export function programDetails(
     ...trustFor(program.source, program.verified_at),
     submission_url: program.submission_url,
     build_help: buildHelp(program.chains),
+    ...(!program.campaign && {
+      token: tokenPolicyLine(program.token_policy) ?? undefined,
+    }),
     ...(program.campaign && {
       campaign:
         program.campaign.kind === 'earnkit'
@@ -377,6 +386,7 @@ export function programDetails(
               min_score: program.campaign.min_score,
               how_to_submit:
                 'Submit to EarnKit: call record_submission with the answers. There is no external site.',
+              token: tokenPolicyLine(program.token_policy) ?? undefined,
             }
           : {
               by: quoted(program.campaign.sponsor.name),
@@ -402,6 +412,7 @@ export function programDetails(
                 "the sponsor, using EarnKit's score as a guide; picks and reasons are public",
               how_to_submit:
                 'Submit to EarnKit: call record_submission with the answers (contracts optional). There is no external site.',
+              token: tokenPolicyLine(program.token_policy) ?? undefined,
             },
     }),
     ...(sponsor && {
@@ -453,6 +464,7 @@ export async function upsertProgram(
       submission_url: p.submission_url,
       reward: p.reward,
       existing_work: p.existing_work,
+      token_policy: p.token_policy,
       setup: p.setup,
       each_time: p.each_time,
       summary: p.summary,

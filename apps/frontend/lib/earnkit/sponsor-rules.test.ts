@@ -23,6 +23,7 @@ import {
   sponsorProgramFile,
   statusReply,
   withDefaults,
+  type Draft,
   type StatusFacts,
 } from './sponsor-rules';
 import { ProgramFile } from './program-file';
@@ -678,6 +679,46 @@ const five = {
   amount: '500',
 };
 
+/** The five required answers for create, parsed. */
+const minimalRequest = () => DraftInput.parse(five);
+
+/** sponsorProgramFile's arguments, with the draft overridable (e.g. token_policy). */
+const fileArgs = (overrides: Partial<Draft> = {}) => ({
+  ref: '0x' + 'a'.repeat(64),
+  draft: { ...draft, ...overrides },
+  token: USDC,
+  amountUnits: 5_000_000_000n,
+  chainId: 8453,
+  escrow: '0x' + 'b'.repeat(40),
+  baseUrl: 'https://earnkit.com',
+  now,
+});
+
+test('token_policy defaults to encouraged and is listed under the defaults used', () => {
+  const { draft, defaults } = withDefaults(
+    minimalRequest(),
+    new Date('2026-10-04T00:00:00Z'),
+  );
+  assert.equal(draft.token_policy, 'encouraged');
+  assert.ok(defaults.some((d) => d.startsWith('token_policy: encouraged')));
+});
+
+test('token_policy given by the sponsor is kept and not listed as a default', () => {
+  const { draft, defaults } = withDefaults(
+    { ...minimalRequest(), token_policy: 'off' },
+    new Date('2026-10-04T00:00:00Z'),
+  );
+  assert.equal(draft.token_policy, 'off');
+  assert.ok(!defaults.some((d) => d.startsWith('token_policy')));
+});
+
+test('sponsorProgramFile carries the policy; drafts stored before v2.3 become encouraged', () => {
+  const f = sponsorProgramFile(fileArgs({ token_policy: 'allowed' }));
+  assert.equal(f.token_policy, 'allowed');
+  const old = sponsorProgramFile(fileArgs({ token_policy: undefined }));
+  assert.equal(old.token_policy, 'encouraged');
+});
+
 test('create: five answers; the rest default, and the defaults used are listed', () => {
   const {
     sponsor_wallet,
@@ -696,6 +737,7 @@ test('create: five answers; the rest default, and the defaults used are listed',
     winners: 3,
     existing_work: 'allowed',
     ends_at: days(14),
+    token_policy: 'encouraged',
   });
   assert.deepEqual(defaults, [
     'criteria: "Acme picks the most useful entries"',
@@ -704,6 +746,7 @@ test('create: five answers; the rest default, and the defaults used are listed',
     'winners: 3',
     'existing projects can enter',
     'ends Oct 15, 2026, 00:00 UTC (14 days)',
+    'token_policy: encouraged (entries get a token by default; the builder can skip)',
     'no sponsor_url (the campaign shows as unverified)',
   ]);
   // The defaults pass the draft rules (50 USDC minimum, 3 to 90 days).

@@ -22,6 +22,17 @@ export const PROJECT_FIELDS = [
 ] as const;
 export type ProjectField = (typeof PROJECT_FIELDS)[number];
 
+/** Whether entries get a token at submission (v2.3): encouraged and allowed launch by default. */
+export const TOKEN_POLICIES = ['encouraged', 'allowed', 'off'] as const;
+export type TokenPolicy = (typeof TOKEN_POLICIES)[number];
+/** The one line builders see about the policy, or null (allowed says nothing extra). */
+export const tokenPolicyLine = (p: TokenPolicy) =>
+  p === 'encouraged'
+    ? 'Entries get a token'
+    : p === 'off'
+      ? 'No tokens for entries'
+      : null;
+
 export const SubmissionRequirement = z
   .object({
     key: z.string().regex(/^[a-z0-9_]+$/, 'use snake_case keys'),
@@ -71,6 +82,8 @@ export const ProgramFile = z
      * "unknown": the source doesn't say. Never guess.
      */
     existing_work: z.enum(['allowed', 'new_work_only', 'unknown']),
+    /** v2.3: token at submission. Leave out for the default, encouraged. */
+    token_policy: z.enum(TOKEN_POLICIES).default('encouraged'),
     /** What only the builder can do, a few words each. setup carries over to later entries. */
     setup: z.array(z.string().min(1).max(80)),
     /** Needed again for every entry (a pitch video, program-specific answers). */

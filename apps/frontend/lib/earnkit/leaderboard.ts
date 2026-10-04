@@ -1,5 +1,6 @@
 import type { CampaignConfig, SponsorState, YourEntry } from './campaigns';
 import { sql } from './db';
+import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
 import { shownUrl } from './untrusted-text';
 
@@ -31,8 +32,9 @@ export async function getCampaignBoard(slug: string) {
       status: 'active' | 'closed';
       campaign: CampaignConfig | null;
       rules: string[];
+      token_policy: TokenPolicy;
     }[]
-  >`SELECT id, title, description, summary, ends_at, status, campaign, rules FROM programs WHERE id = ${slug}`;
+  >`SELECT id, title, description, summary, ends_at, status, campaign, rules, token_policy FROM programs WHERE id = ${slug}`;
   if (!program?.campaign) return null;
   // A taken-down sponsor campaign is removed from public view immediately (refunded/awarded
   // campaigns stay visible).

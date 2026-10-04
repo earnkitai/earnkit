@@ -220,3 +220,7 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS live_key text;
 DROP INDEX IF EXISTS projects_campaign_live_key;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_created_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_pushed_at timestamptz;
+
+-- v2.3: whether entries get a token at submission (encouraged/allowed launch by default; off: never).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS token_policy text NOT NULL DEFAULT 'encouraged'
+  CHECK (token_policy IN ('encouraged', 'allowed', 'off'));

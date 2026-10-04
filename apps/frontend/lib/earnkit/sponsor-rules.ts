@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { formatDeadline } from './dates';
 import { formatExact } from './format-units';
 import { CHAINS } from './match';
-import type { ProgramFile } from './program-file';
+import {
+  TOKEN_POLICIES,
+  type ProgramFile,
+  type TokenPolicy,
+} from './program-file';
 import type { TokenInfo } from './escrow';
 import {
   UNVERIFIED,
@@ -63,6 +67,7 @@ export const DraftInput = z
       .regex(/^\d+(\.\d+)?$/, 'a number like "5000" or "100.5"'),
     winners: z.number().int().min(1).max(50).optional(),
     existing_work: z.enum(['allowed', 'new_work_only']).optional(),
+    token_policy: z.enum(TOKEN_POLICIES).optional(),
     starts_at: z.string().datetime({ offset: true }).optional(),
     ends_at: z.string().datetime({ offset: true }).optional(),
     /** An unfunded draft of this installation's that this one corrects (same sponsor_wallet). */
@@ -86,6 +91,8 @@ export type Draft = {
   amount: string;
   winners: number;
   existing_work: 'allowed' | 'new_work_only';
+  /** Optional: drafts stored before v2.3 lack it. sponsorProgramFile falls back to 'encouraged'. */
+  token_policy?: TokenPolicy;
   starts_at?: string;
   ends_at: string;
 };
@@ -97,6 +104,7 @@ export const DRAFT_DEFAULTS = {
   winners: 3,
   days: 14,
   existing_work: 'allowed' as const,
+  token_policy: 'encouraged' as const,
 };
 /** The default criteria: the sponsor's (already cleaned) name, so it passes the same sanitizer. */
 export const defaultCriteria = (sponsorName: string) =>
@@ -166,6 +174,12 @@ export function withDefaults(
       r.ends_at,
       new Date(now.getTime() + DRAFT_DEFAULTS.days * DAY).toISOString(),
       (e) => `ends ${formatDeadline(e)} (${DRAFT_DEFAULTS.days} days)`,
+    ),
+    token_policy: pick(
+      r.token_policy,
+      DRAFT_DEFAULTS.token_policy,
+      (p) =>
+        `token_policy: ${p} (entries get a token by default; the builder can skip)`,
     ),
   };
   if (r.sponsor_url === undefined)
@@ -361,6 +375,7 @@ export function sponsorProgramFile(a: {
     ends_at: d.ends_at,
     status: 'active',
     existing_work: d.existing_work,
+    token_policy: d.token_policy ?? 'encouraged',
     chains: d.chains,
     setup: ['a public GitHub repo', 'a host for a live link'],
     each_time: [],

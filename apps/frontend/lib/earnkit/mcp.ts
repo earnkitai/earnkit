@@ -370,6 +370,12 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
           .enum(['allowed', 'new_work_only'])
           .optional()
           .describe('Default: allowed'),
+        token_policy: z
+          .enum(['encouraged', 'allowed', 'off'])
+          .optional()
+          .describe(
+            'Builders\' entries get a token at submission: encouraged (default, shown as "Entries get a token"), allowed (on by default, not advertised), or off.',
+          ),
         starts_at: z.string().optional(),
         ends_at: z
           .string()
