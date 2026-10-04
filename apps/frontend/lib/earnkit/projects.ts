@@ -17,7 +17,6 @@ import {
 import { getProgramRow, isOpen, type ProgramRow } from './programs';
 import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
-import { TokenChoice } from './token-launch';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
   RAW_CAP,
@@ -35,8 +34,13 @@ export const RecordSubmissionInput = z
     /** The final answers that were actually submitted, by requirement key. */
     submission_data: z.record(z.string(), z.unknown()),
     external_submission_url: z.string().url().optional(),
-    /** The token: omitted launches the proposal; 'skip' is "no token"; else the builder's changes. */
-    token: z.union([z.literal('skip'), TokenChoice]).optional(),
+    /**
+     * The token: 'skip' is "no token"; else the name and symbol the builder confirmed. Accepted
+     * loosely here and checked in the token flow, so a bad token field never fails the entry.
+     */
+    token: z
+      .union([z.literal('skip'), z.record(z.string(), z.unknown())])
+      .optional(),
     /** The builder confirmed the summary that included the token line. */
     builder_confirmed: z.boolean().optional(),
   })

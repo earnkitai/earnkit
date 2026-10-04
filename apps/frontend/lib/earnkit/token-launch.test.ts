@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ProgramRow } from './programs';
 import { EARNINGS_LINE, LaunchError, type TokenOutcome } from './tokens';
+import { RecordSubmissionInput } from './projects';
 import {
   LaunchTokenInput,
   decideToken,
   launchToken,
+  submissionToken,
   tokenAfterSubmission,
   tokenProposalBlock,
   type FlowProject,
@@ -49,6 +51,20 @@ test('decideToken: checks run in order', () => {
   // confirmation before edits; edits before the wallet.
   assert.match((decideToken({ ...base, confirmed: false, choice: { symbol: 'USDC' } }) as { note: string }).note, /builder_confirmed/);
   assert.match((decideToken({ ...base, wallet: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /symbol/);
+  // An edit's problem is named even when there is no proposal to fall back on.
+  assert.match((decideToken({ ...base, proposal: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /symbol: USDC/);
+});
+
+test('decideToken: at submission only an explicit ticker launches', () => {
+  const base = { policy: 'encouraged' as const, choice: undefined, confirmed: true, existingTokenUrl: null, proposal: { name: 'Chain Kits', symbol: 'CKIT' }, wallet: '0xW', needsSymbol: true };
+  for (const choice of [undefined, {}, { name: 'Chain Kits' }, { symbol: '  ' }]) {
+    const d = decideToken({ ...base, choice });
+    assert.equal(d.action, 'skip');
+    assert.match((d as { note: string }).note, /exactly as shown to the builder/);
+  }
+  assert.deepEqual(decideToken({ ...base, choice: { symbol: 'ckit' } }), { action: 'launch', name: 'Chain Kits', symbol: 'CKIT' });
+  // Unconfirmed reads as unconfirmed, and an existing token as a token, before the ticker rule.
+  assert.match((decideToken({ ...base, confirmed: false }) as { note: string }).note, /builder_confirmed/);
 });
 
 const program = (policy: 'encouraged' | 'allowed' | 'off') =>
@@ -121,9 +137,11 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
   return { deps, writes, deploys };
 }
 
-test('tokenAfterSubmission: confirmed with a proposal launches on Base with the remembered wallet', async () => {
+const CONFIRMED = { name: 'Chain Kits', symbol: 'CHAIN' };
+
+test('tokenAfterSubmission: the confirmed name and ticker launch on Base with the remembered wallet', async () => {
   const h = harness();
-  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: undefined, confirmed: true }, h.deps);
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(out.status, 'launched');
   assert.equal(h.deploys.length, 1);
   assert.deepEqual(
@@ -133,8 +151,13 @@ test('tokenAfterSubmission: confirmed with a proposal launches on Base with the 
   assert.equal(h.deploys[0].image, null);
 });
 
-test('tokenAfterSubmission: skip and unconfirmed store the proposal as skipped', async () => {
-  for (const [choice, confirmed, re] of [['skip', true, /no token|skipped|Not launched/], [undefined, false, /builder_confirmed/]] as const) {
+test('tokenAfterSubmission: skip, unconfirmed and no explicit ticker store the proposal as skipped', async () => {
+  for (const [choice, confirmed, re] of [
+    ['skip', true, /no token/],
+    [CONFIRMED, false, /builder_confirmed/],
+    [undefined, true, /exactly as shown to the builder/],
+    [{ name: 'Chain Kits' }, true, /exactly as shown to the builder/],
+  ] as const) {
     const h = harness();
     const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice, confirmed }, h.deps);
     assert.equal(out.status, 'skipped');
@@ -142,6 +165,74 @@ test('tokenAfterSubmission: skip and unconfirmed store the proposal as skipped',
     assert.equal(out.symbol, 'CHAIN');
     assert.deepEqual(h.writes, [{ id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'CHAIN' }]);
     assert.equal(h.deploys.length, 0);
+  }
+});
+
+test('tokenAfterSubmission: a ticker without a name takes the cleaned project name', async () => {
+  const h = harness({ name: '  Chain   Kits ' });
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { symbol: 'kits' }, confirmed: true }, h.deps);
+  assert.equal(h.deploys[0].name, 'Chain Kits');
+  assert.equal(h.deploys[0].symbol, 'KITS');
+});
+
+test('tokenAfterSubmission: a skipped or refused launch keeps the builder\'s valid edits', async () => {
+  const h = harness();
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { name: 'Kit One', symbol: 'kone' }, confirmed: false }, h.deps);
+  assert.deepEqual(h.writes, [{ id: 7, status: 'skipped', note: (h.writes[0] as { note: string }).note, name: 'Kit One', symbol: 'KONE' }]);
+  // A refused edit keeps the valid half and the proposal for the rest.
+  const h2 = harness();
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { name: 'Kit One', symbol: 'USDC' }, confirmed: true }, h2.deps);
+  assert.equal(out.status, 'skipped');
+  assert.match(out.note ?? '', /USDC/);
+  assert.deepEqual(h2.writes, [{ id: 7, status: 'skipped', note: out.note, name: 'Kit One', symbol: 'CHAIN' }]);
+});
+
+test('tokenAfterSubmission: a bad token field skips the token, never the entry', async () => {
+  // The entry's input accepts any token object; the token flow checks it.
+  const entry = RecordSubmissionInput.parse({
+    program_id: 'p', project: { name: 'Chain Kits' }, submission_data: {},
+    token: { symbol: 'CHAIN', image_url: 'http://kit.acme.dev/logo.png', builder_x: '', ticker: 'X' },
+    builder_confirmed: true,
+  });
+  const h = harness();
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: entry.token, confirmed: true }, h.deps);
+  assert.equal(out.status, 'skipped');
+  assert.match(out.note ?? '', /^token: /);
+  assert.match(out.note ?? '', /image_url/);
+  assert.deepEqual(h.writes, [{ id: 7, status: 'skipped', note: out.note }]);
+  assert.equal(h.deploys.length, 0);
+});
+
+test('tokenAfterSubmission: an existing token is skipped at submission and nothing is written', async () => {
+  const h = harness({ token_url: 'https://tokens.fun/coin/0x1' });
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
+  assert.deepEqual(out, { status: 'skipped', note: 'This project already has a token: https://tokens.fun/coin/0x1' });
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.deploys.length, 0);
+});
+
+test('tokenAfterSubmission: a project of another installation throws', async () => {
+  const h = harness({ installation_id: 2 });
+  await assert.rejects(
+    tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps),
+    (e: unknown) => e instanceof LaunchError && /No project 7 recorded by you/.test(e.message),
+  );
+});
+
+test('submissionToken: any error becomes a failed token, logged, never a throw', async () => {
+  const h = harness();
+  const logged: unknown[] = [];
+  const errLog = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    const out = await submissionToken(
+      { projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true },
+      { ...h.deps, store: { ...h.deps.store!, load: async () => { throw new Error('db down'); } } },
+    );
+    assert.deepEqual(out, { status: 'failed', note: 'EarnKit hit an error launching the token; say "launch the token" to retry.' });
+    assert.equal((logged[0] as unknown[])[0], '[token]');
+  } finally {
+    console.error = errLog;
   }
 });
 
@@ -156,13 +247,13 @@ test('tokenAfterSubmission: a failed gate is stored with the launch name and tic
 
 test('tokenAfterSubmission: bad image data or a launch error is a failed outcome, not a throw', async () => {
   const h = harness();
-  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { image_data: 'data:text/plain;base64,aGk=' }, confirmed: true }, h.deps);
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image_data: 'data:text/plain;base64,aGk=' }, confirmed: true }, h.deps);
   assert.equal(out.status, 'failed');
   assert.match(out.note ?? '', /image_data/);
   assert.equal(h.deploys.length, 0);
 
   const h2 = harness({}, { deploy: async () => { throw new LaunchError('Token launches are not available right now.'); } });
-  const out2 = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: undefined, confirmed: true }, h2.deps);
+  const out2 = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h2.deps);
   assert.equal(out2.status, 'failed');
   assert.match(out2.note ?? '', /not available/);
 });
@@ -170,11 +261,11 @@ test('tokenAfterSubmission: bad image data or a launch error is a failed outcome
 test('tokenAfterSubmission: the choice wallet beats the project wallet beats the remembered one', async () => {
   const other = '0x' + 'a'.repeat(40);
   const h = harness({ payout_wallet: other });
-  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: undefined, confirmed: true }, h.deps);
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(h.deploys[0].creatorWallet, other);
   const mine = '0x' + 'b'.repeat(40);
   const h2 = harness({ payout_wallet: other });
-  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { creator_wallet: mine }, confirmed: true }, h2.deps);
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true }, h2.deps);
   assert.equal(h2.deploys[0].creatorWallet, mine);
 });
 

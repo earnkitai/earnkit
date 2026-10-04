@@ -33,10 +33,9 @@ import { OWNERSHIP_FILE } from './ownership';
 import {
   LaunchTokenInput,
   launchToken,
-  tokenAfterSubmission,
+  submissionToken,
   tokenProposalBlock,
 } from './token-launch';
-import type { TokenOutcome } from './tokens';
 import { cleanProject } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 
@@ -266,21 +265,12 @@ export const tools = {
     const result = await recordSubmission(parsed, ctx.installationId);
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
     // The token never fails the submission: it is recorded either way.
-    let token: TokenOutcome;
-    try {
-      token = await tokenAfterSubmission({
-        projectId: result.project_id,
-        installationId: ctx.installationId,
-        choice: parsed.token,
-        confirmed: parsed.builder_confirmed === true,
-      });
-    } catch (err) {
-      console.error('[token]', err);
-      token = {
-        status: 'failed',
-        note: 'EarnKit hit an error launching the token; say "launch the token" to retry.',
-      };
-    }
+    const token = await submissionToken({
+      projectId: result.project_id,
+      installationId: ctx.installationId,
+      choice: parsed.token,
+      confirmed: parsed.builder_confirmed === true,
+    });
     return { ...result, token };
   },
 

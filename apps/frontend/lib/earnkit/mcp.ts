@@ -56,6 +56,9 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
   }
 }
 
+const TO_LAUNCH =
+  "To launch, pass token with the name and symbol the builder confirmed (token.proposed from prepare_submission, or their changes); 'skip' if they said no token.";
+
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
   const server = new McpServer(
@@ -162,7 +165,9 @@ export function createMcpServer(ctx: ToolContext) {
         'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
         'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
         "Call again with the new answers until ready is true, then submit on the program's site. " +
-        'When the program allows tokens, the result has `token`: show its say_to_builder in the summary the builder confirms (it carries the earnings and terms links). If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
+        'When the program allows tokens, the result has `token`: show its say_to_builder in the summary the builder confirms (it carries the earnings and terms links). ' +
+        `In record_submission: ${TO_LAUNCH} ` +
+        'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
       inputSchema: {
         program_id: z.string(),
         project: project.optional(),
@@ -184,6 +189,7 @@ export function createMcpServer(ctx: ToolContext) {
         'own site, or, for an EarnKit campaign, as the entry itself (with contracts and payout_wallet; the ' +
         "public GitHub repo must hold earnkit.txt naming the payout wallet, see prepare_submission's how_to_submit). " +
         'Pass the final answers that were submitted. ' +
+        `${TO_LAUNCH} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
         `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
@@ -201,19 +207,19 @@ export function createMcpServer(ctx: ToolContext) {
         token: z
           .union([
             z.literal('skip'),
-            z.object({
-              name: z.string().optional(),
-              symbol: z.string().optional(),
-              image_url: z.string().optional(),
-              image_data: z.string().optional(),
-              creator_wallet: z.string().optional(),
-              builder_x: z.string().optional(),
-            }),
+            z
+              .object({
+                name: z.string().optional(),
+                symbol: z.string().optional(),
+                image_url: z.string().optional(),
+                image_data: z.string().optional(),
+                creator_wallet: z.string().optional(),
+                builder_x: z.string().optional(),
+              })
+              .strict(),
           ])
           .optional()
-          .describe(
-            'Omit to launch the proposed token; "skip" if the builder said no token; or the builder\'s changes.',
-          ),
+          .describe(TO_LAUNCH),
         builder_confirmed: z
           .boolean()
           .optional()
@@ -233,47 +239,54 @@ export function createMcpServer(ctx: ToolContext) {
         'builder fixed the live link. Uses the stored proposal unless you pass changes. tokens.fun pays ' +
         "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
         'after the builder said yes. One token per project; launches are public and permanent.',
-      inputSchema: {
-        project_id: z
-          .number()
-          .int()
-          .describe('project_id returned by record_submission'),
-        name: z
-          .string()
-          .optional()
-          .describe('Token name, up to 50 characters; default the stored proposal'),
-        symbol: z
-          .string()
-          .optional()
-          .describe('Ticker, 3 to 6 letters or digits; default the stored proposal'),
-        creator_wallet: z
-          .string()
-          .optional()
-          .describe(
-            "The builder's wallet that receives creator fees; default the entry's payout wallet",
-          ),
-        image_url: z
-          .string()
-          .optional()
-          .describe('https URL of the token image'),
-        image_data: z
-          .string()
-          .optional()
-          .describe(
-            'Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.',
-          ),
-        builder_x: z
-          .string()
-          .optional()
-          .describe("The builder's X handle or profile URL"),
-        chain: z
-          .enum(['base', 'robinhood', 'arbitrum'])
-          .optional()
-          .describe('Default base'),
-        builder_confirmed: z
-          .literal(true)
-          .describe('The builder explicitly said yes to this launch'),
-      },
+      // Strict, so a misnamed key (say `ticker`) is an error, not silently dropped.
+      inputSchema: z
+        .object({
+          project_id: z
+            .number()
+            .int()
+            .describe('project_id returned by record_submission'),
+          name: z
+            .string()
+            .optional()
+            .describe(
+              'Token name, up to 50 characters; default the stored proposal',
+            ),
+          symbol: z
+            .string()
+            .optional()
+            .describe(
+              'Ticker, 3 to 6 letters or digits; default the stored proposal',
+            ),
+          creator_wallet: z
+            .string()
+            .optional()
+            .describe(
+              "The builder's wallet that receives creator fees; default the entry's payout wallet",
+            ),
+          image_url: z
+            .string()
+            .optional()
+            .describe('https URL of the token image'),
+          image_data: z
+            .string()
+            .optional()
+            .describe(
+              'Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.',
+            ),
+          builder_x: z
+            .string()
+            .optional()
+            .describe("The builder's X handle or profile URL"),
+          chain: z
+            .enum(['base', 'robinhood', 'arbitrum'])
+            .optional()
+            .describe('Default base'),
+          builder_confirmed: z
+            .literal(true)
+            .describe('The builder explicitly said yes to this launch'),
+        })
+        .strict(),
     },
     (input) => run(ctx, 'launch_token', input),
   );

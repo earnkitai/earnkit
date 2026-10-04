@@ -68,20 +68,45 @@ export type Decision =
 
 const NO_WALLET =
   'Not launched: no creator wallet. Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
+const NEEDS_SYMBOL =
+  "Not launched: pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
+
+/**
+ * The builder's name and ticker edits that pass the rules (cleaned name, uppercased ticker), and
+ * the first problem, if any. Pure; exported for tests.
+ */
+export function editsOf(choice: Choice): { name?: string; symbol?: string; problem?: string } {
+  const out: { name?: string; symbol?: string; problem?: string } = {};
+  if (choice.name !== undefined) {
+    const n = cleanTokenName(choice.name);
+    if ('problem' in n) out.problem = n.problem;
+    else out.name = n.name;
+  }
+  if (choice.symbol !== undefined) {
+    const symbol = choice.symbol.trim().toUpperCase();
+    const issue = tickerProblem(symbol);
+    if (issue) out.problem ??= issue;
+    else out.symbol = symbol;
+  }
+  return out;
+}
 
 /**
  * Whether to launch, and with which name and ticker. Checks, in order: the program's policy, the
- * builder's "no token", an existing token, the builder's confirmation, the name and ticker (edits
- * over the proposal; the ticker is uppercased and must pass tickerProblem whatever its source),
- * then the creator wallet. Pure; exported for tests.
+ * builder's "no token", an existing token, the builder's confirmation, (with `needsSymbol`) an
+ * explicit ticker, the builder's edits, a name and ticker to use (edits over the proposal; the
+ * ticker must pass tickerProblem whatever its source), then the creator wallet. Pure; exported
+ * for tests.
  */
 export function decideToken(a: {
   policy: TokenPolicy;
   choice: 'skip' | Choice | undefined;
   confirmed: boolean;
   existingTokenUrl: string | null;
-  proposal: { name: string; symbol: string } | null;
+  proposal: { name?: string | null; symbol?: string | null } | null;
   wallet: string | null;
+  /** record_submission: launch only with the ticker the builder confirmed, passed explicitly. */
+  needsSymbol?: boolean;
 }): Decision {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
@@ -101,9 +126,12 @@ export function decideToken(a: {
       note: 'Not launched: pass builder_confirmed: true once the builder has seen the token line, or call launch_token later.',
     };
   const choice = a.choice ?? {};
-  const rawName = choice.name ?? a.proposal?.name;
-  const symbol = (choice.symbol ?? a.proposal?.symbol)?.trim().toUpperCase();
-  if (rawName === undefined || symbol === undefined)
+  if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL };
+  const edits = editsOf(choice);
+  if (edits.problem) return { action: 'refuse', note: edits.problem };
+  const rawName = edits.name ?? a.proposal?.name;
+  const symbol = edits.symbol ?? a.proposal?.symbol?.trim().toUpperCase();
+  if (!rawName || !symbol)
     return {
       action: 'refuse',
       note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and ticker (3–6 letters or digits) with the builder and pass them.',
@@ -199,24 +227,30 @@ function storedProposal(p: FlowProject) {
 const notLaunched = (err: unknown): TokenOutcome | null =>
   err instanceof LaunchError ? { status: 'failed', note: err.message } : null;
 
-/** The one token flow behind record_submission and launch_token. */
+/** The one token flow behind record_submission ('submission') and launch_token ('launch'). */
 async function runTokenFlow(
   project: FlowProject,
   a: {
+    mode: 'submission' | 'launch';
     installationId: number;
     choice: 'skip' | Choice | undefined;
     confirmed: boolean;
     chain: 'base' | 'robinhood' | 'arbitrum';
-    reuseStored: boolean;
   },
   deps: TokenFlowDeps,
 ): Promise<TokenOutcome> {
   const store = deps.store ?? dbStore;
   const choice = a.choice === 'skip' ? undefined : a.choice;
   const proposed =
-    (a.reuseStored && storedProposal(project)) ||
+    (a.mode === 'launch' && storedProposal(project)) ||
     (await proposeToken(project.name, deps.check));
   const proposal = proposed.name === null ? null : { name: proposed.name, symbol: proposed.symbol };
+  // At submission a ticker without a name takes the (cleaned) project name.
+  const projectName = cleanTokenName(project.name);
+  const fallback =
+    a.mode === 'submission'
+      ? { name: 'name' in projectName ? projectName.name : proposal?.name, symbol: proposal?.symbol }
+      : proposal;
   const wallet =
     choice?.creator_wallet ??
     project.payout_wallet ??
@@ -226,24 +260,29 @@ async function runTokenFlow(
     choice: a.choice,
     confirmed: a.confirmed,
     existingTokenUrl: project.token_url,
-    proposal,
+    proposal: fallback,
     wallet,
+    needsSymbol: a.mode === 'submission',
   });
-
-  // A project that has (or is getting) a token is never written to here.
-  if (project.token_url && decision.action !== 'launch')
-    return {
-      status: decision.action === 'skip' && project.token_policy === 'off' ? 'skipped' : 'failed',
-      note: decision.note,
-    };
 
   const record = async (status: TokenStatus, note: string, name?: string, symbol?: string) => {
     await store.setStatus(project.id, { status, note, name, symbol });
     return { status, note, name, symbol } satisfies TokenOutcome;
   };
 
-  if (decision.action !== 'launch')
-    return record('skipped', decision.note, proposal?.name, proposal?.symbol);
+  if (decision.action === 'skip') {
+    if (project.token_url) return { status: 'skipped', note: decision.note };
+    // Kept for a later launch_token: the builder's valid edits, else the proposal.
+    const edits = choice ? editsOf(choice) : {};
+    return record('skipped', decision.note, edits.name ?? proposal?.name, edits.symbol ?? proposal?.symbol);
+  }
+  if (decision.action === 'refuse') {
+    // A project that has (or is getting) a token is never written to here.
+    if (project.token_url)
+      return { status: a.mode === 'launch' ? 'failed' : 'skipped', note: decision.note };
+    const edits = choice ? editsOf(choice) : {};
+    return record('skipped', decision.note, edits.name ?? proposal?.name, edits.symbol ?? proposal?.symbol);
+  }
 
   const { name, symbol } = decision;
   const gate = await tokenGate(
@@ -282,24 +321,60 @@ async function runTokenFlow(
   }
 }
 
-/** The token part of record_submission: launches the proposed (or edited) token when confirmed. */
+async function ownProject(store: FlowStore, projectId: number, installationId: number) {
+  const project = await store.load(projectId);
+  if (!project || project.installation_id !== installationId)
+    throw new LaunchError(`No project ${projectId} recorded by you. Call record_submission first.`);
+  return project;
+}
+
+/**
+ * The token part of record_submission: launches only with the ticker the builder confirmed
+ * (`choice.symbol`, passed explicitly) and builder_confirmed. `choice` is checked here, not in
+ * RecordSubmissionInput, so a bad token field skips the token instead of failing the entry.
+ */
 export async function tokenAfterSubmission(
   a: {
     projectId: number;
     installationId: number;
-    choice: 'skip' | Choice | undefined;
+    choice: unknown;
     confirmed: boolean;
   },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
-  const project = await (deps.store ?? dbStore).load(a.projectId);
-  if (!project || project.installation_id !== a.installationId)
-    throw new LaunchError(`No project ${a.projectId} recorded by you. Call record_submission first.`);
+  const store = deps.store ?? dbStore;
+  const project = await ownProject(store, a.projectId, a.installationId);
+  let choice: 'skip' | Choice | undefined;
+  if (a.choice === 'skip' || a.choice === undefined) choice = a.choice;
+  else {
+    const parsed = TokenChoice.safeParse(a.choice);
+    if (!parsed.success) {
+      const note = `token: ${parsed.error.issues.map((i) => `${i.path.join('.') || 'token'}: ${i.message}`).join('; ')}`;
+      await store.setStatus(project.id, { status: 'skipped', note });
+      return { status: 'skipped', note };
+    }
+    choice = parsed.data;
+  }
   return runTokenFlow(
     project,
-    { installationId: a.installationId, choice: a.choice, confirmed: a.confirmed, chain: 'base', reuseStored: false },
+    { mode: 'submission', installationId: a.installationId, choice, confirmed: a.confirmed, chain: 'base' },
     deps,
   );
+}
+
+const TOKEN_ERROR = 'EarnKit hit an error launching the token; say "launch the token" to retry.';
+
+/** tokenAfterSubmission that never throws: record_submission must return even if the token part fails. */
+export async function submissionToken(
+  a: Parameters<typeof tokenAfterSubmission>[0],
+  deps: TokenFlowDeps = {},
+): Promise<TokenOutcome> {
+  try {
+    return await tokenAfterSubmission(a, deps);
+  } catch (err) {
+    console.error('[token]', err);
+    return { status: 'failed', note: TOKEN_ERROR };
+  }
 }
 
 export const LaunchTokenInput = TokenChoice.extend({
@@ -319,12 +394,6 @@ export async function launchToken(
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
   const { project_id, builder_confirmed: _c, chain, ...choice } = input;
-  const project = await (deps.store ?? dbStore).load(project_id);
-  if (!project || project.installation_id !== installationId)
-    throw new LaunchError(`No project ${project_id} recorded by you. Call record_submission first.`);
-  return runTokenFlow(
-    project,
-    { installationId, choice, confirmed: true, chain, reuseStored: true },
-    deps,
-  );
+  const project = await ownProject(deps.store ?? dbStore, project_id, installationId);
+  return runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
 }

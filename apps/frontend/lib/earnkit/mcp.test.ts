@@ -138,3 +138,37 @@ test('the three safety lines are in the instructions and every tool that carries
       );
   }
 });
+
+test('a misnamed token key is an error, not silently dropped', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const errorText = async (name: string, args: Record<string, unknown>) => {
+    try {
+      const r = await client.callTool({ name, arguments: args });
+      assert.equal(r.isError, true);
+      return JSON.stringify(r.content);
+    } catch (err) {
+      return String(err);
+    }
+  };
+  try {
+    // Rejected by the input schema, before the tool runs (so no database is touched).
+    assert.match(
+      await errorText('launch_token', { project_id: 7, builder_confirmed: true, ticker: 'KITS' }),
+      /Unrecognized key: \\"ticker\\"/,
+    );
+    assert.match(
+      await errorText('record_submission', {
+        program_id: 'p',
+        project: { name: 'Kit' },
+        submission_data: {},
+        token: { name: 'Kit', ticker: 'KITS' },
+      }),
+      /Unrecognized key: \\"ticker\\" at token/,
+    );
+  } finally {
+    await client.close();
+  }
+});

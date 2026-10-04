@@ -148,7 +148,11 @@ export function outcomeOf(
   };
 }
 
-/** Sets a project's token status (and, when given, its name/symbol), with an optional note. */
+/**
+ * Sets a project's token status (and, when given, its name/symbol), with an optional note. Only
+ * for a project with no token or launch claim (`token_url IS NULL`): a concurrent claim's
+ * 'pending' and a launched token are never overwritten.
+ */
 export async function setTokenStatus(
   projectId: number,
   s: {
@@ -164,7 +168,7 @@ export async function setTokenStatus(
   };
   if (s.name !== undefined) fields.token_name = s.name;
   if (s.symbol !== undefined) fields.token_symbol = s.symbol;
-  await sql()`UPDATE projects SET ${sql()(fields)} WHERE id = ${projectId}`;
+  await sql()`UPDATE projects SET ${sql()(fields)} WHERE id = ${projectId} AND token_url IS NULL`;
 }
 
 /**
