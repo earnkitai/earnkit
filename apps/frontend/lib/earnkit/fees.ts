@@ -30,9 +30,14 @@ export type FeeSource = {
   wethUsd: () => Promise<number>;
 };
 
+const makeClient = () => createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) });
+let client: ReturnType<typeof makeClient> | undefined;
+/** One public client per process. */
+const baseClient = () => (client ??= makeClient());
+
 const chain: FeeSource = {
   availableWeth: (wallet) =>
-    createPublicClient({ chain: base, transport: http(process.env.BASE_RPC_URL) }).readContract({
+    baseClient().readContract({
       address: FEE_LOCKER,
       abi: feeLockerAbi,
       functionName: 'availableFees',
@@ -75,11 +80,14 @@ export async function refreshFees(wallets: string[]) {
 }
 
 const inflight = new Set<string>();
+/** Wallets whose last background read failed, and when: not retried for FEE_RETRY_MS. */
+const failedAt = new Map<string, number>();
+export const FEE_RETRY_MS = 3_600_000;
 
 /**
  * The cached fees (USD) waiting for these wallets, summed; null when none was ever read. Never
  * waits on a read: missing or stale (over 6 h) wallets are refreshed in the background, at most 4
- * at a time, so the next reply has them.
+ * at a time, so the next reply has them; a failed read is not retried for an hour (per process).
  */
 export async function cachedFeesUsd(wallets: string[], now = Date.now()) {
   const list = [...new Set(wallets.map((w) => w.toLowerCase()))];
@@ -88,13 +96,19 @@ export async function cachedFeesUsd(wallets: string[], now = Date.now()) {
     SELECT wallet, usd, read_at FROM token_fees WHERE wallet IN ${sql()(list)}`;
   const stale = list.filter((w) => {
     const r = rows.find((x) => x.wallet === w);
+    const failed = failedAt.get(w);
+    if (failed !== undefined && now - failed < FEE_RETRY_MS) return false;
     return !r || now - r.read_at.getTime() > FEE_TTL_MS;
   });
   const todo = stale.filter((w) => !inflight.has(w)).slice(0, Math.max(0, 4 - inflight.size));
   if (todo.length > 0) {
     todo.forEach((w) => inflight.add(w));
     void refreshFees(todo)
-      .catch((err) => console.error('[fees]', err))
+      .then(() => todo.forEach((w) => failedAt.delete(w)))
+      .catch((err) => {
+        console.error('[fees]', err);
+        todo.forEach((w) => failedAt.set(w, Date.now()));
+      })
       .finally(() => todo.forEach((w) => inflight.delete(w)));
   }
   return rows.length ? rows.reduce((sum, r) => sum + Number(r.usd), 0) : null;

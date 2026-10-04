@@ -1,10 +1,16 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
 import { createMcpServer } from './mcp';
 import { SAFETY_LINES } from './untrusted-text';
+import { sql } from './db';
+
+// Tool replies read alerts from the database when DATABASE_URL is set: close the pool.
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
 
 const FACTORY = '0x00000000000000000000000000000000000000fa';
 
