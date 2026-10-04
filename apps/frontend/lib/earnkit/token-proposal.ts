@@ -1,4 +1,4 @@
-import { reservedBrands } from './sponsor-identity';
+import { mixedScriptProblem, plainLettersProblem, reservedBrands } from './sponsor-identity';
 import { UntrustedTextError, cleanText } from './untrusted-text';
 
 /**
@@ -16,17 +16,38 @@ export const TICKER_RESERVED = [
   'HOOD', 'ROBINHOOD', 'TEMPO', 'CIRCLE', 'CLANKER', 'TOKENS',
 ] as const;
 
-/** Why `name` can't be a token name, or null. Pure; exported for tests. */
-export function tokenNameProblem(name: string): string | null {
+/**
+ * Cleans a proposed token name (the single-line text rules, at most 50 characters) and runs the
+ * same impersonation rules a sponsor name gets (v2.3 §2): a reserved brand, mixed scripts inside
+ * a word, or special letter forms. Returns the cleaned, normalized name on success, so callers
+ * never echo back the raw, un-normalized input. Pure; shared by `tokenNameProblem` and
+ * `proposeToken`.
+ */
+function cleanTokenName(name: string): { name: string } | { problem: string } {
+  let clean: string;
   try {
-    const clean = cleanText(name, { max: 50, singleLine: true, field: 'name' });
-    if (reservedBrands(clean).length > 0)
-      return `name: "${clean}" uses a brand's name; tokens are public and permanent, so pick another name.`;
-    return null;
+    clean = cleanText(name, { max: 50, singleLine: true, field: 'name' });
   } catch (err) {
-    if (err instanceof UntrustedTextError) return err.message;
+    if (err instanceof UntrustedTextError) return { problem: err.message };
     throw err;
   }
+  if (clean.length === 0)
+    return { problem: 'name: only unsupported characters; use plain words.' };
+  if (reservedBrands(clean).length > 0)
+    return { problem: `name: "${clean}" uses a brand's name; tokens are public and permanent, so pick another name.` };
+  // mixedScriptProblem/plainLettersProblem only know the sponsor_name/title fields; their message
+  // already names the field, so it's rewritten to say "name" instead.
+  const mixed = mixedScriptProblem(clean, 'sponsor_name');
+  if (mixed) return { problem: mixed.replace(/^sponsor_name:/, 'name:') };
+  const plain = plainLettersProblem(clean, 'sponsor_name');
+  if (plain) return { problem: plain.replace(/^sponsor_name:/, 'name:') };
+  return { name: clean };
+}
+
+/** Why `name` can't be a token name, or null. Pure; exported for tests. */
+export function tokenNameProblem(name: string): string | null {
+  const r = cleanTokenName(name);
+  return 'problem' in r ? r.problem : null;
 }
 
 /** Why `symbol` can't be a ticker, or null. Pure; exported for tests. */
@@ -77,17 +98,15 @@ export type Proposal =
 /** EarnKit's proposed token for a project (v2.3 §2). */
 export async function proposeToken(projectName: string, check: TickerCheck = tokensFunTickerCheck): Promise<Proposal> {
   const trimmed = projectName.trim().slice(0, 50);
-  const name = !tokenNameProblem(trimmed)
-    ? trimmed
-    : !tokenNameProblem(`${trimmed.slice(0, 44)} Token`)
-      ? `${trimmed.slice(0, 44)} Token`
-      : null;
+  const primary = cleanTokenName(trimmed);
+  const fallback = 'name' in primary ? null : cleanTokenName(`${trimmed.slice(0, 44)} Token`);
+  const name = 'name' in primary ? primary.name : fallback && 'name' in fallback ? fallback.name : null;
   const candidates = tickerCandidates(projectName).filter((c) => !tickerProblem(c));
   if (!name || candidates.length === 0)
     return { name: null, symbol: null, reason: "EarnKit couldn't propose a token for this name: pick a name and ticker with the builder." };
   for (const c of candidates) {
     const free = await check(c);
-    if (free === null) return { name, symbol: candidates[0], note: 'ticker not checked for duplicates' };
+    if (free === null) return { name, symbol: c, note: 'ticker not checked for duplicates' };
     if (free) return { name, symbol: c };
   }
   return { name: null, symbol: null, reason: 'Every proposed ticker is taken: pick a name and ticker with the builder.' };
