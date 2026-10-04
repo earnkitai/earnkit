@@ -88,6 +88,43 @@ test('deploy outcomes: success, refusal (released), rate limit, no answer (kept 
   assert.match(lost.note!, /check tokens\.fun/);
 });
 
+test("deploy outcomes: unminted-or-unknown responses stay pending, not released", () => {
+  // 502 "status unknown" after a deploy-tx timeout: tokens.fun itself can't confirm.
+  const statusUnknown = outcomeOf(
+    { ok: false, status: 502 },
+    { error: 'Deployment status unknown' },
+    'base',
+  );
+  assert.equal(statusUnknown.status, 'pending');
+  assert.equal(statusUnknown.release, false);
+  assert.match(statusUnknown.note!, /check tokens\.fun/);
+
+  // A 500 whose body didn't parse.
+  const serverErrorNoBody = outcomeOf({ ok: false, status: 500 }, null, 'base');
+  assert.equal(serverErrorNoBody.status, 'pending');
+  assert.equal(serverErrorNoBody.release, false);
+
+  // A 200 that didn't actually confirm success.
+  const okEmptyBody = outcomeOf({ ok: true, status: 200 }, {}, 'base');
+  assert.equal(okEmptyBody.status, 'pending');
+  assert.equal(okEmptyBody.release, false);
+
+  // A 200 whose body didn't parse at all.
+  const okNoBody = outcomeOf({ ok: true, status: 200 }, null, 'base');
+  assert.equal(okNoBody.status, 'pending');
+  assert.equal(okNoBody.release, false);
+
+  // A 4xx with a parsed body IS released: auth refusals happen before minting too.
+  const unauthorized = outcomeOf(
+    { ok: false, status: 401 },
+    { error: 'Unauthorized' },
+    'base',
+  );
+  assert.equal(unauthorized.status, 'failed');
+  assert.equal(unauthorized.release, true);
+  assert.match(unauthorized.note!, /Unauthorized/);
+});
+
 test('earnings line is the spec text', () => {
   assert.equal(
     EARNINGS_LINE('0xW'),

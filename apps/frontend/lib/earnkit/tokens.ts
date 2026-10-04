@@ -121,21 +121,29 @@ export const EARNINGS_LINE = (wallet: string) =>
 
 /**
  * Maps a tokens.fun deploy response to a TokenOutcome, plus whether the launch claim
- * (`token_url = 'pending'`) should be released or kept. `res`/`data` null means no response
- * came back (lost connection or timeout): the claim is kept, since tokens.fun validates before
- * minting and may have launched anyway. Pure; exported for tests.
+ * (`token_url = 'pending'`) should be released. `res`/`data` null means no response came back at
+ * all (lost connection, or the request itself threw): the claim is kept.
+ *
+ * The claim is released ONLY when the status is 4xx and the body parsed as JSON — validation
+ * errors (400), auth errors (401/403) and the 429 daily limit, all refusals tokens.fun makes
+ * before minting. Everything else keeps the claim pending, since tokens.fun may have minted
+ * anyway and a release could let a second, permanent token through:
+ *   - any 5xx, with or without a parsed body (tokens.fun itself is unsure, e.g. its 502
+ *     "Deployment status unknown" after a deploy-tx timeout);
+ *   - a 2xx whose body didn't say success with a tokenAddress;
+ *   - a body that failed to parse as JSON, at any status.
+ * Pure; exported for tests.
  */
 export function outcomeOf(
   res: { ok: boolean; status: number } | null,
   data: DeployResponse | null,
   chain: 'base' | 'robinhood' | 'arbitrum',
-): TokenOutcome & { release: boolean; keep: boolean } {
+): TokenOutcome & { release: boolean } {
   if (!res) {
     return {
       status: 'pending',
       note: 'No answer from tokens.fun. The launch may have happened: check tokens.fun before retrying.',
       release: false,
-      keep: true,
     };
   }
   if (res.ok && data?.success && data.tokenAddress) {
@@ -148,15 +156,24 @@ export function outcomeOf(
       explorer: data.urls?.explorer,
       tx_hash: data.txHash,
       release: false,
-      keep: false,
     };
   }
-  const note =
-    res.status === 429
-      ? "tokens.fun's launch limit was reached (2 tokens a day per wallet). Say 'launch the token' tomorrow."
-      : `Token not launched: ${data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`}`;
-  // tokens.fun validates before minting, so a failed response launched nothing: release the claim.
-  return { status: 'failed', note, release: true, keep: false };
+  const isClientRefusal = res.status >= 400 && res.status < 500 && data !== null;
+  if (isClientRefusal) {
+    // A 4xx with a parsed body is tokens.fun refusing before minting: safe to release.
+    const note =
+      res.status === 429
+        ? "tokens.fun's launch limit was reached (2 tokens a day per wallet). Say 'launch the token' tomorrow."
+        : `Token not launched: ${data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`}`;
+    return { status: 'failed', note, release: true };
+  }
+  // 5xx, an unparsed body, or a 2xx that didn't confirm success: tokens.fun didn't clearly say
+  // the launch failed, so keep the claim and let the builder check before retrying.
+  return {
+    status: 'pending',
+    note: `tokens.fun couldn't confirm the launch (tokens.fun returned ${res.status}): check tokens.fun before retrying.`,
+    release: false,
+  };
 }
 
 /** Sets a project's token status (and, when given, its name/symbol), with an optional note. */
@@ -181,8 +198,10 @@ export async function setTokenStatus(
 /**
  * Launches a token for a submitted project on tokens.fun: claims the project, resolves the image,
  * POSTs the deploy, and records the outcome. The claim (`token_url = 'pending'`) is set first and
- * only released on a tokens.fun response with a body that says the launch didn't happen; a lost or
- * timed-out request keeps it, so a retry can't double-launch.
+ * released ONLY on a 4xx response tokens.fun parsed as JSON (a refusal before minting: bad input,
+ * auth, or the daily limit). Any other outcome — no response, a 5xx, or a body that didn't parse —
+ * keeps the claim pending, since tokens.fun may have minted anyway and a retry must not risk a
+ * second, permanent token.
  */
 export async function deployToken(
   a: {
@@ -250,8 +269,12 @@ export async function deployToken(
   const doFetch = deps.fetch ?? fetch;
 
   // EARNKIT_TOKENSFUN_TIMEOUT_MS bounds the deploy fetch (default 120s); a later e2e lowers it
-  // to exercise the pending (no-response) path without waiting out the real timeout.
-  const timeoutMs = Number(process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS ?? 120_000);
+  // to exercise the pending (no-response) path without waiting out the real timeout. Parsed once,
+  // and only used if it's a positive integer — an unset, blank, or malformed value (NaN from '')
+  // must not collapse the timeout to 0 and abort instantly.
+  const rawTimeoutMs = Number(process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS);
+  const timeoutMs =
+    Number.isInteger(rawTimeoutMs) && rawTimeoutMs > 0 ? rawTimeoutMs : 120_000;
 
   let res: Response | null;
   let data: DeployResponse | null;
@@ -284,7 +307,7 @@ export async function deployToken(
     data = null;
   }
 
-  const { release, keep: _keep, ...outcome } = outcomeOf(
+  const { release, ...outcome } = outcomeOf(
     res ? { ok: res.ok, status: res.status } : null,
     data,
     chain,
