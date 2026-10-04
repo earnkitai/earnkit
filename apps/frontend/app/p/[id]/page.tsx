@@ -28,8 +28,9 @@ export default async function ProjectPage({
   const p = Number.isInteger(id) ? await getProjectPage(id) : null;
   if (!p) notFound();
   const c = p.campaign;
-  // Sponsor campaigns are picked by the sponsor: no rank until something is scored.
-  const ranked = c.kind === 'earnkit' || p.any_scored;
+  // EarnKit: a rank once this entry is scored. Sponsor campaigns are picked by the sponsor: no
+  // rank until something is scored.
+  const ranked = c.kind === 'earnkit' ? p.score !== null : p.any_scored;
 
   return (
     <div className="w-full pt-4">
@@ -59,7 +60,9 @@ export default async function ProjectPage({
                 </dd>
               </div>
               <div>
-                <dt className="text-sm text-ek-blue-soft">Unique wallets</dt>
+                <dt className="text-sm text-ek-blue-soft">
+                  {c.kind === 'earnkit' ? 'Unique users' : 'Unique wallets'}
+                </dt>
                 <dd className="mt-1 text-2xl tabular-nums text-ek-white">
                   {p.score ?? '–'}
                 </dd>
@@ -67,11 +70,9 @@ export default async function ProjectPage({
             </>
           ) : null}
           <div>
-            <dt className="text-sm text-ek-blue-soft">
-              {c.kind === 'sponsor' ? 'Status' : 'Prize'}
-            </dt>
+            <dt className="text-sm text-ek-blue-soft">Status</dt>
             <dd className="mt-1 text-2xl text-ek-white">
-              {capitalize(entryStatus(c, p, p.sponsor_state))}
+              {capitalize(p.standing ?? entryStatus(c, p, p.sponsor_state))}
             </dd>
           </div>
         </dl>

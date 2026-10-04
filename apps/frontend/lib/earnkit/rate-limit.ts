@@ -31,6 +31,8 @@ export const LIMITS = {
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */
   cron: { limit: 30, windowSeconds: 3_600 },
+  /** The owner's review page and POST /api/admin/veto, per client IP (v2.4 §8, ruling 13). */
+  veto: { limit: 30, windowSeconds: 3_600 },
 } as const;
 
 /** Campaign entries one installation may record in one campaign (checked in recordSubmission). */

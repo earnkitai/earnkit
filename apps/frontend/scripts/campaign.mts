@@ -1,9 +1,7 @@
 import './env.mts';
 import {
-  createPublicClient,
   createWalletClient,
   encodeAbiParameters,
-  erc20Abi,
   http,
   isAddress,
   keccak256,
@@ -11,12 +9,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, foundry } from 'viem/chains';
-import { scoreCampaignEntries, type ScoreRow } from '../lib/earnkit/campaign-score';
-import {
-  FINAL_GRACE_MS,
-  minScore,
-  type CampaignConfig,
-} from '../lib/earnkit/campaigns';
+import type { CampaignConfig } from '../lib/earnkit/campaigns';
 import {
   FALLBACK_REASON,
   USAGE,
@@ -26,16 +19,16 @@ import {
   guardianKeyProblem,
   operatorKeyProblem,
   parseFallbackPicks,
-  privateKeyProblem,
 } from '../lib/earnkit/cli';
 import { formatDeadline } from '../lib/earnkit/dates';
 import { sql } from '../lib/earnkit/db';
+import type { FrozenTerms } from '../lib/earnkit/payout';
 
 /**
- * Admin for EarnKit's own campaigns (score|rank|payout <slug>) and for sponsor campaigns
- * (fallback|refund|sync <ref>; local use). `pnpm campaign --help` lists every command
- * (lib/earnkit/cli.ts USAGE). Signing keys (PAYOUT_PRIVATE_KEY, OPERATOR_PRIVATE_KEY,
- * GUARDIAN_PRIVATE_KEY) live only in the local shell, never on the server. Every error ends as one
+ * Admin for EarnKit's own campaigns (golive, and the read-only rank|payout|veto-link <slug>: the
+ * cron scores and pays them) and for sponsor campaigns (fallback|refund|sync <ref>; local use).
+ * `pnpm campaign --help` lists every command (lib/earnkit/cli.ts USAGE). Sponsor signing keys
+ * (OPERATOR_PRIVATE_KEY, GUARDIAN_PRIVATE_KEY) live only in the local shell, never on the server. Every error ends as one
  * readable line and exit code 1.
  */
 const args = process.argv.slice(2);
@@ -52,7 +45,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['score', 'rank', 'payout', 'golive', 'fallback', 'refund', 'sync'];
+const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'fallback', 'refund', 'sync'];
 const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
@@ -62,9 +55,13 @@ if (!COMMANDS.includes(command))
   fail(`Unknown command "${command}".\n\n${USAGE}`);
 if (command === 'fallback' && !FALLBACK.includes(sub ?? ''))
   fail(`pnpm campaign fallback needs propose, execute or veto.\n\n${USAGE}`);
+// v2.4: the cron pays EarnKit campaigns from CAMPAIGN_PAYOUT_PRIVATE_KEY; a manual payout beside it
+// could pay twice, so there is none.
+if (command === 'payout' && (process.argv.includes('--execute') || process.argv.includes('--winners')))
+  fail('pnpm campaign payout is a dry run only: the cron pays the winners after the 48-hour review.');
 if (!slug && command !== 'sync')
   fail(
-    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['score', 'rank', 'payout', 'golive'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
+    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
   );
 
 // Set inside main(), only for commands that need it: golive edits the program file directly and
@@ -102,160 +99,57 @@ async function main() {
   if (!program?.campaign)
     fail(`No campaign program "${slug}". Run pnpm campaign --help.`);
   const campaign = program.campaign;
-  if (
-    campaign.kind !== 'earnkit' &&
-    (command === 'payout' || command === 'rank')
-  )
-    fail('Sponsor campaigns: use fallback/refund/sync (see --help).');
+  if (campaign.kind !== 'earnkit') fail('Sponsor campaigns: use fallback/refund/sync (see --help).');
 
-  type Entry = {
-    id: number;
-    name: string;
-    contracts: string[];
-    payout_wallet: string;
-    score: number | null;
-    prize_tx: string | null;
-    repo_url: string | null;
-    live_url: string | null;
-  };
-  const entries = () => db<Entry[]>`
-  SELECT id, name, contracts, payout_wallet, score, prize_tx, repo_url, live_url FROM projects
-  WHERE program_id = ${program.id} AND contracts IS NOT NULL
-  ORDER BY score DESC NULLS LAST, submitted_at`;
-
-  if (command === 'score') {
-    // The cron's own scoring pass (exclusions, stored wallets, code_share, score_error, rotation),
-    // run now for every entry that isn't final, so a manual run can't diverge from it.
-    const now = new Date();
-    const rows = await db<(ScoreRow & { name: string; score_partial: boolean })[]>`
-      SELECT id, name, contracts, payout_wallet, deployers, score, scored_at, scored_through,
-        score_final, score_attempted_at, score_partial
-      FROM projects WHERE program_id = ${program.id} AND contracts IS NOT NULL AND payout_wallet IS NOT NULL`;
-    if (rows.length === 0) fail(`No entries with contracts and a payout wallet in "${program.id}".`);
-    const out = await scoreCampaignEntries(program, rows, {
-      now,
-      deadline: now.getTime() + 30 * 60_000,
-      final: now.getTime() >= program.ends_at.getTime() + FINAL_GRACE_MS,
-      maxAgeMs: 0,
-    });
-    const after = new Map(
-      (
-        await db<{ id: number; score: number | null; score_partial: boolean; score_error: string | null }[]>`
-          SELECT id, score, score_partial, score_error FROM projects WHERE id IN ${db(rows.map((r) => r.id))}`
-      ).map((r) => [r.id, r]),
-    );
-    for (const o of out) {
-      const name = rows.find((r) => r.id === o.id)?.name;
-      const a = after.get(o.id);
+  if (command === 'veto-link') {
+    const { vetoLink } = await import('../lib/earnkit/veto');
+    const link = vetoLink(process.env.EARNKIT_URL ?? 'https://earnkit.com', program.id);
+    if (!link) fail('Set ADMIN_VETO_SECRET in your local shell (the same value as on Railway, 32+ characters).');
+    console.log(link);
+  } else if (command === 'rank' || command === 'payout') {
+    // Read-only (v2.4 §6): the cron scores, freezes and pays; this shows what it sees.
+    const { reviewRows, payingCampaign } = await import('../lib/earnkit/leaderboard');
+    const [run] = await db<{ state: string; terms: FrozenTerms | null }[]>`
+      SELECT state, terms FROM campaign_runs WHERE program_id = ${program.id}`;
+    const terms = payingCampaign(campaign, run?.terms);
+    const { ranked, picks, skipped } = await reviewRows(program.id, campaign);
+    if (command === 'rank') {
       console.log(
-        `${name}: ${o.result}, score ${a?.score ?? '-'}` +
-          (a?.score_partial ? ' (partial: a read hit its page cap)' : '') +
-          (o.error ? ` — ${o.error}` : ''),
+        `${program.title}: ${ranked.length} scored entries, top ${terms.winners} win, min ${terms.min_score}` +
+          ` (${run?.state ?? 'running'}${run?.terms ? ', terms frozen' : ''})\n`,
       );
-    }
-  } else if (command === 'rank') {
-    const list = await entries();
-    console.log(
-      `${program.title}: ${list.length} entries, top ${campaign.winners} win, min ${minScore(campaign)}\n`,
-    );
-    list.forEach((e, i) =>
-      console.log(
-        `#${i + 1}  id ${e.id}  ${e.name}  score ${e.score ?? '-'}${(e.score ?? 0) < minScore(campaign) ? ' (below min)' : ''}` +
-          `${e.prize_tx ? `  PAID ${e.prize_tx}` : ''}\n      contracts ${e.contracts.join(', ')}  payout ${e.payout_wallet}` +
-          `\n      ${[e.live_url, e.repo_url].filter(Boolean).join('  ')}`,
-      ),
-    );
-  } else if (command === 'payout') {
-    // Guarded above for non-'earnkit' kinds; re-checked here so TS narrows `campaign` below.
-    if (campaign.kind !== 'earnkit')
-      fail('Sponsor campaigns: use fallback/refund/sync (see --help).');
-    const ids = (flag('winners') ?? '').split(',').map(Number).filter(Boolean);
-    if (ids.length === 0)
-      fail(
-        'Name the approved winners: --winners <project id>,<project id>,...',
-      );
-    if (ids.length > campaign.winners)
-      fail(`This campaign has ${campaign.winners} winners; got ${ids.length}.`);
-    if (Date.now() < program.ends_at.getTime())
-      fail(`The campaign runs until ${formatDeadline(program.ends_at)}.`);
-
-    const all = await entries();
-    const winners = ids.map(
-      (id) =>
-        all.find((e) => e.id === id) ??
-        fail(`Project ${id} isn't an entry in ${program.id}.`),
-    );
-    for (const w of winners) {
-      if ((w.score ?? 0) < minScore(campaign))
-        fail(
-          `${w.name} scored ${w.score ?? 0}, below the minimum ${minScore(campaign)}.`,
+      for (const e of ranked)
+        console.log(
+          `#${e.rank}  id ${e.id}  ${e.name}  ${e.score} users (${e.counted} counted, ${e.smart} smart, ${e.shared} shared)` +
+            `${e.code_share === null ? '' : `  code ${Math.round(e.code_share * 100)}%`}` +
+            `${e.score_partial ? '  CAPPED READ (may be low; still pays)' : ''}` +
+            `${picks.some((p) => p.id === e.id) ? '  WINS' : ''}${e.vetoed_at ? `  REMOVED (${e.veto_reason})` : ''}` +
+            `${e.score_error ? `  score error: ${e.score_error}` : ''}${e.prize_tx ? `  PAID ${e.prize_tx}` : ''}` +
+            `\n      contracts ${e.contracts.join(', ')}  deployers ${(e.deployers ?? []).join(', ')}  payout ${e.payout_wallet}` +
+            `\n      ${[e.live_url, e.repo_url].filter(Boolean).join('  ')}`,
         );
-      if (w.prize_tx) fail(`${w.name} was already paid: ${w.prize_tx}`);
-    }
-
-    // Every winner is screened before anything is printed or signed (the dry run fails too).
-    const { screenWinners, BASE_MAINNET } = await import(
-      '../lib/earnkit/sanctions'
-    );
-    await screenWinners(
-      winners.map((w) => ({ entry_id: w.id, wallet: w.payout_wallet })),
-      BASE_MAINNET,
-    );
-
-    const amount = parseUnits(campaign.amount_each, campaign.prize.decimals);
-    const token = campaign.prize.token as `0x${string}`;
-    const reader = createPublicClient({
-      chain: base,
-      transport: http(process.env.BASE_RPC_URL),
-    });
-    console.log(
-      `Paying ${campaign.amount_each} ${campaign.prize.symbol} each on Base:`,
-    );
-    for (const w of winners)
-      console.log(`  id ${w.id} ${w.name} → ${w.payout_wallet}`);
-
-    if (!process.argv.includes('--execute')) {
-      console.log('\nDry run. Add --execute to send.');
+      for (const s of skipped) console.log(`skipped id ${s.id}: ${s.reason}`);
     } else {
-      const key = process.env.PAYOUT_PRIVATE_KEY;
-      if (!key)
-        fail(
-          'Set PAYOUT_PRIVATE_KEY in your local shell (the wallet holding the prize).',
-        );
-      const keyProblem = privateKeyProblem('PAYOUT_PRIVATE_KEY', key);
-      if (keyProblem) fail(keyProblem);
-      const account = privateKeyToAccount(key as `0x${string}`);
-      const balance = await reader.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [account.address],
-      });
-      if (balance < amount * BigInt(winners.length))
-        fail(
-          `${account.address} doesn't hold enough ${campaign.prize.symbol}.`,
-        );
-      const wallet = createWalletClient({
-        account,
-        chain: base,
-        transport: http(process.env.BASE_RPC_URL),
-      });
-      for (const w of winners) {
-        const hash = await wallet.writeContract({
-          address: token,
-          abi: erc20Abi,
-          functionName: 'transfer',
-          args: [w.payout_wallet as `0x${string}`, amount],
-        });
-        const receipt = await reader.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success')
-          fail(`Transfer to ${w.name} failed: ${hash}`);
-        await db`UPDATE projects SET prize_tx = ${hash}, prize_paid_at = now(), prize_amount = ${campaign.amount_each} WHERE id = ${w.id}`;
-        console.log(`  paid ${w.name}: ${hash}`);
-      }
+      // The cron screens each winner before paying; a listed wallet is refused and the next entry
+      // moves up. Same here, without sending anything.
+      const { sanctionedWallets, BASE_MAINNET } = await import('../lib/earnkit/sanctions');
+      const { pickWinners } = await import('../lib/earnkit/winners');
+      const eligible = ranked.filter((e) => (e.score ?? 0) >= terms.min_score && !e.prize_tx);
+      const listed = new Set(await sanctionedWallets(eligible.map((e) => e.payout_wallet), BASE_MAINNET));
+      const screened = ranked.map((e) =>
+        listed.has(e.payout_wallet.toLowerCase()) ? { ...e, payout_status: 'refused' } : e,
+      );
+      const plan = pickWinners(screened, terms.winners, terms.min_score);
+      console.log(
+        `The cron pays ${terms.amount_each} ${terms.prize.symbol} each, in this order, after the review` +
+          ` (now: ${run?.state ?? 'running'}):`,
+      );
+      for (const w of plan.winners)
+        console.log(`  #${w.rank} id ${w.id} ${w.name} -> ${w.payout_wallet}${w.prize_tx ? ` (paid ${w.prize_tx})` : ''}`);
+      if (plan.winners.length === 0) console.log('  nobody yet: no entry reached the minimum.');
+      for (const s of plan.skipped) console.log(`  skipped id ${s.id}: ${s.reason}`);
+      console.log('\nDry run: nothing is sent from here.');
     }
-  } else {
-    fail(USAGE);
   }
   await db.end();
 }

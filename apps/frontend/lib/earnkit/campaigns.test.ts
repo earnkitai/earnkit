@@ -313,6 +313,7 @@ test('entryStatus: sponsor states and EarnKit eligibility', () => {
     ),
     'won 60 USDC',
   );
+  assert.equal(entryStatus(campaign, e, null), 'not scored yet');
   assert.equal(entryStatus(campaign, { ...e, score: 10 }, null), 'eligible');
   assert.equal(entryStatus(campaign, { ...e, score: 9 }, null), 'building');
   assert.equal(

@@ -62,4 +62,8 @@ test('standingText after the end: winner, in review, not in top N', () => {
   assert.equal(standingText({ ...all[1], prize_tx: '0xabc' }, all, c, { state: 'paid', ended: true }), 'winner');
   assert.equal(standingText(all[2], all, c, { state: 'review', ended: true }), 'not in top 2');
   assert.equal(standingText(all[2], all, c, { state: 'running', ended: true }), 'not in top 2');
+  // A removed entry says so, before and after the end (v2.4 Task 8).
+  const vetoed = { ...all[0], vetoed_at: new Date() };
+  assert.equal(standingText(vetoed, [vetoed, all[1], all[2]], c, { state: 'review', ended: true }), 'removed in review');
+  assert.equal(standingText(vetoed, [vetoed, all[1], all[2]], c, { state: 'running', ended: false }), 'removed in review');
 });

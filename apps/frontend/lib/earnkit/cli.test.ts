@@ -87,8 +87,11 @@ test('fallbackProblem: refuses before endsAt + 7 days with the opening date', ()
 });
 
 test('USAGE lists every command', () => {
-  for (const c of ['score', 'rank', 'payout', 'refund', 'golive'])
+  for (const c of ['rank', 'payout', 'refund', 'golive', 'veto-link'])
     assert.match(USAGE, new RegExp(`\\n  ${c} +<`));
+  // v2.4: the cron scores and pays; the CLI only reads (and dry-runs payouts).
+  assert.doesNotMatch(USAGE, /\n  score +<|--execute.*\n.*send the fixed prize/);
+  assert.doesNotMatch(USAGE, /\n  payout <slug> [^\n]*--execute|PAYOUT_PRIVATE_KEY/);
   for (const c of ['propose', 'execute', 'veto'])
     assert.match(USAGE, new RegExp(`\\n  fallback ${c} +<ref>`));
   assert.match(USAGE, /\n  sync +\[<ref>\]/);

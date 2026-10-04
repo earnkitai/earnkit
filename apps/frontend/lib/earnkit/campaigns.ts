@@ -889,7 +889,7 @@ export function entryStatus(
     if (sponsorState === 'refunded') return 'no winners — sponsor refunded';
     return 'entered';
   }
-  return (e.score ?? 0) >= minScore(c) ? 'eligible' : 'building';
+  return e.score === null ? 'not scored yet' : e.score >= minScore(c) ? 'eligible' : 'building';
 }
 
 export type YourEntry = {

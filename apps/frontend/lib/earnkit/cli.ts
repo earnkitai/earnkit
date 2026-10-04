@@ -5,14 +5,13 @@ import { formatDeadline } from './dates';
 
 export const USAGE = `Usage: pnpm campaign <command> <slug|ref> [options]
 
-EarnKit's own campaigns (by program slug):
+EarnKit's own campaigns (by program slug). The cron (POST /api/cron) scores, freezes and pays them:
   golive <slug> [--days 14] [--write]            price MINI on DefiLlama now, set the 14-day window, status
                                                  active and the generated texts in programs/<slug>.json
   golive <slug> --texts-only [--write]           only regenerate the reward, summary and rules
-  score  <slug>                                  update every entry's score from Base data
-  rank   <slug>                                  leaderboard with evidence, for review
-  payout <slug> --winners <id>,<id>,... [--execute]
-                                                 send the fixed prize to approved winners (PAYOUT_PRIVATE_KEY)
+  rank   <slug>                                  ranked entries with evidence (users, smart, shared, code share)
+  payout <slug>                                  dry run: who the cron pays, in order, after screening
+  veto-link <slug>                               print the owner's review link (needs ADMIN_VETO_SECRET)
 
 Sponsor campaigns (by ref; local shell only):
   fallback propose <ref> --winners <id>,<id>,... [--split equal|<pct>,<pct>,...] [--execute]
@@ -31,7 +30,7 @@ Sponsor campaigns (by ref; local shell only):
                                                  within 30 days of their deadline); shows pending
                                                  fallbacks and stray deposits to refund
 
-Without --execute, payout, fallback and refund are dry runs.`;
+Without --execute, fallback and refund are dry runs.`;
 
 /** The fallback's default reason for a winner. */
 export const FALLBACK_REASON = 'Top entry (EarnKit fallback)';

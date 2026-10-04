@@ -61,7 +61,7 @@ export function pickWinners<T extends Candidate>(entries: T[], winners: number, 
 /**
  * One entry's standing as builders read it (v2.4 §6 Standing). Unscored: "not scored yet" (no
  * rank). Running: "#3, in the top 5", "#7, 4 users behind #5", "#8, 6 users short of the 10
- * minimum", or "#4, <why it is skipped>". After the end: "winner" (paying, paid or paid out), "in
+ * minimum", or "#4, <why it is skipped>". Removed in review: "removed in review". After the end: "winner" (paying, paid or paid out), "in
  * review", or "not in top 5". Pure; exported for tests.
  */
 export function standingText(
@@ -71,6 +71,7 @@ export function standingText(
   a: { state: RunState; ended: boolean },
 ) {
   if (entry.prize_tx) return 'winner';
+  if (entry.vetoed_at) return 'removed in review';
   if (entry.score === null) return 'not scored yet';
   const picks = pickWinners(all, c.winners, c.min_score);
   const winner = picks.winners.some((w) => w.id === entry.id);

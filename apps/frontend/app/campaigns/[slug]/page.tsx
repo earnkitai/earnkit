@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
-import { entryStatus, prizeText } from '@/lib/earnkit/campaigns';
+import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
 import {
@@ -32,7 +32,7 @@ export default async function CampaignPage({
 }) {
   const board = await getCampaignBoard((await params).slug);
   if (!board) notFound();
-  const { program, rows, offPlan, sponsorState, sponsor } = board;
+  const { program, rows, offPlan, sponsorState, sponsor, run, review, funds } = board;
   const identity = sponsor?.identity ?? UNVERIFIED;
   const c = program.campaign;
   const ended = program.ends_at < new Date();
@@ -83,11 +83,33 @@ export default async function CampaignPage({
           </p>
         ) : null}
         {c.kind === 'sponsor' ? null : (
-          <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-            Ranked by unique wallets using each project&apos;s contracts. At
-            least {c.min_score} to be eligible. Enter through your agent: ask it
-            &ldquo;what can I earn?&rdquo; with EarnKit connected.
-          </p>
+          <>
+            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+              {usd(prizeUsdEach(c))} each to the top {c.winners}, paid automatically on Base by{' '}
+              {formatDeadline(payoutBy(program.ends_at))} after a 48-hour public review. Ranked by unique
+              users of each project&apos;s contracts; at least {c.min_score} to be eligible. Enter through
+              your agent: ask it &ldquo;what can I earn?&rdquo; with EarnKit connected (earnkit.com/mcp).
+            </p>
+            <p className="mt-2 break-all font-funnel-sans text-sm font-light text-ek-blue-soft">
+              {funds ? (
+                <>
+                  Prize wallet{' '}
+                  <a
+                    href={`https://basescan.org/address/${funds.wallet}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-4"
+                  >
+                    {funds.wallet}
+                  </a>{' '}
+                  holds {Number(funds.balance).toLocaleString('en-US')} {c.prize.symbol}.
+                </>
+              ) : (
+                'Prize wallet: not set up yet.'
+              )}
+              {run?.note ? ` ${run.note}` : ''}
+            </p>
+          </>
         )}
       </section>
 
@@ -113,7 +135,7 @@ export default async function CampaignPage({
                 </th>
                 {ranked ? (
                   <th scope="col" className="w-24 pb-3 text-right font-medium">
-                    Wallets
+                    {c.kind === 'earnkit' ? 'Users' : 'Wallets'}
                   </th>
                 ) : null}
                 <th
@@ -131,7 +153,7 @@ export default async function CampaignPage({
                   className="border-t border-ek-navy text-ek-blue-light"
                 >
                   {ranked ? (
-                    <td className="py-3 tabular-nums">{r.rank}</td>
+                    <td className="py-3 tabular-nums">{r.rank ?? '–'}</td>
                   ) : null}
                   <td className="truncate py-3 pr-4">
                     <Link
@@ -155,7 +177,7 @@ export default async function CampaignPage({
                   <td
                     className={`py-3 text-right font-light ${ranked ? 'hidden sm:table-cell' : ''}`}
                   >
-                    {entryStatus(c, r, sponsorState)}
+                    {r.standing ?? entryStatus(c, r, sponsorState)}
                   </td>
                 </tr>
               ))}
@@ -179,6 +201,84 @@ export default async function CampaignPage({
           </div>
         ) : null}
       </section>
+
+      {review && run ? (
+        <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
+          <h2 className="font-funnel-display text-2xl font-medium text-ek-white">
+            {run.state === 'review' ? 'In review' : run.state === 'paid' ? 'Winners' : 'Paying winners'}
+          </h2>
+          {run.state === 'review' && run.review_until ? (
+            <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
+              Public until {formatDeadline(run.review_until)}; then the prizes are paid automatically.
+              Farmed or wash activity removes an entry, and the next one moves up.
+            </p>
+          ) : null}
+          {review.picks.length === 0 ? (
+            <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-soft">
+              No entry reached the minimum.
+            </p>
+          ) : (
+            <table className="mt-6 w-full table-fixed font-funnel-sans text-sm">
+              <thead>
+                <tr className="text-left text-ek-blue-soft">
+                  <th scope="col" className="w-12 pb-3 font-medium">#</th>
+                  <th scope="col" className="pb-3 font-medium">Project</th>
+                  <th scope="col" className="w-28 pb-3 text-right font-medium">Users</th>
+                  <th scope="col" className="hidden w-24 pb-3 text-right font-medium sm:table-cell">Shared</th>
+                  <th scope="col" className="hidden w-28 pb-3 text-right font-medium sm:table-cell">Builder Code</th>
+                </tr>
+              </thead>
+              <tbody>
+                {review.picks.map((r) => (
+                  <tr key={r.id} className="border-t border-ek-navy text-ek-blue-light">
+                    <td className="py-3 tabular-nums">{r.rank}</td>
+                    <td className="truncate py-3 pr-4">
+                      <Link href={`/p/${r.id}`} className="text-ek-white underline-offset-4 hover:underline">
+                        {r.name}
+                      </Link>
+                      {r.prize_tx ? (
+                        <a
+                          href={`https://basescan.org/tx/${r.prize_tx}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 text-xs text-ek-blue-soft underline"
+                        >
+                          paid
+                        </a>
+                      ) : null}
+                    </td>
+                    <td className="py-3 text-right tabular-nums">
+                      {r.counted} ({r.smart} smart)
+                      {r.score_partial ? <span className="block text-xs text-ek-blue-soft">capped read</span> : null}
+                    </td>
+                    <td className="hidden py-3 text-right tabular-nums sm:table-cell">{r.shared}</td>
+                    <td className="hidden py-3 text-right tabular-nums sm:table-cell">
+                      {r.code_share === null ? '–' : `${Math.round(r.code_share * 100)}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="mt-4 font-funnel-sans text-xs font-light text-ek-blue-soft">
+            Users: wallets counted for the entry. Shared: those also counted for another entry.
+            {review.picks.some((r) => r.score_partial)
+              ? ' Capped read: a data read hit its limit, so the count may be low; it still pays.'
+              : ''}
+          </p>
+          {review.ranked.some((r) => r.vetoed_at) ? (
+            <ul className="mt-4 space-y-1 font-funnel-sans text-sm text-ek-blue-soft">
+              {review.ranked
+                .filter((r) => r.vetoed_at)
+                .map((r) => (
+                  <li key={r.id}>
+                    Removed: {r.name} ({r.veto_reason})
+                  </li>
+                ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
