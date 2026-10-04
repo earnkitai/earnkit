@@ -55,9 +55,16 @@ contract DeployTest is Test {
         vm.expectRevert(bytes("USDC is not canonical Base USDC"));
         script.run();
         vm.setEnv("USDC", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
+        // v2.3: on Base mainnet the fee treasury must be the company treasury.
+        vm.setEnv("TREASURY", vm.toString(makeAddr("treasury")));
+        vm.expectRevert(bytes("TREASURY is not the company treasury 0xc8A889577446153e28D42254B75238Ae31EC7D57"));
+        script.run();
+        vm.setEnv("TREASURY", "0xc8A889577446153e28D42254B75238Ae31EC7D57");
         (t, f) = script.run();
         assertEq(t.getMinDelay(), 48 hours);
+        assertEq(f.treasury(), 0xc8A889577446153e28D42254B75238Ae31EC7D57);
         vm.chainId(realChain);
+        vm.setEnv("TREASURY", vm.toString(makeAddr("treasury")));
 
         // Review M-01: PAUSER == OPERATOR is refused with a clear message.
         vm.setEnv("PAUSER", vm.toString(makeAddr("operator")));

@@ -250,5 +250,6 @@ checks in `initialize` (see Slither above), and accumulator/loop locals relying 
 See `script/Deploy.s.sol`. The owner runs it from their own wallet. It refuses
 `TIMELOCK_DELAY < 48 hours` unless `ALLOW_SHORT_TIMELOCK=1` is set (testnet only; it then logs a
 loud warning), and on Base mainnet (8453) it refuses a short delay whatever the flag says and
-requires `USDC` to be canonical Base USDC. It refuses `PAUSER == OPERATOR`. Never use a
-short-timelock deployment for real funds.
+requires `USDC` to be canonical Base USDC. It refuses `PAUSER == OPERATOR`. On Base mainnet the
+script refuses any TREASURY other than the company treasury 0xc8A889577446153e28D42254B75238Ae31EC7D57
+(the 10% campaign fee goes there). Never use a short-timelock deployment for real funds.
