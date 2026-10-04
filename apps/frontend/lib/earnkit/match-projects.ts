@@ -106,6 +106,16 @@ async function contributedRepos(user: string, skip: Set<string>) {
 
 export const repoByName = (fullName: string) => gh<Repo>(`/repos/${fullName}`);
 
+/** Whether a public repo has at least one commit (GitHub answers 409 for an empty repo). */
+export async function repoHasCommits(fullName: string) {
+  try {
+    return (await gh<unknown[]>(`/repos/${fullName}/commits?per_page=1`)).length > 0;
+  } catch (err) {
+    if (err instanceof GitHubError && /\(409\)/.test(err.message)) return false;
+    throw err;
+  }
+}
+
 /**
  * Reads a handful of config-like files and detects which chains the repo targets. `complete` is
  * false when the tree or a file couldn't be read (such a result isn't cached).

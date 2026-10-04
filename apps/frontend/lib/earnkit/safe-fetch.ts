@@ -15,6 +15,16 @@ import { BlockList, isIP } from 'node:net';
 
 export class SafeFetchError extends Error {}
 
+/** A 3xx response: the status and, when the server sent one, the Location header. */
+export class RedirectError extends SafeFetchError {
+  constructor(
+    readonly status: number,
+    readonly location?: string,
+  ) {
+    super(`redirects aren't followed (${status})`);
+  }
+}
+
 export type Resolved = { address: string; family: 4 | 6 };
 /** Resolves `host` to its addresses; must stop when `signal` aborts (the overall deadline). */
 export type Resolver = (
@@ -25,6 +35,7 @@ export type TransportResponse = {
   status: number;
   /** content-length, when the server sent one. */
   contentLength?: number;
+  location?: string;
   body: AsyncIterable<Uint8Array>;
   /** Releases the connection (called once the body is read or refused). */
   close?: () => void;
@@ -193,6 +204,9 @@ const nodeTransport: Transport = ({ url, address, family, signal }) =>
         resolve({
           status: res.statusCode ?? 0,
           ...(Number.isFinite(length) && { contentLength: length }),
+          ...(typeof res.headers.location === 'string' && {
+            location: res.headers.location,
+          }),
           body: res,
           close: () => res.destroy(),
         });
@@ -213,11 +227,14 @@ export async function safeFetchText(
     transport = nodeTransport,
     timeoutMs = FETCH_TIMEOUT_MS,
     maxBytes = FETCH_MAX_BYTES,
+    probe = false,
   }: {
     resolve?: Resolver;
     transport?: Transport;
     timeoutMs?: number;
     maxBytes?: number;
+    /** Accept any 2xx and don't read the body (safeProbe). */
+    probe?: boolean;
   } = {},
 ): Promise<string> {
   if (!URL.canParse(url)) throw new SafeFetchError('not a valid link');
@@ -260,7 +277,12 @@ export async function safeFetchText(
     });
     close = res.close;
     if (res.status >= 300 && res.status < 400)
-      throw new SafeFetchError(`redirects aren't followed (${res.status})`);
+      throw new RedirectError(res.status, res.location);
+    if (probe) {
+      if (res.status < 200 || res.status >= 300)
+        throw new SafeFetchError(`answered ${res.status}, not 2xx`);
+      return '';
+    }
     if (res.status !== 200)
       throw new SafeFetchError(`answered ${res.status}, not 200`);
     if (res.contentLength !== undefined && res.contentLength > maxBytes)
@@ -286,5 +308,28 @@ export async function safeFetchText(
   } finally {
     clearTimeout(timer);
     close?.();
+  }
+}
+
+/** Same site for a redirect: the same host, ignoring one leading "www.". Pure; exported for tests. */
+export const sameSite = (a: string, b: string) =>
+  a.replace(/^www\./, '') === b.replace(/^www\./, '');
+
+/**
+ * Whether a builder's live link loads: any 2xx, the body never read. Follows one redirect within
+ * the same site (apex↔www, a path change); refuses a redirect elsewhere or a second redirect.
+ */
+export async function safeProbe(
+  url: string,
+  deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
+): Promise<void> {
+  try {
+    await safeFetchText(url, { ...deps, probe: true });
+  } catch (err) {
+    if (!(err instanceof RedirectError) || !err.location) throw err;
+    const next = new URL(err.location, url);
+    if (!sameSite(next.hostname, new URL(url).hostname))
+      throw new SafeFetchError(`redirects to another site (${next.hostname})`);
+    await safeFetchText(next.href, { ...deps, probe: true });
   }
 }

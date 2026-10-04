@@ -6,6 +6,7 @@ import {
   pinnedLookup,
   resolveBoth,
   safeFetchText,
+  safeProbe,
   type Resolver,
   type Transport,
 } from './safe-fetch';
@@ -20,6 +21,9 @@ const resolveTo =
       family: address.includes(':') ? 6 : 4,
     }));
 
+/** A resolver that answers with a public address, for tests that don't care which one. */
+const publicResolver = resolveTo('93.184.216.34');
+
 async function* chunks(...parts: string[]) {
   for (const p of parts) yield Buffer.from(p);
 }
@@ -31,10 +35,11 @@ const transport =
     body: string[] = ['ok'],
     seen: Seen = [],
     contentLength?: number,
+    location?: string,
   ): Transport =>
   async ({ url, address }) => {
     seen.push({ address, host: url.hostname, path: url.pathname });
-    return { status, contentLength, body: chunks(...body) };
+    return { status, contentLength, location, body: chunks(...body) };
   };
 
 const refuses = (p: Promise<unknown>, re: RegExp) =>
@@ -322,4 +327,45 @@ test('resolveBoth: a safe A answer is used without waiting for AAAA; else both a
     await resolveBoth(servfail(), Promise.resolve(['2606:4700::1111'])),
     [{ address: '2606:4700::1111', family: 6 }],
   );
+});
+
+test('safeProbe: any 2xx passes without reading a large body', async () => {
+  await safeProbe('https://example.com/app', {
+    resolve: publicResolver,
+    transport: async () => ({ status: 204, body: (async function* () { throw new Error('body read'); })() }),
+  });
+});
+
+test('safeProbe: one redirect within the same site is followed (apex↔www, path change)', async () => {
+  const seen: string[] = [];
+  await safeProbe('https://example.com/', {
+    resolve: publicResolver,
+    transport: async ({ url }) => {
+      seen.push(url.href);
+      return url.hostname === 'example.com'
+        ? { status: 301, location: 'https://www.example.com/home', body: (async function* () {})() }
+        : { status: 200, body: (async function* () {})() };
+    },
+  });
+  assert.deepEqual(seen, ['https://example.com/', 'https://www.example.com/home']);
+});
+
+test('safeProbe: a redirect to another site, or a second redirect, is refused', async () => {
+  await assert.rejects(
+    safeProbe('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 302, location: 'https://evil.test/', body: (async function* () {})() }) }),
+    /another site/,
+  );
+  await assert.rejects(
+    safeProbe('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 302, location: '/again', body: (async function* () {})() }) }),
+    /redirects aren't followed/,
+  );
+});
+
+test('safeProbe: 404 and private addresses fail with the reason', async () => {
+  await assert.rejects(safeProbe('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 404, body: (async function* () {})() }) }), /answered 404/);
+  await assert.rejects(safeProbe('https://example.com/', { resolve: async () => [{ address: '10.0.0.1', family: 4 }] }), /public address/);
+});
+
+test('safeFetchText is unchanged: still refuses redirects and non-200', async () => {
+  await assert.rejects(safeFetchText('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 301, location: '/x', body: (async function* () {})() }) }), /redirects aren't followed \(301\)/);
 });
