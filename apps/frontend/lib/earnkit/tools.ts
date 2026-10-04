@@ -26,7 +26,7 @@ import {
 import {
   closesInDays,
   presentFirstMessage,
-  programAlerts,
+  programUpdates,
   type YourRepos,
 } from './present';
 import { SPONSOR_NOT_OPEN, escrowEnabled } from './escrow';
@@ -186,7 +186,8 @@ export const tools = {
     const alerts = await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins });
 
     const show_to_builder = presentFirstMessage({
-      alerts: [...alerts.lines, ...programAlerts(cards, lastCheck === null)],
+      alerts: alerts.lines,
+      updates: programUpdates(cards, lastCheck === null),
       campaigns,
       cards,
       repos: yourRepos,

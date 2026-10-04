@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   closesInDays,
   endsOf,
   fieldText,
   presentFirstMessage,
-  programAlerts,
+  programUpdates,
   table,
   type Card,
   type CampaignRow,
@@ -172,14 +174,14 @@ test('fieldText and endsOf', () => {
   assert.equal(endsOf({ ...arc, summary: '500 USDC' }), 'Oct 15');
 });
 
-test('programAlerts: curated programs by name, sponsored ones counted, nothing on a first check', () => {
+test('programUpdates: curated programs by name, sponsored ones counted, nothing on a first check', () => {
   const cards: Card[] = [
     { ...arc, is_new: true },
     { ...tiny, closes_in_days: 1 },
     { ...sponsored, is_new: true },
   ];
-  assert.deepEqual(programAlerts(cards, false), ['new: Arc Microgrants', '1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
-  assert.deepEqual(programAlerts(cards, true), []);
+  assert.deepEqual(programUpdates(cards, false), ['new: Arc Microgrants', '1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  assert.deepEqual(programUpdates(cards, true), []);
 });
 
 test('closesInDays: within 3 days only, never negative', () => {
@@ -233,4 +235,25 @@ test('Ruling 28: repos known, nothing fits, only forms programs open: build some
     cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'no', 'not on Arc')),
   }));
   assert.match(answers, /Want me to build something new for Arc Microgrants \(500 USDC × 20 grants\)\? It needs 3 answers only you can give\.$/);
+});
+
+test('I7: closing-soon and new non-campaign programs stay in the body; they never start the reply as an alert', () => {
+  const cards: Card[] = [{ ...arc, is_new: true }, { ...tiny, closes_in_days: 1 }, { ...sponsored, is_new: true }];
+  const updates = programUpdates(cards, false);
+  const quiet = presentFirstMessage(msg({ cards, updates }));
+  assert.doesNotMatch(quiet, /Since you last checked/);
+  assert.doesNotMatch(quiet, /^Updates/);
+  assert.match(quiet, /\n\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\.\n\nWant me to /);
+  // Real news (a win) still leads; the updates stay below.
+  const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
+  assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);
+  assert.doesNotMatch(news.split('\n\n')[0], /closes in|new: Arc/);
+  // Only a sponsored card: its table comes first, the update after it.
+  const sponsorOnly = presentFirstMessage(msg({ cards: [{ ...sponsored, is_new: true }], updates: programUpdates([{ ...sponsored, is_new: true }], false) }));
+  assert.match(sponsorOnly, /^Sponsored /);
+});
+
+test('I7: list_programs feeds program updates to the body, not the alert line', () => {
+  const src = readFileSync(join(import.meta.dirname, 'tools.ts'), 'utf8');
+  assert.match(src, /alerts: alerts\.lines,\n\s*updates: programUpdates\(cards, lastCheck === null\),/);
 });

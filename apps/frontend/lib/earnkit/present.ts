@@ -7,7 +7,7 @@ import { EFFORT_ORDER, type Effort, type Verdict } from './match';
  * Built on the server because many MCP clients never show the model the server instructions; a
  * ready-made result gets shown as written. Order, always: "Since you last checked", EarnKit's own
  * campaigns, what the builder's repos qualify for, other open programs (at most 5), sponsor
- * campaigns (never first), then one offer.
+ * campaigns (never first), program updates, then one offer.
  */
 export type Card = {
   id: string;
@@ -56,8 +56,14 @@ export type CampaignRow = {
 };
 
 export type FirstMessage = {
-  /** "Since you last checked" items, money first (alerts.ts, then programAlerts). */
+  /**
+   * "Since you last checked" items, money first (alerts.ts): only wins and prizes, rank changes,
+   * new EarnKit campaigns and token fees of $100 or more (Ruling 35, I7). The daily check messages
+   * the builder only when the reply starts with them.
+   */
   alerts: string[];
+  /** Program news (programUpdates: closing soon, new non-campaign programs): in the body, never an alert. */
+  updates?: string[];
   campaigns: CampaignRow[];
   /** Open programs that aren't EarnKit campaigns (curated and sponsored). */
   cards: Card[];
@@ -93,10 +99,11 @@ export type YourRepos =
   | { error: string };
 
 /**
- * "Since you last checked" items about programs: new curated ones by name, new sponsored ones
- * counted (re-audit H4), curated ones closing within 3 days. None on a first check. Pure.
+ * Program news for the body (never "Since you last checked", I7): new curated ones by name, new
+ * sponsored ones counted (re-audit H4), curated ones closing within 3 days. None on a first check.
+ * Pure.
  */
-export function programAlerts(cards: Card[], firstCheck: boolean): string[] {
+export function programUpdates(cards: Card[], firstCheck: boolean): string[] {
   if (firstCheck) return [];
   const named = cards.filter((c) => !c.sponsored);
   const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
@@ -250,6 +257,8 @@ export function presentFirstMessage(m: FirstMessage): string {
         table(['Campaign', 'Details'], sponsored.map((c) => [c.title, c.summary])),
     );
   if (m.sponsorEntries) sections.push(m.sponsorEntries);
+  // After the tables, so the reply never starts with it: news, not an alert (I7).
+  if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
   sections.push(offer(m, byId, rows));
   return sections.join('\n\n');
