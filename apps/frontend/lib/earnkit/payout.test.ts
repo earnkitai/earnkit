@@ -367,7 +367,7 @@ test('M1: until the other paid transfer\'s receipt is final, the stale send is n
   const pay = () => payCampaign(campaign, entries(), { account, rpc: c.rpc, store: s.store, listed: async () => false, now: NOW });
   assert.deepEqual(await pay(), { done: false, note: 'Waiting for the transfer to entry #1 to be mined.' });
   assert.deepEqual(asked, [keccak256(ours)], 'the receipt asked about is the other paid transfer\'s');
-  assert.deepEqual(s.calls, []);
+  assert.equal(s.calls.length, 0);
   assert.equal(c.sent.length, 0);
   c.final.add(keccak256(ours));
   assert.deepEqual(await pay(), { done: true, note: null });
