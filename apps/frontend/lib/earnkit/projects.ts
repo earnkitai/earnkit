@@ -246,14 +246,13 @@ export async function campaignEntryProblems(
     } catch (err) {
       if (!(err instanceof EntryError)) throw err;
       problems.push(...err.problems);
-      // A signature over other text recovers another wallet: say exactly what to sign.
-      if (
-        input.deployer_signature &&
-        err.problems.some((p) => p.startsWith('Contract '))
-      )
+      // A contract deployed by another wallet (the agent's, in the default flow) enters with that
+      // wallet's signature, and a signature over other text recovers another wallet: either way,
+      // say exactly what to sign (never "redeploy").
+      if (err.problems.some((p) => p.startsWith('Contract ')))
         problems.push(
-          `deployer_signature: sign exactly "${entryMessage(program.id, normalizeRepoUrl(repoUrl), wallet, fields.contracts)}" with the wallet that deployed the contracts.`,
-        );
+          `deployer_signature: sign exactly "${entryMessage(program.id, normalizeRepoUrl(repoUrl), wallet, fields.contracts)}" with the wallet that deployed the contracts and pass it as deployer_signature.`,
+        )
     }
   }
   if (wallet) {

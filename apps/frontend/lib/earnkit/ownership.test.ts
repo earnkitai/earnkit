@@ -224,12 +224,12 @@ test('ownershipProblem: every contract must be deployed from the payout wallet (
   // Someone else's contract: refused, whatever the file says.
   assert.equal(
     ownershipProblem(where, file, entry, { [C1]: W, [C2]: OTHER }),
-    `Contract ${C2} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+    `Contract ${C2} was deployed by ${OTHER}, not by your payout wallet.`,
   );
   // No creation transaction on record: not proven either.
   assert.match(
     ownershipProblem(where, file, entry, { [C1]: null, [C2]: W })!,
-    /^Contract 0x0+c1 was deployed by a different wallet/,
+    /^Contract 0x0+c1 was deployed by an unknown wallet, not by your payout wallet\.$/,
   );
   assert.match(
     ownershipProblem(where, file, entry, { [C1]: W })!,
@@ -297,7 +297,7 @@ test('checkOwnership: fetches the raw file, then the deployer of every contract'
     (e) =>
       e instanceof EntryError &&
       e.message ===
-        `Contract ${C2} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+        `Contract ${C2} was deployed by ${OTHER}, not by your payout wallet.`,
   );
   // Repo squatting: the victim's file names the victim's wallet; Blockscout isn't asked.
   asked.length = 0;
@@ -429,10 +429,10 @@ test('v2.4: a contract deployed by the wallet that signed the entry is proven; e
     ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C3], signer: AGENT }, deployers),
     [`Contract ${C3} was deployed by ${OTHER}, not by the wallet that signed the entry (${AGENT}) or the payout wallet.`],
   );
-  // Without a signature, the v2.2 message is unchanged.
+  // Without a signature: who deployed it, never "redeploy" (projects.ts adds the exact text to sign).
   assert.deepEqual(
     ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C3] }, deployers),
-    [C1, C3].map((c) => `Contract ${c} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`),
+    [C1, C3].map((c) => `Contract ${c} was deployed by ${deployers[c]}, not by your payout wallet.`),
   );
   assert.equal(
     entryMessage('earnkit-campaign-1-base', 'github.com/alice/tipjar', PAYOUT, [C2, C1]),

@@ -192,8 +192,21 @@ test("v2.4 §2: contracts deployed from the agent's own wallet enter with its si
           p.startsWith(`Contract ${C1} was deployed by ${agent}, not by the wallet that signed the entry`),
         ) &&
         err.problems.includes(
-          `deployer_signature: sign exactly "EarnKit entry: earnkit-campaign-1-base github.com/alice/tipjar ${PAY} ${C1},${C2}" with the wallet that deployed the contracts.`,
+          `deployer_signature: sign exactly "EarnKit entry: earnkit-campaign-1-base github.com/alice/tipjar ${PAY} ${C1},${C2}" with the wallet that deployed the contracts and pass it as deployer_signature.`,
         ),
+    );
+    // I5: the default flow (the agent deployed) without a signature: the exact text to sign, never "redeploy".
+    await assert.rejects(
+      campaignEntryProblems(campaignProgram(), input({}) as never, 1, null, deps),
+      (err: unknown) => {
+        assert.ok(err instanceof EntryError);
+        assert.deepEqual(err.problems, [
+          `Contract ${C1} was deployed by ${agent}, not by your payout wallet.`,
+          `deployer_signature: sign exactly "${entryMessage(P, 'github.com/alice/tipjar', PAY, [C1, C2])}" with the wallet that deployed the contracts and pass it as deployer_signature.`,
+        ]);
+        assert.doesNotMatch(err.message, /redeploy|deployed from your payout wallet/i);
+        return true;
+      },
     );
   } finally {
     setSanctionsOracle(null);

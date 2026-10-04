@@ -294,7 +294,7 @@ export function ownershipProblems(
       problems.push(
         entry.signer
           ? `Contract ${c} was deployed by ${d ?? 'an unknown wallet'}, not by the wallet that signed the entry (${entry.signer}) or the payout wallet.`
-          : `Contract ${c} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+          : `Contract ${c} was deployed by ${d ?? 'an unknown wallet'}, not by your payout wallet.`,
       );
   }
   return problems;

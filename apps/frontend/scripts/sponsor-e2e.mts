@@ -1227,8 +1227,9 @@ await enterWith(
   [factoryBuilt],
 ).catch((err) => (contractSquat = (err as Error).message));
 check(
-  contractSquat ===
-    `Contract ${factoryBuilt} was deployed by a different wallet. Enter contracts deployed from your payout wallet.`,
+  contractSquat.includes(`Contract ${factoryBuilt} was deployed by ${DEPLOYER.toLowerCase()}, not by your payout wallet.`) &&
+    contractSquat.includes('deployer_signature: sign exactly "EarnKit entry: ') &&
+    !/redeploy/i.test(contractSquat),
   `a squat of someone else's contract is refused: ${contractSquat}`,
 );
 const built = await enterWith('Builder5', DEPLOYER, [factoryBuilt]);
