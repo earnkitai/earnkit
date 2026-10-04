@@ -11,10 +11,10 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base, baseSepolia, foundry } from 'viem/chains';
+import { scoreCampaignEntries, type ScoreRow } from '../lib/earnkit/campaign-score';
 import {
+  FINAL_GRACE_MS,
   minScore,
-  SCORE_MAX_PAGES,
-  scoreEntry,
   type CampaignConfig,
 } from '../lib/earnkit/campaigns';
 import {
@@ -124,17 +124,33 @@ async function main() {
   ORDER BY score DESC NULLS LAST, submitted_at`;
 
   if (command === 'score') {
-    const until = new Date(Math.min(Date.now(), program.ends_at.getTime()));
-    for (const e of await entries()) {
-      const started = new Date();
-      const r = await scoreEntry(e.contracts, program.starts_at, until);
-      await db`UPDATE projects SET score = ${r.score}, scored_at = ${started}, scored_through = ${until},
-        score_partial = ${!r.complete} WHERE id = ${e.id}`;
+    // The cron's own scoring pass (exclusions, stored wallets, code_share, score_error, rotation),
+    // run now for every entry that isn't final, so a manual run can't diverge from it.
+    const now = new Date();
+    const rows = await db<(ScoreRow & { name: string; score_partial: boolean })[]>`
+      SELECT id, name, contracts, payout_wallet, deployers, score, scored_at, scored_through,
+        score_final, score_attempted_at, score_partial
+      FROM projects WHERE program_id = ${program.id} AND contracts IS NOT NULL AND payout_wallet IS NOT NULL`;
+    if (rows.length === 0) fail(`No entries with contracts and a payout wallet in "${program.id}".`);
+    const out = await scoreCampaignEntries(program, rows, {
+      now,
+      deadline: now.getTime() + 30 * 60_000,
+      final: now.getTime() >= program.ends_at.getTime() + FINAL_GRACE_MS,
+      maxAgeMs: 0,
+    });
+    const after = new Map(
+      (
+        await db<{ id: number; score: number | null; score_partial: boolean; score_error: string | null }[]>`
+          SELECT id, score, score_partial, score_error FROM projects WHERE id IN ${db(rows.map((r) => r.id))}`
+      ).map((r) => [r.id, r]),
+    );
+    for (const o of out) {
+      const name = rows.find((r) => r.id === o.id)?.name;
+      const a = after.get(o.id);
       console.log(
-        `${e.name}: ${r.score} wallets counted (${r.seen} seen)` +
-          (r.complete
-            ? ''
-            : ` — read capped at ${SCORE_MAX_PAGES} pages per contract; the oldest traffic wasn't read`),
+        `${name}: ${o.result}, score ${a?.score ?? '-'}` +
+          (a?.score_partial ? ' (partial: a read hit its page cap)' : '') +
+          (o.error ? ` — ${o.error}` : ''),
       );
     }
   } else if (command === 'rank') {

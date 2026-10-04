@@ -609,19 +609,66 @@ export async function walletHistory(
 }
 
 /**
+ * ERC-4337 `UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed
+ * paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)`: the same
+ * on EntryPoint v0.6, v0.7 and v0.8 (checked against Base logs of all three).
+ */
+export const USER_OP_EVENT =
+  '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
+
+export type UserOp = { entryPoint: string; sender: string; success: boolean };
+
+/** The UserOps an ENTRY_POINTS EntryPoint logged in a receipt (lowercase). Pure; exported for tests. */
+export function userOpsIn(
+  logs: readonly { address: string; topics: readonly (string | null)[]; data: string }[],
+): UserOp[] {
+  const ops: UserOp[] = [];
+  for (const l of logs) {
+    const entryPoint = l.address.toLowerCase();
+    const [topic0, , sender] = l.topics;
+    if (!ENTRY_POINTS.includes(entryPoint) || topic0?.toLowerCase() !== USER_OP_EVENT) continue;
+    if (!sender || l.data.length < 2 + 64 * 4) continue;
+    ops.push({
+      entryPoint,
+      sender: `0x${sender.slice(-40)}`.toLowerCase(),
+      success: BigInt(`0x${l.data.slice(2 + 64, 2 + 128)}`) !== 0n,
+    });
+  }
+  return ops;
+}
+
+const GET_NONCE_ABI = [
+  {
+    type: 'function',
+    name: 'getNonce',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'sender', type: 'address' },
+      { name: 'key', type: 'uint192' },
+    ],
+    outputs: [{ name: 'nonce', type: 'uint256' }],
+  },
+] as const;
+
+/**
  * Metric `unique_wallets` (v2.4 §3): distinct users of any of the entry's contracts in the window
- * that had history before the start (walletHistory):
- * - senders of successful transactions to them (the EOA rule);
- * - smart accounts calling them (internal calls), only when one of the call's parent transactions
- *   was sent to an ERC-4337 EntryPoint (ENTRY_POINTS). A contract staged before the start and fanned
- *   out from an ordinary transaction never counts. Known limitation: users who reach the contract
- *   through Multicall, routers, relayers or a Safe executed by its owner aren't counted.
+ * that had history before the start:
+ * - senders of successful transactions to them: an EOA with MIN_EOA_NONCE+ transactions before the
+ *   start (walletHistory);
+ * - smart accounts calling them (internal calls), only as the `sender` of a successful UserOp in
+ *   that transaction (UserOperationEvent from an ENTRY_POINTS EntryPoint), and only with that
+ *   EntryPoint's getNonce(sender, 0) >= MIN_EOA_NONCE at the start block (v2.4 ruling 22). Clones
+ *   a UserOp or an ordinary transaction fans out to never count. Known limitations: users who reach
+ *   the contract through Multicall, routers, relayers or a Safe executed by its owner aren't
+ *   counted, nor accounts that only use non-zero nonce keys. A failed receipt or nonce lookup means
+ *   "not counted" (logged), never a failed entry.
  *
  * Never counted: `exclude` (the payout wallet and deployers), the entry's own contracts and the
  * EntryPoints. Returns the score, the counted wallets with their kind, `codeShare` (the share of
  * the counted wallets' direct transactions carrying EarnKit's Builder Code; null without any), and
  * `complete` (false when a read hit its page cap) and `timedOut`. `fetchPage` and `fetchInternal`
- * are injected together (tests); `txTo` (a transaction's `to`) is looked up once per hash.
+ * are injected together (tests); `userOps` (a receipt's UserOps) is read once per transaction and
+ * `epNonce` reads an EntryPoint nonce at a block.
  */
 export async function scoreEntry(
   contracts: string[],
@@ -633,7 +680,8 @@ export async function scoreEntry(
     fetchInternal?: (path: string) => Promise<InternalPage>;
     blockAt?: (at: Date) => Promise<bigint>;
     history?: (wallet: string, blockBefore: bigint) => Promise<WalletKind | null>;
-    txTo?: (hash: string) => Promise<string | null>;
+    userOps?: (hash: string) => Promise<UserOp[]>;
+    epNonce?: (entryPoint: string, sender: string, block: bigint) => Promise<bigint>;
     exclude?: string[];
   } = {},
 ) {
@@ -647,19 +695,41 @@ export async function scoreEntry(
     beforeDeadline(opts.blockAt ? opts.blockAt(at) : baseBlockAt(at, rpc), deadline);
   const history =
     opts.history ?? ((w: string, b: bigint) => walletHistory(w, b, rpc));
-  const txTo =
-    opts.txTo ??
+  const userOps =
+    opts.userOps ??
     (async (hash: string) =>
-      (await rpc.getTransaction({ hash: hash as `0x${string}` })).to ?? null);
-  const parentTo = new Map<string, Promise<string | null>>();
-  const viaEntryPoint = async (hashes: string[]) => {
-    for (const h of hashes) {
-      let p = parentTo.get(h);
-      if (!p) parentTo.set(h, (p = txTo(h)));
-      const target = await beforeDeadline(p, deadline);
-      if (target && ENTRY_POINTS.includes(target.toLowerCase())) return true;
+      userOpsIn((await rpc.getTransactionReceipt({ hash: hash as `0x${string}` })).logs));
+  const epNonce =
+    opts.epNonce ??
+    ((entryPoint: string, sender: string, block: bigint) =>
+      rpc.readContract({
+        address: entryPoint as `0x${string}`,
+        abi: GET_NONCE_ABI,
+        functionName: 'getNonce',
+        args: [sender as `0x${string}`, 0n],
+        blockNumber: block,
+      }));
+  /** A lookup that may fail without failing the entry: logged, then `fallback`. The deadline still stops it. */
+  const soft = async <T,>(what: string, p: Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await beforeDeadline(p, deadline);
+    } catch (err) {
+      if (err instanceof ScoreDeadline || (deadline !== undefined && Date.now() >= deadline))
+        throw err;
+      console.error(`[score] ${what} failed; not counted:`, err instanceof Error ? err.message : err);
+      return fallback;
     }
-    return false;
+  };
+  const receipts = new Map<string, Promise<UserOp[]>>();
+  /** The EntryPoint of a successful UserOp sent by `w` in one of these transactions, else null. */
+  const userOpEntryPoint = async (w: string, hashes: string[]) => {
+    for (const h of hashes) {
+      let p = receipts.get(h);
+      if (!p) receipts.set(h, (p = soft(`receipt of ${h}`, userOps(h), [])));
+      const op = (await p).find((o) => o.sender === w && o.success);
+      if (op) return op.entryPoint;
+    }
+    return null;
   };
   const never = new Set(
     [...ENTRY_POINTS, ...contracts, ...(opts.exclude ?? [])].map((w) => w.toLowerCase()),
@@ -713,9 +783,20 @@ export async function scoreEntry(
     const blockBefore = await blockAt(from);
     for (const w of all) {
       if (deadline !== undefined && Date.now() >= deadline) throw new ScoreDeadline();
-      if (!direct.has(w) && !(await viaEntryPoint(internal.get(w) ?? []))) continue;
-      const kind = await beforeDeadline(history(w, blockBefore), deadline);
-      if (kind) counted.push({ wallet: w, kind });
+      if (direct.has(w)) {
+        const kind = await beforeDeadline(history(w, blockBefore), deadline);
+        if (kind) counted.push({ wallet: w, kind });
+        continue;
+      }
+      const entryPoint = await userOpEntryPoint(w, internal.get(w) ?? []);
+      if (!entryPoint) continue;
+      const nonce = await soft(
+        `EntryPoint nonce of ${w}`,
+        epNonce(entryPoint, w, blockBefore),
+        null,
+      );
+      if (nonce !== null && nonce >= BigInt(MIN_EOA_NONCE))
+        counted.push({ wallet: w, kind: 'smart' });
     }
   } catch (err) {
     // An RPC aborted at the deadline throws its own error: past the deadline, any error is it.

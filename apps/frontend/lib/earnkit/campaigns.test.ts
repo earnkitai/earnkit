@@ -28,6 +28,8 @@ import {
   walletHistory,
   ENTRY_POINTS,
   INTERNAL_MAX_PAGES,
+  USER_OP_EVENT,
+  userOpsIn,
   type InternalPage,
   type TxPage,
   type CampaignConfig,
@@ -617,7 +619,8 @@ test('scoreEntry v2: internal callers count; the payout wallet, deployers, contr
       page([USER, PAYOUT, DEPLOYER, NEW, C].map((w, i) => ({ timestamp: at(10 + i), status: 'ok', from: { hash: w } }))) as TxPage,
     fetchInternal: async () =>
       page([SMART, ENTRY_POINTS[1]].map((w) => ({ timestamp: at(12), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xops' }))) as InternalPage,
-    txTo: async () => ENTRY_POINTS[1],
+    userOps: async () => [{ entryPoint: ENTRY_POINTS[1], sender: SMART, success: true }],
+    epNonce: async () => 5n,
     history: async (w) => (w === SMART ? 'smart' : w === NEW ? null : 'eoa'),
     exclude: [PAYOUT, DEPLOYER.toUpperCase().replace('0X', '0x')],
   });
@@ -695,27 +698,117 @@ test('scoreEntry: fetchPage without fetchInternal is refused (no silent skip of 
   );
 });
 
-test('scoreEntry: staged clones fanned out from a normal transaction count 0; EntryPoint handleOps accounts count', async () => {
-  const C = '0x' + 'c'.repeat(40);
-  const FACTORY = '0x' + 'f'.repeat(40);
-  const clones = [1, 2, 3].map((i) => '0x' + String(i).repeat(40));
-  const accounts = [7, 8].map((i) => '0x' + String(i).repeat(40));
-  const lookups: string[] = [];
-  const r = await scoreEntry([C], new Date(Date.UTC(2026, 9, 5, 0)), new Date(Date.UTC(2026, 9, 6, 0)), {
-    blockAt: async () => 1n,
-    fetchPage: async () => page([]) as TxPage,
-    fetchInternal: async () =>
-      page([
-        ...clones.map((w) => ({ timestamp: at(10), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xfan' })),
-        ...accounts.map((w) => ({ timestamp: at(11), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xops' })),
-      ]) as InternalPage,
-    txTo: async (hash) => {
-      lookups.push(hash);
-      return hash === '0xops' ? '0x0000000071727De22E5E9d8BAf0edAc6f37da032' : FACTORY;
-    },
-    history: async () => 'smart', // every clone had code at the start
+const V7 = '0x0000000071727de22e5e9d8baf0edac6f37da032';
+const addr = (d: string | number) => '0x' + String(d).repeat(40);
+/** One internal call to the contract per [caller, parent tx hash]. */
+const internalFrom = (calls: [string, string][]) => async () =>
+  page(calls.map(([w, h]) => ({ timestamp: at(10), success: true, type: 'call', from: { hash: w }, transaction_hash: h }))) as InternalPage;
+const window5 = [new Date(Date.UTC(2026, 9, 5, 0)), new Date(Date.UTC(2026, 9, 6, 0))] as const;
+const noDirect = async () => page([]) as TxPage;
+
+test('userOpsIn: reads UserOperationEvent (sender, success) logged by an EntryPoint; anything else is ignored', async () => {
+  const { encodeAbiParameters, pad } = await import('viem');
+  const S = addr(7);
+  const log = (address: string, success: boolean, topic0 = USER_OP_EVENT) => ({
+    address,
+    topics: [topic0, '0x' + 'ab'.repeat(32), pad(S as `0x${string}`), pad(addr(0) as `0x${string}`)],
+    data: encodeAbiParameters(
+      [{ type: 'uint256' }, { type: 'bool' }, { type: 'uint256' }, { type: 'uint256' }],
+      [0n, success, 1n, 1n],
+    ),
   });
-  assert.deepEqual(r.counted.map((c) => c.wallet).sort(), accounts);
-  assert.equal(r.seen, 5);
-  assert.deepEqual(lookups.sort(), ['0xfan', '0xops'], 'one lookup per parent transaction');
+  assert.deepEqual(userOpsIn([log('0x0000000071727De22E5E9d8BAf0edAc6f37da032', true)]), [{ entryPoint: V7, sender: S, success: true }]);
+  assert.deepEqual(userOpsIn([log(V7, false)]), [{ entryPoint: V7, sender: S, success: false }]);
+  assert.deepEqual(userOpsIn([log(addr('f'), true)]), [], 'not an EntryPoint');
+  assert.deepEqual(userOpsIn([log(V7, true, '0x' + '00'.repeat(32))]), [], 'another event');
+});
+
+test('scoreEntry: staged clones fanned out from a normal transaction count 0', async () => {
+  const clones = [1, 2, 3].map(addr);
+  const r = await scoreEntry([addr('c')], ...window5, {
+    blockAt: async () => 1n,
+    fetchPage: noDirect,
+    fetchInternal: internalFrom(clones.map((w) => [w, '0xfan'])),
+    userOps: async () => [], // an ordinary transaction: no UserOperationEvent
+    epNonce: async () => 9n,
+    history: async () => 'smart',
+  });
+  assert.deepEqual([r.score, r.seen], [0, 3]);
+});
+
+test('scoreEntry: clones fanned out inside a handleOps transaction count 0; the UserOp sender counts', async () => {
+  const S = addr(7);
+  const clones = [1, 2, 3].map(addr);
+  const lookups: string[] = [];
+  const r = await scoreEntry([addr('c')], ...window5, {
+    blockAt: async () => 1n,
+    fetchPage: noDirect,
+    fetchInternal: internalFrom([...clones.map((w): [string, string] => [w, '0xops']), [S, '0xops']]),
+    userOps: async (hash) => {
+      lookups.push(hash);
+      return [{ entryPoint: V7, sender: S, success: true }];
+    },
+    epNonce: async () => 9n,
+    history: async () => 'smart',
+  });
+  assert.deepEqual(r.counted, [{ wallet: S, kind: 'smart' }]);
+  assert.deepEqual(lookups, ['0xops'], 'one receipt per transaction');
+});
+
+test('scoreEntry: a UserOp that failed does not count', async () => {
+  const S = addr(7);
+  const r = await scoreEntry([addr('c')], ...window5, {
+    blockAt: async () => 1n,
+    fetchPage: noDirect,
+    fetchInternal: internalFrom([[S, '0xops']]),
+    userOps: async () => [{ entryPoint: V7, sender: S, success: false }],
+    epNonce: async () => 9n,
+    history: async () => 'smart',
+  });
+  assert.equal(r.score, 0);
+});
+
+test('scoreEntry: a smart account needs EntryPoint nonce (key 0) >= 3 at the start block, via its own EntryPoint', async () => {
+  const [A, B] = [7, 8].map(addr);
+  const asked: [string, string, bigint][] = [];
+  const r = await scoreEntry([addr('c')], ...window5, {
+    blockAt: async () => 41n,
+    fetchPage: noDirect,
+    fetchInternal: internalFrom([[A, '0xa'], [B, '0xb']]),
+    userOps: async (h) => [{ entryPoint: V7, sender: h === '0xa' ? A : B, success: true }],
+    epNonce: async (ep, w, block) => {
+      asked.push([ep, w, block]);
+      return w === A ? 2n : 3n;
+    },
+    history: async () => 'smart',
+  });
+  assert.deepEqual(r.counted, [{ wallet: B, kind: 'smart' }]);
+  assert.deepEqual(asked.sort(), [[V7, A, 41n], [V7, B, 41n]]);
+});
+
+test('scoreEntry: a failed receipt or nonce lookup means not counted (logged, cached), never a failed entry', async () => {
+  const [A, B, C2] = [7, 8, 9].map(addr);
+  const lookups: string[] = [];
+  const errors: unknown[] = [];
+  const original = console.error;
+  console.error = (...a: unknown[]) => { errors.push(a); };
+  try {
+    const r = await scoreEntry([addr('c')], ...window5, {
+      blockAt: async () => 1n,
+      fetchPage: noDirect,
+      fetchInternal: internalFrom([[A, '0xbad'], [B, '0xbad'], [C2, '0xok']]),
+      userOps: async (h) => {
+        lookups.push(h);
+        if (h === '0xbad') throw new Error('receipt not found');
+        return [{ entryPoint: V7, sender: C2, success: true }];
+      },
+      epNonce: async () => { throw new Error('execution reverted'); },
+      history: async () => 'smart',
+    });
+    assert.deepEqual([r.score, r.timedOut], [0, false]);
+    assert.deepEqual(lookups.sort(), ['0xbad', '0xok'], 'the failed receipt is cached, not retried');
+    assert.equal(errors.length, 2, 'one log for the receipt, one for the nonce');
+  } finally {
+    console.error = original;
+  }
 });

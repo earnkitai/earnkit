@@ -4,6 +4,7 @@ import {
   scoreEntry,
   type InternalPage,
   type TxPage,
+  type UserOp,
   type WalletKind,
 } from './campaigns';
 
@@ -41,7 +42,8 @@ export type ScoreDeps = {
     history?: (wallet: string, blockBefore: bigint) => Promise<WalletKind | null>;
     fetchPage?: (path: string) => Promise<TxPage>;
     fetchInternal?: (path: string) => Promise<InternalPage>;
-    txTo?: (hash: string) => Promise<string | null>;
+    userOps?: (hash: string) => Promise<UserOp[]>;
+    epNonce?: (entryPoint: string, sender: string, block: bigint) => Promise<bigint>;
   };
 };
 
