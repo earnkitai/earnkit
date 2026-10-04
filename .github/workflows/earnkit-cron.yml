@@ -20,7 +20,8 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          test -n "$CRON_SECRET" || { echo "CRON_SECRET is not set"; exit 1; }
+          # Not set up yet (before go-live): skip quietly instead of failing (and emailing) every hour.
+          test -n "$CRON_SECRET" || { echo "::notice::CRON_SECRET is not set; skipping."; exit 0; }
           # 503 (body shown): a campaign's payout waits on the owner; the failed run emails them.
           curl -sS --fail-with-body --max-time 540 -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
