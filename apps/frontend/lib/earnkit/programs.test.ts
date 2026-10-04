@@ -304,3 +304,14 @@ test('get_program: older rows are cleaned on read (no hidden or markup character
   assert.equal(d.sponsor_content?.what_to_build, 'Ship it bnow/b');
   assert.equal(d.sponsor_content?.criteria, "Best'code'");
 });
+
+test('v2.4 §7: an EarnKit campaign\'s build help is the campaign starter, not the grants kit or x402', () => {
+  const help = programDetails(fileRow(earnkitCampaign), [], []).build_help;
+  assert.equal(help[0].url, 'https://github.com/earnkitai/chain-kits/tree/main/base/campaign');
+  assert.equal(help[0].start, 'npx degit earnkitai/chain-kits/base/campaign my-entry');
+  assert.match(help[0].use, /people call directly/);
+  assert.match(help[0].use, /Builder Code/);
+  assert.ok(!help.some((h) => /needed for Base grants|x402/.test(h.use)));
+  const other = programDetails(fileRow(null), [], []).build_help;
+  assert.ok(other.some((h) => /needed for Base grants/.test(h.use)));
+});

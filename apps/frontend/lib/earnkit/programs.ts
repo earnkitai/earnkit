@@ -36,8 +36,18 @@ const AGENT_SERVICE_STARTER = {
   start: 'npx degit earnkitai/starter-agent-service my-service',
 };
 
+/** EarnKit's Base campaign starter (v2.4 §7): contracts people call directly, Builder Codes on every transaction. */
+const CAMPAIGN_STARTER = {
+  use:
+    "Campaign starter: a Base contract people call directly (so every user counts), with EarnKit's Builder Code on every transaction. Registering your own Builder Code at base.dev also qualifies you for Base rewards.",
+  url: `${KITS}/base/campaign`,
+  start: 'npx degit earnkitai/chain-kits/base/campaign my-entry',
+};
+
 /** Tested, EarnKit-maintained help for the chains a program uses. Read before building. */
-function buildHelp(chains: Chain[]) {
+function buildHelp(chains: Chain[], campaign?: CampaignConfig | null) {
+  // An EarnKit campaign scores users of the entry's contracts: only the starter that builds one.
+  if (campaign?.kind === 'earnkit') return [CAMPAIGN_STARTER];
   const help: { use: string; url: string; start: string }[] = [];
   if (chains.includes('arc')) {
     help.push({
@@ -383,7 +393,7 @@ export function programDetails(
     source_url: program.source_url,
     ...trustFor(program.source, program.verified_at),
     submission_url: program.submission_url,
-    build_help: buildHelp(program.chains),
+    build_help: buildHelp(program.chains, program.campaign),
     ...(program.campaign && {
       campaign:
         program.campaign.kind === 'earnkit'
