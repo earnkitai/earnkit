@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+
 /** Remote MCP clients can be browser-based (e.g. inspectors), so these endpoints allow any origin. */
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -33,3 +35,19 @@ export async function readParams(request: Request) {
   }
   return new URLSearchParams(await request.text());
 }
+
+/**
+ * Whether `given` equals `secret`, in constant time (both hashed first, so lengths don't leak). An
+ * unset secret, or one under 32 characters, never matches (v2.4 §8). Pure; exported for tests.
+ */
+export function secretMatches(given: string | null | undefined, secret: string | undefined) {
+  if (!secret || secret.length < 32 || !given) return false;
+  return timingSafeEqual(
+    createHash('sha256').update(given).digest(),
+    createHash('sha256').update(secret).digest(),
+  );
+}
+
+/** "Authorization: Bearer <secret>". Pure. */
+export const bearerMatches = (header: string | null, secret: string | undefined) =>
+  secretMatches(/^Bearer (\S+)$/.exec(header ?? '')?.[1], secret);

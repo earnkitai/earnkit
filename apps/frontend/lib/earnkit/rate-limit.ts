@@ -29,6 +29,8 @@ export const LIMITS = {
   tokenLaunch: { limit: 3, windowSeconds: 86_400 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
+  /** POST /api/cron, per client IP (v2.4 §8). */
+  cron: { limit: 30, windowSeconds: 3_600 },
 } as const;
 
 /** Campaign entries one installation may record in one campaign (checked in recordSubmission). */

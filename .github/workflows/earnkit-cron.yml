@@ -1,0 +1,26 @@
+# EarnKit's automatic campaign lifecycle (v2.4 §3): scoring, freezing, the 48 h review, payouts,
+# and the token-fee refresh. Runs hourly; the endpoint scores a running campaign only once its
+# scores are 20 h old (1 h in the last day), so the effect is daily plus hourly at the end.
+# Free tier: one short job an hour. Needs the repo secret CRON_SECRET (same value as on Railway).
+name: EarnKit cron
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: earnkit-cron
+  cancel-in-progress: false
+jobs:
+  cron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST https://earnkit.com/api/cron
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo "CRON_SECRET is not set"; exit 1; }
+          curl -fsS --max-time 540 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://earnkit.com/api/cron
