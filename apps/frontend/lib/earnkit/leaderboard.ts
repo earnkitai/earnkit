@@ -1,8 +1,17 @@
-import type { CampaignConfig, SponsorState, YourEntry } from './campaigns';
+import {
+  prizeColumn,
+  prizeUsdEach,
+  type CampaignConfig,
+  type EarnKitCampaign,
+  type SponsorState,
+  type YourEntry,
+} from './campaigns';
 import { sql } from './db';
+import type { CampaignRow } from './present';
 import type { TokenPolicy } from './program-file';
 import { sponsorIdentity, trackRecord } from './sponsor-verify';
 import { shownUrl } from './untrusted-text';
+import { rankEntries, standingText, type Candidate, type RunState } from './winners';
 
 export type BoardRow = {
   id: number;
@@ -152,4 +161,72 @@ export async function entryNames(ids: number[]) {
   const rows = await sql()<{ id: number; name: string }[]>`
     SELECT id, name FROM projects WHERE id IN ${sql()(ids.concat(0))}`;
   return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+/** Every entry of these campaigns as winner selection reads it. */
+export async function campaignCandidates(programIds: string[]) {
+  if (programIds.length === 0) return [];
+  return sql()<(Candidate & { program_id: string })[]>`
+    SELECT id, program_id, score, submitted_at, payout_wallet, installation_id, vetoed_at,
+      payout_status, prize_tx
+    FROM projects
+    WHERE program_id IN ${sql()(programIds)} AND payout_wallet IS NOT NULL`;
+}
+
+/** One EarnKit campaign row for list_programs (v2.4 §1): live numbers and the builder's best standing. Pure; exported for tests. */
+export function campaignRow(
+  p: { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed'; state: RunState | null },
+  entries: Candidate[],
+  mine: Set<number>,
+  now: Date,
+): CampaignRow {
+  const c = p.campaign as EarnKitCampaign;
+  const ranked = rankEntries(entries);
+  const ended = p.ends_at <= now;
+  const state = p.state ?? 'running';
+  const own = entries.filter((e) => mine.has(e.id));
+  // The builder's best entry: the best-ranked scored one, else any.
+  const best = rankEntries(own)[0] ?? own[0];
+  return {
+    id: p.id,
+    title: p.title,
+    prize: prizeColumn(c),
+    prize_usd_each: prizeUsdEach(c),
+    ends_at: p.ends_at,
+    entries: entries.length,
+    cutoff: ranked.length >= c.winners ? ranked[c.winners - 1].score : null,
+    winners: c.winners,
+    you: best ? standingText(best, entries, c, { state, ended }) : null,
+    open: !ended && p.status === 'active',
+  };
+}
+
+/**
+ * EarnKit campaigns for the first message: open ones, plus ended ones not yet paid out where this
+ * installation (or one of its wallets) has an entry (v2.4 §1, §5).
+ */
+export async function earnkitCampaignRows(installationId: number, now = new Date()) {
+  const db = sql();
+  const mineSql = () => db`(x.installation_id = ${installationId}
+    OR lower(x.payout_wallet) IN (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
+  const programs = await db<
+    { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed'; state: RunState | null }[]
+  >`
+    SELECT p.id, p.title, p.campaign, p.ends_at, p.status, r.state
+    FROM programs p LEFT JOIN campaign_runs r ON r.program_id = p.id
+    WHERE p.campaign->>'kind' = 'earnkit' AND p.ends_at IS NOT NULL AND (
+      (p.status = 'active' AND p.ends_at > ${now})
+      OR (COALESCE(r.state, 'running') <> 'paid' AND p.ends_at <= ${now}
+          AND EXISTS (SELECT 1 FROM projects x WHERE x.program_id = p.id AND ${mineSql()})))
+    ORDER BY p.ends_at`;
+  if (programs.length === 0) return [];
+  const entries = await campaignCandidates(programs.map((p) => p.id));
+  const mine = new Set(
+    (await db<{ id: number }[]>`
+      SELECT x.id FROM projects x WHERE x.program_id IN ${db(programs.map((p) => p.id))} AND ${mineSql()}`).map((r) => r.id),
+  );
+  // The larger prize per winner first, then the earlier end (controller ruling 12).
+  return programs
+    .map((p) => campaignRow(p, entries.filter((e) => e.program_id === p.id), mine, now))
+    .sort((a, b) => b.prize_usd_each - a.prize_usd_each || a.ends_at.getTime() - b.ends_at.getTime());
 }

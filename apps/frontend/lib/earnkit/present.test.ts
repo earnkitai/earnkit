@@ -2,413 +2,189 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   closesInDays,
-  presentPrograms,
-  presentSinceLastCheck,
+  endsOf,
+  fieldText,
+  presentFirstMessage,
+  programAlerts,
+  table,
   type Card,
+  type CampaignRow,
+  type FirstMessage,
 } from './present';
 import type { Verdict } from './match';
 
-const cards: Card[] = [
-  {
-    id: 'big',
-    title: 'Big Hack',
-    summary: '$100K · closes Oct 12',
-    tag: 'long shot',
-    each_time: ['a pitch video'],
-  },
-  {
-    id: 'grant',
-    title: 'Grant',
-    summary: 'up to $5K · rolling',
-    tag: 'needs a live product',
-    each_time: [],
-  },
-  {
-    id: 'micro',
-    title: 'Micro',
-    summary: '500 USDC × 20 · closes Oct 14',
-    tag: null,
-    each_time: [],
-  },
-];
-
-test('no repos: one line per program, approve-only first, who-does-what said once', () => {
-  const text = presentPrograms(cards, true);
-  assert.equal(
-    text,
-    [
-      '- **Micro** · 500 USDC × 20 · closes Oct 14\n' +
-        '- **Grant** · up to $5K · rolling · needs a live product\n' +
-        '- **Big Hack** · $100K · closes Oct 12 · long shot',
-      "Pick one and I'll start. I build, deploy, and submit; you approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
-    ].join('\n\n'),
-  );
-  assert.ok(!text.includes('Me:'));
+const NOW = new Date('2026-10-04T12:00:00Z');
+const campaign: CampaignRow = {
+  id: 'earnkit-campaign-1-base',
+  title: 'EarnKit Campaign #1: Base apps with real users',
+  prize: '$100 each to top 5 (in MINI)',
+  prize_usd_each: 100,
+  ends_at: new Date('2026-10-18T23:59:00Z'),
+  entries: 12,
+  cutoff: 14,
+  winners: 5,
+  you: null,
+  open: true,
+};
+const base: Card = {
+  id: 'base-builder-grants', title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling',
+  tag: 'needs a live product', each_time: ['a short Loom', 'usage numbers'], ends_at: null, max_award_usd: 5000, builder_fields: 10,
+};
+const arc: Card = {
+  id: 'arc-microgrants', title: 'Arc Microgrants', summary: '500 USDC × 20 grants · closes Oct 14, 11:59 PM ET',
+  tag: null, each_time: [], ends_at: new Date('2026-10-15T03:59:00Z'), max_award_usd: 500, builder_fields: 1,
+};
+const monad: Card = {
+  id: 'monad-metropolis', title: 'Monad Metropolis Hackathon', summary: '$250K+ prize pool · closes Oct 13, 11:59 PM ET',
+  tag: 'long shot', each_time: [], ends_at: new Date('2026-10-14T03:59:00Z'), builder_fields: 0,
+};
+const circle: Card = {
+  id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling',
+  tag: 'needs a live product', each_time: ['a milestone plan'], ends_at: null, builder_fields: 0,
+};
+const colosseum: Card = {
+  id: 'colosseum-worlds-fair', title: "Crypto World's Fair Hackathon", summary: 'Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT',
+  tag: 'long shot', each_time: ['a pitch video', 'a demo video'], ends_at: new Date('2026-10-13T06:59:00Z'), builder_fields: 4,
+};
+const tiny: Card = {
+  id: 'tiny', title: 'Tiny Bounty', summary: '50 USDC · closes Oct 9', tag: null, each_time: [],
+  ends_at: new Date('2026-10-09T23:59:00Z'), max_award_usd: 50, builder_fields: 0,
+};
+const sponsored: Card = {
+  id: 'sponsor-abc', title: '"Build on Acme"', summary: 'by "Acme" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 20',
+  tag: null, each_time: [], ends_at: new Date('2026-10-20T00:00:00Z'), sponsored: true, max_award_usd: 300,
+};
+const v = (program_id: string, status: Verdict['status'], note: string, effort: Verdict['effort'] = 'none'): Verdict => ({
+  program_id, program: program_id, status, missing: [], effort, note,
 });
-
-test('chat-only agent is honest about who builds', () => {
-  const text = presentPrograms(cards, false);
-  assert.match(text, /can't build or deploy from here/);
-  assert.match(text, /coding agent/);
-});
-
-const v = (
-  program_id: string,
-  status: Verdict['status'],
-  note: string,
-  effort: Verdict['effort'] = 'none',
-): Verdict => ({
-  program_id,
-  program: program_id === 'micro' ? 'Micro' : program_id,
-  status,
-  missing: [],
-  effort,
-  note,
-});
-
-const tipjar = {
+const repos = (...verdicts: Verdict[]) => ({
   checked: 1,
-  fits: [
-    {
-      repo: 'tipjar',
-      repo_url: 'https://github.com/dev/tipjar',
-      verdicts: [
-        v(
-          'grant',
-          'after_step',
-          'needs a live product with real users',
-          'weeks',
-        ),
-        v('micro', 'after_step', 'needs a live link', 'minutes'),
-      ],
-    },
-  ],
-};
-
-test('repo fits: money headline with the fastest, repo linked, one offer, nothing repeated', () => {
-  const text = presentPrograms(cards, true, tipjar);
-  assert.equal(
-    text,
-    [
-      'Your repos can enter 2 programs. Fastest: **Micro** with tipjar (needs a live link).',
-      '**[tipjar](https://github.com/dev/tipjar)**\n' +
-        '- **Micro** · 500 USDC × 20 · closes Oct 14 · needs a live link\n' +
-        '- **Grant** · up to $5K · rolling · needs a live product with real users',
-      '**Also open**\n- **Big Hack** · $100K · closes Oct 12 · long shot',
-      "Want me to start on Micro? I build, deploy, and submit; you approve before anything is sent, and I'll say up front if it needs something only you can give, like a pitch video.",
-    ].join('\n\n'),
-  );
+  fits: [{ repo: 'tipjar', repo_url: null, verdicts }],
 });
-
-test('working on: shown first with its note, not repeated, and the offer is to keep going', () => {
-  const text = presentPrograms(cards, true, tipjar, ['grant']);
-  assert.match(
-    text,
-    /\n\n\*\*You're working on\*\*\n- \*\*Grant\*\* · up to \$5K · rolling · needs a live product with real users\n\n/,
-  );
-  assert.equal(text.match(/\*\*Grant\*\*/g)!.length, 1);
-  assert.match(text, /Want me to keep going on Grant\?/);
-  const onFastest = presentPrograms(cards, true, tipjar, ['micro']);
-  assert.match(
-    onFastest,
-    /^Your repos can enter 2 programs\.\n\n\*\*You're working on\*\*/,
-  );
+const msg = (m: Partial<FirstMessage>): FirstMessage => ({
+  alerts: [], campaigns: [], cards: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: NOW, ...m,
 });
+const noEmoji = (s: string) => assert.doesNotMatch(s, /\p{Extended_Pictographic}/u);
 
-test('no repo fits, or GitHub failed: say so in one line, then the programs', () => {
-  const none = presentPrograms(cards, true, { checked: 3, fits: [] });
-  assert.match(
-    none,
-    /^None of your 3 repos fits an open program yet\.\n\n- \*\*Micro\*\*/,
-  );
-  assert.ok(!none.includes('Also open'));
-  const err = presentPrograms(cards, true, { error: 'no such user' });
-  assert.match(err, /^Couldn't read your repos: no such user\n\n- /);
-});
-
-test('empty list', () => {
-  assert.equal(
-    presentPrograms([], true),
-    'No open programs right now. Check back soon.',
-  );
-});
-
-test('closing soon: within 3 days only, never negative', () => {
-  const now = new Date('2026-10-01T12:00:00Z');
-  const at = (h: number) => new Date(now.getTime() + h * 3600_000);
-  assert.equal(closesInDays(null, now), null);
-  assert.equal(closesInDays(at(5), now), 0);
-  assert.equal(closesInDays(at(30), now), 1);
-  assert.equal(closesInDays(at(80), now), 3);
-  assert.equal(closesInDays(at(100), now), null);
-  assert.equal(closesInDays(at(-5), now), 0);
-});
-
-test('since-last-check line and per-program flags', () => {
-  const list: Card[] = [
-    {
-      id: 'f',
-      title: 'Fresh',
-      summary: 's',
-      tag: null,
-      each_time: [],
-      is_new: true,
-    },
-    {
-      id: 'u',
-      title: 'Urgent',
-      summary: 's',
-      tag: 'long shot',
-      each_time: [],
-      closes_in_days: 1,
-    },
-    { id: 'q', title: 'Quiet', summary: 's', tag: null, each_time: [] },
-  ];
-  assert.equal(
-    presentSinceLastCheck(list),
-    'Since you last checked: new: Fresh · Urgent closes in 1 day',
-  );
-  assert.equal(presentSinceLastCheck([list[2]]), null);
-  assert.match(presentSinceLastCheck(list, true)!, /^Heads up: /);
-  const text = presentPrograms(list, true);
-  assert.match(text, /- \*\*Fresh\*\* · s · new\n/);
-  assert.match(text, /- \*\*Urgent\*\* · s · closes in 1 day · long shot/);
-});
-
-test('review I4: "since you last checked" names only curated or verified items', () => {
-  const card = (id: string, extra: Partial<Card>): Card => ({
-    id,
-    title: `"${id}"`,
-    summary: 's',
-    tag: null,
-    each_time: [],
-    ...extra,
-  });
-  const list = [
-    card('Curated', { is_new: true }),
-    // Verified or not, a sponsor's title is never named here (re-audit H4).
-    card('Verified Grant', { is_new: true, sponsored: true }),
-    card('Base Builder Grant — 9,000 USDC', {
-      is_new: true,
-      sponsored: true,
-    }),
-    card('Scam Two', { is_new: true, sponsored: true }),
-    card('Scam Closing', { closes_in_days: 0, sponsored: true }),
-  ];
-  const since = presentSinceLastCheck(list)!;
-  assert.equal(
-    since,
-    'Since you last checked: new: "Curated" · 3 new sponsored campaigns',
-  );
-  for (const t of ['Verified', 'Base Builder', 'Scam'])
-    assert.ok(!since.includes(t), t);
-  assert.equal(
-    presentSinceLastCheck([list[3]]),
-    'Since you last checked: 1 new sponsored campaign',
-  );
-  assert.equal(presentSinceLastCheck([list[4]]), null);
-});
-
-test('repos that only fit programs already shown are named in one line, not hidden', () => {
-  const twin = (repo: string) => ({
-    repo,
-    repo_url: `https://github.com/dev/${repo}`,
-    verdicts: [v('micro', 'after_step', 'needs a live link', 'minutes')],
-  });
-  const text = presentPrograms(cards, true, {
-    checked: 5,
-    fits: [twin('a'), twin('b'), twin('c'), twin('d'), twin('e')],
-  });
-  assert.equal(text.match(/\*\*Micro\*\*/g)!.length, 2); // headline + one line
-  assert.match(
-    text,
-    /More of your repos fit too: b, c, d, \+1 more\. Name one/,
-  );
-});
-
-test('reported (private) repos have no link', () => {
-  const text = presentPrograms(cards, true, {
-    checked: 1,
-    fits: [
-      {
-        repo: 'secret',
-        repo_url: null,
-        verdicts: [v('micro', 'likely', 'looks eligible')],
-      },
-    ],
-  });
-  assert.match(text, /\n\n\*\*secret\*\*\n- \*\*Micro\*\*/);
-});
-
-test('equally quick fits: the larger known per-winner award is "Fastest" and listed first', () => {
-  const priced: Card[] = [
-    { ...cards[2], max_award_usd: 500 },
-    { ...cards[1], tag: null, max_award_usd: 5000 },
-    {
-      id: 'unknown',
-      title: 'Unknown',
-      summary: 'rolling',
-      tag: null,
-      each_time: [],
-    },
-  ];
-  const repo = (order: string[]) => ({
-    checked: 1,
-    fits: [
-      {
-        repo: 'app',
-        repo_url: null,
-        verdicts: order.map((id) => ({
-          ...v(id, 'likely', `ready for ${id}`),
-          program: id,
-        })),
-      },
-    ],
-  });
-  for (const order of [
-    ['micro', 'grant', 'unknown'],
-    ['unknown', 'micro', 'grant'],
-  ]) {
-    const text = presentPrograms(priced, true, repo(order));
-    assert.match(text, /Fastest: \*\*grant\*\* with app \(ready for grant\)/);
-    const lines = text.split('\n').filter((l) => l.startsWith('- **'));
-    assert.deepEqual(
-      lines.map((l) => l.split('**')[1]),
-      ['Grant', 'Micro', 'Unknown'],
-    );
-  }
-  // A quicker fit still wins over a bigger prize.
-  const quicker = presentPrograms(priced, true, {
-    checked: 1,
-    fits: [
-      {
-        repo: 'app',
-        repo_url: null,
-        verdicts: [
-          {
-            ...v('grant', 'after_step', 'deploy to mainnet', 'hours'),
-            program: 'grant',
-          },
-          { ...v('micro', 'likely', 'ready'), program: 'micro' },
-        ],
-      },
-    ],
-  });
-  assert.match(quicker, /Fastest: \*\*micro\*\*/);
-});
-
-// M4: a sponsor campaign with every chain, existing work allowed and 1 winner fits most repos
-// with no effort and the largest per-winner award.
-const capture: Card = {
-  id: 'sponsor-x',
-  title: '"Official Base Grant"',
-  summary:
-    'by "Base" · Sponsored · unverified · 10,000 USDC pool in escrow · closes Oct 20',
-  tag: null,
-  each_time: [],
-  max_award_usd: 9000,
-  sponsored: true,
-};
-const captureFits = {
-  checked: 1,
-  fits: [
-    {
-      repo: 'tipjar',
-      repo_url: 'https://github.com/dev/tipjar',
-      verdicts: [
-        v('sponsor-x', 'likely', 'existing work counts', 'none'),
-        v('micro', 'after_step', 'needs a live link', 'minutes'),
-      ],
-    },
-  ],
-};
-
-test('sponsor campaign: listed, but never "Fastest" or the closing offer', () => {
-  const text = presentPrograms([capture, ...cards], true, captureFits);
-  assert.match(
-    text,
-    /^Your repos can enter 2 programs\. Fastest: \*\*Micro\*\* with tipjar \(needs a live link\)\./,
-  );
-  assert.match(text, /Want me to start on Micro\?/);
-  // Still listed, with its label.
-  assert.match(
-    text,
-    /- \*\*"Official Base Grant"\*\* · by "Base" · Sponsored · unverified/,
-  );
-  assert.doesNotMatch(text, /Fastest: \*\*sponsor-x|start on sponsor-x/);
-});
-
-test('sponsor campaign: the only fit gets no "Fastest" and no offer', () => {
-  const only = {
-    checked: 1,
-    fits: [
-      { ...captureFits.fits[0], verdicts: [captureFits.fits[0].verdicts[0]] },
-    ],
-  };
-  const text = presentPrograms([capture, ...cards], true, only);
-  assert.match(text, /^Your repos can enter 1 program\.\n\n/);
-  assert.doesNotMatch(text, /Fastest/);
-  assert.match(text, /Pick one and I'll start\./);
-  // Working on it: still not offered.
-  const working = presentPrograms([capture, ...cards], true, only, [
-    'sponsor-x',
-  ]);
-  assert.doesNotMatch(working, /keep going on/);
-  assert.match(working, /Pick one and I'll start\./);
-});
-
-// Re-audit H4: "verified" is free (any domain the sponsor controls) and brand-blind, so it earns
-// no placement; it only changes the label.
-test('a verified sponsor campaign is never "Fastest" or the offer either (re-audit H4)', () => {
-  const verified = {
-    ...capture,
-    summary: capture.summary.replace(
-      'unverified',
-      'verified coinbase-grants.vercel.app',
+test('v2.4 §1 golden: alerts, the campaign, what the repos qualify for, one offer (the spec example)', () => {
+  const text = presentFirstMessage(msg({
+    alerts: ['your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc)'],
+    campaigns: [campaign],
+    cards: [base, arc],
+    repos: repos(
+      v('base-builder-grants', 'likely', 'looks eligible if it has real users'),
+      v('arc-microgrants', 'likely', 'looks eligible'),
     ),
-  };
-  const text = presentPrograms([verified, ...cards], true, captureFits);
-  assert.doesNotMatch(text, /Fastest: \*\*sponsor-x|start on sponsor-x/);
-  assert.match(text, /Fastest: \*\*Micro\*\*/);
-  assert.match(text, /Sponsored · verified coinbase-grants\.vercel\.app/);
+  }));
+  assert.equal(text, [
+    'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
+    '| Win | Prize | Ends | You |\n|---|---|---|---|\n| EarnKit Campaign #1: Base apps with real users | $100 each to top 5 (in MINI) | Oct 18, 14 days left | 12 entered, #5 has 14 users |',
+    'Your repos already qualify for:\n\n| Program | Prize | Ends | Repo |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants | Oct 14 | tipjar |',
+    'Want me to build your entry for the $100?',
+  ].join('\n\n'));
+  noEmoji(text);
 });
 
-// Re-audit M6: sponsor campaigns get their own short section after curated programs.
-test('sponsor campaigns come last, in their own labeled "Sponsored" section (re-audit M6)', () => {
-  const text = presentPrograms([capture, ...cards], true);
-  assert.match(
-    text,
-    /^- \*\*Micro\*\*.*\n- \*\*Grant\*\*.*\n- \*\*Big Hack\*\*.*\n\n\*\*Sponsored\*\* \(set by sponsors; EarnKit didn't write or check them\)\n- \*\*"Official Base Grant"\*\* · by "Base" · Sponsored · unverified/,
+test('golden: an entered builder, a fit that needs a step, other programs (at most 5), sponsored last, the fastest offer', () => {
+  const text = presentFirstMessage(msg({
+    campaigns: [{ ...campaign, you: '#3, in the top 5' }],
+    cards: [arc, base, monad, circle, colosseum, tiny, sponsored],
+    repos: repos(v('arc-microgrants', 'after_step', 'needs a live link', 'minutes'), v('sponsor-abc', 'likely', 'looks eligible')),
+  }));
+  assert.equal(text, [
+    '| Win | Prize | Ends | You |\n|---|---|---|---|\n| EarnKit Campaign #1: Base apps with real users | $100 each to top 5 (in MINI) | Oct 18, 14 days left | #3, in the top 5 |',
+    'Your repos can enter:\n\n| Program | Prize | Ends | Repo |\n|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants | Oct 14 | tipjar, needs a live link |',
+    "Also open:\n\n| Program | Prize | Ends |\n|---|---|---|\n| Base Builder Grant Program | up to $5,000 | rolling |\n| Tiny Bounty | 50 USDC | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks | Oct 12 |\n| Monad Metropolis Hackathon | $250K+ prize pool | Oct 13 |\n| Circle Developer Grants | milestone-based USDC grants | rolling |",
+    'Sponsored (set by sponsors; EarnKit didn\'t write or check them):\n\n| Campaign | Details |\n|---|---|\n| "Build on Acme" | by "Acme" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 20 |',
+    'Want me to start on Arc Microgrants with tipjar?',
+  ].join('\n\n'));
+  noEmoji(text);
+});
+
+test('other programs are capped at 5 rows, with one line for the rest', () => {
+  const more = Array.from({ length: 7 }, (_, i) => ({ ...tiny, id: `t${i}`, title: `Bounty ${i}` }));
+  const text = presentFirstMessage(msg({ cards: more }));
+  assert.equal((text.match(/^\| Bounty /gm) ?? []).length, 5);
+  assert.match(text, /\n\n2 more open: ask me for the full list\.\n\n/);
+  assert.match(text, /^Open now:/);
+});
+
+test('Fastest: prize per hour of effort; programs needing videos or forms never go first', () => {
+  // The grant pays most per hour but needs a Loom and 10 personal answers: Arc is offered.
+  const text = presentFirstMessage(msg({
+    campaigns: [{ ...campaign, you: '#3, in the top 5' }],
+    cards: [base, arc],
+    repos: repos(v('base-builder-grants', 'likely', 'looks eligible', 'none'), v('arc-microgrants', 'after_step', 'needs a live link', 'minutes')),
+  }));
+  assert.match(text, /Want me to start on Arc Microgrants with tipjar\?$/);
+  // Only forms programs fit: no "start on", the generic offer.
+  const only = presentFirstMessage(msg({ cards: [base], repos: repos(v('base-builder-grants', 'likely', 'looks eligible')) }));
+  assert.match(only, /Pick one and I'll start\.$/);
+});
+
+test('one offer: keep going beats the campaign; a sponsor campaign is never offered or in the repo table', () => {
+  const resume = presentFirstMessage(msg({ campaigns: [campaign], cards: [arc], workingOn: ['arc-microgrants'] }));
+  assert.match(resume, /Want me to keep going on Arc Microgrants\?$/);
+  const sponsorOnly = presentFirstMessage(msg({ cards: [sponsored], repos: repos(v('sponsor-abc', 'likely', 'looks eligible')) }));
+  assert.doesNotMatch(sponsorOnly, /Your repos/);
+  assert.match(sponsorOnly, /None of your 1 repos fits an open program yet\./);
+  assert.match(sponsorOnly, /Pick one and I'll start\.$/);
+});
+
+test('chat-only agents are told honestly; repo errors in one line; nothing open', () => {
+  assert.match(presentFirstMessage(msg({ cards: [arc], agentCanBuild: false })), /can't build or deploy from here/);
+  assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /^Couldn't read your repos: GitHub said no/);
+  assert.equal(presentFirstMessage(msg({})), 'No open programs right now. Check back soon.');
+  assert.equal(
+    presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'] })),
+    'Since you last checked: you won $100 in MINI with Tip Jar (basescan.org/tx/0x1).\n\nNo open programs right now. Check back soon.',
   );
 });
 
-test("review m3, re-audit M6: a sponsor campaign is never in a repo's list", () => {
-  const text = presentPrograms([capture, ...cards], true, captureFits);
-  const repo = text.slice(
-    text.indexOf('**[tipjar]'),
-    text.indexOf('**Sponsored**'),
-  );
-  assert.match(repo, /\*\*Micro\*\*/);
-  assert.doesNotMatch(repo, /Official Base Grant/);
-  // Listed under Sponsored with what it needs from the repo.
-  assert.match(
-    text.slice(text.indexOf('**Sponsored**')),
-    /"Official Base Grant".* · existing work counts/,
-  );
+test('an ended campaign the builder is in shows how it ended for them', () => {
+  const text = presentFirstMessage(msg({ campaigns: [{ ...campaign, open: false, you: 'in review' }] }));
+  assert.match(text, /\| EarnKit Campaign #1: Base apps with real users \| \$100 each to top 5 \(in MINI\) \| ended Oct 18 \| in review \|/);
+  assert.doesNotMatch(text, /build your entry/);
 });
 
-test('a repo whose only fits are sponsored campaigns is not named in "More of your repos" (T9 review M10)', () => {
-  const onlySponsored = {
-    checked: 2,
-    fits: [
-      captureFits.fits[0],
-      {
-        repo: 'side',
-        repo_url: 'https://github.com/dev/side',
-        verdicts: [v('sponsor-x', 'likely', 'existing work counts', 'none')],
-      },
-    ],
-  };
-  const text = presentPrograms([capture, ...cards], true, onlySponsored);
-  assert.doesNotMatch(text, /More of your repos fit too/);
+test('Review Focus 5: a "|" in a cell is escaped so the table renders', () => {
+  assert.equal(table(['A', 'B'], [['x | y', 'z']]), '| A | B |\n|---|---|\n| x \\| y | z |');
+  const text = presentFirstMessage(msg({ cards: [{ ...arc, title: 'Arc | Grants' }] }));
+  assert.match(text, /\| Arc \\\| Grants \|/);
+});
+
+test('fieldText and endsOf', () => {
+  assert.equal(fieldText({ ...campaign, entries: 0, cutoff: null }), 'no entries yet');
+  assert.equal(fieldText({ ...campaign, entries: 3, cutoff: null }), '3 entered, top 5 not full');
+  assert.equal(endsOf(arc), 'Oct 14');
+  assert.equal(endsOf(base), 'rolling');
+  assert.equal(endsOf({ ...arc, summary: '500 USDC' }), 'Oct 15');
+});
+
+test('programAlerts: curated programs by name, sponsored ones counted, nothing on a first check', () => {
+  const cards: Card[] = [
+    { ...arc, is_new: true },
+    { ...tiny, closes_in_days: 1 },
+    { ...sponsored, is_new: true },
+  ];
+  assert.deepEqual(programAlerts(cards, false), ['new: Arc Microgrants', '1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  assert.deepEqual(programAlerts(cards, true), []);
+});
+
+test('closesInDays: within 3 days only, never negative', () => {
+  const now = new Date('2026-10-04T00:00:00Z');
+  assert.equal(closesInDays(new Date('2026-10-06T12:00:00Z'), now), 2);
+  assert.equal(closesInDays(new Date('2026-10-20T00:00:00Z'), now), null);
+  assert.equal(closesInDays(new Date('2026-10-03T00:00:00Z'), now), 0);
+  assert.equal(closesInDays(null, now), null);
+});
+
+test('ruling 12: EarnKit campaigns by prize per winner, then the earlier end; the offer names the top one', () => {
+  const small = { ...campaign, id: 'c-small', title: 'Small', prize_usd_each: 50, ends_at: new Date('2026-10-08T00:00:00Z') };
+  const bigLate = { ...campaign, id: 'c-big-late', title: 'Big late', prize_usd_each: 200, ends_at: new Date('2026-10-30T00:00:00Z') };
+  const bigSoon = { ...campaign, id: 'c-big-soon', title: 'Big soon', prize_usd_each: 200, ends_at: new Date('2026-10-20T00:00:00Z') };
+  const text = presentFirstMessage(msg({ campaigns: [small, bigLate, bigSoon] }));
+  const order = [...text.matchAll(/^\| (Small|Big late|Big soon) \|/gm)].map((m) => m[1]);
+  assert.deepEqual(order, ['Big soon', 'Big late', 'Small']);
+  assert.match(text, /Want me to build your entry for the \$200\?$/);
 });

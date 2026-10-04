@@ -167,6 +167,8 @@ export async function listPrograms() {
       | 'source'
       | 'campaign'
       | 'max_award_usd'
+      | 'opened_at'
+      | 'submission_requirements'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -175,7 +177,7 @@ export async function listPrograms() {
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
-      sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.opened_at, p.submission_requirements, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST`;
@@ -221,6 +223,8 @@ export function programCard(
     | 'source'
     | 'campaign'
     | 'max_award_usd'
+    | 'opened_at'
+    | 'submission_requirements'
   >,
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
@@ -256,6 +260,11 @@ export function programCard(
     // Its own "Sponsored" section; never the "Fastest" headline or the closing offer (present.ts).
     sponsored,
     tracks,
+    opened_at: p.opened_at,
+    // v2.4 §6: answers only the builder can give; over 2 never goes first ("fastest").
+    builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
+    // Shown in the campaigns table, not as a program card (v2.4 §1).
+    earnkit_campaign: p.campaign?.kind === 'earnkit',
   };
 }
 

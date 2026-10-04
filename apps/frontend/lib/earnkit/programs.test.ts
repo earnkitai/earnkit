@@ -8,7 +8,7 @@ import {
   trustFor,
   type ProgramRow,
 } from './programs';
-import { presentPrograms } from './present';
+import { presentFirstMessage } from './present';
 import { trackRecordOf } from './sponsor-identity';
 import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
 
@@ -246,10 +246,13 @@ test('get_program: a verified sponsor shows its host', () => {
 test('list_programs: a sponsor campaign shows only its quoted title and sponsor name', () => {
   for (const legacy of [false, true]) {
     const card = programCard(sponsorRow(legacy), []);
-    const text = presentPrograms([card], true);
+    const text = presentFirstMessage({
+      alerts: [], campaigns: [], cards: [card], repos: null, workingOn: [], agentCanBuild: true,
+      sponsorEntries: null, now: new Date('2026-10-04T00:00:00Z'),
+    });
     assert.match(
       text,
-      /^- \*\*"Best x402 service"\*\* · by "Acme Labs" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 6$/m,
+      /^\| "Best x402 service" \| by "Acme Labs" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 6 \|$/m,
     );
     assert.equal(card.sponsored, true);
     const verified = programCard(sponsorRow(legacy), [], {
