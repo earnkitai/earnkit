@@ -8,6 +8,9 @@ import {
   keccak256,
   parseTransaction,
   parseUnits,
+  recoverTransactionAddress,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount, type LocalAccount } from 'viem/accounts';
@@ -35,11 +38,14 @@ type Receipt = { status: 'success' | 'reverted' };
 export type PayoutRpc = {
   getChainId: () => Promise<number>;
   nonce: (address: Hex) => Promise<number>;
-  /** Transactions mined from `address` (the 'latest' nonce): a nonce below it is used for good. */
-  confirmedNonce: (address: Hex) => Promise<number>;
+  /** Transactions from `address` in finalized blocks: a nonce below it is used for good (no reorg). */
+  finalizedNonce: (address: Hex) => Promise<number>;
   fees: () => Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
   estimateGas: (a: { account: Hex; to: Hex; data: Hex }) => Promise<bigint>;
+  /** Null ONLY when the node says there is no such receipt (typed not-found); any other error throws. */
   receipt: (hash: Hex) => Promise<Receipt | null>;
+  /** Whether the node knows the transaction; false ONLY on a typed not-found, any other error throws. */
+  transaction: (hash: Hex) => Promise<boolean>;
   /**
    * 'sent' (accepted), 'known' (the node already has these bytes) or 'stale' (rejected as "nonce
    * too low": that nonce is already used). Anything else throws.
@@ -64,13 +70,30 @@ export function payoutRpc(url = process.env.BASE_RPC_URL): PayoutRpc {
   return {
     getChainId: () => c.getChainId(),
     nonce: (address) => c.getTransactionCount({ address, blockTag: 'pending' }),
-    confirmedNonce: (address) => c.getTransactionCount({ address, blockTag: 'latest' }),
+    finalizedNonce: (address) => c.getTransactionCount({ address, blockTag: 'finalized' }),
     fees: async () => {
       const [block, tip] = await Promise.all([c.getBlock(), c.estimateMaxPriorityFeePerGas()]);
       return feeCaps(block.baseFeePerGas ?? 0n, tip);
     },
     estimateGas: (a) => c.estimateGas(a),
-    receipt: (hash) => c.getTransactionReceipt({ hash }).then((r) => ({ status: r.status }), () => null),
+    // A 429, a timeout or a node without a tx index is not "not found": it throws, so the run
+    // stops (PAY_FAILED) and retries instead of judging the transfer dead (Ruling 33).
+    receipt: (hash) =>
+      c.getTransactionReceipt({ hash }).then(
+        (r) => ({ status: r.status }),
+        (err: unknown) => {
+          if (err instanceof TransactionReceiptNotFoundError) return null;
+          throw err;
+        },
+      ),
+    transaction: (hash) =>
+      c.getTransaction({ hash }).then(
+        () => true,
+        (err: unknown) => {
+          if (err instanceof TransactionNotFoundError) return false;
+          throw err;
+        },
+      ),
     broadcast: (raw) =>
       once.sendRawTransaction({ serializedTransaction: raw }).then(
         () => 'sent' as const,
@@ -100,8 +123,11 @@ export type PayoutStore = {
   failed: (id: number, reverted: boolean) => Promise<number>;
   /** The payout wallet is on the sanctions list: the next entry takes the slot. */
   refused: (id: number) => Promise<void>;
-  /** A send answered "nonce too low": the row stays 'sending'; the first such time is kept. */
-  stale: (id: number, at: Date) => Promise<void>;
+  /**
+   * A send answered "nonce too low": the row stays 'sending'; the first such time is kept. Null
+   * resets it (a later send was accepted).
+   */
+  stale: (id: number, at: Date | null) => Promise<void>;
 };
 
 export const dbPayoutStore: PayoutStore = {
@@ -115,7 +141,7 @@ export const dbPayoutStore: PayoutStore = {
   paid: async (id, amount) => {
     await sql()`
       UPDATE projects SET payout_status = 'paid', prize_paid_at = now(), prize_amount = ${amount},
-        prize_raw_tx = NULL, payout_stale_at = NULL
+        payout_stale_at = NULL
       WHERE id = ${id}`;
   },
   failed: async (id, reverted) => {
@@ -131,7 +157,7 @@ export const dbPayoutStore: PayoutStore = {
   },
   stale: async (id, at) => {
     await sql()`
-      UPDATE projects SET payout_stale_at = COALESCE(payout_stale_at, ${at})
+      UPDATE projects SET payout_stale_at = ${at === null ? null : sql()`COALESCE(payout_stale_at, ${at})`}
       WHERE id = ${id} AND payout_status = 'sending'`;
   },
 };
@@ -147,12 +173,21 @@ export type PayoutRow = Pick<Candidate, 'id' | 'payout_status' | 'prize_tx' | 'p
 /** How long a "nonce too low" answer is waited on before its bytes may be judged dead. */
 export const STALE_CLEAR_MS = 30 * 60_000;
 
+/** The page note when a stuck transfer can't be proven dead (Ruling 33). */
+export const MANUAL_CHECK = 'Payouts paused: a transfer needs a manual check.';
+
+/** The nonce of a signed transaction, when the payout key signed it; null otherwise. */
+async function ownNonce(raw: Hex, account: LocalAccount) {
+  const sender = await recoverTransactionAddress({ serializedTransaction: raw as never });
+  return sender.toLowerCase() === account.address.toLowerCase() ? parseTransaction(raw).nonce! : null;
+}
+
 /** Reverted transfers after which an entry is refused, so it can't block the others. */
 export const MAX_REVERTS = 2;
 
 /**
- * Paid: 'paid', or a transfer hash with no signed bytes kept (only 'paid' clears them; an entry
- * paid before v2.4 has no status). Never signed again. Pure.
+ * Paid: 'paid', or a transfer hash with no signed bytes and no status (an entry paid before v2.4).
+ * Never signed again. Pure.
  */
 const settled = (row: PayoutRow) => row.payout_status === 'paid' || Boolean(row.prize_tx && !row.prize_raw_tx);
 
@@ -161,12 +196,25 @@ const settled = (row: PayoutRow) => row.payout_status === 'paid' || Boolean(row.
  * hash and raw bytes stored ('sending') before it is broadcast. A crash, or another run, finds
  * them and rebroadcasts the same bytes (one nonce: mined at most once) instead of signing again.
  * 'paid' once mined; 'pending' while not; 'failed' (cleared for a retry) if it reverted.
+ *
  * A send answered "nonce too low" is never cleared in the same run (a provider retry or fan-out
- * may have mined it while answering that): the row stays 'sending' with its stale time. A later
- * run, STALE_CLEAR_MS after it, clears it ('dropped') only when there is still no receipt and the
- * mined nonce is past the transfer's: that nonce went to something else, so these bytes can never
- * be mined. `nonces.next` (one payout run) is the lowest nonce to sign with, raised past every
- * transfer mined in the run. `now` is the run's time (injectable for the e2e).
+ * may have mined it while answering that): the row stays 'sending' with its stale time, reset
+ * when a later send is accepted. A later run clears it ('dropped', then re-signed) only when that
+ * is provably safe (Ruling 33): STALE_CLEAR_MS have passed; the receipt AND the transaction are
+ * both a typed not-found (any other read error throws: the run fails and retries); the finalized
+ * nonce is past the transfer's; and that nonce is the one of another entry's PAID transfer from
+ * this wallet (`otherPaid`, its kept signed bytes): EarnKit's own payout took it, so these bytes
+ * can never land. Every other case past STALE_CLEAR_MS with nothing found and the nonce finalized
+ * returns 'manual' (the page: MANUAL_CHECK); only a use of the key outside EarnKit gets there.
+ *
+ * Manual runbook for 'manual': on Basescan, find the payout wallet's transaction with the stuck
+ * transfer's nonce (decode projects.prize_raw_tx). If it is not this transfer and this winner was
+ * not paid by any other transaction, clear the row (payout_status, prize_tx, prize_raw_tx,
+ * payout_stale_at to NULL) and the next hourly run signs a new transfer. If the winner was paid,
+ * set payout_status = 'paid' and prize_tx to that transaction's hash.
+ *
+ * `nonces.next` (one payout run) is the lowest nonce to sign with, raised past every transfer
+ * mined in the run. `now` is the run's time (injectable for the e2e).
  */
 export async function payWinner(
   row: PayoutRow,
@@ -181,8 +229,10 @@ export async function payWinner(
     deadline?: number;
     nonces?: { next: number };
     now?: Date;
+    /** Signed bytes of the campaign's other paid transfers (kept on paid rows). */
+    otherPaid?: string[];
   },
-): Promise<'paid' | 'pending' | 'failed' | 'dropped'> {
+): Promise<'paid' | 'pending' | 'failed' | 'dropped' | 'manual'> {
   if (settled(row)) return 'paid';
   const now = a.now ?? new Date();
   let raw = row.prize_raw_tx as Hex | null;
@@ -221,19 +271,30 @@ export async function payWinner(
   const txNonce = parseTransaction(raw).nonce!;
   let receipt = await a.rpc.receipt(hash);
   if (!receipt) {
-    if (row.payout_stale_at && now.getTime() - row.payout_stale_at.getTime() >= STALE_CLEAR_MS) {
-      const mined = await a.rpc.confirmedNonce(a.account.address);
-      if (mined > txNonce && !(await a.rpc.receipt(hash))) {
-        await clear(false);
-        return 'dropped';
-      }
+    if (
+      row.payout_stale_at &&
+      now.getTime() - row.payout_stale_at.getTime() >= STALE_CLEAR_MS &&
+      !(await a.rpc.transaction(hash)) &&
+      (await a.rpc.finalizedNonce(a.account.address)) > txNonce
+    ) {
+      const taken = await Promise.all((a.otherPaid ?? []).map((r) => ownNonce(r as Hex, a.account)));
+      if (!taken.includes(txNonce)) return 'manual';
+      // Read last, right before clearing: still no receipt.
+      if (await a.rpc.receipt(hash)) return 'pending';
+      await clear(false);
+      return 'dropped';
     }
-    if ((await a.rpc.broadcast(raw)) === 'stale') {
+    const sent = await a.rpc.broadcast(raw);
+    if (sent === 'stale') {
       if (!row.payout_stale_at) {
         await a.store.stale(row.id, now);
         row.payout_stale_at = now;
       }
       return 'pending';
+    }
+    if (row.payout_stale_at) {
+      await a.store.stale(row.id, null);
+      row.payout_stale_at = null;
     }
     const left = (a.deadline ?? Infinity) - Date.now();
     receipt = await a.rpc.waitFor(hash, Math.max(5_000, Math.min(60_000, left)));
@@ -375,12 +436,16 @@ export async function payCampaign(
     }
     let r: Awaited<ReturnType<typeof payWinner>>;
     try {
-      r = await payWinner(next, { token, amount, amountText: c.amount_each, account, rpc, store, deadline, nonces, now: deps.now });
+      const otherPaid = entries
+        .filter((e) => e !== next && e.payout_status === 'paid' && e.prize_raw_tx)
+        .map((e) => e.prize_raw_tx!);
+      r = await payWinner(next, { token, amount, amountText: c.amount_each, account, rpc, store, deadline, nonces, now: deps.now, otherPaid });
     } catch (err) {
       if (!outOfGas(err)) throw err;
       return stop(`The payout wallet ${account.address} needs a little ETH for gas. Payouts resume once it is topped up.`);
     }
     if (r === 'paid' || r === 'dropped') continue;
+    if (r === 'manual') return stop(MANUAL_CHECK);
     if (r === 'failed' && (next.payout_reverts ?? 0) >= MAX_REVERTS) {
       await store.refused(next.id);
       next.payout_status = 'refused';

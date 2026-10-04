@@ -85,7 +85,8 @@ function chain(funds: () => bigint = () => 10n ** 30n) {
   const rpc: PayoutRpc = {
     getChainId: async () => 8453,
     nonce: async () => sent.length,
-    confirmedNonce: async () => sent.length,
+    finalizedNonce: async () => sent.length,
+    transaction: async (h) => mined.has(h),
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => (mined.has(h) ? { status: 'success' } : null),
@@ -168,7 +169,8 @@ test('lifecycle: score, freeze and open the 48 h review in one call, wait, then 
       WHERE program_id = ${tag} ORDER BY id`;
     assert.deepEqual(paid.map((p) => [p.id, p.payout_status, p.prize_amount]), [[a, null, null], [b, 'paid', '3'], [c, 'paid', '3'], [d, null, null]]);
     assert.deepEqual(paid.filter((p) => p.prize_tx).map((p) => p.prize_tx), f.sent.map((raw) => keccak256(raw)));
-    assert.ok(paid.every((p) => p.prize_raw_tx === null));
+    // The signed bytes are kept once paid: a stuck send can be proven dead by its nonce (Ruling 33).
+    assert.deepEqual(paid.filter((p) => p.prize_raw_tx).map((p) => keccak256(p.prize_raw_tx)), f.sent.map((raw) => keccak256(raw)));
     assert.equal(f.sent.length, 2);
     const [r2] = await sql()`SELECT state, note FROM campaign_runs WHERE program_id = ${tag}`;
     assert.deepEqual([r2.state, r2.note], ['paid', null]);
@@ -356,6 +358,10 @@ test('Ruling 32: the store keeps the first stale time, and a new signature or a 
     await dbPayoutStore.stale(a, new Date('2026-10-21T02:00:00Z'));
     const [r1] = await sql()`SELECT payout_status, payout_stale_at FROM projects WHERE id = ${a}`;
     assert.deepEqual([r1.payout_status, r1.payout_stale_at.getTime()], ['sending', t1.getTime()]);
+    await dbPayoutStore.stale(a, null); // a later send was accepted (Ruling 33)
+    const [r1b] = await sql()`SELECT payout_status, payout_stale_at FROM projects WHERE id = ${a}`;
+    assert.deepEqual([r1b.payout_status, r1b.payout_stale_at], ['sending', null]);
+    await dbPayoutStore.stale(a, t1);
     assert.equal(await dbPayoutStore.failed(a, false), 0);
     const [r2] = await sql()`SELECT payout_status, prize_tx, payout_stale_at, payout_reverts FROM projects WHERE id = ${a}`;
     assert.deepEqual([r2.payout_status, r2.prize_tx, r2.payout_stale_at, r2.payout_reverts], [null, null, null, 0]);
