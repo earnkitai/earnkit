@@ -158,10 +158,11 @@ const tokenLines = (repoUrl = 'https://github.com/acme/kit') =>
 function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {}) {
   const project: FlowProject = {
     id: 7, name: 'Chain Kits', repo_url: 'https://github.com/acme/kit', live_url: 'https://kit.acme.dev',
-    payout_wallet: null, token_url: null, token_name: null, token_symbol: null,
+    payout_wallet: null, creator_wallet: null, token_url: null, token_name: null, token_symbol: null,
     installation_id: 1, token_policy: 'encouraged', ...p,
   };
   const writes: unknown[] = [];
+  const saved: { id: number; inst: number; w: string }[] = [];
   const deploys: Parameters<NonNullable<TokenFlowDeps['deploy']>>[0][] = [];
   const calls: string[] = [];
   const links: unknown[] = [];
@@ -189,10 +190,11 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
       rememberedWallet: async () => WALLET,
       repoToken: async (_id, key) => repoTokens.get(key) ?? null,
       updateLinks: async (id, inst, l) => { links.push({ id, inst, ...l }); },
+      saveCreatorWallet: async (id, inst, w) => { saved.push({ id, inst, w }); },
     },
     ...extra,
   };
-  return { deps, writes, deploys, calls, links, repoTokens, project };
+  return { deps, writes, deploys, calls, links, repoTokens, project, saved };
 }
 
 const CONFIRMED = { name: 'Chain Kits', symbol: 'CHAIN' };
@@ -569,4 +571,34 @@ test('launchToken: a bad X handle is a failed outcome', async () => {
   assert.equal(out.status, 'failed');
   assert.match(out.note ?? '', /X handle/);
   assert.equal(h.deploys.length, 0);
+});
+
+test('v2.4 token retry: the creator wallet given at record_submission is kept and launch_token reuses it', async () => {
+  const mine = '0x' + 'd'.repeat(40);
+  const h = harness();
+  h.deps.store!.rememberedWallet = async () => null;
+  // First try: no earnkit.txt yet, so the gate fails; the wallet is still kept.
+  h.deps.gate!.owner = async () => ({ status: 'missing' });
+  const first = await tokenAfterSubmission(
+    { projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true },
+    h.deps,
+  );
+  assert.equal(first.status, 'gate_failed');
+  assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: mine }]);
+  // The builder pushes earnkit.txt; launch_token without creator_wallet uses the kept wallet.
+  h.project.creator_wallet = mine;
+  h.deps.gate!.owner = async (r) => ({
+    status: 'ok',
+    text: `payout_wallet: ${mine}\n${tokenLines(`https://github.com/${r.owner}/${r.repo}`)}`,
+  });
+  const retry = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base' }, 1, h.deps);
+  assert.equal(retry.status, 'launched');
+  assert.equal(h.deploys[0].creatorWallet, mine);
+});
+
+test('v2.4: a launch keeps the wallet it used, so fee reads know the creator', async () => {
+  const h = harness();
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
+  assert.equal(h.deploys.length, 1);
+  assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: WALLET }]);
 });

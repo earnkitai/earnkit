@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import {
   OAuthError,
   authorize,
+  clientKeyOf,
   exchangeCode,
   isAllowedRedirectUri,
   originFor,
@@ -50,7 +51,7 @@ test('full flow: register -> authorize -> token', () => {
   assert.equal(back.searchParams.get('state'), 'xyz');
   const token = exchangeCode(
     tokenForm(client_id, back.searchParams.get('code')!),
-  );
+  ).token;
   assert.match(token, /^ek_/);
 });
 
@@ -58,8 +59,8 @@ test('replaying a code returns the same token (no duplicate installation)', () =
   const { client_id } = registerClient({ redirect_uris: [redirect] });
   const code = codeFor(client_id).searchParams.get('code')!;
   assert.equal(
-    exchangeCode(tokenForm(client_id, code)),
-    exchangeCode(tokenForm(client_id, code)),
+    exchangeCode(tokenForm(client_id, code)).token,
+    exchangeCode(tokenForm(client_id, code)).token,
   );
 });
 
@@ -166,7 +167,7 @@ test('a code or client id with extra segments is refused (no extra tokens from o
         code: c,
         code_verifier: verifier,
       }),
-    );
+    ).token;
   for (const forged of [`${code}.x`, `${code}.y`, `${code}.`])
     assert.throws(() => exchange(forged), OAuthError);
   assert.match(exchange(code), /^ek_/);
@@ -183,4 +184,48 @@ test('a code or client id with extra segments is refused (no extra tokens from o
       ),
     OAuthError,
   );
+});
+
+const codeOf = (clientId: string) =>
+  codeFor(clientId).searchParams.get('code')!;
+
+test('v2.4 Review Focus 1: each registration is its own client, even with the same redirect URIs', () => {
+  // Cursor-style apps register with one fixed redirect URI for every user.
+  const a = registerClient({ redirect_uris: [redirect] }).client_id;
+  const b = registerClient({ redirect_uris: [redirect] }).client_id;
+  assert.notEqual(a, b);
+  assert.notEqual(clientKeyOf(a), clientKeyOf(b));
+});
+
+test('v2.4: a new client id carries a nonce of at least 128 random bits', () => {
+  const { client_id } = registerClient({ redirect_uris: [redirect] });
+  const payload = JSON.parse(
+    Buffer.from(client_id.split('.')[0], 'base64url').toString(),
+  );
+  assert.equal(typeof payload.n, 'string');
+  assert.ok(Buffer.from(payload.n, 'base64url').length >= 16);
+});
+
+test('v2.4: re-authorizing the same client keeps its client key (one installation); the token is new', () => {
+  const { client_id } = registerClient({ redirect_uris: [redirect] });
+  const first = exchangeCode(tokenForm(client_id, codeOf(client_id)));
+  const second = exchangeCode(tokenForm(client_id, codeOf(client_id)));
+  assert.notEqual(first.token, second.token);
+  assert.equal(first.clientKey, second.clientKey);
+  assert.equal(first.clientKey, clientKeyOf(client_id));
+  assert.match(first.clientKey!, /^[0-9a-f]{32}$/);
+});
+
+test('v2.4: a client id issued before v2.4 (no nonce) still authorizes, keyed by token only (no merge)', () => {
+  // Pre-v2.4 client ids carry only their redirect URIs, so every Cursor user shares one: two
+  // tokens of such a client must stay two installations (controller ruling 1).
+  const body = Buffer.from(JSON.stringify({ r: [redirect] })).toString('base64url');
+  const sig = createHmac('sha256', 'test-secret').update(`client:${body}`).digest('base64url');
+  const legacy = `${body}.${sig}`;
+  const first = exchangeCode(tokenForm(legacy, codeOf(legacy)));
+  const second = exchangeCode(tokenForm(legacy, codeOf(legacy)));
+  assert.match(first.token, /^ek_/);
+  assert.notEqual(first.token, second.token);
+  assert.equal(first.clientKey, undefined);
+  assert.equal(second.clientKey, undefined);
 });

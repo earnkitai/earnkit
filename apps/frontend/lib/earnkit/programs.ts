@@ -135,6 +135,8 @@ export type ProgramRow = {
   chains: Chain[];
   campaign: CampaignConfig | null;
   created_at: Date;
+  /** When the program last became active (v2.4 §4); null while it never was. */
+  opened_at: Date | null;
   rules: string[];
   source: 'file' | 'sponsor';
   /** numeric comes back from postgres.js as a string. */
@@ -479,10 +481,19 @@ export async function upsertProgram(
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),
       source,
+      opened_at: p.status === 'active' ? new Date() : null,
     };
+    // opened_at: set when the program becomes active, kept while it stays active (v2.4 §4).
+    const cols = (Object.keys(row) as (keyof typeof row)[]).filter(
+      (k) => k !== 'id' && k !== 'opened_at',
+    );
     await tx`
       INSERT INTO programs ${tx(row)}
-      ON CONFLICT (id) DO UPDATE SET ${tx(row, Object.keys(row).filter((k) => k !== 'id') as (keyof typeof row)[])}`;
+      ON CONFLICT (id) DO UPDATE SET ${tx(row, cols)},
+        opened_at = CASE
+          WHEN EXCLUDED.status <> 'active' THEN programs.opened_at
+          WHEN programs.status = 'active' THEN COALESCE(programs.opened_at, EXCLUDED.opened_at)
+          ELSE EXCLUDED.opened_at END`;
 
     await tx`DELETE FROM starters WHERE program_id = ${p.id}`;
     await tx`DELETE FROM tracks WHERE program_id = ${p.id}`;

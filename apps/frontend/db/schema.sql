@@ -238,3 +238,79 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_note   text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_repo_key text;
 CREATE UNIQUE INDEX IF NOT EXISTS projects_token_repo_key
   ON projects (token_repo_key) WHERE token_url IS NOT NULL;
+
+-- v2.4 money first ------------------------------------------------------------------------------
+-- When a program last became active. "New" alerts use it, not created_at, so going live is news
+-- (audit C12). Set by upsertProgram; programs active before v2.4 count from created_at.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS opened_at timestamptz;
+UPDATE programs SET opened_at = created_at WHERE opened_at IS NULL AND status = 'active';
+
+-- One installation per OAuth client (spec §5): client_key = first 32 hex of sha256(client_id), set
+-- only for client ids carrying a registration nonce (v2.4+). Installations from before v2.4, and
+-- tokens of pre-v2.4 client ids, keep NULL and keep working by token.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS client_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS installations_client_key
+  ON installations (client_key) WHERE client_key IS NOT NULL;
+
+-- Alerts (spec §4): what this installation was last told, and the one-time daily-check offer.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS alerts_checked_at timestamptz;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS alert_state jsonb;          -- {"top": {"<project id>": true}}
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS fee_alerted_usd numeric;    -- fees last shown, USD
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS schedule_offered_at timestamptz;
+
+-- Every wallet an installation has used (entries, creator wallets, named in list_programs):
+-- its wins and fees show for them too, even from a new connection (spec §5).
+CREATE TABLE IF NOT EXISTS installation_wallets (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  wallet          text NOT NULL,                       -- lowercase
+  first_seen_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, wallet)
+);
+CREATE INDEX IF NOT EXISTS installation_wallets_wallet ON installation_wallets (wallet);
+INSERT INTO installation_wallets (installation_id, wallet)
+  SELECT id, lower(payout_wallet) FROM installations WHERE payout_wallet IS NOT NULL
+  ON CONFLICT DO NOTHING;
+
+-- Token retry (spec §6, audit C14): the creator wallet given at record_submission or used by a
+-- launch. launch_token reuses it; token-fee reads (FeeLocker) use it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS creator_wallet text;
+
+-- Entry proof and scoring v2 (spec §2, §3).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS deployers text[];      -- each entered contract's deployer, lowercase
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS score_error text;      -- the last scoring failure; NULL once scored
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS code_share real;       -- share of direct txs carrying EarnKit's Builder Code
+CREATE TABLE IF NOT EXISTS entry_wallets (
+  project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  wallet     text NOT NULL,                                      -- lowercase
+  kind       text NOT NULL CHECK (kind IN ('eoa', 'smart')),
+  PRIMARY KEY (project_id, wallet)
+);
+CREATE INDEX IF NOT EXISTS entry_wallets_wallet ON entry_wallets (wallet);
+
+-- The automatic lifecycle of EarnKit campaigns (spec §3): the final score, review vetoes, and an
+-- idempotent payout (the signed transfer is stored before it is broadcast).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS score_final boolean NOT NULL DEFAULT false;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS vetoed_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS veto_reason text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS payout_status text;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_payout_status_check;
+ALTER TABLE projects ADD CONSTRAINT projects_payout_status_check
+  CHECK (payout_status IN ('sending', 'paid', 'refused'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS prize_raw_tx text;   -- the signed transfer until it is mined
+CREATE TABLE IF NOT EXISTS campaign_runs (
+  program_id   text PRIMARY KEY REFERENCES programs(id),
+  state        text NOT NULL DEFAULT 'running'
+               CHECK (state IN ('running', 'review', 'paying', 'paid')),
+  frozen_at    timestamptz,
+  review_until timestamptz,
+  note         text,                                   -- shown on the campaign page (e.g. wallet short)
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- Token fees waiting in Clanker's FeeLocker (WETH), per creator wallet, cached 6 h (spec §4).
+CREATE TABLE IF NOT EXISTS token_fees (
+  wallet   text PRIMARY KEY,                           -- lowercase
+  weth     text NOT NULL,                              -- wei, decimal string
+  usd      numeric NOT NULL,
+  read_at  timestamptz NOT NULL
+);

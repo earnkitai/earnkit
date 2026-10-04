@@ -84,7 +84,16 @@ export function isAllowedRedirectUri(uri: string) {
   return !BLOCKED_SCHEMES.includes(url.protocol);
 }
 
-type ClientPayload = { r: string[] };
+/** `n`: the registration nonce (v2.4+; client ids issued before v2.4 have none). */
+type ClientPayload = { r: string[]; n?: string };
+/**
+ * The installation key of an OAuth client (v2.4 §5): the first 32 hex of sha256(client_id).
+ * Re-authorizing the same client maps to the same installation. Never display or log client ids;
+ * this key is all that is stored. Pure; exported for tests.
+ */
+export const clientKeyOf = (clientId: string) =>
+  createHash('sha256').update(clientId).digest('hex').slice(0, 32);
+
 type CodePayload = { c: string; r: string; ch: string; e: number; n: string };
 
 /** RFC 7591 dynamic client registration. The client id carries its redirect URIs. */
@@ -111,7 +120,12 @@ export function registerClient(metadata: {
     );
 
   return {
-    client_id: sign('client', { r: uris } satisfies ClientPayload),
+    // A random nonce (128 bits) makes every registration its own client: apps with one fixed
+    // redirect URI for all their users (Cursor) must never share an installation (v2.4 §5).
+    client_id: sign('client', {
+      r: uris,
+      n: randomBytes(16).toString('base64url'),
+    } satisfies ClientPayload),
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: uris,
     ...(typeof metadata.client_name === 'string' && {
@@ -175,10 +189,16 @@ export function authorize(params: URLSearchParams) {
 }
 
 /**
- * Exchanges a code for the installation token. The token is derived from the
- * code, so replaying a code yields the same token instead of a new install.
+ * Exchanges a code for the installation token and its client's key. The token is derived from the
+ * code, so replaying a code yields the same token; the client key makes re-authorizing the same
+ * client the same installation. Client ids issued before v2.4 carry no nonce and are shared by
+ * every user of an app with a fixed redirect URI, so they get no client key: their tokens stay
+ * separate installations, as in v2.3.
  */
-export function exchangeCode(form: URLSearchParams) {
+export function exchangeCode(form: URLSearchParams): {
+  token: string;
+  clientKey: string | undefined;
+} {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
       'unsupported_grant_type',
@@ -202,7 +222,12 @@ export function exchangeCode(form: URLSearchParams) {
     throw new OAuthError('invalid_grant', 'PKCE verification failed');
   }
 
-  return `ek_${mac('token', code)}`;
+  const client = verify<ClientPayload>('client', payload.c);
+  const clientKey =
+    typeof client?.n === 'string' && client.n.length > 0
+      ? clientKeyOf(payload.c)
+      : undefined;
+  return { token: `ek_${mac('token', code)}`, clientKey };
 }
 
 export function authorizationServerMetadata(origin: string) {

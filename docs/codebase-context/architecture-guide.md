@@ -168,6 +168,15 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - OAuth is stateless: client ids and codes are HMAC-signed with `EARNKIT_AUTH_SECRET`; the
   access token is derived from the code, so a replayed code can't create a second installation.
   Rotating the secret invalidates unused codes and client ids, not issued tokens.
+- v2.4: one installation per OAuth client. Client ids carry a 128-bit registration nonce, and
+  `installations.client_key` = first 32 hex of sha256(client_id) (unique). Re-authorizing a known
+  client is free of the install rate limit and replaces the installation's token (the old one
+  stops working); entries, wins and memory carry over. Client ids from before v2.4 (no nonce,
+  shared by every user of a fixed-redirect app like Cursor) get no key and stay keyed by token.
+  Client ids are never shown or logged. `installation_wallets` lists every wallet an
+  installation used (entry payout wallets, kept creator wallets); `projects.creator_wallet` keeps
+  the creator wallet for launch_token retries and fee reads; `programs.opened_at` is when a
+  program last went active. `pnpm db:check` proves db/schema.sql is idempotent on main's rows.
 - Program files in git are the source of truth for programs/tracks/starters. Every deploy syncs
   them to the database (upsert replaces all three). Programs drop out of list_programs
   automatically after ends_at; there is no scheduled re-check.

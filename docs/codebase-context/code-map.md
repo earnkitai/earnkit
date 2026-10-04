@@ -138,8 +138,8 @@ apps/frontend/
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start) in github_repo_facts, 1 h per (repo, pushed_at)
-    installations.ts           save / touch installation by token hash; memory (GitHub, working_on,
-                               last payout wallet)
+    installations.ts           save / touch installation by token hash or (v2.4) OAuth client key;
+                               memory (GitHub, working_on, last payout wallet); installation_wallets
     oauth-routes.ts(+limits test) token + authorize handlers (app/oauth/* re-export them)
     oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
@@ -233,6 +233,8 @@ apps/frontend/
                                rate_windows, github_repo_facts, scoring_leases, projects.score_partial and
                                scored_through)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
+    db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
+                                local Postgres only; checks backfills, defaults, opened_at via sync
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate

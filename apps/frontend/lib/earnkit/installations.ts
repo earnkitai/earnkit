@@ -5,16 +5,56 @@ import { sql } from './db';
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 
-/** Records the installation for a newly issued token. Idempotent for replays. */
-/** True when `token` already has an installation (a replayed code maps to the same token). */
-export async function installationExists(token: string) {
-  const [row] =
-    await sql()`SELECT 1 FROM installations WHERE token_hash = ${hash(token)}`;
+/** True when this token, or (v2.4) this OAuth client, already has an installation. */
+export async function installationExists(token: string, clientKey?: string) {
+  const [row] = await sql()`
+    SELECT 1 FROM installations
+    WHERE token_hash = ${hash(token)} OR (${clientKey ?? null}::text IS NOT NULL AND client_key = ${clientKey ?? null})`;
   return Boolean(row);
 }
 
-export async function saveInstallation(token: string) {
-  await sql()`INSERT INTO installations (token_hash) VALUES (${hash(token)}) ON CONFLICT (token_hash) DO NOTHING`;
+/**
+ * Records the installation for a newly issued token. With a client key (v2.4 §5) there is one
+ * installation per OAuth client: a new token for a known client replaces its token (the old one
+ * stops working), so entries, wins and memory carry over. Idempotent for replayed codes.
+ */
+export async function saveInstallation(token: string, clientKey?: string) {
+  if (!clientKey) {
+    await sql()`INSERT INTO installations (token_hash) VALUES (${hash(token)}) ON CONFLICT (token_hash) DO NOTHING`;
+    return;
+  }
+  await sql()`
+    INSERT INTO installations (token_hash, client_key) VALUES (${hash(token)}, ${clientKey})
+    ON CONFLICT (client_key) WHERE client_key IS NOT NULL
+    DO UPDATE SET token_hash = EXCLUDED.token_hash`;
+}
+
+/**
+ * Remembers wallets this installation used (lowercase; anything that isn't a 0x address is
+ * ignored). Its wins and token fees show for them too (v2.4 §5).
+ */
+export async function rememberWallets(
+  installationId: number,
+  wallets: (string | null | undefined)[],
+) {
+  const list = [
+    ...new Set(
+      wallets
+        .filter((w): w is string => !!w && /^0x[0-9a-fA-F]{40}$/.test(w))
+        .map((w) => w.toLowerCase()),
+    ),
+  ];
+  if (list.length === 0) return;
+  await sql()`
+    INSERT INTO installation_wallets ${sql()(list.map((wallet) => ({ installation_id: installationId, wallet })))}
+    ON CONFLICT DO NOTHING`;
+}
+
+/** The wallets this installation has used (lowercase). */
+export async function installationWallets(installationId: number) {
+  const rows = await sql()<{ wallet: string }[]>`
+    SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId} ORDER BY first_seen_at`;
+  return rows.map((r) => r.wallet);
 }
 
 export type Memory = {

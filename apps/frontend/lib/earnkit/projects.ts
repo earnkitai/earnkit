@@ -262,6 +262,9 @@ export async function recordSubmission(
       // Remembered for this installation's next entry (prepare_submission prefills it).
       if (entry)
         await tx`UPDATE installations SET payout_wallet = ${entry.payoutWallet} WHERE id = ${installationId}`;
+      // v2.4 §5: the installation's wallets (its wins show for them from any connection).
+      if (entry)
+        await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${installationId}, ${entry.payoutWallet.toLowerCase()}) ON CONFLICT DO NOTHING`;
       await tx`INSERT INTO submissions ${tx({
         project_id: project.id,
         submission_data: tx.json(input.submission_data as never),

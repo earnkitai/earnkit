@@ -8,15 +8,15 @@ const TOO_MANY = 'Too many new EarnKit connections from this address.';
 
 export async function tokenPost(request: Request) {
   try {
-    const token = exchangeCode(await readParams(request));
-    // Each new installation counts against its IP (10 an hour, 30 a day; v2.2 §5): installations
-    // are the identity every per-installation limit keys on. A replayed code (same token) is free.
-    if (!(await installationExists(token))) {
+    const { token, clientKey } = exchangeCode(await readParams(request));
+    // Only a client's first token counts against its IP (10 an hour, 30 a day; v2.2 §5): a
+    // replayed code, or re-authorizing a known client (v2.4 §5), is free.
+    if (!(await installationExists(token, clientKey))) {
       const ip = clientIp(request.headers);
       await enforce('installHour', ip, TOO_MANY);
       await enforce('installDay', ip, TOO_MANY);
-      await saveInstallation(token);
     }
+    await saveInstallation(token, clientKey);
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof RateLimitError)

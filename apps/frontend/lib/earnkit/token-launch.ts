@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
-import { rememberedPayoutWallet } from './installations';
+import { rememberWallets, rememberedPayoutWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import type { TokenPolicy } from './program-file';
 import type { ProgramRow } from './programs';
@@ -223,6 +223,8 @@ export type FlowProject = {
   live_url: string | null;
   /** Set for campaign entries only: proven by the repo's earnkit.txt at entry. */
   payout_wallet: string | null;
+  /** The creator wallet given before (record_submission or a launch); launch_token reuses it. */
+  creator_wallet: string | null;
   token_url: string | null;
   token_name: string | null;
   token_symbol: string | null;
@@ -243,6 +245,8 @@ type FlowStore = {
     installationId: number,
     links: { repo_url?: string; live_url?: string },
   ) => Promise<void>;
+  /** Keeps the creator wallet on a project with no token yet, and remembers it for the installation. */
+  saveCreatorWallet: (projectId: number, installationId: number, wallet: string) => Promise<void>;
 };
 
 export type TokenFlowDeps = {
@@ -259,7 +263,7 @@ export type TokenFlowDeps = {
 const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<FlowProject[]>`
-      SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.token_url, p.token_name,
+      SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.installation_id, pr.token_policy
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.id = ${projectId}`;
@@ -277,6 +281,13 @@ const dbStore: FlowStore = {
         live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL
           THEN ${live && normalizeLiveUrl(live)} ELSE live_key END
       WHERE id = ${projectId} AND installation_id = ${installationId} AND token_url IS NULL`;
+  },
+  saveCreatorWallet: async (projectId, installationId, wallet) => {
+    const w = wallet.toLowerCase();
+    await sql()`
+      UPDATE projects SET creator_wallet = ${w}
+      WHERE id = ${projectId} AND installation_id = ${installationId} AND token_url IS NULL`;
+    await rememberWallets(installationId, [w]);
   },
 };
 
@@ -339,6 +350,7 @@ async function runTokenFlow(
       : proposal;
   const wallet =
     choice?.creator_wallet ??
+    project.creator_wallet ??
     project.payout_wallet ??
     (await store.rememberedWallet(a.installationId));
   const decision = decideToken({
@@ -350,6 +362,11 @@ async function runTokenFlow(
     wallet,
     needsSymbol: a.mode === 'submission',
   });
+  // Token retry (v2.4 §6, audit C14): a creator wallet given now, or the one a launch uses, is
+  // kept, so launch_token after a gate failure doesn't ask for it again (and fee reads know it).
+  const keep = choice?.creator_wallet ?? (decision.action === 'launch' ? wallet : null);
+  if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
+    await store.saveCreatorWallet(project.id, a.installationId, keep);
   // Not launching here: at submission it's skipped; launch_token was asked to launch, so a refusal
   // there (an existing token, a refused edit, no wallet) has failed.
   const notNow = decision.action === 'refuse' && a.mode === 'launch' ? 'failed' : 'skipped';

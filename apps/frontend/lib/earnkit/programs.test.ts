@@ -136,6 +136,7 @@ const sponsorRow = (legacy = false): ProgramRow => {
     ends_at: new Date(f.ends_at!),
     verified_at: new Date('2026-10-01'),
     created_at: new Date('2026-10-01'),
+    opened_at: new Date('2026-10-01'),
     source: 'sponsor',
   } as ProgramRow;
 };
