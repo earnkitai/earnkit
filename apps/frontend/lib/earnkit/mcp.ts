@@ -58,6 +58,9 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
 
 const TO_LAUNCH =
   "To launch, pass token with the name and symbol the builder confirmed (token.proposed from prepare_submission, or their changes); 'skip' if they said no token.";
+const OWNERSHIP_FOR_TOKEN =
+  "A token needs the project's public GitHub repo to hold earnkit.txt at its root with the line " +
+  '"payout_wallet: <creator wallet>" (campaign entries already have it), and one token per repo.';
 
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
@@ -165,7 +168,9 @@ export function createMcpServer(ctx: ToolContext) {
         'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
         'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
         "Call again with the new answers until ready is true, then submit on the program's site. " +
-        'When the program allows tokens, the result has `token`: show its say_to_builder in the summary the builder confirms (it carries the earnings and terms links). ' +
+        'When the program allows tokens, the result has `token`: show its say_to_builder, as written, in the summary the builder confirms; ' +
+        'it carries the ticker, the earnings line, both terms links and what the repo needs. ' +
+        `${OWNERSHIP_FOR_TOKEN} ` +
         `In record_submission: ${TO_LAUNCH} ` +
         'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
       inputSchema: {
@@ -216,12 +221,15 @@ export function createMcpServer(ctx: ToolContext) {
                 creator_wallet: z.string().optional(),
                 builder_x: z.string().optional(),
               })
-              .strict(),
+              // Loose: echoing token.proposed verbatim (with its `image`) must never fail the
+              // entry. EarnKit checks the fields in the token flow and names an unknown key.
+              .passthrough(),
           ])
+          .nullable()
           .optional()
           .describe(TO_LAUNCH),
         builder_confirmed: z
-          .boolean()
+          .any()
           .optional()
           .describe(
             'true once the builder confirmed the summary that includes the token line',
@@ -236,9 +244,10 @@ export function createMcpServer(ctx: ToolContext) {
     {
       description:
         'Launch (or retry) the token for a project you recorded with record_submission, e.g. after the ' +
-        'builder fixed the live link. Uses the stored proposal unless you pass changes. tokens.fun pays ' +
+        'builder fixed the live link (pass live_url) or added earnkit.txt. Uses the stored proposal unless you pass changes. tokens.fun pays ' +
         "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
-        'after the builder said yes. One token per project; launches are public and permanent.',
+        'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
+        OWNERSHIP_FOR_TOKEN,
       // Strict, so a misnamed key (say `ticker`) is an error, not silently dropped.
       inputSchema: z
         .object({
@@ -282,6 +291,18 @@ export function createMcpServer(ctx: ToolContext) {
             .enum(['base', 'robinhood', 'arbitrum'])
             .optional()
             .describe('Default base'),
+          live_url: z
+            .string()
+            .optional()
+            .describe(
+              "A new live link for the project (e.g. the old one didn't load)",
+            ),
+          repo_url: z
+            .string()
+            .optional()
+            .describe(
+              'A new public GitHub repo link; not for campaign entries (their repo was proven at entry)',
+            ),
           builder_confirmed: z
             .literal(true)
             .describe('The builder explicitly said yes to this launch'),

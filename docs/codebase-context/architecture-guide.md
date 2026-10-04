@@ -83,36 +83,72 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - **Token at submission (v2.3)** (`token-proposal.ts`, `token-gate.ts`, `token-launch.ts`,
   `tokens.ts`). Flow: `prepare_submission` returns a `token` block (EarnKit's proposed name and
   ticker — the project name, ticker candidates checked against brands and tokens.fun's
-  `check-ticker` —, creator wallet, the verbatim earnings line, terms links, `say_to_builder`)
-  unless the program's `token_policy` is `off`. `record_submission` records the entry first, then
-  runs the token part (`submissionToken`, which never throws: the entry is never failed or rolled
-  back by its token). It launches only with `builder_confirmed: true` **and** an explicit
-  `token: { name, symbol }` echoing the ticker the builder confirmed (ruling 10); an omitted token,
-  or one without a symbol, is `skipped` with a note to pass it, and the proposal is stored for a
-  later `launch_token`. `launch_token { project_id, builder_confirmed: true }` launches or retries
-  with the stored proposal unless given changes. Both go through one flow: `decideToken` (policy,
-  "skip", an existing token, confirmation, ticker/name rules, creator wallet), then the gate
-  (`tokenGate`: policy not off; the public GitHub repo exists, isn't a fork, has commits; a
-  `live_url` that answers 2xx via `safeProbe`; the creator wallet passes the sanctions screen;
-  never cached), then `deployToken`. **Policy:** `encouraged | allowed | off` on programs (program
-  files, sponsor campaigns via `sponsor_campaign create`, default `encouraged`); encouraged and
-  allowed both launch by default, encouraged adds "Entries get a token" (get_program and the
-  campaign page; not list_programs rows), off never launches. **Statuses** (`projects.token_status`,
-  with `token_note`): `launched`, `skipped` (no token, unconfirmed, policy off, no symbol, or the
-  project already has a token), `gate_failed` (the reason and fix), `pending` (outcome unknown:
-  claim kept), `failed` (tokens.fun refused; on the `launch_token` path an existing or pending
-  token is also `failed`). **Claim:** `deployToken` claims the project atomically
-  (`token_url = 'pending'`, only this installation's project, only if NULL) and releases it only
-  on a 4xx with a JSON body (a refusal before minting); no answer, any 5xx (e.g. tokens.fun's 502
-  "Deployment status unknown") or an unparsed body keeps it pending, so a retry can never mint a
-  second token. The deploy is bounded by `EARNKIT_TOKENSFUN_TIMEOUT_MS` (default 120 s). **Key:**
-  `TOKENSFUN_DEPLOY_API_KEY` stays server-side (EarnKit's own key on tokens.fun, which skips
-  tokens.fun's per-IP limits; the 2-a-day per creator wallet cap stays). The image is the agent's
-  upload (`/api/projects/:id/image`) or the monogram (`/api/projects/:id/token-image`, the stored,
-  validated ticker only). Fees are unchanged (WETH pair; Clanker 20%, then platform 50% / creator
+  `check-ticker` —, creator wallet, the verbatim earnings line, terms links, a `note` with what the
+  repo needs, and `say_to_builder`, which alone is the complete consent text: ticker, earnings
+  line, both terms links, the earnkit.txt requirement) unless the program's `token_policy` is
+  `off` or launches aren't configured (`TOKENSFUN_DEPLOY_API_KEY` unset). `record_submission`
+  records the entry first, then runs the token part (`submissionToken`, which never throws: the
+  entry is never failed or rolled back by its token). It launches only with
+  `builder_confirmed === true` **and** an explicit `token: { name, symbol }` echoing the ticker the
+  builder confirmed (ruling 10); an omitted token, `null`, or one without a symbol is `skipped`
+  with a note to pass it, and the proposal is stored for a later `launch_token`. The token object
+  is accepted loosely (MCP passthrough; `image` from `token.proposed` is ignored; another unknown
+  key or a bad field is `skipped` with a note naming it — never a failed entry). `launch_token
+  { project_id, builder_confirmed: true }` (strict schema) launches or retries with the stored
+  proposal unless given changes, after applying a fixed `live_url` (any entry) or `repo_url`
+  (not campaign entries) to the project row. Both go through one flow (`runTokenFlow`): launches
+  configured; `decideToken` (policy, "skip", an existing token, confirmation, explicit ticker at
+  submission, edits, name/ticker rules, creator wallet); one token per repo (another project with
+  the same `token_repo_key` and a token or claim); the gate (`tokenGate`: policy not off; the
+  public GitHub repo exists, isn't a fork, has commits; **ownership** — its `earnkit.txt` names
+  the creator wallet on `payout_wallet:` (or `creator_wallet:` for a campaign entry whose creator
+  differs from its proven payout wallet; a campaign entry launching to its payout wallet needs no
+  second read); a `live_url` that answers 2xx via `safeProbe` (User-Agent `EarnKit-linkcheck/1`);
+  the creator wallet passes the sanctions screen; never cached); the per-installation limit
+  (`LIMITS.tokenLaunch`, 3 a day, counted only right before a deploy); then `deployToken`.
+  **Policy:** `encouraged | allowed | off` on programs (program files, sponsor campaigns via
+  `sponsor_campaign create`, default `encouraged`); encouraged and allowed both launch by default,
+  encouraged adds "Entries get a token" (get_program and the campaign page; not list_programs
+  rows), off never launches. **Statuses** (`projects.token_status`, with `token_note`):
+  `launched`; `skipped` (no token, unconfirmed, policy off, no symbol, a bad token field, launches
+  not configured, or — at submission — an edit refused or the project or repo already has a token);
+  `gate_failed` (the reason and fix); `pending` (outcome unknown: claim kept); `failed` (tokens.fun
+  refused, the daily limit, or — on `launch_token` — a refused edit or an existing/pending token on
+  the project or repo). Status writes from the flow only touch rows with `token_url IS NULL`.
+  **Claim:** `deployToken` claims the project atomically (`token_url = 'pending'`, only this
+  installation's project, only if NULL, only if no other project with the same normalized repo
+  holds a token or claim; it sets `token_repo_key`, and the unique partial index
+  `projects_token_repo_key ... WHERE token_url IS NOT NULL` makes two concurrent claims on one repo
+  impossible) and releases it only on a 4xx with a JSON body (a refusal before minting); no
+  answer, any 5xx (e.g. tokens.fun's 502 "Deployment status unknown") or an unparsed body keeps it
+  pending, so a retry can never mint a second token. Only EarnKit's own claims count for "one per
+  repo": a `token_url` a builder typed into `record_submission` is unproven and has no
+  `token_repo_key`. The deploy is bounded by `EARNKIT_TOKENSFUN_TIMEOUT_MS` (default 120 s).
+  **Key:** `TOKENSFUN_DEPLOY_API_KEY` stays server-side (EarnKit's own key on tokens.fun, which
+  skips tokens.fun's per-IP limits — hence the ownership proof, one token per repo, and the
+  per-installation cap; the 2-a-day per creator wallet cap stays). The image is the agent's upload
+  (`/api/projects/:id/image`) or the monogram (`/api/projects/:id/token-image?s=SYMBOL`: drawn only
+  from the stored, validated ticker, and 404 unless `s` matches it, so the immutable cache can't
+  serve a stale logo). Fees are unchanged (WETH pair; Clanker 20%, then platform 50% / creator
   40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
   unless `TREASURY` is `0xc8A889577446153e28D42254B75238Ae31EC7D57`. `pnpm token:e2e` runs every
-  flow against a local Postgres and a mock tokens.fun.
+  flow against a local Postgres and a mock tokens.fun (which also serves `earnkit.txt`).
+- **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
+  deploy and never learned the outcome (no answer, a 5xx, or an unparsed body); EarnKit never
+  retries it on its own, and `launch_token` refuses it (as does any other entry of the same repo).
+  1. Find it: `SELECT id, name, repo_url, token_name, token_symbol, token_note, payout_wallet,
+     installation_id FROM projects WHERE token_url = 'pending';`
+  2. Check tokens.fun for a token with that ticker and creator wallet (the creator's tokens on
+     tokens.fun, or a Basescan search of the creator wallet's recent Clanker deploys). The deploy
+     logs (`[token]`) carry the time.
+  3. If the token exists, record it:
+     `UPDATE projects SET token_url = 'https://tokens.fun/coin/<address>', token_status = 'launched',
+     token_note = NULL WHERE id = <id> AND token_url = 'pending';`
+  4. Only after confirming **no** token exists, release the claim so the builder can retry:
+     `UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = 'Released after
+     checking tokens.fun: no token was launched. Say ''launch the token'' to retry.' WHERE id = <id>
+     AND token_url = 'pending';`
+     Never release on a guess: a second launch is public and permanent.
 - `prepareSubmission` is pure (no DB) and never invents values. It reports what is filled,
   what is missing, and whether the agent drafts it (`from: project`) or asks the builder
   (`from: builder`).

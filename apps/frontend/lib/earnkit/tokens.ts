@@ -1,5 +1,6 @@
-import { z } from 'zod';
+import { normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
+import { retryText } from './rate-limit';
 
 /**
  * Launching a token for a submitted project on tokens.fun, through its deploy API
@@ -67,6 +68,8 @@ type DeployResponse = {
   urls?: { tokensfun?: string; explorer?: string };
   error?: string;
   message?: string;
+  /** Seconds until tokens.fun accepts another launch (on a 429), when it says. */
+  retryAfter?: number;
 };
 
 export type TokenStatus =
@@ -130,13 +133,20 @@ export function outcomeOf(
       release: false,
     };
   }
-  const isClientRefusal = res.status >= 400 && res.status < 500 && data !== null;
+  const isClientRefusal =
+    res.status >= 400 && res.status < 500 && data !== null;
   if (isClientRefusal) {
     // A 4xx with a parsed body is tokens.fun refusing before minting: safe to release.
+    const said =
+      data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`;
+    const retry =
+      typeof data?.retryAfter === 'number' && data.retryAfter > 0
+        ? `in ${retryText(data.retryAfter)}`
+        : 'later';
     const note =
       res.status === 429
-        ? "tokens.fun's launch limit was reached (2 tokens a day per wallet). Say 'launch the token' tomorrow."
-        : `Token not launched: ${data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`}`;
+        ? `tokens.fun's launch limit was reached (${said}). Say 'launch the token' ${retry}.`
+        : `Token not launched: ${said}`;
     return { status: 'failed', note, release: true };
   }
   // 5xx, an unparsed body, or a 2xx that didn't confirm success: tokens.fun didn't clearly say
@@ -171,6 +181,37 @@ export async function setTokenStatus(
   await sql()`UPDATE projects SET ${sql()(fields)} WHERE id = ${projectId} AND token_url IS NULL`;
 }
 
+/** Whether token launches are configured on this deployment (the tokens.fun deploy key is set). */
+export const tokenLaunchesAvailable = () =>
+  Boolean(process.env.TOKENSFUN_DEPLOY_API_KEY);
+
+export const TOKENS_UNAVAILABLE = "Token launches aren't available right now.";
+
+/** Starts every "another project on this repo has a token" note. */
+export const REPO_HAS_TOKEN = 'This repo already has a token';
+
+/** The note for a repo whose token (or launch in progress) belongs to another project. */
+export const repoHasTokenNote = (url: string) =>
+  url === 'pending'
+    ? `${REPO_HAS_TOKEN} launch in progress (another entry of it). Check tokens.fun before trying again.`
+    : `${REPO_HAS_TOKEN}: ${url}`;
+
+/**
+ * The token link (or 'pending') of another project on the same normalized repo, or null. Only
+ * EarnKit's own claims count (token_repo_key, set when a launch is claimed after the ownership
+ * gate): a token_url a builder typed into record_submission is unproven, and counting it would let
+ * anyone block someone else's repo.
+ */
+export async function repoTokenUrl(
+  projectId: number,
+  repoKey: string,
+): Promise<string | null> {
+  const [row] = await sql()<{ token_url: string }[]>`
+    SELECT token_url FROM projects
+    WHERE token_repo_key = ${repoKey} AND token_url IS NOT NULL AND id <> ${projectId} LIMIT 1`;
+  return row?.token_url ?? null;
+}
+
 /**
  * Launches a token for a submitted project on tokens.fun: claims the project, resolves the image,
  * POSTs the deploy, and records the outcome. The claim (`token_url = 'pending'`) is set first and
@@ -203,22 +244,57 @@ export async function deployToken(
     '',
   );
 
-  // Claim the project atomically: only this installation's project, only if it has no token yet.
-  // Kept exactly as strong as before Task 6: a lost or timed-out response keeps the claim; only a
-  // tokens.fun response with a body (it validates before minting) releases it.
-  const [project] = await sql()<
-    {
-      name: string;
-      description: string | null;
-      repo_url: string | null;
-      live_url: string | null;
-    }[]
+  // One launched or pending token per repo across EarnKit (v2.3 Ruling 12): the claim records the
+  // normalized repo (token_repo_key; a unique partial index backs it), and refuses when another
+  // project on the same repo has a token or a claim.
+  const [mine] = await sql()<
+    { repo_url: string | null; installation_id: number | null }[]
   >`
+    SELECT repo_url, installation_id FROM projects WHERE id = ${a.projectId}`;
+  if (!mine || mine.installation_id !== a.installationId)
+    throw new LaunchError(
+      `No project ${a.projectId} recorded by you. Call record_submission first.`,
+    );
+  const repoKey = mine.repo_url ? normalizeRepoUrl(mine.repo_url) : null;
+  if (repoKey) {
+    const other = await repoTokenUrl(a.projectId, repoKey);
+    if (other) return { status: 'failed', note: repoHasTokenNote(other) };
+  }
+
+  // Claim the project atomically: only this installation's project, only if it has no token yet,
+  // only if no other project on its repo has one. The claim (token_url = 'pending') is released
+  // ONLY when tokens.fun answers 4xx with a parsed JSON body (it refused before minting); every
+  // other outcome keeps it (see outcomeOf).
+  let claimed;
+  try {
+    claimed = await sql()<
+      {
+        name: string;
+        description: string | null;
+        repo_url: string | null;
+        live_url: string | null;
+      }[]
+    >`
     UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL,
-      token_name = ${a.name}, token_symbol = ${a.symbol},
+      token_name = ${a.name}, token_symbol = ${a.symbol}, token_repo_key = ${repoKey},
       token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null}
     WHERE id = ${a.projectId} AND installation_id = ${a.installationId} AND token_url IS NULL
+      AND (${repoKey}::text IS NULL OR NOT EXISTS (
+        SELECT 1 FROM projects o
+        WHERE o.token_repo_key = ${repoKey} AND o.token_url IS NOT NULL AND o.id <> ${a.projectId}))
     RETURNING name, description, repo_url, live_url`;
+  } catch (err) {
+    // Two claims on one repo at once: the unique index lets only one through.
+    if (
+      (err as { constraint_name?: string }).constraint_name ===
+      'projects_token_repo_key'
+    ) {
+      const other = repoKey && (await repoTokenUrl(a.projectId, repoKey));
+      return { status: 'failed', note: repoHasTokenNote(other || 'pending') };
+    }
+    throw err;
+  }
+  const [project] = claimed;
   if (!project) {
     const [existing] = await sql()<
       { token_url: string | null; installation_id: number | null }[]
@@ -228,6 +304,10 @@ export async function deployToken(
       throw new LaunchError(
         `No project ${a.projectId} recorded by you. Call record_submission first.`,
       );
+    }
+    if (!existing.token_url && repoKey) {
+      const other = await repoTokenUrl(a.projectId, repoKey);
+      if (other) return { status: 'failed', note: repoHasTokenNote(other) };
     }
     return {
       status: 'failed',
@@ -240,7 +320,9 @@ export async function deployToken(
 
   const imageUrl = a.image
     ? `${origin}/api/projects/${a.projectId}/image`
-    : (a.imageUrl ?? `${origin}/api/projects/${a.projectId}/token-image`);
+    : (a.imageUrl ??
+      // The ticker is in the link, so the year-long cache never serves another ticker's logo.
+      `${origin}/api/projects/${a.projectId}/token-image?s=${encodeURIComponent(a.symbol)}`);
   const website = project.live_url ?? project.repo_url ?? undefined;
   const doFetch = deps.fetch ?? fetch;
 

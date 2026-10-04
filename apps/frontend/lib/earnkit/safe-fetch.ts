@@ -46,6 +46,8 @@ export type Transport = (req: {
   address: string;
   family: 4 | 6;
   signal: AbortSignal;
+  /** Default EarnKit-verifier/1. */
+  userAgent?: string;
 }) => Promise<TransportResponse>;
 
 export const FETCH_TIMEOUT_MS = 5_000;
@@ -181,7 +183,7 @@ export function pinnedLookup(address: string, family: 4 | 6) {
   };
 }
 
-const nodeTransport: Transport = ({ url, address, family, signal }) =>
+const nodeTransport: Transport = ({ url, address, family, signal, userAgent }) =>
   new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -197,7 +199,10 @@ const nodeTransport: Transport = ({ url, address, family, signal }) =>
         // A fresh connection: never a pooled socket to some other address.
         agent: false,
         signal,
-        headers: { accept: 'text/plain', 'user-agent': 'EarnKit-verifier/1' },
+        headers: {
+          accept: 'text/plain',
+          'user-agent': userAgent ?? 'EarnKit-verifier/1',
+        },
       },
       (res) => {
         const length = Number(res.headers['content-length']);
@@ -228,6 +233,7 @@ export async function safeFetchText(
     timeoutMs = FETCH_TIMEOUT_MS,
     maxBytes = FETCH_MAX_BYTES,
     probe = false,
+    userAgent,
   }: {
     resolve?: Resolver;
     transport?: Transport;
@@ -235,6 +241,7 @@ export async function safeFetchText(
     maxBytes?: number;
     /** Accept any 2xx and don't read the body (safeProbe). */
     probe?: boolean;
+    userAgent?: string;
   } = {},
 ): Promise<string> {
   if (!URL.canParse(url)) throw new SafeFetchError('not a valid link');
@@ -274,6 +281,7 @@ export async function safeFetchText(
       address: first.address,
       family: first.family,
       signal: controller.signal,
+      userAgent,
     });
     close = res.close;
     if (res.status >= 300 && res.status < 400)
@@ -315,6 +323,9 @@ export async function safeFetchText(
 export const sameSite = (a: string, b: string) =>
   a.replace(/^www\./, '') === b.replace(/^www\./, '');
 
+/** The User-Agent of live-link checks (sites that refuse unnamed clients see who is asking). */
+export const LINKCHECK_UA = 'EarnKit-linkcheck/1';
+
 /**
  * Whether a builder's live link loads: any 2xx, the body never read. Follows one redirect within
  * the same site (apex↔www, a path change); refuses a redirect elsewhere or a second redirect.
@@ -323,13 +334,14 @@ export async function safeProbe(
   url: string,
   deps: { resolve?: Resolver; transport?: Transport; timeoutMs?: number } = {},
 ): Promise<void> {
+  const opts = { ...deps, probe: true, userAgent: LINKCHECK_UA };
   try {
-    await safeFetchText(url, { ...deps, probe: true });
+    await safeFetchText(url, opts);
   } catch (err) {
     if (!(err instanceof RedirectError) || !err.location) throw err;
     const next = new URL(err.location, url);
     if (!sameSite(next.hostname, new URL(url).hostname))
       throw new SafeFetchError(`redirects to another site (${next.hostname})`);
-    await safeFetchText(next.href, { ...deps, probe: true });
+    await safeFetchText(next.href, opts);
   }
 }

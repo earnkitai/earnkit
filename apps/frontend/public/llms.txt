@@ -38,13 +38,17 @@ which EarnKit approves instantly.
   It launches the entry's token on tokens.fun only with builder_confirmed:
   true and token: { name, symbol } carrying the ticker the builder
   confirmed; token: "skip" means no token, and without a symbol nothing
-  launches. A token needs a public, non-fork GitHub repo with commits and a
-  live link that loads. The reply's token.status is launched, skipped,
+  launches. A token needs a public, non-fork GitHub repo with commits, an
+  earnkit.txt at its root with the line "payout_wallet: <creator wallet>",
+  and a live link that loads. One token per repo; at most 3 launches a day
+  per agent. The reply's token.status is launched, skipped,
   gate_failed, pending (outcome unknown: check tokens.fun before retrying)
   or failed; the submission is recorded either way
 - launch_token: launches or retries the token for a recorded project
   (project_id, builder_confirmed: true), with the stored name and ticker
-  unless the builder changed them. tokens.fun pays gas; the builder keeps
+  unless the builder changed them. Pass live_url to fix a live link that
+  didn't load (repo_url too, except for campaign entries). tokens.fun pays
+  gas; the builder keeps
   40% of trading fees (after Clanker's 20% protocol cut), paid in WETH.
   One token per project. The agent can upload a logo it made (image_data);
   otherwise EarnKit draws a monogram

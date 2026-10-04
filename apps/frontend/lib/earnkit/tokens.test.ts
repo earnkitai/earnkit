@@ -80,7 +80,12 @@ test('deploy outcomes: success, refusal (released), rate limit, no answer (kept 
 
   const limited = outcomeOf({ ok: false, status: 429 }, { error: 'Daily limit' }, 'base');
   assert.equal(limited.status, 'failed');
-  assert.match(limited.note!, /tomorrow|later/);
+  assert.equal(limited.release, true);
+  assert.equal(limited.note, "tokens.fun's launch limit was reached (Daily limit). Say 'launch the token' later.");
+  // tokens.fun's own words and retryAfter, when it sends them.
+  const timed = outcomeOf({ ok: false, status: 429 }, { message: '5 launches an hour', retryAfter: 1800 }, 'base');
+  assert.equal(timed.release, true);
+  assert.equal(timed.note, "tokens.fun's launch limit was reached (5 launches an hour). Say 'launch the token' in 30 minutes.");
 
   const lost = outcomeOf(null, null, 'base');
   assert.equal(lost.status, 'pending');

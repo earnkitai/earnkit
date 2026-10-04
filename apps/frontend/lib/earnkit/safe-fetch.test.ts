@@ -350,6 +350,28 @@ test('safeProbe: one redirect within the same site is followed (apex↔www, path
   assert.deepEqual(seen, ['https://example.com/', 'https://www.example.com/home']);
 });
 
+test('safeProbe: names itself (EarnKit-linkcheck/1) on both requests; text fetches stay EarnKit-verifier', async () => {
+  const agents: (string | undefined)[] = [];
+  await safeProbe('https://example.com/', {
+    resolve: publicResolver,
+    transport: async ({ url, userAgent }) => {
+      agents.push(userAgent);
+      return url.hostname === 'example.com'
+        ? { status: 301, location: 'https://www.example.com/', body: (async function* () {})() }
+        : { status: 200, body: (async function* () {})() };
+    },
+  });
+  assert.deepEqual([...agents], ['EarnKit-linkcheck/1', 'EarnKit-linkcheck/1']);
+  await safeFetchText('https://example.com/f.txt', {
+    resolve: publicResolver,
+    transport: async ({ userAgent }) => {
+      agents.push(userAgent);
+      return { status: 200, body: (async function* () {})() };
+    },
+  });
+  assert.equal(agents[2], undefined);
+});
+
 test('safeProbe: a redirect to another site, or a second redirect, is refused', async () => {
   await assert.rejects(
     safeProbe('https://example.com/', { resolve: publicResolver, transport: async () => ({ status: 302, location: 'https://evil.test/', body: (async function* () {})() }) }),

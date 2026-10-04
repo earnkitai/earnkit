@@ -45,7 +45,8 @@ apps/frontend/
   app/sponsor-terms/page.tsx   sponsor terms (linked from the fund page)
   app/api/projects/[id]/image/ serves a token image the agent uploaded (token image_data)
   app/api/projects/[id]/token-image/  the default token logo: a 512x512 next/og PNG monogram of the
-                               stored ticker (validated A-Z0-9 only) on a colour from the project id
+                               stored ticker (validated A-Z0-9 only) on a colour from the project id;
+                               the link carries ?s=SYMBOL and 404s unless it matches the stored ticker
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
   app/.well-known/             OAuth discovery metadata
@@ -75,7 +76,8 @@ apps/frontend/
                                remembers installations.payout_wallet)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
-                               parseOwnershipFile, githubRepo, ownershipProblem (pure),
+                               parseOwnershipFile (payout_wallet, plus creator_wallet lines for
+                               token creators), githubRepo, ownershipProblem (pure),
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Blockscout DeployerLookup injectable;
                                recordSubmission passes deps through for the e2e)
@@ -104,7 +106,8 @@ apps/frontend/
                                mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
                                cert check and Host on the hostname (pinnedLookup), no redirects, 5 s,
                                4 KB; resolver and transport injectable. safeProbe: the token gate's
-                               live-link check (any 2xx, body unread, one same-site redirect)
+                               live-link check (any 2xx, body unread, one same-site redirect,
+                               User-Agent EarnKit-linkcheck/1)
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified
                                <host>"), earnkitTxtNames (earnkit.txt parsing), reserved brand
                                names (reservedBrands/reservedNameProblem: confusable skeleton,
@@ -123,7 +126,8 @@ apps/frontend/
     rate-limit.ts(+test)       Postgres fixed-window counter (rate_windows; atomic upsert) + clientIp
                                (X-Real-IP from Railway's edge, else rightmost x-forwarded-for;
                                IPv6 keyed on its /64). LIMITS (v2.2 §5): sponsor create 5/day
-                               (replacements 10/day) and record_submission 20/day per installation, OAuth register
+                               (replacements 10/day), record_submission 20/day and token launches
+                               (tokenLaunch) 3/day per installation, OAuth register
                                20/hour, authorize 60/hour and new installations 10/hour + 30/day
                                per IP (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
@@ -158,21 +162,29 @@ apps/frontend/
                                route never sets it
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
-                               (token_url='pending'), released only on a 4xx with a JSON body
-                               (outcomeOf); TokenStatus/TokenOutcome, setTokenStatus, EARNINGS_LINE,
+                               (token_url='pending', token_repo_key; refused when another project on
+                               the repo has a token: repoTokenUrl/repoHasTokenNote), released only
+                               on a 4xx with a JSON body
+                               (outcomeOf; a 429 quotes tokens.fun and its retryAfter);
+                               tokenLaunchesAvailable (deploy key set); TokenStatus/TokenOutcome,
+                               setTokenStatus (only rows with token_url IS NULL), EARNINGS_LINE,
                                TOKEN_TERMS, decodeImage, xProfileUrl
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
                                (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette)
-    token-gate.ts(+test)       tokenGate: policy, public non-fork repo with commits, live link via
-                               safeProbe, sanctions screen; first failure as a reason with the fix;
-                               GitHub/probe/screen injectable (GateDeps)
+    token-gate.ts(+test)       tokenGate: policy, public non-fork repo with commits, ownership
+                               (ownerProblem: earnkit.txt names the creator wallet on payout_wallet:
+                               or creator_wallet:; a campaign's proven payout wallet skips the read),
+                               live link via safeProbe, sanctions screen; first failure as a reason
+                               with the fix; GitHub/owner/probe/screen injectable (GateDeps)
     token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token),
                                decideToken (pure rules; record_submission needs the confirmed
                                symbol), submissionToken (record_submission's token part, never
-                               throws), launchToken (launch_token); TokenFlowDeps (gate, check,
-                               deploy, store) for tests
+                               throws; loose token object, image ignored), launchToken (launch_token,
+                               with live_url/repo_url overrides); runTokenFlow: launches configured,
+                               decideToken, one token per repo, gate, LIMITS.tokenLaunch, deploy;
+                               TokenFlowDeps (gate, check, deploy, store, limit, available) for tests
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'), minScore/prizeText/wonText,
                                entry checks (contracts optional for 'sponsor'; isWalletAddress:
                                mixed-case payout wallets must be EIP-55), normalizeRepoUrl/
@@ -212,16 +224,21 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
-                               projects.repo_key + its partial unique index, sponsor_verifications,
+                               projects.repo_key + its partial unique index, projects.token_* and
+                               token_repo_key + projects_token_repo_key (one token per repo),
+                               sponsor_verifications,
                                rate_windows, github_repo_facts, scoring_leases, projects.score_partial and
                                scored_through)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate
-                                failures, policy off, retry, 400 refusal (claim released), unconfirmed,
-                                monogram PNG, timeout and 502 (pending, claim kept), omitted token,
-                                existing token; `pnpm token:e2e`
+                                failures, policy off, retry with a fixed live_url, 400 refusal (claim
+                                released), unconfirmed, monogram PNG (?s= checked), timeout and 502
+                                (pending, claim kept), omitted token, existing token, no earnkit.txt,
+                                one token per repo (incl. the unique index), the 3-a-day limit, no
+                                deploy key, token.proposed echoed through the MCP server; the mock
+                                also serves earnkit.txt; `pnpm token:e2e`
     campaign.mts                score|rank|payout (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
                                 campaigns; local only; sync reads the chain for one ref or sweeps

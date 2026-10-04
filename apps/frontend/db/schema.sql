@@ -231,3 +231,10 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_symbol text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_status text
   CHECK (token_status IN ('skipped', 'gate_failed', 'pending', 'launched', 'failed'));
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_note   text;
+
+-- v2.3 Ruling 12: one launched or pending token per repo across EarnKit. token_repo_key is the
+-- normalized repo (campaigns.ts normalizeRepoUrl), set when a launch is claimed. Existing rows have
+-- NULL (never conflicts); a released claim sets token_url back to NULL, leaving the index.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_repo_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_token_repo_key
+  ON projects (token_repo_key) WHERE token_url IS NOT NULL;

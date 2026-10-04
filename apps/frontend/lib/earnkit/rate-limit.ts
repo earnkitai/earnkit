@@ -23,6 +23,8 @@ export const LIMITS = {
   /** New installations (POST /oauth/token that creates one), per client IP: hourly and daily. */
   installHour: { limit: 10, windowSeconds: 3_600 },
   installDay: { limit: 30, windowSeconds: 86_400 },
+  /** Token launches sent to tokens.fun (record_submission, launch_token), per installation. */
+  tokenLaunch: { limit: 3, windowSeconds: 86_400 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
 } as const;

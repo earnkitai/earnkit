@@ -22,11 +22,14 @@ returns a `token` block (`proposed` name and ticker, creator wallet, the earning
 links, and `say_to_builder` for the summary the builder confirms). `record_submission` launches
 the token on tokens.fun only when it gets `builder_confirmed: true` and `token: { name, symbol }`
 carrying the ticker the builder confirmed; `token: "skip"` means no token, and an omitted token
-launches nothing. A launch first passes a gate (public, non-fork GitHub repo with commits, a live
-link that loads, an unsanctioned creator wallet). The reply's `token.status` is `launched`,
-`skipped`, `gate_failed`, `pending` (outcome unknown: check tokens.fun) or `failed`; the
-submission is recorded either way. `launch_token { project_id, builder_confirmed: true }` launches
-or retries later with the stored proposal, or with changes. `sponsor_campaign`
+launches nothing. A launch first passes a gate (public, non-fork GitHub repo with commits whose
+`earnkit.txt` at the root names the creator wallet as `payout_wallet: 0x…`, a live link that
+loads, an unsanctioned creator wallet). One token per repo across EarnKit, and at most 3 launches
+a day per agent. The reply's `token.status` is `launched`, `skipped`, `gate_failed`, `pending`
+(outcome unknown: check tokens.fun) or `failed`; the submission is recorded either way.
+`launch_token { project_id, builder_confirmed: true }` launches or retries later with the stored
+proposal, or with changes; it also takes a fixed `live_url` (and `repo_url`, except for campaign
+entries). `sponsor_campaign`
 (sponsors fund a builder campaign into an escrow on Base; offered only once the escrow is
 configured with `ESCROW_FACTORY_ADDRESS`, so until then the server lists the first five).
 

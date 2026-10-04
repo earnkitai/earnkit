@@ -1,8 +1,12 @@
 import { z } from 'zod';
+import { normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { rememberedPayoutWallet } from './installations';
+import { OWNERSHIP_FILE } from './ownership';
 import type { TokenPolicy } from './program-file';
 import type { ProgramRow } from './programs';
+import { canonicalBuilderUrl } from './untrusted-text';
+import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, type GateDeps } from './token-gate';
 import {
   cleanTokenName,
@@ -13,10 +17,15 @@ import {
 import {
   EARNINGS_LINE,
   LaunchError,
+  REPO_HAS_TOKEN,
+  TOKENS_UNAVAILABLE,
   TOKEN_TERMS,
   decodeImage,
   deployToken,
+  repoHasTokenNote,
+  repoTokenUrl,
   setTokenStatus,
+  tokenLaunchesAvailable,
   xProfileUrl,
   type TokenOutcome,
   type TokenStatus,
@@ -58,7 +67,7 @@ export type TokenBlock = {
   terms: { agreement: string; risks: string };
   policy: 'encouraged' | 'allowed';
   say_to_builder: string;
-  note?: string;
+  note: string;
 };
 
 export type Decision =
@@ -144,19 +153,33 @@ export function decideToken(a: {
   return { action: 'launch', name: name.name, symbol };
 }
 
-/** The `token` block of prepare_submission, or null when the program has no tokens or no name is known yet. */
+/** What the builder must have in the repo before a launch (v2.3 Ruling 12). */
+const ownershipLine = (wallet: string | null) =>
+  `The project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root with the line ` +
+  `"payout_wallet: ${wallet ?? '<creator wallet>'}" (campaign entries already have it).`;
+
+/**
+ * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
+ * configured, or no name is known yet. `say_to_builder` alone is the complete consent text: the
+ * ticker, the earnings line, both terms links and what the repo needs.
+ */
 export async function tokenProposalBlock(
   a: { program: ProgramRow; projectName?: string; creatorWallet: string | null },
-  deps: { check?: TickerCheck } = {},
+  deps: { check?: TickerCheck; available?: () => boolean } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
   if (program.token_policy === 'off') return null;
+  if (!(deps.available ?? tokenLaunchesAvailable)()) return null;
   const projectName = a.projectName?.trim();
   if (!projectName) return null;
   const proposal = await proposeToken(projectName, deps.check);
+  const earnings = EARNINGS_LINE(a.creatorWallet ?? '<your wallet>');
+  const terms = `Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}.`;
   const notes: string[] = [];
   if (proposal.name === null) notes.push(proposal.reason);
+  else if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
+  notes.push(ownershipLine(a.creatorWallet));
   return {
     proposed:
       proposal.name === null
@@ -165,14 +188,15 @@ export async function tokenProposalBlock(
     chain: 'base',
     paired_with: 'WETH',
     creator_wallet: a.creatorWallet,
-    earnings: EARNINGS_LINE(a.creatorWallet ?? '<your wallet>'),
+    earnings,
     terms: TOKEN_TERMS,
     policy: program.token_policy,
     say_to_builder:
-      proposal.name === null
-        ? 'This entry can get a token: pick a name and ticker with the builder (3–6 letters or digits), or say "no token".'
-        : `Submitting ${projectName} to ${program.title}, and launching $${proposal.symbol} with your entry. You keep 40% of trading fees. Change the name, ticker or logo, or say "no token".`,
-    ...(notes.length > 0 && { note: notes.join(' ') }),
+      (proposal.name === null
+        ? 'This entry can get a token on tokens.fun: pick a name and ticker (3–6 letters or digits).'
+        : `Submitting ${projectName} to ${program.title}, and launching $${proposal.symbol} (${proposal.name}) with your entry on tokens.fun.`) +
+      ` ${earnings} ${terms} Your repo needs ${OWNERSHIP_FILE} naming that wallet. Change the name, ticker or logo, or say "no token".`,
+    note: notes.join(' '),
   };
 }
 
@@ -182,6 +206,7 @@ export type FlowProject = {
   name: string;
   repo_url: string | null;
   live_url: string | null;
+  /** Set for campaign entries only: proven by the repo's earnkit.txt at entry. */
   payout_wallet: string | null;
   token_url: string | null;
   token_name: string | null;
@@ -195,6 +220,14 @@ type FlowStore = {
   load: (projectId: number) => Promise<FlowProject | null>;
   setStatus: typeof setTokenStatus;
   rememberedWallet: (installationId: number) => Promise<string | null>;
+  /** Another project's token link (or 'pending') on the same normalized repo, or null. */
+  repoToken: (projectId: number, repoKey: string) => Promise<string | null>;
+  /** launch_token's link overrides, on a project of this installation with no token yet. */
+  updateLinks: (
+    projectId: number,
+    installationId: number,
+    links: { repo_url?: string; live_url?: string },
+  ) => Promise<void>;
 };
 
 export type TokenFlowDeps = {
@@ -202,6 +235,10 @@ export type TokenFlowDeps = {
   check?: TickerCheck;
   deploy?: typeof deployToken;
   store?: FlowStore;
+  /** Counts one launch for the installation; throws RateLimitError over LIMITS.tokenLaunch. */
+  limit?: (installationId: number) => Promise<unknown>;
+  /** Whether launches are configured (default: the tokens.fun deploy key is set). */
+  available?: () => boolean;
 };
 
 const dbStore: FlowStore = {
@@ -215,7 +252,21 @@ const dbStore: FlowStore = {
   },
   setStatus: setTokenStatus,
   rememberedWallet: rememberedPayoutWallet,
+  repoToken: repoTokenUrl,
+  updateLinks: async (projectId, installationId, links) => {
+    const live = links.live_url ?? null;
+    // Campaign entries (payout_wallet set) keep live_key, the normalized live link, in step.
+    await sql()`
+      UPDATE projects SET repo_url = COALESCE(${links.repo_url ?? null}, repo_url),
+        live_url = COALESCE(${live}, live_url),
+        live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL
+          THEN ${live && normalizeLiveUrl(live)} ELSE live_key END
+      WHERE id = ${projectId} AND installation_id = ${installationId} AND token_url IS NULL`;
+  },
 };
+
+const LIMITED = 'This agent has launched 3 tokens today, the daily limit.';
+const defaultLimit = (installationId: number) => enforce('tokenLaunch', installationId, LIMITED);
 
 /** A stored name and ticker that still pass the rules, else null. */
 function storedProposal(p: FlowProject) {
@@ -225,7 +276,12 @@ function storedProposal(p: FlowProject) {
 }
 
 const notLaunched = (err: unknown): TokenOutcome | null =>
-  err instanceof LaunchError ? { status: 'failed', note: err.message } : null;
+  err instanceof LaunchError || err instanceof RateLimitError
+    ? { status: 'failed', note: err.message }
+    : null;
+
+/** Where a flow got to: once `deploying`, a launch claim may be pending. */
+type Progress = { deploying: boolean };
 
 /** The one token flow behind record_submission ('submission') and launch_token ('launch'). */
 async function runTokenFlow(
@@ -238,13 +294,28 @@ async function runTokenFlow(
     chain: 'base' | 'robinhood' | 'arbitrum';
   },
   deps: TokenFlowDeps,
+  progress: Progress = { deploying: false },
 ): Promise<TokenOutcome> {
   const store = deps.store ?? dbStore;
   const choice = a.choice === 'skip' ? undefined : a.choice;
-  const proposed =
-    (a.mode === 'launch' && storedProposal(project)) ||
-    (await proposeToken(project.name, deps.check));
-  const proposal = proposed.name === null ? null : { name: proposed.name, symbol: proposed.symbol };
+
+  const record = async (status: TokenStatus, note: string, name?: string, symbol?: string) => {
+    await store.setStatus(project.id, { status, note, name, symbol });
+    return { status, note, name, symbol } satisfies TokenOutcome;
+  };
+  // Not configured: nothing to check or launch (no GitHub, live-link or tokens.fun calls).
+  if (!(deps.available ?? tokenLaunchesAvailable)())
+    return project.token_url
+      ? { status: 'skipped', note: TOKENS_UNAVAILABLE }
+      : record('skipped', TOKENS_UNAVAILABLE);
+
+  // At submission an explicit ticker is the builder's; no proposal (and no ticker lookups) needed.
+  const explicit = a.mode === 'submission' && Boolean(choice?.symbol?.trim());
+  const proposed = explicit
+    ? null
+    : (a.mode === 'launch' && storedProposal(project)) ||
+      (await proposeToken(project.name, deps.check));
+  const proposal = proposed && proposed.name !== null ? { name: proposed.name, symbol: proposed.symbol } : null;
   // At submission a ticker without a name takes the (cleaned) project name.
   const projectName = cleanTokenName(project.name);
   const fallback =
@@ -264,29 +335,38 @@ async function runTokenFlow(
     wallet,
     needsSymbol: a.mode === 'submission',
   });
+  // Not launching here: at submission it's skipped; launch_token was asked to launch, so a refusal
+  // there (an existing token, a refused edit, no wallet) has failed.
+  const notNow = decision.action === 'refuse' && a.mode === 'launch' ? 'failed' : 'skipped';
 
-  const record = async (status: TokenStatus, note: string, name?: string, symbol?: string) => {
-    await store.setStatus(project.id, { status, note, name, symbol });
-    return { status, note, name, symbol } satisfies TokenOutcome;
-  };
-
-  if (decision.action === 'skip') {
-    if (project.token_url) return { status: 'skipped', note: decision.note };
+  if (decision.action !== 'launch') {
+    // A project that has (or is getting) a token is never written to here.
+    if (project.token_url) return { status: notNow, note: decision.note };
     // Kept for a later launch_token: the builder's valid edits, else the proposal.
     const edits = choice ? editsOf(choice) : {};
-    return record('skipped', decision.note, edits.name ?? proposal?.name, edits.symbol ?? proposal?.symbol);
-  }
-  if (decision.action === 'refuse') {
-    // A project that has (or is getting) a token is never written to here.
-    if (project.token_url)
-      return { status: a.mode === 'launch' ? 'failed' : 'skipped', note: decision.note };
-    const edits = choice ? editsOf(choice) : {};
-    return record('skipped', decision.note, edits.name ?? proposal?.name, edits.symbol ?? proposal?.symbol);
+    return record(
+      notNow,
+      decision.note,
+      edits.name ?? fallback?.name ?? undefined,
+      edits.symbol ?? proposal?.symbol,
+    );
   }
 
   const { name, symbol } = decision;
+  const repoNotNow = a.mode === 'launch' ? 'failed' : 'skipped';
+  // One token per repo across EarnKit: checked before the gate (deployToken's claim enforces it).
+  const repoKey = project.repo_url ? normalizeRepoUrl(project.repo_url) : null;
+  const other = repoKey && (await store.repoToken(project.id, repoKey));
+  if (other) return record(repoNotNow, repoHasTokenNote(other), name, symbol);
+
   const gate = await tokenGate(
-    { policy: project.token_policy, repoUrl: project.repo_url, liveUrl: project.live_url, wallet: wallet! },
+    {
+      policy: project.token_policy,
+      repoUrl: project.repo_url,
+      liveUrl: project.live_url,
+      wallet: wallet!,
+      provenWallet: project.payout_wallet,
+    },
     deps.gate,
   );
   if (!gate.ok) return record('gate_failed', gate.reason, name, symbol);
@@ -295,13 +375,16 @@ async function runTokenFlow(
   try {
     image = choice?.image_data ? decodeImage(choice.image_data) : null;
     if (choice?.builder_x) xProfileUrl(choice.builder_x);
+    // Counted only for a launch actually sent: never for skips or gate failures.
+    await (deps.limit ?? defaultLimit)(a.installationId);
   } catch (err) {
     const out = notLaunched(err);
     if (!out) throw err;
     return record('failed', out.note!, name, symbol);
   }
   try {
-    return await (deps.deploy ?? deployToken)({
+    progress.deploying = true;
+    const out = await (deps.deploy ?? deployToken)({
       projectId: project.id,
       installationId: a.installationId,
       name,
@@ -312,6 +395,10 @@ async function runTokenFlow(
       builderX: choice?.builder_x,
       chain: a.chain,
     });
+    // Another entry of the repo claimed a token at the same moment: at submission, skipped.
+    return out.status === 'failed' && out.note?.startsWith(REPO_HAS_TOKEN)
+      ? { ...out, status: repoNotNow }
+      : out;
   } catch (err) {
     // The project is this installation's (checked by the callers), so a LaunchError here is a
     // refusal before any claim (e.g. launches unavailable): report it, don't throw.
@@ -328,10 +415,15 @@ async function ownProject(store: FlowStore, projectId: number, installationId: n
   return project;
 }
 
+/** A zod issue list as one line: "image_url: must start with https://; Unrecognized key: …". */
+const issuesText = (issues: z.core.$ZodIssue[]) =>
+  issues.map((i) => `${i.path.length ? `${i.path.join('.')}: ` : ''}${i.message}`).join('; ');
+
 /**
  * The token part of record_submission: launches only with the ticker the builder confirmed
  * (`choice.symbol`, passed explicitly) and builder_confirmed. `choice` is checked here, not in
  * RecordSubmissionInput, so a bad token field skips the token instead of failing the entry.
+ * `image` (as echoed from token.proposed) is ignored; null is no token object.
  */
 export async function tokenAfterSubmission(
   a: {
@@ -341,16 +433,18 @@ export async function tokenAfterSubmission(
     confirmed: boolean;
   },
   deps: TokenFlowDeps = {},
+  progress?: Progress,
 ): Promise<TokenOutcome> {
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, a.projectId, a.installationId);
   let choice: 'skip' | Choice | undefined;
-  if (a.choice === 'skip' || a.choice === undefined) choice = a.choice;
+  if (a.choice === 'skip' || a.choice === undefined || a.choice === null) choice = a.choice ?? undefined;
   else {
-    const parsed = TokenChoice.safeParse(a.choice);
+    const { image: _image, ...rest } = (typeof a.choice === 'object' ? a.choice : {}) as Record<string, unknown>;
+    const parsed = TokenChoice.safeParse(typeof a.choice === 'object' ? rest : a.choice);
     if (!parsed.success) {
-      const note = `token: ${parsed.error.issues.map((i) => `${i.path.join('.') || 'token'}: ${i.message}`).join('; ')}`;
-      await store.setStatus(project.id, { status: 'skipped', note });
+      const note = `token: ${issuesText(parsed.error.issues)}`;
+      if (!project.token_url) await store.setStatus(project.id, { status: 'skipped', note });
       return { status: 'skipped', note };
     }
     choice = parsed.data;
@@ -359,21 +453,25 @@ export async function tokenAfterSubmission(
     project,
     { mode: 'submission', installationId: a.installationId, choice, confirmed: a.confirmed, chain: 'base' },
     deps,
+    progress,
   );
 }
 
 const TOKEN_ERROR = 'EarnKit hit an error launching the token; say "launch the token" to retry.';
+const TOKEN_ERROR_DEPLOYING =
+  'EarnKit hit an error while launching the token, which may have launched: check tokens.fun before retrying.';
 
 /** tokenAfterSubmission that never throws: record_submission must return even if the token part fails. */
 export async function submissionToken(
   a: Parameters<typeof tokenAfterSubmission>[0],
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
+  const progress: Progress = { deploying: false };
   try {
-    return await tokenAfterSubmission(a, deps);
+    return await tokenAfterSubmission(a, deps, progress);
   } catch (err) {
     console.error('[token]', err);
-    return { status: 'failed', note: TOKEN_ERROR };
+    return { status: 'failed', note: progress.deploying ? TOKEN_ERROR_DEPLOYING : TOKEN_ERROR };
   }
 }
 
@@ -381,19 +479,40 @@ export const LaunchTokenInput = TokenChoice.extend({
   project_id: z.number().int().positive(),
   builder_confirmed: z.literal(true),
   chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
+  /** A new live link (e.g. the old one 404s). */
+  live_url: z.string().optional(),
+  /** A new repo link; not for campaign entries (their repo was proven at entry). */
+  repo_url: z.string().optional(),
 }).strict();
 
 /**
  * launch_token: launches (or retries) the token for a project this installation recorded, with
- * the stored proposal unless the builder changed it. Returns a TokenOutcome for every result;
- * throws only when the project isn't this installation's.
+ * the stored proposal unless the builder changed it, after applying any live_url/repo_url fix.
+ * Returns a TokenOutcome for every result; throws only when the project isn't this installation's.
  */
 export async function launchToken(
   input: z.infer<typeof LaunchTokenInput>,
   installationId: number,
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, ...choice } = input;
-  const project = await ownProject(deps.store ?? dbStore, project_id, installationId);
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, ...choice } = input;
+  const store = deps.store ?? dbStore;
+  const project = await ownProject(store, project_id, installationId);
+  if ((live_url || repo_url) && !project.token_url) {
+    if (repo_url && project.payout_wallet)
+      return {
+        status: 'failed',
+        note: "repo_url: a campaign entry's repo was proven at entry and can't change; enter the other repo as a new entry.",
+      };
+    const links: { repo_url?: string; live_url?: string } = {};
+    for (const [field, raw] of [['repo_url', repo_url], ['live_url', live_url]] as const) {
+      if (!raw) continue;
+      const c = canonicalBuilderUrl(raw.trim());
+      if (c.problem) return { status: 'failed', note: `${field}: ${c.problem}.` };
+      links[field] = c.url;
+    }
+    await store.updateLinks(project.id, installationId, links);
+    Object.assign(project, links);
+  }
   return runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
 }

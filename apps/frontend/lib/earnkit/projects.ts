@@ -40,9 +40,10 @@ export const RecordSubmissionInput = z
      */
     token: z
       .union([z.literal('skip'), z.record(z.string(), z.unknown())])
+      .nullable()
       .optional(),
-    /** The builder confirmed the summary that included the token line. */
-    builder_confirmed: z.boolean().optional(),
+    /** The builder confirmed the summary that included the token line: only `true` counts. */
+    builder_confirmed: z.unknown().optional(),
   })
   .strict();
 

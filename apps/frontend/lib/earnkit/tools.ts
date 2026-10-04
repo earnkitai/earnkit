@@ -270,17 +270,24 @@ export const tools = {
     const result = await recordSubmission(parsed, ctx.installationId);
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
     // The token never fails the submission: it is recorded either way.
-    const token = await submissionToken({
-      projectId: result.project_id,
-      installationId: ctx.installationId,
-      choice: parsed.token,
-      confirmed: parsed.builder_confirmed === true,
-    }, ctx.tokenDeps);
+    const token = await submissionToken(
+      {
+        projectId: result.project_id,
+        installationId: ctx.installationId,
+        choice: parsed.token,
+        confirmed: parsed.builder_confirmed === true,
+      },
+      ctx.tokenDeps,
+    );
     return { ...result, token };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
-    launchToken(LaunchTokenInput.parse(input), ctx.installationId, ctx.tokenDeps),
+    launchToken(
+      LaunchTokenInput.parse(input),
+      ctx.installationId,
+      ctx.tokenDeps,
+    ),
 
   // Sponsors: create a campaign (returns a funding link and raw txs), check it (status reads the
   // chain for the bound wallet's deposit or award), award it.

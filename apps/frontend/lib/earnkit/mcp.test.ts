@@ -139,36 +139,53 @@ test('the three safety lines are in the instructions and every tool that carries
   }
 });
 
-test('a misnamed token key is an error, not silently dropped', async () => {
+test('launch_token is strict: a misnamed key is an error, not silently dropped', async () => {
   const server = createMcpServer({ installationId: 1 });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
-  const errorText = async (name: string, args: Record<string, unknown>) => {
-    try {
-      const r = await client.callTool({ name, arguments: args });
-      assert.equal(r.isError, true);
-      return JSON.stringify(r.content);
-    } catch (err) {
-      return String(err);
-    }
-  };
   try {
     // Rejected by the input schema, before the tool runs (so no database is touched).
-    assert.match(
-      await errorText('launch_token', { project_id: 7, builder_confirmed: true, ticker: 'KITS' }),
-      /Unrecognized key: \\"ticker\\"/,
-    );
-    assert.match(
-      await errorText('record_submission', {
-        program_id: 'p',
-        project: { name: 'Kit' },
-        submission_data: {},
-        token: { name: 'Kit', ticker: 'KITS' },
-      }),
-      /Unrecognized key: \\"ticker\\" at token/,
-    );
+    const r = await client.callTool({
+      name: 'launch_token',
+      arguments: { project_id: 7, builder_confirmed: true, ticker: 'KITS' },
+    });
+    assert.equal(r.isError, true);
+    assert.match(JSON.stringify(r.content), /Unrecognized key: \\"ticker\\"/);
   } finally {
+    await client.close();
+  }
+});
+
+test('record_submission accepts token.proposed echoed verbatim, null, and any builder_confirmed', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const errLog = console.error;
+  console.error = () => {};
+  try {
+    const base = { program_id: 'p', project: { name: 'Kit' }, submission_data: {} };
+    for (const extra of [
+      // token.proposed from prepare_submission, as is (with `image`).
+      { token: { name: 'Chain Kits', symbol: 'CHAIN', image: 'monogram' }, builder_confirmed: true },
+      { token: null, builder_confirmed: 'yes' },
+      { token: 'skip' },
+    ]) {
+      // The schema lets it through to the tool; with no database here the tool itself then fails,
+      // which is not an input validation error.
+      const r = await client
+        .callTool({ name: 'record_submission', arguments: { ...base, ...extra } })
+        .catch((err: unknown) => ({ isError: true, content: String(err) }));
+      assert.doesNotMatch(JSON.stringify(r.content), /Input validation error/, JSON.stringify(extra));
+    }
+    // The schema an agent sees lets extra keys through on the token object.
+    const { tools } = await client.listTools();
+    const rec = tools.find((t) => t.name === 'record_submission')!;
+    const tokenSchema = JSON.stringify((rec.inputSchema.properties as Record<string, unknown>).token);
+    assert.doesNotMatch(tokenSchema, /"additionalProperties":false/);
+  } finally {
+    console.error = errLog;
     await client.close();
   }
 });

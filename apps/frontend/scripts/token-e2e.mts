@@ -25,6 +25,13 @@ import { join } from 'node:path';
  *   k. token omitted → skipped ("pass token"); launch_token launches the stored proposal
  *   l. a 502 "Deployment status unknown" → pending, claim kept; launch_token is refused
  *   m. a project that already has a token → skipped at submission, failed via launch_token
+ *   n. ownership: a repo without earnkit.txt naming the creator wallet → gate_failed
+ *   o. one token per repo: a second entry of (a)'s repo → skipped; launch_token on it → failed
+ *   p. the per-installation limit: a fresh agent launches 3, the 4th is failed
+ *   q. no deploy key: no token block, and record_submission → skipped, nothing checked or sent
+ *   r. through the MCP server: token.proposed echoed verbatim (with `image`) launches
+ * The mock also serves earnkit.txt (EARNKIT_OWNERSHIP_BASE_URL, NODE_ENV=test), naming the
+ * builder's wallet for every repo except those named "noproof"; the real ownership fetch reads it.
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -46,11 +53,14 @@ const portMatch = apiUrl.match(/^http:\/\/127\.0\.0\.1:(\d+)\/?$/);
 if (!portMatch)
   guardFail('TOKENSFUN_API_URL must be http://127.0.0.1:<port> (0 picks a free port for the mock).');
 process.env.TOKENSFUN_DEPLOY_API_KEY ||= 'e2e-mock-key';
+(process.env as Record<string, string>).NODE_ENV = 'test'; // allows EARNKIT_OWNERSHIP_BASE_URL
 const KEY = process.env.TOKENSFUN_DEPLOY_API_KEY;
 delete process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS;
 
 // ---- the mock tokens.fun ----
 const TOKEN_ADDRESS = '0x' + 'ab'.repeat(20);
+const WALLET = '0x' + '12'.repeat(20);
+const ownershipReads: string[] = [];
 const deploys: Record<string, unknown>[] = [];
 let authFailures = 0;
 const hanging = new Set<IncomingMessage>();
@@ -66,6 +76,17 @@ const server = createServer(async (req, res) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
   };
+  // earnkit.txt, as raw.githubusercontent.com would serve it (no key: it isn't tokens.fun).
+  const file = url.pathname.match(/^\/([^/]+)\/([^/]+)\/HEAD\/earnkit\.txt$/);
+  if (req.method === 'GET' && file) {
+    ownershipReads.push(file[2]);
+    if (file[2].includes('noproof')) {
+      res.writeHead(404);
+      return res.end('404: Not Found');
+    }
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    return res.end(`# e2e\npayout_wallet: ${WALLET}\n`);
+  }
   if (req.headers.authorization !== `Bearer ${KEY}`) {
     authFailures++;
     return json(401, { error: 'Unauthorized' });
@@ -95,11 +116,15 @@ await new Promise<void>((resolve) => server.listen(Number(portMatch[1]), '127.0.
 const mockPort = (server.address() as AddressInfo).port;
 // Set before the app modules that read TOKENSFUN_API_URL at import time are loaded.
 process.env.TOKENSFUN_API_URL = `http://127.0.0.1:${mockPort}`;
+process.env.EARNKIT_OWNERSHIP_BASE_URL = `http://127.0.0.1:${mockPort}`;
 
 const { sql } = await import('../lib/earnkit/db');
 const { upsertProgram } = await import('../lib/earnkit/programs');
 const { ProgramFile } = await import('../lib/earnkit/program-file');
 const { tools } = await import('../lib/earnkit/tools');
+const { createMcpServer } = await import('../lib/earnkit/mcp');
+const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
 type Ctx = import('../lib/earnkit/tools').ToolContext;
 type GateDeps = import('../lib/earnkit/token-gate').GateDeps;
 type TokenOutcome = import('../lib/earnkit/tokens').TokenOutcome;
@@ -146,24 +171,35 @@ const ON = 'e2e-token-encouraged';
 const OFF = 'e2e-token-off';
 await upsertProgram(program(ON, 'encouraged'));
 await upsertProgram(program(OFF, 'off'));
-const WALLET = '0x' + '12'.repeat(20);
-const [inst] = await db<{ id: number }[]>`
-  INSERT INTO installations (token_hash, payout_wallet)
-  VALUES (${'e2e-token-' + Date.now()}, ${WALLET}) RETURNING id`;
+const newInstallation = async () =>
+  (
+    await db<{ id: number }[]>`
+      INSERT INTO installations (token_hash, payout_wallet)
+      VALUES (${'e2e-token-' + Date.now() + '-' + Math.random()}, ${WALLET}) RETURNING id`
+  )[0];
+const inst = await newInstallation();
 
 // ---- helpers ----
+// GitHub and the sanctions screen are faked; earnkit.txt is read for real (from the mock). A live
+// link with "broken" in it answers 404.
 const passGate: GateDeps = {
   repo: async () => ({ fork: false, hasCommits: true }),
-  probe: async () => {},
+  probe: async (url) => {
+    if (url.includes('broken')) throw new Error('answered 404, not 2xx');
+  },
   screen: async () => {},
 };
-const ctx = (gate: GateDeps = passGate): Ctx => ({ installationId: inst.id, tokenDeps: { gate } });
+// The daily launch limit is lifted for the main agent (it launches more than 3); (p) tests it.
+const ctx = (gate: GateDeps = passGate): Ctx => ({
+  installationId: inst.id,
+  tokenDeps: { gate, limit: async () => {} },
+});
 let seq = 0;
-const project = (name: string, extra: Record<string, string> = {}) => {
+const project = (name: string, extra: Record<string, string> = {}, tag = '') => {
   seq++;
   return {
     name,
-    repo_url: `https://github.com/e2e-builder/token-e2e-${Date.now()}-${seq}`,
+    repo_url: `https://github.com/e2e-builder/token-e2e-${tag}${Date.now()}-${seq}`,
     live_url: `https://token-e2e-${seq}.example.com`,
     ...extra,
   };
@@ -172,6 +208,7 @@ type Recorded = { recorded: boolean; project_id: number; token: TokenOutcome };
 const submit = async (
   a: { program?: string; project: Record<string, string>; token?: unknown; confirmed?: boolean },
   gate?: GateDeps,
+  c: Ctx = ctx(gate),
 ) =>
   (await tools.record_submission(
     {
@@ -181,20 +218,28 @@ const submit = async (
       ...(a.token !== undefined && { token: a.token }),
       ...(a.confirmed !== undefined && { builder_confirmed: a.confirmed }),
     },
-    ctx(gate),
+    c,
   )) as Recorded;
 const launch = (input: Record<string, unknown>, gate?: GateDeps) =>
   tools.launch_token({ builder_confirmed: true, ...input }, ctx(gate)) as Promise<TokenOutcome>;
 const row = async (id: number) =>
   (
     await db<
-      { token_url: string | null; token_status: string | null; token_symbol: string | null; token_name: string | null }[]
-    >`SELECT token_url, token_status, token_symbol, token_name FROM projects WHERE id = ${id}`
+      {
+        token_url: string | null;
+        token_status: string | null;
+        token_symbol: string | null;
+        token_name: string | null;
+        live_url: string | null;
+        token_repo_key: string | null;
+      }[]
+    >`SELECT token_url, token_status, token_symbol, token_name, live_url, token_repo_key FROM projects WHERE id = ${id}`
   )[0];
 const lastDeploy = () => deploys[deploys.length - 1];
 
 // (a) default: the proposal, confirmed and passed back.
 let aProjectId = 0;
+let aRepo = '';
 {
   const p = project('Chain Kit Builder');
   const prep = (await tools.prepare_submission({ program_id: ON, project: { name: p.name } }, ctx())) as {
@@ -211,12 +256,16 @@ let aProjectId = 0;
   const body = lastDeploy();
   check(deploys.length === before + 1, '(a) one deploy sent');
   check(body.creatorWallet === WALLET, '(a) mock saw the creator wallet', body);
-  check(typeof body.imageUrl === 'string' && body.imageUrl.endsWith(`/api/projects/${r.project_id}/token-image`), '(a) image is the monogram route', body.imageUrl);
+  check(typeof body.imageUrl === 'string' && body.imageUrl.endsWith(`/api/projects/${r.project_id}/token-image?s=CHAIN`), '(a) image is the monogram route, with the ticker', body.imageUrl);
+  check(ownershipReads.includes(p.repo_url.split('/').pop()!), '(a) earnkit.txt was read');
   check(!('twitter' in body), '(a) no twitter field');
   check(body.chainId === 8453 && body.source === 'earnkit', '(a) Base chain, source earnkit');
   const saved = await row(r.project_id);
   check(saved.token_url === `https://tokens.fun/coin/${TOKEN_ADDRESS}` && saved.token_status === 'launched', '(a) project row has the token', saved);
+  check(saved.token_repo_key === p.repo_url.replace('https://', ''), '(a) token_repo_key is the normalized repo', saved);
+  check(prep.token?.say_to_builder.includes(`paid in WETH to ${WALLET}`) && prep.token.say_to_builder.includes('risk-disclosure'), '(a) say_to_builder carries the earnings line and terms');
   aProjectId = r.project_id;
+  aRepo = p.repo_url;
 }
 
 // (b) an edited ticker.
@@ -238,11 +287,12 @@ let aProjectId = 0;
 let retryProjectId = 0;
 {
   const before = deploys.length;
-  const r404 = await submit(
-    { project: project('Retry Demo'), token: { name: 'Retry Demo', symbol: 'RETRY' }, confirmed: true },
-    { ...passGate, probe: async () => { throw new Error('answered 404, not 2xx'); } },
-  );
-  check(r404.token.status === 'gate_failed' && /live link/.test(r404.token.note ?? ''), '(d) live link 404 → gate_failed', r404.token);
+  const r404 = await submit({
+    project: project('Retry Demo', { live_url: 'https://broken-retry.example.com' }),
+    token: { name: 'Retry Demo', symbol: 'RETRY' },
+    confirmed: true,
+  });
+  check(r404.token.status === 'gate_failed' && /live link.*call launch_token with live_url/.test(r404.token.note ?? ''), '(d) live link 404 → gate_failed', r404.token);
   retryProjectId = r404.project_id;
   const fork = await submit(
     { project: project('Forked Thing'), token: { name: 'Forked Thing', symbol: 'FORKD' }, confirmed: true },
@@ -263,11 +313,14 @@ let retryProjectId = 0;
   check(r.token.status === 'skipped' && /doesn't allow tokens/.test(r.token.note ?? ''), '(e) off program → skipped', r.token);
 }
 
-// (f) retry after the 404, with the stored ticker.
+// (f) retry after the 404: still broken, then with a fixed live_url and the stored ticker.
 {
-  const r = await launch({ project_id: retryProjectId });
-  check(r.status === 'launched' && r.symbol === 'RETRY', '(f) launch_token retry launches the stored RETRY', r);
+  const still = await launch({ project_id: retryProjectId });
+  check(still.status === 'gate_failed', '(f) retry with the same broken link → gate_failed', still);
+  const r = await launch({ project_id: retryProjectId, live_url: 'https://fixed-retry.example.com' });
+  check(r.status === 'launched' && r.symbol === 'RETRY', '(f) launch_token with live_url launches the stored RETRY', r);
   check(lastDeploy().symbol === 'RETRY', '(f) mock saw RETRY');
+  check((await row(retryProjectId)).live_url === 'https://fixed-retry.example.com/', '(f) the fixed live_url is saved');
 }
 
 // (g) tokens.fun refuses before minting: the claim is released.
@@ -291,9 +344,13 @@ let retryProjectId = 0;
 // (i) the monogram route, called directly.
 {
   const { GET } = await import('../app/api/projects/[id]/token-image/route');
-  const res = await GET(new Request(`http://localhost/api/projects/${aProjectId}/token-image`), {
-    params: Promise.resolve({ id: String(aProjectId) }),
-  });
+  const get = (q: string) =>
+    GET(new Request(`http://localhost/api/projects/${aProjectId}/token-image${q}`), {
+      params: Promise.resolve({ id: String(aProjectId) }),
+    });
+  const stale = await get('?s=OTHER');
+  check(stale.status === 404 && (await get('')).status === 404, '(i) another or no ticker in the link → 404');
+  const res = await get('?s=CHAIN');
   const bytes = Buffer.from(await res.arrayBuffer());
   check(res.status === 200 && res.headers.get('content-type') === 'image/png', '(i) monogram is image/png', {
     status: res.status,
@@ -351,6 +408,76 @@ let retryProjectId = 0;
   const again = await launch({ project_id: aProjectId });
   check(again.status === 'failed' && /already has a token/.test(again.note ?? ''), '(m) launch_token on a launched project → failed', again);
   check(deploys.length === before, '(m) no deploy sent');
+}
+
+// (n) ownership: no earnkit.txt naming the creator wallet.
+{
+  const before = deploys.length;
+  const r = await submit({ project: project('Not Mine', {}, 'noproof-'), token: { name: 'Not Mine', symbol: 'NOTMN' }, confirmed: true });
+  check(r.token.status === 'gate_failed' && /proof the builder owns .*earnkit\.txt.*payout_wallet: /.test(r.token.note ?? ''), '(n) no earnkit.txt → gate_failed with the line to add', r.token);
+  check(deploys.length === before, '(n) no deploy sent');
+}
+
+// (o) one token per repo: a second entry of (a)'s repo (e.g. a retried record_submission).
+{
+  const before = deploys.length;
+  const r = await submit({ project: project('Chain Kit Builder', { repo_url: aRepo }), token: { name: 'Chain Kit Again', symbol: 'CHAN2' }, confirmed: true });
+  check(r.recorded === true && r.token.status === 'skipped' && r.token.note === `This repo already has a token: https://tokens.fun/coin/${TOKEN_ADDRESS}`, '(o) second entry of the repo → skipped', r.token);
+  const l = await launch({ project_id: r.project_id });
+  check(l.status === 'failed' && /This repo already has a token/.test(l.note ?? ''), '(o) launch_token on it → failed', l);
+  check(deploys.length === before, '(o) no deploy sent');
+  // The database refuses a second claim on the repo even past the app check.
+  const dup = await db`UPDATE projects SET token_url = 'pending', token_repo_key = ${aRepo.replace('https://', '')} WHERE id = ${r.project_id}`.catch((e: { constraint_name?: string }) => e.constraint_name);
+  check(dup === 'projects_token_repo_key', '(o) the unique index refuses a second token on the repo', dup);
+}
+
+// (p) the per-installation limit: 3 launches a day, the real counter.
+{
+  const fresh = await newInstallation();
+  const c: Ctx = { installationId: fresh.id, tokenDeps: { gate: passGate } };
+  const before = deploys.length;
+  const results: TokenOutcome[] = [];
+  for (const sym of ['LIMA', 'LIMB', 'LIMC', 'LIMD'])
+    results.push((await submit({ project: project(`Limit ${sym}`), token: { name: `Limit ${sym}`, symbol: sym }, confirmed: true }, undefined, c)).token);
+  check(results.slice(0, 3).every((t) => t.status === 'launched'), '(p) three launches go through', results);
+  check(results[3].status === 'failed' && /^This agent has launched 3 tokens today, the daily limit\./.test(results[3].note ?? ''), '(p) the fourth is failed (daily limit)', results[3]);
+  check(deploys.length === before + 3, '(p) only three deploys sent');
+}
+
+// (q) no deploy key: nothing is offered, checked or sent.
+{
+  const saved = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const before = deploys.length;
+  const reads = ownershipReads.length;
+  try {
+    const prep = (await tools.prepare_submission({ program_id: ON, project: { name: 'Keyless App' } }, ctx())) as Record<string, unknown>;
+    check(!('token' in prep), '(q) no key: prepare_submission has no token block');
+    const r = await submit({ project: project('Keyless App'), token: { name: 'Keyless App', symbol: 'KEYL' }, confirmed: true });
+    check(r.recorded === true && r.token.status === 'skipped' && r.token.note === "Token launches aren't available right now.", '(q) no key → skipped', r.token);
+    check(deploys.length === before && ownershipReads.length === reads, '(q) nothing checked or sent');
+  } finally {
+    process.env.TOKENSFUN_DEPLOY_API_KEY = saved;
+  }
+}
+
+// (r) through the MCP server: token.proposed echoed verbatim, image and all.
+{
+  const server = createMcpServer(ctx());
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'e2e', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const text = (r: unknown) => (r as { content: { text: string }[] }).content[0].text;
+  const p = project('Echo Proposal');
+  const prep = JSON.parse(text(await client.callTool({ name: 'prepare_submission', arguments: { program_id: ON, project: { name: p.name } } })));
+  check(prep.token?.proposed?.image === 'monogram', '(r) token.proposed has image', prep.token);
+  const res = await client.callTool({
+    name: 'record_submission',
+    arguments: { program_id: ON, project: p, submission_data: { notes: 'e2e' }, token: prep.token.proposed, builder_confirmed: true },
+  });
+  const out = JSON.parse(text(res)) as Recorded;
+  check(!res.isError && out.token.status === 'launched' && out.token.symbol === prep.token.proposed.symbol, '(r) echoed proposal launches through MCP', text(res));
+  await client.close();
 }
 
 check(authFailures === 0, 'every mock call carried the deploy key');
