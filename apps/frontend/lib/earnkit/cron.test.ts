@@ -2,11 +2,11 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { decodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
+import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
-import type { PayoutRpc } from './payout';
+import { dbPayoutStore, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
 
 const ENDS = new Date('2026-10-18T23:59:00Z');
@@ -85,6 +85,7 @@ function chain(funds: () => bigint = () => 10n ** 30n) {
   const rpc: PayoutRpc = {
     getChainId: async () => 8453,
     nonce: async () => sent.length,
+    confirmedNonce: async () => sent.length,
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => (mined.has(h) ? { status: 'success' } : null),
@@ -92,7 +93,7 @@ function chain(funds: () => bigint = () => 10n ** 30n) {
     waitFor: async (h) => (mined.has(h) ? { status: 'success' } : null),
     balanceOf: async () => funds(),
   };
-  return { rpc, sent };
+  return { rpc, sent, mined };
 }
 
 async function setup(tag: string, n: number) {
@@ -313,4 +314,52 @@ test('M2: when the whole run fails, the response is a fixed error (the Actions l
   assert.equal(res.status, 500);
   assert.deepEqual(await res.json(), { error: 'The cron run failed; see the server log.' });
   delete process.env.CRON_SECRET;
+});
+
+test('Ruling 32 minor: with changed terms, a transfer in flight is still recorded as paid (frozen amount); nothing new is signed', db, async () => {
+  const tag = `test-cron-follow-${process.pid}-${Date.now()}`;
+  const [a, b] = await setup(tag, 2);
+  const f = chain();
+  const deps = {
+    score: { score: async (contracts: string[]) => result(contracts[0] === `0x${'1'.repeat(40)}` ? 9 : 8) },
+    pay: { account, rpc: f.rpc, listed: async () => false },
+    refreshFees: async () => 0,
+  };
+  try {
+    await runCron({ now: at(16), deps, only: [tag] });
+    const raw = await account.signTransaction({
+      chainId: 8453, type: 'eip1559', to: TOKEN as Hex, nonce: 0, gas: 60_000n, maxFeePerGas: 2n, maxPriorityFeePerGas: 1n,
+      data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [`0x${'e'.repeat(39)}1`, 3n * 10n ** 18n] }),
+    });
+    assert.equal(await dbPayoutStore.sending(a, keccak256(raw), raw), true);
+    f.mined.add(keccak256(raw));
+    await sql()`UPDATE programs SET campaign = jsonb_set(campaign, '{amount_each}', '"30"') WHERE id = ${tag}`;
+    const paused = mine(await runCron({ now: at(16 + 2880), deps, only: [tag] }), tag)!;
+    assert.equal(paused.note, "Payout paused: the campaign's prize terms changed after the review opened.");
+    const rows = await sql()`SELECT id, payout_status, prize_amount, prize_tx FROM projects WHERE program_id = ${tag} ORDER BY id`;
+    assert.deepEqual(rows.map((r) => [r.id, r.payout_status, r.prize_amount]), [[a, 'paid', '3'], [b, null, null]]);
+    assert.equal(rows[0].prize_tx, keccak256(raw));
+    assert.equal(f.sent.length, 0);
+  } finally {
+    await teardown(tag);
+  }
+});
+
+test('Ruling 32: the store keeps the first stale time, and a new signature or a clear resets it', db, async () => {
+  const tag = `test-cron-stale-${process.pid}-${Date.now()}`;
+  const [a] = await setup(tag, 1);
+  const t1 = new Date('2026-10-21T01:00:00Z');
+  try {
+    await dbPayoutStore.stale(a, t1); // not sending: no effect
+    await dbPayoutStore.sending(a, `0x${'1'.repeat(64)}`, '0x01');
+    await dbPayoutStore.stale(a, t1);
+    await dbPayoutStore.stale(a, new Date('2026-10-21T02:00:00Z'));
+    const [r1] = await sql()`SELECT payout_status, payout_stale_at FROM projects WHERE id = ${a}`;
+    assert.deepEqual([r1.payout_status, r1.payout_stale_at.getTime()], ['sending', t1.getTime()]);
+    assert.equal(await dbPayoutStore.failed(a, false), 0);
+    const [r2] = await sql()`SELECT payout_status, prize_tx, payout_stale_at, payout_reverts FROM projects WHERE id = ${a}`;
+    assert.deepEqual([r2.payout_status, r2.prize_tx, r2.payout_stale_at, r2.payout_reverts], [null, null, null, 0]);
+  } finally {
+    await teardown(tag);
+  }
 });

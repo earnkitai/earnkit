@@ -24,6 +24,7 @@ function fakeRpc(o: { chainId?: number; balance?: () => bigint; mined?: 'success
   const rpc: PayoutRpc = {
     getChainId: async () => o.chainId ?? 8453,
     nonce: async () => 7,
+    confirmedNonce: async () => 0,
     fees: async () => ({ maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n }),
     estimateGas: async () => 50_000n,
     receipt: async (h) => receipts.get(h) ?? null,
@@ -50,6 +51,7 @@ function memStore(sentSoFar: () => number = () => 0) {
       return reverts.get(id)!;
     },
     refused: async (id) => { calls.push(['refused', id]); },
+    stale: async (id, at) => { calls.push(['stale', id, at]); },
   };
   return { store, calls };
 }
@@ -282,6 +284,7 @@ function nonceChain(o: { confirmed: number; rpcNonce: () => number; revertTo?: s
   let confirmed = o.confirmed;
   const nonces: number[] = [];
   f.rpc.nonce = async () => o.rpcNonce();
+  f.rpc.confirmedNonce = async () => confirmed;
   f.rpc.broadcast = async (raw) => {
     const tx = parseTransaction(raw);
     if (tx.nonce! < confirmed) return 'stale';
@@ -296,23 +299,81 @@ function nonceChain(o: { confirmed: number; rpcNonce: () => number; revertTo?: s
   return { ...f, nonces };
 }
 
-test('I1: a first broadcast rejected as "nonce too low" is cleared for a new signature, not waited on forever', async () => {
+// Fix round 2 (Ruling 32): a "nonce too low" answer is never cleared in the same run.
+
+const NOW = new Date('2026-10-21T02:00:00Z');
+const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
+const signedAt = (nonce: number) =>
+  account.signTransaction({
+    chainId: 8453, type: 'eip1559', to: TOKEN, nonce, gas: 60_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [row(1).payout_wallet as Hex, ONE] }),
+  });
+
+test('Ruling 32: a first broadcast answered "nonce too low" stays sending (stale time recorded); once mined it is paid, never signed again', async () => {
   const c = nonceChain({ confirmed: 9, rpcNonce: () => 7 });
   const s = memStore();
-  assert.equal(await payWinner(row(1), { token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: s.store }), 'failed');
-  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['sending', 1], ['failed', 1]]);
+  const r1 = row(1);
+  const a = { token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: s.store, now: NOW };
+  assert.equal(await payWinner(r1, a), 'pending');
+  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['sending', 1], ['stale', 1]]);
+  assert.equal((s.calls[1][2] as Date).getTime(), NOW.getTime());
+  assert.equal(r1.payout_status, 'sending');
+  // The provider had in fact sent it: it is mined. The next run records it as paid.
+  c.receipts.set(r1.prize_tx as Hex, { status: 'success' });
+  assert.equal(await payWinner(r1, { ...a, now: new Date(NOW.getTime() + 3_600_000) }), 'paid');
+  assert.deepEqual(s.calls.map((x) => x[0]), ['sending', 'stale', 'paid']);
   assert.equal(c.sent.length, 0);
-  // Stored bytes rebroadcast as "nonce too low" may already be mined elsewhere: waited on, never cleared.
-  const signed = await account.signTransaction({
-    chainId: 8453, type: 'eip1559', to: TOKEN, data: '0xa9059cbb', nonce: 7, gas: 60_000n,
-    maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000n,
-  });
-  const t = memStore();
-  const r = await payWinner(row(2, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed }), {
-    token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: t.store,
-  });
-  assert.equal(r, 'pending');
-  assert.deepEqual(t.calls, []);
+});
+
+test('Ruling 32: stale for 30+ minutes, no receipt and the nonce used by something else: cleared and re-signed once', async () => {
+  const signed = await signedAt(7);
+  const c = nonceChain({ confirmed: 8, rpcNonce: () => 8 });
+  const s = memStore();
+  const stuck = entry(1, 50, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed, payout_stale_at: minutesAgo(31) });
+  const r = await payCampaign({ ...campaign, winners: 1 }, [stuck, entry(2, 40)], { account, rpc: c.rpc, store: s.store, listed: async () => false, now: NOW });
+  assert.deepEqual(r, { done: true, note: null });
+  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['failed', 1], ['sending', 1], ['paid', 1]]);
+  assert.deepEqual(c.nonces, [8]);
+  assert.equal((await decodeSent(c.sent[0])).recipient, row(1).payout_wallet);
+});
+
+test('Ruling 32: stale under 30 minutes, or the nonce not used yet, keeps waiting (rebroadcast, never cleared)', async () => {
+  const signed = await signedAt(7);
+  for (const [ago, confirmed] of [[10, 8], [31, 7]] as const) {
+    const c = nonceChain({ confirmed, rpcNonce: () => confirmed });
+    if (confirmed === 8) c.rpc.broadcast = async () => 'stale';
+    const s = memStore();
+    const r = await payWinner(
+      row(1, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed, payout_stale_at: minutesAgo(ago) }),
+      { token: TOKEN, amount: ONE, amountText: '1', account, rpc: c.rpc, store: s.store, now: NOW },
+    );
+    if (confirmed === 8) {
+      assert.equal(r, 'pending', `${ago} min: still waiting`);
+      assert.deepEqual(s.calls, []);
+    } else {
+      // The nonce was free: the same bytes went out and were mined.
+      assert.equal(r, 'paid');
+      assert.deepEqual(c.sent, [signed]);
+    }
+  }
+});
+
+test('minor (Ruling 32): followOnly follows transfers in flight to paid and signs nothing new', async () => {
+  const signed = await signedAt(7);
+  const f = fakeRpc();
+  f.receipts.set(keccak256(signed), { status: 'success' });
+  const s = memStore();
+  const entries = [entry(1, 50, { payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed }), entry(2, 40)];
+  const r = await payCampaign(campaign, entries, { account, rpc: f.rpc, store: s.store, listed: async () => false, followOnly: true });
+  assert.deepEqual(r, { done: false, note: null });
+  assert.deepEqual(s.calls.map((x) => x.slice(0, 2)), [['paid', 1]]);
+  assert.equal(f.sent.length, 0);
+});
+
+test('minor (Ruling 32): the gas limit is the estimate x 1.5', async () => {
+  const f = fakeRpc();
+  await payWinner(row(1), { token: TOKEN, amount: ONE, amountText: '1', account, rpc: f.rpc, store: memStore().store });
+  assert.equal(parseTransaction(f.sent[0]).gas, 75_000n);
 });
 
 test('I1: with an RPC that keeps reporting a stale pending nonce, winners in one run still get consecutive nonces', async () => {

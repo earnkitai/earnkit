@@ -36,14 +36,15 @@ type Program = {
   state: RunState | null;
   review_until: Date | null;
 };
-type Entry = ScoreRow & Candidate & { prize_raw_tx: string | null; score_partial: boolean; payout_reverts: number };
+type Entry = ScoreRow &
+  Candidate & { prize_raw_tx: string | null; score_partial: boolean; payout_reverts: number; payout_stale_at: Date | null };
 
 // score_attempted_at drives scoring rotation (a slow entry goes last next pass); score_partial is
 // flagged in the review (a final score whose reads were capped stays payable).
 const entriesOf = (programId: string) => sql()<Entry[]>`
   SELECT id, contracts, payout_wallet, deployers, score, scored_at, scored_through, score_final,
     score_attempted_at, score_partial, submitted_at, installation_id, vetoed_at, payout_status,
-    prize_tx, prize_raw_tx, payout_reverts
+    prize_tx, prize_raw_tx, payout_reverts, payout_stale_at
   FROM projects
   WHERE program_id = ${programId} AND payout_wallet IS NOT NULL AND contracts IS NOT NULL
   ORDER BY id`;
@@ -118,14 +119,14 @@ async function advance(p: Program, now: Date, deadline: number, deps: CronDeps) 
     const setNote = (note: string | null, done = false) => sql()`
       UPDATE campaign_runs SET state = ${done ? 'paid' : 'paying'}, note = ${note}, updated_at = now()
       WHERE program_id = ${p.id}`;
-    if (!sameTerms(run.terms, termsOf(p.campaign as EarnKitCampaign))) {
-      await setNote(TERMS_CHANGED);
-      return { step, done: false, note: TERMS_CHANGED };
-    }
+    const changed = !sameTerms(run.terms, termsOf(p.campaign as EarnKitCampaign));
     let r: { done: boolean; note: string | null };
     try {
       const fresh = (await entriesOf(p.id)).filter((e) => e.score_final || e.prize_tx);
-      r = await payCampaign(fromTerms(run.terms), fresh, { deadline, ...deps.pay });
+      // Changed terms: transfers already in flight (signed under the frozen terms) are still
+      // followed to paid or failed; nothing new is signed.
+      r = await payCampaign(fromTerms(run.terms), fresh, { deadline, now, ...deps.pay, followOnly: changed });
+      if (changed) r = { done: false, note: TERMS_CHANGED };
     } catch (err) {
       await setNote(PAY_FAILED).catch(() => {});
       throw err;
