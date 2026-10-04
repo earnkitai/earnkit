@@ -38,7 +38,8 @@ export const TOKEN_FOOTNOTE = tokenFootnote(null);
 
 /**
  * prepare_submission's show_to_builder (v2.4 §2): the one block the builder confirms. The prize
- * row is always first after the entry; the token row is one line; terms go under the table.
+ * row is always first after the entry, naming the payout wallet in full; the token row is one line;
+ * a remembered wallet is asked about under the table; terms go under it.
  * `prize` is the program's own prize text (programs that aren't EarnKit campaigns). Pure.
  */
 export function confirmTable(a: {
@@ -48,6 +49,8 @@ export function confirmTable(a: {
   prize: string;
   endsAt: Date | null;
   payoutWallet: string | null;
+  /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
+  askWallet?: string | null;
   /** The token row; `wallet` is the fee wallet, named in the footnote when known. */
   token: { symbol: string | null; wallet?: string | null } | null;
 }) {
@@ -56,13 +59,14 @@ export function confirmTable(a: {
   if (c?.kind === 'earnkit' && a.endsAt)
     rows.push([
       'Prize',
-      `${usd(prizeUsdEach(c))} in ${c.prize.symbol} if top ${c.winners}, paid to ${a.payoutWallet ? shortWallet(a.payoutWallet) : 'your wallet'} on ${shortDate(payoutBy(a.endsAt))}`,
+      `${usd(prizeUsdEach(c))} in ${c.prize.symbol} if top ${c.winners} with ${c.min_score}+ users, paid to ${a.payoutWallet ?? 'your wallet'} by ${shortDate(payoutBy(a.endsAt))}`,
     ]);
   else if (c?.kind === 'sponsor' && a.endsAt)
     rows.push(['Prize', `the sponsor picks winners after ${shortDate(a.endsAt)}`]);
   else rows.push(['Prize', a.prize]);
   if (a.token) rows.push(['Token', tokenRow(a.token.symbol)]);
-  return keyTable(rows) + (a.token ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
+  const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
+  return keyTable(rows) + ask + (a.token ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */
@@ -84,7 +88,7 @@ export function enteredTable(a: {
     [
       'Payout',
       c.kind === 'earnkit'
-        ? `${usd(prizeUsdEach(c))} in ${c.prize.symbol} to ${shortWallet(a.payoutWallet)} on ${shortDate(payoutBy(ends))}, if top ${c.winners}`
+        ? `${usd(prizeUsdEach(c))} in ${c.prize.symbol} to ${shortWallet(a.payoutWallet)} by ${shortDate(payoutBy(ends))}, if top ${c.winners} with ${c.min_score}+ users`
         : `the sponsor picks winners after ${shortDate(ends)}; prizes go to ${shortWallet(a.payoutWallet)}`,
     ],
   ]);

@@ -107,23 +107,27 @@ export function prepareSubmission(
 }
 
 /**
- * Prefills the payout_wallet answer with the wallet this installation used for its last campaign
- * entry, when the program asks for one and the agent didn't pass one. Returns the answers to use
- * and a note for the agent (null when nothing was prefilled). Pure; exported for tests.
+ * The wallet this installation used for its last campaign entry, as a question for the builder
+ * (I8): shown in full and never put into the answers, since a hosted client sharing one
+ * registration shares this memory. Only when the program asks for a payout wallet and the agent
+ * didn't pass one. Returns the wallet to ask about and the note for the agent, or nulls. Pure;
+ * exported for tests.
  */
-export function prefillPayoutWallet(
+export function rememberedWalletQuestion(
   requirements: SubmissionRequirement[],
   answers: Record<string, string> | undefined,
   remembered: string | null,
-): { answers: Record<string, string> | undefined; note: string | null } {
+): { wallet: string | null; note: string | null } {
   if (
     !remembered ||
     answers?.payout_wallet?.trim() ||
     !requirements.some((r) => r.key === 'payout_wallet')
   )
-    return { answers, note: null };
+    return { wallet: null, note: null };
   return {
-    answers: { ...answers, payout_wallet: remembered },
-    note: `Using ${remembered} from your last entry; confirm with the builder.`,
+    wallet: remembered,
+    note:
+      `Pay prizes to ${remembered}? Confirm with the builder. It is the payout wallet of the last entry ` +
+      'made through this connection; pass it as payout_wallet only after they say yes.',
   };
 }

@@ -26,13 +26,28 @@ test('confirmTable: the spec block, prize first, one token row, terms under the 
     [
       '| Entry | Tip Jar for EarnKit Campaign #1 |',
       '|---|---|',
-      '| Prize | $100 in MINI if top 5, paid to 0xAbCd…Ef01 on Oct 21 |',
+      '| Prize | $100 in MINI if top 5 with 10+ users, paid to 0xAbCdEf0123456789abcdef0123456789ABCDEf01 by Oct 21 |',
       '| Token | $TIP on tokens.fun, you keep 40% of fees (say "no token" to skip) |',
       '',
       TOKEN_FOOTNOTE,
     ].join('\n'),
   );
   assert.doesNotMatch(text, /\p{Extended_Pictographic}/u);
+});
+
+test('I8: a remembered payout wallet is asked about in full under the table, never put in the Prize row', () => {
+  const W = '0xAbCdEf0123456789abcdef0123456789ABCDEf01';
+  const text = confirmTable({
+    project: 'Tip Jar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS,
+    payoutWallet: null, askWallet: W, token: null,
+  });
+  assert.equal(text, [
+    '| Entry | Tip Jar for EarnKit Campaign #1 |',
+    '|---|---|',
+    '| Prize | $100 in MINI if top 5 with 10+ users, paid to your wallet by Oct 21 |',
+    '',
+    `Pay prizes to ${W}? It is the wallet from your last entry.`,
+  ].join('\n'));
 });
 
 test('confirmTable: no token row and no footnote without a token; other programs show their prize', () => {
@@ -55,7 +70,7 @@ test('enteredTable: standing, leaderboard, payout date', () => {
       '|---|---|',
       '| Rank | not scored yet (scores update daily) |',
       '| Leaderboard | https://earnkit.com/campaigns/earnkit-campaign-1-base |',
-      '| Payout | $100 in MINI to 0xabcd…ef01 on Oct 21, if top 5 |',
+      '| Payout | $100 in MINI to 0xabcd…ef01 by Oct 21, if top 5 with 10+ users |',
     ].join('\n'),
   );
 });

@@ -151,6 +151,40 @@ test('v2.4 §6 (audit C22): prepare_submission on a closed program has no token 
   assert.ok(!('token' in result));
 });
 
+test('I8: prepare_submission asks about the remembered payout wallet in full and never prefills it', dbTest, async () => {
+  const W = '0x' + 'b'.repeat(39) + '7';
+  const f = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
+  );
+  Object.assign(f, {
+    id: `i8-wallet-${process.pid}-${Date.now()}`,
+    status: 'active',
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2099-01-01T00:00:00Z',
+  });
+  Object.assign(f, earnkitTexts(f));
+  await upsertProgram(ProgramFile.parse(f));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, payout_wallet) VALUES (${`i8-${process.pid}-${Date.now()}`}, ${W}) RETURNING id`;
+  const r = (await tools.prepare_submission(
+    { program_id: f.id, project: { name: 'Tip Jar', repo_url: 'https://github.com/alice/tipjar' } },
+    { installationId: id },
+  )) as { show_to_builder: string; payout_wallet_note?: string; missing: { key: string }[]; ready: boolean; sign_to_enter?: unknown };
+  assert.match(r.show_to_builder, new RegExp(`Pay prizes to ${W}\\? It is the wallet from your last entry\\.`));
+  assert.match(r.show_to_builder, /paid to your wallet by /);
+  assert.match(r.payout_wallet_note ?? '', new RegExp(`^Pay prizes to ${W}\\? Confirm with the builder\\.`));
+  assert.ok(r.missing.some((m) => m.key === 'payout_wallet'), 'still missing until the builder confirms');
+  assert.equal(r.ready, false);
+  // Once the builder confirms, the agent passes it: shown in full in the Prize row, no question.
+  const ok = (await tools.prepare_submission(
+    { program_id: f.id, project: { name: 'Tip Jar' }, answers: { payout_wallet: W } },
+    { installationId: id },
+  )) as { show_to_builder: string; payout_wallet_note?: string };
+  assert.match(ok.show_to_builder, new RegExp(`paid to ${W} by `));
+  assert.doesNotMatch(ok.show_to_builder, /Pay prizes to/);
+  assert.equal(ok.payout_wallet_note, undefined);
+});
+
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });

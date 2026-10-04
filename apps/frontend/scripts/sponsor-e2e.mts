@@ -763,15 +763,16 @@ check(
   selfErr === "You created this campaign, so you can't enter it.",
   `the sponsor's installation can't enter its own campaign: ${selfErr}`,
 );
-// The last entry's payout wallet is remembered and prefilled, with a confirm note.
+// The last entry's payout wallet is remembered and asked about in full, never prefilled (I8).
 const prepared = (await tools.prepare_submission(
   { program_id: programA },
   { installationId: builder },
-)) as { payout_wallet_note?: string };
+)) as { payout_wallet_note?: string; missing?: { key: string }[] };
 check(
-  prepared.payout_wallet_note ===
-    'Using 0x00000000000000000000000000000000000000b2 from your last entry; confirm with the builder.',
-  `prepare_submission prefills the last payout wallet: ${prepared.payout_wallet_note}`,
+  (prepared.payout_wallet_note ?? '').startsWith(
+    'Pay prizes to 0x00000000000000000000000000000000000000b2? Confirm with the builder.',
+  ) && Boolean(prepared.missing?.some((m) => m.key === 'payout_wallet')),
+  `prepare_submission asks about the last payout wallet in full: ${prepared.payout_wallet_note}`,
 );
 // Copied work: a fork is refused; a second entry of the same live link (spelled differently) is
 // accepted and flagged to the sponsor (re-audit M5); the sponsor sees each entry's repo dates.

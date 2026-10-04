@@ -34,7 +34,7 @@ import { createSponsorDraft, prepareAward, sponsorStatus } from './sponsor';
 import { AwardPicks, DraftInput, SponsorError } from './sponsor-rules';
 import {
   ProjectInfo,
-  prefillPayoutWallet,
+  rememberedWalletQuestion,
   prepareSubmission,
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
@@ -264,23 +264,25 @@ export const tools = {
     const open = isOpen(program);
     // Remember it, so list_programs leads with "You're working on".
     if (open) await setWorkingOn(ctx.installationId, program_id, true);
-    // Campaign entries: the payout wallet of this installation's last entry, to confirm.
+    // Campaign entries: the payout wallet of this installation's last entry, asked about in full
+    // and never prefilled (I8: a hosted client sharing one registration shares this memory).
     const remembered = await rememberedPayoutWallet(ctx.installationId);
-    const prefill = program.campaign
-      ? prefillPayoutWallet(
+    const ask = program.campaign
+      ? rememberedWalletQuestion(
           program.submission_requirements,
           known.answers,
           remembered,
         )
-      : { answers: known.answers, note: null };
+      : { wallet: null, note: null };
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
     const token = open
       ? await tokenProposalBlock({
           program,
           projectName: known.project?.name,
+          // v2.3 unchanged: the remembered wallet is the fee wallet, named in full in the footnote.
           creatorWallet:
-            (program.campaign && validWallet(prefill.answers?.payout_wallet)) ||
+            (program.campaign && validWallet(known.answers?.payout_wallet)) ||
             remembered,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
@@ -289,7 +291,7 @@ export const tools = {
       : null;
     // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
-    const payoutWallet = validWallet(prefill.answers?.payout_wallet);
+    const payoutWallet = validWallet(known.answers?.payout_wallet);
     const sign_to_enter = signToEnter(
       program_id,
       repoUrl,
@@ -306,6 +308,7 @@ export const tools = {
       prize: program.summary.split(' · ')[0],
       endsAt: program.ends_at,
       payoutWallet,
+      askWallet: ask.wallet,
       token: token
         ? {
             symbol: token.proposed?.symbol ?? null,
@@ -317,11 +320,8 @@ export const tools = {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
-      ...prepareSubmission(program.submission_requirements, {
-        ...known,
-        answers: prefill.answers,
-      }),
-      ...(prefill.note && { payout_wallet_note: prefill.note }),
+      ...prepareSubmission(program.submission_requirements, known),
+      ...(ask.note && { payout_wallet_note: ask.note }),
       ...(program.campaign
         ? {
             how_to_submit:

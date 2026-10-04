@@ -80,7 +80,7 @@ apps/frontend/
                                programDetails (pure): sponsor campaigns get quoted title/name,
                                generic rules and a neutral description, their own text only
                                in sponsor_content
-    submission.ts(+.test.ts)   prepareSubmission, prefillPayoutWallet (pure)
+    submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;

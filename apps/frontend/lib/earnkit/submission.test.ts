@@ -124,8 +124,8 @@ test('blank strings count as missing', () => {
   assert.ok(r.missing.some((m) => m.key === 'project_name'));
 });
 
-test('prefillPayoutWallet: the last entry wallet, with a confirm note, only when not given', async () => {
-  const { prefillPayoutWallet } = await import('./submission');
+test('I8 rememberedWalletQuestion: the last entry wallet in full, to confirm; never put into the answers', async () => {
+  const { rememberedWalletQuestion } = await import('./submission');
   const req: SubmissionRequirement[] = [
     {
       key: 'payout_wallet',
@@ -136,28 +136,20 @@ test('prefillPayoutWallet: the last entry wallet, with a confirm note, only when
     },
   ];
   const W = '0x' + 'a'.repeat(40);
-  assert.deepEqual(prefillPayoutWallet(req, { name: 'x' }, W), {
-    answers: { name: 'x', payout_wallet: W },
-    note: `Using ${W} from your last entry; confirm with the builder.`,
+  const ask = rememberedWalletQuestion(req, { name: 'x' }, W);
+  assert.deepEqual(ask, {
+    wallet: W,
+    note: `Pay prizes to ${W}? Confirm with the builder. It is the payout wallet of the last entry made through this connection; pass it as payout_wallet only after they say yes.`,
   });
-  // The agent's own answer wins; no memory or no such question: nothing changes.
-  const given = { payout_wallet: '0x' + 'b'.repeat(40) };
-  assert.deepEqual(prefillPayoutWallet(req, given, W), {
-    answers: given,
-    note: null,
-  });
-  assert.deepEqual(prefillPayoutWallet(req, undefined, null), {
-    answers: undefined,
-    note: null,
-  });
-  assert.deepEqual(prefillPayoutWallet([], undefined, W), {
-    answers: undefined,
-    note: null,
-  });
-  const r = prepareSubmission(req, {
-    answers: prefillPayoutWallet(req, undefined, W).answers,
-  });
-  assert.equal(r.ready, true);
+  // The agent's own answer wins; no memory or no such question: nothing to ask.
+  const none = { wallet: null, note: null };
+  assert.deepEqual(rememberedWalletQuestion(req, { payout_wallet: '0x' + 'b'.repeat(40) }, W), none);
+  assert.deepEqual(rememberedWalletQuestion(req, undefined, null), none);
+  assert.deepEqual(rememberedWalletQuestion([], undefined, W), none);
+  // Until the builder confirms it, the entry is not ready: the wallet is still missing.
+  const r = prepareSubmission(req, { answers: { name: 'x' } });
+  assert.equal(r.ready, false);
+  assert.ok(r.missing.some((m) => m.key === 'payout_wallet'));
 });
 
 // Re-audit H1 and T9 review I6: builder links skipped the sanitizer; the URL parser drops newlines,

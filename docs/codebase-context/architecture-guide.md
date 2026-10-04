@@ -27,8 +27,8 @@
   agent-reported local_repos given, and
   `working_on` (programs passed to prepare_submission, cleared by record_submission), so
   list_programs needs no arguments later and leads with "You're working on". It also keeps the
-  payout wallet of the last campaign entry (`installations.payout_wallet`), prefilled by
-  prepare_submission with a confirm note.
+  payout wallet of the last campaign entry (`installations.payout_wallet`), which
+  prepare_submission asks the builder to confirm, in full; it is never prefilled (final review I8).
 - **verified_at**: the day a program's facts were last checked against its source. Within 7 days
   agents are told not to re-read the source.
 - **Track**: a category inside a program with its own requirements.
@@ -233,9 +233,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   `EARNKIT_OWNERSHIP_BASE_URL` replaces raw.githubusercontent.com only when `NODE_ENV` is
   `development` or `test` (the e2e serves files from a local server); refused otherwise. The payout
   wallet requirement is `from: 'builder'` ("ask the builder; never derive it from the code"); a
-  successful entry saves it as `installations.payout_wallet`, and `prepare_submission` prefills it
-  next time with `payout_wallet_note` ("Using <wallet> from your last entry; confirm with the
-  builder"). **Sanctions** (`sanctions.ts`): Chainalysis's oracle
+  successful entry saves it as `installations.payout_wallet`. Next time `prepare_submission` asks
+  about it in full, under the confirmation table and in `payout_wallet_note` ("Pay prizes to
+  <wallet>? Confirm with the builder."), and never puts it in the answers: a hosted client that
+  shares one registration shares this memory (final review I8). **Sanctions** (`sanctions.ts`): Chainalysis's oracle
   (`0x3A91A31cB3dC49b4db9Ce721F50a9D076c8D739B`, `isSanctioned`) over `BASE_RPC_URL`, on Base
   mainnet (chain 8453) only — elsewhere it is skipped with a logged note. For a Base mainnet
   payment the RPC must report chain 8453: in production a mismatched or failing RPC refuses ("Can't
@@ -524,9 +525,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
   IP, timing-safe; a fixed error text in the response, causes in the server log). Per campaign,
   under its scoring lease and with a 4-minute budget, `campaign_runs.state` moves through:
   - `running`: scores refresh once over 20 h old (1 h in the last day);
-  - the freeze, 15 min after the end: final scores (`score_final`); an entry still failing 24 h
-    after the end is frozen with its last score; once every entry is final the review opens in
-    the same call (Ruling 16);
+  - the freeze, 15 min after the end: final scores (`score_final`). The first unfinished entry of
+    each call gets the whole budget, rotating by last attempt; others run only with what is left.
+    After 3 failed full-budget attempts (`projects.final_attempts`) an entry is frozen with its
+    last score, `score_partial` and a `score_error`, flagged in the review (Ruling 35). Once every
+    entry is final the review opens in the same call (Ruling 16);
   - `review`: 48 h, the payout terms frozen in `campaign_runs.terms`, the top N public with their
     evidence on `/campaigns/<id>` (users, smart accounts, wallets shared with other entries,
     Builder Code share, partial reads), and the owner's secret `/admin/veto/<id>?key=…` (from
@@ -555,8 +558,14 @@ during the build); plan: `v2.4-money-first-plan.md`.
     with `payout_stale_at`. A later run (30+ min) clears it automatically only when that is
     provably safe: receipt and transaction both a typed not-found, the finalized nonce past it,
     and that nonce used by another entry's paid transfer from this wallet (EarnKit's own payout
-    took it). Anything else stops with "Payouts paused: a transfer needs a manual check." (only
-    reachable when the payout key is used outside EarnKit; runbook below).
+    took it), and the finalized block holds the receipt of that paid transfer. Anything else
+    stops with "Payouts paused: a transfer needs a manual check." (only reachable when the payout
+    key is used outside EarnKit; runbook below). The public page then says "Payouts paused;
+    EarnKit is checking a transfer."
+  - While a payout waits on the owner (a manual check, or changed terms), `POST /api/cron`
+    answers 503 with its usual body (`needs_owner` lists the campaigns), so the hourly GitHub
+    Actions run fails and GitHub emails the owner every hour until it is resolved (final review
+    I6). Every other run answers 200.
   - It stops with a note when the wallet holds less than the next prize or too little ETH for gas;
     the next hourly run resumes. The campaign page shows the payout wallet and its live balance
     (`funds.ts` prizeFunds: one read per 60 s shared by all views, 15 s after a failure, 3 s

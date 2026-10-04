@@ -389,7 +389,7 @@ export async function recordSubmission(
         contracts: entry?.contracts ?? null,
         deployers,
       })} RETURNING id, submitted_at`;
-      // Remembered for this installation's next entry (prepare_submission prefills it).
+      // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
         await tx`UPDATE installations SET payout_wallet = ${entry.payoutWallet} WHERE id = ${installationId}`;
       // v2.4 §5: the installation's wallets (its wins show for them from any connection).
