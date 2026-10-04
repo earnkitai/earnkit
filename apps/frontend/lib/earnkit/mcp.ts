@@ -61,8 +61,9 @@ const TO_LAUNCH =
 const OWNERSHIP_FOR_TOKEN =
   "A token needs the project's public GitHub repo to hold earnkit.txt at its root with the lines " +
   '"payout_wallet: <creator wallet>" (campaign entries already have it; if it names another wallet, ' +
-  'add "creator_wallet: <creator wallet>") and "token: <SYMBOL>" with the exact ticker of this launch. ' +
-  'One token per repo.';
+  'add "creator_wallet: <creator wallet>") and "token: <SYMBOL> <code>": the exact line EarnKit gives you ' +
+  "(prepare_submission's token note once it knows the repo_url, or the gate_failed reason). It is bound to " +
+  'you, the repo and the ticker; never reuse a line from someone else. One token per repo.';
 
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {

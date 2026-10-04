@@ -191,6 +191,10 @@ export const TOKENS_UNAVAILABLE = "Token launches aren't available right now.";
 export const LINKS_CHANGED =
   "The project's links changed during the launch; call launch_token again.";
 
+/** The claim matched nothing although the project had no token: something changed meanwhile. */
+export const STATE_CHANGED =
+  'The project changed during the launch (nothing was launched); call launch_token again.';
+
 /** Starts every "another project on this repo has a token" note. */
 export const REPO_HAS_TOKEN = 'This repo already has a token';
 
@@ -327,11 +331,16 @@ export async function deployToken(
       if (other) return { status: 'failed', note: repoHasTokenNote(other) };
     }
     // Nothing was claimed, so there is nothing to release.
-    if (
-      !existing.token_url &&
-      (existing.repo_url !== a.repoUrl || existing.live_url !== a.liveUrl)
-    )
-      return { status: 'failed', note: LINKS_CHANGED };
+    if (!existing.token_url)
+      // The links changed after the gate, or a claim on the repo came and went in between: the
+      // project's state moved under this launch either way.
+      return {
+        status: 'failed',
+        note:
+          existing.repo_url !== a.repoUrl || existing.live_url !== a.liveUrl
+            ? LINKS_CHANGED
+            : STATE_CHANGED,
+      };
     return {
       status: 'failed',
       note:

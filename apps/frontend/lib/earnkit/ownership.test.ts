@@ -59,11 +59,14 @@ test('parseOwnershipFile: the payout_wallet line; contracts and other lines are 
 test('parseOwnershipFile: creator_wallet and token lines; malformed ones are ignored, never a problem', () => {
   const C = '0x' + 'c'.repeat(40);
   const f = parseOwnershipFile(
-    `payout_wallet: ${W}\nCreator_Wallet: ${C}\ncreator_wallet: nope\ntoken: kits\nTOKEN: CHAIN # this launch\ntoken: two words\ntoken:`,
+    `payout_wallet: ${W}\nCreator_Wallet: ${C}\ncreator_wallet: nope\ntoken: kits\nTOKEN: CHAIN   a1b2c3d4e5 # this launch\ntoken: three bad words\ntoken: x-y code\ntoken:`,
   );
   assert.equal(f.payoutWallet, W.toLowerCase());
   assert.deepEqual(f.creatorWallets, [C]);
-  assert.deepEqual(f.tokens, ['KITS', 'CHAIN']);
+  assert.deepEqual(f.tokens, [
+    { symbol: 'KITS', code: null },
+    { symbol: 'CHAIN', code: 'a1b2c3d4e5' },
+  ]);
   assert.deepEqual(f.problems, []);
   // A campaign entry's check is unaffected by them.
   assert.equal(

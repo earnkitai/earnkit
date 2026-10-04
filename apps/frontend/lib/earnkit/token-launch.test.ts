@@ -1,9 +1,11 @@
 import { test } from 'node:test';
+process.env.EARNKIT_AUTH_SECRET = 'launch-test-secret';
 import assert from 'node:assert/strict';
 import type { ProgramRow } from './programs';
 import { RateLimitError } from './rate-limit';
 import { EARNINGS_LINE, LaunchError, TOKEN_TERMS, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
+import { tokenLineFor } from './token-gate';
 import {
   LaunchTokenInput,
   decideToken,
@@ -73,13 +75,13 @@ const program = (policy: 'encouraged' | 'allowed' | 'off') =>
 const free = { check: async () => true, available: () => true };
 
 test('tokenProposalBlock: null when tokens are off or there is no project name', async () => {
-  assert.equal(await tokenProposalBlock({ program: program('off'), projectName: 'Chain Kits', creatorWallet: '0xW' }, free), null);
-  assert.equal(await tokenProposalBlock({ program: program('encouraged'), creatorWallet: '0xW' }, free), null);
-  assert.equal(await tokenProposalBlock({ program: program('encouraged'), projectName: '  ', creatorWallet: '0xW' }, free), null);
+  assert.equal(await tokenProposalBlock({ program: program('off'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free), null);
+  assert.equal(await tokenProposalBlock({ program: program('encouraged'), installationId: 1, creatorWallet: '0xW' }, free), null);
+  assert.equal(await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: '  ', creatorWallet: '0xW' }, free), null);
 });
 
 test('tokenProposalBlock: the proposal, earnings, terms and the line to show', async () => {
-  const b = await tokenProposalBlock({ program: program('encouraged'), projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
+  const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
   assert.ok(b);
   assert.deepEqual(b.proposed, { name: 'Chain Kits', symbol: 'CHAIN', image: 'monogram' });
   assert.equal(b.chain, 'base');
@@ -97,26 +99,40 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   assert.ok(b.say_to_builder.includes(TOKEN_TERMS.agreement));
   assert.ok(b.say_to_builder.includes(TOKEN_TERMS.risks));
   assert.match(b.say_to_builder, /earnkit\.txt/);
-  // The repo proof is spelled out for the agent.
+  // The repo proof is spelled out for the agent; without a repo there is no token line yet.
   assert.match(b.note, /earnkit\.txt at its root with the line "payout_wallet: 0xW"/);
+  assert.match(b.note, /pass the project's repo_url/);
+});
+
+test("tokenProposalBlock: with the repo known, this agent's own token line", async () => {
+  const repoUrl = 'https://github.com/acme/kit';
+  const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);
+  assert.ok(b);
+  const line = tokenLineFor(1, repoUrl, 'CHAIN')!;
+  assert.match(line, /^token: CHAIN [0-9a-f]{10}$/);
+  assert.ok(b.say_to_builder.includes(`"${line}"`));
+  assert.ok(b.note.includes(`"${line}"`));
+  // Another agent asking about the same repo is shown its own line, never this one.
+  const other = await tokenProposalBlock({ program: program('encouraged'), installationId: 2, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);
+  assert.ok(other && !other.note.includes(line) && other.note.includes(tokenLineFor(2, repoUrl, 'CHAIN')!));
 });
 
 test('tokenProposalBlock: null when launches are not configured', async () => {
   assert.equal(
-    await tokenProposalBlock({ program: program('encouraged'), projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: free.check, available: () => false }),
+    await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: free.check, available: () => false }),
     null,
   );
 });
 
 test('tokenProposalBlock: keeps the proposal note (ticker not checked)', async () => {
-  const b = await tokenProposalBlock({ program: program('encouraged'), projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => null, available: () => true });
+  const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => null, available: () => true });
   assert.ok(b);
   assert.equal(b.proposed?.symbol, 'CHAIN');
   assert.match(b.note, /ticker not checked for duplicates/);
 });
 
 test('tokenProposalBlock: no wallet yet asks for one', async () => {
-  const b = await tokenProposalBlock({ program: program('allowed'), projectName: 'Chain Kits', creatorWallet: null }, free);
+  const b = await tokenProposalBlock({ program: program('allowed'), installationId: 1, projectName: 'Chain Kits', creatorWallet: null }, free);
   assert.ok(b);
   assert.equal(b.creator_wallet, null);
   assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
@@ -126,7 +142,7 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
 });
 
 test('tokenProposalBlock: no proposal asks the builder to pick one', async () => {
-  const b = await tokenProposalBlock({ program: program('encouraged'), projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => false, available: () => true });
+  const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => false, available: () => true });
   assert.ok(b);
   assert.equal(b.proposed, null);
   assert.match(b.say_to_builder, /pick a name and ticker/);
@@ -136,8 +152,9 @@ test('tokenProposalBlock: no proposal asks the builder to pick one', async () =>
 
 // The flow, with the database replaced by an in-memory store.
 const WALLET = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-// The repo's earnkit.txt carries a token line for every ticker these tests launch.
-const TOKEN_LINES = ['CHAIN', 'CKIT', 'KITS', 'KONE', 'KTWO'].map((t) => `token: ${t}`).join('\n');
+// The repo's earnkit.txt carries installation 1's token line for every ticker these tests launch.
+const tokenLines = (repoUrl = 'https://github.com/acme/kit') =>
+  ['CHAIN', 'CKIT', 'KITS', 'KONE', 'KTWO'].map((t) => tokenLineFor(1, repoUrl, t)).join('\n');
 function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {}) {
   const project: FlowProject = {
     id: 7, name: 'Chain Kits', repo_url: 'https://github.com/acme/kit', live_url: 'https://kit.acme.dev',
@@ -155,7 +172,10 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
     check: async () => true,
     gate: {
       repo: async () => { calls.push('repo'); return { fork: false, hasCommits: true }; },
-      owner: async () => { calls.push('owner'); return { status: 'ok', text: `payout_wallet: ${WALLET}\n${TOKEN_LINES}` }; },
+      owner: async (r) => {
+        calls.push('owner');
+        return { status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLines(`https://github.com/${r.owner}/${r.repo}`)}` };
+      },
       probe: async (url) => { calls.push(`probe ${url}`); },
       screen: async () => {},
     },
@@ -311,7 +331,7 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
   assert.equal(refused.status, 'gate_failed');
   assert.match(refused.note ?? '', new RegExp(`"creator_wallet: ${mine}"`));
   const h3 = harness({ payout_wallet: other });
-  h3.deps.gate!.owner = async () => ({ status: 'ok', text: `payout_wallet: ${other}\ncreator_wallet: ${mine}\n${TOKEN_LINES}` });
+  h3.deps.gate!.owner = async () => ({ status: 'ok', text: `payout_wallet: ${other}\ncreator_wallet: ${mine}\n${tokenLines()}` });
   await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true }, h3.deps);
   assert.equal(h3.deploys[0].creatorWallet, mine);
 });
@@ -319,9 +339,11 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
 test('ownership: a repo whose earnkit.txt is missing or names another wallet gets no token', async () => {
   for (const [got, re] of [
     [{ status: 'missing' }, /proof the builder owns github\.com\/acme\/kit.*"payout_wallet: 0x1581/],
-    [{ status: 'ok', text: `payout_wallet: 0x${'d'.repeat(40)}\n${TOKEN_LINES}` }, /doesn't name the creator wallet/],
+    [{ status: 'ok', text: `payout_wallet: 0x${'d'.repeat(40)}\n${tokenLines()}` }, /doesn't name the creator wallet/],
     // A wallet copied from someone else's file, without this launch's token line.
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER` }, /Add the line "token: CHAIN" to earnkit\.txt/],
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, /Add the line "token: CHAIN [0-9a-f]{10}" to earnkit\.txt/],
+    // Another agent's line for the same repo and ticker (copied from the public file).
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit', 'CHAIN')}` }, /Add the line "token: CHAIN [0-9a-f]{10}"/],
     [{ status: 'error', message: 'it answered 500' }, /couldn't read earnkit\.txt/],
   ] as const) {
     const h = harness();

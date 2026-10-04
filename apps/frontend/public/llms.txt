@@ -41,8 +41,10 @@ which EarnKit approves instantly.
   launches. A token needs a public, non-fork GitHub repo with commits, an
   earnkit.txt at its root with the lines "payout_wallet: <creator wallet>"
   (or "creator_wallet: <creator wallet>" when payout_wallet names another
-  wallet) and "token: <SYMBOL>" with the exact ticker of this launch, and a
-  live link that loads. One token per repo; at most 3 launches a day
+  wallet) and "token: <SYMBOL> <code>", the exact line EarnKit gives your
+  agent for this repo and ticker (in prepare_submission's token note, or the
+  gate_failed reason; it only works for your agent), and a live link that
+  loads. One token per repo; at most 3 launches a day
   per agent. The reply's token.status is launched, skipped,
   gate_failed, pending (outcome unknown: check tokens.fun before retrying)
   or failed; the submission is recorded either way

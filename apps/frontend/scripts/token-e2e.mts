@@ -30,12 +30,15 @@ import { join } from 'node:path';
  *   p. the per-installation limit: a fresh agent launches 3, the 4th is failed
  *   q. no deploy key: no token block, and record_submission → skipped, nothing checked or sent
  *   r. through the MCP server: token.proposed echoed verbatim (with `image`) launches
- *   s. earnkit.txt without this launch's "token:" line → gate_failed
+ *   s. earnkit.txt without this launch's "token: <SYMBOL> <code>" line → gate_failed
  *   t. a wallet copied from someone else's earnkit.txt (no token line for this ticker) → refused
  *   u. the links change between the gate and the claim (a concurrent launch_token) → failed, no deploy
  * The mock also serves earnkit.txt (EARNKIT_OWNERSHIP_BASE_URL, NODE_ENV=test), read by the real
- * ownership fetch: the builder's wallet plus a "token:" line for each ticker in TICKERS, except for
- * repos named "noproof" (no file), "notoken" (no token lines) and "victim" (another builder's file).
+ * ownership fetch: the builder's wallet plus, for each ticker in TICKERS, the "token: <SYMBOL> <code>"
+ * line EarnKit gives the builder's agents (OWNERS) for that repo, except for repos named "noproof"
+ * (no file), "notoken" (no token lines) and "victim" (another builder's file).
+ *   v. a third party copies the owner's full token line: refused for the third party's agent; the
+ *      owner's own launch with that line then succeeds
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -57,6 +60,8 @@ const portMatch = apiUrl.match(/^http:\/\/127\.0\.0\.1:(\d+)\/?$/);
 if (!portMatch)
   guardFail('TOKENSFUN_API_URL must be http://127.0.0.1:<port> (0 picks a free port for the mock).');
 process.env.TOKENSFUN_DEPLOY_API_KEY ||= 'e2e-mock-key';
+// Token lines are HMACs under this secret; a dummy value unless the caller sets one.
+process.env.EARNKIT_AUTH_SECRET ||= 'e2e-auth-secret';
 (process.env as Record<string, string>).NODE_ENV = 'test'; // allows EARNKIT_OWNERSHIP_BASE_URL
 const KEY = process.env.TOKENSFUN_DEPLOY_API_KEY;
 delete process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS;
@@ -67,9 +72,13 @@ const WALLET = '0x' + '12'.repeat(20);
 const VICTIM_WALLET = '0x' + '34'.repeat(20);
 const ownershipReads: string[] = [];
 // Every ticker this script launches has its "token:" line in the builder's earnkit.txt.
+// The installations whose token lines the builder's earnkit.txt carries (set once they exist).
+const OWNERS = new Set<number>();
+let lineFor: (installationId: number, repoUrl: string, symbol: string) => string | null = () => null;
 const TICKERS = [
   'CHAIN', 'KITS', 'RETRY', 'FORKD', 'OFFL', 'OFFP', 'FAIL4', 'KITS2', 'UNCF', 'HANG5', 'KAPPA',
   'UNKN6', 'UNKN7', 'HAST', 'NOTMN', 'CHAN2', 'LIMA', 'LIMB', 'LIMC', 'LIMD', 'KEYL', 'ECHO', 'RACE',
+  'OWNR',
 ];
 const deploys: Record<string, unknown>[] = [];
 let authFailures = 0;
@@ -95,9 +104,13 @@ const server = createServer(async (req, res) => {
       return res.end('404: Not Found');
     }
     const text = file[2].includes('victim')
-      ? `payout_wallet: ${VICTIM_WALLET}\ntoken: VICT\n`
+      ? `payout_wallet: ${VICTIM_WALLET}\ntoken: VICT 0123456789\n`
       : `# e2e\npayout_wallet: ${WALLET}\n` +
-        (file[2].includes('notoken') ? '' : TICKERS.map((t) => `token: ${t}\n`).join(''));
+        (file[2].includes('notoken')
+          ? ''
+          : [...OWNERS]
+              .flatMap((id) => TICKERS.map((t) => `${lineFor(id, `https://github.com/${file[1]}/${file[2]}`, t)}\n`))
+              .join(''));
     res.writeHead(200, { 'content-type': 'text/plain' });
     return res.end(text);
   }
@@ -192,6 +205,8 @@ const newInstallation = async () =>
       VALUES (${'e2e-token-' + Date.now() + '-' + Math.random()}, ${WALLET}) RETURNING id`
   )[0];
 const inst = await newInstallation();
+lineFor = (await import('../lib/earnkit/token-gate')).tokenLineFor;
+OWNERS.add(inst.id);
 
 // ---- helpers ----
 // GitHub and the sanctions screen are faked; earnkit.txt is read for real (from the mock). A live
@@ -448,6 +463,7 @@ let retryProjectId = 0;
 // (p) the per-installation limit: 3 launches a day, the real counter.
 {
   const fresh = await newInstallation();
+  OWNERS.add(fresh.id);
   const c: Ctx = { installationId: fresh.id, tokenDeps: { gate: passGate } };
   const before = deploys.length;
   const results: TokenOutcome[] = [];
@@ -497,9 +513,11 @@ let retryProjectId = 0;
 // (s) earnkit.txt names the wallet but has no "token:" line for this launch.
 {
   const before = deploys.length;
-  const r = await submit({ project: project('No Token Line', {}, 'notoken-'), token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
+  const p = project('No Token Line', {}, 'notoken-');
+  const r = await submit({ project: p, token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
   check(
-    r.token.status === 'gate_failed' && r.token.note?.includes('Add the line "token: NOTOK" to earnkit.txt at the repo root (default branch), then call launch_token.'),
+    r.token.status === 'gate_failed' &&
+      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url, 'NOTOK')}" to earnkit.txt at the repo root (default branch), then call launch_token.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -514,7 +532,7 @@ let retryProjectId = 0;
     token: { name: 'Not My Project', symbol: 'STEAL', creator_wallet: VICTIM_WALLET },
     confirmed: true,
   });
-  check(r.token.status === 'gate_failed' && /"token: STEAL"/.test(r.token.note ?? ''), '(t) copied wallet without the token line → refused', r.token);
+  check(r.token.status === 'gate_failed' && /"token: STEAL [0-9a-f]{10}"/.test(r.token.note ?? ''), '(t) copied wallet without the token line → refused', r.token);
   check(deploys.length === before, '(t) no deploy sent');
 }
 
@@ -535,6 +553,43 @@ let retryProjectId = 0;
   check(deploys.length === before, '(u) no deploy sent');
   const saved = await row(r.project_id);
   check(saved.token_url === null && saved.token_repo_key === null, '(u) nothing claimed for the swapped repo', saved);
+}
+
+// (v) a third party copies the owner's whole token line from the public earnkit.txt.
+{
+  // The owner's own agent (fresh, so the main agent's 20-a-day record_submission limit is unaffected).
+  const owner = await newInstallation();
+  OWNERS.add(owner.id);
+  const ownerCtx: Ctx = { installationId: owner.id, tokenDeps: { gate: passGate, limit: async () => {} } };
+  const thief = await newInstallation(); // not in OWNERS: the file has only the owners' lines
+  const shared = project('Shared Repo', {}, 'shared-');
+  const ownerLine = lineFor(owner.id, shared.repo_url, 'OWNR')!;
+  const before = deploys.length;
+  const stolen = await submit(
+    { project: shared, token: { name: 'Shared Repo', symbol: 'OWNR', creator_wallet: WALLET }, confirmed: true },
+    undefined,
+    { installationId: thief.id, tokenDeps: { gate: passGate, limit: async () => {} } },
+  );
+  const thiefLine = lineFor(thief.id, shared.repo_url, 'OWNR')!;
+  check(
+    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), then call launch_token.`,
+    "(v) the owner's line is refused for a third party's agent",
+    stolen.token,
+  );
+  check(!stolen.token.note?.includes(ownerLine), "(v) the refusal never shows the owner's line");
+  check(deploys.length === before, '(v) no deploy for the third party');
+  // prepare_submission shows the owner's agent its own line for this repo and ticker.
+  const prep = (await tools.prepare_submission(
+    { program_id: ON, project: { name: 'Owner Repo', repo_url: shared.repo_url } },
+    ownerCtx,
+  )) as { token?: { note: string } };
+  check(prep.token?.note.includes(lineFor(owner.id, shared.repo_url, 'OWNER')!) === true, '(v) prepare_submission gives the agent its own line', prep.token);
+  const mine = await submit(
+    { project: { ...shared, name: 'Shared Repo' }, token: { name: 'Shared Repo', symbol: 'OWNR' }, confirmed: true },
+    undefined,
+    ownerCtx,
+  );
+  check(mine.token.status === 'launched' && mine.token.symbol === 'OWNR', "(v) the owner's own launch with that line succeeds", mine.token);
 }
 
 check(authFailures === 0, 'every mock call carried the deploy key');

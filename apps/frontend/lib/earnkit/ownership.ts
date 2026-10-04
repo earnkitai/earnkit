@@ -75,10 +75,11 @@ export type OwnershipFile = {
    */
   creatorWallets: string[];
   /**
-   * Uppercase tickers on `token:` lines (v2.3): each launch needs its own ticker here, a line only
-   * someone who can push to the repo can add. Campaign checks ignore them.
+   * `token: <SYMBOL> <code>` lines (v2.3 Ruling 17): the symbol uppercased, the code as written
+   * (null when the line has none). A launch needs the line for its ticker with the launching
+   * agent's code (token-gate.ts tokenLineFor). Campaign checks ignore them.
    */
-  tokens: string[];
+  tokens: { symbol: string; code: string | null }[];
   /** 1-based line numbers and what's wrong; the file's text is never echoed. */
   problems: string[];
 };
@@ -87,14 +88,14 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 /**
  * Parses earnkit.txt: the `payout_wallet: 0x…` line (key case-insensitive, `#` starts a comment),
- * plus `creator_wallet: 0x…` and `token: <SYMBOL>` lines for token launches (v2.3; malformed ones
+ * plus `creator_wallet: 0x…` and `token: <SYMBOL> <code>` lines for token launches (v2.3; malformed ones
  * are ignored, never a problem). Every other line is ignored, including `contracts:` (accepted for compatibility, never trusted)
  * and a sponsor's `earnkit-sponsor:` line. Pure; exported for tests.
  */
 export function parseOwnershipFile(text: string): OwnershipFile {
   const wallets = new Set<string>();
   const creators = new Set<string>();
-  const tokens = new Set<string>();
+  const tokens: OwnershipFile['tokens'] = [];
   const problems: string[] = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.replace(/#.*$/, '').trim();
@@ -106,7 +107,14 @@ export function parseOwnershipFile(text: string): OwnershipFile {
     // Only payout_wallet lines can make the file wrong: creator_wallet and token lines are for
     // token launches, and a malformed one is ignored (it never fails a campaign entry).
     if (key === 'token') {
-      if (one && /^[A-Za-z0-9]{1,10}$/.test(one)) tokens.add(one.toUpperCase());
+      const [symbol, code, ...rest] = values;
+      if (
+        symbol &&
+        /^[A-Za-z0-9]{1,10}$/.test(symbol) &&
+        rest.length === 0 &&
+        (code === undefined || /^[A-Za-z0-9]{1,64}$/.test(code))
+      )
+        tokens.push({ symbol: symbol.toUpperCase(), code: code ?? null });
     } else if (key === 'creator_wallet') {
       if (one && ADDRESS.test(one)) creators.add(one.toLowerCase());
     } else if (!one || !ADDRESS.test(one))
@@ -118,7 +126,7 @@ export function parseOwnershipFile(text: string): OwnershipFile {
   return {
     payoutWallet: wallets.size === 1 ? [...wallets][0] : null,
     creatorWallets: [...creators],
-    tokens: [...tokens],
+    tokens,
     problems,
   };
 }

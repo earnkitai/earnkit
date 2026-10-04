@@ -103,9 +103,14 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   public GitHub repo exists, isn't a fork, has commits; **ownership** — its `earnkit.txt` is read
   for every launch, campaign entries included, and must (1) name the creator wallet on
   `payout_wallet:`, or on `creator_wallet:` when payout_wallet names another wallet (a campaign
-  entry's proven payout wallet also counts), and (2) carry `token: <SYMBOL>` for the exact ticker
-  being launched, a per-launch line only someone who can push to the repo can add, so a wallet
-  copied from another repo's file proves nothing (malformed `creator_wallet:`/`token:` lines are
+  entry's proven payout wallet also counts), and (2) carry `token: <SYMBOL> <code>` (Ruling 17)
+  for the exact ticker being launched, where `code` is the first 10 hex characters of
+  `HMAC-SHA256(EARNKIT_AUTH_SECRET, "token-line:<installation>:<normalized repo>:<SYMBOL>")`
+  (`token-gate.ts` `tokenLineCode`/`tokenLineFor`, compared timing-safely; no secret → the gate
+  refuses, "Token launches aren't configured right now."). The line is shown only to the launching
+  agent (prepare_submission's token note when the repo is known, `say_to_builder`, the gate_failed
+  reason), never on public pages or to sponsors; only someone who can push to the repo can add it,
+  and a line copied from the public file is useless to any other agent (malformed `creator_wallet:`/`token:` lines are
   ignored and never affect campaign checks); a `live_url` that answers 2xx via `safeProbe` (User-Agent `EarnKit-linkcheck/1`);
   the creator wallet passes the sanctions screen; never cached); the per-installation limit
   (`LIMITS.tokenLaunch`, 3 a day, counted only right before a deploy); then `deployToken`.

@@ -24,8 +24,9 @@ the token on tokens.fun only when it gets `builder_confirmed: true` and `token: 
 carrying the ticker the builder confirmed; `token: "skip"` means no token, and an omitted token
 launches nothing. A launch first passes a gate (public, non-fork GitHub repo with commits whose
 `earnkit.txt` at the root names the creator wallet as `payout_wallet: 0x…` (or
-`creator_wallet: 0x…` when payout_wallet names another wallet) and carries `token: <SYMBOL>` with
-the exact ticker of this launch, a live link that loads, an unsanctioned creator wallet). One token per repo across EarnKit, and at most 3 launches
+`creator_wallet: 0x…` when payout_wallet names another wallet) and carries `token: <SYMBOL> <code>`
+(the line EarnKit gives the launching agent: the code is an HMAC of the agent, the repo and the
+ticker, so a line copied from someone's public file is useless to anyone else), a live link that loads, an unsanctioned creator wallet). One token per repo across EarnKit, and at most 3 launches
 a day per agent. The reply's `token.status` is `launched`, `skipped`, `gate_failed`, `pending`
 (outcome unknown: check tokens.fun) or `failed`; the submission is recorded either way.
 `launch_token { project_id, builder_confirmed: true }` launches or retries later with the stored

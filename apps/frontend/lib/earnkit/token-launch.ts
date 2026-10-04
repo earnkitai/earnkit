@@ -7,7 +7,7 @@ import type { TokenPolicy } from './program-file';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
-import { tokenGate, type GateDeps } from './token-gate';
+import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
 import {
   cleanTokenName,
   proposeToken,
@@ -154,11 +154,13 @@ export function decideToken(a: {
 }
 
 /** What the builder must have in the repo before a launch (v2.3 Ruling 12 and its fix round). */
-const ownershipLine = (wallet: string | null, symbol: string | null) =>
+const ownershipLine = (wallet: string | null, tokenLine: string | null) =>
   `The project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root with the line ` +
   `"payout_wallet: ${wallet ?? '<creator wallet>'}" (campaign entries already have it; if that line ` +
   `names another wallet, add "creator_wallet: ${wallet ?? '<creator wallet>'}") and, for each launch, ` +
-  `the line "token: ${symbol ?? '<SYMBOL>'}" with the exact ticker.`;
+  (tokenLine
+    ? `the line "${tokenLine}" (it is for this agent, this repo and this ticker only; a changed ticker gets a new line).`
+    : "a line \"token: <SYMBOL> <code>\" for this agent: pass the project's repo_url (and the ticker) to get it, or record_submission's token note gives it.");
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
@@ -166,7 +168,14 @@ const ownershipLine = (wallet: string | null, symbol: string | null) =>
  * ticker, the earnings line, both terms links and what the repo needs.
  */
 export async function tokenProposalBlock(
-  a: { program: ProgramRow; projectName?: string; creatorWallet: string | null },
+  a: {
+    program: ProgramRow;
+    projectName?: string;
+    creatorWallet: string | null;
+    /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
+    installationId: number;
+    repoUrl?: string;
+  },
   deps: { check?: TickerCheck; available?: () => boolean } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
@@ -181,7 +190,10 @@ export async function tokenProposalBlock(
   if (proposal.name === null) notes.push(proposal.reason);
   else if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
-  notes.push(ownershipLine(a.creatorWallet, proposal.symbol));
+  // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
+  const tokenLine =
+    a.repoUrl && proposal.symbol ? tokenLineFor(a.installationId, a.repoUrl, proposal.symbol) : null;
+  notes.push(ownershipLine(a.creatorWallet, tokenLine));
   return {
     proposed:
       proposal.name === null
@@ -198,7 +210,7 @@ export async function tokenProposalBlock(
         ? 'This entry can get a token on tokens.fun: pick a name and ticker (3–6 letters or digits).'
         : `Submitting ${projectName} to ${program.title}, and launching $${proposal.symbol} (${proposal.name}) with your entry on tokens.fun.`) +
       ` ${earnings} ${terms} Your repo needs ${OWNERSHIP_FILE} at its root with "payout_wallet: ${a.creatorWallet ?? '<your wallet>'}" ` +
-      `and "token: ${proposal.symbol ?? '<TICKER>'}". Change the name, ticker or logo, or say "no token".`,
+      `and ${tokenLine ? `"${tokenLine}"` : 'the token line EarnKit gives for this launch'}. Change the name, ticker or logo, or say "no token".`,
     note: notes.join(' '),
   };
 }
@@ -369,6 +381,7 @@ async function runTokenFlow(
       liveUrl: project.live_url,
       wallet: wallet!,
       symbol,
+      installationId: a.installationId,
       provenWallet: project.payout_wallet,
     },
     deps.gate,

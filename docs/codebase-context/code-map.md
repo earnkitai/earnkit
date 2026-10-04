@@ -176,7 +176,9 @@ apps/frontend/
                                monogramFor (12-colour palette)
     token-gate.ts(+test)       tokenGate: policy, public non-fork repo with commits, ownership
                                (ownerProblem: earnkit.txt, read for every launch, names the creator
-                               wallet on payout_wallet: or creator_wallet: and has token: <SYMBOL>),
+                               wallet on payout_wallet: or creator_wallet: and has the agent's
+                               "token: <SYMBOL> <code>" line: tokenLineCode/tokenLineFor, an HMAC of
+                               installation, repo and ticker under EARNKIT_AUTH_SECRET),
                                live link via safeProbe, sanctions screen; first failure as a reason
                                with the fix; GitHub/owner/probe/screen injectable (GateDeps)
     token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token),

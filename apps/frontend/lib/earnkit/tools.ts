@@ -238,6 +238,9 @@ export const tools = {
       creatorWallet:
         (program.campaign && validWallet(prefill.answers?.payout_wallet)) ||
         remembered,
+      // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
+      installationId: ctx.installationId,
+      repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
     });
     return {
       program_id,
