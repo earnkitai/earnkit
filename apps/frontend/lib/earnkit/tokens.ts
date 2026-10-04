@@ -97,34 +97,120 @@ type DeployResponse = {
   message?: string;
 };
 
-/** What the agent tells the builder right after a submission is recorded. */
-export function tokenOffer(projectName: string) {
-  return (
-    `Ask the builder once: "Want a token for ${projectName} on tokens.fun? tokens.fun pays the gas; ` +
-    `40% of trading fees go to your wallet (in WETH). Terms: ${TOKEN_TERMS.agreement} · Risks: ` +
-    `${TOKEN_TERMS.risks}" If yes, confirm name, ticker, their wallet, an image (generate one or use the project's ` +
-    'logo), and their X, then call launch_token. If no, drop it.'
-  );
+export type TokenStatus =
+  | 'skipped'
+  | 'gate_failed'
+  | 'pending'
+  | 'launched'
+  | 'failed';
+
+export type TokenOutcome = {
+  status: TokenStatus;
+  name?: string;
+  symbol?: string;
+  note?: string;
+  token_address?: string;
+  tokens_fun?: string;
+  explorer?: string;
+  tx_hash?: string;
+};
+
+/** What the builder is told about fee splits once a token is live. */
+export const EARNINGS_LINE = (wallet: string) =>
+  `You keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH to ${wallet}. tokens.fun pays the gas.`;
+
+/**
+ * Maps a tokens.fun deploy response to a TokenOutcome, plus whether the launch claim
+ * (`token_url = 'pending'`) should be released or kept. `res`/`data` null means no response
+ * came back (lost connection or timeout): the claim is kept, since tokens.fun validates before
+ * minting and may have launched anyway. Pure; exported for tests.
+ */
+export function outcomeOf(
+  res: { ok: boolean; status: number } | null,
+  data: DeployResponse | null,
+  chain: 'base' | 'robinhood' | 'arbitrum',
+): TokenOutcome & { release: boolean; keep: boolean } {
+  if (!res) {
+    return {
+      status: 'pending',
+      note: 'No answer from tokens.fun. The launch may have happened: check tokens.fun before retrying.',
+      release: false,
+      keep: true,
+    };
+  }
+  if (res.ok && data?.success && data.tokenAddress) {
+    const page =
+      data.urls?.tokensfun ?? `https://tokens.fun/coin/${data.tokenAddress}`;
+    return {
+      status: 'launched',
+      token_address: data.tokenAddress,
+      tokens_fun: page,
+      explorer: data.urls?.explorer,
+      tx_hash: data.txHash,
+      release: false,
+      keep: false,
+    };
+  }
+  const note =
+    res.status === 429
+      ? "tokens.fun's launch limit was reached (2 tokens a day per wallet). Say 'launch the token' tomorrow."
+      : `Token not launched: ${data?.message ?? data?.error ?? `tokens.fun returned ${res.status}`}`;
+  // tokens.fun validates before minting, so a failed response launched nothing: release the claim.
+  return { status: 'failed', note, release: true, keep: false };
 }
 
-export async function launchToken(
-  input: z.infer<typeof LaunchTokenInput>,
-  installationId: number,
-) {
+/** Sets a project's token status (and, when given, its name/symbol), with an optional note. */
+export async function setTokenStatus(
+  projectId: number,
+  s: {
+    status: TokenStatus;
+    note?: string | null;
+    name?: string | null;
+    symbol?: string | null;
+  },
+): Promise<void> {
+  const fields: Record<string, unknown> = {
+    token_status: s.status,
+    token_note: s.note ?? null,
+  };
+  if (s.name !== undefined) fields.token_name = s.name;
+  if (s.symbol !== undefined) fields.token_symbol = s.symbol;
+  await sql()`UPDATE projects SET ${sql()(fields)} WHERE id = ${projectId}`;
+}
+
+/**
+ * Launches a token for a submitted project on tokens.fun: claims the project, resolves the image,
+ * POSTs the deploy, and records the outcome. The claim (`token_url = 'pending'`) is set first and
+ * only released on a tokens.fun response with a body that says the launch didn't happen; a lost or
+ * timed-out request keeps it, so a retry can't double-launch.
+ */
+export async function deployToken(
+  a: {
+    projectId: number;
+    installationId: number;
+    name: string;
+    symbol: string;
+    creatorWallet: string;
+    image: { bytes: Buffer; type: string } | null;
+    imageUrl?: string;
+    builderX?: string;
+    chain?: 'base' | 'robinhood' | 'arbitrum';
+  },
+  deps: { fetch?: typeof fetch } = {},
+): Promise<TokenOutcome> {
+  const chain = a.chain ?? 'base';
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
   if (!key)
     throw new LaunchError('Token launches are not available right now.');
-  const twitter = xProfileUrl(input.builder_x);
-  const image = input.image_data ? decodeImage(input.image_data) : null;
+  const twitter = a.builderX ? xProfileUrl(a.builderX) : undefined;
   const origin = (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(
     /\/$/,
     '',
   );
-  const imageUrl =
-    input.image_url ?? `${origin}/api/projects/${input.project_id}/image`;
 
-  // Claim the project atomically: only this installation's project, only if it has no token.
-  // The claim stays if the outcome is unknown, so a lost response can't lead to a second token.
+  // Claim the project atomically: only this installation's project, only if it has no token yet.
+  // Kept exactly as strong as before Task 6: a lost or timed-out response keeps the claim; only a
+  // tokens.fun response with a body (it validates before minting) releases it.
   const [project] = await sql()<
     {
       name: string;
@@ -133,81 +219,119 @@ export async function launchToken(
       live_url: string | null;
     }[]
   >`
-    UPDATE projects SET token_url = 'pending', token_image = ${image?.bytes ?? null}, token_image_type = ${image?.type ?? null}
-    WHERE id = ${input.project_id} AND installation_id = ${installationId} AND token_url IS NULL
+    UPDATE projects SET token_url = 'pending', token_status = 'pending', token_note = NULL,
+      token_name = ${a.name}, token_symbol = ${a.symbol},
+      token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null}
+    WHERE id = ${a.projectId} AND installation_id = ${a.installationId} AND token_url IS NULL
     RETURNING name, description, repo_url, live_url`;
   if (!project) {
     const [existing] = await sql()<
       { token_url: string | null; installation_id: number | null }[]
     >`
-      SELECT token_url, installation_id FROM projects WHERE id = ${input.project_id}`;
-    if (!existing || existing.installation_id !== installationId) {
+      SELECT token_url, installation_id FROM projects WHERE id = ${a.projectId}`;
+    if (!existing || existing.installation_id !== a.installationId) {
       throw new LaunchError(
-        `No project ${input.project_id} recorded by you. Call record_submission first.`,
+        `No project ${a.projectId} recorded by you. Call record_submission first.`,
       );
     }
-    throw new LaunchError(
-      existing.token_url === 'pending'
-        ? 'A launch for this project is in progress or unconfirmed. Check tokens.fun before trying again.'
-        : `This project already has a token: ${existing.token_url}`,
-    );
+    return {
+      status: 'failed',
+      note:
+        existing.token_url === 'pending'
+          ? 'A launch for this project is in progress or unconfirmed. Check tokens.fun before trying again.'
+          : `This project already has a token: ${existing.token_url}`,
+    };
   }
 
-  const release = () =>
-    sql()`UPDATE projects SET token_url = NULL WHERE id = ${input.project_id}`;
+  const imageUrl = a.image
+    ? `${origin}/api/projects/${a.projectId}/image`
+    : (a.imageUrl ?? `${origin}/api/projects/${a.projectId}/token-image`);
   const website = project.live_url ?? project.repo_url ?? undefined;
+  const doFetch = deps.fetch ?? fetch;
 
-  let res: Response;
+  // EARNKIT_TOKENSFUN_TIMEOUT_MS bounds the deploy fetch (default 120s); a later e2e lowers it
+  // to exercise the pending (no-response) path without waiting out the real timeout.
+  const timeoutMs = Number(process.env.EARNKIT_TOKENSFUN_TIMEOUT_MS ?? 120_000);
+
+  let res: Response | null;
+  let data: DeployResponse | null;
   try {
-    res = await fetch(`${TOKENSFUN_URL}/api/v1/deploy`, {
+    res = await doFetch(`${TOKENSFUN_URL}/api/v1/deploy`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: input.name,
-        symbol: input.symbol,
-        creatorWallet: input.creator_wallet,
+        name: a.name,
+        symbol: a.symbol,
+        creatorWallet: a.creatorWallet,
         tokenURI: imageUrl,
         imageUrl,
         description:
           project.description ?? `${project.name}, built with EarnKit.`,
         ...(website && { website, appUrl: project.live_url ?? undefined }),
-        twitter,
-        chainId: CHAIN_IDS[input.chain],
+        ...(twitter && { twitter }),
+        chainId: CHAIN_IDS[chain],
         source: 'earnkit',
         tokenSource: 'external',
       }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
+    data = (await res.json().catch(() => null)) as DeployResponse | null;
   } catch {
-    // The launch may still have happened; keep the claim so it can't be launched twice.
-    throw new LaunchError(
-      'No response from tokens.fun. Check tokens.fun for the token before trying again.',
-    );
+    res = null;
+    data = null;
   }
 
-  const data = (await res.json().catch(() => ({}))) as DeployResponse;
-  if (!res.ok || !data.success || !data.tokenAddress) {
-    await release(); // tokens.fun validates before minting, so a failed response launched nothing
-    const reason =
-      res.status === 429
-        ? 'tokens.fun launch limit reached. Try again later.'
-        : (data.message ?? data.error ?? `tokens.fun returned ${res.status}`);
-    throw new LaunchError(`Token not launched: ${reason}`);
+  const { release, keep: _keep, ...outcome } = outcomeOf(
+    res ? { ok: res.ok, status: res.status } : null,
+    data,
+    chain,
+  );
+
+  if (release) {
+    await sql()`
+      UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null}
+      WHERE id = ${a.projectId}`;
+  } else if (outcome.status === 'launched') {
+    await sql()`
+      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
+      WHERE id = ${a.projectId}`;
+  } else {
+    // pending: token_url stays 'pending' from the claim above; only the note changes.
+    await sql()`UPDATE projects SET token_note = ${outcome.note ?? null} WHERE id = ${a.projectId}`;
   }
 
-  const page =
-    data.urls?.tokensfun ?? `https://tokens.fun/coin/${data.tokenAddress}`;
-  await sql()`UPDATE projects SET token_url = ${page} WHERE id = ${input.project_id}`;
+  return { ...outcome, name: a.name, symbol: a.symbol };
+}
+
+/** Thin wrapper kept so `tools.ts`/`mcp.ts` compile; Task 7 moves this to `token-launch.ts`. */
+export async function launchToken(
+  input: z.infer<typeof LaunchTokenInput>,
+  installationId: number,
+) {
+  const image = input.image_data ? decodeImage(input.image_data) : null;
+  const outcome = await deployToken({
+    projectId: input.project_id,
+    installationId,
+    name: input.name,
+    symbol: input.symbol,
+    creatorWallet: input.creator_wallet,
+    image,
+    imageUrl: input.image_url,
+    builderX: input.builder_x,
+    chain: input.chain,
+  });
+  if (outcome.status !== 'launched')
+    throw new LaunchError(outcome.note ?? 'Token not launched.');
   return {
     launched: true,
-    token_address: data.tokenAddress,
+    token_address: outcome.token_address,
     chain: input.chain,
-    tx_hash: data.txHash,
-    tokens_fun: page,
-    explorer: data.urls?.explorer,
+    tx_hash: outcome.tx_hash,
+    tokens_fun: outcome.tokens_fun,
+    explorer: outcome.explorer,
     fees:
       "40% of trading fees go to the creator wallet in WETH (after Clanker's 20% protocol cut); " +
       'the rest is platform 50% and MINI buyback 10%.',

@@ -18,7 +18,6 @@ import { getProgramRow, isOpen, type ProgramRow } from './programs';
 import { BASE_MAINNET, CANT_RECEIVE, screenWallet } from './sanctions';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
-import { tokenOffer } from './tokens';
 import {
   RAW_CAP,
   canonicalBuilderUrl,
@@ -275,7 +274,6 @@ export async function recordSubmission(
                 : `The sponsor picks winners after ${program.ends_at ? formatDeadline(program.ends_at) : 'the deadline'}${entry.contracts.length ? `; EarnKit scores ${entry.contracts.join(', ')} as a guide` : ''}. `) +
               `If you win, the prize goes to ${entry.payoutWallet} on Base. Tell the builder, and make sure they control that wallet.`,
           }),
-        ...(!token_url && { next: tokenOffer(name) }),
       };
     })
     .catch(async (err: unknown) => {

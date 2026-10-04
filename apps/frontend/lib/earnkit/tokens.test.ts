@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LaunchError, decodeImage, xProfileUrl } from './tokens';
+import {
+  EARNINGS_LINE,
+  LaunchError,
+  decodeImage,
+  outcomeOf,
+  xProfileUrl,
+} from './tokens';
 
 test('X handle in any common form becomes a profile URL', () => {
   for (const v of [
@@ -46,5 +52,45 @@ test('token images: allowed types with matching bytes, up to 1 MB', () => {
   assert.throws(
     () => decodeImage(`data:image/png;base64,${big.toString('base64')}`),
     LaunchError,
+  );
+});
+
+test('deploy outcomes: success, refusal (released), rate limit, no answer (kept pending)', () => {
+  const ok = outcomeOf(
+    { ok: true, status: 200 },
+    {
+      success: true,
+      tokenAddress: '0xabc',
+      txHash: '0xt',
+      urls: { tokensfun: 'https://tokens.fun/coin/0xabc' },
+    },
+    'base',
+  );
+  assert.equal(ok.status, 'launched');
+  assert.equal(ok.tokens_fun, 'https://tokens.fun/coin/0xabc');
+
+  const refused = outcomeOf(
+    { ok: false, status: 400 },
+    { error: 'Token symbol must be 10 characters or less' },
+    'base',
+  );
+  assert.equal(refused.status, 'failed');
+  assert.equal(refused.release, true);
+  assert.match(refused.note!, /symbol/);
+
+  const limited = outcomeOf({ ok: false, status: 429 }, { error: 'Daily limit' }, 'base');
+  assert.equal(limited.status, 'failed');
+  assert.match(limited.note!, /tomorrow|later/);
+
+  const lost = outcomeOf(null, null, 'base');
+  assert.equal(lost.status, 'pending');
+  assert.equal(lost.release, false);
+  assert.match(lost.note!, /check tokens\.fun/);
+});
+
+test('earnings line is the spec text', () => {
+  assert.equal(
+    EARNINGS_LINE('0xW'),
+    "You keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH to 0xW. tokens.fun pays the gas.",
   );
 });
