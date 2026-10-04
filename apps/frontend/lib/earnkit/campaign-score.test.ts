@@ -1,6 +1,7 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreCampaignEntries, type ScoreRow } from './campaign-score';
+import { scoreCampaignEntries, storeScore, type ScoreRow } from './campaign-score';
+import { sql } from './db';
 
 const program = { starts_at: new Date('2026-10-05T00:00:00Z'), ends_at: new Date('2026-10-19T00:00:00Z') };
 const row = (id: number, extra: Partial<ScoreRow> = {}): ScoreRow => ({
@@ -12,6 +13,7 @@ const row = (id: number, extra: Partial<ScoreRow> = {}): ScoreRow => ({
   scored_at: null,
   scored_through: null,
   score_final: false,
+  score_attempted_at: null,
   ...extra,
 });
 const result = (score: number) => ({
@@ -32,6 +34,7 @@ test('v2.4 §6: one failing entry never stops the others; its error is stored on
       },
       store: async (id) => { stored.push(id); },
       fail: async (id, m) => { failed.push([id, m]); },
+      attempt: async () => {},
     },
   );
   assert.deepEqual(stored, [1, 3]);
@@ -49,6 +52,7 @@ test("the entry's payout wallet and deployers are excluded; the window ends at n
       score: async (_c, _f, to, opts) => { calls.push({ to, exclude: opts?.exclude }); return result(1); },
       store: async () => {},
       fail: async () => {},
+      attempt: async () => {},
     },
   );
   assert.deepEqual(calls, [{ to: new Date('2026-10-06T00:00:00Z'), exclude: [row(1).payout_wallet, ...row(1).deployers!] }]);
@@ -64,6 +68,7 @@ test('final: the whole window once, marked final; entries already final are skip
       score: async () => result(7),
       store: async (id, _r, _at, through, final) => { stored.push({ id, through, final }); },
       fail: async () => {},
+      attempt: async () => {},
     },
   );
   assert.deepEqual(stored, [{ id: 1, through: program.ends_at, final: true }]);
@@ -82,8 +87,119 @@ test('a fresh running score is skipped; a read cut short saves a provisional sco
       score: async () => ({ ...result(1), timedOut: true, complete: false }),
       store: async (id, _r, _at, through) => { stored.push({ id, through }); },
       fail: async () => {},
+      attempt: async () => {},
     },
   );
   assert.deepEqual(out.map((o) => o.result), ['skipped', 'timed_out']);
   assert.deepEqual(stored, [{ id: 2, through: null }]);
+});
+
+test('a scored entry whose read is cut short stays unchanged', async () => {
+  const stored: number[] = [];
+  const old = new Date('2026-10-05T01:00:00Z');
+  const out = await scoreCampaignEntries(
+    program,
+    [row(1, { score: 5, scored_at: old, scored_through: old })],
+    { now: new Date('2026-10-06T00:00:00Z'), deadline: Date.now() + 5_000, final: false, maxAgeMs: 0 },
+    {
+      score: async () => ({ ...result(1), timedOut: true, complete: false }),
+      store: async (id) => { stored.push(id); },
+      fail: async () => {},
+      attempt: async () => {},
+    },
+  );
+  assert.deepEqual(out.map((o) => o.result), ['timed_out']);
+  assert.deepEqual(stored, []);
+});
+
+test('a failing fail() write never stops the loop', async () => {
+  const stored: number[] = [];
+  const out = await scoreCampaignEntries(
+    program,
+    [row(1), row(2)],
+    { now: new Date('2026-10-06T00:00:00Z'), deadline: Date.now() + 5_000, final: false, maxAgeMs: 0 },
+    {
+      score: async (contracts) => {
+        if (contracts[0] === row(1).contracts[0]) throw new Error('explorer down');
+        return result(2);
+      },
+      store: async (id) => { stored.push(id); },
+      fail: async () => { throw new Error('database down'); },
+      attempt: async () => {},
+    },
+  );
+  assert.deepEqual(out.map((o) => o.result), ['failed', 'scored']);
+  assert.deepEqual(stored, [2]);
+});
+
+test('rotation: an entry that ran out of time goes last next pass, so [slow, fast] scores fast on pass 2', async () => {
+  const rows = [row(1), row(2)];
+  const slow = rows[0].contracts[0];
+  const pass = (n: number) =>
+    scoreCampaignEntries(
+      program,
+      rows,
+      { now: new Date(Date.UTC(2026, 9, 6, n)), deadline: Date.now() + 50, final: false, maxAgeMs: 0 },
+      {
+        score: async (contracts) => {
+          if (contracts[0] !== slow) return result(3);
+          await new Promise((r) => setTimeout(r, 70));
+          return { ...result(0), timedOut: true, complete: false };
+        },
+        store: async () => {},
+        fail: async () => {},
+        attempt: async (id, at) => {
+          rows.find((r) => r.id === id)!.score_attempted_at = at;
+        },
+      },
+    );
+  const one = await pass(1);
+  assert.deepEqual(one.map((o) => [o.id, o.result]), [[1, 'timed_out'], [2, 'timed_out']]);
+  const two = await pass(2);
+  assert.deepEqual(two.map((o) => [o.id, o.result]), [[2, 'scored'], [1, 'timed_out']]);
+});
+
+// Against a real database when one is configured (the local stack); skipped otherwise.
+const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
+
+test('storage: fail() keeps the score; a final partial read stays partial; the attempt is recorded', db, async () => {
+  const pid = `test-score-${process.pid}-${Date.now()}`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${pid}, 'o', 't', 'd', 'https://x', 'https://x', 'r', 's', 'closed', 'unknown')`;
+  const [{ id }] = await sql()`
+    INSERT INTO projects (program_id, name, repo_url) VALUES (${pid}, 'n', 'https://github.com/a/b') RETURNING id`;
+  try {
+    const now = new Date('2026-10-19T00:20:00Z');
+    const counted = [{ wallet: '0x01', kind: 'eoa' as const }, { wallet: '0x02', kind: 'smart' as const }];
+    await storeScore(id, { ...result(2), counted, complete: false, codeShare: 0.25 }, now, program.ends_at, false);
+    const out = await scoreCampaignEntries(
+      program,
+      [row(id, { score: 2, scored_at: now, scored_through: program.ends_at })],
+      { now, deadline: Date.now() + 5_000, final: true, maxAgeMs: 0 },
+      { score: async () => { throw new Error('Base explorer returned 502'); } },
+    );
+    assert.deepEqual(out.map((o) => o.result), ['failed']);
+    const [a] = await sql()`SELECT score, score_error, score_final, score_attempted_at FROM projects WHERE id = ${id}`;
+    assert.deepEqual([a.score, a.score_error, a.score_final], [2, 'Base explorer returned 502', false]);
+    assert.equal(a.score_attempted_at.getTime(), now.getTime());
+
+    await scoreCampaignEntries(
+      program,
+      [row(id, { score: 2 })],
+      { now, deadline: Date.now() + 5_000, final: true, maxAgeMs: 0 },
+      { score: async () => ({ ...result(1), counted: [counted[1]], complete: false }) },
+    );
+    const [b] = await sql()`SELECT score, score_error, score_final, score_partial, scored_through FROM projects WHERE id = ${id}`;
+    assert.deepEqual([b.score, b.score_error, b.score_final, b.score_partial], [1, null, true, true]);
+    assert.equal(b.scored_through.getTime(), program.ends_at.getTime());
+    const wallets = await sql()`SELECT wallet, kind FROM entry_wallets WHERE project_id = ${id}`;
+    assert.deepEqual(wallets.map((w) => [w.wallet, w.kind]), [['0x02', 'smart']]);
+  } finally {
+    await sql()`DELETE FROM projects WHERE id = ${id}`;
+    await sql()`DELETE FROM programs WHERE id = ${pid}`;
+  }
 });

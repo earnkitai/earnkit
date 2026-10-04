@@ -666,6 +666,8 @@ type EntryRow = {
   repo_url: string | null;
   payout_wallet: string;
   contracts: string[];
+  /** Each entered contract's deployer, lowercase; never counted as users. */
+  deployers: string[] | null;
   score: number | null;
   scored_at: Date | null;
   /** The window end the score covers; null for a provisional, cut-short read. */
@@ -711,7 +713,7 @@ async function entriesOf(
   db: postgres.Sql | postgres.TransactionSql = sql(),
 ) {
   return db<EntryRow[]>`
-    SELECT id, name, live_url, live_key, repo_url, payout_wallet, contracts, score, scored_at, scored_through, score_partial, prize_tx,
+    SELECT id, name, live_url, live_key, repo_url, payout_wallet, contracts, deployers, score, scored_at, scored_through, score_partial, prize_tx,
       repo_created_at, repo_pushed_at FROM projects
     WHERE program_id = ${programId} AND payout_wallet IS NOT NULL ORDER BY submitted_at`;
 }
@@ -776,7 +778,10 @@ async function refreshScores(
         continue;
       if (now.getTime() >= deadline) return 'pending';
       const until = new Date(Math.min(now.getTime(), endsAt.getTime()));
-      const r = await scoreEntry(e.contracts, from, until, { deadline });
+      const r = await scoreEntry(e.contracts, from, until, {
+        deadline,
+        exclude: [e.payout_wallet, ...(e.deployers ?? [])],
+      });
       if (r.timedOut) {
         if (e.score === null) {
           await sql()`

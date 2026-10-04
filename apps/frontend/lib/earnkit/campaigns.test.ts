@@ -27,6 +27,7 @@ import {
   internalCallers,
   walletHistory,
   ENTRY_POINTS,
+  INTERNAL_MAX_PAGES,
   type InternalPage,
   type TxPage,
   type CampaignConfig,
@@ -424,6 +425,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
     {
       deadline: Date.now() + 100,
       fetchPage: ex.fetchPage,
+      fetchInternal: noInternal,
       blockAt: async () => 1n,
       history: slowHistory,
     },
@@ -443,6 +445,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
     {
       deadline: Date.now() - 1,
       fetchPage: fakeExplorer(3, newest).fetchPage,
+      fetchInternal: noInternal,
       blockAt: async () => 1n,
       history: async () => 'eoa' as const,
     },
@@ -455,6 +458,7 @@ test('scoreEntry: a deadline stops the reads and the per-wallet history loop', a
     new Date(Date.now() + 60_000),
     {
       fetchPage: fakeExplorer(3, newest).fetchPage,
+      fetchInternal: noInternal,
       blockAt: async () => 1n,
       history: async () => 'eoa' as const,
     },
@@ -563,6 +567,7 @@ test('existing work allowed: a contract deployed before the start is accepted; n
   );
 });
 
+const noInternal = async (): Promise<InternalPage> => ({ items: [], next_page_params: null });
 const at = (h: number) => new Date(Date.UTC(2026, 9, 5, h)).toISOString();
 const page = <T,>(items: T[]) => ({ items, next_page_params: null });
 
@@ -611,7 +616,8 @@ test('scoreEntry v2: internal callers count; the payout wallet, deployers, contr
     fetchPage: async () =>
       page([USER, PAYOUT, DEPLOYER, NEW, C].map((w, i) => ({ timestamp: at(10 + i), status: 'ok', from: { hash: w } }))) as TxPage,
     fetchInternal: async () =>
-      page([SMART, ENTRY_POINTS[1]].map((w) => ({ timestamp: at(12), success: true, type: 'call', from: { hash: w } }))) as InternalPage,
+      page([SMART, ENTRY_POINTS[1]].map((w) => ({ timestamp: at(12), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xops' }))) as InternalPage,
+    txTo: async () => ENTRY_POINTS[1],
     history: async (w) => (w === SMART ? 'smart' : w === NEW ? null : 'eoa'),
     exclude: [PAYOUT, DEPLOYER.toUpperCase().replace('0X', '0x')],
   });
@@ -629,9 +635,11 @@ test('scoreEntry v2: the share of direct transactions carrying EarnKit\'s Builde
   const from = new Date(Date.UTC(2026, 9, 5, 0));
   const r = await scoreEntry(['0xc'], from, new Date(Date.UTC(2026, 9, 6)), {
     blockAt: async () => 1n,
-    history: async () => 'eoa',
+    history: async (w) => (w === '0x05' ? null : 'eoa'),
+    fetchInternal: noInternal,
     fetchPage: async () =>
       page([
+        { timestamp: at(9), status: 'ok', from: { hash: '0x05' }, raw_input: coded }, // never counted: not in the share
         { timestamp: at(10), status: 'ok', from: { hash: '0x01' }, raw_input: coded },
         { timestamp: at(11), status: 'ok', from: { hash: '0x02' }, raw_input: '0xa9059cbb' },
         { timestamp: at(12), status: 'ok', from: { hash: '0x03' } },
@@ -639,4 +647,75 @@ test('scoreEntry v2: the share of direct transactions carrying EarnKit\'s Builde
       ]) as TxPage,
   });
   assert.equal(r.codeShare, 1 / 3);
+});
+
+test('internalCallers: staticcalls and items without a type are ignored', async () => {
+  const r = await internalCallers('0xc', new Date(Date.UTC(2026, 9, 5, 1)), new Date(Date.UTC(2026, 9, 5, 20)), {
+    fetchPage: async () =>
+      page([
+        { timestamp: at(10), success: true, type: 'staticcall', from: { hash: '0xaa' } },
+        { timestamp: at(9), success: true, from: { hash: '0xbb' } },
+        { timestamp: at(8), success: true, type: 'call', from: { hash: '0xcc' }, transaction_hash: '0xt1' },
+      ]) as InternalPage,
+  });
+  assert.deepEqual([...r.wallets], ['0xcc']);
+  assert.deepEqual([...r.callers], [['0xcc', ['0xt1']]]);
+});
+
+test('internalCallers: an ended window starts at its end block; reads are capped at 100 pages (partial)', async () => {
+  const paths: string[] = [];
+  const r = await internalCallers('0xc', new Date(0), new Date(Date.UTC(2026, 9, 5, 20)), {
+    startBlock: 123n,
+    fetchPage: async (path) => {
+      paths.push(path);
+      return { items: [{ timestamp: at(10), success: true, type: 'call', from: { hash: '0xaa' } }], next_page_params: { block_number: 1, transaction_index: 0, index: 0, items_count: 50, filter: 'to' } };
+    },
+  });
+  assert.equal(INTERNAL_MAX_PAGES, 100);
+  assert.equal(paths.length, 100);
+  assert.equal(paths[0], '/api/v2/addresses/0xc/internal-transactions?filter=to&block_number=123&transaction_index=0&index=0&items_count=50');
+  assert.equal(r.complete, false);
+});
+
+test('scoreEntry: an ended window reads internal calls from its end block too', async () => {
+  const paths: string[] = [];
+  await scoreEntry(['0xc'], new Date(Date.UTC(2026, 0, 1)), new Date(Date.UTC(2026, 0, 2)), {
+    blockAt: async () => 41n,
+    history: async () => 'eoa',
+    fetchPage: async () => page([]) as TxPage,
+    fetchInternal: async (path) => { paths.push(path); return page([]) as InternalPage; },
+  });
+  assert.deepEqual(paths, ['/api/v2/addresses/0xc/internal-transactions?filter=to&block_number=42&transaction_index=0&index=0&items_count=50']);
+});
+
+test('scoreEntry: fetchPage without fetchInternal is refused (no silent skip of internal calls)', async () => {
+  await assert.rejects(
+    scoreEntry(['0xc'], new Date(0), new Date(), { fetchPage: async () => page([]) as TxPage, blockAt: async () => 1n }),
+    /fetchInternal/,
+  );
+});
+
+test('scoreEntry: staged clones fanned out from a normal transaction count 0; EntryPoint handleOps accounts count', async () => {
+  const C = '0x' + 'c'.repeat(40);
+  const FACTORY = '0x' + 'f'.repeat(40);
+  const clones = [1, 2, 3].map((i) => '0x' + String(i).repeat(40));
+  const accounts = [7, 8].map((i) => '0x' + String(i).repeat(40));
+  const lookups: string[] = [];
+  const r = await scoreEntry([C], new Date(Date.UTC(2026, 9, 5, 0)), new Date(Date.UTC(2026, 9, 6, 0)), {
+    blockAt: async () => 1n,
+    fetchPage: async () => page([]) as TxPage,
+    fetchInternal: async () =>
+      page([
+        ...clones.map((w) => ({ timestamp: at(10), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xfan' })),
+        ...accounts.map((w) => ({ timestamp: at(11), success: true, type: 'call', from: { hash: w }, transaction_hash: '0xops' })),
+      ]) as InternalPage,
+    txTo: async (hash) => {
+      lookups.push(hash);
+      return hash === '0xops' ? '0x0000000071727De22E5E9d8BAf0edAc6f37da032' : FACTORY;
+    },
+    history: async () => 'smart', // every clone had code at the start
+  });
+  assert.deepEqual(r.counted.map((c) => c.wallet).sort(), accounts);
+  assert.equal(r.seen, 5);
+  assert.deepEqual(lookups.sort(), ['0xfan', '0xops'], 'one lookup per parent transaction');
 });

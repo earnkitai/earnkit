@@ -394,6 +394,8 @@ export async function walletsUsing(
     opts.fetchPage ??
     ((path: string) => blockscout<TxPage>(path, opts.deadline));
   const wallets = new Set<string>();
+  /** Per sender: successful transactions in the window, and those carrying EarnKit's Builder Code. */
+  const byWallet = new Map<string, { txs: number; coded: number }>();
   let txs = 0;
   let coded = 0;
   let params = firstPageParams(opts.startBlock);
@@ -406,19 +408,23 @@ export async function walletsUsing(
     for (const tx of data.items) {
       const at = new Date(tx.timestamp);
       // Newest first: everything after this is older.
-      if (at < from) return { wallets, complete: true, txs, coded };
+      if (at < from) return { wallets, complete: true, txs, coded, byWallet };
       if (at <= to && tx.status === 'ok') {
-        wallets.add(tx.from.hash.toLowerCase());
+        const w = tx.from.hash.toLowerCase();
+        const isCoded = codesIn(tx.raw_input).includes(EARNKIT_BUILDER_CODE);
+        wallets.add(w);
+        const n = byWallet.get(w) ?? { txs: 0, coded: 0 };
+        byWallet.set(w, { txs: n.txs + 1, coded: n.coded + (isCoded ? 1 : 0) });
         txs++;
-        if (codesIn(tx.raw_input).includes(EARNKIT_BUILDER_CODE)) coded++;
+        if (isCoded) coded++;
       }
     }
-    if (!data.next_page_params) return { wallets, complete: true, txs, coded };
+    if (!data.next_page_params) return { wallets, complete: true, txs, coded, byWallet };
     params = new URLSearchParams(
       Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)]),
     ).toString();
   }
-  return { wallets, complete: false, txs, coded };
+  return { wallets, complete: false, txs, coded, byWallet };
 }
 
 /** ERC-4337 EntryPoints (v0.6, v0.7, v0.8), lowercase: never users (v2.4 §3). */
@@ -429,21 +435,43 @@ export const ENTRY_POINTS = [
 ];
 
 export type InternalPage = {
-  items: { timestamp: string; success?: boolean; type?: string; from: { hash: string } }[];
+  items: {
+    timestamp: string;
+    success?: boolean;
+    type?: string;
+    from: { hash: string };
+    transaction_hash?: string;
+  }[];
   next_page_params: Record<string, unknown> | null;
 };
 
+/** Pages of internal calls read per contract (50 each); a capped read marks the score partial. */
+export const INTERNAL_MAX_PAGES = 100;
+
 /**
- * Smart accounts and contracts that called `contract` (successful internal calls of type "call")
- * within the window, newest first: Base App and relayed users arrive this way (v2.4 §3). Always
- * read from now back (Blockscout's internal list has its own cursor); `complete` is false when
- * `maxPages` ran out first.
+ * The first internal-calls page: from `startBlock` back, else from now. Blockscout's internal list
+ * pages on block_number + transaction_index + index (seen on base.blockscout.com). Pure.
+ */
+export const internalFirstPageParams = (startBlock?: bigint) =>
+  startBlock === undefined
+    ? 'filter=to'
+    : `filter=to&block_number=${startBlock}&transaction_index=0&index=0&items_count=50`;
+
+/** Parent transactions remembered per internal caller (enough to find one sent to an EntryPoint). */
+const MAX_PARENTS = 3;
+
+/**
+ * Smart accounts and contracts that called `contract` (successful internal calls of type "call";
+ * staticcalls, delegatecalls and untyped items are ignored) within the window, newest first, with
+ * up to MAX_PARENTS parent transaction hashes each (`callers`). `startBlock` starts the read at the
+ * window's end, like walletsUsing; `complete` is false when `maxPages` (INTERNAL_MAX_PAGES) ran out.
  */
 export async function internalCallers(
   contract: string,
   from: Date,
   to: Date,
   opts: {
+    startBlock?: bigint;
     maxPages?: number;
     deadline?: number;
     fetchPage?: (path: string) => Promise<InternalPage>;
@@ -452,22 +480,29 @@ export async function internalCallers(
   const fetchPage =
     opts.fetchPage ?? ((path: string) => blockscout<InternalPage>(path, opts.deadline));
   const wallets = new Set<string>();
-  let params = firstPageParams();
-  for (let n = 0; n < (opts.maxPages ?? SCORE_MAX_PAGES); n++) {
+  const callers = new Map<string, string[]>();
+  const done = (complete: boolean) => ({ wallets, callers, complete });
+  let params = internalFirstPageParams(opts.startBlock);
+  for (let n = 0; n < (opts.maxPages ?? INTERNAL_MAX_PAGES); n++) {
     if (opts.deadline !== undefined && Date.now() >= opts.deadline) throw new ScoreDeadline();
     const data = await fetchPage(`/api/v2/addresses/${contract}/internal-transactions?${params}`);
     for (const it of data.items) {
       const at = new Date(it.timestamp);
-      if (at < from) return { wallets, complete: true };
-      if (at <= to && it.success === true && (it.type ?? 'call') === 'call')
-        wallets.add(it.from.hash.toLowerCase());
+      if (at < from) return done(true);
+      if (at > to || it.success !== true || it.type !== 'call') continue;
+      const w = it.from.hash.toLowerCase();
+      wallets.add(w);
+      const parents = callers.get(w) ?? [];
+      const h = it.transaction_hash?.toLowerCase();
+      if (h && parents.length < MAX_PARENTS && !parents.includes(h)) parents.push(h);
+      callers.set(w, parents);
     }
-    if (!data.next_page_params) return { wallets, complete: true };
+    if (!data.next_page_params) return done(true);
     params = new URLSearchParams(
       Object.entries(data.next_page_params).map(([k, v]) => [k, String(v)]),
     ).toString();
   }
-  return { wallets, complete: false };
+  return done(false);
 }
 
 /** Base RPC. BASE_RPC_URL overrides the public endpoint (e.g. a local fork for tests). */
@@ -526,13 +561,19 @@ export async function walletHistory(
 }
 
 /**
- * Metric `unique_wallets` (v2.4 §3): distinct users of any of the entry's contracts in the window —
- * senders of successful transactions to them, plus smart accounts and contracts calling them
- * (internal calls) — that had history before the start (walletHistory). Never counted: `exclude`
- * (the payout wallet and deployers), the entry's own contracts and the EntryPoints. Returns the
- * score, the counted wallets with their kind, `codeShare` (the share of direct transactions
- * carrying EarnKit's Builder Code; null without any), and `complete`/`timedOut` as before. With
- * an injected `fetchPage` and no `fetchInternal`, internal calls aren't read (tests).
+ * Metric `unique_wallets` (v2.4 §3): distinct users of any of the entry's contracts in the window
+ * that had history before the start (walletHistory):
+ * - senders of successful transactions to them (the EOA rule);
+ * - smart accounts calling them (internal calls), only when one of the call's parent transactions
+ *   was sent to an ERC-4337 EntryPoint (ENTRY_POINTS). A contract staged before the start and fanned
+ *   out from an ordinary transaction never counts. Known limitation: users who reach the contract
+ *   through Multicall, routers, relayers or a Safe executed by its owner aren't counted.
+ *
+ * Never counted: `exclude` (the payout wallet and deployers), the entry's own contracts and the
+ * EntryPoints. Returns the score, the counted wallets with their kind, `codeShare` (the share of
+ * the counted wallets' direct transactions carrying EarnKit's Builder Code; null without any), and
+ * `complete` (false when a read hit its page cap) and `timedOut`. `fetchPage` and `fetchInternal`
+ * are injected together (tests); `txTo` (a transaction's `to`) is looked up once per hash.
  */
 export async function scoreEntry(
   contracts: string[],
@@ -544,54 +585,92 @@ export async function scoreEntry(
     fetchInternal?: (path: string) => Promise<InternalPage>;
     blockAt?: (at: Date) => Promise<bigint>;
     history?: (wallet: string, blockBefore: bigint) => Promise<WalletKind | null>;
+    txTo?: (hash: string) => Promise<string | null>;
     exclude?: string[];
   } = {},
 ) {
+  if (opts.fetchPage && !opts.fetchInternal)
+    throw new Error(
+      'scoreEntry: fetchInternal is required with fetchPage; pass one that returns an empty page.',
+    );
   const { deadline } = opts;
   const rpc = baseRpcUntil(deadline);
   const blockAt = (at: Date) =>
     beforeDeadline(opts.blockAt ? opts.blockAt(at) : baseBlockAt(at, rpc), deadline);
   const history =
     opts.history ?? ((w: string, b: bigint) => walletHistory(w, b, rpc));
-  const fetchInternal =
-    opts.fetchInternal ??
-    (opts.fetchPage
-      ? async (): Promise<InternalPage> => ({ items: [], next_page_params: null })
-      : undefined);
+  const txTo =
+    opts.txTo ??
+    (async (hash: string) =>
+      (await rpc.getTransaction({ hash: hash as `0x${string}` })).to ?? null);
+  const parentTo = new Map<string, Promise<string | null>>();
+  const viaEntryPoint = async (hashes: string[]) => {
+    for (const h of hashes) {
+      let p = parentTo.get(h);
+      if (!p) parentTo.set(h, (p = txTo(h)));
+      const target = await beforeDeadline(p, deadline);
+      if (target && ENTRY_POINTS.includes(target.toLowerCase())) return true;
+    }
+    return false;
+  };
   const never = new Set(
     [...ENTRY_POINTS, ...contracts, ...(opts.exclude ?? [])].map((w) => w.toLowerCase()),
   );
+  const direct = new Map<string, { txs: number; coded: number }>();
+  const internal = new Map<string, string[]>();
   const all = new Set<string>();
   const counted: { wallet: string; kind: WalletKind }[] = [];
   let complete = true;
-  let txs = 0;
-  let coded = 0;
-  const out = (timedOut: boolean) => ({
-    score: counted.length,
-    wallets: counted.map((c) => c.wallet),
-    counted,
-    seen: all.size,
-    complete: timedOut ? false : complete,
-    timedOut,
-    codeShare: txs ? coded / txs : null,
-  });
+  const out = (timedOut: boolean) => {
+    let txs = 0;
+    let coded = 0;
+    for (const c of counted) {
+      const n = direct.get(c.wallet);
+      txs += n?.txs ?? 0;
+      coded += n?.coded ?? 0;
+    }
+    return {
+      score: counted.length,
+      wallets: counted.map((c) => c.wallet),
+      counted,
+      seen: all.size,
+      complete: timedOut ? false : complete,
+      timedOut,
+      codeShare: txs ? coded / txs : null,
+    };
+  };
   try {
+    // A window that has ended is read from its last block back, not from now.
     const startBlock = to.getTime() < Date.now() ? (await blockAt(to)) + 1n : undefined;
     for (const c of contracts) {
       const r = await walletsUsing(c, from, to, { startBlock, deadline, fetchPage: opts.fetchPage });
-      const i = await internalCallers(c, from, to, { deadline, fetchPage: fetchInternal });
-      for (const w of [...r.wallets, ...i.wallets]) if (!never.has(w)) all.add(w);
+      const i = await internalCallers(c, from, to, {
+        startBlock,
+        deadline,
+        fetchPage: opts.fetchInternal,
+      });
+      for (const [w, n] of r.byWallet) {
+        if (never.has(w)) continue;
+        const m = direct.get(w) ?? { txs: 0, coded: 0 };
+        direct.set(w, { txs: m.txs + n.txs, coded: m.coded + n.coded });
+        all.add(w);
+      }
+      for (const [w, hashes] of i.callers) {
+        if (never.has(w)) continue;
+        internal.set(w, [...(internal.get(w) ?? []), ...hashes]);
+        all.add(w);
+      }
       complete &&= r.complete && i.complete;
-      txs += r.txs;
-      coded += r.coded;
     }
     const blockBefore = await blockAt(from);
     for (const w of all) {
       if (deadline !== undefined && Date.now() >= deadline) throw new ScoreDeadline();
+      if (!direct.has(w) && !(await viaEntryPoint(internal.get(w) ?? []))) continue;
       const kind = await beforeDeadline(history(w, blockBefore), deadline);
       if (kind) counted.push({ wallet: w, kind });
     }
   } catch (err) {
+    // An RPC aborted at the deadline throws its own error: past the deadline, any error is it.
     const timedOut =
       err instanceof ScoreDeadline || (deadline !== undefined && Date.now() >= deadline);
     if (!timedOut) throw err;
