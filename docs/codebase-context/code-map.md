@@ -6,6 +6,9 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   src/EarnKitCampaigns.sol     factory: config (timelocked owner), createCampaign, pause
   src/EarnKitCampaign.sol      one clone per campaign: award, refund (snapshots operator/treasury)
   test/mocks/MockERC20.sol     6-decimal mintable token; FeeOnTransferERC20 (rejected by createCampaign)
+  test/mocks/E2EMocks.sol      v2.4 campaign e2e only: MockToken18 (mock MINI), Ping (an app),
+                               MockSmartAccount (execute, fanOut), MockEntryPoint (getNonce +
+                               UserOperationEvent; its code is set at the real v0.7 address)
   test/Base.t.sol              shared setup (factory, tokens, actors, helpers)
   test/EarnKitCampaigns.t.sol, test/EarnKitCampaign.t.sol   factory + clone unit tests
   test/invariant/              Handler.sol + Invariants.t.sol: money only moves by the rules
@@ -15,6 +18,8 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   script/export-abi.sh         writes apps/frontend/lib/earnkit/escrow-abi.ts
   README.md                    how to test, analyze (Slither/Halmos/Aderyn), deploy
 programs/                      program files (+ README: how Claude Code adds programs/starters)
+.github/workflows/earnkit-cron.yml  v2.4: hourly (:15) POST https://earnkit.com/api/cron with the
+                               CRON_SECRET repo secret (also workflow_dispatch)
 apps/frontend/
   app/page.tsx                 home: hero, investors, footer
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (opened from the hero)
@@ -24,7 +29,16 @@ apps/frontend/
                                verified <host>" header, the sponsor wallet's track record, and a
                                plain entry list (links + status, no rank or wallets) until some
                                entry is scored
+                               EarnKit kind (v2.4): standing per entry, the review (top N with
+                               evidence, removed entries and reasons), the payout wallet and its
+                               live balance, the public pause note
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
+  app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
+                               payout, fee refresh)
+  app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason)
+  app/admin/veto/[slug]/page.tsx  v2.4: the owner's review (noindex, ?key= required, rate limited):
+                               live balance, pause note, ranked entries with evidence, a Remove
+                               form per entry
   app/fund/[ref]/{page.tsx,FundClient.tsx}   sponsor deposit page (noindex; sponsor label): shows pool/prize/fee, sends
                                approve + createCampaign from the bound sponsor wallet only (one
                                signature when the wallet supports EIP-5792 atomic batching), checks
@@ -138,25 +152,27 @@ apps/frontend/
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start) in github_repo_facts, 1 h per (repo, pushed_at)
-    installations.ts           save / touch installation by token hash or (v2.4) OAuth client key;
-                               memory (GitHub, working_on, last payout wallet); installation_wallets
+    installations.ts           save / touch installation by token hash or (v2.4) OAuth client key
+                               (client_key); memory (GitHub, working_on, last payout wallet);
+                               rememberWallets, installationWallets (installation_wallets)
     oauth-routes.ts(+limits test) token + authorize handlers (app/oauth/* re-export them)
-    oauth.ts(+.test.ts)        stateless OAuth: register, authorize, code -> token, metadata;
+    oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id),
+                               authorize, code -> token, metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas
-    present.ts(+test)          builder-facing text for list_programs: your repos' fits, then "Also open",
-                               one line per program, who-does-what said once; equally quick fits
-                               ordered by the larger known per-winner award (byFit); sponsor
-                               campaigns (Card.sponsored, verified or not) are never "Fastest", the
-                               closing offer or in a repo's list: one labeled line each in their
-                               own "Sponsored" section last
+    present.ts(+test)          presentFirstMessage (v2.4): alerts, the EarnKit campaigns table, "Your
+                               repos already qualify for", at most 5 others, sponsored last, one
+                               offer (keep going / campaign entry / fastest fit / build something
+                               new); markdown tables, no emojis; sponsor campaigns (Card.sponsored)
+                               are never the offer or in a repo's list
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs + get_program's eligibility check
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
                                repo-cache.ts)
-    http.ts                    CORS + small response helpers
+    http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
+                               (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
@@ -188,14 +204,43 @@ apps/frontend/
                                with live_url/repo_url overrides); runTokenFlow: launches configured,
                                decideToken, one token per repo, gate, LIMITS.tokenLaunch, deploy;
                                TokenFlowDeps (gate, check, deploy, store, limit, available) for tests
-    campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'), minScore/prizeText/wonText,
-                               entry checks (contracts optional for 'sponsor'; isWalletAddress:
-                               mixed-case payout wallets must be EIP-55), normalizeRepoUrl/
-                               sameRepoEntry (repo dedupe), unique_wallets scoring (Base Blockscout +
-                               Base RPC), entryStatus (public status), "Your campaign entries" text
-                               (sponsor entries: state-based, no rank unless scored)
-    leaderboard.ts             data for the leaderboard and entry pages (incl. sponsor state and
-                               award_onchain), yourCampaignEntries (list_programs), entryNames
+    campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
+                               amount_each, priced_at), prizeColumn/wonUsdText, entry checks
+                               (entryFieldProblems: every problem at once; isWalletAddress),
+                               normalizeRepoUrl/sameRepoEntry, scoring v2 (scoreEntry: walletsUsing
+                               + internalCallers on Blockscout, walletHistory, UserOp sender +
+                               EntryPoint getNonce for smart accounts, ENTRY_POINTS;
+                               EARNKIT_BLOCKSCOUT_URL in dev/test only), FINAL_GRACE_MS, REVIEW_MS,
+                               payoutBy, scoreIsFinal/needsScore, entryStatus, "Your campaign
+                               entries" text (sponsor entries)
+    campaign-score.ts(+test)   the scoring loop (scoreCampaignEntries): per-entry isolation
+                               (score_error), oldest attempt first, deadline; storeScore
+                               (entry_wallets, code_share, score_partial)
+    leaderboard.ts(+test)      data for the leaderboard and entry pages (incl. sponsor state and
+                               award_onchain), yourCampaignEntries, entryNames; v2.4:
+                               earnkitCampaignRows, campaignRow, campaignCandidates, reviewRows,
+                               payingCampaign, publicNote; the board's review and funds
+    prices.ts(+test)           DefiLlama price (llamaPrice), for golive
+    campaign-text.ts(+test)    generated EarnKit campaign texts (earnkitTexts), ceilSig, goLive
+    builder-code.ts(+test)     EARNKIT_BUILDER_CODE (default "earnkit"), codesIn (ERC-8021 suffix)
+    entry-proof.ts(+test)      entryMessage ("EarnKit entry: <program> <repo key> <wallet> <contracts>"),
+                               signToEnter, entrySigner (EIP-191)
+    winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
+                               vetoes, refusals), standingText, RunState
+    entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow, TOKEN_FOOTNOTE, siteUrl
+    fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
+                               feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
+    funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
+                               after a failure, 3 s timeout, no retries)
+    alerts.ts(+test)           alertLines (pure, money first), alertFacts, sinceYouLastChecked
+                               (seen ids in alert_state, one transaction, 1.5 s budget),
+                               sinceLine, SCHEDULE_NOTE
+    payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
+                               store, broadcast; stale/manual handling), payCampaign, dbPayoutStore,
+                               termsOf/fromTerms/sameTerms, MANUAL_CHECK, payoutFunds
+    cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
+                               campaign under its lease, then the fee refresh), cronPost
+    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
                                approve/createCampaign/award transactions; chain reads: chainReader
@@ -231,7 +276,11 @@ apps/frontend/
                                token_repo_key + projects_token_repo_key (one token per repo),
                                sponsor_verifications,
                                rate_windows, github_repo_facts, scoring_leases, projects.score_partial and
-                               scored_through)
+                               scored_through; v2.4: programs.opened_at, installations.client_key and
+                               alert columns, installation_wallets, entry_wallets, projects.deployers/
+                               score_error/code_share/score_final/vetoed_at/payout_status/
+                               prize_raw_tx/payout_reverts/payout_stale_at, campaign_runs (with
+                               terms), token_fees)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync
@@ -245,7 +294,17 @@ apps/frontend/
                                 one token per repo (incl. the unique index), the 3-a-day limit, no
                                 deploy key, token.proposed echoed through the MCP server; the mock
                                 also serves earnkit.txt; `pnpm token:e2e`
-    campaign.mts                score|rank|payout (EarnKit's own campaigns) and
+    campaign-e2e.mts            v2.4 lifecycle on a local Postgres + anvil (chain id 8453, 2 s blocks,
+                                reset each run), mock MINI/EntryPoint/Blockscout/raw GitHub, a shifted
+                                clock: first message, signed entry, two cron days through the real
+                                /api/cron route, freeze + review, veto through /api/admin/veto,
+                                payout (short wallet, top-up), winner alert, no double pay;
+                                `pnpm campaign:e2e`
+    payout-fork-check.mts       v2.4 payout on a Base mainnet anvil fork (reset each run) with real
+                                MINI and the real sanctions oracle; historic-state reads (nonce,
+                                code, getNonce at a past block; the public RPC too);
+                                `pnpm campaign:fork-check`
+    campaign.mts                golive|rank|payout (dry run)|veto-link (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
                                 campaigns; local only; sync reads the chain for one ref or sweeps
                                 draft/expired/live; refund --escrow refunds a stray escrow);
@@ -260,21 +319,26 @@ apps/frontend/
 ```
 
 Root commands: `pnpm programs:check` (validate program files), `pnpm test`,
-`pnpm campaign --help`, `pnpm campaign score|rank|payout <slug>` (EarnKit's own campaigns; payout is a dry run without
-`--execute`), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
+`pnpm campaign --help`, `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
+campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
 `refund <ref> --escrow <address>` refunds a stray escrow for that ref), `pnpm campaign sync [<ref>]`
 (reads the chain and updates the database: one campaign, or every draft/expired/live one), `pnpm sponsor:e2e` (full sponsor flow on a local
 anvil + Postgres, see `contracts/README.md` and `sponsor-e2e.mts`'s header for the exact env),
 `pnpm token:e2e` (v2.3 token flows against a local Postgres and a mock tokens.fun; env in
-`token-e2e.mts`'s header).
+`token-e2e.mts`'s header), `pnpm campaign:e2e` and `pnpm campaign:fork-check` (v2.4; env in each
+script's header).
 Railway runs `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
 `GITHUB_TOKEN` (one server-side read-only token for repo matching), `TOKENSFUN_DEPLOY_API_KEY`
 (tokens.fun deploy key for token launches; `TOKENSFUN_API_URL` overrides the host for tests;
 `EARNKIT_TOKENSFUN_TIMEOUT_MS` bounds the deploy call, default 120000),
-`BASE_RPC_URL` (optional; default public Base RPC). `PAYOUT_PRIVATE_KEY` is local only, never on
-Railway.
+`BASE_RPC_URL` (optional; default public Base RPC; must serve historic state for scoring),
+`CRON_SECRET` (32+ characters; also the GitHub Actions secret), `ADMIN_VETO_SECRET` (32+
+characters; also in the owner's shell for veto-link), `CAMPAIGN_PAYOUT_PRIVATE_KEY` (the campaign
+payout wallet: the only key on Railway), `EARNKIT_BUILDER_CODE` (optional, default `earnkit`).
+Test only: `EARNKIT_BLOCKSCOUT_URL` and `EARNKIT_OWNERSHIP_BASE_URL` (honored only when NODE_ENV is
+development or test).
 
 Sponsor escrow (v2.1), also never on Railway's write path — the server only reads the chain:
 `ESCROW_CHAIN` (`base` | `base-sepolia` | `local`), `ESCROW_FACTORY_ADDRESS`, `ESCROW_RPC_URL`

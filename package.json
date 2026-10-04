@@ -27,7 +27,9 @@
     "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
     "campaign": "tsx apps/frontend/scripts/campaign.mts",
     "sponsor:e2e": "tsx apps/frontend/scripts/sponsor-e2e.mts",
-    "token:e2e": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/token-e2e.mts"
+    "token:e2e": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/token-e2e.mts",
+    "campaign:e2e": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/campaign-e2e.mts",
+    "campaign:fork-check": "tsx --tsconfig apps/frontend/tsconfig.json apps/frontend/scripts/payout-fork-check.mts"
   },
   "pnpm": {
     "overrides": {}
