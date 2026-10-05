@@ -283,7 +283,8 @@ apps/frontend/
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
                                liveRatio (live_checks), dbStore (bonus_commits, github_users),
-                               GitHubBudget, CLANKER_ADDRESSES, scorableContracts, eligibleSql,
+                               GitHubBudget, CLANKER_ADDRESSES, scorableContracts, ownContracts,
+                               eligibleSql, review_flags (single_commit_streak),
                                resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
                                scoreOpenRounds, canFreeze/readyToFreeze (+24 h escape, flagged)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),

@@ -498,9 +498,34 @@ test('record_submission (Ruling 13): external contracts verified and stored; unv
     SELECT contracts, deployers, creator_wallet, bonus_repo_key FROM projects WHERE id = ${first.project_id}`;
   assert.deepEqual(row, { contracts: [C1], deployers: [PAY], creator_wallet: PAY, bonus_repo_key: 'github.com/alice/tipjar' });
 
+  // The first entry isn't eligible yet (no coin): it holds neither the repo nor its contract (Ruling 15).
   const second = await submit([C1], { [C1]: PAY });
-  assert.equal(second.recorded, true, 'a later entry of the same repo is still recorded');
-  assert.match((second as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${first.project_id} already holds this repo`));
+  assert.equal(second.recorded, true);
+  assert.doesNotMatch((second as { bonus_note?: string }).bonus_note ?? '', /already holds this repo|already backs/);
+
+  // Once the first is eligible (coin + proof), a later entry of the repo and contract is noted.
+  // A fresh coin address each run (this file's rows stay in the test DB).
+  const coin = '0x' + [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  await sql()`UPDATE projects SET coin_address = ${coin} WHERE id = ${first.project_id}`;
+  const third = await submit([C1], { [C1]: PAY });
+  assert.equal(third.recorded, true, 'a later entry of the same repo is still recorded');
+  const note = (third as { bonus_note?: string }).bonus_note ?? '';
+  assert.match(note, new RegExp(`entry #${first.project_id} already holds this repo`));
+  assert.match(note, new RegExp(`${C1} already backs entry #${first.project_id}`));
+});
+
+test('verifiedBonusContracts (Ruling 15): the signature covers the list as submitted; refused addresses are named', async () => {
+  const pool = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+  const deployed = byTx({ [C1]: signer.address.toLowerCase() });
+  // Signed over [C1, pool], exactly as submitted: valid, so C1 counts; the note names the pool.
+  const sig = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1, pool]) });
+  const r = await verifiedBonusContracts('p', REPO, PAY, [C1, pool], sig, entryDeps(deployed));
+  assert.deepEqual(r.contracts, [C1]);
+  assert.match(r.note ?? '', new RegExp(`${pool}: Clanker or Uniswap contracts never count as yours; leave them out of contracts and sign the list without them`));
+  // A signature over the list without the pool doesn't match what was submitted.
+  const without = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1]) });
+  const w = await verifiedBonusContracts('p', REPO, PAY, [C1, pool], without, entryDeps(deployed));
+  assert.deepEqual(w.contracts, []);
 });
 
 after(async () => {

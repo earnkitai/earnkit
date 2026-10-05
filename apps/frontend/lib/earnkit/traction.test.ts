@@ -12,8 +12,10 @@ import {
   canFreeze,
   rankNormalize,
   rankRound,
+  SINGLE_COMMIT_FLAG,
   readyToFreeze,
   resolveBonusWallet,
+  scoreOpenRounds,
   scoreRound,
   signalsFor,
   type Signals,
@@ -152,6 +154,7 @@ function memStore(): TractionStore & { rows: Map<string, { day: string; login: s
     record: async (r, p, day, cs) => {
       for (const c of cs) if (!rows.has(k(r, p, c.sha))) rows.set(k(r, p, c.sha), { day, login: c.login });
     },
+    singleCommitStreak: async () => 0,
     stats: async (r, p) => {
       const mine = [...rows].filter(([key]) => key.startsWith(`${r}|${p}|`)).map(([, v]) => v);
       return { days: new Set(mine.map((m) => m.day)).size, contributors: new Set(mine.map((m) => m.login).filter(Boolean)).size };
@@ -310,25 +313,25 @@ test('signalsFor: holders and interest are capped; contributors cap at 10; page 
   assert.ok(pages <= 5, `holder pages capped (${pages})`);
 });
 
-test('signalsFor: a dust airdrop counts 0 holders, priced or not', async () => {
+test('signalsFor: a dust airdrop counts 0 holders; a coin without a price has 0 holders (Ruling 15)', async () => {
   const airdrop = Array.from({ length: 300 }, (_, i) => holder('0x' + (i + 1).toString(16).padStart(40, '0'), 10n ** 15n));
-  for (const info of [
-    { exchange_rate: '0.5', decimals: '18', total_supply: String(10n ** 9n * E18) }, // $0.0005 each
-    { exchange_rate: null, decimals: '18', total_supply: String(10n ** 9n * E18) }, // far under 0.001% of supply
-  ]) {
-    const { deps } = fakes({
-      explorer: async (path: string) => (path.includes('/holders') ? { items: airdrop, next_page_params: null } : info),
-    });
-    assert.equal((await signalsFor(E, ROUND, deps)).signals.holders, 0);
-  }
-  // Without a price, 0.001% of the supply counts.
   const { deps } = fakes({
     explorer: async (path: string) =>
-      path.includes('/holders')
-        ? { items: [holder('0x' + '9'.repeat(40), 10n ** 4n * E18), holder('0x' + '8'.repeat(40), 10n ** 4n * E18 - 1n)], next_page_params: null }
-        : { exchange_rate: null, decimals: '18', total_supply: String(10n ** 9n * E18) },
+      path.includes('/holders') ? { items: airdrop, next_page_params: null } : { exchange_rate: '0.5', decimals: '18', total_supply: String(10n ** 9n * E18) },
   });
-  assert.equal((await signalsFor(E, ROUND, deps)).signals.holders, 1);
+  assert.equal((await signalsFor(E, ROUND, deps)).signals.holders, 0, '$0.0005 each');
+  // No price: 0, however large the balances, and the holder list isn't read.
+  const whales = [holder('0x' + '9'.repeat(40), 10n ** 8n * E18), holder('0x' + '8'.repeat(40), 10n ** 7n * E18)];
+  const unpriced = fakes({
+    explorer: async (path: string) =>
+      path.includes('/holders')
+        ? { items: whales, next_page_params: null }
+        : { exchange_rate: null, circulating_market_cap: null, decimals: '18', total_supply: String(10n ** 9n * E18) },
+  });
+  const r = await signalsFor(E, ROUND, unpriced.deps);
+  assert.equal(r.signals.holders, 0);
+  assert.deepEqual(r.failed, []);
+  assert.ok(!unpriced.calls.explorer.some((p) => p.includes('/holders')));
 });
 
 test('signalsFor: a failed source keeps its previous value and is reported; the others still read', async () => {
@@ -419,11 +422,19 @@ async function setup() {
     VALUES (${PID}, 'X', 'T6', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
       ${ROUND.starts}, ${ROUND.ends}, ${sql().json({ host: 'x.example' })})`;
   await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${PID}, ${PID}, ${ROUND.starts}, ${ROUND.ends})`;
-  const add = async (name: string, eligible: boolean, coin: string | null, repo = `https://github.com/acme/${name}`, at = E.submitted_at) => {
+  let n = 0;
+  const add = async (
+    name: string,
+    eligible: boolean,
+    coin: string | null,
+    repo = `https://github.com/acme/${name}`,
+    at = E.submitted_at,
+    contracts = ['0x' + String(++n).padStart(40, '0')],
+  ) => {
     const [r] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, live_url, contracts, coin_address, creator_wallet,
         submission_proof_ok_at, submitted_at, bonus_repo_key)
-      VALUES (${PID}, ${name}, 'https://github.com/acme/app', 'https://app.example', ${[E.contracts![0]]}, ${coin},
+      VALUES (${PID}, ${name}, 'https://github.com/acme/app', 'https://app.example', ${contracts}, ${coin},
         ${E.creator_wallet}, ${eligible ? NOW : null}, ${at}, ${repo.replace('https://', '')})
       RETURNING id`;
     return r.id;
@@ -434,7 +445,11 @@ async function setup() {
   const noCoin = await add('no-coin', true, null);
   // The same repo as a, entered later: recorded, never eligible (Ruling 13b).
   const dup = await add('dup', true, '0x' + 'c4'.repeat(20), 'https://github.com/acme/a', d('2026-10-03T00:00:00Z'));
-  return { a, b, noProof, noCoin, dup };
+  // Ruling 15: earlier INELIGIBLE rows of a repo never block it: a squatter's (b's repo, no coin
+  // or proof) and the builder's own earlier failed attempt (a's repo, proof failed, no coin).
+  const squatter = await add('squatter', false, null, 'https://github.com/acme/b', d('2026-10-01T00:00:00Z'));
+  const attempt = await add('attempt', false, null, 'https://github.com/acme/a', d('2026-10-01T12:00:00Z'));
+  return { a, b, noProof, noCoin, dup, squatter, attempt, add };
 }
 async function cleanup() {
   await sql()`DELETE FROM github_users WHERE login IN ${sql()(Object.keys(ACCOUNTS))}`;
@@ -453,7 +468,11 @@ test('scoreRound: only eligible entries (one per repo); GitHub, explorer and use
     const ids = await setup();
     const { deps, calls } = dbFakes();
     const first = await scoreRound(PID, deps);
-    assert.deepEqual(new Set(first.map((r) => r.id)), new Set([ids.a, ids.b]), 'no coin, no proof or a later duplicate repo: not ranked');
+    assert.deepEqual(
+      new Set(first.map((r) => r.id)),
+      new Set([ids.a, ids.b]),
+      'no coin, no proof or a later duplicate of an eligible repo: not ranked; an earlier squatter or failed attempt blocks nothing',
+    );
     assert.deepEqual(first.map((r) => r.rank), [1, 2]);
     const githubAfterFirst = calls.github.length;
     assert.equal(calls.github.filter((p) => p === '/repos/acme/app').length, 2, 'one GitHub call set per entry');
@@ -606,6 +625,92 @@ test('readyToFreeze: index past the end and every entry final; 24h after the end
   } finally {
     if (saved) await sql()`UPDATE bonus_cursor SET block = ${saved.block}, block_time = ${saved.block_time} WHERE id = 'weth'`;
     else await sql()`DELETE FROM bonus_cursor WHERE id = 'weth'`;
+    await cleanup();
+  }
+});
+
+test('scoreRound (Ruling 15): a contract backs only the earliest eligible entry of the program', db, async () => {
+  await cleanup();
+  try {
+    const ids = await setup();
+    const shared = '0x' + 'f'.repeat(40);
+    const mine = '0x' + 'e1'.repeat(20);
+    // Later than a and b, claiming a's contract too; an ineligible earlier row claiming it holds nothing.
+    await ids.add('early-ineligible', false, null, 'https://github.com/acme/x', d('2026-09-30T00:00:00Z'), [shared]);
+    const first = await ids.add('first', true, '0x' + 'c5'.repeat(20), 'https://github.com/acme/first', d('2026-10-02T06:00:00Z'), [shared]);
+    const later = await ids.add('later', true, '0x' + 'c6'.repeat(20), 'https://github.com/acme/later', d('2026-10-04T00:00:00Z'), [shared, mine]);
+    const { deps, calls } = dbFakes();
+    const seen = new Map<string, string[]>();
+    await scoreRound(PID, {
+      ...deps,
+      users: async (contracts) => {
+        seen.set(contracts.join(','), contracts);
+        calls.users++;
+        return { score: contracts.length, timedOut: false };
+      },
+    });
+    assert.ok(seen.has(shared), 'the earliest eligible entry keeps it');
+    assert.ok(seen.has(mine), 'the later one keeps only its own');
+    assert.ok(![...seen.keys()].some((k) => k.includes(shared) && k.includes(mine)));
+    const users = async (id: number) =>
+      (await sql()<{ u: number }[]>`SELECT (signals->>'users')::int AS u FROM bonus_scores WHERE project_id = ${id}`)[0].u;
+    assert.equal(await users(first), 1);
+    assert.equal(await users(later), 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('scoreOpenRounds: one entry allowance for the whole run, across rounds', db, async () => {
+  await cleanup();
+  const P2 = `${PID}-2`;
+  try {
+    await setup();
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, starts_at, ends_at, submission_proof)
+      VALUES (${P2}, 'X', 'T6b', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+        ${ROUND.starts}, ${ROUND.ends}, ${sql().json({ host: 'x.example' })})`;
+    await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${P2}, ${P2}, ${ROUND.starts}, ${ROUND.ends})`;
+    await sql()`INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, submission_proof_ok_at, submitted_at)
+      VALUES (${P2}, 'z', 'https://github.com/acme/app', ${['0x' + '7'.repeat(40)]}, ${'0x' + 'c9'.repeat(20)}, ${NOW}, ${E.submitted_at})`;
+    const { deps, calls } = dbFakes({ maxEntries: 2 });
+    const only = [PID, P2];
+    const out = await scoreOpenRounds({ ...deps, only });
+    assert.equal(calls.users, 2, 'two reads in all, not two per round');
+    assert.equal(out.length, 2);
+    await scoreOpenRounds({ ...deps, only, now: new Date(NOW.getTime() + 3_600_000) });
+    assert.equal(calls.users, 3, 'the next run reads the one left');
+  } finally {
+    await sql()`DELETE FROM bonus_scores WHERE round_key = ${P2}`;
+    await sql()`DELETE FROM bonus_commits WHERE round_key = ${P2}`;
+    await sql()`DELETE FROM projects WHERE program_id = ${P2}`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id = ${P2}`;
+    await sql()`DELETE FROM programs WHERE id = ${P2}`;
+    await cleanup();
+  }
+});
+
+test('scoreRound: 7+ days in a row with exactly one new commit each is flagged for the review (never scored)', db, async () => {
+  await cleanup();
+  try {
+    const ids = await setup();
+    const seed = async (id: number, days: string[]) => {
+      for (const [i, day] of days.entries())
+        await sql()`INSERT INTO bonus_commits (round_key, project_id, sha, day, login) VALUES (${PID}, ${id}, ${`seed${id}-${i}`}, ${day}, null)`;
+    };
+    const week = (from: number, n: number) => Array.from({ length: n }, (_, i) => `2026-10-${String(from + i).padStart(2, '0')}`);
+    await seed(ids.a, week(1, 7)); // Oct 1-7, one a day
+    await seed(ids.b, [...week(1, 6), '2026-10-08']); // a gap on Oct 7: 6 in a row
+    const { deps } = dbFakes();
+    const ranked = await scoreRound(PID, deps);
+    const flags = async (id: number) =>
+      (await sql()<{ f: string[] }[]>`SELECT review_flags AS f FROM bonus_scores WHERE project_id = ${id}`)[0].f;
+    assert.deepEqual(await flags(ids.a), [SINGLE_COMMIT_FLAG]);
+    assert.deepEqual(await flags(ids.b), []);
+    // Shown, not scored: a's flag changes nothing in its signals.
+    assert.equal(ranked.length, 2);
+  } finally {
     await cleanup();
   }
 });

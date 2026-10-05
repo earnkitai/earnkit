@@ -737,15 +737,19 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `proofProblem` throw (`URL.canParse` guards it); `program-file.ts`'s `submission_proof.path_pattern`
   must be anchored (`^...$`) so it can only match one specific entry path.
 - **Traction score (Task 6, spec §3, Rulings 12-13; `traction.ts`).** Eligible = `eligibleSql`:
-  coin launched, submission proof ok, and the earliest entry of its normalized repo in the program
-  (`projects.bonus_repo_key`; a later duplicate is recorded with a note, never eligible).
+  coin launched, submission proof ok, and no earlier ELIGIBLE entry of its normalized repo in the
+  program (`projects.bonus_repo_key`; Ruling 15: an ineligible earlier row, a squatter's or the
+  builder's own failed attempt, never blocks; a later duplicate of an eligible one is recorded
+  with a note, never eligible). A contract backs only the earliest eligible entry of the program
+  (`ownContracts`; later entries drop it, noted at entry and logged when scoring).
   `signalsFor(entry, round, deps)` reads seven signals over the round window (start to now, or to
   `ends_at` once ended) in four groups, each failing alone (kept value, retried next run):
   - *users*: v2.4 `scoreEntry` over the entry's verified contracts (`scorableContracts` drops the
     coin and `CLANKER_ADDRESSES`); never the Safe, bonus wallet, payout, creator or deployer
     wallets. External entries get contracts via record_submission's optional `contracts` +
     `payout_wallet` (`projects.ts verifiedBonusContracts`: v2.4 `checkOwnership` per contract,
-    deployed by the wallet or a signer of the entry message; unverified dropped with a note).
+    deployed by the wallet or a signer of the entry message, signed over the contract list as
+    submitted; unverified or refused addresses dropped and named in a note).
   - *live*: one `safeProbe` per entry per UTC day into `live_checks`; a failed day is re-probed on
     later runs (`ok = ok OR new`); ratio = ok days / max(7, days since the entry joined).
   - *github* (the authenticated `gh`; 404/409/451 = no activity): each read records commit SHAs
@@ -754,14 +758,15 @@ during the build); plan: `v2.4-money-first-plan.md`.
     old at that read, cap 10; interest = distinct accounts (star or fork) in the window, 30+ days
     old, not the repo owner or the builder's `github_user`, cap 50. Account ages persist in
     `github_users`. A `GitHubBudget` per run stops GitHub reads when x-ratelimit-remaining < 1000.
-  - *coin*: Blockscout holders worth ≥ $1 at `exchange_rate` (no price: ≥ 0.001% of supply),
+  - *coin*: Blockscout holders worth ≥ $1 at `exchange_rate` (no price: 0, list not read),
     excluding the builder's, EarnKit's and Clanker/Uniswap addresses, cap 200; market cap.
   `rankRound` rank-normalizes each signal (rank/n, ties average, 0 stays 0) and scores
   40·users + 20·live + 20·(3·commit days + 1·contributors)/4 + 10·interest + 10·holders; exact ties
   break by market cap, then the earlier entry. Trading volume is never an input. `scoreRound`
   caches each day's signals in `bonus_scores` (one read set per entry per UTC day, at most
-  `ENTRIES_PER_RUN` entries per run, oldest read first; after the end one final read with
-  `through = ends_at`). `scoreOpenRounds` scores every open round with one budget and one bonus
+  `ENTRIES_PER_RUN` entry reads per run across all rounds, oldest read first; after the end one
+  final read with `through = ends_at`). `bonus_scores.review_flags` carries patterns for the review
+  page, never scored: `single_commit_streak` = 7+ days in a row with exactly one new commit each. `scoreOpenRounds` scores every open round with one budget and one bonus
   wallet lookup (`resolveBonusWallet`: EARNKIT_BONUS_WALLET, else the payout key). `readyToFreeze`
   = index past `ends_at` (`canFreeze`) and every entry final and clean; 24 h after the end an
   entry whose final read still has failed sources stops holding the freeze and is returned in
