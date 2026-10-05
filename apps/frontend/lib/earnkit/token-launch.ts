@@ -197,7 +197,7 @@ export async function tokenProposalBlock(
     check?: TickerCheck;
     available?: () => boolean;
     /** The program a normalized repo's coin is entered in (default tokens.ts repoCoinPrograms). */
-    repoCoin?: (repoKey: string) => Promise<string | null>;
+    repoCoin?: (repoKey: string) => Promise<{ program_id: string; title: string } | null>;
   } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
@@ -217,13 +217,15 @@ export async function tokenProposalBlock(
   const hasBonus = hasBuilderBonus(program);
   // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
   // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
-  const coinIn =
+  const coin =
     hasBonus && a.repoUrl
       ? await (deps.repoCoin ?? defaultRepoCoin)(normalizeRepoUrl(a.repoUrl)).catch((err: unknown) => {
           console.error('[token] repo coin lookup', err);
           return null;
         })
       : null;
+  // A coin entered in this same program is this repo's own (Ruling 13b covers a second entry).
+  const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
   if (coinIn)
     notes.push(`This repo already has its coin, entered in ${coinIn}: don't pass token; this entry gets no new coin and no builder bonus`);
   else notes.push(ownershipLine(a.creatorWallet, tokenLine));
@@ -252,7 +254,7 @@ export async function tokenProposalBlock(
 }
 
 /** The program a normalized repo's coin is entered in, from the database. */
-const defaultRepoCoin = async (repoKey: string) => (await repoCoinPrograms([repoKey])).get(repoKey)?.title ?? null;
+const defaultRepoCoin = async (repoKey: string) => (await repoCoinPrograms([repoKey])).get(repoKey) ?? null;
 
 /** What the flow reads about a project and its program. */
 export type FlowProject = {
@@ -269,6 +271,8 @@ export type FlowProject = {
   token_symbol: string | null;
   installation_id: number | null;
   token_policy: TokenPolicy;
+  /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
+  has_bonus?: boolean;
 };
 
 /** The flow's reads and writes, injectable so tests need no database. */
@@ -303,7 +307,8 @@ const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
-        p.token_symbol, p.installation_id, pr.token_policy
+        p.token_symbol, p.installation_id, pr.token_policy,
+        (pr.status = 'active' AND pr.submission_proof IS NOT NULL) AS has_bonus
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.id = ${projectId}`;
     return row ?? null;
@@ -317,10 +322,16 @@ const dbStore: FlowStore = {
     // Campaign entries (payout_wallet set) keep live_key, the normalized live link, in step.
     // A recorded repo never changes (v2.5 Ruling 16): only a missing one is filled in, and an
     // external entry's bonus_repo_key with it.
+    // N1 (Ruling 22): a proof that passed without a repo (on the live site) is re-checked once a
+    // repo is filled in, so it must then link the repo: cleared here, the daily re-check reads it.
     await sql()`
       UPDATE projects SET repo_url = COALESCE(repo_url, ${repo}),
         bonus_repo_key = CASE WHEN repo_url IS NULL AND payout_wallet IS NULL AND ${repo}::text IS NOT NULL
           THEN ${repo && normalizeRepoUrl(repo)} ELSE bonus_repo_key END,
+        submission_proof_ok_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL
+          THEN NULL ELSE submission_proof_ok_at END,
+        submission_proof_checked_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL
+          THEN NULL ELSE submission_proof_checked_at END,
         live_url = COALESCE(${live}, live_url),
         live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL
           THEN ${live && normalizeLiveUrl(live)} ELSE live_key END
@@ -606,5 +617,11 @@ export async function launchToken(
     await store.updateLinks(project.id, installationId, links);
     Object.assign(project, links);
   }
-  return runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
+  const out = await runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
+  // The builder bonus counts Base coins only (Ruling 24): a coin on another chain never implies it.
+  if (chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
+  return out;
 }
+
+/** launch_token's note for a coin on another chain, on a program with a builder bonus (Ruling 24). */
+export const NON_BASE_NO_BONUS = 'No builder bonus for this coin: the builder bonus counts Base coins only.';

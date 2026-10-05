@@ -83,7 +83,7 @@ export async function proofProblem(
   const liveNeedle = liveUrl && URL.canParse(liveUrl) ? bareHost(new URL(liveUrl).hostname) : null;
   if (!liveNeedle || sharedHost(liveNeedle, proof.host))
     return `a live link on ${liveNeedle ?? 'that host'} can't prove this entry (every submission page can link it); add the project's repo_url, or use a live site on its own domain.`;
-  if (!lower.includes(liveNeedle))
+  if (!hostLinked(lower, liveNeedle))
     return `the page at ${url} doesn't link to your live site yet; add the link there, and EarnKit checks again daily.`;
   return null;
 }
@@ -106,6 +106,16 @@ export function sharedHost(host: string, proofHost: string) {
   const h = bareHost(host);
   const under = (site: string) => h === site || h.endsWith(`.${site}`);
   return under(bareHost(proofHost)) || SHARED_SITES.some(under) || SHARED_APEXES.includes(h);
+}
+
+/**
+ * Whether `host` appears in `text` as a whole host (N1): not inside a longer host on either side
+ * (so dex.vercel.app never matches super-dex.vercel.app or dex.vercel.app.evil.io), with an
+ * optional www. before it. Text and host lowercase. Pure.
+ */
+export function hostLinked(text: string, host: string) {
+  const h = host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![a-z0-9.-])(?:www\\.)?${h}(?!\\.?[a-z0-9-])`).test(text);
 }
 
 /** An entry whose submission proof hasn't passed yet, with what proofProblem needs to re-check it. */

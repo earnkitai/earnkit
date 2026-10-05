@@ -7,6 +7,7 @@ import {
   RECHECK_BATCH,
   proofProblem,
   recheckSubmissionProofs,
+  hostLinked,
   sharedHost,
 } from './submission-proof';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
@@ -318,3 +319,49 @@ test('M11: the re-check reads at most RECHECK_BATCH entries a run, only of round
   }
 });
 
+
+test('residual N1: a live host matches on host boundaries only, never inside a longer host', () => {
+  assert.equal(hostLinked('see https://dex.vercel.app/app', 'dex.vercel.app'), true);
+  assert.equal(hostLinked('live at www.dex.vercel.app.', 'dex.vercel.app'), true);
+  assert.equal(hostLinked('<a href="https://dex.vercel.app">', 'dex.vercel.app'), true);
+  assert.equal(hostLinked('https://super-dex.vercel.app', 'dex.vercel.app'), false);
+  assert.equal(hostLinked('https://superdex.vercel.app', 'dex.vercel.app'), false);
+  assert.equal(hostLinked('https://dex.vercel.app.evil.io', 'dex.vercel.app'), false);
+  assert.equal(hostLinked('https://myapp.xyz', 'app.xyz'), false);
+});
+
+test('residual N1: another team\'s page linking a longer host never proves a repo-less entry', async () => {
+  const problem = await proofProblem(program, URL_OK, undefined, 'https://dex.vercel.app', {
+    fetchText: async () => '<a href="https://super-dex.vercel.app">Live</a>',
+  });
+  assert.match(problem!, /doesn't link to your live site yet/);
+});
+
+test('residual N1: an entry proven by its live site, then given a repo, is not eligible until its repo is on the page', dbTest, async () => {
+  const { launchToken, LaunchTokenInput } = await import('./token-launch');
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`fw-n1-${process.pid}-${Date.now()}`, { starts_at: '2026-09-01T00:00:00Z', ends_at: '2026-12-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, live_url, installation_id, submission_proof_url, submission_proof_ok_at, submission_proof_checked_at)
+      VALUES (${program.id}, 'Dex', 'https://dex.example', ${installationId}, 'https://dorahacks.io/buidl/4242', ${now}, ${now})
+      RETURNING id`;
+    // launch_token fills the missing repo (tokens unavailable here: no launch, the links still apply).
+    await launchToken(LaunchTokenInput.parse({ project_id: id, builder_confirmed: true, repo_url: 'https://github.com/mallory/dex' }), installationId, { available: () => false });
+    const after = await proofRow(id);
+    assert.equal(after.submission_proof_ok_at, null, 'the live-site proof no longer stands');
+    assert.equal(after.submission_proof_checked_at, null, 're-checked on the next run');
+    // The page links only the live site: still not eligible. Once it links the repo: eligible.
+    const later = new Date(now.getTime() + 3_600_000);
+    await recheckSubmissionProofs(later, Date.now() + 60_000, { fetchText: async (u) => (u.endsWith('/4242') ? 'Live: https://dex.example' : '') });
+    assert.equal((await proofRow(id)).submission_proof_ok_at, null);
+    await sql()`UPDATE projects SET submission_proof_checked_at = NULL WHERE id = ${id}`;
+    await recheckSubmissionProofs(later, Date.now() + 60_000, { fetchText: async () => 'Repo: https://github.com/mallory/dex' });
+    assert.ok((await proofRow(id)).submission_proof_ok_at);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});

@@ -694,7 +694,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
   cell reads "not available".
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`
-  (Ruling 7). Skipped without a usable key (missing, or malformed: `skipped` plus
+  (Ruling 7; an error about it names the key's length and shape only, never its value). Skipped without a usable key (missing, or malformed: `skipped` plus
   `problem: 'malformed'`, the key never logged) or off Base mainnet; the cron then answers 503
   whenever the bonus can earn (Rulings 19, 20; see the runbook).
   1. *Index.* `getLogs` of FeeLocker `StoreTokens` with `feeOwner` = bonus wallet and `token` =
@@ -823,7 +823,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
   normalized repo link (Ruling 22: required whenever the entry has a repo). Only a repo-less entry
   may match on its live host, and never a shared one (`sharedHost`: the proof host or its
   subdomains, submission platforms, code hosts and social sites, and the bare apex of hosting
-  platforms such as vercel.app; a project's own subdomain is fine). A failure never fails the submission: the entry is recorded
+  platforms such as vercel.app; a project's own subdomain is fine). The live host matches on host
+  boundaries only (`hostLinked`: never inside a longer host such as super-dex.vercel.app). When
+  `launch_token` fills a missing repo (`updateLinks`), the entry's proof is cleared
+  (`submission_proof_ok_at`, `submission_proof_checked_at`) and the daily re-check must then find
+  the repo (N1). A failure never fails the submission: the entry is recorded
   either way, `projects.submission_proof_url` keeps the link, `submission_proof_ok_at` is set only
   on success, and a `bonus_note` tells the agent what to fix. `bonusEligible` (`projects.ts`) is
   never stored, only derived: `coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL`
@@ -892,7 +896,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `token_repo_key`) gets the row "no builder bonus: this repo's coin is entered in <program>" (no
   fee footnote; prepare_submission's `token.repo_coin_program`), record_submission's `bonus_note`
   says the same, and list_programs shows that text in the Builder bonus cell of another program's
-  row for that repo. **Alerts (`alerts.ts`):** builder bonus wins
+  row for that repo (never when the coin is entered in the same program). launch_token on another
+  chain, on a program with a builder bonus, adds `NON_BASE_NO_BONUS` to its note (the bonus counts
+  Base coins only). **Alerts (`alerts.ts`):** builder bonus wins
   (`you won 0.12 ETH builder bonus (<program>)`) join EarnKit prizes and sponsor wins in the
   wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`,
   by `bonus_payouts.id` (M2): a second round's win of the same entry is news too);
