@@ -736,9 +736,10 @@ during the build); plan: `v2.4-money-first-plan.md`.
   eligible through this path again. A malformed `liveUrl` (bad stored data) never makes
   `proofProblem` throw (`URL.canParse` guards it); `program-file.ts`'s `submission_proof.path_pattern`
   must be anchored (`^...$`) so it can only match one specific entry path.
-- **Traction score (Task 6, spec §3, Rulings 12-13; `traction.ts`).** Eligible = `eligibleSql`:
-  coin launched, submission proof ok, and no earlier ELIGIBLE entry of its normalized repo in the
-  program (`projects.bonus_repo_key`; Ruling 15: an ineligible earlier row, a squatter's or the
+- **Traction score (Task 6, spec §3, Rulings 12-16; `traction.ts`).** Eligible in a round =
+  `eligibleSql(ends_at)`: coin launched (`projects.coin_launched_at`, set by tokens.ts) and
+  submission proof ok, both before the round's end (Ruling 16: frozen at the end), and no earlier
+  entry of its normalized repo in the program that is eligible by the same rule (`projects.bonus_repo_key`; Ruling 15: an ineligible earlier row, a squatter's or the
   builder's own failed attempt, never blocks; a later duplicate of an eligible one is recorded
   with a note, never eligible). A contract backs only the earliest eligible entry of the program
   (`ownContracts`; later entries drop it, noted at entry and logged when scoring).
@@ -748,8 +749,12 @@ during the build); plan: `v2.4-money-first-plan.md`.
     coin and `CLANKER_ADDRESSES`); never the Safe, bonus wallet, payout, creator or deployer
     wallets. External entries get contracts via record_submission's optional `contracts` +
     `payout_wallet` (`projects.ts verifiedBonusContracts`: v2.4 `checkOwnership` per contract,
-    deployed by the wallet or a signer of the entry message, signed over the contract list as
-    submitted; unverified or refused addresses dropped and named in a note).
+    signed over the contract list as submitted, and (Ruling 16) a contract counts only when that
+    `deployer_signature` recovers to its deployer: naming a public wallet in earnkit.txt is never
+    enough; unverified or refused addresses dropped and named in a note with the exact message).
+    An entry's recorded `repo_url` never changes (`launch_token` and `updateLinks` refuse: "record
+    a new entry for a different repo"; only a missing repo may be filled in, with its
+    `bonus_repo_key`), so a repo key can't be squatted and then swapped.
   - *live*: one `safeProbe` per entry per UTC day into `live_checks`; a failed day is re-probed on
     later runs (`ok = ok OR new`); ratio = ok days / max(7, days since the entry joined).
   - *github* (the authenticated `gh`; 404/409/451 = no activity): each read records commit SHAs
@@ -770,7 +775,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
   wallet lookup (`resolveBonusWallet`: EARNKIT_BONUS_WALLET, else the payout key). `readyToFreeze`
   = index past `ends_at` (`canFreeze`) and every entry final and clean; 24 h after the end an
   entry whose final read still has failed sources stops holding the freeze and is returned in
-  `flagged` (review page, needs_owner). The cron wiring, freeze, review and payout are Task 7's.
+  `flagged` (review page, needs_owner). `finalRanking(roundKey)` is the payout's ranking: eligible
+  entries only, re-ranked from their final reads (a stored rank is never read as a winner). The
+  cron wiring, freeze, review and payout are Task 7's.
 
 ## Abuse limits and response headers (v2.2 §5)
 

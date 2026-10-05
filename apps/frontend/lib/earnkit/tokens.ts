@@ -417,7 +417,9 @@ export async function deployToken(
       ? outcome.token_address.toLowerCase()
       : null;
     if (coin)
-      await sql()`UPDATE projects SET coin_address = ${coin} WHERE id = ${a.projectId}`.catch((err: unknown) =>
+      // coin_launched_at: an entry counts in a round only if launched before its end (Ruling 16).
+      await sql()`UPDATE projects SET coin_address = ${coin}, coin_launched_at = COALESCE(coin_launched_at, now())
+        WHERE id = ${a.projectId}`.catch((err: unknown) =>
         console.error(`[launch] project ${a.projectId}: coin ${coin} not recorded for the builder bonus`, err),
       );
   } else {

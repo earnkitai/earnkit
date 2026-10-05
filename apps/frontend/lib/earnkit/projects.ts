@@ -303,18 +303,29 @@ export async function campaignEntryProblems(
 export function bonusEligible(project: {
   coin_address: string | null;
   submission_proof_ok_at: Date | string | null;
-  /** Ruling 13b: an earlier entry of the same normalized repo exists in this program. */
+  /** Ruling 13b: an earlier eligible entry of the same normalized repo exists in this program. */
   earlier_same_repo?: boolean;
+  /** Ruling 16, for a round: when the coin launched, and the round's end (both must precede it). */
+  coin_launched_at?: Date | null;
+  ends_at?: Date;
 }): boolean {
-  return project.coin_address !== null && project.submission_proof_ok_at !== null && !project.earlier_same_repo;
+  if (project.coin_address === null || project.submission_proof_ok_at === null || project.earlier_same_repo) return false;
+  if (!project.ends_at) return true;
+  const end = project.ends_at.getTime();
+  return (
+    !!project.coin_launched_at && project.coin_launched_at.getTime() < end &&
+    new Date(project.submission_proof_ok_at).getTime() < end
+  );
 }
 
 /**
- * Ruling 13a: an external entry's contracts that verify like a v2.4 entry (checkOwnership: the
- * repo's earnkit.txt names `wallet`, and each contract was deployed by `wallet` or by the wallet
- * that signed the entry message). Each contract is checked on its own, so one bad contract drops
- * only itself; Clanker/Uniswap contracts are never accepted. Never throws: returns the verified
- * contracts, their deployers and a note on what was dropped (null when nothing was).
+ * Ruling 13a/16: an external entry's contracts that verify like a v2.4 entry AND are proven
+ * controlled by the submitter: `deployer_signature` (over the v2.4 entry message for the list as
+ * submitted) must recover to each contract's deployer, whether that is `wallet` or the agent's
+ * wallet; naming a public wallet in earnkit.txt is never enough. checkOwnership still requires the
+ * repo's earnkit.txt to name `wallet`. Each contract is checked on its own, so one bad contract
+ * drops only itself; Clanker/Uniswap contracts are never accepted. Never throws: returns the
+ * verified contracts, their deployers and a note on what was dropped and what to sign.
  */
 export async function verifiedBonusContracts(
   programId: string,
@@ -340,9 +351,17 @@ export async function verifiedBonusContracts(
   if (!repoUrl) return none('they need the project\'s public GitHub repo_url.');
   if (!wallet || !isWalletAddress(wallet)) return none('pass payout_wallet, the builder\'s Base wallet that deployed them (or signed for them).');
   const w = wallet.toLowerCase();
+  const toSign = `sign exactly "${entryMessage(programId, normalizeRepoUrl(repoUrl), w, candidates)}" with the wallet that deployed them and pass it as deployer_signature.`;
+  // Ruling 16: a contract counts only with its deployer's signature.
+  if (!signature) return { contracts: [], deployers: [], note: `Contracts not counted for the builder bonus: ${[...notes, `To count them, ${toSign}`].join(' ')}` };
   // The signature covers the contract list exactly as the agent submitted it (Ruling 15).
-  const signer = signature ? await entrySigner(programId, repoUrl, w, asked, signature) : null;
-  if (signature && !signer) notes.push('deployer_signature is not a valid signature (0x + 130 hex characters).');
+  const signer = await entrySigner(programId, repoUrl, w, asked, signature);
+  if (!signer)
+    return {
+      contracts: [],
+      deployers: [],
+      note: `Contracts not counted for the builder bonus: ${[...notes, `deployer_signature is not a valid signature; ${toSign}`].join(' ')}`,
+    };
   const contracts: string[] = [];
   const deployers = new Set<string>();
   for (const c of candidates) {
@@ -351,8 +370,13 @@ export async function verifiedBonusContracts(
         { repoUrl, payoutWallet: w, contracts: [c], signer },
         { deployer: deps.deployer, repoFacts: deps.repoFacts, fetchFile: deps.fetchFile },
       );
+      const d = proof.deployers[c];
+      if (d !== signer) {
+        notes.push(`Contract ${c} was deployed by ${d ?? 'an unknown wallet'}, not by the wallet that signed deployer_signature (${signer}).`);
+        continue;
+      }
       contracts.push(c);
-      for (const d of Object.values(proof.deployers)) if (d) deployers.add(d);
+      deployers.add(d);
     } catch (err) {
       if (!(err instanceof EntryError)) {
         console.error('[bonus contracts] check failed:', err);
@@ -360,10 +384,7 @@ export async function verifiedBonusContracts(
       } else notes.push(...err.problems.map((p) => p.replace(/^contracts: /, '')));
     }
   }
-  if (contracts.length < candidates.length && signer === null && !signature)
-    notes.push(
-      `A contract deployed by another wallet counts with that wallet's signature of "${entryMessage(programId, normalizeRepoUrl(repoUrl), w, candidates)}" as deployer_signature.`,
-    );
+  if (contracts.length < candidates.length) notes.push(`Each contract counts with its deployer's signature: ${toSign}`);
   return {
     contracts,
     deployers: [...deployers],

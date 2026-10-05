@@ -286,7 +286,8 @@ apps/frontend/
                                GitHubBudget, CLANKER_ADDRESSES, scorableContracts, ownContracts,
                                eligibleSql, review_flags (single_commit_streak),
                                resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
-                               scoreOpenRounds, canFreeze/readyToFreeze (+24 h escape, flagged)
+                               scoreOpenRounds, canFreeze/readyToFreeze (+24 h escape, flagged),
+                               finalRanking (eligible at the round end, re-ranked; for the payout)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
