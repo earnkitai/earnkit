@@ -3,6 +3,7 @@ import { sql } from './db';
 import {
   EntryError,
   entryFieldProblems,
+  isWalletAddress,
   normalizeLiveUrl,
   normalizeRepoUrl,
   sameRepoEntry,
@@ -26,6 +27,7 @@ import {
 } from './sanctions';
 import { proofProblem } from './submission-proof';
 import { ProjectInfo, prepareSubmission } from './submission';
+import { CLANKER_ADDRESSES } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
   RAW_CAP,
@@ -56,6 +58,15 @@ export const RecordSubmissionInput = z
      * (prepare_submission's sign_to_enter).
      */
     deployer_signature: z.string().optional(),
+    /**
+     * v2.5 Ruling 13a, external (non-campaign) programs only: up to 5 Base contracts of the project,
+     * scored for the builder bonus's onchain users once verified like a v2.4 entry (deployed by
+     * `payout_wallet`, or by the wallet that signed the entry message in `deployer_signature`;
+     * earnkit.txt in the repo naming `payout_wallet`). Unverified ones are dropped with a note.
+     */
+    contracts: z.array(z.string()).max(5).optional(),
+    /** External programs: the builder's Base wallet (kept as the entry's creator wallet). */
+    payout_wallet: z.string().optional(),
   })
   .strict();
 
@@ -292,8 +303,67 @@ export async function campaignEntryProblems(
 export function bonusEligible(project: {
   coin_address: string | null;
   submission_proof_ok_at: Date | string | null;
+  /** Ruling 13b: an earlier entry of the same normalized repo exists in this program. */
+  earlier_same_repo?: boolean;
 }): boolean {
-  return project.coin_address !== null && project.submission_proof_ok_at !== null;
+  return project.coin_address !== null && project.submission_proof_ok_at !== null && !project.earlier_same_repo;
+}
+
+/**
+ * Ruling 13a: an external entry's contracts that verify like a v2.4 entry (checkOwnership: the
+ * repo's earnkit.txt names `wallet`, and each contract was deployed by `wallet` or by the wallet
+ * that signed the entry message). Each contract is checked on its own, so one bad contract drops
+ * only itself; Clanker/Uniswap contracts are never accepted. Never throws: returns the verified
+ * contracts, their deployers and a note on what was dropped (null when nothing was).
+ */
+export async function verifiedBonusContracts(
+  programId: string,
+  repoUrl: string | undefined,
+  wallet: string | undefined,
+  given: string[],
+  signature: string | undefined,
+  deps: EntryDeps = {},
+): Promise<{ contracts: string[]; deployers: string[]; note: string | null }> {
+  const none = (note: string) => ({ contracts: [], deployers: [], note: `Contracts not counted for the builder bonus: ${note}` });
+  const asked = [...new Set(given.map((c) => c.trim().toLowerCase()))];
+  const bad = asked.filter((c) => !/^0x[0-9a-f]{40}$/.test(c));
+  if (bad.length) return none(`${bad.join(', ')} ${bad.length === 1 ? "isn't a" : "aren't"} Base contract address${bad.length === 1 ? '' : 'es'}.`);
+  const never = asked.filter((c) => CLANKER_ADDRESSES.includes(c));
+  const candidates = asked.filter((c) => !never.includes(c));
+  const notes: string[] = [];
+  if (never.length) notes.push(`${never.join(', ')}: Clanker or Uniswap contracts never count as yours.`);
+  if (!candidates.length) return { contracts: [], deployers: [], note: notes.length ? `Contracts not counted for the builder bonus: ${notes.join(' ')}` : null };
+  if (!repoUrl) return none('they need the project\'s public GitHub repo_url.');
+  if (!wallet || !isWalletAddress(wallet)) return none('pass payout_wallet, the builder\'s Base wallet that deployed them (or signed for them).');
+  const w = wallet.toLowerCase();
+  const signer = signature ? await entrySigner(programId, repoUrl, w, candidates, signature) : null;
+  if (signature && !signer) notes.push('deployer_signature is not a valid signature (0x + 130 hex characters).');
+  const contracts: string[] = [];
+  const deployers = new Set<string>();
+  for (const c of candidates) {
+    try {
+      const proof = await checkOwnership(
+        { repoUrl, payoutWallet: w, contracts: [c], signer },
+        { deployer: deps.deployer, repoFacts: deps.repoFacts, fetchFile: deps.fetchFile },
+      );
+      contracts.push(c);
+      for (const d of Object.values(proof.deployers)) if (d) deployers.add(d);
+    } catch (err) {
+      if (!(err instanceof EntryError)) {
+        console.error('[bonus contracts] check failed:', err);
+        notes.push(`${c}: EarnKit couldn't check it right now.`);
+      } else notes.push(...err.problems.map((p) => p.replace(/^contracts: /, '')));
+    }
+  }
+  if (contracts.length < candidates.length && signer === null && !signature)
+    notes.push(
+      `A contract deployed by another wallet counts with that wallet's signature of "${entryMessage(programId, normalizeRepoUrl(repoUrl), w, candidates)}" as deployer_signature.`,
+    );
+  return {
+    contracts,
+    deployers: [...deployers],
+    note: notes.length ? `Contracts not counted for the builder bonus: ${[...new Set(notes)].join(' ')}` : null,
+  };
 }
 
 /** Stores a project after it was actually submitted to the external program. */
@@ -372,6 +442,25 @@ export async function recordSubmission(
     }
   }
 
+  // Ruling 13a: an external entry's own contracts, verified, for the builder bonus's users signal.
+  let bonusContracts: string[] | null = null;
+  let bonusDeployers: string[] | null = null;
+  let bonusWallet: string | null = null;
+  const notes: string[] = bonusNote ? [bonusNote] : [];
+  if (!program.campaign && program.submission_proof) {
+    if (input.payout_wallet && isWalletAddress(input.payout_wallet)) bonusWallet = input.payout_wallet.toLowerCase();
+    if (input.contracts?.length) {
+      const v = await verifiedBonusContracts(program.id, repo_url, input.payout_wallet, input.contracts, input.deployer_signature, deps);
+      if (v.contracts.length) {
+        bonusContracts = v.contracts;
+        bonusDeployers = v.deployers;
+      }
+      if (v.note) notes.push(v.note);
+    }
+  }
+  // Ruling 13b: one bonus-eligible entry per normalized repo per program, the earliest.
+  const bonusRepoKey = (!program.campaign && repo_url && normalizeRepoUrl(repo_url)) || null;
+
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
   const repoKey = (entry && repo_url && normalizeRepoUrl(repo_url)) || null;
@@ -420,6 +509,15 @@ export async function recordSubmission(
       }
       // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
       await deps.charge?.();
+      if (bonusRepoKey && program.submission_proof) {
+        const [earlier] = await tx<{ id: number }[]>`
+          SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
+          ORDER BY submitted_at, id LIMIT 1`;
+        if (earlier)
+          notes.push(
+            `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest entry of a repo is.`,
+          );
+      }
       const [project] = await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
         program_id: input.program_id,
@@ -435,8 +533,10 @@ export async function recordSubmission(
         live_key: liveKey,
         repo_created_at: proof?.repo_created_at ?? null,
         repo_pushed_at: proof?.repo_pushed_at ?? null,
-        contracts: entry?.contracts ?? null,
-        deployers,
+        contracts: entry?.contracts ?? bonusContracts,
+        deployers: deployers ?? bonusDeployers,
+        bonus_repo_key: bonusRepoKey,
+        ...(bonusWallet && { creator_wallet: bonusWallet }),
         submission_proof_url: submissionProofUrl,
         submission_proof_ok_at: submissionProofOkAt,
         submission_proof_checked_at: submissionProofCheckedAt,
@@ -456,7 +556,7 @@ export async function recordSubmission(
         recorded: true,
         project_id: project.id,
         submitted_at: project.submitted_at.toISOString(),
-        ...(bonusNote && { bonus_note: bonusNote }),
+        ...(notes.length && { bonus_note: notes.join(' ') }),
         ...(entry &&
           program.campaign && {
             campaign_entry:

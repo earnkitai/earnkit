@@ -390,6 +390,27 @@ CREATE TABLE IF NOT EXISTS bonus_scores (
   computed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (round_key, project_id, day)
 );
+-- Fix round 1 (Ruling 12): commit days are built up read by read. Each commit SHA an entry's daily
+-- read sees for the first time is kept with that read's day (never recomputed from commit dates),
+-- and its author's login when it is a linked account 30+ days old then (contributors).
+CREATE TABLE IF NOT EXISTS bonus_commits (
+  round_key  text NOT NULL REFERENCES bonus_rounds(round_key),
+  project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sha        text NOT NULL,
+  day        date NOT NULL,
+  login      text,
+  PRIMARY KEY (round_key, project_id, sha)
+);
+-- GitHub accounts' creation times (lowercase login), kept across days so an account is read once.
+CREATE TABLE IF NOT EXISTS github_users (
+  login      text PRIMARY KEY,
+  created_at timestamptz NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now()
+);
+-- Ruling 13b: an external entry's normalized repo (campaigns.ts normalizeRepoUrl). Not unique: a
+-- later entry of the same repo in the same program is recorded but never bonus-eligible.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS bonus_repo_key text;
+CREATE INDEX IF NOT EXISTS projects_bonus_repo_key ON projects (program_id, bonus_repo_key) WHERE bonus_repo_key IS NOT NULL;
 
 -- Each WETH deposit the FeeLocker stored for the bonus wallet (its StoreTokens log), attributed to
 -- a coin and booked to that coin's open round, or to the Safe. Idempotent on (tx_hash, log_index).

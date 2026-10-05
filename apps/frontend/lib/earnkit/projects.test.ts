@@ -10,6 +10,7 @@ import {
   entryRules,
   missingAnswersProblem,
   selfEntryProblem,
+  verifiedBonusContracts,
 } from './projects';
 import { sponsorProgramFile } from './sponsor-rules';
 import { ProgramFile } from './program-file';
@@ -411,6 +412,95 @@ test('record_submission (v2.5 §3): a program without submission_proof never che
     SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
   assert.equal(row.submission_proof_url, null);
   assert.equal(row.submission_proof_ok_at, null);
+});
+
+// ---- v2.5 Ruling 13: external entries' contracts and one eligible entry per repo ----------------
+
+test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b)', () => {
+  const ok = { coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date() };
+  assert.equal(bonusEligible({ ...ok, earlier_same_repo: false }), true);
+  assert.equal(bonusEligible({ ...ok, earlier_same_repo: true }), false);
+});
+
+const OTHER = '0x' + 'b'.repeat(40);
+const SIGNER_KEY = ('0x' + '42'.repeat(32)) as `0x${string}`;
+const signer = privateKeyToAccount(SIGNER_KEY);
+const REPO = 'https://github.com/alice/tipjar';
+const byTx = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([c, d]) => [`0x${c.slice(2, 10)}`, d]));
+
+test('verifiedBonusContracts (Ruling 13a): each contract checked like a v2.4 entry; unverified ones dropped with a note', async () => {
+  // Both deployed by the payout wallet: both count.
+  const both = await verifiedBonusContracts('p', REPO, PAY, [C1, C2.toUpperCase().replace('0X', '0x')], undefined, entryDeps(byTx({ [C1]: PAY, [C2]: PAY })));
+  assert.deepEqual(both, { contracts: [C1, C2], deployers: [PAY], note: null });
+  // One deployed by another wallet, no signature: that one is dropped, and the note says what to sign.
+  const one = await verifiedBonusContracts('p', REPO, PAY, [C1, C2], undefined, entryDeps(byTx({ [C1]: PAY, [C2]: OTHER })));
+  assert.deepEqual(one.contracts, [C1]);
+  assert.match(one.note ?? '', /Contract 0x2{40} was deployed by 0xb{40}/);
+  assert.match(one.note ?? '', /EarnKit entry: p github\.com\/alice\/tipjar/);
+  // That wallet signed the entry message: both count.
+  const sig = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1, C2]) });
+  const signed = await verifiedBonusContracts('p', REPO, PAY, [C1, C2], sig, entryDeps(byTx({ [C1]: PAY, [C2]: signer.address.toLowerCase() })));
+  assert.deepEqual(signed.contracts, [C1, C2]);
+  assert.deepEqual(new Set(signed.deployers), new Set([PAY, signer.address.toLowerCase()]));
+  // earnkit.txt names another wallet: nothing counts.
+  const file = await verifiedBonusContracts('p', REPO, PAY, [C1], undefined, {
+    ...entryDeps(byTx({ [C1]: PAY })),
+    fetchFile: async () => ({ status: 'ok' as const, text: `payout_wallet: ${OTHER}\n` }),
+  });
+  assert.deepEqual(file.contracts, []);
+  assert.match(file.note ?? '', /says payout_wallet/);
+});
+
+test('verifiedBonusContracts: Clanker/Uniswap contracts are never accepted; no wallet or a failed read drops them; never throws', async () => {
+  const pool = '0x498581fF718922c3f8e6A244956aF099B2652b2b';
+  const r = await verifiedBonusContracts('p', REPO, PAY, [pool, C1], undefined, entryDeps(byTx({ [C1]: PAY })));
+  assert.deepEqual(r.contracts, [C1]);
+  assert.match(r.note ?? '', /Clanker or Uniswap contracts never count/);
+  const noWallet = await verifiedBonusContracts('p', REPO, undefined, [C1], undefined, entryDeps({}));
+  assert.deepEqual(noWallet.contracts, []);
+  assert.match(noWallet.note ?? '', /pass payout_wallet/);
+  const noRepo = await verifiedBonusContracts('p', undefined, PAY, [C1], undefined, entryDeps({}));
+  assert.match(noRepo.note ?? '', /repo_url/);
+  const bad = await verifiedBonusContracts('p', REPO, PAY, ['0x123'], undefined, entryDeps({}));
+  assert.match(bad.note ?? '', /isn't a Base contract address/);
+  const down = await verifiedBonusContracts('p', REPO, PAY, [C1], undefined, {
+    ...entryDeps({}),
+    repoFacts: async () => {
+      throw new Error('socket hang up');
+    },
+  });
+  assert.deepEqual(down.contracts, []);
+  assert.ok(down.note);
+});
+
+test('record_submission (Ruling 13): external contracts verified and stored; unverified dropped; a later same-repo entry is noted', dbTest, async () => {
+  const program = proofProgramFile(`t6-contracts-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(9), repo_url: REPO };
+  const submit = (contracts: string[], deployers: Record<string, string>) =>
+    recordSubmission(
+      {
+        program_id: program.id,
+        project,
+        submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+        external_submission_url: 'https://dorahacks.io/buidl/901',
+        contracts,
+        payout_wallet: PAY,
+      } as never,
+      installationId,
+      { ...entryDeps(byTx(deployers)), fetchProof: async () => `See ${REPO}` },
+    );
+  const first = await submit([C1, C2], { [C1]: PAY, [C2]: OTHER });
+  assert.equal(first.recorded, true);
+  assert.match((first as { bonus_note?: string }).bonus_note ?? '', /Contracts not counted for the builder bonus/);
+  const [row] = await sql()<{ contracts: string[] | null; deployers: string[] | null; creator_wallet: string | null; bonus_repo_key: string | null }[]>`
+    SELECT contracts, deployers, creator_wallet, bonus_repo_key FROM projects WHERE id = ${first.project_id}`;
+  assert.deepEqual(row, { contracts: [C1], deployers: [PAY], creator_wallet: PAY, bonus_repo_key: 'github.com/alice/tipjar' });
+
+  const second = await submit([C1], { [C1]: PAY });
+  assert.equal(second.recorded, true, 'a later entry of the same repo is still recorded');
+  assert.match((second as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${first.project_id} already holds this repo`));
 });
 
 after(async () => {
