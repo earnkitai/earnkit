@@ -85,7 +85,7 @@ export type FirstMessage = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
 const MAX_OTHERS = 5;
-/** Lines under "Ideas that fit these programs" (v2.5 §1). */
+/** Ideas under "Ideas that fit these programs" in all (v2.5 §1). */
 const MAX_IDEAS = 6;
 
 /** Under any table that shows a builder bonus (v2.5 naming rule). */
@@ -119,14 +119,23 @@ export function bonusCell(c: Pick<Card, 'submission_proof' | 'bonus_pool_wei'>) 
   return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
 }
 
-/** Ideas round-robin over the programs in table order: each program's first idea, then seconds. */
+/** Ideas per program in "Ideas that fit these programs" (fix round 1, ruling 3). */
+const IDEAS_PER_PROGRAM = 2;
+
+/**
+ * One line per program in table order, its title once: "- Arc Microgrants: <idea>; <idea>". At
+ * most 2 ideas per program and 6 ideas in all.
+ */
 function ideaLines(cards: Card[]) {
   const lines: string[] = [];
-  for (let i = 0; i < 3 && lines.length < MAX_IDEAS; i++)
-    for (const c of cards) {
-      const idea = c.ideas?.[i];
-      if (idea && lines.length < MAX_IDEAS) lines.push(`- ${c.title}: ${idea}`);
-    }
+  let left = MAX_IDEAS;
+  for (const c of cards) {
+    const ideas = (c.ideas ?? []).slice(0, Math.min(IDEAS_PER_PROGRAM, left));
+    if (ideas.length === 0) continue;
+    lines.push(`- ${c.title}: ${ideas.join('; ')}`);
+    left -= ideas.length;
+    if (left === 0) break;
+  }
   return lines;
 }
 
@@ -242,6 +251,35 @@ const CHAT_ONLY =
 /** No repo to match: none reported, or none found under the builder's GitHub user. */
 const noRepo = (r: YourRepos | null) => r === null || ('checked' in r && r.checked === 0);
 
+type Fit = { card: Card; repo: string; v: Verdict };
+
+/**
+ * What the first message shows: the programs the builder's repos fit (each curated program once,
+ * under the repo that fits it best, by prize per winner), and the other curated programs shown
+ * (at most 5) plus how many more. Shared with list_programs, so the bonus pools are read once and
+ * only for programs on screen. Pure; exported for tests.
+ */
+export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
+  const byId = new Map(m.cards.map((c) => [c.id, c]));
+  const curated = (id: string) => byId.has(id) && !byId.get(id)!.sponsored;
+  const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
+  const matched = new Map<string, Fit>();
+  for (const f of fits)
+    for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
+      if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
+        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, v });
+  const rows = [...matched.values()].sort((a, b) => byPrize(a.card, b.card));
+  const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byPrize);
+  const shown = rest.slice(0, MAX_OTHERS);
+  return { byId, rows, shown, more: rest.length - shown.length };
+}
+
+/** Programs on screen whose entries can earn the builder bonus: the ones whose pool is read. Pure. */
+export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
+  const { rows, shown } = layout(m);
+  return [...rows.map((r) => r.card), ...shown].filter((c) => c.submission_proof).map((c) => c.id);
+};
+
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(m: FirstMessage): string {
   const sections: string[] = [];
@@ -256,22 +294,18 @@ export function presentFirstMessage(m: FirstMessage): string {
     ].join('\n\n');
   }
 
-  // What the builder's repos fit: each curated program once, under the repo that fits it best,
-  // sorted by prize per winner.
-  const byId = new Map(m.cards.map((c) => [c.id, c]));
-  const curated = (id: string) => byId.has(id) && !byId.get(id)!.sponsored;
-  const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
-  const matched = new Map<string, { card: Card; repo: string; v: Verdict }>();
-  for (const f of fits)
-    for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
-      if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
-        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, v });
-  const rows = [...matched.values()].sort((a, b) => byPrize(a.card, b.card));
-  let bonusShown = false;
-  const bonus = (c: Card) => {
-    const cell = bonusCell(c);
-    if (cell !== 'not available') bonusShown = true;
-    return cell;
+  const { byId, rows, shown, more } = layout(m);
+  // The note goes right under the last program table that shows a bonus, never the campaign table.
+  let noteAfter = -1;
+  const bonusTable = (render: (bonus: (c: Card) => string) => string) => {
+    let any = false;
+    const text = render((c) => {
+      const cell = bonusCell(c);
+      if (cell !== 'not available') any = true;
+      return cell;
+    });
+    sections.push(text);
+    if (any) noteAfter = sections.length;
   };
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)
@@ -280,8 +314,9 @@ export function presentFirstMessage(m: FirstMessage): string {
     );
   else if (rows.length > 0) {
     const total = openMoneyUsd(rows.map((r) => r.card));
-    sections.push(
-      `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money.` : 'Your repos fit these open programs:'}\n\n` +
+    bonusTable(
+      (bonus) =>
+        `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Builder bonus', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v }) => [
@@ -308,13 +343,11 @@ export function presentFirstMessage(m: FirstMessage): string {
       ),
     );
 
-  const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byPrize);
-  const shown = rest.slice(0, MAX_OTHERS);
-  if (rest.length > 0) {
-    const more = rest.length - shown.length;
+  if (shown.length > 0) {
     const above = campaigns.length > 0 || rows.length > 0;
-    sections.push(
-      `${above ? 'Also open:' : 'Open money right now:'}\n\n` +
+    bonusTable(
+      (bonus) =>
+        `${above ? 'Also open:' : 'Open money right now:'}\n\n` +
         table(
           ['Program', 'Prize', 'Builder bonus', 'Ends'],
           shown.map((c) => [c.title, prizeOf(c), bonus(c), endsOf(c)]),
@@ -322,12 +355,11 @@ export function presentFirstMessage(m: FirstMessage): string {
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );
   }
-  if (bonusShown) sections.push(BONUS_NOTE);
+  if (noteAfter >= 0) sections.splice(noteAfter, 0, BONUS_NOTE);
 
   // No repo to match: curated ideas for the programs shown (never generated at request time).
   const ideas = noRepo(m.repos) ? ideaLines(shown) : [];
   if (ideas.length > 0) sections.push(`Ideas that fit these programs:\n${ideas.join('\n')}`);
-
   const sponsored = m.cards.filter((c) => c.sponsored);
   if (sponsored.length > 0)
     sections.push(
@@ -352,7 +384,7 @@ export function presentFirstMessage(m: FirstMessage): string {
 function offer(
   m: FirstMessage,
   byId: Map<string, Card>,
-  rows: { card: Card; repo: string; v: Verdict }[],
+  rows: Fit[],
   ideasShown: boolean,
 ) {
   if (!m.agentCanBuild) return CHAT_ONLY;

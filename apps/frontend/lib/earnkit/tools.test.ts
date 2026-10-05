@@ -227,11 +227,7 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
   }
 });
 
-after(async () => {
-  if (process.env.DATABASE_URL) await sql().end();
-});
-
-test('v2.5 §1: list_programs reads the builder bonus pool only where entries are provable; no repo shows ideas', dbTest, async () => {
+test('v2.5 §1: list_programs reads the builder bonus pools once, only where entries are provable; no repo shows ideas', dbTest, async () => {
   const file = (name: string) =>
     JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
   const run = `${process.pid}-${Date.now()}`;
@@ -242,27 +238,36 @@ test('v2.5 §1: list_programs reads the builder bonus pool only where entries ar
     id: `v25-noproof-${run}`, title: `No proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_998,
   });
   assert.ok(proof.submission_proof && noProof.submission_proof === null);
-  await upsertProgram(ProgramFile.parse(proof));
-  await upsertProgram(ProgramFile.parse(noProof));
-  const [{ id }] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash) VALUES (${`v25-pool-${run}`}) RETURNING id`;
-  const asked: string[] = [];
-  const r = (await tools.list_programs({}, {
-    installationId: id,
-    roundPoolWei: async (programId) => {
-      asked.push(programId);
-      return programId === proof.id ? 42n * 10n ** 16n : null;
-    },
-  })) as { show_to_builder: string };
-  const text = r.show_to_builder;
-  assert.match(text, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| 0\\.42 ETH so far \\|`));
-  assert.match(text, new RegExp(`\\| No proof ${run} \\| [^|]+ \\| not available \\|`));
-  assert.ok(asked.includes(proof.id) && !asked.includes(noProof.id), asked.join());
-  assert.match(text, /\n\nBuilder bonus: paid by EarnKit from coin fees\. EarnKit isn't affiliated with or endorsed by any program's organizer\. Details: earnkit\.com\/policy\n\n/);
-  assert.match(text, /\n\nIdeas that fit these programs:\n- /);
-  assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n`) && text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n`), text);
-  // Without injection: no pool yet, so the provable program opens with the builder's entry.
-  const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-  assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| opens with your entry \\|`));
-  await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
+  try {
+    await upsertProgram(ProgramFile.parse(proof));
+    await upsertProgram(ProgramFile.parse(noProof));
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO installations (token_hash) VALUES (${`v25-pool-${run}`}) RETURNING id`;
+    const calls: string[][] = [];
+    const r = (await tools.list_programs({}, {
+      installationId: id,
+      roundPoolsWei: async (ids) => {
+        calls.push(ids);
+        return new Map([[proof.id, 42n * 10n ** 16n]]);
+      },
+    })) as { show_to_builder: string };
+    const text = r.show_to_builder;
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].includes(proof.id) && !calls[0].includes(noProof.id), calls[0].join());
+    assert.match(text, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| 0\\.42 ETH so far \\|`));
+    assert.match(text, new RegExp(`\\| No proof ${run} \\| [^|]+ \\| not available \\|`));
+    assert.match(text, /\n\nBuilder bonus: paid by EarnKit from coin fees\. EarnKit isn't affiliated with or endorsed by any program's organizer\. Details: earnkit\.com\/policy\n\n/);
+    assert.match(text, /\n\nIdeas that fit these programs:\n- /);
+    assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}; ${proof.ideas[1]}\n`), text);
+    assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}; ${noProof.ideas[1]}\n`), text);
+    // Without injection: no pools yet, so the provable program opens with the builder's entry.
+    const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
+    assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| opens with your entry \\|`));
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
+  }
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

@@ -178,8 +178,8 @@ apps/frontend/
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
-                               route never sets it. ToolContext.roundPoolWei overrides the builder
-                               bonus pool read (default roundPoolWei: null until the v2.5 ledger)
+                               route never sets it. ToolContext.roundPoolsWei overrides the builder
+                               bonus pools read (one batched call; default empty until the v2.5 ledger)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on

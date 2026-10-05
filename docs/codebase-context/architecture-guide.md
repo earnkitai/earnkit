@@ -27,10 +27,10 @@
 - **First message (v2.5 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
   to $X in open money" ($X = the per-winner `max_award_usd` of each program the builder's repos
   fit, once each; unknown amounts count 0 and show their own words). Program tables carry a
-  "Builder bonus" column: the open round's pool (`roundPoolWei`, injected; null until the bonus
+  "Builder bonus" column: the open round's pool (`roundPoolsWei`, one batched read; empty until the bonus
   ledger), "opens with your entry", or "not available" without a `submission_proof`; a note under
   them says EarnKit isn't affiliated with any organizer (earnkit.com/policy). With no repo it
-  shows "Open money right now:" plus up to 6 curated `ideas` and offers to build one. The EarnKit
+  shows "Open money right now:" plus curated `ideas` (one line per program, 2 each, 6 in all) and offers to build one. The EarnKit
   campaigns table shows only while a campaign is open.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
