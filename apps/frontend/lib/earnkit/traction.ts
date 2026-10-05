@@ -749,8 +749,9 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
  * The round's final ranking for the payout (Task 7), best first: only entries eligible at the
  * round's end (eligibleSql), each with its latest final read (`through` ≥ ends_at), re-ranked
  * from those signals with rankRound, so a stored rank of an entry displaced since (a duplicate
- * repo, a coin launched after the end) can never be read as a winner. `flagged` lists entries
- * whose final read still has failed sources; `review_flags` carries the review page's patterns.
+ * repo, a coin launched after the end) can never be read as a winner. `flagged` marks entries
+ * whose final read still has failed sources (`failed`: which); `review_flags` carries the review
+ * page's patterns.
  * An eligible entry without a final read is left out (readyToFreeze holds the freeze for it).
  */
 export async function finalRanking(roundKey: string) {
@@ -772,6 +773,7 @@ export async function finalRanking(roundKey: string) {
   ).map((x) => ({
     ...x,
     flagged: byId.get(x.id)!.failed.length > 0,
+    failed: byId.get(x.id)!.failed,
     review_flags: byId.get(x.id)!.review_flags,
   }));
 }

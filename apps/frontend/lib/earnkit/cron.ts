@@ -1,10 +1,14 @@
 import { INDEX_FAILED_RUNS, runBonusLedger, type BonusDeps } from './bonus-ledger';
+import { advanceRounds } from './bonus-payout';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { bearerMatches, json } from './http';
 import {
+  PAY_FAILED,
+  PAY_FAILED_RUNS,
+  STEP_FAILED,
   TERMS_CHANGED,
   fromTerms,
   needsOwner,
@@ -17,6 +21,7 @@ import {
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
+import { scoreOpenRounds, type TractionDeps } from './traction';
 import type { Candidate, RunState } from './winners';
 
 /** Work per cron call; the hourly run picks up the rest. */
@@ -67,6 +72,10 @@ export type CronDeps = {
   bonus?: BonusDeps;
   /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
   proofRecheck?: { fetchText?: (url: string) => Promise<string> };
+  /** The builder bonus traction scoring's reads (v2.5 §3; `only`: these round keys). */
+  traction?: TractionDeps & { only?: string[] };
+  /** The builder bonus payout's sanctions screen (default: the v2.4 screen); `only`: these round keys. */
+  rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -76,11 +85,7 @@ const openReview = (p: Program, now: Date) => sql()`
     terms = ${sql().json(termsOf(p.campaign as EarnKitCampaign))}, updated_at = now()
   WHERE program_id = ${p.id} AND state = 'running'`;
 
-export { TERMS_CHANGED };
-/** Shown on the campaign page when a payout step fails (the cause stays in the server log). */
-export const PAY_FAILED = 'Payouts paused: a check failed; retrying hourly.';
-/** Consecutive failed pay steps after which the run waits on the owner (503): six hourly runs. */
-export const PAY_FAILED_RUNS = 6;
+export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
 /** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
 class PayStepFailed extends Error {
   readonly failures: number;
@@ -89,8 +94,6 @@ class PayStepFailed extends Error {
     this.failures = failures;
   }
 }
-/** A failed step in the cron's answer (the GitHub Actions log): fixed, so no RPC URL or key leaks. */
-export const STEP_FAILED = 'This step failed; it is retried on the next run.';
 
 /** Final scores whose reads were capped or never finished (score_partial): payable, flagged in the review. */
 const partialIds = (entries: Entry[]) => entries.filter((e) => e.score_final && e.score_partial).map((e) => e.id);
@@ -192,7 +195,9 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
  * (and one closed after it ended or after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
- * whose cached fees are over 6 h old; between them, the builder bonus ledger (bonus-ledger.ts).
+ * whose cached fees are over 6 h old; between them, the builder bonus: traction scoring
+ * (traction.ts scoreOpenRounds), then the ledger (bonus-ledger.ts) with the rounds' freeze,
+ * review and WETH payouts (bonus-payout.ts).
  * `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).
@@ -228,13 +233,36 @@ export async function runCron(
       });
     }
   }
-  // v2.5 builder bonus ledger: index, collect near a round's end, claim, sweep to the Safe. After
-  // the campaigns' scoring and payouts, before the fee refresh. Runs with `only` (tests, the e2e)
-  // only when its deps are given.
+  // v2.5 builder bonus traction (Task 7 carry): every run scores the open rounds (each entry is
+  // read at most once a day; after a round's end, its final reads), with at most half the budget
+  // left so the ledger and payouts below always get time. Under its own lease.
+  let bonusScoring: unknown;
+  if (!opts.only || deps.traction) {
+    try {
+      const half = Math.min(deadline, Date.now() + (deadline - Date.now()) / 2);
+      const r = await withScoringLock(
+        'bonus-scoring',
+        () => scoreOpenRounds({ now, deadline: half, ...deps.traction }),
+        (opts.budgetMs ?? CRON_BUDGET_MS) + 60_000,
+      );
+      bonusScoring = r === 'busy' ? { step: 'busy' } : r;
+    } catch (err) {
+      console.error('[cron] bonus scoring', err);
+      bonusScoring = { step: 'error', note: STEP_FAILED };
+    }
+  }
+  // v2.5 builder bonus ledger: index, collect near a round's end, claim, the rounds (freeze, review,
+  // pay: bonus-payout.ts), sweep to the Safe. After the campaigns' scoring and payouts, before the
+  // fee refresh. Runs with `only` (tests, the e2e) only when its deps are given.
   let bonus: Record<string, unknown> | undefined;
   if (!opts.only || deps.bonus) {
     try {
-      bonus = await runBonusLedger({ now, deadline, ...deps.bonus });
+      bonus = await runBonusLedger({
+        now,
+        deadline,
+        rounds: (account, d) => advanceRounds(account, { ...d, ...deps.rounds }),
+        ...deps.bonus,
+      });
     } catch (err) {
       console.error('[cron] bonus', err);
       bonus = { step: 'error', note: STEP_FAILED };
@@ -268,9 +296,14 @@ export async function runCron(
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS
   )
     needs_owner.push('bonus-ledger');
+  // A builder bonus round waiting on the owner: a pay note that does, failed pay steps in a row, or
+  // flagged entries in its review (bonus-payout.ts advanceRounds).
+  const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
+  for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
   return {
     now: now.toISOString(),
     campaigns,
+    ...(bonusScoring !== undefined && { bonus_scoring: bonusScoring }),
     ...(bonus && { bonus }),
     ...(proofRecheck && { proof_recheck: proofRecheck }),
     fee_wallets: fees,
@@ -302,7 +335,9 @@ export async function cronPost(
   try {
     const out = await (deps.run ?? (() => runCron()))();
     const stuck = (out as { needs_owner?: unknown } | null)?.needs_owner;
-    return json(out, Array.isArray(stuck) && stuck.length > 0 ? 503 : 200);
+    // The ledger reports block numbers as bigints; Response.json can't serialize them.
+    const plain: unknown = JSON.parse(JSON.stringify(out, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v)));
+    return json(plain, Array.isArray(stuck) && stuck.length > 0 ? 503 : 200);
   } catch (err) {
     console.error('[cron]', err);
     return json({ error: 'The cron run failed; see the server log.' }, 500);

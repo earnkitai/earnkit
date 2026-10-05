@@ -113,5 +113,39 @@ try {
 }
 ok(twoOpen, 'at most one sweep to the Safe is unfinished');
 
+// v2.5 Task 7: round lifecycle and payouts.
+const [r7] = await db<{ frozen_at: Date | null; note: string | null; pay_failures: number }[]>`
+  SELECT frozen_at, note, pay_failures FROM bonus_rounds WHERE round_key = 'old-active:2026-10'`;
+ok(r7.frozen_at === null && r7.note === null && r7.pay_failures === 0, 'existing rounds get safe lifecycle defaults');
+await db`INSERT INTO bonus_ledger (tx_hash, log_index, round_key, destination, amount_wei, block_time) VALUES ('0x2', 0, 'old-active:2026-10', 'safe', 1, now())`;
+const [moved] = await db<{ round_key: string | null }[]>`SELECT round_key FROM bonus_ledger WHERE tx_hash = '0x2'`;
+ok(moved.round_key === 'old-active:2026-10', "an empty round's booking moved to the Safe keeps its round");
+const [entry] = await db<{ id: number }[]>`SELECT id FROM projects WHERE program_id = 'old-active'`;
+await db`INSERT INTO bonus_payouts (round_key, project_id, rank, score, slot, tx_hash) VALUES ('old-active:2026-10', ${entry.id}, 1, 1, 0, '0xa')`;
+let twice = false;
+try {
+  await db`INSERT INTO bonus_payouts (round_key, project_id, rank, score) VALUES ('old-active:2026-10', ${entry.id}, 2, 1)`;
+} catch {
+  twice = true;
+}
+ok(twice, 'an entry is in a round ranking once');
+const [{ id: other }] = await db<{ id: number }[]>`
+  INSERT INTO projects (program_id, name) VALUES ('old-active', 'Q') RETURNING id`;
+let samePlace = false;
+try {
+  await db`INSERT INTO bonus_payouts (round_key, project_id, rank, score, slot, tx_hash) VALUES ('old-active:2026-10', ${other}, 2, 1, 0, '0xb')`;
+} catch {
+  samePlace = true;
+}
+ok(samePlace, 'two transfers never take the same place of a round');
+await db`INSERT INTO bonus_vetoes (round_key, project_id, reason) VALUES ('old-active:2026-10', ${other}, 'r')`;
+let vetoTwice = false;
+try {
+  await db`INSERT INTO bonus_vetoes (round_key, project_id, reason) VALUES ('old-active:2026-10', ${other}, 'r')`;
+} catch {
+  vetoTwice = true;
+}
+ok(vetoTwice, 'one veto per entry per round');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
