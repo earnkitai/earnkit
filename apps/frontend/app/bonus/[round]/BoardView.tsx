@@ -115,12 +115,11 @@ export default function BoardView({ board: b }: { board: Board }) {
                 {frozen ? (
                   <th scope="col" className="w-24 pb-3 text-right font-medium md:w-32">Prize</th>
                 ) : null}
-                <th
-                  scope="col"
-                  className={`pb-3 pl-4 text-right font-medium ${frozen ? 'hidden w-24 sm:table-cell' : 'w-14 sm:w-64'}`}
-                >
-                  Eligible
-                </th>
+                {frozen ? null : (
+                  <th scope="col" className="w-14 pb-3 pl-4 text-right font-medium sm:w-64">
+                    Eligible
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -153,16 +152,12 @@ export default function BoardView({ board: b }: { board: Board }) {
                       ) : null}
                     </td>
                   ) : null}
-                  <td
-                    className={`py-3 pl-4 text-right font-light ${frozen ? 'hidden sm:table-cell' : ''} ${r.eligible ? '' : 'text-ek-blue-soft'}`}
-                  >
-                    {frozen ? r.note : (
-                      <>
-                        <span className="sm:hidden">{r.eligible ? 'Yes' : 'No'}</span>
-                        <span className="hidden sm:inline">{r.note}</span>
-                      </>
-                    )}
-                  </td>
+                  {frozen ? null : (
+                    <td className={`py-3 pl-4 text-right font-light ${r.eligible ? '' : 'text-ek-blue-soft'}`}>
+                      <span className="sm:hidden">{r.eligible ? 'Yes' : 'No'}</span>
+                      <span className="hidden sm:inline">{r.note}</span>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

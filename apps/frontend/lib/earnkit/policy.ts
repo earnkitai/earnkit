@@ -2,11 +2,13 @@ import { BONUS_SPLIT_BPS } from './bonus-payout';
 import { WEIGHTS } from './traction';
 
 /**
- * The facts the public policy page (/policy, v2.5 §4) states, taken from the code that applies
- * them, so the page can't drift from what EarnKit does.
+ * The facts the public policy page (/policy, v2.5 §4) states. The ranking weights and payout split
+ * are imported from the code that applies them (traction.ts WEIGHTS, bonus-payout.ts
+ * BONUS_SPLIT_BPS). The fee split is NOT: tokens.fun applies it (its EarnKit reward recipients,
+ * branch earnkit-fee-split), so FEE_SPLIT_BPS here is a copy that must be changed with it.
  */
 
-/** A coin's fee split after Clanker's 20% (global constraints: tokens.fun's EarnKit recipients), bps. */
+/** A coin's fee split after Clanker's 20%, bps. A copy of tokens.fun's EarnKit reward recipients. */
 export const FEE_SPLIT_BPS = { project: 4000, buyback: 1000, bonus: 2000, earnkit: 3000 } as const;
 
 /** Clanker's own cut of trading fees, before the split. */

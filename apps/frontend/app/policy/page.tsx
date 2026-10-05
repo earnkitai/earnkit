@@ -163,7 +163,11 @@ export default function PolicyPage() {
             wallet and per agent each round.
           </p>
           <Sub>After the round</Sub>
-          <p>Fees a coin earns after its program&apos;s round ends go to EarnKit. Nothing rolls over.</p>
+          <p>
+            A rolling program&apos;s monthly round is followed by the next month&apos;s round, which gets the fees
+            from then on. Once a program ends, its coins&apos; builder bonus share goes to EarnKit&apos;s Safe. So does
+            the share of programs whose submissions aren&apos;t public. Nothing rolls over into another program.
+          </p>
         </Section>
 
         <Section title="The coin is optional">

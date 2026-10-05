@@ -30,10 +30,14 @@ type Row = {
 };
 
 /**
- * The public shape from the aggregate row. Fees to the Safe: every FeeLocker deposit for the bonus
- * wallet (its 20% slot) comes with the Safe's own 30% slot from the same fees, so the Safe's share
- * is 1.5x the indexed bonus deposits; plus the bonus deposits booked to the Safe (after a round's
- * end, no open round, an empty round). Pure.
+ * The public shape from the aggregate row. `fees_to_safe_eth` is the Safe's fees from coins with
+ * the v2.5 split only (coins launched before it have no builder bonus slot and count 0), accrued
+ * rather than claimed (unclaimed FeeLocker balances included), from the start of the bonus
+ * ledger's index: every real FeeLocker deposit for the bonus wallet (its 20% slot) comes with the
+ * Safe's own 30% slot from the same fees, so that part is 1.5x the indexed bonus deposits; plus
+ * the builder bonus money routed to the Safe (after a program ends, programs without public
+ * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
+ * Pure.
  */
 export function statsFrom(r: Row): PublicStats {
   const big = (v: string | null) => BigInt(v ?? '0');
@@ -63,7 +67,9 @@ export async function readStats(now = new Date()): Promise<PublicStats> {
       (SELECT sum(max_award_usd) FROM open)::text AS open_money_usd,
       (SELECT count(*) FROM open)::int AS programs_open,
       (SELECT count(*) FROM projects WHERE token_status = 'launched')::int AS coins_launched,
-      (SELECT sum(amount_wei) FROM bonus_ledger)::text AS bonus_deposits_wei,
+      -- Real FeeLocker deposits only (an onchain tx hash): never a synthetic row such as a paid
+      -- round's 'round-rest:<round>' remainder, which is already inside the round's deposits.
+      (SELECT sum(amount_wei) FROM bonus_ledger WHERE tx_hash ~ '^0x[0-9a-f]{64}$')::text AS bonus_deposits_wei,
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe')::text AS bonus_to_safe_wei,
       (SELECT sum(amount_wei) FROM bonus_payouts WHERE status = 'paid')::text AS bonus_paid_wei,
       (SELECT count(*) FROM installations)::int AS installs`;

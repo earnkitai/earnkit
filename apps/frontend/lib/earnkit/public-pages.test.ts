@@ -41,7 +41,12 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   assert.match(t, /farmed/);
   assert.match(t, /WETH/);
   assert.match(t, /1st 25% 2nd 18% 3rd 14% 4th 11% 5th 9% 6th 7% 7th 6% 8th 4% 9th 3% 10th 3%/);
-  assert.match(t, /after .* ends go to EarnKit/);
+  // Where the bonus share goes after a round: the next month for a rolling program; the Safe once
+  // a program ends, and for programs without public submissions.
+  assert.match(t, /monthly round is followed by the next month's round/);
+  assert.match(t, /Once a program ends, its coins' builder bonus share goes to EarnKit's Safe/);
+  assert.match(t, /So does the share of programs whose submissions aren't public/);
+  assert.doesNotMatch(t, /round ends go to EarnKit/);
   assert.match(t, /skip/i);
   assert.match(t, /isn't affiliated with or endorsed by/);
   assert.match(h, /mailto:j@earnkit\.com/);
@@ -114,6 +119,8 @@ test('/bonus/<round> paid: frozen places with amounts, paid rows link their tran
   assert.match(t, /Status Paid/);
   assert.doesNotMatch(t, /Days left/);
   assert.match(t, /1 entry was removed in review/);
+  // Every frozen row was eligible at the round's end: no Eligible column that only says "Yes".
+  assert.doesNotMatch(t, /Eligible/);
 });
 
 test('/bonus/<round> review: the top 10 are public until the review closes', () => {

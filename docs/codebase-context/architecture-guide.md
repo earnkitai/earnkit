@@ -864,15 +864,20 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and from
   `BONUS_NOTE` (earnkit.com/policy).
 - **/bonus/<round>** (`bonus-board.ts`) shows public data only. While a round is open it shows the
-  live ranking from `bonus_scores`, eligibility in plain words, the pool so far, and the days left.
+  live ranking from `bonus_scores` (ranked rows first, at most 500), eligibility in plain words, the pool so far, and the days left.
   From the review on, it shows the frozen `bonus_payouts` ranking minus vetoes, renumbered, with
   each place's amount and the mined transaction. Wallets, flags and veto reasons never show.
   Stored links render only through `shownUrl`.
-- **/api/stats** gives jenil.ai aggregates only. `fees_to_safe_eth` is derived: the Safe's 30%
-  slot is 1.5x the indexed bonus-wallet deposits, plus the bonus deposits booked to the Safe. The
-  Safe's own claims aren't recorded in the database. Because turbo builds have no
-  `DATABASE_URL`, the route renders per request, so the read is cached for 600 s with
-  `unstable_cache`.
+- **/api/stats** gives jenil.ai aggregates only.
+  - `fees_to_safe_eth` covers **v2.5-split coins only** and is not all-time Safe revenue.
+    Pre-v2.5 coins count 0. It is accrued, so unclaimed FeeLocker balances are included.
+  - It is derived: the Safe's 30% slot is 1.5x the indexed real bonus-wallet deposits (rows with
+    an onchain tx hash; never the synthetic `round-rest:` remainder), plus the builder bonus
+    money routed to the Safe. The Safe's own claims aren't recorded in the database.
+  - Label it "fees to the Safe (v2.5 coins)".
+  - Caching: with `DATABASE_URL` at build time, the route prerenders and revalidates every 600 s.
+    Without it (turbo doesn't pass it), the route renders per request. Either way the read is
+    cached for 600 s with `unstable_cache`.
 - **Design system:** these pages are built from rounded `bg-ek-navy-deep` panels (40px, 56px from
   md, 16px apart), the uppercase eyebrow, Funnel Display headings, Funnel Sans light body text,
   and the v2.4 campaign table style.
