@@ -1,7 +1,16 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { proofProblem } from './submission-proof';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  PROOF_RECHECK_INTERVAL_MS,
+  proofProblem,
+  recheckSubmissionProofs,
+} from './submission-proof';
 import { SafeFetchError } from './safe-fetch';
+import { sql } from './db';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
 
 const program = {
   id: 'arc-microgrants',
@@ -114,6 +123,17 @@ test('proofProblem: no repo or live link to check against is refused before any 
   assert.equal(called, false);
 });
 
+test('proofProblem: a malformed liveUrl (bad stored data) never throws; it just matches on the repo instead', async () => {
+  const problem = await proofProblem(program, URL_OK, REPO, 'not a url', {
+    fetchText: async () => `See ${REPO}`,
+  });
+  assert.equal(problem, null);
+  const problem2 = await proofProblem(program, URL_OK, undefined, 'not a url', {
+    fetchText: async () => 'nothing useful here',
+  });
+  assert.match(problem2!, /doesn't link to your repo or live site/);
+});
+
 test('proofProblem: an invalid submission URL is refused', async () => {
   assert.match(
     (await proofProblem(program, 'not a url', REPO, LIVE))!,
@@ -123,4 +143,127 @@ test('proofProblem: an invalid submission URL is refused', async () => {
     (await proofProblem(program, 'http://dorahacks.io/buidl/1', REPO, LIVE))!,
     /must be https/,
   );
+});
+
+// ---- recheckSubmissionProofs (v2.5 §3, Ruling 11: the cron's daily re-check) ------------------
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+/** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
+function recheckProgram(id: string, overrides: Record<string, unknown> = {}) {
+  const f = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
+  );
+  return ProgramFile.parse({ ...f, id, ...overrides });
+}
+
+async function freshInstallation() {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`recheck-${process.pid}-${Date.now()}-${Math.random()}`})
+    RETURNING id`;
+  return id;
+}
+
+async function insertUncheckedEntry(
+  programId: string,
+  installationId: number,
+  opts: { repoUrl?: string; checkedAt?: Date | null },
+) {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, submission_proof_url, submission_proof_checked_at)
+    VALUES (${programId}, 'Recheck Project', ${opts.repoUrl ?? null}, ${installationId},
+      'https://dorahacks.io/buidl/999', ${opts.checkedAt ?? null})
+    RETURNING id`;
+  return id;
+}
+
+async function proofRow(id: number) {
+  const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_proof_checked_at: Date | null }[]>`
+    SELECT submission_proof_ok_at, submission_proof_checked_at FROM projects WHERE id = ${id}`;
+  return row;
+}
+
+test('recheckSubmissionProofs: a failed proof that later passes becomes eligible', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`t5fix-pass-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2026-12-01T00:00:00Z',
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const repoUrl = 'https://github.com/alice/recheck-pass';
+  const id = await insertUncheckedEntry(program.id, installationId, { repoUrl, checkedAt: null });
+  const result = await recheckSubmissionProofs(now, Date.now() + 60_000, {
+    fetchText: async () => `See the repo: ${repoUrl}`,
+  });
+  assert.equal(result.checked, 1);
+  assert.equal(result.passed, 1);
+  const row = await proofRow(id);
+  assert.ok(row.submission_proof_ok_at);
+  assert.equal(row.submission_proof_ok_at!.getTime(), now.getTime());
+  assert.equal(row.submission_proof_checked_at!.getTime(), now.getTime());
+});
+
+test('recheckSubmissionProofs: a failure checked under 24h ago is not retried', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`t5fix-recent-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2026-12-01T00:00:00Z',
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const checkedAt = new Date(now.getTime() - (PROOF_RECHECK_INTERVAL_MS - 3_600_000)); // 23h ago
+  const id = await insertUncheckedEntry(program.id, installationId, { checkedAt });
+  let fetchCalled = false;
+  const result = await recheckSubmissionProofs(now, Date.now() + 60_000, {
+    fetchText: async () => ((fetchCalled = true), 'x'),
+  });
+  assert.equal(result.checked, 0);
+  assert.equal(fetchCalled, false);
+  const row = await proofRow(id);
+  assert.equal(row.submission_proof_ok_at, null);
+  assert.equal(row.submission_proof_checked_at!.getTime(), checkedAt.getTime());
+});
+
+test('recheckSubmissionProofs: never checked once the round has ended', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`t5fix-ended-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-01-01T00:00:00Z',
+    ends_at: '2026-02-01T00:00:00Z', // ended well before `now`
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const id = await insertUncheckedEntry(program.id, installationId, { checkedAt: null });
+  let fetchCalled = false;
+  const result = await recheckSubmissionProofs(now, Date.now() + 60_000, {
+    fetchText: async () => ((fetchCalled = true), 'x'),
+  });
+  assert.equal(result.checked, 0);
+  assert.equal(fetchCalled, false);
+  const row = await proofRow(id);
+  assert.equal(row.submission_proof_ok_at, null);
+});
+
+test('recheckSubmissionProofs: never checked once the program is no longer active', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`t5fix-closed-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-01-01T00:00:00Z',
+    ends_at: '2026-12-01T00:00:00Z',
+    status: 'closed',
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const id = await insertUncheckedEntry(program.id, installationId, { checkedAt: null });
+  let fetchCalled = false;
+  const result = await recheckSubmissionProofs(now, Date.now() + 60_000, {
+    fetchText: async () => ((fetchCalled = true), 'x'),
+  });
+  assert.equal(result.checked, 0);
+  assert.equal(fetchCalled, false);
+  const row = await proofRow(id);
+  assert.equal(row.submission_proof_ok_at, null);
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

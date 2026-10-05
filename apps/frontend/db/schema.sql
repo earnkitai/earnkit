@@ -350,6 +350,9 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_collected_at timestamptz;
 -- NULL (projects.ts bonusEligible), so it can never go stale against either column.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_proof_url text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_proof_ok_at timestamptz;
+-- Fix round 1 (Ruling 11): the last time the cron (or record_submission) attempted this entry's
+-- proof, pass or fail, so the daily re-check of a failure never re-fetches within 24h.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_proof_checked_at timestamptz;
 
 -- One builder bonus round: a windowed program's window, or a rolling program's UTC month
 -- (key "<program id>:YYYY-MM"). Created 'open' by the first deposit booked to it.

@@ -727,7 +727,15 @@ during the build); plan: `v2.4-money-first-plan.md`.
   on success, and a `bonus_note` tells the agent what to fix. `bonusEligible` (`projects.ts`) is
   never stored, only derived: `coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL`
   (ownership was already proven by the token gate to launch the coin), so it can never go stale
-  against either column; Tasks 6 and 7 read it this way to rank and pay rounds.
+  against either column; Tasks 6 and 7 read it this way to rank and pay rounds. **Daily re-check
+  (fix round 1, Ruling 11):** the cron's `recheckSubmissionProofs` (also `submission-proof.ts`,
+  called from `runCron`) re-runs `proofProblem` for every entry with a `submission_proof_url` and
+  no `submission_proof_ok_at`, at most once a day per entry (`submission_proof_checked_at`), while
+  its program stays `active` and its bonus round is still open (`roundFor`, bonus-rounds.ts); once
+  the round ends (or the program closes), the entry is skipped with no fetch and can never become
+  eligible through this path again. A malformed `liveUrl` (bad stored data) never makes
+  `proofProblem` throw (`URL.canParse` guards it); `program-file.ts`'s `submission_proof.path_pattern`
+  must be anchored (`^...$`) so it can only match one specific entry path.
 - **Traction score (Task 6, spec §3; `traction.ts`).** `signalsFor(entry, round, deps)` reads seven
   signals over the round window (start to now, or to `ends_at` once ended) in four groups:
   *users* (v2.4 `scoreEntry` over the entry's contracts; never the Safe, bonus wallet, payout,

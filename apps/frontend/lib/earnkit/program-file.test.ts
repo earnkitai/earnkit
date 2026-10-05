@@ -54,6 +54,26 @@ test('ProgramFile: accepts ideas and submission_proof', () => {
   });
 });
 
+test('ProgramFile: submission_proof.path_pattern must be anchored (^...$)', () => {
+  const base = baseProgram();
+  for (const path_pattern of ['/buidl/\\d+', '^/buidl/\\d+', '/buidl/\\d+$']) {
+    assert.throws(
+      () =>
+        ProgramFile.parse({
+          ...base,
+          submission_proof: { host: 'dorahacks.io', path_pattern },
+        }),
+      /path_pattern must be anchored/,
+    );
+  }
+  assert.doesNotThrow(() =>
+    ProgramFile.parse({
+      ...base,
+      submission_proof: { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' },
+    }),
+  );
+});
+
 test('ProgramFile: ideas and submission_proof default to empty/null', () => {
   const base = baseProgram();
   delete base.ideas;

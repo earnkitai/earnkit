@@ -16,6 +16,7 @@ import {
 } from './payout';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { withScoringLock } from './sponsor';
+import { recheckSubmissionProofs } from './submission-proof';
 import type { Candidate, RunState } from './winners';
 
 /** Work per cron call; the hourly run picks up the rest. */
@@ -64,6 +65,8 @@ export type CronDeps = {
   refreshFees?: (wallets: string[]) => Promise<number>;
   /** The builder bonus ledger's chain, wallet and contracts (v2.5). */
   bonus?: BonusDeps;
+  /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
+  proofRecheck?: { fetchText?: (url: string) => Promise<string> };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -237,6 +240,16 @@ export async function runCron(
       bonus = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v2.5 §3, Ruling 11: the daily re-check of a submission proof that hasn't passed yet, until its
+  // program's round ends. Same `only`/deps gating as the bonus ledger step.
+  let proofRecheck: { checked: number; passed: number } | undefined;
+  if (!opts.only || deps.proofRecheck) {
+    try {
+      proofRecheck = await recheckSubmissionProofs(now, deadline, deps.proofRecheck);
+    } catch (err) {
+      console.error('[cron] proof-recheck', err);
+    }
+  }
   let fees = 0;
   try {
     fees = await refreshStaleFees(now, deadline, deps.refreshFees ?? refreshFees);
@@ -255,7 +268,14 @@ export async function runCron(
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS
   )
     needs_owner.push('bonus-ledger');
-  return { now: now.toISOString(), campaigns, ...(bonus && { bonus }), fee_wallets: fees, needs_owner };
+  return {
+    now: now.toISOString(),
+    campaigns,
+    ...(bonus && { bonus }),
+    ...(proofRecheck && { proof_recheck: proofRecheck }),
+    fee_wallets: fees,
+    needs_owner,
+  };
 }
 
 /**

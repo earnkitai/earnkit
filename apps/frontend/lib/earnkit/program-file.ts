@@ -77,14 +77,21 @@ const Idea = z
 const SubmissionProof = z
   .object({
     host: z.string().min(1),
-    path_pattern: z.string().refine((p) => {
-      try {
-        new RegExp(p);
-        return true;
-      } catch {
-        return false;
-      }
-    }, 'path_pattern must be a valid regex'),
+    /** Anchored (^...$) so it matches one specific entry path, never a prefix of a wider page. */
+    path_pattern: z
+      .string()
+      .refine((p) => {
+        try {
+          new RegExp(p);
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'path_pattern must be a valid regex')
+      .refine(
+        (p) => p.startsWith('^') && p.endsWith('$'),
+        'path_pattern must be anchored: start with ^ and end with $',
+      ),
   })
   .strict();
 export type SubmissionProof = z.infer<typeof SubmissionProof>;
