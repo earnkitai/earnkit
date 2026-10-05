@@ -6,6 +6,8 @@ import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { bearerMatches, json } from './http';
 import {
+  NOT_MAINNET,
+  NO_PAYOUT_KEY,
   PAY_FAILED,
   PAY_FAILED_RUNS,
   STEP_FAILED,
@@ -86,6 +88,8 @@ const openReview = (p: Program, now: Date) => sql()`
   WHERE program_id = ${p.id} AND state = 'running'`;
 
 export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
+/** needs_owner when a builder bonus round has ended but the ledger can't run (no key, or off Base mainnet). */
+export const BONUS_WALLET_UNSET = 'bonus-rounds: payout wallet not configured';
 /** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
 class PayStepFailed extends Error {
   readonly failures: number;
@@ -300,6 +304,17 @@ export async function runCron(
   // flagged entries in its review (bonus-payout.ts advanceRounds).
   const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
   for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
+  // Fix round 1 (d): the ledger (and so the rounds step) was skipped for want of the payout key or
+  // of Base mainnet while a round has ended unpaid: it can never freeze or pay until the owner acts.
+  const skipped = bonus?.skipped;
+  if (skipped === NO_PAYOUT_KEY || skipped === NOT_MAINNET) {
+    const [ended] = await sql()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}`.catch(() => [{ n: 0 }]);
+    if (ended.n > 0) {
+      needs_owner.push(BONUS_WALLET_UNSET);
+      bonus!.note = BONUS_WALLET_UNSET;
+    }
+  }
   return {
     now: now.toISOString(),
     campaigns,

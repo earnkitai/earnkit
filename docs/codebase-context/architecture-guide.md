@@ -734,10 +734,14 @@ during the build); plan: `v2.4-money-first-plan.md`.
      amount each entry takes (`placesFor`), and Remove buttons that POST `round, key, entry, reason`
      to `/api/admin/veto` (`vetoBonusEntry` inserts into `bonus_vetoes(round_key, project_id,
      reason, at)` only during the review, the round row read `FOR SHARE`). A veto moves the next
-     entry up into the same amounts: the split is made once, at review open. A round with flagged
-     entries is in `needs_owner` (503) on every run of its review.
+     entry up into the same amounts: the split is made once, at review open. Stored live/repo
+     links show only through `shownUrl` (https-only canonical; else no link). A round with flagged
+     entries is in `needs_owner` (503) once (Ruling 18: `bonus_rounds.flagged_notified_at`, set in
+     that run); the page keeps showing the flags. Freeze-side failures are counted
+     (`freeze_failures`); 6 in a row → 503.
   3. *Pay* (`paying`): if the wallet holds less than the round still owes (places not paid), it
-     claims `claim(bonus wallet, WETH)` first; still short, nothing new is signed (transfers in
+     claims `claim(bonus wallet, WETH)` first, when that covers what is owed or is worth 10x its
+     gas; still short, nothing new is signed (transfers in
      flight are still followed) and the note ends with `TOP_UP` (503). Then `payRanked` (payout.ts;
      `payCampaign` is now a wrapper over it) pays one WETH transfer per place to the next best
      payable entry: sanctions screen (a listed wallet is `refused`, the next moves up), signed and
@@ -748,7 +752,10 @@ during the build); plan: `v2.4-money-first-plan.md`.
   4. *Paid*: what no entry took (vetoes or refusals left a place empty) is booked to the Safe as a
      ledger row `round-rest:<round>` and swept; the round is `paid`. Deposits after the end were
      never the round's (bookDeposit books them to the Safe), so the frozen amounts never change.
-  `needs_owner` entries are `bonus:<round key>`.
+  If `settleStoredSends` failed this run, the rounds step only follows transfers in flight (no
+  claim, nothing new signed). `needs_owner` entries are `bonus:<round key>`; when the ledger is
+  skipped (no payout key, or off Base mainnet) while a round has ended unpaid, the cron adds
+  `bonus-rounds: payout wallet not configured`.
 - **Runbook: a stuck bonus payout (`MANUAL_CHECK` on a round).** As a stuck campaign payout, on
   `bonus_payouts` (`tx_hash`, `raw_tx`, `stale_at`, `slot`, `amount_wei`). Not paid: `UPDATE
   bonus_payouts SET status = NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL, slot = NULL,

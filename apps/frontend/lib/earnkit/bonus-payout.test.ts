@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import { decodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { paidBonusWins } from './alerts';
-import { BASE_BONUS, FEE_LOCKER_ABI, bookDeposit, roundsCovered, type BonusRpc } from './bonus-ledger';
+import { BASE_BONUS, FEE_LOCKER_ABI, bookDeposit, roundsCovered, runBonusLedger, type BonusRpc } from './bonus-ledger';
 import {
   BONUS_SPLIT_BPS,
+  STORED_SEND_WAIT,
   advanceRounds,
   placesFor,
   splitPool,
@@ -16,6 +17,7 @@ import {
 import { runCron } from './cron';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
+import { BONUS_WALLET_UNSET } from './cron';
 import { TOP_UP, payCampaign, payRanked, type PayoutRpc, type PayoutStore } from './payout';
 import { VetoError, bonusReviewLink, vetoBonusEntry, vetoKey, vetoPost } from './veto';
 
@@ -475,7 +477,7 @@ test('claim before paying: the wallet claims its FeeLocker WETH first; still sho
   }
 });
 
-test('flagged entries (failed sources after the 24 h escape) freeze the round into needs_owner while it is in review', db, async () => {
+test('Ruling 18: flagged entries (failed sources after the 24 h escape) put the round in needs_owner once', db, async () => {
   await cleanup();
   try {
     const { ids } = await setup({ n: 2, pool: E18, flagged: [2] });
@@ -489,7 +491,12 @@ test('flagged entries (failed sources after the 24 h escape) freeze the round in
     assert.deepEqual((await round()).terms!.flagged, [ids[1]]);
     assert.deepEqual((await payouts())[1].flags, ['single_commit_streak', 'failed:github']);
     out = (await advanceRounds(ACCOUNT, f.deps(at(30)))) as Out;
-    assert.deepEqual(out.needs_owner, [PID], 'every run of the review');
+    assert.equal(out.rounds[0].step, 'wait');
+    assert.deepEqual(out.needs_owner, [], 'the next review run is not in needs_owner');
+    assert.deepEqual(out.rounds[0].flagged, [ids[1]], 'still shown');
+    const [{ flagged_notified_at }] = await sql()<{ flagged_notified_at: Date | null }[]>`
+      SELECT flagged_notified_at FROM bonus_rounds WHERE round_key = ${PID}`;
+    assert.equal(flagged_notified_at?.getTime(), at(25).getTime());
   } finally {
     await cleanup();
   }
@@ -572,4 +579,135 @@ test('POST /api/cron answers with the ledger bigints as strings (Response.json a
     if (secret === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = secret;
   }
+});
+
+// ---- fix round 1 ----
+
+test('(a) a stored send not rebroadcast this run: the rounds step only follows (no claim, nothing new signed)', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 1, pool: E18 });
+    const f = chain({ balance: 0n, available: E18 });
+    await advanceRounds(ACCOUNT, f.deps(at(2)));
+    await sql()`UPDATE bonus_rounds SET review_until = ${at(3)} WHERE round_key = ${PID}`;
+    // Direct: followOnly signs nothing, claims nothing.
+    const out = (await advanceRounds(ACCOUNT, { ...f.deps(at(4)), followOnly: true })) as Out;
+    assert.equal(f.state.sent.length, 0);
+    assert.equal(out.rounds[0].note, STORED_SEND_WAIT);
+    assert.deepEqual(out.needs_owner, []);
+    // Through the ledger: a stored sweep whose rebroadcast fails makes the hook follow only.
+    const raw = await ACCOUNT.signTransaction({
+      chainId: 8453, type: 'eip1559', to: C.weth, nonce: 0, gas: 60_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, data: '0x',
+    });
+    await sql()`INSERT INTO bonus_sweeps (amount_wei, to_wallet, status, tx_hash, raw_tx) VALUES (1, ${C.safe}, 'sending', ${keccak256(raw)}, ${raw})`;
+    const seen: boolean[] = [];
+    const rpc = {
+      ...f.rpc,
+      blockNumber: async () => 0n,
+      storeLogs: async () => [],
+      broadcast: async () => { throw new Error('rpc down'); },
+    } as BonusRpc;
+    const err = console.error;
+    console.error = () => {};
+    try {
+      await runBonusLedger({ account: ACCOUNT, rpc, chain: C, now: at(4), log: quiet, rounds: async (_a, d) => { seen.push(d.followOnly); } });
+    } finally {
+      console.error = err;
+    }
+    assert.deepEqual(seen, [true]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(b) the pay-time claim is skipped when it can neither cover what is owed nor is worth 10x gas', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 1, pool: E18 });
+    const f = chain({ balance: 0n, available: 1n });
+    await advanceRounds(ACCOUNT, f.deps(at(2)));
+    await sql()`UPDATE bonus_rounds SET review_until = ${at(3)} WHERE round_key = ${PID}`;
+    const out = (await advanceRounds(ACCOUNT, f.deps(at(4)))) as Out;
+    assert.equal(f.state.sent.length, 0, 'no claim of 1 wei');
+    assert.ok(String(out.rounds[0].note).endsWith(TOP_UP));
+    // Enough in the FeeLocker to cover it: claimed, then paid.
+    f.state.available = E18;
+    const out2 = (await advanceRounds(ACCOUNT, f.deps(at(5)))) as Out;
+    assert.equal(out2.rounds[0].done, true, JSON.stringify(out2.rounds));
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(c) freeze-side failures are counted; 6 in a row wait on the owner; a completed check resets them', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 1, pool: E18 });
+    const f = chain();
+    const broken = async () => { throw new Error('db hiccup'); };
+    const err = console.error;
+    console.error = () => {};
+    let out: Out | undefined;
+    try {
+      for (let i = 1; i <= 6; i++) {
+        out = (await advanceRounds(ACCOUNT, { ...f.deps(at(2)), ready: broken })) as Out;
+        assert.equal(out.rounds[0].freeze_failures, i);
+        assert.deepEqual(out.needs_owner, i < 6 ? [] : [PID]);
+      }
+    } finally {
+      console.error = err;
+    }
+    out = (await advanceRounds(ACCOUNT, f.deps(at(2)))) as Out;
+    assert.equal(out.rounds[0].step, 'review');
+    const [{ freeze_failures }] = await sql()<{ freeze_failures: number }[]>`SELECT freeze_failures FROM bonus_rounds WHERE round_key = ${PID}`;
+    assert.equal(freeze_failures, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(d) an ended round while the ledger is skipped (no payout key) waits on the owner: payout wallet not configured', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 1, pool: E18 });
+    const out = await runCron({ now: at(2), only: ['t7-none'], deps: { bonus: { account: null } } });
+    assert.ok(out.needs_owner.includes(BONUS_WALLET_UNSET), JSON.stringify(out.needs_owner));
+    assert.equal(BONUS_WALLET_UNSET.includes('payout wallet not configured'), true);
+    // Before any round ends, the same skip is quiet.
+    const before = await runCron({ now: new Date('2026-10-15T00:00:00Z'), only: ['t7-none'], deps: { bonus: { account: null } } });
+    const ended = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM bonus_rounds WHERE state NOT IN ('paid','empty') AND ends_at <= '2026-10-15T00:00:00Z'`;
+    if (ended[0].n === 0) assert.ok(!before.needs_owner.includes(BONUS_WALLET_UNSET));
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(f) a round veto racing the switch to paying waits for it and is then refused (never paid-and-vetoed)', db, async () => {
+  await cleanup();
+  try {
+    const { ids } = await setup({ n: 2, pool: E18 });
+    await advanceRounds(ACCOUNT, chain().deps(at(2)));
+    await sql()`UPDATE bonus_rounds SET review_until = now() + interval '1 hour' WHERE round_key = ${PID}`;
+    let veto: Promise<unknown> | undefined;
+    await sql().begin(async (tx) => {
+      // The cron's switch to paying, not yet committed.
+      await tx`UPDATE bonus_rounds SET state = 'paying' WHERE round_key = ${PID}`;
+      veto = vetoBonusEntry(PID, ids[0], 'late').then(() => 'removed', (e) => e);
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    assert.ok((await veto) instanceof VetoError);
+    const rows = await sql()`SELECT 1 FROM bonus_vetoes WHERE round_key = ${PID}`;
+    assert.equal(rows.length, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(2, e) the round review page links stored URLs only through shownUrl, and a bad round escape is a 404 after the rate limit', () => {
+  const page = readFileSync(join(import.meta.dirname, '../../app/admin/bonus/[round]/page.tsx'), 'utf8');
+  assert.match(page, /shownUrl\(f\?\.live_url\)/);
+  assert.match(page, /shownUrl\(f\?\.repo_url\)/);
+  assert.doesNotMatch(page, /href=\{f\?\./);
+  assert.match(page, /try \{\s*round = decodeURIComponent\(raw\);\s*\} catch \{\s*notFound\(\);/);
+  assert.ok(page.indexOf("enforce('veto'") < page.indexOf('decodeURIComponent'));
 });

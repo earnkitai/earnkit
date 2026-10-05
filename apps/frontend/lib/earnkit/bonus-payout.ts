@@ -1,6 +1,6 @@
 import { encodeFunctionData, formatUnits, type Hex } from 'viem';
 import type { LocalAccount } from 'viem/accounts';
-import { FEE_LOCKER_ABI, sendCall, type BonusChain, type BonusDeps, type BonusRpc } from './bonus-ledger';
+import { FEE_LOCKER_ABI, sendCall, worthIt, type BonusChain, type BonusDeps, type BonusRpc } from './bonus-ledger';
 import { REVIEW_MS } from './campaigns';
 import { sql } from './db';
 import {
@@ -27,7 +27,7 @@ import { finalRanking, readyToFreeze } from './traction';
  *    No payable entry: the round is 'empty' and its bookings become the Safe's (terminal).
  * 2. review: 48 h, top 10 public, the owner's veto per round (bonus_vetoes, Ruling 17). A veto moves
  *    the next entry up into the same frozen amounts: the split is made once, at review open.
- *    Flagged entries keep the round in needs_owner (the cron answers 503) while the review is open.
+ *    Flagged entries put the round in needs_owner (the cron answers 503) once (Ruling 18).
  * 3. paying: the bonus wallet's FeeLocker WETH is claimed first when the wallet holds less than the
  *    round still owes; still short, the round waits on the owner (TOP_UP, 503). Then one WETH
  *    transfer per place, to the entry's creator_wallet (Ruling 14), through payRanked: every v2.4
@@ -241,6 +241,9 @@ export async function freezeRound(roundKey: string, now: Date, a: { weth: string
   });
 }
 
+/** The pay note while a stored send couldn't be rebroadcast this run (retried next run). */
+export const STORED_SEND_WAIT = 'Waiting on a stored send of the payout wallet; nothing new was signed.';
+
 /** A pay step that threw, with how many have failed in a row (bonus_rounds.pay_failures). */
 class RoundPayFailed extends Error {
   readonly failures: number;
@@ -257,7 +260,28 @@ type Deps = BonusDeps & {
   listed?: (wallet: string) => Promise<boolean>;
   /** Only these round keys (tests and the e2e, like runCron's `only`). */
   only?: string[];
+  /**
+   * A stored send couldn't be rebroadcast this run (settleStoredSends failed): the pay step only
+   * follows transfers in flight; no claim and nothing new is signed (fix round 1, a).
+   */
+  followOnly?: boolean;
+  /** The freeze check (default traction.ts readyToFreeze); replaced in tests. */
+  ready?: typeof readyToFreeze;
 };
+
+/** Freeze-side steps failing in a row after which the round waits on the owner (as PAY_FAILED_RUNS). */
+export const FREEZE_FAILED_RUNS = PAY_FAILED_RUNS;
+
+/**
+ * Ruling 18: a round with flagged entries waits on the owner (503) once per round. Marks it
+ * notified and returns true only the first time.
+ */
+const flaggedFirstTime = async (roundKey: string, now: Date) =>
+  (
+    await sql()`
+      UPDATE bonus_rounds SET flagged_notified_at = ${now}
+      WHERE round_key = ${roundKey} AND flagged_notified_at IS NULL RETURNING round_key`
+  ).length > 0;
 
 /**
  * Pays a round whose review has closed: switches it to 'paying' (the row lock a veto waits on, so a
@@ -279,17 +303,23 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
     // What the round still owes: every place not paid yet (one in flight still holds its WETH).
     const owed = amounts.reduce((s, x, i) => (rows.some((w) => w.slot === i && w.status === 'paid') ? s : s + x), 0n);
     let short: string | null = null;
-    if (owed > 0n && Date.now() < (d.deadline ?? Infinity)) {
+    if (owed > 0n && !d.followOnly && Date.now() < (d.deadline ?? Infinity)) {
       let balance = await d.rpc.balanceOf(t.token as Hex, account.address);
       if (balance < owed) {
         // Carry to T7: claim before paying (the sweep may have drawn on claimed round WETH only as
         // far as roundsCovered allows; the rest of the round may still sit in the FeeLocker).
+        // Only when the claim covers what is owed, or is itself worth 10x its gas (fix round 1, b).
         const available = await d.rpc.availableFees(account.address, t.token as Hex);
         if (available > 0n) {
           const data = encodeFunctionData({ abi: FEE_LOCKER_ABI, functionName: 'claim', args: [account.address, t.token as Hex] });
-          const gas = await d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data });
-          await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, d.deadline ?? Infinity);
-          balance = await d.rpc.balanceOf(t.token as Hex, account.address);
+          const [gas, fees] = await Promise.all([
+            d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data }),
+            d.rpc.fees(),
+          ]);
+          if (balance + available >= owed || worthIt(available, gas, fees.maxFeePerGas)) {
+            await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, d.deadline ?? Infinity);
+            balance = await d.rpc.balanceOf(t.token as Hex, account.address);
+          }
         }
         if (balance < owed)
           short = `The payout wallet ${account.address} holds ${formatUnits(balance, t.decimals)} ${t.symbol}, less than builder bonus round ${roundKey} still owes (${formatUnits(owed, t.decimals)}). ${TOP_UP}`;
@@ -323,10 +353,11 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
         deadline: d.deadline,
         now,
         ...(d.listed && { listed: d.listed }),
-        followOnly: short !== null,
+        followOnly: short !== null || Boolean(d.followOnly),
       },
     );
     if (short) r = { done: false, note: [r.note, short].filter(Boolean).join(' ') };
+    else if (d.followOnly && !r.done) r = { done: false, note: r.note ?? STORED_SEND_WAIT };
   } catch (err) {
     const [row] = await sql()<{ pay_failures: number }[]>`
       UPDATE bonus_rounds SET note = ${PAY_FAILED}, pay_failures = pay_failures + 1
@@ -357,8 +388,9 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
  * The cron's rounds step (bonus-ledger.ts runBonusLedger runs it under its lease, after the claims
  * and before the sweep): one step for every ended round not yet paid or empty, oldest end first,
  * until the deadline. One round's failure never stops the others. `needs_owner` lists the rounds
- * waiting on the owner: a pay note that does (needsOwner), PAY_FAILED_RUNS failed pay steps in a
- * row, or flagged entries while the review is open. `d.only` limits it to these round keys.
+ * waiting on the owner: a pay note that does (needsOwner), PAY_FAILED_RUNS failed pay steps or
+ * FREEZE_FAILED_RUNS failed freeze steps in a row, or flagged entries (once per round, Ruling 18:
+ * `flagged_notified_at`; the review page keeps showing them). `d.only` limits it to these round keys.
  */
 export async function advanceRounds(account: LocalAccount, d: Deps) {
   const now = d.now ?? new Date();
@@ -373,20 +405,34 @@ export async function advanceRounds(account: LocalAccount, d: Deps) {
     if (Date.now() >= (d.deadline ?? Infinity)) break;
     try {
       if (x.state === 'open') {
-        const f = await readyToFreeze(x.round_key, now);
-        if (!f.ready) {
+        let f: Awaited<ReturnType<typeof readyToFreeze>>;
+        let r: Awaited<ReturnType<typeof freezeRound>> | null = null;
+        try {
+          f = await (d.ready ?? readyToFreeze)(x.round_key, now);
+          if (f.ready) r = await freezeRound(x.round_key, now, { weth: d.chain.weth, flagged: f.flagged });
+        } catch (err) {
+          // Fix round 1 (c): freeze-side failures in a row; FREEZE_FAILED_RUNS wait on the owner.
+          const [c] = await sql()<{ freeze_failures: number }[]>`
+            UPDATE bonus_rounds SET freeze_failures = freeze_failures + 1 WHERE round_key = ${x.round_key}
+            RETURNING freeze_failures`.catch(() => []);
+          console.error('[bonus] freeze', x.round_key, err);
+          out.push({ round: x.round_key, step: 'error', note: STEP_FAILED, freeze_failures: c?.freeze_failures ?? 0 });
+          if ((c?.freeze_failures ?? 0) >= FREEZE_FAILED_RUNS) needs_owner.push(x.round_key);
+          continue;
+        }
+        await sql()`UPDATE bonus_rounds SET freeze_failures = 0 WHERE round_key = ${x.round_key} AND freeze_failures <> 0`;
+        if (!r) {
           out.push({ round: x.round_key, step: 'freeze-wait', pending: f.pending });
           continue;
         }
-        const r = await freezeRound(x.round_key, now, { weth: d.chain.weth, flagged: f.flagged });
         out.push({ round: x.round_key, step: r.state === 'review' || r.state === 'empty' ? r.state : 'busy', ...r });
-        if (r.state === 'review' && f.flagged.length > 0) needs_owner.push(x.round_key);
+        if (r.state === 'review' && f.flagged.length > 0 && (await flaggedFirstTime(x.round_key, now))) needs_owner.push(x.round_key);
         continue;
       }
       if (x.state === 'review' && x.review_until && now < x.review_until) {
         const flagged = x.terms?.flagged ?? [];
         out.push({ round: x.round_key, step: 'wait', flagged });
-        if (flagged.length > 0) needs_owner.push(x.round_key);
+        if (flagged.length > 0 && (await flaggedFirstTime(x.round_key, now))) needs_owner.push(x.round_key);
         continue;
       }
       const r = await payRound(x.round_key, account, d, now);
