@@ -308,6 +308,14 @@ apps/frontend/
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
       +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
                                review, claim-before-pay, pay per place, rest to the Safe, empty)
+    bonus-lifecycle.anvil.test.ts  v2.5 Task 10 e2e: the whole builder bonus lifecycle from
+                               record_submission to the WETH transfer, through cronPost/runCron on
+                               anvil + Postgres (mock tokens.fun, raw GitHub and Blockscout on one
+                               local HTTP server; GitHub API, probe, proof pages, sanctions
+                               injected): coin vs no coin, proof re-check, fees over 2 days (tokens.fun
+                               batch collect, EarnKit's own near-end collect), scoring with no
+                               onchain users, freeze, veto, payout split, post-end sweep, winner
+                               alert, idempotent re-run. Skips without BONUS_ANVIL_URL/DATABASE_URL
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
@@ -400,6 +408,13 @@ apps/frontend/
                                 MINI and the real sanctions oracle; historic-state reads (nonce,
                                 code, getNonce at a past block; the public RPC too);
                                 `pnpm campaign:fork-check`
+    bonus-fork-check.mts        v2.5 Task 10: the bonus ledger against Clanker v4's real Base
+                                contracts, read-only (never signs): a real collect receipt decoded
+                                by bonusDeposits and cross-checked (tokenRewards, ClaimedRewards
+                                rewards, storeLogs topic filter); collectRewards on each LP locker
+                                and claim on the FeeLocker simulated with eth_call; skips without
+                                BASE_RPC_URL or network; BONUS_FORK_TX pins the receipt;
+                                `pnpm bonus:fork-check`
     campaign.mts                golive|rank|payout (dry run)|veto-link (EarnKit's own campaigns) and
                                 fallback propose|execute|veto, refund, sync [<ref>] (sponsor
                                 campaigns; local only; sync reads the chain for one ref or sweeps
@@ -423,7 +438,8 @@ campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDI
 anvil + Postgres, see `contracts/README.md` and `sponsor-e2e.mts`'s header for the exact env),
 `pnpm token:e2e` (v2.3 token flows against a local Postgres and a mock tokens.fun; env in
 `token-e2e.mts`'s header), `pnpm campaign:e2e` and `pnpm campaign:fork-check` (v2.4; env in each
-script's header).
+script's header), `pnpm bonus:fork-check` (v2.5; read-only; skips without `BASE_RPC_URL`). The v2.5
+bonus e2e is a test file: `BONUS_ANVIL_URL=<local anvil, --chain-id 8453> DATABASE_URL=<local> pnpm test`.
 Railway runs `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every deploy.
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
 `GITHUB_TOKEN` (one server-side read-only token for repo matching), `TOKENSFUN_DEPLOY_API_KEY`
@@ -432,7 +448,11 @@ Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod o
 `BASE_RPC_URL` (optional; default public Base RPC; must serve historic state for scoring),
 `CRON_SECRET` (32+ characters; also the GitHub Actions secret), `ADMIN_VETO_SECRET` (32+
 characters; also in the owner's shell for veto-link), `CAMPAIGN_PAYOUT_PRIVATE_KEY` (the campaign
-payout wallet: the only key on Railway), `EARNKIT_BUILDER_CODE` (optional, default `earnkit`).
+payout wallet: the only key on Railway; v2.5: also the builder bonus wallet, which pays WETH and
+gas), `EARNKIT_BUILDER_CODE` (optional, default `earnkit`),
+`BONUS_INDEX_START_BLOCK` (v2.5: the Base block the bonus index starts from when it has no cursor;
+set it at merge time, else the first run reads 2 days back), `EARNKIT_BONUS_WALLET` (optional
+v2.5: the bonus wallet's address for traction's exclusions; default derived from the payout key).
 Test only: `EARNKIT_BLOCKSCOUT_URL` and `EARNKIT_OWNERSHIP_BASE_URL` (honored only when NODE_ENV is
 development or test).
 
