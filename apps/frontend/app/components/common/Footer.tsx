@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Wordmark } from '../ui/Logo';
-import { X } from '@/app/lib/links';
+import { X } from '../../lib/links';
 
 export default function Footer() {
   return (
@@ -28,7 +28,13 @@ export default function Footer() {
       </div>
 
       <p className="mt-6 text-center font-funnel-sans text-sm text-ek-blue-soft">
-        &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved.
+        &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved. ·{' '}
+        <Link
+          href="/policy"
+          className="underline-offset-4 transition-colors hover:text-ek-white hover:underline"
+        >
+          Policy
+        </Link>
       </p>
     </footer>
   );
