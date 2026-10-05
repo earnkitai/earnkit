@@ -90,7 +90,19 @@ apps/frontend/
                                stores repo_key (unique index projects_campaign_repo_key) and
                                live_key (not unique: shared ones are flagged, sponsor.ts
                                sameLiveLink) and the repo's GitHub dates;
-                               remembers installations.payout_wallet)
+                               remembers installations.payout_wallet); v2.5 §3: non-campaign
+                               programs with submission_proof check external_submission_url via
+                               submission-proof.ts (never fails the entry; stores
+                               submission_proof_url/submission_proof_ok_at, a bonus_note on
+                               failure); bonusEligible (pure: coin_address and
+                               submission_proof_ok_at both set, never stored)
+    submission-proof.ts(+test) v2.5 §3 builder bonus eligibility #3: proofProblem(program, url,
+                               repoUrl, liveUrl, deps) checks the url is https, on
+                               submission_proof.host, path matching path_pattern, then fetches it
+                               via safeFetchText (safe-fetch.ts LARGE_PAGE_MAX_BYTES, 512 KB) and
+                               looks for the entry's normalized repo link or live host, case- and
+                               form-insensitive; any fetch failure reads as "couldn't check yet;
+                               we retry daily" (never throws)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile (payout_wallet; plus creator_wallet and token lines
@@ -123,7 +135,9 @@ apps/frontend/
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
                                mapped/NAT64/6to4 are refused), connects to the vetted IP with SNI,
                                cert check and Host on the hostname (pinnedLookup), no redirects, 5 s,
-                               4 KB; resolver and transport injectable. safeProbe: the token gate's
+                               4 KB (LARGE_PAGE_MAX_BYTES, 512 KB, for a whole HTML page like a
+                               submission proof: passed explicitly, the 4 KB default is unchanged
+                               for every other caller); resolver and transport injectable. safeProbe: the token gate's
                                live-link check (any 2xx, body unread, one same-site redirect,
                                User-Agent EarnKit-linkcheck/1)
     sponsor-identity.ts(+test) pure: sponsorLabel ("Sponsored · unverified" / "Sponsored · verified

@@ -1,8 +1,10 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   answersOf,
+  bonusEligible,
   campaignEntryProblems,
+  recordSubmission,
   submissionDataProblem,
   OTHER_VALUE_MAX,
   entryRules,
@@ -10,11 +12,14 @@ import {
   selfEntryProblem,
 } from './projects';
 import { sponsorProgramFile } from './sponsor-rules';
+import { ProgramFile } from './program-file';
 import type { SubmissionRequirement } from './program-file';
 import { privateKeyToAccount } from 'viem/accounts';
 import { EntryError } from './campaigns';
 import { setSanctionsOracle } from './sanctions';
 import { entryMessage } from './entry-proof';
+import { upsertProgram } from './programs';
+import { sql } from './db';
 import type { ProgramRow } from './programs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -279,4 +284,135 @@ test('fix minor: a missing repo is reported with the other missing answers', asy
   } finally {
     setSanctionsOracle(null);
   }
+});
+
+// ---- v2.5 §3: submission proof for the builder bonus (DB) ------------------------------------
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('bonusEligible: a coin and a checked-out proof, both required', () => {
+  assert.equal(bonusEligible({ coin_address: null, submission_proof_ok_at: null }), false);
+  assert.equal(bonusEligible({ coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: null }), false);
+  assert.equal(bonusEligible({ coin_address: null, submission_proof_ok_at: new Date() }), false);
+  assert.equal(bonusEligible({ coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date() }), true);
+});
+
+/** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
+function proofProgramFile(id: string, overrides: Record<string, unknown> = {}) {
+  const f = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
+  );
+  return ProgramFile.parse({ ...f, id, ...overrides });
+}
+
+async function freshInstallation() {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`proof-test-${process.pid}-${Date.now()}-${Math.random()}`})
+    RETURNING id`;
+  return id;
+}
+
+const proofProject = (n: number) => ({
+  name: `Proof Project ${n}`,
+  description: 'A tiny app',
+  repo_url: `https://github.com/alice/proof-${n}`,
+  live_url: `https://proof-${n}.example`,
+});
+
+test('record_submission (v2.5 §3): a checked-out proof stores ok_at and no bonus_note', dbTest, async () => {
+  const program = proofProgramFile(`t5-ok-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(1);
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/555',
+    } as never,
+    installationId,
+    { fetchProof: async () => `See the repo: ${project.repo_url}` },
+  );
+  assert.equal(result.recorded, true);
+  assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null; coin_address: string | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at, coin_address FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_proof_url, 'https://dorahacks.io/buidl/555');
+  assert.ok(row.submission_proof_ok_at instanceof Date);
+  // No coin launched in this call: not yet bonus-eligible even though the proof checked out.
+  assert.equal(bonusEligible(row), false);
+});
+
+test('record_submission (v2.5 §3): a failed proof never fails the entry; it notes what to fix', dbTest, async () => {
+  const program = proofProgramFile(`t5-fail-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(2);
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/556',
+    } as never,
+    installationId,
+    { fetchProof: async () => 'a page about something else entirely' },
+  );
+  assert.equal(result.recorded, true);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /Builder bonus not available yet/);
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_proof_url, 'https://dorahacks.io/buidl/556');
+  assert.equal(row.submission_proof_ok_at, null);
+});
+
+test('record_submission (v2.5 §3): no external_submission_url notes it, still records the entry', dbTest, async () => {
+  const program = proofProgramFile(`t5-nourl-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(3);
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+    } as never,
+    installationId,
+  );
+  assert.equal(result.recorded, true);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No external_submission_url was given/);
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_proof_url, null);
+  assert.equal(row.submission_proof_ok_at, null);
+});
+
+test('record_submission (v2.5 §3): a program without submission_proof never checks or notes anything', dbTest, async () => {
+  const program = proofProgramFile(`t5-noproof-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(4);
+  let fetchCalled = false;
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/557',
+    } as never,
+    installationId,
+    { fetchProof: async () => ((fetchCalled = true), 'x') },
+  );
+  assert.equal(result.recorded, true);
+  assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
+  assert.equal(fetchCalled, false);
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_proof_url, null);
+  assert.equal(row.submission_proof_ok_at, null);
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

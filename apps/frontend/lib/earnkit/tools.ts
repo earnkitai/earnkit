@@ -367,8 +367,9 @@ export const tools = {
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
     const parsed = RecordSubmissionInput.parse(input);
-    // Every attempt reads GitHub, Base and the explorer: bounded per hour. Only a recorded entry
-    // uses one of the 20 a day (v2.4 §2).
+    // Every attempt reads GitHub, Base and the explorer, and (v2.5 §3, external programs) the
+    // submission proof page: bounded per hour. Only a recorded entry uses one of the 20 a day
+    // (v2.4 §2).
     await enforce(
       'entryChecks',
       ctx.installationId,
