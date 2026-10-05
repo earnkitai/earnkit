@@ -27,8 +27,15 @@ export class GitHubError extends Error {
   }
 }
 
-/** GET from the GitHub API with EarnKit's token; `accept` for media types like star+json. */
-export async function gh<T>(path: string, accept = 'application/vnd.github+json'): Promise<T> {
+/**
+ * GET from the GitHub API with EarnKit's token; `accept` for media types like star+json;
+ * `onResponse` sees every response first (traction.ts reads x-ratelimit-remaining from it).
+ */
+export async function gh<T>(
+  path: string,
+  accept = 'application/vnd.github+json',
+  onResponse?: (res: Response) => void,
+): Promise<T> {
   const token = process.env.GITHUB_TOKEN;
   const res = await fetch(`${API}${path}`, {
     headers: {
@@ -38,6 +45,7 @@ export async function gh<T>(path: string, accept = 'application/vnd.github+json'
     },
     signal: AbortSignal.timeout(15_000),
   });
+  onResponse?.(res);
   if (res.status === 404)
     throw new GitHubError(
       `GitHub: ${path.split('?')[0]} not found (or private)`,

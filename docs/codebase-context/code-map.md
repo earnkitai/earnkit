@@ -95,7 +95,10 @@ apps/frontend/
                                submission-proof.ts (never fails the entry; stores
                                submission_proof_url/submission_proof_ok_at, a bonus_note on
                                failure); bonusEligible (pure: coin_address and
-                               submission_proof_ok_at both set, never stored)
+                               submission_proof_ok_at both set, not a later same-repo entry; never
+                               stored; SQL twin traction.ts eligibleSql); Ruling 13: stores
+                               bonus_repo_key and, via verifiedBonusContracts, an external entry's
+                               verified contracts (+ payout_wallet as creator_wallet)
     submission-proof.ts(+test) v2.5 §3 builder bonus eligibility #3: proofProblem(program, url,
                                repoUrl, liveUrl, deps) checks the url is https, on
                                submission_proof.host, path matching path_pattern, then fetches it
@@ -279,8 +282,10 @@ apps/frontend/
                                indexedThrough, runBonusLedger (the cron step)
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
-                               liveRatio (live_checks), scoreRound (daily cache in bonus_scores),
-                               scoreOpenRounds, canFreeze/readyToFreeze (for Task 7's freeze)
+                               liveRatio (live_checks), dbStore (bonus_commits, github_users),
+                               GitHubBudget, CLANKER_ADDRESSES, scorableContracts, eligibleSql,
+                               resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
+                               scoreOpenRounds, canFreeze/readyToFreeze (+24 h escape, flagged)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS

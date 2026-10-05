@@ -253,8 +253,19 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe(
-            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase). It binds this program, repo, payout wallet and contract set.',
+            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase). It binds this program, repo, payout wallet and contract set. Other programs: the same, for `contracts` deployed by a wallet other than payout_wallet.',
           ),
+        contracts: z
+          .array(z.string())
+          .max(5)
+          .optional()
+          .describe(
+            "Other programs (not EarnKit campaigns), optional: the project's Base contracts (up to 5). Their real users count toward the builder bonus once verified: deployed by payout_wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming payout_wallet. Unverified ones are dropped with a note; the submission never fails.",
+          ),
+        payout_wallet: z
+          .string()
+          .optional()
+          .describe("Other programs, with contracts: the builder's Base wallet that deployed them (also used as the coin's creator wallet)."),
       },
     },
     (input) => run(ctx, 'record_submission', input),
