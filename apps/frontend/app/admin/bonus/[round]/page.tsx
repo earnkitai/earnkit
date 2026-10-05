@@ -8,6 +8,7 @@ import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
 import type { Signals } from '@/lib/earnkit/traction';
 import { VETO_ERRORS, bonusVetoKey } from '@/lib/earnkit/veto';
 import { secretMatches } from '@/lib/earnkit/http';
+import { shownUrl } from '@/lib/earnkit/untrusted-text';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { robots: { index: false, follow: false } };
@@ -36,7 +37,7 @@ export default async function BonusReviewPage({
   params: Promise<{ round: string }>;
   searchParams: Promise<{ key?: string; removed?: string; error?: string }>;
 }) {
-  const round = decodeURIComponent((await params).round);
+  const raw = (await params).round;
   const { key, removed, error } = await searchParams;
   try {
     await enforce('veto', clientIp(await headers()), VETO_ERRORS['rate-limited']);
@@ -49,6 +50,13 @@ export default async function BonusReviewPage({
         </p>
       </div>
     );
+  }
+  // After the rate limit: a malformed escape (URIError) is a plain 404.
+  let round: string;
+  try {
+    round = decodeURIComponent(raw);
+  } catch {
+    notFound();
   }
   const expected = bonusVetoKey(round);
   if (expected === null || !secretMatches(key, expected)) notFound();
@@ -114,6 +122,9 @@ export default async function BonusReviewPage({
               const f = byId.get(x.project_id);
               const s = f?.signals;
               const place = places.get(x.project_id);
+              // Stored URLs are untrusted: https-only canonical, else no link at all.
+              const live = shownUrl(f?.live_url);
+              const repo = shownUrl(f?.repo_url);
               return (
                 <tr key={x.id} className="border-t border-ek-navy align-top">
                   <td className="py-2">{x.rank}</td>
@@ -124,8 +135,8 @@ export default async function BonusReviewPage({
                     {x.wallet ? null : ': no wallet, never paid'}
                     {x.tx_hash ? <div className="break-all text-xs">{x.status === 'paid' ? 'paid' : 'sending'} {x.tx_hash}</div> : null}
                     <div className="text-xs">
-                      {f?.live_url ? <a href={f.live_url} target="_blank" rel="noopener noreferrer" className="underline">live</a> : null}{' '}
-                      {f?.repo_url ? <a href={f.repo_url} target="_blank" rel="noopener noreferrer" className="underline">code</a> : null}
+                      {live ? <a href={live} target="_blank" rel="noopener noreferrer" className="underline">live</a> : null}{' '}
+                      {repo ? <a href={repo} target="_blank" rel="noopener noreferrer" className="underline">code</a> : null}
                     </div>
                   </td>
                   <td className="py-2">{x.score.toFixed(2)}</td>

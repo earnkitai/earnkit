@@ -513,3 +513,7 @@ CREATE TABLE IF NOT EXISTS bonus_payouts (
   UNIQUE (round_key, project_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS bonus_payouts_one_per_place ON bonus_payouts (round_key, slot) WHERE tx_hash IS NOT NULL;
+-- Fix round 1 (Ruling 18): a round with flagged entries waits on the owner (503) once; when.
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS flagged_notified_at timestamptz;
+-- Freeze-side steps that failed in a row (6 make the cron answer 503); a freeze step that completes resets it.
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS freeze_failures integer NOT NULL DEFAULT 0;

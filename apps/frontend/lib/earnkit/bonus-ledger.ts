@@ -187,7 +187,7 @@ export type BonusDeps = {
    * The builder bonus rounds step (Task 7: freeze, review, pay), run under the ledger's lease after
    * the claims and before the sweep. The cron passes bonus-payout.ts advanceRounds; none: skipped.
    */
-  rounds?: (account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) => Promise<unknown>;
+  rounds?: (account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain; followOnly: boolean }) => Promise<unknown>;
 };
 
 /** Blocks behind the head the index stays (no reorg reaches them): tokens.fun's Base setting. */
@@ -709,7 +709,9 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     } else out.claim = out.collect = 'waiting on a stored send';
     // Task 7: rounds freeze, review and pay after the claims (claimed round WETH is there to pay)
     // and before the sweep (which never takes unpaid round money: roundsCovered).
-    if (deps.rounds) await step('rounds', () => deps.rounds!(account, d));
+    // Fix round 1 (a): with a stored send not rebroadcast, the rounds only follow transfers in flight.
+    const settled = out.claim !== 'waiting on a stored send';
+    if (deps.rounds) await step('rounds', () => deps.rounds!(account, { ...d, followOnly: !settled }));
     await step('sweep', () => sweepToSafe(account, d));
     return out;
   }, leaseMs);
