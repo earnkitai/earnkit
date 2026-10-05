@@ -19,6 +19,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   verified_at: null, existing_work: 'allowed', token_policy: 'encouraged', setup: [], each_time: [],
   summary: 'S', tag: null, chains: ['base'], campaign, created_at: new Date(), opened_at: null, rules: [],
   source: 'file', max_award_usd: null, submission_requirements: [],
+  ideas: [], submission_proof: null,
 });
 const earnkitCampaign = {
   kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },
