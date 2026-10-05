@@ -27,8 +27,8 @@
 - **First message (v2.5 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
   to $X in open money" ($X = the per-winner `max_award_usd` of each program the builder's repos
   fit, once each; unknown amounts count 0 and show their own words). Program tables carry a
-  "Builder bonus" column: the open round's pool (`roundPoolsWei`, one batched read; empty until the bonus
-  ledger), "opens with your entry", or "not available" without a `submission_proof`; a note under
+  "Builder bonus" column: the open round's pool (`roundPoolsWei`, one grouped read of the bonus
+  ledger, open rounds only), "opens with your entry", or "not available" without a `submission_proof`; a note under
   them says EarnKit isn't affiliated with any organizer (earnkit.com/policy). With no repo it
   shows "Open money right now:" plus curated `ideas` (one line per program, 2 each, 6 in all) and offers to build one. The EarnKit
   campaigns table shows only while a campaign is open.
@@ -660,6 +660,53 @@ during the build); plan: `v2.4-money-first-plan.md`.
   an account that only used other nonce keys before the start reads 0.
 - **Shared wallets count for each entry.** A user of several entries counts for each; the review
   shows the overlap for the owner to judge.
+
+## Builder bonus ledger (v2.5 §3, Ruling 5)
+
+- **Wallet.** The payout wallet (`CAMPAIGN_PAYOUT_PRIVATE_KEY`) is also the builder bonus wallet:
+  every coin launched through EarnKit from v2.5 on pays it 2000 bps of its fees, in WETH, through
+  Clanker's FeeLocker. `projects.coin_address` (set when tokens.fun confirms a launch) is how a
+  deposit is matched to an entry; pre-v2.5 coins keep NULL.
+- **Rounds** (`bonus-rounds.ts`): a windowed program is one round (`starts_at` inclusive,
+  `ends_at` exclusive), a rolling program has UTC-month rounds `<id>:YYYY-MM`. A deposit goes to
+  the round open at its block time (`bookingFor`), else to the Safe: no coin, not an EarnKit coin,
+  no open round, a program without `submission_proof`, a closed rolling program, or a round no
+  longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
+  rounds only.
+- **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
+  `bonus-ledger` lease; skipped quietly without the key or off Base mainnet):
+  1. *Index.* `getLogs` of FeeLocker `StoreTokens` with `feeOwner` = bonus wallet and `token` =
+     WETH (indexed topics), from `bonus_cursor` up to 30 blocks behind the head, in adaptive
+     ranges (escrow.ts `logError` rules), 50 calls per run at most. Each deposit's coin is the
+     `ClaimedRewards(token)` of the locker that sent it (`StoreTokens.sender`) that comes **next**
+     in the same receipt. This is tokens.fun's onchain-verified order (deposits, then
+     `FeesSwapped`, then `ClaimedRewards`). `bonus_ledger` is idempotent on `(tx_hash,
+     log_index)`; the cursor moves only after a range is fully booked. Every Safe booking is
+     logged with its reason.
+  2. *Collect.* tokens.fun's cron collects every coin; EarnKit sends `collectRewards(coin)` itself
+     only for an EarnKit coin in its round's last 24 h with no deposit seen, and no EarnKit collect,
+     in 12 h, through the first locker that simulates cleanly, and only if the coin's
+     `rewardRecipients` include the bonus wallet.
+  3. *Claim.* `claim(bonus wallet, WETH)` then `claim(Safe, WETH)` when `availableFees` is at
+     least 10x the estimated gas cost (`worthIt`).
+  4. *Sweep.* Safe-booked, unswept WETH goes from the bonus wallet to the Safe when it is at
+     least 10x the gas and the wallet holds it. The rows are reserved for one `bonus_sweeps` row
+     (at most one unfinished), and v2.4's `payWinner` pays it through `sweepStore`: signed and
+     stored before broadcast, the same bytes resent after a crash, `MANUAL_CHECK` when it can't
+     be proven dead. Paid, every reserved row gets `swept_tx`. A `MANUAL_CHECK` sweep adds
+     `bonus-ledger` to the cron's `needs_owner` (503).
+- **Freeze rule for the round lifecycle (Task 6):** freeze a round only once
+  `indexedThrough().time` is past its `ends_at`, or late deposits still being indexed would go
+  to the Safe (`round … is frozen`).
+- **Runbook: a stuck bonus sweep (`MANUAL_CHECK`).** Same steps as a stuck payout, on
+  `bonus_sweeps` (`tx_hash`, `raw_tx`, `stale_at`). Not paid: `UPDATE bonus_sweeps SET status =
+  NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL WHERE id = <id>` (re-signed for the same
+  reserved rows). Paid by another tx: set `status = 'paid'`, `tx_hash = '<hash>'`, `raw_tx = NULL`,
+  then `UPDATE bonus_ledger SET swept_tx = '<hash>' WHERE sweep_id = <id>`.
+- **Tests:** `bonus-rounds.test.ts`, `bonus-ledger.test.ts` (pure, plus DB against a fake chain),
+  and `bonus-ledger.anvil.test.ts` (real logs on anvil with `contracts/test/mocks/BonusMocks.sol`;
+  needs `BONUS_ANVIL_URL` = an anvil started with `--chain-id 8453`). The three files hold one
+  Postgres advisory lock (`fixtures/bonus-db-lock.ts`) because the ledger's tables are singletons.
 
 ## Abuse limits and response headers (v2.2 §5)
 

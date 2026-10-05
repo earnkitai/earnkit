@@ -1,0 +1,508 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import {
+  BASE_BONUS,
+  CLAIMED_REWARDS,
+  CONFIRMATIONS,
+  FEE_LOCKER_ABI,
+  LOCKER_ABI,
+  STORE_TOKENS,
+  bonusDeposits,
+  bookDeposit,
+  claimFees,
+  collectNearEnd,
+  indexDeposits,
+  indexedThrough,
+  runBonusLedger,
+  scanForward,
+  sweepToSafe,
+  worthIt,
+  type BonusRpc,
+  type RawLog,
+} from './bonus-ledger';
+import { sql } from './db';
+import { holdBonusDbLock } from './fixtures/bonus-db-lock';
+import { deployToken } from './tokens';
+import { runCron } from './cron';
+
+const C = BASE_BONUS;
+const [NEW_LOCKER, OLD_LOCKER] = C.lockers;
+const ACCOUNT = privateKeyToAccount(`0x${'4'.repeat(64)}`);
+const BONUS = ACCOUNT.address.toLowerCase() as Hex;
+const CREATOR = '0x1111111111111111111111111111111111111111';
+const MINI = '0x2222222222222222222222222222222222222222';
+const OTHER_TOKEN = '0x3333333333333333333333333333333333333333';
+const COIN_A = '0xaaaa00000000000000000000000000000000000a';
+const COIN_B = '0xbbbb00000000000000000000000000000000000b';
+
+const store = (logIndex: number, owner: string, amount: bigint, o: { sender?: string; token?: string; address?: string } = {}): RawLog => ({
+  address: o.address ?? C.feeLocker,
+  topics: encodeEventTopics({
+    abi: [STORE_TOKENS],
+    eventName: 'StoreTokens',
+    args: { sender: (o.sender ?? NEW_LOCKER) as Hex, feeOwner: owner as Hex, token: (o.token ?? C.weth) as Hex },
+  }) as Hex[],
+  data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [123456789n, amount]),
+  logIndex,
+});
+const claimed = (logIndex: number, coin: string, locker: string = NEW_LOCKER): RawLog => ({
+  address: locker,
+  topics: encodeEventTopics({ abi: [CLAIMED_REWARDS], eventName: 'ClaimedRewards', args: { token: coin as Hex } }) as Hex[],
+  data: encodeAbiParameters(
+    [{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256[]' }, { type: 'uint256[]' }],
+    [0n, 0n, [], []],
+  ),
+  logIndex,
+});
+
+// ---- pure ----
+
+test('bonusDeposits: only the bonus wallet WETH deposits from the FeeLocker, with the amount (not the balance)', () => {
+  const logs = [
+    store(1, C.safe, 3000n),
+    store(2, CREATOR, 4000n),
+    store(3, MINI, 1000n),
+    store(4, BONUS, 2000n),
+    store(5, BONUS, 77n, { token: OTHER_TOKEN }), // a non-WETH bucket
+    store(6, BONUS, 999n, { address: '0x9999999999999999999999999999999999999999' }), // same topic, not the FeeLocker
+    claimed(7, COIN_A),
+  ];
+  assert.deepEqual(bonusDeposits(logs, ACCOUNT.address), [{ logIndex: 4, amount: 2000n, locker: NEW_LOCKER, coin: COIN_A }]);
+});
+
+test('bonusDeposits on a real Base receipt (tokens.fun fixture): topic order, amounts, and the coin from the NEXT ClaimedRewards', () => {
+  const fx = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'clanker-base-launch.json'), 'utf8')) as { logs: RawLog[] };
+  // Slot 1 of this coin (a pre-v2.5 3-slot coin) stands in for the bonus wallet.
+  const deps = bonusDeposits(fx.logs, '0x799a390464fa551a1d6e9f9e9fa94fd9737462f9');
+  assert.deepEqual(deps.map((x) => x.logIndex), [141, 154]);
+  assert.equal(deps[0].amount + deps[1].amount, 6080318486494776n, "tokens.fun's verified slot-1 sum");
+  for (const x of deps) {
+    assert.equal(x.coin, '0xb1eb360e83e46f2768c58a508d972ed55d7132be');
+    assert.equal(x.locker, OLD_LOCKER);
+  }
+  // Every deposit precedes its ClaimedRewards (log 158): a "preceding ClaimedRewards" rule finds none.
+  assert.ok(deps.every((x) => x.logIndex < 158));
+  assert.equal(bonusDeposits(fx.logs, C.safe).length, 2);
+});
+
+test('bonusDeposits: two coins collected in one transaction are each attributed to their own ClaimedRewards', () => {
+  const logs = [
+    store(10, C.safe, 30n),
+    store(11, BONUS, 20n),
+    claimed(12, COIN_A),
+    store(13, C.safe, 300n),
+    store(14, BONUS, 200n),
+    claimed(15, COIN_B),
+  ];
+  assert.deepEqual(
+    bonusDeposits(logs, BONUS).map((x) => [x.logIndex, x.coin]),
+    [[11, COIN_A], [14, COIN_B]],
+  );
+  // Two lockers interleaved: a deposit belongs to its own locker's next ClaimedRewards.
+  const mixed = [store(1, BONUS, 5n, { sender: OLD_LOCKER }), store(2, BONUS, 6n), claimed(3, COIN_B), claimed(4, COIN_A, OLD_LOCKER)];
+  assert.deepEqual(bonusDeposits(mixed, BONUS).map((x) => [x.logIndex, x.coin]), [[1, COIN_A], [2, COIN_B]]);
+  // Unsorted input is sorted by log index first.
+  assert.deepEqual(bonusDeposits([...logs].reverse(), BONUS).map((x) => x.coin), [COIN_A, COIN_B]);
+});
+
+test('bonusDeposits: no later ClaimedRewards from its locker, or an unknown sender, gives no coin', () => {
+  assert.deepEqual(bonusDeposits([claimed(1, COIN_A), store(2, BONUS, 9n)], BONUS), [
+    { logIndex: 2, amount: 9n, locker: NEW_LOCKER, coin: null },
+  ]);
+  assert.equal(bonusDeposits([store(1, BONUS, 9n, { sender: CREATOR }), claimed(2, COIN_A)], BONUS)[0].coin, null);
+  assert.equal(bonusDeposits([store(1, BONUS, 9n, { sender: OLD_LOCKER }), claimed(2, COIN_A)], BONUS)[0].coin, null, 'other locker');
+});
+
+test('worthIt: at least 10x the gas cost', () => {
+  assert.equal(worthIt(10n * 50_000n * 7n, 50_000n, 7n), true);
+  assert.equal(worthIt(10n * 50_000n * 7n - 1n, 50_000n, 7n), false);
+});
+
+test('scanForward: oldest first in 2,000-block ranges; shrinks on a range error; backs off on a rate limit; stops at maxCalls', async () => {
+  const ranges: [bigint, bigint][] = [];
+  let refused = false;
+  let limited = 0;
+  const r = await scanForward({
+    from: 100n,
+    to: 4_099n,
+    sleep: async () => {},
+    onRange: async (lo, hi) => {
+      if (!refused && hi - lo + 1n > 1_000n) {
+        refused = true;
+        throw new Error('eth_getLogs is limited to a 1,000 range');
+      }
+      if (lo === 1_100n && limited++ < 1) throw Object.assign(new Error('Too many requests'), { status: 429 });
+      ranges.push([lo, hi]);
+    },
+  });
+  assert.equal(r.next, 4_100n);
+  assert.deepEqual(ranges, [[100n, 1_099n], [1_100n, 2_099n], [2_100n, 3_099n], [3_100n, 4_099n]]);
+  const capped = await scanForward({ from: 0n, to: 10_000n, maxCalls: 2, onRange: async () => {} });
+  assert.equal(capped.next, 4_000n);
+  await assert.rejects(scanForward({ from: 0n, to: 10n, onRange: async () => { throw new Error('boom'); } }), /boom/);
+});
+
+// ---- DB-gated, against a fake chain ----
+
+const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+holdBonusDbLock();
+
+type Tx = { hash: Hex; block: bigint; logs: RawLog[] };
+/** An in-memory chain: receipts by block, StoreTokens filtered like getLogs' indexed topics, and sends. */
+function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balance?: bigint; gas?: bigint; maxFee?: bigint } = {}) {
+  const txs: Tx[] = [];
+  const state = {
+    head: o.head ?? 10_000n,
+    available: { ...(o.available ?? {}) } as Record<string, bigint>,
+    balance: o.balance ?? 0n,
+    sent: [] as Hex[],
+    mined: new Map<Hex, 'success' | 'reverted'>(),
+    getLogsCalls: [] as [bigint, bigint][],
+    receiptReads: 0,
+    broadcastFails: 0,
+    recipients: [BONUS] as string[],
+    collectable: new Set<string>([`${NEW_LOCKER}:${COIN_A}`]),
+  };
+  const gas = o.gas ?? 50_000n;
+  const maxFee = o.maxFee ?? 1_000_000n; // 0.001 gwei: Base-like
+  const rpc: BonusRpc = {
+    getChainId: async () => 8453,
+    nonce: async () => state.sent.length,
+    finalizedNonce: async () => state.sent.length,
+    fees: async () => ({ maxFeePerGas: maxFee, maxPriorityFeePerGas: 1n }),
+    estimateGas: async () => gas,
+    receipt: async (h) => (state.mined.has(h) ? { status: state.mined.get(h)! } : null),
+    transaction: async (h) => state.sent.some((r) => keccak256(r) === h),
+    finalReceipt: async () => true,
+    broadcast: async (raw) => {
+      if (state.broadcastFails > 0) {
+        state.broadcastFails--;
+        throw new Error('connection reset');
+      }
+      if (state.sent.includes(raw)) return 'known';
+      state.sent.push(raw);
+      state.mined.set(keccak256(raw), 'success');
+      return 'sent';
+    },
+    waitFor: async (h) => (state.mined.has(h) ? { status: state.mined.get(h)! } : null),
+    balanceOf: async () => state.balance,
+    blockNumber: async () => state.head,
+    storeLogs: async (lo, hi, owner) => {
+      state.getLogsCalls.push([lo, hi]);
+      return txs
+        .filter((t) => t.block >= lo && t.block <= hi)
+        .flatMap((t) =>
+          bonusDeposits(t.logs, owner).map((x) => ({ txHash: t.hash, logIndex: x.logIndex, blockNumber: t.block })),
+        );
+    },
+    receiptLogs: async (h) => {
+      state.receiptReads++;
+      const t = txs.find((x) => x.hash === h)!;
+      return { blockNumber: t.block, logs: t.logs };
+    },
+    blockTime: async (b) => new Date(Date.UTC(2026, 9, 1) + Number(b) * 60_000), // one block a minute from Oct 1
+    availableFees: async (owner) => state.available[owner.toLowerCase()] ?? 0n,
+    canCollect: async (locker, coin) => state.collectable.has(`${locker.toLowerCase()}:${coin.toLowerCase()}`),
+    rewardRecipients: async () => state.recipients,
+  };
+  let n = 0;
+  const add = (block: bigint, logs: RawLog[]) => {
+    const hash = keccak256(`0x${(++n).toString(16).padStart(4, '0')}${block.toString(16).padStart(8, '0')}` as Hex);
+    txs.push({ hash, block, logs });
+    return hash;
+  };
+  return { rpc, state, add, timeOf: (b: bigint) => new Date(Date.UTC(2026, 9, 1) + Number(b) * 60_000) };
+}
+
+const PROG = 't4-ledger-prog';
+const PROG_NOPROOF = 't4-ledger-noproof';
+async function setup(ends = new Date('2026-10-08T00:00:00Z')) {
+  await cleanup();
+  for (const [id, proof] of [[PROG, { host: 'x.example' }], [PROG_NOPROOF, null]] as const)
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, starts_at, ends_at, submission_proof)
+      VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+        '2026-10-01T00:00:00Z', ${ends}, ${proof === null ? null : sql().json(proof)})`;
+  await sql()`
+    INSERT INTO projects (program_id, name, token_status, coin_address)
+    VALUES (${PROG}, 't4 a', 'launched', ${COIN_A}), (${PROG_NOPROOF}, 't4 b', 'launched', ${COIN_B})`;
+}
+async function cleanup() {
+  // Also any row another bonus test file left holding these coins (coin_address is unique).
+  await sql()`DELETE FROM bonus_ledger WHERE coin IN (${COIN_A}, ${COIN_B})`;
+  await sql()`UPDATE projects SET coin_address = NULL WHERE coin_address IN (${COIN_A}, ${COIN_B})`;
+  await sql()`DELETE FROM bonus_ledger WHERE round_key LIKE 't4-ledger%' OR coin IN (${COIN_A}, ${COIN_B}) OR coin IS NULL OR coin LIKE '0xdead%'`;
+  await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-ledger%'`;
+  await sql()`DELETE FROM bonus_sweeps`;
+  await sql()`DELETE FROM bonus_cursor`;
+  await sql()`DELETE FROM projects WHERE program_id LIKE 't4-ledger%'`;
+  await sql()`DELETE FROM programs WHERE id LIKE 't4-ledger%'`;
+  await sql()`DELETE FROM scoring_leases WHERE program_id = 'bonus-ledger'`;
+}
+const rows = () =>
+  sql()<{ tx_hash: string; log_index: number; coin: string | null; round_key: string | null; destination: string; amount_wei: string; swept_tx: string | null }[]>`
+    SELECT tx_hash, log_index, coin, round_key, destination, amount_wei, swept_tx FROM bonus_ledger ORDER BY block_number, log_index`;
+const quiet = () => {};
+
+test('index: books by coin and block time to the round or the Safe; idempotent; resumes from the cursor', db, async () => {
+  try {
+    await setup();
+    const f = fakeChain({ head: 9_000n + CONFIRMATIONS });
+    // Block 1000 = Oct 1 16:40 (inside the round); block 12000 would be after it.
+    const t1 = f.add(1_000n, [store(1, C.safe, 30n), store(2, BONUS, 20n), claimed(3, COIN_A), store(4, BONUS, 200n), claimed(5, COIN_B)]);
+    const t2 = f.add(2_500n, [store(7, BONUS, 5n), claimed(8, '0xdead00000000000000000000000000000000dead')]); // not EarnKit's
+    const t3 = f.add(4_200n, [claimed(1, COIN_A), store(2, BONUS, 6n)]); // no later ClaimedRewards
+    const t4 = f.add(8_000n, [store(1, BONUS, 40n), claimed(2, COIN_A)]);
+
+    // First run: 2 getLogs calls, so it stops after block 4,099.
+    const lines: string[] = [];
+    const r1 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 100n, maxCalls: 2, log: (l) => lines.push(l) });
+    assert.equal(r1.next, 4_100n);
+    assert.deepEqual(await indexedThrough(), { block: 4_099n, time: f.timeOf(4_099n) });
+    assert.deepEqual(f.state.getLogsCalls, [[100n, 2_099n], [2_100n, 4_099n]]);
+    // Resume: the cursor, not startBlock, decides where it goes on; only up to head - CONFIRMATIONS.
+    const r2 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, log: (l) => lines.push(l) });
+    assert.equal(r2.from, 4_100n);
+    assert.equal(r2.next, 9_001n);
+    assert.deepEqual(f.state.getLogsCalls.slice(2), [[4_100n, 6_099n], [6_100n, 8_099n], [8_100n, 9_000n]]);
+
+    const got = (await rows()).map((r) => [r.tx_hash, r.log_index, r.coin, r.round_key, r.destination, r.amount_wei]);
+    assert.deepEqual(got, [
+      [t1, 2, COIN_A, PROG, 'round', '20'],
+      [t1, 4, COIN_B, null, 'safe', '200'], // its program has no public submissions
+      [t2, 7, '0xdead00000000000000000000000000000000dead', null, 'safe', '5'],
+      [t3, 2, null, null, 'safe', '6'],
+      [t4, 1, COIN_A, PROG, 'round', '40'],
+    ]);
+    assert.equal(lines.length, 3, 'every Safe booking is logged');
+    assert.match(lines.join('\n'), /not an EarnKit coin/);
+    assert.match(lines.join('\n'), /no ClaimedRewards/);
+    const [round] = await sql()<{ state: string; starts_at: Date; ends_at: Date }[]>`SELECT state, starts_at, ends_at FROM bonus_rounds WHERE round_key = ${PROG}`;
+    assert.equal(round.state, 'open');
+    assert.equal(round.ends_at.toISOString(), '2026-10-08T00:00:00.000Z');
+
+    // A rerun from the start books nothing twice and reads no receipt again.
+    await sql()`DELETE FROM bonus_cursor`;
+    const reads = f.state.receiptReads;
+    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, log: quiet });
+    assert.equal((await rows()).length, 5);
+    assert.equal(f.state.receiptReads, reads);
+    // Nothing new: no getLogs call.
+    const calls = f.state.getLogsCalls.length;
+    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, log: quiet });
+    assert.equal(f.state.getLogsCalls.length, calls);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('booking: a deposit after the program end goes to the Safe; the same (tx, logIndex) twice is one row; a frozen round takes nothing', db, async () => {
+  try {
+    await setup();
+    const dep = { txHash: '0xt4booking', logIndex: 3, amount: 10n, coin: COIN_A, blockNumber: 1n };
+    assert.deepEqual(await bookDeposit({ ...dep, blockTime: new Date('2026-10-08T00:00:00Z') }, quiet), {
+      destination: 'safe',
+      roundKey: null,
+      inserted: true,
+    });
+    const again = await bookDeposit({ ...dep, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
+    assert.equal(again.inserted, false);
+    const mine = (await rows()).filter((r) => r.tx_hash === '0xt4booking');
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].destination, 'safe', 'the first booking stands');
+
+    assert.equal((await bookDeposit({ ...dep, logIndex: 4, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet)).destination, 'round');
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${PROG}`;
+    const lines: string[] = [];
+    const late = await bookDeposit({ ...dep, logIndex: 5, blockTime: new Date('2026-10-07T23:00:00Z') }, (l) => lines.push(l));
+    assert.equal(late.destination, 'safe');
+    assert.match(lines[0], /is frozen/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('claims: nothing below 10x gas; above it, claim(owner, WETH) for the bonus wallet then the Safe', db, async () => {
+  try {
+    await cleanup();
+    const cost = 50_000n * 1_000_000n;
+    const f = fakeChain({ available: { [BONUS]: 10n * cost - 1n, [C.safe]: 0n } });
+    const below = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    assert.equal(f.state.sent.length, 0, 'no transaction');
+    assert.match(below[0].result, /under 10x gas/);
+    assert.equal(below[1].result, 'nothing to claim');
+
+    f.state.available[BONUS] = 10n * cost;
+    f.state.available[C.safe] = 10n ** 18n;
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    assert.equal(f.state.sent.length, 2);
+    const calls = f.state.sent.map((raw) => {
+      const tx = parseTransaction(raw);
+      assert.equal(tx.to?.toLowerCase(), C.feeLocker);
+      return decodeFunctionData({ abi: FEE_LOCKER_ABI, data: tx.data! }).args!.map((a) => String(a).toLowerCase());
+    });
+    assert.deepEqual(calls, [[BONUS, C.weth], [C.safe, C.weth]]);
+    assert.ok(out.every((o) => o.result.startsWith('claim success')));
+  } finally {
+    await cleanup();
+  }
+});
+
+test('sweep: only the Safe bookings, once, at >= 10x gas; stored before broadcast; a lost broadcast resends the same bytes', db, async () => {
+  try {
+    await setup();
+    const cost = 50_000n * 1_000_000n;
+    const book = (i: number, amount: bigint, coin: string | null, at: string) =>
+      bookDeposit({ txHash: `0xt4sweep${i}`, logIndex: 0, amount, coin, blockNumber: BigInt(i), blockTime: new Date(at) }, quiet);
+    await book(1, 3n * cost, null, '2026-10-02T00:00:00Z'); // Safe
+    await book(2, 99n * cost, COIN_A, '2026-10-02T00:00:00Z'); // round: never swept
+    const f = fakeChain({ balance: 10n ** 18n });
+
+    assert.match((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).result, /under 10x gas/);
+    assert.equal(f.state.sent.length, 0);
+    await book(3, 7n * cost, COIN_A, '2026-10-09T00:00:00Z'); // after the end: Safe; total now 10x
+
+    // The wallet doesn't hold it yet (unclaimed): wait.
+    f.state.balance = 10n * cost - 1n;
+    assert.match((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).result, /waiting for a claim/);
+    f.state.balance = 10n ** 18n;
+
+    // The first broadcast is lost after the transfer was stored: the next run sends the same bytes.
+    f.state.broadcastFails = 1;
+    await assert.rejects(sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C }), /connection reset/);
+    const [stored] = await sql()<{ status: string; tx_hash: string; raw_tx: string; amount_wei: string }[]>`SELECT * FROM bonus_sweeps`;
+    assert.equal(stored.status, 'sending');
+    assert.equal(stored.amount_wei, (10n * cost).toString());
+    const r = await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C });
+    assert.equal(r.status, 'paid');
+    assert.deepEqual(f.state.sent, [stored.raw_tx], 'one transfer: the stored bytes');
+    const tx = parseTransaction(f.state.sent[0] as Hex);
+    assert.equal(tx.to?.toLowerCase(), C.weth);
+    assert.deepEqual(decodeFunctionData({ abi: erc20Abi, data: tx.data! }).args, ['0xc8A889577446153e28D42254B75238Ae31EC7D57', 10n * cost]);
+
+    const swept = (await rows()).filter((x) => x.tx_hash.startsWith('0xt4sweep'));
+    assert.deepEqual(swept.map((x) => [x.tx_hash, x.swept_tx]), [
+      ['0xt4sweep1', stored.tx_hash],
+      ['0xt4sweep2', null],
+      ['0xt4sweep3', stored.tx_hash],
+    ]);
+    // Idempotent: nothing left, nothing sent.
+    assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).result, 'nothing to sweep');
+    assert.equal(f.state.sent.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('collect: only an EarnKit coin in its round last 24h, quiet for 12h, through the locker that simulates, paying the bonus wallet', db, async () => {
+  const ends = new Date('2026-10-08T00:00:00Z');
+  try {
+    await setup(ends);
+    const f = fakeChain();
+    const at = (h: number) => new Date(ends.getTime() - h * 3_600_000);
+    const run = (now: Date) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now });
+
+    assert.deepEqual(await run(at(25)), [], 'not in the last 24 h');
+    // COIN_B's program has no public submissions: never collected.
+    await bookDeposit({ txHash: '0xt4collect', logIndex: 0, amount: 1n, coin: COIN_A, blockNumber: 1n, blockTime: at(14) }, quiet);
+    assert.deepEqual(await run(at(10)), [], 'a deposit seen 4 h earlier');
+    const out = await run(at(1));
+    assert.equal(out.length, 1);
+    assert.match(out[0].result, /^collect success/);
+    const tx = parseTransaction(f.state.sent[0]);
+    assert.equal(tx.to?.toLowerCase(), NEW_LOCKER, 'the locker that simulated');
+    assert.deepEqual(decodeFunctionData({ abi: LOCKER_ABI, data: tx.data! }).args.map((a) => String(a).toLowerCase()), [COIN_A]);
+    assert.deepEqual(await run(at(0.5)), [], 'EarnKit collected it 30 min earlier');
+
+    // A coin only the legacy locker holds, whose split doesn't pay the bonus wallet: no transaction.
+    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
+    await sql()`DELETE FROM bonus_ledger WHERE tx_hash = '0xt4collect'`;
+    f.state.collectable = new Set([`${OLD_LOCKER}:${COIN_A}`]);
+    f.state.recipients = [C.safe];
+    assert.deepEqual(await run(at(1)), [{ coin: COIN_A, result: 'its fees do not pay the bonus wallet' }]);
+    assert.equal(f.state.sent.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('runBonusLedger: skipped without the payout key or off Base mainnet; runs every step under one lease', db, async () => {
+  try {
+    await setup();
+    const f = fakeChain({ head: 1_100n + CONFIRMATIONS });
+    f.add(1_050n, [store(1, BONUS, 5n), claimed(2, COIN_A)]);
+    assert.deepEqual(await runBonusLedger({ account: null }), { skipped: "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent." });
+    const off = { ...f.rpc, getChainId: async () => 84532 };
+    assert.match(String((await runBonusLedger({ account: ACCOUNT, rpc: off })).skipped), /not Base mainnet/);
+    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, startBlock: 1_000n, now: new Date('2026-10-02T00:00:00Z'), log: quiet })) as Record<string, unknown>;
+    assert.equal((r.index as { round: number }).round, 1);
+    assert.ok(Array.isArray(r.collect) && Array.isArray(r.claim));
+    assert.deepEqual(r.sweep, { result: 'nothing to sweep' });
+    // A run already holding the lease: a second call is 'busy' and touches nothing.
+    await sql()`INSERT INTO scoring_leases (program_id, until) VALUES ('bonus-ledger', now() + interval '5 minutes')`;
+    assert.deepEqual(await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, log: quiet }), { skipped: 'busy' });
+    await sql()`DELETE FROM scoring_leases WHERE program_id = 'bonus-ledger'`;
+    // A failing step doesn't stop the next one.
+    const broken = { ...f.rpc, blockNumber: async () => { throw new Error('rpc down'); } };
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const r2 = (await runBonusLedger({ account: ACCOUNT, rpc: broken, now: new Date('2026-10-02T00:00:00Z'), log: quiet })) as Record<string, unknown>;
+      assert.equal(r2.index, 'failed');
+      assert.deepEqual(r2.sweep, { result: 'nothing to sweep' });
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('a confirmed launch stores the coin address (lowercase), which the ledger attributes deposits by', db, async () => {
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  try {
+    await setup();
+    const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('t4-launch') RETURNING id`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${PROG}, 't4 launch', ${inst.id}, 'https://github.com/x/t4launch')
+      RETURNING id`;
+    const coin = '0xAbCdEf0000000000000000000000000000000001';
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'T4', symbol: 'TFOUR', creatorWallet: CREATOR, image: null, repoUrl: 'https://github.com/x/t4launch', liveUrl: null },
+      { fetch: (async () => Response.json({ success: true, tokenAddress: coin, txHash: '0x1' })) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    const [row] = await sql()<{ coin_address: string }[]>`SELECT coin_address FROM projects WHERE id = ${p.id}`;
+    assert.equal(row.coin_address, coin.toLowerCase());
+  } finally {
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    await cleanup();
+    await sql()`DELETE FROM installations WHERE token_hash = 't4-launch'`;
+  }
+});
+
+test('runCron runs the bonus ledger step (with its deps under `only`) and reports it', db, async () => {
+  try {
+    await setup();
+    const f = fakeChain({ head: 1_100n + CONFIRMATIONS });
+    f.add(1_050n, [store(1, BONUS, 5n), claimed(2, COIN_A)]);
+    const out = await runCron({
+      now: new Date('2026-10-02T00:00:00Z'),
+      only: ['t4-ledger-none'],
+      deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
+    });
+    assert.equal((out.bonus as { index: { round: number } }).index.round, 1);
+    assert.deepEqual(out.needs_owner, []);
+    const without = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'] });
+    assert.equal(without.bonus, undefined, 'tests without bonus deps never reach a chain');
+  } finally {
+    await cleanup();
+  }
+});

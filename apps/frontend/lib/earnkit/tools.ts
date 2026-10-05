@@ -48,6 +48,7 @@ import {
 } from './token-launch';
 import { cleanProject, quoted } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
+import { roundPoolsWei as readRoundPools } from './bonus-rounds';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -61,12 +62,10 @@ export type ToolContext = {
 };
 
 /**
- * The open rounds' builder bonus pools so far, by program id, in one read (ruling 3). Empty until
- * the bonus ledger exists (v2.5 Task 4 replaces this): provable programs then show "opens with
- * your entry".
+ * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
+ * bonus ledger). A provable program with no pool yet shows "opens with your entry".
  */
-export const roundPoolsWei: (programIds: string[]) => Promise<Map<string, bigint>> = async () =>
-  new Map();
+export const roundPoolsWei = (programIds: string[]): Promise<Map<string, bigint>> => readRoundPools(programIds);
 
 /** One batched pool read per list_programs; it never fails the tool: on any error, no pools. */
 async function poolsOf(read: (ids: string[]) => Promise<Map<string, bigint>>, ids: string[]) {

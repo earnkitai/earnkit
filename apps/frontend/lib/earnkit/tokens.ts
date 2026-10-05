@@ -408,8 +408,13 @@ export async function deployToken(
       UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null}
       WHERE id = ${a.projectId}`;
   } else if (outcome.status === 'launched') {
+    // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by.
+    const coin = outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
+      ? outcome.token_address.toLowerCase()
+      : null;
     await sql()`
-      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
+      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL,
+        coin_address = ${coin}
       WHERE id = ${a.projectId}`;
   } else {
     // pending: token_url stays 'pending' from the claim above; only the note changes.

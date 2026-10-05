@@ -9,6 +9,9 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   test/mocks/E2EMocks.sol      v2.4 campaign e2e only: MockToken18 (mock MINI), Ping (an app),
                                MockSmartAccount (execute, fanOut), MockEntryPoint (getNonce +
                                UserOperationEvent; its code is set at the real v0.7 address)
+  test/mocks/BonusMocks.sol    v2.5 bonus ledger anvil test only: MockWETH, MockFeeLocker (StoreTokens,
+                               availableFees, claim), MockLpLocker (collectRewards / collectMany:
+                               StoreTokens per slot then ClaimedRewards; tokenRewards)
   test/Base.t.sol              shared setup (factory, tokens, actors, helpers)
   test/EarnKitCampaigns.t.sol, test/EarnKitCampaign.t.sol   factory + clone unit tests
   test/invariant/              Handler.sol + Invariants.t.sol: money only moves by the rules
@@ -179,7 +182,7 @@ apps/frontend/
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
                                route never sets it. ToolContext.roundPoolsWei overrides the builder
-                               bonus pools read (one batched call; default empty until the v2.5 ledger)
+                               bonus pools read (default bonus-rounds.ts roundPoolsWei)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
@@ -243,8 +246,19 @@ apps/frontend/
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
-                               campaign under its lease, then the fee refresh; needs_owner incl.
-                               PAY_FAILED_RUNS failed pay steps in a row), cronPost
+                               campaign under its lease, then the builder bonus ledger, then the fee
+                               refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
+                               and a MANUAL_CHECK bonus sweep), cronPost
+    bonus-rounds.ts(+test)     roundFor (windowed / UTC-month rounds), bookingFor (round or Safe, with
+                               the reason), roundPoolsWei (one grouped read, open rounds only)
+    bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
+      +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
+                               ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive
+                               getLogs), indexDeposits (cursor), bookDeposit, collectNearEnd,
+                               claimFees, sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
+                               indexedThrough, runBonusLedger (the cron step)
+    fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
+                               bonus-db-lock.ts (test-only advisory lock for the bonus test files)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
@@ -285,10 +299,13 @@ apps/frontend/
                                alert columns, installation_wallets, entry_wallets, projects.deployers/
                                score_error/code_share/score_final/vetoed_at/payout_status/
                                prize_raw_tx/payout_reverts/payout_stale_at, campaign_runs (with
-                               terms), token_fees)
+                               terms), token_fees; v2.5: programs.ideas/submission_proof,
+                               projects.coin_address (unique)/coin_collected_at, bonus_rounds,
+                               bonus_ledger, bonus_sweeps, bonus_cursor)
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
-                                local Postgres only; checks backfills, defaults, opened_at via sync
+                                local Postgres only; checks backfills, defaults, opened_at via sync,
+                                and the v2.5 bonus tables' constraints
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate
