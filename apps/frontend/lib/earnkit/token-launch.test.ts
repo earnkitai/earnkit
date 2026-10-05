@@ -676,5 +676,10 @@ test('residual m6: a non-Base coin on a program with a builder bonus never impli
   const base = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, ...CONFIRMED }), 1, harness({ has_bonus: true }).deps);
   assert.ok(!(base.note ?? '').includes(NON_BASE_NO_BONUS));
   const plain = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, harness().deps);
-  assert.ok(!(plain.note ?? '').includes(NON_BASE_NO_BONUS));
+  assert.ok(!(plain.note ?? '').includes(NON_BASE_NO_BONUS));  // No coin launched (gate failed): the note never mentions "this coin".
+  const g = harness({ has_bonus: true });
+  g.deps.gate!.owner = async () => ({ status: 'missing' });
+  const gated = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, g.deps);
+  assert.equal(gated.status, 'gate_failed');
+  assert.ok(!(gated.note ?? '').includes(NON_BASE_NO_BONUS), gated.note);
 });
