@@ -670,8 +670,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
 - **Rounds** (`bonus-rounds.ts`): a windowed program is one round (`starts_at` inclusive,
   `ends_at` exclusive), a rolling program has UTC-month rounds `<id>:YYYY-MM`. A deposit goes to
   the round open at its block time (`bookingFor`), else to the Safe: no coin, not an EarnKit coin,
-  no open round, a program without `submission_proof`, a closed rolling program, or a round no
-  longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
+  no open round, a program without `submission_proof`, a program that isn't `active` (the same
+  status rule as `roundPoolsWei`), or a round no longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
   rounds only.
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease; skipped quietly without the key or off Base mainnet):
@@ -681,16 +681,26 @@ during the build); plan: `v2.4-money-first-plan.md`.
      `ClaimedRewards(token)` of the locker that sent it (`StoreTokens.sender`) that comes **next**
      in the same receipt. This is tokens.fun's onchain-verified order (deposits, then
      `FeesSwapped`, then `ClaimedRewards`). `bonus_ledger` is idempotent on `(tx_hash,
-     log_index)`; the cursor moves only after a range is fully booked. Every Safe booking is
-     logged with its reason.
+     log_index)`; the cursor moves only after a range is fully booked. At most 200 receipt reads per
+     run (`RECEIPTS_PER_RUN`): the cursor stays where it got to, and booked transactions are
+     skipped next run. Every Safe booking is logged with its reason. An index step failing 6 runs
+     in a row (`bonus_cursor.index_failures`) adds `bonus-ledger` to `needs_owner` (503).
+  1b. *Stored sends first.* Before any claim or collect is signed, every open stored send of the
+     payout wallet (a sweep or a campaign payout in `'sending'`) is broadcast again. If that fails,
+     nothing new is signed this run, and a new signature never takes a nonce at or below an open
+     stored one (`openStoredSends`).
   2. *Collect.* tokens.fun's cron collects every coin; EarnKit sends `collectRewards(coin)` itself
      only for an EarnKit coin in its round's last 24 h with no deposit seen, and no EarnKit collect,
-     in 12 h, through the first locker that simulates cleanly, and only if the coin's
+     in 12 h, only if Blockscout lists a transfer of the coin in the last 24 h (an explorer error
+     counts as traded), through the first locker that simulates cleanly, and only if the coin's
      `rewardRecipients` include the bonus wallet.
   3. *Claim.* `claim(bonus wallet, WETH)` then `claim(Safe, WETH)` when `availableFees` is at
      least 10x the estimated gas cost (`worthIt`).
   4. *Sweep.* Safe-booked, unswept WETH goes from the bonus wallet to the Safe when it is at
-     least 10x the gas and the wallet holds it. The rows are reserved for one `bonus_sweeps` row
+     least 10x the gas, the wallet holds it, and it never leaves a round short: `wallet − amount ≥
+     Σ(round bookings of rounds not 'paid') − max(0, availableFees(bonus wallet) − Σ(unswept Safe
+     bookings))` (FeeLocker WETH that may be the Safe's own unclaimed deposits never counts for the
+     rounds). Nothing is reserved after the deadline. The rows are reserved for one `bonus_sweeps` row
      (at most one unfinished), and v2.4's `payWinner` pays it through `sweepStore`: signed and
      stored before broadcast, the same bytes resent after a crash, `MANUAL_CHECK` when it can't
      be proven dead. Paid, every reserved row gets `swept_tx`. A `MANUAL_CHECK` sweep adds

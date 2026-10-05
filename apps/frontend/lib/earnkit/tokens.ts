@@ -408,14 +408,18 @@ export async function deployToken(
       UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null}
       WHERE id = ${a.projectId}`;
   } else if (outcome.status === 'launched') {
-    // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by.
+    await sql()`
+      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
+      WHERE id = ${a.projectId}`;
+    // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by. Its own
+    // write: a duplicate (unique index) is logged and never stops the launch being recorded.
     const coin = outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
       ? outcome.token_address.toLowerCase()
       : null;
-    await sql()`
-      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL,
-        coin_address = ${coin}
-      WHERE id = ${a.projectId}`;
+    if (coin)
+      await sql()`UPDATE projects SET coin_address = ${coin} WHERE id = ${a.projectId}`.catch((err: unknown) =>
+        console.error(`[launch] project ${a.projectId}: coin ${coin} not recorded for the builder bonus`, err),
+      );
   } else {
     // pending: token_url stays 'pending' from the claim above; only the note changes.
     await sql()`UPDATE projects SET token_note = ${outcome.note ?? null} WHERE id = ${a.projectId}`;

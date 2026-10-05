@@ -1,4 +1,4 @@
-import { runBonusLedger, type BonusDeps } from './bonus-ledger';
+import { INDEX_FAILED_RUNS, runBonusLedger, type BonusDeps } from './bonus-ledger';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
@@ -249,7 +249,12 @@ export async function runCron(
     .filter((c) => needsOwner(c.note as string | null | undefined) || Number(c.pay_failures ?? 0) >= PAY_FAILED_RUNS)
     .map((c) => c.id as string);
   // A bonus sweep that can't be proven dead or sent waits on the owner, like a stuck payout.
-  if (needsOwner((bonus?.sweep as { result?: string } | undefined)?.result)) needs_owner.push('bonus-ledger');
+  // So does an index step that failed INDEX_FAILED_RUNS runs in a row (deposits would go unbooked).
+  if (
+    needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
+    Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS
+  )
+    needs_owner.push('bonus-ledger');
   return { now: now.toISOString(), campaigns, ...(bonus && { bonus }), fee_wallets: fees, needs_owner };
 }
 

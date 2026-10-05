@@ -26,8 +26,8 @@ export function roundFor(program: Window, at: Date): Round | null {
 /**
  * Where a deposit at `at` from a coin entered in `program` goes: its open round, or the Safe (v2.5
  * §3: no rollover). The Safe also gets it when the program's submissions aren't public (no
- * `submission_proof`: no entry can be eligible, so the pool could never be paid) and when a rolling
- * program is closed. Pure.
+ * `submission_proof`: no entry can be eligible, so the pool could never be paid) and whenever the
+ * program isn't 'active' (one status rule, the same as `roundPoolsWei`). Pure.
  */
 export function bookingFor(
   program: Window & { status: string; submission_proof: unknown },
@@ -35,7 +35,7 @@ export function bookingFor(
 ): { destination: 'round'; round: Round } | { destination: 'safe'; reason: string } {
   if (program.submission_proof === null || program.submission_proof === undefined)
     return { destination: 'safe', reason: 'builder bonus not available' };
-  const round = !program.ends_at && program.status !== 'active' ? null : roundFor(program, at);
+  const round = program.status !== 'active' ? null : roundFor(program, at);
   return round ? { destination: 'round', round } : { destination: 'safe', reason: 'no open round' };
 }
 

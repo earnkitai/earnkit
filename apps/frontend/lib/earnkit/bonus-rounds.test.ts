@@ -50,7 +50,8 @@ test('bookingFor: the round when one is open at the deposit; otherwise the Safe,
     destination: 'safe',
     reason: 'builder bonus not available',
   });
-  // A rolling program that was closed has no more rounds.
+  // A program that isn't active (windowed or rolling) has no open round: the same rule as roundPoolsWei.
+  assert.deepEqual(bookingFor({ ...open, status: 'closed' }, d('2026-10-01T00:00:00Z')), { destination: 'safe', reason: 'no open round' });
   assert.deepEqual(bookingFor({ ...rolling, status: 'closed', submission_proof: proof }, d('2026-10-01T00:00:00Z')), {
     destination: 'safe',
     reason: 'no open round',
@@ -88,6 +89,8 @@ test('roundPoolsWei: one grouped read; only rounds open now, never a future star
     await program(P('roll'), null, null);
     await program(P('roll-unbooked'), null, null);
     await program(P('frozen'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'));
+    await program(P('closed'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'), 'closed');
+    await ledger(P('closed'), '11');
     await ledger(P('win'), '400000000000000000');
     await ledger(P('win'), '20000000000000000');
     await ledger(null, '999', 'safe'); // the Safe's never counts
@@ -101,7 +104,7 @@ test('roundPoolsWei: one grouped read; only rounds open now, never a future star
 
     let queries = 0;
     const pools = await roundPoolsWei(
-      ['win', 'ended', 'future', 'roll', 'roll-unbooked', 'frozen', 'missing'].map(P),
+      ['win', 'ended', 'future', 'roll', 'roll-unbooked', 'frozen', 'closed', 'missing'].map(P),
       { now, onQuery: () => queries++ },
     );
     assert.equal(queries, 1, 'one query');
