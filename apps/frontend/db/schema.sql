@@ -333,3 +333,69 @@ CREATE TABLE IF NOT EXISTS token_fees (
   usd      numeric NOT NULL,
   read_at  timestamptz NOT NULL
 );
+
+-- v2.5 builder bonus (spec §3) ------------------------------------------------------------------
+-- The launched coin's token address (lowercase), set when tokens.fun confirms the launch. Coins
+-- launched before v2.5 keep NULL: their split has no builder bonus slot.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_address text;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_coin_address ON projects (coin_address) WHERE coin_address IS NOT NULL;
+-- When EarnKit last sent collectRewards for this coin itself (only in a round's last 24 h).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_collected_at timestamptz;
+
+-- One builder bonus round: a windowed program's window, or a rolling program's UTC month
+-- (key "<program id>:YYYY-MM"). Created 'open' by the first deposit booked to it.
+CREATE TABLE IF NOT EXISTS bonus_rounds (
+  round_key    text PRIMARY KEY,
+  program_id   text NOT NULL REFERENCES programs(id),
+  starts_at    timestamptz NOT NULL,
+  ends_at      timestamptz NOT NULL,
+  state        text NOT NULL DEFAULT 'open'
+               CHECK (state IN ('open', 'frozen', 'review', 'paying', 'paid', 'empty')),
+  review_until timestamptz,
+  terms        jsonb
+);
+
+-- Each WETH deposit the FeeLocker stored for the bonus wallet (its StoreTokens log), attributed to
+-- a coin and booked to that coin's open round, or to the Safe. Idempotent on (tx_hash, log_index).
+CREATE TABLE IF NOT EXISTS bonus_ledger (
+  tx_hash      text NOT NULL,
+  log_index    integer NOT NULL,
+  coin         text,                                   -- lowercase; NULL when no coin was attributable
+  round_key    text REFERENCES bonus_rounds(round_key),
+  destination  text NOT NULL CHECK (destination IN ('round', 'safe')),
+  amount_wei   numeric NOT NULL CHECK (amount_wei >= 0),
+  block_number bigint,
+  block_time   timestamptz NOT NULL,
+  sweep_id     integer,                                -- the sweep reserving it ('safe' only)
+  swept_tx     text,                                   -- the mined transfer to the Safe
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tx_hash, log_index),
+  CHECK ((destination = 'round') = (round_key IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS bonus_ledger_round ON bonus_ledger (round_key) WHERE round_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bonus_ledger_unswept ON bonus_ledger (destination) WHERE swept_tx IS NULL;
+CREATE INDEX IF NOT EXISTS bonus_ledger_coin_time ON bonus_ledger (coin, block_time);
+
+-- WETH sent from the bonus (payout) wallet to the Safe. The transfer is signed and stored before it
+-- is broadcast (v2.4 payout pattern); at most one sweep is unfinished at a time.
+CREATE TABLE IF NOT EXISTS bonus_sweeps (
+  id          serial PRIMARY KEY,
+  amount_wei  numeric NOT NULL CHECK (amount_wei > 0),
+  to_wallet   text NOT NULL,
+  status      text CHECK (status IN ('sending', 'paid')),
+  tx_hash     text,
+  raw_tx      text,
+  stale_at    timestamptz,
+  reverts     integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  paid_at     timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bonus_sweeps_one_open ON bonus_sweeps ((true)) WHERE status IS DISTINCT FROM 'paid';
+
+-- Where the StoreTokens index has read up to: the last block read, and that block's time.
+CREATE TABLE IF NOT EXISTS bonus_cursor (
+  id          text PRIMARY KEY,                        -- 'weth'
+  block       bigint NOT NULL,
+  block_time  timestamptz,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);

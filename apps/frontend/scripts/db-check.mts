@@ -91,5 +91,27 @@ await upsertProgram({ ...file, status: 'closed' });
 await upsertProgram({ ...file, status: 'active' });
 ok((await openedAt())!.getTime() > first!.getTime(), 'reopening a program is news again');
 
+// v2.5 builder bonus ledger.
+const [coin] = await db<{ coin_address: string | null }[]>`SELECT coin_address FROM projects WHERE program_id = 'old-active'`;
+ok(coin.coin_address === null, 'existing entries have no coin address (pre-v2.5 coins have no bonus slot)');
+await db`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES ('old-active:2026-10', 'old-active', now(), now())`;
+const [round] = await db<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = 'old-active:2026-10'`;
+ok(round.state === 'open', "a new round is 'open'");
+let mismatched = false;
+try {
+  await db`INSERT INTO bonus_ledger (tx_hash, log_index, destination, amount_wei, block_time) VALUES ('0x1', 0, 'round', 1, now())`;
+} catch {
+  mismatched = true;
+}
+ok(mismatched, 'a deposit booked to a round always names it');
+await db`INSERT INTO bonus_sweeps (amount_wei, to_wallet) VALUES (1, '0xsafe')`;
+let twoOpen = false;
+try {
+  await db`INSERT INTO bonus_sweeps (amount_wei, to_wallet) VALUES (1, '0xsafe')`;
+} catch {
+  twoOpen = true;
+}
+ok(twoOpen, 'at most one sweep to the Safe is unfinished');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

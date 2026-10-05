@@ -1,3 +1,4 @@
+import { runBonusLedger, type BonusDeps } from './bonus-ledger';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
@@ -57,7 +58,13 @@ const entriesOf = (programId: string) => sql()<Entry[]>`
   ORDER BY id`;
 
 /** Injection for the e2e (scoring reads, payout chain and wallet, the fee source). */
-export type CronDeps = { score?: ScoreDeps; pay?: PayDeps; refreshFees?: (wallets: string[]) => Promise<number> };
+export type CronDeps = {
+  score?: ScoreDeps;
+  pay?: PayDeps;
+  refreshFees?: (wallets: string[]) => Promise<number>;
+  /** The builder bonus ledger's chain, wallet and contracts (v2.5). */
+  bonus?: BonusDeps;
+};
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
 const openReview = (p: Program, now: Date) => sql()`
@@ -182,7 +189,8 @@ async function refreshStaleFees(now: Date, deadline: number, refresh: (wallets: 
  * The daily jobs (v2.4 §3, §4), idempotent: for every active EarnKit campaign not yet paid out
  * (and one closed after it ended or after its review opened), one lifecycle step under the campaign's lease (a second concurrent call gets 'busy');
  * one campaign's failure never stops the others; then the token-fee refresh for creator wallets
- * whose cached fees are over 6 h old. `needs_owner` lists the campaigns whose payout waits on the
+ * whose cached fees are over 6 h old; between them, the builder bonus ledger (bonus-ledger.ts).
+ * `needs_owner` lists the campaigns whose payout waits on the
  * owner (cronPost answers 503 for them). `now` is injectable for the e2e (production: the real
  * time); `only` limits the run to these program ids (tests and the e2e).
  */
@@ -217,6 +225,18 @@ export async function runCron(
       });
     }
   }
+  // v2.5 builder bonus ledger: index, collect near a round's end, claim, sweep to the Safe. After
+  // the campaigns' scoring and payouts, before the fee refresh. Runs with `only` (tests, the e2e)
+  // only when its deps are given.
+  let bonus: Record<string, unknown> | undefined;
+  if (!opts.only || deps.bonus) {
+    try {
+      bonus = await runBonusLedger({ now, deadline, ...deps.bonus });
+    } catch (err) {
+      console.error('[cron] bonus', err);
+      bonus = { step: 'error', note: STEP_FAILED };
+    }
+  }
   let fees = 0;
   try {
     fees = await refreshStaleFees(now, deadline, deps.refreshFees ?? refreshFees);
@@ -228,7 +248,9 @@ export async function runCron(
   const needs_owner = campaigns
     .filter((c) => needsOwner(c.note as string | null | undefined) || Number(c.pay_failures ?? 0) >= PAY_FAILED_RUNS)
     .map((c) => c.id as string);
-  return { now: now.toISOString(), campaigns, fee_wallets: fees, needs_owner };
+  // A bonus sweep that can't be proven dead or sent waits on the owner, like a stuck payout.
+  if (needsOwner((bonus?.sweep as { result?: string } | undefined)?.result)) needs_owner.push('bonus-ledger');
+  return { now: now.toISOString(), campaigns, ...(bonus && { bonus }), fee_wallets: fees, needs_owner };
 }
 
 /**
