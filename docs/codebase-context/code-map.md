@@ -114,19 +114,24 @@ apps/frontend/
                                submission_proof_ok_at both set, not a later same-repo entry; never
                                stored; SQL twin traction.ts eligibleSql); Ruling 13: stores
                                bonus_repo_key and, via verifiedBonusContracts, an external entry's
-                               verified contracts (+ payout_wallet as creator_wallet)
+                               verified contracts (+ payout_wallet as creator_wallet); entry-time
+                               notes use the open round's end (M12) and, Ruling 25, say "no builder
+                               bonus: this repo's coin is entered in <program>" (repoCoinPrograms)
     submission-proof.ts(+test) v2.5 §3 builder bonus eligibility #3: proofProblem(program, url,
                                repoUrl, liveUrl, deps) checks the url is https, on
                                submission_proof.host, path matching path_pattern, then fetches it
                                via safeFetchText (safe-fetch.ts LARGE_PAGE_MAX_BYTES, 512 KB) and
-                               looks for the entry's normalized repo link or live host, case- and
-                               form-insensitive; any fetch failure reads as "couldn't check yet;
+                               looks for the entry's normalized repo link (required when the entry
+                               has a repo, Ruling 22) or, repo-less only, its live host unless
+                               sharedHost (proof host, platforms, code/social sites, hosting
+                               apexes: SHARED_SITES/SHARED_APEXES), case- and form-insensitive; any fetch failure reads as "couldn't check yet;
                                we retry daily" (never throws; a malformed liveUrl is guarded with
                                URL.canParse, fix round 1 I1); recheckSubmissionProofs(now, deadline,
                                deps), called from cron.ts's runCron: the daily re-check of a failed
                                proof (submission_proof_checked_at, at most once a day) while the
                                program stays active and its round is open (roundFor,
-                               bonus-rounds.ts); ended or closed, it's skipped with no fetch
+                               bonus-rounds.ts); ended or closed, it's skipped with no fetch;
+                               filtered in SQL, at most RECHECK_BATCH (50) a run (M11)
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile (payout_wallet; plus creator_wallet and token lines
@@ -205,7 +210,9 @@ apps/frontend/
                                escrow is configured; descriptions and schemas
     present.ts(+test)          presentFirstMessage (v2.5): alerts, "EarnKit matches you to $X in
                                open money" (openMoneyUsd: per-winner prizes of fitted programs) with
-                               a Builder bonus column (bonusCell), open EarnKit campaigns only, at
+                               a Builder bonus column (bonusCell; "not available" also when the
+                               round froze, bonus_closed; Ruling 25: a repo whose coin is entered
+                               in another program, repoCoins, shows "no builder bonus: …"), open EarnKit campaigns only, at
                                most 5 others, BONUS_NOTE (not affiliated, earnkit.com/policy), ideas
                                when the builder has no repo, sponsored last, one offer (keep going /
                                campaign entry / fastest fit / build one / build something new);
@@ -221,7 +228,9 @@ apps/frontend/
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
                                route never sets it. ToolContext.roundPoolsWei overrides the builder
-                               bonus pools read (default bonus-rounds.ts roundPoolsWei)
+                               bonus pools read (default bonus-rounds.ts roundPoolsWei; null = the
+                               round froze), ToolContext.repoCoins the repo-coin read (default
+                               tokens.ts repoCoinPrograms)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
@@ -230,7 +239,9 @@ apps/frontend/
                                (outcomeOf; a 429 quotes tokens.fun and its retryAfter);
                                tokenLaunchesAvailable (deploy key set); TokenStatus/TokenOutcome,
                                setTokenStatus (only rows with token_url IS NULL), EARNINGS_LINE,
-                               TOKEN_TERMS, decodeImage, xProfileUrl
+                               TOKEN_TERMS, decodeImage, xProfileUrl; v2.5: coin_address written
+                               with the launch, Base only (M9, Ruling 24); repoCoinPrograms
+                               (Ruling 25: the program each repo's coin is entered in)
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
                                (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
@@ -243,7 +254,7 @@ apps/frontend/
                                live link via safeProbe, sanctions screen; first failure as a reason
                                with the fix; GitHub/owner/probe/screen injectable (GateDeps)
     token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token;
-                               TokenBlock.has_bonus), hasBuilderBonus (v2.5 §3, Task 8: pure,
+                               TokenBlock.has_bonus, .repo_coin_program: Ruling 25), hasBuilderBonus (v2.5 §3, Task 8: pure,
                                active && submission_proof != null), decideToken (pure rules;
                                record_submission needs the confirmed symbol), submissionToken
                                (record_submission's token part, never throws; loose token object,
@@ -275,7 +286,8 @@ apps/frontend/
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
                                vetoes, refusals), standingText, RunState
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
-                               Task 8, "· skip: no builder bonus"), TOKEN_FOOTNOTE, siteUrl
+                               Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
+                               repoCoinNote, TOKEN_FOOTNOTE, siteUrl
     fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
@@ -283,11 +295,13 @@ apps/frontend/
     alerts.ts(+test)           alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
                                wins and its own top-10 tracking), alertFacts, sinceYouLastChecked
                                (seen ids in alert_state, one transaction, 1.5 s budget),
-                               sinceLine, SCHEDULE_NOTE, paidBonusWins (paid bonus_payouts rows)
-    payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
+                               sinceLine, SCHEDULE_NOTE, paidBonusWins (paid bonus_payouts rows;
+                               table check memoized, M15; wins seen by payout id, M2)
+    payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce
-                               floor), payCampaign (wrapper), openStoredSends, dbPayoutStore,
+                               floor, a caller's shared `nonces`; follow-only done in the same
+                               run, M14), payCampaign (wrapper), openStoredSends, dbPayoutStore,
                                PAY_FAILED/PAY_FAILED_RUNS/STEP_FAILED,
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
@@ -295,19 +309,28 @@ apps/frontend/
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
-                               and a MANUAL_CHECK bonus sweep), cronPost
-    bonus-rounds.ts(+test)     roundFor (windowed / UTC-month rounds), bookingFor (round or Safe, with
-                               the reason), roundPoolsWei (one grouped read, open rounds only)
+                               and a MANUAL_CHECK bonus sweep; BONUS_WALLET_UNSET when the ledger is
+                               skipped (key missing or malformed, off mainnet) while bonusLive,
+                               Rulings 19-20; an ended round's scoring failure once, Ruling 23), cronPost
+    bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
+                               UTC-month rounds), bookingFor (round or Safe, with the reason),
+                               roundPoolsWei (one grouped read, open rounds only; null = the round
+                               froze)
     bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
                                ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive
-                               getLogs), indexDeposits (cursor), bookDeposit, collectNearEnd,
-                               claimFees, sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
-                               indexedThrough, roundsCovered, sendCall, runBonusLedger (the cron step;
-                               `rounds` hook after the claims, before the sweep)
+                               getLogs), indexDeposits (cursor), bookDeposit (an open round follows
+                               the program window), collectNearEnd (isRevert: only a revert skips a
+                               locker), claimFees (M10: also when the sweep waits on it),
+                               sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
+                               indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
+                               runBonusLedger (the cron step; a malformed key is a skip, Ruling 19;
+                               one `nonces` floor per run; `rounds` hook after the claims, before
+                               the sweep)
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
       +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
-                               review, claim-before-pay, pay per place, rest to the Safe, empty)
+                               review, claim-before-pay (a pending claim is CLAIM_PENDING, not a
+                               top-up, M3), pay per place, rest to the Safe, empty)
     bonus-lifecycle.anvil.test.ts  v2.5 Task 10 e2e: the whole builder bonus lifecycle from
                                record_submission to the WETH transfer, through cronPost/runCron on
                                anvil + Postgres (mock tokens.fun, raw GitHub and Blockscout on one
@@ -321,9 +344,9 @@ apps/frontend/
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
-                               only, accrued: 1.5x real indexed bonus deposits, never round-rest:
-                               rows, + bonus money routed to the Safe),
-                               bonus_paid_eth, installs
+                               only, accrued: 1.5x real indexed bonus deposits of EarnKit coins (M5),
+                               never round-rest: rows, + bonus money routed to the Safe),
+                               bonus_paid_eth, installs; STATS_LABELS for jenil.ai
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
                                minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
@@ -336,8 +359,10 @@ apps/frontend/
                                GitHubBudget, CLANKER_ADDRESSES, scorableContracts, ownContracts,
                                eligibleSql, review_flags (single_commit_streak),
                                resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
-                               scoreOpenRounds, canFreeze/readyToFreeze (+24 h escape, flagged),
-                               finalRanking (eligible at the round end, re-ranked; for the payout)
+                               scoreOpenRounds (needsOwner: an ended round's scoring failure, once),
+                               canFreeze/readyToFreeze (+24 h escape, flagged; no final read also
+                               escapes, Ruling 23), finalRanking (eligible at the round end,
+                               re-ranked; unread entries last, score 0, NO_FINAL_READ_FLAG)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
