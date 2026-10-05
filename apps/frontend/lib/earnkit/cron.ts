@@ -75,7 +75,7 @@ export type CronDeps = {
   /** The daily submission-proof re-check's fetch (v2.5 §3, Ruling 11). */
   proofRecheck?: { fetchText?: (url: string) => Promise<string> };
   /** The builder bonus traction scoring's reads (v2.5 §3; `only`: these round keys). */
-  traction?: TractionDeps & { only?: string[] };
+  traction?: TractionDeps & Pick<NonNullable<Parameters<typeof scoreOpenRounds>[0]>, 'only' | 'score'>;
   /** The builder bonus payout's sanctions screen (default: the v2.4 screen); `only`: these round keys. */
   rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
 };
@@ -88,8 +88,23 @@ const openReview = (p: Program, now: Date) => sql()`
   WHERE program_id = ${p.id} AND state = 'running'`;
 
 export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
-/** needs_owner when a builder bonus round has ended but the ledger can't run (no key, or off Base mainnet). */
+/**
+ * needs_owner when the bonus ledger can't run (the payout key missing or malformed, or off Base
+ * mainnet) while the builder bonus can earn (bonusLive).
+ */
 export const BONUS_WALLET_UNSET = 'bonus-rounds: payout wallet not configured';
+
+/**
+ * Whether the builder bonus can earn money now (Ruling 20): an active program with a builder bonus
+ * (submission_proof), an EarnKit coin (coin_address), or an ended round not paid or empty.
+ */
+export async function bonusLive(now: Date) {
+  const [r] = await sql()<{ live: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM programs WHERE status = 'active' AND submission_proof IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}) AS live`;
+  return r.live;
+}
 /** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
 class PayStepFailed extends Error {
   readonly failures: number;
@@ -241,12 +256,13 @@ export async function runCron(
   // read at most once a day; after a round's end, its final reads), with at most half the budget
   // left so the ledger and payouts below always get time. Under its own lease.
   let bonusScoring: unknown;
+  const scoringStalled: string[] = [];
   if (!opts.only || deps.traction) {
     try {
       const half = Math.min(deadline, Date.now() + (deadline - Date.now()) / 2);
       const r = await withScoringLock(
         'bonus-scoring',
-        () => scoreOpenRounds({ now, deadline: half, ...deps.traction }),
+        () => scoreOpenRounds({ now, deadline: half, ...deps.traction, needsOwner: scoringStalled }),
         (opts.budgetMs ?? CRON_BUDGET_MS) + 60_000,
       );
       bonusScoring = r === 'busy' ? { step: 'busy' } : r;
@@ -264,7 +280,8 @@ export async function runCron(
       bonus = await runBonusLedger({
         now,
         deadline,
-        rounds: (account, d) => advanceRounds(account, { ...d, ...deps.rounds }),
+        // The ledger's own state (followOnly, the run's nonce floor) always wins over test deps (M14).
+        rounds: (account, d) => advanceRounds(account, { ...deps.rounds, ...d }),
         ...deps.bonus,
       });
     } catch (err) {
@@ -304,13 +321,19 @@ export async function runCron(
   // flagged entries in its review (bonus-payout.ts advanceRounds).
   const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
   for (const key of rounds?.needs_owner ?? []) needs_owner.push(`bonus:${key}`);
-  // Fix round 1 (d): the ledger (and so the rounds step) was skipped for want of the payout key or
-  // of Base mainnet while a round has ended unpaid: it can never freeze or pay until the owner acts.
+  // Ruling 23: an ended round whose final scoring failed (once per round).
+  for (const key of scoringStalled) if (!needs_owner.includes(`bonus:${key}`)) needs_owner.push(`bonus:${key}`);
+  // Rulings 19 and 20: the ledger (and so the rounds step) was skipped for want of a usable payout
+  // key (missing or malformed) or of Base mainnet while the bonus can earn: an active program with
+  // a builder bonus, an EarnKit coin, or an ended unpaid round. Nothing is indexed, claimed or
+  // paid until the owner acts, so it waits on the owner. A failed check counts as yes (never silent).
   const skipped = bonus?.skipped;
   if (skipped === NO_PAYOUT_KEY || skipped === NOT_MAINNET) {
-    const [ended] = await sql()<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}`.catch(() => [{ n: 0 }]);
-    if (ended.n > 0) {
+    const live = await bonusLive(now).catch((err: unknown) => {
+      console.error('[cron] bonus live check', err);
+      return true;
+    });
+    if (live) {
       needs_owner.push(BONUS_WALLET_UNSET);
       bonus!.note = BONUS_WALLET_UNSET;
     }

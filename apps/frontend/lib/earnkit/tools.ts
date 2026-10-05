@@ -5,7 +5,7 @@ import {
   recordSubmission,
   type EntryDeps,
 } from './projects';
-import { presentYourEntries } from './campaigns';
+import { normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { confirmTable } from './entry-text';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
@@ -49,6 +49,7 @@ import {
 import { cleanProject, quoted } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
+import { repoCoinPrograms } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -57,24 +58,44 @@ export type ToolContext = {
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
-  /** The open rounds' builder bonus pools in wei, by program id; defaults to roundPoolsWei. */
-  roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint>>;
+  /**
+   * The open rounds' builder bonus pools in wei, by program id (null: the program's round froze);
+   * defaults to roundPoolsWei.
+   */
+  roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint | null>>;
+  /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
+  repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
 };
 
 /**
  * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
  * bonus ledger). A provable program with no pool yet shows "opens with your entry".
  */
-export const roundPoolsWei = (programIds: string[]): Promise<Map<string, bigint>> => readRoundPools(programIds);
+export const roundPoolsWei = (programIds: string[]): Promise<Map<string, bigint | null>> => readRoundPools(programIds);
 
 /** One batched pool read per list_programs; it never fails the tool: on any error, no pools. */
-async function poolsOf(read: (ids: string[]) => Promise<Map<string, bigint>>, ids: string[]) {
-  if (ids.length === 0) return new Map<string, bigint>();
+async function poolsOf(read: (ids: string[]) => Promise<Map<string, bigint | null>>, ids: string[]) {
+  if (ids.length === 0) return new Map<string, bigint | null>();
   try {
     return await read(ids);
   } catch (err) {
     console.error('[list_programs] builder bonus pools:', err);
-    return new Map<string, bigint>();
+    return new Map<string, bigint | null>();
+  }
+}
+
+/** Ruling 25: one read of where the builder's matched repos already have a coin; never fails the tool. */
+async function repoCoinsOf(
+  read: (keys: string[]) => Promise<Map<string, { program_id: string; title: string }>>,
+  repos: YourRepos | null,
+) {
+  const keys = repos && 'fits' in repos ? [...new Set(repos.fits.flatMap((f) => (f.repo_url ? [normalizeRepoUrl(f.repo_url)] : [])))] : [];
+  if (keys.length === 0) return new Map<string, { program_id: string; title: string }>();
+  try {
+    return await read(keys);
+  } catch (err) {
+    console.error('[list_programs] repo coins:', err);
+    return new Map<string, { program_id: string; title: string }>();
   }
 }
 
@@ -211,7 +232,12 @@ export const tools = {
       ctx.roundPoolsWei ?? roundPoolsWei,
       bonusProgramIds({ cards, repos: yourRepos }),
     );
-    const withPools = cards.map((c) => ({ ...c, bonus_pool_wei: pools.get(c.id) ?? null }));
+    const withPools = cards.map((c) => ({
+      ...c,
+      bonus_pool_wei: pools.get(c.id) ?? null,
+      bonus_closed: pools.has(c.id) && pools.get(c.id) === null,
+    }));
+    const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
 
     const show_to_builder = presentFirstMessage({
       alerts: alerts.lines,
@@ -223,6 +249,7 @@ export const tools = {
       agentCanBuild: agent_can_build,
       sponsorEntries: entries.section,
       now: new Date(),
+      repoCoins,
     });
 
     return {
@@ -344,6 +371,7 @@ export const tools = {
             symbol: token.proposed?.symbol ?? null,
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
+            coinIn: token.repo_coin_program,
           }
         : null,
     });

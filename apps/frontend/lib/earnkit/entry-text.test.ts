@@ -120,3 +120,20 @@ test('Ruling 14: the footnote names the fee wallet when it is known (v2.3 consen
   });
   assert.ok(text.endsWith(`\n\n${tokenFootnote(W)}`));
 });
+
+test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another program says no builder bonus', () => {
+  assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's coin is entered in Arc Microgrants");
+  // Only where a bonus could be won; v2.3 rows elsewhere are unchanged.
+  assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
+  const text = confirmTable({
+    project: 'Tip Jar', programTitle: "Crypto World's Fair Hackathon", campaign: null,
+    prize: '$30,000', endsAt: null, payoutWallet: null,
+    token: { symbol: 'TIP', wallet: '0x1111111111111111111111111111111111111111', hasBonus: true, coinIn: 'Arc Microgrants' },
+  });
+  assert.equal(
+    text,
+    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's coin is entered in Arc Microgrants |",
+    'no new coin, so no fee footnote',
+  );
+  assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
+});

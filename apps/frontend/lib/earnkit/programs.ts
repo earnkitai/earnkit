@@ -3,6 +3,7 @@ import { prizeText, prizeUsdEach, type CampaignConfig } from './campaigns';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
+import { windowKey } from './bonus-rounds';
 import {
   type ProgramFile,
   type SubmissionRequirement,
@@ -523,6 +524,15 @@ export async function upsertProgram(
           WHEN EXCLUDED.status <> 'active' THEN programs.opened_at
           WHEN programs.status = 'active' THEN COALESCE(programs.opened_at, EXCLUDED.opened_at)
           ELSE EXCLUDED.opened_at END`;
+
+    // v2.5 Ruling 21: a windowed program's open builder bonus round follows the file (an extended
+    // or shortened end, a start moved within the same UTC day); a frozen round never changes, and a
+    // new start day is a new round (bonus-rounds.ts windowKey).
+    if (p.starts_at && p.ends_at)
+      await tx`
+        UPDATE bonus_rounds SET starts_at = ${p.starts_at}, ends_at = ${p.ends_at}
+        WHERE program_id = ${p.id} AND state = 'open' AND round_key = ${windowKey(p.id, new Date(p.starts_at))}
+          AND (starts_at, ends_at) IS DISTINCT FROM (${p.starts_at}::timestamptz, ${p.ends_at}::timestamptz)`;
 
     await tx`DELETE FROM starters WHERE program_id = ${p.id}`;
     await tx`DELETE FROM tracks WHERE program_id = ${p.id}`;

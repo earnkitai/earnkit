@@ -241,6 +241,9 @@ export async function freezeRound(roundKey: string, now: Date, a: { weth: string
   });
 }
 
+/** M3: the pay note while the pay step's own claim isn't mined yet (not the owner's: retried next run). */
+export const CLAIM_PENDING = "The payout wallet's WETH claim isn't mined yet; payouts continue on the next run";
+
 /** The pay note while a stored send couldn't be rebroadcast this run (retried next run). */
 export const STORED_SEND_WAIT = 'Waiting on a stored send of the payout wallet; nothing new was signed.';
 
@@ -303,6 +306,7 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
     // What the round still owes: every place not paid yet (one in flight still holds its WETH).
     const owed = amounts.reduce((s, x, i) => (rows.some((w) => w.slot === i && w.status === 'paid') ? s : s + x), 0n);
     let short: string | null = null;
+    let pendingClaim = false;
     if (owed > 0n && !d.followOnly && Date.now() < (d.deadline ?? Infinity)) {
       let balance = await d.rpc.balanceOf(t.token as Hex, account.address);
       if (balance < owed) {
@@ -317,11 +321,15 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
             d.rpc.fees(),
           ]);
           if (balance + available >= owed || worthIt(available, gas, fees.maxFeePerGas)) {
-            await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, d.deadline ?? Infinity);
+            const claim = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, d.deadline ?? Infinity, d.nonces);
+            // M3: a claim not mined yet isn't a short wallet: wait for it, never ask for a top-up.
+            if (claim.status === 'pending') pendingClaim = true;
             balance = await d.rpc.balanceOf(t.token as Hex, account.address);
           }
         }
-        if (balance < owed)
+        if (balance < owed && pendingClaim)
+          short = `${CLAIM_PENDING} (${roundKey}).`;
+        else if (balance < owed)
           short = `The payout wallet ${account.address} holds ${formatUnits(balance, t.decimals)} ${t.symbol}, less than builder bonus round ${roundKey} still owes (${formatUnits(owed, t.decimals)}). ${TOP_UP}`;
       }
     }
@@ -350,6 +358,7 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
         rpc: d.rpc,
         store: bonusPayoutStore,
         openSends: () => openStoredSends(account),
+        ...(d.nonces && { nonces: d.nonces }),
         deadline: d.deadline,
         now,
         ...(d.listed && { listed: d.listed }),

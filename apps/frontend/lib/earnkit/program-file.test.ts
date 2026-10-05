@@ -142,3 +142,15 @@ test('ProgramFile: every committed program file validates', () => {
     assert.ok(result.success, `${f}: ${JSON.stringify(result.error?.issues)}`);
   }
 });
+
+test('M4: a windowed program with a builder bonus needs starts_at (its round is the window)', () => {
+  const base = baseProgram();
+  const proof = { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' };
+  assert.throws(
+    () => ProgramFile.parse({ ...base, submission_proof: proof, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }),
+    /needs starts_at/,
+  );
+  // Rolling (no end) or no builder bonus: unchanged.
+  assert.doesNotThrow(() => ProgramFile.parse({ ...base, submission_proof: proof, starts_at: null, ends_at: null }));
+  assert.doesNotThrow(() => ProgramFile.parse({ ...base, submission_proof: null, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }));
+});

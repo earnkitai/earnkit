@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
+import { CallExecutionError, ExecutionRevertedError, HttpRequestError, decodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   BASE_BONUS,
@@ -17,17 +17,19 @@ import {
   collectNearEnd,
   indexDeposits,
   indexedThrough,
+  isRevert,
   runBonusLedger,
   scanForward,
   sweepToSafe,
   worthIt,
+  type BonusDeps,
   type BonusRpc,
   type RawLog,
 } from './bonus-ledger';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
-import { runCron } from './cron';
+import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
 
 const C = BASE_BONUS;
 const [NEW_LOCKER, OLD_LOCKER] = C.lockers;
@@ -220,6 +222,8 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
 }
 
 const PROG = 't4-ledger-prog';
+/** The program's round (Ruling 21): keyed by its window's UTC start day. */
+const ROUND = `${PROG}:2026-10-01`;
 const PROG_NOPROOF = 't4-ledger-noproof';
 async function setup(ends = new Date('2026-10-08T00:00:00Z')) {
   await cleanup();
@@ -274,16 +278,16 @@ test('index: books by coin and block time to the round or the Safe; idempotent; 
 
     const got = (await rows()).map((r) => [r.tx_hash, r.log_index, r.coin, r.round_key, r.destination, r.amount_wei]);
     assert.deepEqual(got, [
-      [t1, 2, COIN_A, PROG, 'round', '20'],
+      [t1, 2, COIN_A, ROUND, 'round', '20'],
       [t1, 4, COIN_B, null, 'safe', '200'], // its program has no public submissions
       [t2, 7, '0xdead00000000000000000000000000000000dead', null, 'safe', '5'],
       [t3, 2, null, null, 'safe', '6'],
-      [t4, 1, COIN_A, PROG, 'round', '40'],
+      [t4, 1, COIN_A, ROUND, 'round', '40'],
     ]);
     assert.equal(lines.length, 3, 'every Safe booking is logged');
     assert.match(lines.join('\n'), /not an EarnKit coin/);
     assert.match(lines.join('\n'), /no ClaimedRewards/);
-    const [round] = await sql()<{ state: string; starts_at: Date; ends_at: Date }[]>`SELECT state, starts_at, ends_at FROM bonus_rounds WHERE round_key = ${PROG}`;
+    const [round] = await sql()<{ state: string; starts_at: Date; ends_at: Date }[]>`SELECT state, starts_at, ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
     assert.equal(round.state, 'open');
     assert.equal(round.ends_at.toISOString(), '2026-10-08T00:00:00.000Z');
 
@@ -318,7 +322,7 @@ test('booking: a deposit after the program end goes to the Safe; the same (tx, l
     assert.equal(mine[0].destination, 'safe', 'the first booking stands');
 
     assert.equal((await bookDeposit({ ...dep, logIndex: 4, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet)).destination, 'round');
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${PROG}`;
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND}`;
     const lines: string[] = [];
     const late = await bookDeposit({ ...dep, logIndex: 5, blockTime: new Date('2026-10-07T23:00:00Z') }, (l) => lines.push(l));
     assert.equal(late.destination, 'safe');
@@ -543,7 +547,7 @@ test('I1: the sweep never spends claimed round WETH while the Safe deposit is st
     f.state.available[BONUS] = 0n;
     assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
     // A paid round no longer needs covering.
-    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${PROG}`;
+    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${ROUND}`;
     await book(3, 10n * cost, null);
     f.state.balance = 10n * cost;
     assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
@@ -680,5 +684,174 @@ test('(e) a duplicate coin address is logged and never stops the launch being re
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
     await cleanup();
     await sql()`DELETE FROM installations WHERE token_hash = 't4-dup'`;
+  }
+});
+
+// ---- Final fix wave ---------------------------------------------------------------------------
+
+test('Ruling 19: a malformed payout key is a skip like a missing one (never a step error); no DB read', async () => {
+  const err = console.error;
+  const logged: string[] = [];
+  console.error = (...a: unknown[]) => logged.push(a.map(String).join(' '));
+  try {
+    const r = await runBonusLedger({ env: { CAMPAIGN_PAYOUT_PRIVATE_KEY: '0x1234' } });
+    assert.deepEqual(r, { skipped: "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent.", problem: 'malformed' });
+    assert.ok(!logged.join('\n').includes('0x1234'), 'the key is never logged');
+  } finally {
+    console.error = err;
+  }
+  // Ruling 7: 64 hex characters without 0x are a usable key (the owner's format).
+  const key = '4'.repeat(64);
+  const off = { getChainId: async () => 84532 } as unknown as BonusRpc;
+  assert.match(String((await runBonusLedger({ env: { CAMPAIGN_PAYOUT_PRIVATE_KEY: key }, rpc: off })).skipped), /not Base mainnet/);
+});
+
+test('Rulings 19, 20: a missing or malformed payout key waits on the owner (503) once the bonus can earn, with no round yet', db, async () => {
+  try {
+    await setup();
+    await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-ledger%'`;
+    const run = (bonus: BonusDeps) =>
+      cronPost(new Request('http://x/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}` } }), {
+        limit: async () => {},
+        run: () => runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus } }),
+      });
+    const SECRET = 'fix-wave-cron-secret-0123456789abcdef0123';
+    const secret = process.env.CRON_SECRET;
+    process.env.CRON_SECRET = SECRET;
+    const err = console.error;
+    console.error = () => {};
+    try {
+      // An active program with a builder bonus and an EarnKit coin exist; no round has ended.
+      const missing = await run({ account: null });
+      assert.equal(missing.status, 503);
+      const body = (await missing.json()) as { needs_owner: string[]; bonus: { note?: string } };
+      assert.ok(body.needs_owner.includes(BONUS_WALLET_UNSET));
+      const malformed = await run({ env: { CAMPAIGN_PAYOUT_PRIVATE_KEY: 'not-a-key' } });
+      assert.equal(malformed.status, 503);
+      assert.equal(((await malformed.json()) as { bonus: { problem?: string } }).bonus.problem, 'malformed');
+    } finally {
+      console.error = err;
+      if (secret === undefined) delete process.env.CRON_SECRET;
+      else process.env.CRON_SECRET = secret;
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('I2 / Ruling 21: a deposit in an extended window is booked to the same round, whose end follows the program', db, async () => {
+  try {
+    await setup(new Date('2026-10-08T00:00:00Z'));
+    const book = (i: number, at: string) =>
+      bookDeposit({ txHash: `0xt4ext${i}`, logIndex: 0, amount: 5n, coin: COIN_A, blockNumber: BigInt(i), blockTime: new Date(at) }, quiet);
+    assert.deepEqual(await book(1, '2026-10-02T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
+    // The organizer extends the program by 12 days.
+    await sql()`UPDATE programs SET ends_at = '2026-10-20T00:00:00Z' WHERE id = ${PROG}`;
+    assert.deepEqual(await book(2, '2026-10-10T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
+    const [r] = await sql()<{ ends_at: Date }[]>`SELECT ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
+    assert.equal(r.ends_at.toISOString(), '2026-10-20T00:00:00.000Z');
+    // Once frozen, the round never moves: a later extension books to the Safe.
+    await sql()`UPDATE bonus_rounds SET state = 'review' WHERE round_key = ${ROUND}`;
+    await sql()`UPDATE programs SET ends_at = '2026-10-30T00:00:00Z' WHERE id = ${PROG}`;
+    assert.equal((await book(3, '2026-10-25T00:00:00Z')).destination, 'safe');
+    const [r2] = await sql()<{ ends_at: Date }[]>`SELECT ends_at FROM bonus_rounds WHERE round_key = ${ROUND}`;
+    assert.equal(r2.ends_at.toISOString(), '2026-10-20T00:00:00.000Z');
+    // A re-run cohort (a new start day) is a new round.
+    await sql()`UPDATE programs SET starts_at = '2026-11-01T00:00:00Z', ends_at = '2026-11-20T00:00:00Z' WHERE id = ${PROG}`;
+    assert.deepEqual(await book(4, '2026-11-02T00:00:00Z'), { destination: 'round', roundKey: `${PROG}:2026-11-01`, inserted: true });
+  } finally {
+    await cleanup();
+  }
+});
+
+test('I5: a pending claim, then the sweep in the same run, signs the next nonce even when the RPC still says the old one', db, async () => {
+  try {
+    await setup();
+    const cost = 50_000n * 1_000_000n;
+    await bookDeposit({ txHash: '0xt4nonce', logIndex: 0, amount: 20n * cost, coin: null, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
+    const f = fakeChain({ balance: 20n * cost, available: { [BONUS]: 10n * cost } });
+    f.state.autoMine = false; // the claim stays pending
+    const rpc = { ...f.rpc, nonce: async () => 0 }; // a lagging node: pending count never moves
+    const nonces = { next: 0 };
+    const claims = await claimFees(ACCOUNT, { rpc, chain: C, nonces, deadline: Date.now() + 10_000 });
+    assert.match(claims[0].result, /^claim pending/);
+    const sweep = await sweepToSafe(ACCOUNT, { rpc, chain: C, nonces, deadline: Date.now() + 10_000 });
+    assert.equal(sweep.status, 'pending');
+    assert.deepEqual(f.state.sent.map((raw) => parseTransaction(raw).nonce), [0, 1], 'the sweep never reuses the claim nonce');
+    assert.equal(nonces.next, 2);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('M10: a claim under 10x gas is still sent when the sweep to the Safe waits on it; otherwise not', db, async () => {
+  try {
+    await setup();
+    const cost = 50_000n * 1_000_000n;
+    const f = fakeChain({ balance: 0n, available: { [BONUS]: cost } }); // dust: 1x gas
+    // No Safe booking to sweep: the dust waits.
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /under 10x gas/);
+    assert.equal(f.state.sent.length, 0);
+    // A Safe booking worth 10x gas sits behind it (not yet in the wallet): the claim goes.
+    await bookDeposit({ txHash: '0xt4dust', logIndex: 0, amount: 20n * cost, coin: null, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /^claim success/);
+    assert.equal(f.state.sent.length, 1);
+    // Already in the wallet (nothing blocks the sweep): no claim for the dust.
+    f.state.balance = 20n * cost;
+    assert.match((await claimFees(ACCOUNT, { rpc: f.rpc, chain: C }))[0].result, /under 10x gas/);
+    assert.equal(f.state.sent.length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('task-10-review M7: only a revert means "this locker does not hold the coin"; an RPC failure is retried, never stamped', async () => {
+  const revert = new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted: TokenNotFound()' }), { account: undefined } as never);
+  const down = new CallExecutionError(new HttpRequestError({ url: 'https://mainnet.base.org', status: 429 }), { account: undefined } as never);
+  assert.equal(isRevert(revert), true);
+  assert.equal(isRevert(down), false);
+  assert.equal(isRevert(new Error('execution reverted')), true);
+  assert.equal(isRevert(new Error('fetch failed')), false);
+  if (!process.env.DATABASE_URL) return;
+  const ends = new Date('2026-10-08T00:00:00Z');
+  const err = console.error;
+  console.error = () => {};
+  try {
+    await setup(ends);
+    const f = fakeChain();
+    const rpc = { ...f.rpc, canCollect: async () => { throw down; } };
+    const out = await collectNearEnd(ACCOUNT, { rpc, chain: C, now: new Date(ends.getTime() - 3_600_000), active: async () => true });
+    assert.deepEqual(out, [{ coin: COIN_A, result: 'failed' }]);
+    const [p] = await sql()<{ coin_collected_at: Date | null }[]>`SELECT coin_collected_at FROM projects WHERE coin_address = ${COIN_A}`;
+    assert.equal(p.coin_collected_at, null, 'retried next run, not in 12 h');
+  } finally {
+    console.error = err;
+    await cleanup();
+  }
+});
+
+test('Ruling 24 / M9: a non-Base launch records no coin address (no builder bonus slot); the launch is recorded', db, async () => {
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  try {
+    await setup();
+    const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('t4-rh') RETURNING id`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${PROG}, 't4 rh', ${inst.id}, 'https://github.com/x/t4rh')
+      RETURNING id`;
+    const coin = '0x5555000000000000000000000000000000005555';
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'T4', symbol: 'TRH', creatorWallet: CREATOR, image: null, repoUrl: 'https://github.com/x/t4rh', liveUrl: null, chain: 'robinhood' },
+      { fetch: (async () => Response.json({ success: true, tokenAddress: coin, txHash: '0x1' })) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    const [row] = await sql()<{ token_status: string; coin_address: string | null }[]>`SELECT token_status, coin_address FROM projects WHERE id = ${p.id}`;
+    assert.equal(row.token_status, 'launched');
+    assert.equal(row.coin_address, null);
+  } finally {
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    await cleanup();
+    await sql()`DELETE FROM installations WHERE token_hash = 't4-rh'`;
   }
 });

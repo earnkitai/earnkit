@@ -369,3 +369,28 @@ test('I7: list_programs feeds program updates to the body, not the alert line', 
   const src = readFileSync(join(import.meta.dirname, 'tools.ts'), 'utf8');
   assert.match(src, /alerts: alerts\.lines,\n\s*updates: programUpdates\(cards, lastCheck === null\),/);
 });
+
+test('I2: a program whose round already froze shows no bonus to win ("not available")', () => {
+  assert.equal(bonusCell({ ...arc, bonus_pool_wei: null, bonus_closed: true }), 'not available');
+  assert.equal(bonusCell({ ...arc, bonus_pool_wei: null, bonus_closed: false }), 'opens with your entry');
+});
+
+test('Ruling 25: a repo whose coin is entered in another program shows no builder bonus in that row', () => {
+  const fits = {
+    checked: 1,
+    fits: [{
+      repo: 'tipjar',
+      repo_url: 'https://github.com/alice/tipjar',
+      verdicts: [v('arc-microgrants', 'likely', 'looks eligible'), v('colosseum-worlds-fair', 'likely', 'looks eligible')],
+    }],
+  };
+  const text = presentFirstMessage(msg({
+    cards: [{ ...arc, bonus_pool_wei: WEI('0.42') }, colosseum],
+    repos: fits,
+    repoCoins: new Map([['github.com/alice/tipjar', { program_id: 'arc-microgrants', title: 'Arc Microgrants' }]]),
+  }));
+  // Arc: the coin's own program keeps its pool; Colosseum: no new coin, so no bonus there.
+  assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \| 0\.42 ETH so far \|/);
+  assert.match(text, /\| Crypto World's Fair Hackathon \| [^|]+ \| no builder bonus: this repo's coin is entered in Arc Microgrants \|/);
+  noEmoji(text);
+});

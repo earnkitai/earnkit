@@ -23,7 +23,8 @@ import {
  *   BASE_RPC_URL=https://mainnet.base.org pnpm bonus:fork-check            (the public RPC), or
  *   anvil --fork-url https://mainnet.base.org --chain-id 8453 --port 8575
  *   BASE_RPC_URL=http://127.0.0.1:8575 pnpm bonus:fork-check               (an anvil fork)
- * Optional: BONUS_FORK_TX=<hash> pins the receipt; otherwise the newest one in the last 500 blocks.
+ * Optional: BONUS_FORK_TX=<hash> pins the receipt; otherwise the newest one found looking back in
+ * 500-block steps up to DISCOVERY_STEPS steps (none found: it says to set BONUS_FORK_TX and skips).
  * Without BASE_RPC_URL, or with no network, it prints "skipped" and exits 0 (CI stays offline).
  */
 const RPC = process.env.BASE_RPC_URL?.trim();
@@ -41,9 +42,11 @@ const ok = (cond: unknown, what: string, detail?: unknown) => {
   console.log(`ok ${checks} - ${what}`);
 };
 const c = createPublicClient({ chain: base, transport: http(RPC, { timeout: 20_000, retryCount: 5, retryDelay: 1_000 }) });
+// The reachability probe never retries, so an offline run skips at once (task-10-review M6).
+const probe = createPublicClient({ chain: base, transport: http(RPC, { timeout: 5_000, retryCount: 0 }) });
 let head: bigint;
 try {
-  head = await c.getBlockNumber();
+  head = await probe.getBlockNumber();
 } catch (err) {
   console.log(`skipped: ${RPC} is unreachable (${err instanceof Error ? err.message.split('\n')[0] : err}).`);
   process.exit(0);
@@ -57,10 +60,21 @@ const WETH = BASE_BONUS.weth;
 // ---- 1. a real collect receipt ----
 let hash = process.env.BONUS_FORK_TX?.trim() as Hex | undefined;
 if (!hash) {
-  const logs = await c.getLogs({ address: BASE_BONUS.feeLocker, event: STORE_TOKENS, args: { token: WETH }, fromBlock: head - 500n, toBlock: head });
-  const fromLocker = logs.filter((l) => lockers.includes(lower(l.args.sender!)));
-  ok(fromLocker.length > 0, `a WETH StoreTokens from a Clanker LP locker in blocks ${head - 500n}..${head}`);
-  hash = fromLocker[fromLocker.length - 1].transactionHash!;
+  // Newest first, 500 blocks at a time (task-10-review M5): a quiet window isn't a failure.
+  const STEP = 500n;
+  const DISCOVERY_STEPS = 20;
+  for (let i = 0; i < DISCOVERY_STEPS && !hash && head - BigInt(i) * STEP >= 0n; i++) {
+    const toBlock = head - BigInt(i) * STEP;
+    const fromBlock = toBlock - STEP + 1n > 0n ? toBlock - STEP + 1n : 0n;
+    const logs = await c.getLogs({ address: BASE_BONUS.feeLocker, event: STORE_TOKENS, args: { token: WETH }, fromBlock, toBlock });
+    const fromLocker = logs.filter((l) => lockers.includes(lower(l.args.sender!)));
+    if (fromLocker.length > 0) hash = fromLocker[fromLocker.length - 1].transactionHash!;
+  }
+  if (!hash) {
+    console.log(`skipped: no WETH StoreTokens from a Clanker LP locker in the last ${BigInt(DISCOVERY_STEPS) * STEP} blocks; set BONUS_FORK_TX=<a collect tx hash> to pin one.`);
+    process.exit(0);
+  }
+  ok(true, `a WETH StoreTokens from a Clanker LP locker (tx ${hash})`);
 }
 console.log(`receipt: ${hash}`);
 const receipt = await rpc.receiptLogs(hash);
@@ -98,9 +112,12 @@ for (const owner of owners) {
   for (const d of deps) {
     const s = mine.find((x) => x.logIndex === d.logIndex)!;
     ok(d.amount === s.amount && d.locker === lower(s.sender), `log ${d.logIndex}: amount ${d.amount} wei and locker decoded from the topics and data`);
-    const next = claims.find((x) => x.locker === d.locker && x.logIndex > d.logIndex);
-    ok(d.coin !== null && d.coin === lower(next!.token), `log ${d.logIndex}: coin ${d.coin} is the NEXT ClaimedRewards from its locker (Ruling 8)`);
-    ok([...next!.rewards0, ...next!.rewards1].includes(d.amount), `log ${d.logIndex}: the amount is one of that ClaimedRewards' rewards`);
+    const found = claims.find((x) => x.locker === d.locker && x.logIndex > d.logIndex);
+    // A clean FAIL line, never a TypeError, when the receipt has no later ClaimedRewards (task-10-review M4).
+    ok(found, `log ${d.logIndex}: a later ClaimedRewards from the same locker`);
+    const next = found!;
+    ok(d.coin !== null && d.coin === lower(next.token), `log ${d.logIndex}: coin ${d.coin} is the NEXT ClaimedRewards from its locker (Ruling 8)`);
+    ok([...next.rewards0, ...next.rewards1].includes(d.amount), `log ${d.logIndex}: the amount is one of that ClaimedRewards' rewards`);
     const recipients = await rpc.rewardRecipients(d.locker as Hex, d.coin as Hex);
     ok(recipients.includes(owner), `log ${d.logIndex}: tokenRewards(${d.coin}) on ${d.locker} pays ${owner}`, recipients);
     coins.add(`${d.locker} ${d.coin}`);

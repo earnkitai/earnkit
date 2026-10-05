@@ -23,6 +23,7 @@ import {
   TOKEN_TERMS,
   decodeImage,
   deployToken,
+  repoCoinPrograms,
   repoHasTokenNote,
   repoTokenUrl,
   setTokenStatus,
@@ -71,6 +72,11 @@ export type TokenBlock = {
   note: string;
   /** v2.5 §3: the program is active and has a submission_proof pattern (hasBuilderBonus). */
   has_bonus: boolean;
+  /**
+   * Ruling 25: the program this repo's coin is already entered in (one coin per repo), on a
+   * program with a builder bonus: no new coin and no builder bonus here. Null otherwise.
+   */
+  repo_coin_program: string | null;
 };
 
 /**
@@ -187,7 +193,12 @@ export async function tokenProposalBlock(
     installationId: number;
     repoUrl?: string;
   },
-  deps: { check?: TickerCheck; available?: () => boolean } = {},
+  deps: {
+    check?: TickerCheck;
+    available?: () => boolean;
+    /** The program a normalized repo's coin is entered in (default tokens.ts repoCoinPrograms). */
+    repoCoin?: (repoKey: string) => Promise<string | null>;
+  } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
   if (program.token_policy === 'off') return null;
@@ -203,8 +214,19 @@ export async function tokenProposalBlock(
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine =
     a.repoUrl && proposal.symbol ? tokenLineFor(a.installationId, a.repoUrl, proposal.symbol) : null;
-  notes.push(ownershipLine(a.creatorWallet, tokenLine));
   const hasBonus = hasBuilderBonus(program);
+  // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
+  // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
+  const coinIn =
+    hasBonus && a.repoUrl
+      ? await (deps.repoCoin ?? defaultRepoCoin)(normalizeRepoUrl(a.repoUrl)).catch((err: unknown) => {
+          console.error('[token] repo coin lookup', err);
+          return null;
+        })
+      : null;
+  if (coinIn)
+    notes.push(`This repo already has its coin, entered in ${coinIn}: don't pass token; this entry gets no new coin and no builder bonus`);
+  else notes.push(ownershipLine(a.creatorWallet, tokenLine));
   return {
     proposed:
       proposal.name === null
@@ -217,14 +239,20 @@ export async function tokenProposalBlock(
     terms: TOKEN_TERMS,
     policy: program.token_policy,
     has_bonus: hasBonus,
+    repo_coin_program: coinIn,
     // v2.4: one row in the confirmation (prepare_submission's show_to_builder carries it), with
     // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
     // the repo needs is the agent's job (note). v2.5: on a program with a builder bonus, skipping
     // the coin costs the bonus (tokenRow's hasBonus), never advertised past this one row.
-    say_to_builder: `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`,
+    say_to_builder: coinIn
+      ? tokenRow(null, hasBonus, coinIn)
+      : `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
+
+/** The program a normalized repo's coin is entered in, from the database. */
+const defaultRepoCoin = async (repoKey: string) => (await repoCoinPrograms([repoKey])).get(repoKey)?.title ?? null;
 
 /** What the flow reads about a project and its program. */
 export type FlowProject = {

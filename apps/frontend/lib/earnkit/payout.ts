@@ -23,11 +23,13 @@ import { pickWinners, type Candidate } from './winners';
 
 /**
  * The campaign payout wallet (v2.4 §3, §8): CAMPAIGN_PAYOUT_PRIVATE_KEY, the only key on Railway,
- * holding one campaign's prize plus gas. Null when unset; a malformed key throws.
+ * holding one campaign's prize plus gas. 64 hex characters with or without the 0x prefix (Ruling 7:
+ * the owner's key is stored without it). Null when unset; a malformed key throws.
  */
 export function payoutAccount(env: Record<string, string | undefined> = process.env): LocalAccount | null {
-  const key = env.CAMPAIGN_PAYOUT_PRIVATE_KEY?.trim();
-  if (!key) return null;
+  const raw = env.CAMPAIGN_PAYOUT_PRIVATE_KEY?.trim();
+  if (!raw) return null;
+  const key = /^[0-9a-fA-F]{64}$/.test(raw) ? `0x${raw}` : raw;
   const problem = privateKeyProblem('CAMPAIGN_PAYOUT_PRIVATE_KEY', key);
   if (problem) throw new Error(problem);
   return privateKeyToAccount(key as Hex);
@@ -262,7 +264,7 @@ const settled = (row: PayoutRow) => row.payout_status === 'paid' || Boolean(row.
  * kept, their nonce would read as one EarnKit's own payout used).
  *
  * `nonces.next` (one payout run) is the lowest nonce to sign with, raised past every transfer
- * mined in the run. `now` is the run's time (injectable for the e2e).
+ * the node accepted or mined in the run. `now` is the run's time (injectable for the e2e).
  */
 export async function payWinner(
   row: PayoutRow,
@@ -353,6 +355,8 @@ export async function payWinner(
       await a.store.stale(row.id, null);
       row.payout_stale_at = null;
     }
+    // v2.5 I5: accepted by the node, so the run's next signature goes past it, mined or not.
+    if (a.nonces) a.nonces.next = Math.max(a.nonces.next, txNonce + 1);
     const left = (a.deadline ?? Infinity) - Date.now();
     receipt = await a.rpc.waitFor(hash, Math.max(5_000, Math.min(60_000, left)));
   }
@@ -385,6 +389,11 @@ export type PayDeps = {
    * store; none with a custom `store` (tests), unless given.
    */
   openSends?: () => Promise<{ raw: Hex; nonce: number }[]>;
+  /**
+   * The lowest nonce to sign with, shared with the caller's other sends in the same run (v2.5 I5:
+   * the bonus ledger's claims, collects and sweep); default a fresh one per payout run.
+   */
+  nonces?: { next: number };
 };
 
 /** What a payout pays: frozen in campaign_runs.terms when the review opens (v2.4 fix round 1, I2). */
@@ -506,14 +515,13 @@ export async function payRanked<R extends RankedRow>(
   const amountText = t.amountText ?? ((x: bigint) => x.toString());
   const placeOf = (e: R) => (t.perPlace && typeof e.slot === 'number' ? e.slot : null);
   const deadline = deps.deadline ?? Infinity;
-  const nonces = { next: 0 };
+  const nonces = deps.nonces ?? { next: 0 };
   const notes: string[] = [];
   const stop = (note: string) => ({ done: false, note: [...notes, note].join(' ') });
   for (let step = 0; step <= 2 * entries.length + t.amounts.length; step++) {
     let next = entries.find((e) => e.payout_status === 'sending' && e.prize_tx && e.prize_raw_tx);
     let slot: number | undefined;
     let amount: bigint;
-    if (!next && deps.followOnly) return { done: false, note: notes.join(' ') || null };
     if (next) amount = t.amounts[placeOf(next) ?? 0];
     else {
       const taken = entries.filter((e) => e.prize_tx);
@@ -536,6 +544,9 @@ export async function payRanked<R extends RankedRow>(
           done: true,
           note: taken.length || notes.length ? notes.join(' ') || null : (t.nothing ?? null),
         };
+      // Following only: nothing new is signed. Judged after the places (v2.5 M14), so a pass that
+      // follows the last transfer to paid reports the payout done in the same run.
+      if (deps.followOnly) return { done: false, note: notes.join(' ') || null };
       slot = free[0];
       amount = t.amounts[slot];
       if (Date.now() >= deadline) break;

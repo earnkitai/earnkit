@@ -1,12 +1,15 @@
-import { after, test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   PROOF_RECHECK_INTERVAL_MS,
+  RECHECK_BATCH,
   proofProblem,
   recheckSubmissionProofs,
+  sharedHost,
 } from './submission-proof';
+import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { SafeFetchError } from './safe-fetch';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
@@ -67,11 +70,33 @@ test('proofProblem: path mismatch (not a specific entry) is refused before any f
   assert.equal(called, false);
 });
 
-test('proofProblem: a page without either link is refused', async () => {
+test('proofProblem: a page without the entry\'s link is refused', async () => {
   const problem = await proofProblem(program, URL_OK, REPO, LIVE, {
     fetchText: async () => '<html>Some unrelated BUIDL page about pandas.</html>',
   });
-  assert.match(problem!, /doesn't link to your repo or live site/);
+  assert.match(problem!, /doesn't link to your repo yet/);
+});
+
+test('Ruling 22: an entry with a repo needs its repo on the page; its live site alone never proves it', async () => {
+  const problem = await proofProblem(program, URL_OK, REPO, LIVE, {
+    fetchText: async () => 'Try it live: https://tipjar.example',
+  });
+  assert.match(problem!, /doesn't link to your repo yet/);
+});
+
+test('Ruling 22: a live link on the proof host or a shared platform never proves a repo-less entry', async () => {
+  // Another team's BUIDL page links dorahacks.io and github.com like every page does.
+  const otherTeam = async () =>
+    '<a href="https://dorahacks.io/buidl/777">BUIDL</a> <a href="https://github.com/bob/other">Repo</a> https://x.com/bob';
+  for (const live of ['https://dorahacks.io/buidl/12345', 'https://www.dorahacks.io/', 'https://github.com/alice', 'https://x.com/alice', 'https://vercel.app/'])
+    assert.match((await proofProblem(program, URL_OK, undefined, live, { fetchText: otherTeam }))!, /can't prove this entry/, live);
+  // A project's own subdomain on a hosting platform is its own site.
+  assert.equal(
+    await proofProblem(program, URL_OK, undefined, 'https://tipjar.vercel.app', { fetchText: async () => 'Live: https://tipjar.vercel.app' }),
+    null,
+  );
+  assert.equal(sharedHost('docs.github.com', 'dorahacks.io'), true);
+  assert.equal(sharedHost('tipjar.example', 'dorahacks.io'), false);
 });
 
 test('proofProblem: the repo link in another case or form still matches (normalized)', async () => {
@@ -131,7 +156,7 @@ test('proofProblem: a malformed liveUrl (bad stored data) never throws; it just 
   const problem2 = await proofProblem(program, URL_OK, undefined, 'not a url', {
     fetchText: async () => 'nothing useful here',
   });
-  assert.match(problem2!, /doesn't link to your repo or live site/);
+  assert.match(problem2!, /can't prove this entry/);
 });
 
 test('proofProblem: an invalid submission URL is refused', async () => {
@@ -148,6 +173,8 @@ test('proofProblem: an invalid submission URL is refused', async () => {
 // ---- recheckSubmissionProofs (v2.5 §3, Ruling 11: the cron's daily re-check) ------------------
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+// Held for the whole file (M11): the re-check is global, like the other bonus jobs.
+holdBonusDbLock();
 
 /** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
 function recheckProgram(id: string, overrides: Record<string, unknown> = {}) {
@@ -264,6 +291,30 @@ test('recheckSubmissionProofs: never checked once the program is no longer activ
   assert.equal(row.submission_proof_ok_at, null);
 });
 
-after(async () => {
-  if (process.env.DATABASE_URL) await sql().end();
+test('M11: the re-check reads at most RECHECK_BATCH entries a run, only of rounds open now', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const tag = `t5fix-batch-${process.pid}-${Date.now()}`;
+  const open = recheckProgram(`${tag}-open`, { starts_at: '2026-09-01T00:00:00Z', ends_at: '2026-12-01T00:00:00Z' });
+  const ended = recheckProgram(`${tag}-ended`, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2026-02-01T00:00:00Z' });
+  await upsertProgram(open);
+  await upsertProgram(ended);
+  const installationId = await freshInstallation();
+  try {
+    for (let i = 0; i < RECHECK_BATCH + 5; i++) await insertUncheckedEntry(open.id, installationId, { repoUrl: `https://github.com/a/r${i}` });
+    const stuck = await insertUncheckedEntry(ended.id, installationId, { checkedAt: null });
+    let fetches = 0;
+    const r = await recheckSubmissionProofs(now, Date.now() + 60_000, { fetchText: async () => ((fetches++), 'nothing') });
+    assert.ok(r.checked <= RECHECK_BATCH && fetches <= RECHECK_BATCH, `${r.checked} checked`);
+    assert.equal(RECHECK_BATCH, 50);
+    // The ended round's entry is never selected (filtered in SQL), so it can't hold a batch slot.
+    const sel = await sql()<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM projects WHERE program_id = ${open.id} AND submission_proof_checked_at IS NULL`;
+    assert.ok(sel[0].n >= 5, 'the rest wait for the next run');
+    assert.equal((await proofRow(stuck)).submission_proof_checked_at, null, 'never read');
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id LIKE ${`${tag}-%`}`;
+    await sql()`DELETE FROM programs WHERE id LIKE ${`${tag}-%`}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
 });
+

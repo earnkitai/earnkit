@@ -1,4 +1,5 @@
-import { usd } from './campaigns';
+import { normalizeRepoUrl, usd } from './campaigns';
+import { repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Effort, type Verdict } from './match';
 
@@ -34,8 +35,10 @@ export type Card = {
   ideas?: string[];
   /** Set when entries are public pages EarnKit can check: only then can an entry earn the builder bonus. */
   submission_proof?: object | null;
-  /** The open round's builder bonus pool so far (bonus ledger roundPoolWei), or null when none. */
+  /** The open round's builder bonus pool so far (bonus-rounds.ts roundPoolsWei), or null when none. */
   bonus_pool_wei?: bigint | null;
+  /** The program's current round exists but isn't open any more (it froze): no bonus to win (I2). */
+  bonus_closed?: boolean;
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -80,6 +83,12 @@ export type FirstMessage = {
   /** "Your campaign entries" for sponsor campaigns (campaigns.ts presentYourEntries), or null. */
   sponsorEntries: string | null;
   now: Date;
+  /**
+   * Ruling 25: the program each of the builder's repos already has its coin entered in, by
+   * normalized repo (tokens.ts repoCoinPrograms). One coin per repo: another program's row for
+   * that repo shows no builder bonus.
+   */
+  repoCoins?: Map<string, { program_id: string; title: string }>;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -109,14 +118,25 @@ export const eth = (wei: bigint) => {
 
 /**
  * The builder bonus cell: the open round's pool in ETH (WETH); "opens with your entry" while the
- * round has nothing yet; "not available" when entries aren't public pages EarnKit can check.
- * Pure; exported for tests.
+ * round has nothing yet; "not available" when entries aren't public pages EarnKit can check, or
+ * when the program's round has already frozen (I2). Pure; exported for tests.
  */
-export function bonusCell(c: Pick<Card, 'submission_proof' | 'bonus_pool_wei'>) {
-  if (!c.submission_proof) return 'not available';
+export function bonusCell(c: Pick<Card, 'submission_proof' | 'bonus_pool_wei' | 'bonus_closed'>) {
+  if (!c.submission_proof || c.bonus_closed) return 'not available';
   const wei = c.bonus_pool_wei ?? 0n;
   if (wei <= 0n) return 'opens with your entry';
   return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
+}
+
+/**
+ * Ruling 25: a matched row whose repo already has its coin entered in another program can't earn
+ * this program's builder bonus (one coin per repo): its bonus cell says so instead of the pool.
+ * Null otherwise. Pure.
+ */
+function repoCoinElsewhere(m: Pick<FirstMessage, 'repoCoins'>, card: Card, repoUrl: string | null) {
+  if (!card.submission_proof || !repoUrl || !m.repoCoins) return null;
+  const coin = m.repoCoins.get(normalizeRepoUrl(repoUrl));
+  return coin && coin.program_id !== card.id ? repoCoinNote(coin.title) : null;
 }
 
 /** Ideas per program in "Ideas that fit these programs" (fix round 1, ruling 3). */
@@ -251,7 +271,7 @@ const CHAT_ONLY =
 /** No repo to match: none reported, or none found under the builder's GitHub user. */
 const noRepo = (r: YourRepos | null) => r === null || ('checked' in r && r.checked === 0);
 
-type Fit = { card: Card; repo: string; v: Verdict };
+type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict };
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
@@ -267,7 +287,7 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
   for (const f of fits)
     for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
       if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
-        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, v });
+        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v });
   const rows = [...matched.values()].sort((a, b) => byPrize(a.card, b.card));
   const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byPrize);
   const shown = rest.slice(0, MAX_OTHERS);
@@ -319,10 +339,10 @@ export function presentFirstMessage(m: FirstMessage): string {
         `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Builder bonus', 'Ends', 'Your repo'],
-          rows.map(({ card, repo, v }) => [
+          rows.map(({ card, repo, repo_url, v }) => [
             card.title,
             prizeOf(card),
-            bonus(card),
+            repoCoinElsewhere(m, card, repo_url) ?? bonus(card),
             endsOf(card),
             v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
           ]),

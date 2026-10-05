@@ -263,6 +263,9 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // Without injection: no pools yet, so the provable program opens with the builder's entry.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
     assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| opens with your entry \\|`));
+    // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win.
+    const frozen = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
+    assert.match(frozen.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| not available \\|`));
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
   }

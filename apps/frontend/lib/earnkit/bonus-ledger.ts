@@ -1,4 +1,10 @@
 import {
+  BaseError,
+  ContractFunctionRevertedError,
+  ExecutionRevertedError,
+  HttpRequestError,
+  RawContractError,
+  TimeoutError,
   createPublicClient,
   decodeEventLog,
   encodeFunctionData,
@@ -132,6 +138,19 @@ export type BonusRpc = PayoutRpc & {
   rewardRecipients: (locker: Hex, coin: Hex) => Promise<string[]>;
 };
 
+/**
+ * Whether a failed eth_call is the contract reverting (viem's revert errors anywhere in the cause
+ * chain, or a node message saying so), as opposed to the RPC failing to answer. Pure.
+ */
+export function isRevert(err: unknown): boolean {
+  if (err instanceof BaseError) {
+    const hit = err.walk((e) => e instanceof ExecutionRevertedError || e instanceof ContractFunctionRevertedError || e instanceof RawContractError);
+    if (hit) return true;
+    if (err.walk((e) => e instanceof HttpRequestError || e instanceof TimeoutError)) return false;
+  }
+  return /execution reverted|\brevert(ed)?\b/i.test(err instanceof Error ? err.message : String(err));
+}
+
 /** Base over BASE_RPC_URL (the public RPC by default). */
 export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BASE_BONUS): BonusRpc {
   const c = createPublicClient({ chain: base, transport: http(url) });
@@ -156,10 +175,18 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
     blockTime: async (blockNumber) => new Date(Number((await c.getBlock({ blockNumber })).timestamp) * 1000),
     availableFees: (owner, token) =>
       c.readContract({ address: chain.feeLocker, abi: FEE_LOCKER_ABI, functionName: 'availableFees', args: [owner, token] }),
+    // False only when the call reverts (this locker doesn't hold the coin); a transport error (rate
+    // limit, timeout) throws, so the coin is retried next run (task-10-review M7).
     canCollect: (locker, coin, from) =>
       c
         .call({ account: from, to: locker, data: encodeFunctionData({ abi: LOCKER_ABI, functionName: 'collectRewards', args: [coin] }) })
-        .then(() => true, () => false),
+        .then(
+          () => true,
+          (err: unknown) => {
+            if (isRevert(err)) return false;
+            throw err;
+          },
+        ),
     rewardRecipients: async (locker, coin) =>
       (await c.readContract({ address: locker, abi: LOCKER_ABI, functionName: 'tokenRewards', args: [coin] })).rewardRecipients.map(lower),
   };
@@ -168,6 +195,14 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
 export type BonusDeps = {
   /** The payout (= bonus) wallet; default from CAMPAIGN_PAYOUT_PRIVATE_KEY. Null: the ledger is skipped. */
   account?: LocalAccount | null;
+  /** Where the default account's key is read from (default process.env); for tests. */
+  env?: Record<string, string | undefined>;
+  /**
+   * I5: the run's nonce floor, shared by every send of one ledger run (claims, collects, round
+   * payouts, the sweep): each signature accepted by the node raises it past its nonce, so the next
+   * one never relies on the RPC's pending count. runBonusLedger seeds it from openStoredSends.
+   */
+  nonces?: { next: number };
   rpc?: BonusRpc;
   chain?: BonusChain;
   now?: Date;
@@ -237,9 +272,14 @@ export async function bookDeposit(
         const b = bookingFor(p, dep.blockTime);
         if (b.destination === 'safe') reason = `${p.id}: ${b.reason}`;
         else {
+          // Ruling 21: an open round's window follows the program file (an extended end keeps
+          // the round); a frozen one never changes.
           await tx`
             INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
-            VALUES (${b.round.key}, ${p.id}, ${b.round.starts}, ${b.round.ends}) ON CONFLICT DO NOTHING`;
+            VALUES (${b.round.key}, ${p.id}, ${b.round.starts}, ${b.round.ends})
+            ON CONFLICT (round_key) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at
+            WHERE bonus_rounds.state = 'open'
+              AND (bonus_rounds.starts_at, bonus_rounds.ends_at) IS DISTINCT FROM (EXCLUDED.starts_at, EXCLUDED.ends_at)`;
           const [r] = await tx<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${b.round.key} FOR UPDATE`;
           if (r.state === 'open') roundKey = b.round.key;
           else reason = `round ${b.round.key} is ${r.state}`;
@@ -316,6 +356,9 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
   const head = (await d.rpc.blockNumber()) - CONFIRMATIONS;
   const cursor = await indexedThrough();
   const envStart = process.env.BONUS_INDEX_START_BLOCK?.trim();
+  // task-10-review M8: read only while there is no cursor; digits only, else 2 days back (said once).
+  if (!cursor && !d.startBlock && envStart && !/^\d+$/.test(envStart))
+    log(`[bonus] BONUS_INDEX_START_BLOCK isn't a block number (digits only); indexing from ${FIRST_LOOKBACK} blocks back`);
   const from = cursor
     ? cursor.block + 1n
     : (d.startBlock ?? (envStart && /^\d+$/.test(envStart) ? BigInt(envStart) : head > FIRST_LOOKBACK ? head - FIRST_LOOKBACK : 0n));
@@ -393,17 +436,27 @@ export async function settleStoredSends(account: LocalAccount, rpc: BonusRpc) {
 /**
  * Signs and sends one contract call from the payout wallet and waits for it (until the deadline,
  * 5 to 60 s). Used for claims and collects: anyone may call them, they pay a fixed recipient, and a
- * duplicate only costs gas (the ledger's lease keeps runs from overlapping).
+ * duplicate only costs gas (the ledger's lease keeps runs from overlapping). `floor` (I5): the
+ * run's nonce floor; never signed below it, raised past this nonce once the node accepts it.
  */
-export async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, data: Hex, gas: bigint, deadline: number) {
+export async function sendCall(
+  account: LocalAccount,
+  rpc: BonusRpc,
+  to: Hex,
+  data: Hex,
+  gas: bigint,
+  deadline: number,
+  floor: { next: number } = { next: 0 },
+) {
   const [chainId, pending, fees, open] = await Promise.all([
     rpc.getChainId(),
     rpc.nonce(account.address),
     rpc.fees(),
     openStoredSends(account),
   ]);
-  // Never at or below the nonce of a stored transfer that isn't mined yet (fix round 1, I2).
-  const nonce = Math.max(pending, ...open.map((o) => o.nonce + 1));
+  // Never at or below the nonce of a stored transfer that isn't mined yet (fix round 1, I2), nor
+  // below one this run already sent (I5: the RPC's pending count may not have seen it yet).
+  const nonce = Math.max(pending, floor.next, ...open.map((o) => o.nonce + 1));
   const raw = await account.signTransaction({
     chainId,
     type: 'eip1559',
@@ -416,6 +469,7 @@ export async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, da
   });
   const hash = keccak256(raw);
   if ((await rpc.broadcast(raw)) === 'stale') throw new Error('nonce too low');
+  floor.next = Math.max(floor.next, nonce + 1);
   const r = await rpc.waitFor(hash, Math.max(5_000, Math.min(60_000, deadline - Date.now())));
   return { hash, status: r?.status ?? ('pending' as const) };
 }
@@ -469,7 +523,8 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
         continue;
       }
       let locker: Hex | null = null;
-      for (const l of d.chain.lockers) if (await d.rpc.canCollect(l, c.coin, account.address).catch(() => false)) { locker = l; break; }
+      // A transport error throws here (before the coin is stamped): 'failed', retried next run.
+      for (const l of d.chain.lockers) if (await d.rpc.canCollect(l, c.coin, account.address)) { locker = l; break; }
       // Recorded before sending: a crash or a revert waits COLLECT_QUIET_MS instead of resending hourly.
       await sql()`UPDATE projects SET coin_collected_at = ${now} WHERE id = ${c.project}`;
       if (!locker) {
@@ -482,7 +537,7 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
       }
       const data = encodeFunctionData({ abi: LOCKER_ABI, functionName: 'collectRewards', args: [c.coin] });
       const gas = await d.rpc.estimateGas({ account: account.address, to: locker, data });
-      const sent = await sendCall(account, d.rpc, locker, data, gas, toDeadline(d));
+      const sent = await sendCall(account, d.rpc, locker, data, gas, toDeadline(d), d.nonces);
       out.push({ coin: c.coin, result: `collect ${sent.status} ${sent.hash}` });
     } catch (err) {
       console.error('[bonus] collect', c.coin, err);
@@ -495,7 +550,7 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
 /**
  * Step 3: `claim(bonus wallet, WETH)`, then `claim(Safe, WETH)` on the FeeLocker (anyone may call
  * it; it always pays the fee owner), each only when its available WETH is at least 10× the
- * estimated gas cost.
+ * estimated gas cost, or (the bonus wallet's, M10) when the sweep to the Safe waits on it.
  */
 export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   const out: { owner: string; result: string }[] = [];
@@ -509,11 +564,14 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
       }
       const data = encodeFunctionData({ abi: FEE_LOCKER_ABI, functionName: 'claim', args: [owner, d.chain.weth] });
       const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data }), d.rpc.fees()]);
-      if (!worthIt(available, gas, fees.maxFeePerGas)) {
+      // M10: the bonus wallet's claim is also worth it when it unblocks a sweep worth 10x gas
+      // (the Safe's own deposits sit unclaimed behind a small balance).
+      const unblocks = () => owner !== d.chain.safe && sweepWaitsOnClaim(account, d, gas, fees.maxFeePerGas);
+      if (!worthIt(available, gas, fees.maxFeePerGas) && !(await unblocks())) {
         out.push({ owner, result: `${available} wei: under 10x gas` });
         continue;
       }
-      const sent = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, toDeadline(d));
+      const sent = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, toDeadline(d), d.nonces);
       out.push({ owner, result: `claim ${sent.status} ${sent.hash}` });
     } catch (err) {
       console.error('[bonus] claim', owner, err);
@@ -521,6 +579,20 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
     }
   }
   return out;
+}
+
+/**
+ * Whether the sweep waits on the bonus wallet's claim (M10): the WETH booked to the Safe and not
+ * swept is worth 10x `gas` at `maxFeePerGas`, and the wallet holds too little to send it without
+ * leaving a round short (roundsCovered).
+ */
+async function sweepWaitsOnClaim(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }, gas: bigint, maxFeePerGas: bigint) {
+  const [{ wei }] = await sql()<{ wei: string | null }[]>`
+    SELECT sum(amount_wei)::text AS wei FROM bonus_ledger WHERE destination = 'safe' AND swept_tx IS NULL`;
+  const amount = BigInt(wei ?? '0');
+  if (!worthIt(amount, gas, maxFeePerGas)) return false;
+  const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
+  return balance < amount || !(await roundsCovered(account, d, amount, balance));
 }
 
 type SweepRow = {
@@ -644,9 +716,11 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
   const otherPaid = (
     await sql()<{ raw_tx: string }[]>`SELECT raw_tx FROM bonus_sweeps WHERE status = 'paid' AND raw_tx IS NOT NULL AND id <> ${open.id}`
   ).map((r) => r.raw_tx);
-  // A new signature never takes the nonce of another stored, unmined send (fix round 1, I2).
+  // A new signature never takes the nonce of another stored, unmined send (fix round 1, I2), nor
+  // one this run already sent (I5: the run's shared floor).
   const others = (await openStoredSends(account)).filter((o) => o.raw !== open.raw_tx);
-  const nonces = { next: Math.max(0, ...others.map((o) => o.nonce + 1)) };
+  const nonces = d.nonces ?? { next: 0 };
+  nonces.next = Math.max(nonces.next, ...others.map((o) => o.nonce + 1));
   try {
     const r = await payWinner(row, {
       nonces,
@@ -678,16 +752,25 @@ async function countIndexRun(ok: boolean) {
 
 /**
  * The cron step: index, collect, claim, the rounds (`deps.rounds`), sweep, under one lease (a concurrent run gets 'busy').
- * Skipped quietly without CAMPAIGN_PAYOUT_PRIVATE_KEY (the bonus wallet) or off Base mainnet. One
- * step's failure never stops the next; its cause stays in the server log.
+ * Skipped without a usable CAMPAIGN_PAYOUT_PRIVATE_KEY (missing, or malformed: `problem`) or off
+ * Base mainnet; the cron escalates a skip once the bonus can earn (Ruling 20). One step's failure
+ * never stops the next; its cause stays in the server log.
  */
 export async function runBonusLedger(deps: BonusDeps = {}) {
-  const account = deps.account === undefined ? payoutAccount() : deps.account;
+  let account: LocalAccount | null;
+  try {
+    account = deps.account === undefined ? payoutAccount(deps.env) : deps.account;
+  } catch (err) {
+    // Ruling 19: a malformed key is reported like a missing one (the cron escalates it), never a
+    // silent step error. The key itself is never logged.
+    console.error('[bonus] CAMPAIGN_PAYOUT_PRIVATE_KEY is malformed:', err instanceof Error ? err.message : 'unreadable');
+    return { skipped: NO_PAYOUT_KEY, problem: 'malformed' as const };
+  }
   if (!account) return { skipped: NO_PAYOUT_KEY };
   const rpc = deps.rpc ?? bonusRpc();
   const chain = deps.chain ?? BASE_BONUS;
   if ((await rpc.getChainId()) !== BASE_MAINNET) return { skipped: NOT_MAINNET };
-  const d = { ...deps, rpc, chain };
+  const d = { ...deps, rpc, chain, nonces: deps.nonces ?? { next: 0 } };
   // The lease outlives the run's deadline (as the cron's campaign leases do), so calls never overlap.
   const leaseMs = Number.isFinite(toDeadline(d)) ? Math.max(60_000, toDeadline(d) - Date.now() + 60_000) : 10 * 60_000;
   const r = await withScoringLock('bonus-ledger', async () => {
@@ -702,6 +785,8 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     };
     await step('index', () => indexDeposits(account.address, d));
     out.index_failures = await countIndexRun(out.index !== 'failed');
+    // I5: one nonce floor for the run, seeded once from the stored, unmined sends.
+    d.nonces.next = Math.max(d.nonces.next, ...(await openStoredSends(account)).map((o) => o.nonce + 1));
     // Stored sends first, so a new claim or collect never takes their nonce (fix round 1, I2).
     if (await settleStoredSends(account, rpc)) {
       await step('collect', () => collectNearEnd(account, d));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bookingFor, roundFor, roundPoolsWei } from './bonus-rounds';
+import { bookingFor, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -8,18 +8,29 @@ const d = (s: string) => new Date(s);
 const windowed = { id: 'arc', starts_at: d('2026-09-16T10:00:00Z'), ends_at: d('2026-10-15T04:00:00Z') };
 const rolling = { id: 'base-grants', starts_at: null, ends_at: null };
 
-test('roundFor: a windowed program is one round, open inside its window only', () => {
+test('roundFor: a windowed program is one round keyed by its start day, open inside its window only', () => {
   assert.deepEqual(roundFor(windowed, d('2026-10-01T00:00:00Z')), {
-    key: 'arc',
+    key: 'arc:2026-09-16',
     starts: windowed.starts_at,
     ends: windowed.ends_at,
   });
   assert.equal(roundFor(windowed, d('2026-09-16T09:59:59Z')), null, 'before the start');
-  assert.equal(roundFor(windowed, d('2026-09-16T10:00:00Z'))?.key, 'arc', 'the start is inside');
-  assert.equal(roundFor(windowed, d('2026-10-15T03:59:59.999Z'))?.key, 'arc');
+  assert.equal(roundFor(windowed, d('2026-09-16T10:00:00Z'))?.key, 'arc:2026-09-16', 'the start is inside');
+  assert.equal(roundFor(windowed, d('2026-10-15T03:59:59.999Z'))?.key, 'arc:2026-09-16');
   assert.equal(roundFor(windowed, d('2026-10-15T04:00:00Z')), null, 'the end is outside');
+  // M4: a window without a start has no round (never one counting activity from 1970).
   const noStart = { id: 'x', starts_at: null, ends_at: windowed.ends_at };
-  assert.equal(roundFor(noStart, d('2020-01-01T00:00:00Z'))?.key, 'x', 'no start: open until the end');
+  assert.equal(roundFor(noStart, d('2026-10-01T00:00:00Z')), null, 'no start: no round');
+});
+
+test('I2 / Ruling 21: an extended end keeps the round (same key, new end); a new start day is a new round', () => {
+  const extended = { ...windowed, ends_at: d('2026-10-30T00:00:00Z') };
+  const r = roundFor(extended, d('2026-10-20T00:00:00Z'));
+  assert.equal(r?.key, roundFor(windowed, d('2026-10-01T00:00:00Z'))?.key, 'same round');
+  assert.equal(r?.ends.toISOString(), '2026-10-30T00:00:00.000Z', 'the deposit in the extension is inside the round');
+  const cohort2 = { id: 'arc', starts_at: d('2026-11-01T10:00:00Z'), ends_at: d('2026-12-01T00:00:00Z') };
+  assert.equal(roundFor(cohort2, d('2026-11-10T00:00:00Z'))?.key, 'arc:2026-11-01', 'a re-run cohort is a new round');
+  assert.equal(windowKey('arc', d('2026-09-16T10:00:00Z')), 'arc:2026-09-16');
 });
 
 test('roundFor: a rolling program has UTC calendar-month rounds', () => {
@@ -90,27 +101,31 @@ test('roundPoolsWei: one grouped read; only rounds open now, never a future star
     await program(P('roll-unbooked'), null, null);
     await program(P('frozen'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'));
     await program(P('closed'), d('2026-10-01T00:00:00Z'), d('2026-10-20T00:00:00Z'), 'closed');
-    await ledger(P('closed'), '11');
-    await ledger(P('win'), '400000000000000000');
-    await ledger(P('win'), '20000000000000000');
+    await program(P('nostart'), null, d('2026-10-20T00:00:00Z')); // M4: no round
+    const oct1 = (id: string) => `${P(id)}:2026-10-01`;
+    await ledger(oct1('closed'), '11');
+    await ledger(oct1('win'), '400000000000000000');
+    await ledger(oct1('win'), '20000000000000000');
     await ledger(null, '999', 'safe'); // the Safe's never counts
-    await ledger(P('ended'), '5');
-    await ledger(P('future'), '5'); // cannot happen, but must not show
+    await ledger(`${P('ended')}:2026-09-01`, '5');
+    await ledger(`${P('future')}:2026-10-15`, '5'); // cannot happen, but must not show
     await ledger(`${P('roll')}:2026-10`, '7');
     await ledger(`${P('roll')}:2026-09`, '1000'); // last month's round
     await ledger(`${P('roll-unbooked')}:2026-09`, '1000');
-    await ledger(P('frozen'), '9');
-    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${P('frozen')}`;
+    await ledger(oct1('frozen'), '9');
+    await ledger(`${P('nostart')}:2026-10-01`, '9');
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${oct1('frozen')}`;
 
     let queries = 0;
     const pools = await roundPoolsWei(
-      ['win', 'ended', 'future', 'roll', 'roll-unbooked', 'frozen', 'closed', 'missing'].map(P),
+      ['win', 'ended', 'future', 'roll', 'roll-unbooked', 'frozen', 'closed', 'missing', 'nostart'].map(P),
       { now, onQuery: () => queries++ },
     );
     assert.equal(queries, 1, 'one query');
+    // I2: a program whose current round froze maps to null (its bonus is not available).
     assert.deepEqual(
       Object.fromEntries(pools),
-      { [P('win')]: 420000000000000000n, [P('roll')]: 7n },
+      { [P('win')]: 420000000000000000n, [P('roll')]: 7n, [P('frozen')]: null },
     );
     assert.deepEqual(await roundPoolsWei([]), new Map());
   } finally {
@@ -133,5 +148,39 @@ test('roundPoolsWei agrees with roundFor on the open round key at a month bounda
     await sql()`DELETE FROM bonus_ledger WHERE tx_hash LIKE '0xt4pool%'`;
     await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-pools-%'`;
     await sql()`DELETE FROM programs WHERE id LIKE 't4-pools-%'`;
+  }
+});
+
+test('I2 / Ruling 21: programs:sync moves an open round with its program file; a frozen round or another cohort never moves', db, async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { ProgramFile } = await import('./program-file');
+  const { upsertProgram } = await import('./programs');
+  const f = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const id = P('sync');
+  const file = (starts: string, ends: string) => ProgramFile.parse({ ...f, id, starts_at: starts, ends_at: ends });
+  const window = async (key: string) =>
+    (await sql()<{ starts_at: Date; ends_at: Date; state: string }[]>`SELECT starts_at, ends_at, state FROM bonus_rounds WHERE round_key = ${key}`)[0];
+  try {
+    await upsertProgram(file('2026-09-16T10:00:00Z', '2026-10-15T04:00:00Z'));
+    const key = windowKey(id, d('2026-09-16T10:00:00Z'));
+    await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
+      VALUES (${key}, ${id}, '2026-09-16T10:00:00Z', '2026-10-15T04:00:00Z')`;
+    // The organizer extends the deadline: the open round follows (scoring, freeze and eligibility read it).
+    await upsertProgram(file('2026-09-16T10:00:00Z', '2026-10-25T04:00:00Z'));
+    assert.equal((await window(key)).ends_at.toISOString(), '2026-10-25T04:00:00.000Z');
+    // A frozen round never moves.
+    await sql()`UPDATE bonus_rounds SET state = 'review' WHERE round_key = ${key}`;
+    await upsertProgram(file('2026-09-16T10:00:00Z', '2026-11-05T04:00:00Z'));
+    assert.equal((await window(key)).ends_at.toISOString(), '2026-10-25T04:00:00.000Z');
+    // A new cohort (another start day) leaves the old round alone; its own round comes with its first deposit.
+    await sql()`UPDATE bonus_rounds SET state = 'open' WHERE round_key = ${key}`;
+    await upsertProgram(file('2026-12-01T00:00:00Z', '2027-01-01T00:00:00Z'));
+    assert.equal((await window(key)).ends_at.toISOString(), '2026-10-25T04:00:00.000Z');
+  } finally {
+    await sql()`DELETE FROM bonus_rounds WHERE program_id = ${id}`;
+    await sql()`DELETE FROM starters WHERE program_id = ${id}`;
+    await sql()`DELETE FROM tracks WHERE program_id = ${id}`;
+    await sql()`DELETE FROM programs WHERE id = ${id}`;
   }
 });

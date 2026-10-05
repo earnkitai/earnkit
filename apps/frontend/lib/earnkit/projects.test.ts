@@ -416,6 +416,57 @@ test('record_submission (v2.5 §3): a program without submission_proof never che
   assert.equal(row.submission_proof_ok_at, null);
 });
 
+test('Ruling 25 (I8): a repo whose coin is entered in another program is told at record time: no builder bonus here', dbTest, async () => {
+  const tag = `fw-coin-${process.pid}-${Date.now()}`;
+  const coinProgram = proofProgramFile(`${tag}-a`, { title: 'Coin Home Program' });
+  const program = proofProgramFile(`${tag}-b`, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
+  await upsertProgram(coinProgram);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(77), repo_url: `https://github.com/alice/${tag}` };
+  await sql()`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, token_url, token_repo_key, token_status)
+    VALUES (${coinProgram.id}, 'Coin home', ${project.repo_url}, ${installationId}, 'https://tokens.fun/coin/0x1', ${`github.com/alice/${tag}`}, 'launched')`;
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/577',
+    } as never,
+    installationId,
+    { fetchProof: async () => `See the repo: ${project.repo_url}` },
+  );
+  assert.equal(result.recorded, true);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No builder bonus: this repo's coin is entered in Coin Home Program\./);
+});
+
+test('M12: the entry-time note judges an earlier entry by the round rule (coin launched before the end), like scoring', dbTest, async () => {
+  const tag = `fw-m12-${process.pid}-${Date.now()}`;
+  const program = proofProgramFile(tag, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(78), repo_url: `https://github.com/alice/${tag}` };
+  // An earlier entry of the repo with a coin and a proof, but no launch time before the round's end
+  // (eligibleSql never counts it), must not be named as holding the repo.
+  await sql()`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, coin_address, coin_launched_at, submission_proof_ok_at)
+    VALUES (${program.id}, 'Earlier', ${project.repo_url}, ${installationId}, ${`github.com/alice/${tag}`},
+      ${`0x${'e'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`}, NULL, now())`;
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/578',
+    } as never,
+    installationId,
+    { fetchProof: async () => `See the repo: ${project.repo_url}` },
+  );
+  assert.equal(result.recorded, true);
+  assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /already holds this repo/);
+});
+
 // ---- v2.5 Ruling 13: external entries' contracts and one eligible entry per repo ----------------
 
 test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b); frozen at the round end (Ruling 16)', () => {

@@ -17,6 +17,7 @@ export type AlertState = {
   campaigns?: string[];
   prizes?: number[];
   bonusTop?: Record<string, boolean>;
+  /** Seen builder bonus wins by bonus_payouts.id (M2: one entry can win several rounds). */
   bonusWins?: number[];
 };
 export type AlertMemory = { checkedAt: Date | null; state: AlertState | null; feeAlertedUsd: number | null };
@@ -27,7 +28,16 @@ export type AlertMemory = { checkedAt: Date | null; state: AlertState | null; fe
  * then, `paidBonusWins` (below) finds nothing, so this list is always empty and the alert it feeds
  * never fires — nothing here needs to change once Task 7 lands, only `paidBonusWins`'s query.
  */
-export type BonusWin = { project_id: number; name: string; program_title: string; amount_wei: bigint; tx_hash: string; paid_at: Date };
+export type BonusWin = {
+  /** bonus_payouts.id: one per round win, so a second round's win of the same entry is news too (M2). */
+  id: number;
+  project_id: number;
+  name: string;
+  program_title: string;
+  amount_wei: bigint;
+  tx_hash: string;
+  paid_at: Date;
+};
 /** Where an eligible entry stands in its open builder bonus round right now (v2.5 §3, from bonus_scores). */
 export type BonusStanding = { project_id: number; program_title: string; inTop: boolean };
 export type AlertFacts = {
@@ -78,7 +88,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   // and before otherWins (sponsor wins) and anything else. Empty until Task 7 pays a round.
   const seenBonusWins = new Set(prev.state?.bonusWins ?? []);
   const freshBonus = f.bonusWins
-    .filter((w) => !seenBonusWins.has(w.project_id))
+    .filter((w) => !seenBonusWins.has(w.id))
     .sort((a, b) => b.paid_at.getTime() - a.paid_at.getTime());
   const shownBonus = freshBonus.slice(0, MAX_BONUS_WIN_LINES);
   for (const w of shownBonus)
@@ -135,7 +145,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     campaigns: f.newCampaigns.map((c) => c.id),
     // Prizes over the cap stay unseen: they show on the next check.
     prizes: [...new Set([...seenPrizes, ...shown.map((p) => p.project_id)])],
-    bonusWins: [...new Set([...seenBonusWins, ...shownBonus.map((w) => w.project_id)])],
+    bonusWins: [...new Set([...seenBonusWins, ...shownBonus.map((w) => w.id)])],
   };
   return { lines, state, feeAlertedUsd: fee.next };
 }
@@ -143,6 +153,9 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
 /** "Since you last checked: a; b." or null. Pure. */
 export const sinceLine = (lines: string[]) =>
   lines.length ? `Since you last checked: ${lines.join('; ')}.` : null;
+
+/** Whether bonus_payouts was seen to exist (memoized: a migrated table never goes away). */
+let bonusPayoutsExists = false;
 
 /**
  * THE SEAM for Task 7 ("Round lifecycle and WETH payouts", `bonus-payout.ts`): the builder bonus
@@ -158,13 +171,17 @@ export const sinceLine = (lines: string[]) =>
  * this same contract) without waiting on Task 7.
  */
 export async function paidBonusWins(installationId: number, db: Db = sql()): Promise<BonusWin[]> {
-  const [{ exists }] = await db<{ exists: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bonus_payouts') AS exists`;
-  if (!exists) return [];
+  // M15: the table exists for good once migrated, so the check runs until it first finds it.
+  if (!bonusPayoutsExists) {
+    const [{ exists }] = await db<{ exists: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bonus_payouts') AS exists`;
+    if (!exists) return [];
+    bonusPayoutsExists = true;
+  }
   const rows = await db<
-    { project_id: number; name: string; program_title: string; amount_wei: string; tx_hash: string; paid_at: Date }[]
+    { id: number; project_id: number; name: string; program_title: string; amount_wei: string; tx_hash: string; paid_at: Date }[]
   >`
-    SELECT bp.project_id, p.name, pr.title AS program_title, bp.amount_wei::text AS amount_wei, bp.tx_hash, bp.paid_at
+    SELECT bp.id, bp.project_id, p.name, pr.title AS program_title, bp.amount_wei::text AS amount_wei, bp.tx_hash, bp.paid_at
     FROM bonus_payouts bp
     JOIN projects p ON p.id = bp.project_id
     JOIN programs pr ON pr.id = p.program_id

@@ -271,6 +271,15 @@ test('safety: CAMPAIGN_PAYOUT_PRIVATE_KEY is the only key ever used', () => {
   assert.equal(payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: ` ${key} ` })!.address, account.address);
 });
 
+test('Ruling 7: the payout key works with or without 0x (the owner stores it without); anything else is refused', () => {
+  const key = '7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6';
+  const withPrefix = payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: `0x${key}` })!.address;
+  assert.equal(payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: key })!.address, withPrefix);
+  assert.equal(payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: ` ${key.toUpperCase()}\n` })!.address, withPrefix);
+  for (const bad of [key.slice(1), `${key}0`, `0x${key.slice(2)}zz`, `0X${key}`])
+    assert.throws(() => payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: bad }), /CAMPAIGN_PAYOUT_PRIVATE_KEY/, bad);
+});
+
 test('safety: an entry already paid before v2.4 (prize_tx kept, no signed bytes, no status) is never paid again', async () => {
   const f = fakeRpc();
   const s = memStore();

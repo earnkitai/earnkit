@@ -1,6 +1,7 @@
 import { normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { retryText } from './rate-limit';
+import { quoted } from './untrusted-text';
 
 /**
  * Launching a token for a submitted project on tokens.fun, through its deploy API
@@ -221,6 +222,22 @@ export async function repoTokenUrl(
 }
 
 /**
+ * v2.5 Ruling 25: the program each of these normalized repos already has its coin entered in (the
+ * earliest EarnKit launch claim, launched or pending), by repo key. One coin per repo (v2.3), so
+ * an entry of the same repo in another program gets no coin and no builder bonus.
+ */
+export async function repoCoinPrograms(repoKeys: string[]): Promise<Map<string, { program_id: string; title: string }>> {
+  if (repoKeys.length === 0) return new Map();
+  const rows = await sql()<{ key: string; program_id: string; title: string; kind: string | null }[]>`
+    SELECT DISTINCT ON (p.token_repo_key) p.token_repo_key AS key, p.program_id, g.title, g.campaign->>'kind' AS kind
+    FROM projects p JOIN programs g ON g.id = p.program_id
+    WHERE p.token_repo_key IN ${sql()(repoKeys)} AND p.token_url IS NOT NULL
+    ORDER BY p.token_repo_key, p.id`;
+  // A sponsor campaign's title is the sponsor's text: quoted, as everywhere else.
+  return new Map(rows.map((r) => [r.key, { program_id: r.program_id, title: r.kind === 'sponsor' ? quoted(r.title) : r.title }]));
+}
+
+/**
  * Launches a token for a submitted project on tokens.fun: claims the project, resolves the image,
  * POSTs the deploy, and records the outcome. The claim (`token_url = 'pending'`) is set first and
  * released ONLY on a 4xx response tokens.fun parsed as JSON (a refusal before minting: bad input,
@@ -408,20 +425,26 @@ export async function deployToken(
       UPDATE projects SET token_url = NULL, token_status = 'failed', token_note = ${outcome.note ?? null}
       WHERE id = ${a.projectId}`;
   } else if (outcome.status === 'launched') {
-    await sql()`
-      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
-      WHERE id = ${a.projectId}`;
-    // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by. Its own
-    // write: a duplicate (unique index) is logged and never stops the launch being recorded.
-    const coin = outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
+    // v2.5: the coin's address, which the builder bonus ledger attributes fee deposits by, written
+    // with the launch (M9: one statement). Base only (Ruling 24: tokens.fun gives other chains the
+    // pre-v2.5 split, with no builder bonus slot). coin_launched_at: an entry counts in a round
+    // only if launched before its end (Ruling 16).
+    const coin = chain === 'base' && outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
       ? outcome.token_address.toLowerCase()
       : null;
-    if (coin)
-      // coin_launched_at: an entry counts in a round only if launched before its end (Ruling 16).
-      await sql()`UPDATE projects SET coin_address = ${coin}, coin_launched_at = COALESCE(coin_launched_at, now())
-        WHERE id = ${a.projectId}`.catch((err: unknown) =>
-        console.error(`[launch] project ${a.projectId}: coin ${coin} not recorded for the builder bonus`, err),
-      );
+    const launched = (withCoin: boolean) => sql()`
+      UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL
+        ${withCoin ? sql()`, coin_address = ${coin}, coin_launched_at = COALESCE(coin_launched_at, now())` : sql()``}
+      WHERE id = ${a.projectId}`;
+    try {
+      await launched(coin !== null);
+    } catch (err) {
+      // Only a duplicate coin address (the unique index) is tolerated: logged, and the launch is
+      // still recorded without it. Any other error is the launch write failing: thrown.
+      if (coin === null || (err as { code?: string }).code !== '23505') throw err;
+      console.error(`[launch] project ${a.projectId}: coin ${coin} not recorded for the builder bonus (already on another entry)`);
+      await launched(false);
+    }
   } else {
     // pending: token_url stays 'pending' from the claim above; only the note changes.
     await sql()`UPDATE projects SET token_note = ${outcome.note ?? null} WHERE id = ${a.projectId}`;

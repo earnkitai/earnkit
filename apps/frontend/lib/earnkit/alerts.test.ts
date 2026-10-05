@@ -51,6 +51,7 @@ test('a wallet added later shows its old win once; at most the 3 most recent pri
 
 test('v2.5 Task 8: a builder bonus win shows once, names the program, before other news (wins first, Ruling 26)', () => {
   const win = (id: number, h: number, title = 'Arc Microgrants'): BonusWin => ({
+    id: 100 + id,
     project_id: id,
     name: `P${id}`,
     program_title: title,
@@ -90,6 +91,27 @@ test('v2.5 Task 8: a builder bonus win shows once, names the program, before oth
   const next = alertLines({ checkedAt: t(5), state: m.state, feeAlertedUsd: null }, many);
   assert.deepEqual(next.lines, ['you won 0.12 ETH builder bonus (Arc Microgrants)']);
   assert.deepEqual(alertLines({ checkedAt: t(6), state: next.state, feeAlertedUsd: null }, many).lines, []);
+});
+
+test('M2: a second round win of the same entry is news too (seen by payout id, not by entry)', () => {
+  const win = (payout: number, h: number, title: string): BonusWin => ({
+    id: payout,
+    project_id: 7,
+    name: 'Tip Jar',
+    program_title: title,
+    amount_wei: 5n * 10n ** 16n,
+    tx_hash: `0x${payout}`,
+    paid_at: t(h),
+  });
+  const first = alertLines({ checkedAt: t(1), state: { top: {} }, feeAlertedUsd: null }, { ...empty, bonusWins: [win(1, 2, 'Base Grants')] });
+  assert.deepEqual(first.lines, ['you won 0.05 ETH builder bonus (Base Grants)']);
+  // Next month the same entry wins its program's next round: a new payout id, so a new line.
+  const second = alertLines(
+    { checkedAt: t(3), state: first.state, feeAlertedUsd: null },
+    { ...empty, bonusWins: [win(1, 2, 'Base Grants'), win(2, 4, 'Base Grants')] },
+  );
+  assert.deepEqual(second.lines, ['you won 0.05 ETH builder bonus (Base Grants)']);
+  assert.deepEqual(second.state.bonusWins, [1, 2]);
 });
 
 test('v2.5 Task 8: entering and leaving the builder bonus top 10, only against what was seen; first-ever check is quiet', () => {
@@ -419,4 +441,18 @@ test('list_programs: EarnKit wins, then sponsor wins, then other news (Ruling 26
     const wallets = await sql()`SELECT wallet FROM installation_wallets WHERE installation_id = ${me}`;
     assert.deepEqual(wallets.map((w) => w.wallet), [other]);
   });
+});
+
+test('M15: the bonus_payouts table check runs until it first finds the table, then never again', db, async () => {
+  let checks = 0;
+  const counting = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (strings.join('').includes('information_schema')) checks++;
+    return (sql() as unknown as (s: TemplateStringsArray, ...v: unknown[]) => unknown)(strings, ...values);
+  }) as unknown as Parameters<typeof paidBonusWins>[1];
+  await paidBonusWins(-1, counting);
+  const first = checks;
+  assert.ok(first <= 1);
+  await paidBonusWins(-1, counting);
+  await paidBonusWins(-1, counting);
+  assert.equal(checks, first, 'memoized once the migrated table is seen');
 });
