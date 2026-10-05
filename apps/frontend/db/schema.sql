@@ -468,3 +468,48 @@ CREATE TABLE IF NOT EXISTS bonus_cursor (
 -- before any block was read (a failing first run), so block is nullable: NULL = no cursor yet.
 ALTER TABLE bonus_cursor ADD COLUMN IF NOT EXISTS index_failures integer NOT NULL DEFAULT 0;
 ALTER TABLE bonus_cursor ALTER COLUMN block DROP NOT NULL;
+
+-- v2.5 Task 7: round lifecycle and WETH payouts (lib/earnkit/bonus-payout.ts). A round freezes
+-- (final scores, deposit index past its end), opens a 48 h review with its payout amounts frozen
+-- in `terms`, then pays its winners in WETH from the bonus wallet; with no eligible entry it is
+-- 'empty' and its bookings become the Safe's. `note` and `pay_failures` work as campaign_runs'.
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS frozen_at timestamptz;
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS note text;
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS pay_failures integer NOT NULL DEFAULT 0;
+-- An empty round's bookings move to the Safe and keep their round_key (where they came from), so
+-- a 'safe' row may name a round; a 'round' row always does.
+ALTER TABLE bonus_ledger DROP CONSTRAINT IF EXISTS bonus_ledger_check;
+ALTER TABLE bonus_ledger DROP CONSTRAINT IF EXISTS bonus_ledger_round_named;
+ALTER TABLE bonus_ledger ADD CONSTRAINT bonus_ledger_round_named CHECK (destination <> 'round' OR round_key IS NOT NULL);
+-- Ruling 17: the owner's veto of an entry in one round's review (public reason).
+CREATE TABLE IF NOT EXISTS bonus_vetoes (
+  round_key  text NOT NULL REFERENCES bonus_rounds(round_key),
+  project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  reason     text NOT NULL,
+  at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (round_key, project_id)
+);
+-- Each round's frozen ranking (every eligible entry, from finalRanking, when the review opens) and
+-- its payouts: the place a winner takes (0 = first) and its frozen amount, the WETH transfer signed
+-- and stored before it is broadcast (v2.4 payout rules), paid_at once mined. alerts.ts
+-- paidBonusWins reads the paid rows (round_key, project_id, rank, amount_wei, tx_hash, paid_at).
+CREATE TABLE IF NOT EXISTS bonus_payouts (
+  id              serial PRIMARY KEY,
+  round_key       text NOT NULL REFERENCES bonus_rounds(round_key),
+  project_id      integer NOT NULL REFERENCES projects(id),
+  rank            integer NOT NULL,
+  score           double precision NOT NULL,
+  wallet          text,                                -- the entry's creator_wallet (Ruling 14), lowercase
+  installation_id integer,
+  flags           text[] NOT NULL DEFAULT '{}',        -- review flags and failed sources at the freeze
+  slot            integer,                             -- the payout place its transfer takes
+  amount_wei      numeric,                             -- that place's frozen amount
+  status          text CHECK (status IN ('sending', 'paid', 'refused')),
+  tx_hash         text,
+  raw_tx          text,
+  stale_at        timestamptz,
+  reverts         integer NOT NULL DEFAULT 0,
+  paid_at         timestamptz,
+  UNIQUE (round_key, project_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bonus_payouts_one_per_place ON bonus_payouts (round_key, slot) WHERE tx_hash IS NOT NULL;

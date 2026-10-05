@@ -13,6 +13,8 @@ EarnKit's own campaigns (by program slug). The cron (POST /api/cron) scores, fre
   rank   <slug>                                  ranked entries with evidence (users, smart, shared, code share)
   payout <slug>                                  dry run: who the cron pays, in order, after screening
   veto-link <slug>                               print the owner's review link (needs ADMIN_VETO_SECRET)
+  bonus-link <round>                             print a builder bonus round's review link (round key: the
+                                                 program id, or <program id>:YYYY-MM; needs ADMIN_VETO_SECRET)
 
 Sponsor campaigns (by ref; local shell only):
   fallback propose <ref> --winners <id>,<id>,... [--split equal|<pct>,<pct>,...] [--execute]

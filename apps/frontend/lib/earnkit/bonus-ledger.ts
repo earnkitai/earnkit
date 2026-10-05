@@ -6,8 +6,6 @@ import {
   http,
   keccak256,
   parseAbi,
-  parseTransaction,
-  recoverTransactionAddress,
   parseAbiItem,
   toEventSelector,
   type Hex,
@@ -22,6 +20,7 @@ import {
   MANUAL_CHECK,
   NOT_MAINNET,
   NO_PAYOUT_KEY,
+  openStoredSends,
   payWinner,
   payoutAccount,
   payoutRpc,
@@ -184,6 +183,11 @@ export type BonusDeps = {
   maxReceipts?: number;
   /** Whether the coin had token transfers since `since` (default: Base Blockscout). */
   active?: (coin: Hex, since: Date) => Promise<boolean>;
+  /**
+   * The builder bonus rounds step (Task 7: freeze, review, pay), run under the ledger's lease after
+   * the claims and before the sweep. The cron passes bonus-payout.ts advanceRounds; none: skipped.
+   */
+  rounds?: (account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) => Promise<unknown>;
 };
 
 /** Blocks behind the head the index stays (no reorg reaches them): tokens.fun's Base setting. */
@@ -367,22 +371,7 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
 const outOfGas = (err: unknown) =>
   /insufficient funds|exceeds the balance of the account/i.test(err instanceof Error ? `${err.name} ${err.message}` : String(err));
 
-/**
- * The payout wallet's signed transfers stored before broadcast and not settled yet: a bonus sweep
- * or a campaign payout in 'sending' (fix round 1, I2), with their nonces. Only ones this key signed.
- */
-export async function openStoredSends(account: LocalAccount) {
-  const rows = await sql()<{ raw: string }[]>`
-    SELECT raw_tx AS raw FROM bonus_sweeps WHERE status = 'sending' AND raw_tx IS NOT NULL
-    UNION ALL
-    SELECT prize_raw_tx AS raw FROM projects WHERE payout_status = 'sending' AND prize_raw_tx IS NOT NULL`;
-  const out: { raw: Hex; nonce: number }[] = [];
-  for (const r of rows) {
-    const sender = await recoverTransactionAddress({ serializedTransaction: r.raw as never });
-    if (sender.toLowerCase() === account.address.toLowerCase()) out.push({ raw: r.raw as Hex, nonce: parseTransaction(r.raw as Hex).nonce! });
-  }
-  return out.sort((a, b) => a.nonce - b.nonce);
-}
+export { openStoredSends };
 
 /**
  * Before the ledger signs anything new: every open stored send is broadcast again (the same
@@ -406,7 +395,7 @@ export async function settleStoredSends(account: LocalAccount, rpc: BonusRpc) {
  * 5 to 60 s). Used for claims and collects: anyone may call them, they pay a fixed recipient, and a
  * duplicate only costs gas (the ledger's lease keeps runs from overlapping).
  */
-async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, data: Hex, gas: bigint, deadline: number) {
+export async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, data: Hex, gas: bigint, deadline: number) {
   const [chainId, pending, fees, open] = await Promise.all([
     rpc.getChainId(),
     rpc.nonce(account.address),
@@ -588,19 +577,23 @@ export const sweepStore: PayoutStore = {
  */
 /**
  * Whether sending `amount` from the wallet leaves every unpaid round covered (fix round 1, I1):
- * wallet − amount ≥ Σ(unpaid round bookings) − (what the FeeLocker still holds for the wallet that
+ * wallet − amount ≥ Σ(unpaid round money) − (what the FeeLocker still holds for the wallet that
  * can be round money). Of `availableFees(bonus wallet)`, up to the unswept Safe bookings may be the
- * Safe's own unclaimed deposits, so only the rest counts toward the rounds.
+ * Safe's own unclaimed deposits, so only the rest counts toward the rounds. Unpaid round money
+ * (Task 7): the bookings of every round not yet 'paid' or 'empty' (an empty round's bookings are
+ * the Safe's), less what those rounds' winners were already paid.
  */
-async function roundsCovered(account: LocalAccount, d: { rpc: BonusRpc; chain: BonusChain }, amount: bigint, balance: bigint) {
-  const [{ rounds, safe }] = await sql()<{ rounds: string | null; safe: string | null }[]>`
+export async function roundsCovered(account: LocalAccount, d: { rpc: BonusRpc; chain: BonusChain }, amount: bigint, balance: bigint) {
+  const [{ rounds, paid, safe }] = await sql()<{ rounds: string | null; paid: string | null; safe: string | null }[]>`
     SELECT
       (SELECT sum(l.amount_wei) FROM bonus_ledger l JOIN bonus_rounds r ON r.round_key = l.round_key
-        WHERE l.destination = 'round' AND r.state <> 'paid')::text AS rounds,
+        WHERE l.destination = 'round' AND r.state NOT IN ('paid', 'empty'))::text AS rounds,
+      (SELECT sum(p.amount_wei) FROM bonus_payouts p JOIN bonus_rounds r ON r.round_key = p.round_key
+        WHERE p.status = 'paid' AND r.state NOT IN ('paid', 'empty'))::text AS paid,
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe' AND swept_tx IS NULL)::text AS safe`;
   const available = await d.rpc.availableFees(account.address, d.chain.weth);
   const forRounds = available > BigInt(safe ?? '0') ? available - BigInt(safe ?? '0') : 0n;
-  return balance - amount >= BigInt(rounds ?? '0') - forRounds;
+  return balance - amount >= BigInt(rounds ?? '0') - BigInt(paid ?? '0') - forRounds;
 }
 const SHORT = 'would leave a round short (its WETH is not all claimed yet)';
 
@@ -684,7 +677,7 @@ async function countIndexRun(ok: boolean) {
 }
 
 /**
- * The cron step: index, collect, claim, sweep, under one lease (a concurrent run gets 'busy').
+ * The cron step: index, collect, claim, the rounds (`deps.rounds`), sweep, under one lease (a concurrent run gets 'busy').
  * Skipped quietly without CAMPAIGN_PAYOUT_PRIVATE_KEY (the bonus wallet) or off Base mainnet. One
  * step's failure never stops the next; its cause stays in the server log.
  */
@@ -714,6 +707,9 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
       await step('collect', () => collectNearEnd(account, d));
       await step('claim', () => claimFees(account, d));
     } else out.claim = out.collect = 'waiting on a stored send';
+    // Task 7: rounds freeze, review and pay after the claims (claimed round WETH is there to pay)
+    // and before the sweep (which never takes unpaid round money: roundsCovered).
+    if (deps.rounds) await step('rounds', () => deps.rounds!(account, d));
     await step('sweep', () => sweepToSafe(account, d));
     return out;
   }, leaseMs);

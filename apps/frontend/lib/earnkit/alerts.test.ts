@@ -236,28 +236,24 @@ async function seeded(run: (s: { tag: string; me: number; other: number; wallet:
   }
 }
 
-test('v2.5 Task 8: paidBonusWins is the seam for Task 7 — returns nothing while bonus_payouts does not exist', db, async () => {
-  const [{ exists }] = await sql()<{ exists: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bonus_payouts') AS exists`;
-  assert.equal(exists, false, 'Task 7 added bonus_payouts: update this seam test for the new behaviour');
-  assert.deepEqual(await paidBonusWins(1), []);
-});
-
-test('v2.5 Task 8: paidBonusWins reads real rows once a bonus_payouts table exists (injected rows); feeds the win alert', db, async () => {
+test('v2.5 Task 7: paidBonusWins reads the real bonus_payouts rows (paid only); feeds the win alert', db, async () => {
   await seeded(async ({ tag, me, wallet }) => {
+    const roundKey = `${tag}-ek:2026-10`;
     const [{ id: pid }] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, installation_id, creator_wallet) VALUES (${tag + '-ek'}, 'Bonus Win', ${me}, ${wallet}) RETURNING id`;
-    // Simulating Task 7's table, to the contract documented on paidBonusWins.
+    const [{ id: unpaid }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, creator_wallet) VALUES (${tag + '-ek'}, 'In flight', ${me}, ${wallet}) RETURNING id`;
     await sql()`
-      CREATE TABLE bonus_payouts (
-        round_key text NOT NULL, project_id integer NOT NULL, rank integer NOT NULL,
-        amount_wei numeric NOT NULL, tx_hash text, paid_at timestamptz)`;
+      INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
+      VALUES (${roundKey}, ${tag + '-ek'}, '2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z', 'paying')`;
     try {
+      // Task 7's table (bonus-payout.ts): a paid winner, and one whose transfer is signed but not mined.
       await sql()`
-        INSERT INTO bonus_payouts (round_key, project_id, rank, amount_wei, tx_hash, paid_at)
-        VALUES (${`${tag}-ek:2026-10`}, ${pid}, 1, ${(12n * 10n ** 16n).toString()}, '0xpaid', now())`;
+        INSERT INTO bonus_payouts (round_key, project_id, rank, score, wallet, slot, amount_wei, status, tx_hash, paid_at) VALUES
+          (${roundKey}, ${pid}, 1, 90, ${wallet.toLowerCase()}, 0, ${(12n * 10n ** 16n).toString()}, 'paid', '0xpaid', now()),
+          (${roundKey}, ${unpaid}, 2, 80, ${wallet.toLowerCase()}, 1, ${(5n * 10n ** 16n).toString()}, 'sending', '0xsending', NULL)`;
       const wins = await paidBonusWins(me);
-      assert.equal(wins.length, 1);
+      assert.equal(wins.length, 1, 'only mined (paid) rows are wins');
       assert.equal(wins[0].project_id, pid);
       assert.equal(wins[0].name, 'Bonus Win');
       assert.equal(wins[0].program_title, `${tag}-ek`);
@@ -275,7 +271,8 @@ test('v2.5 Task 8: paidBonusWins reads real rows once a bonus_payouts table exis
       const r = await sinceYouLastChecked(me);
       assert.ok(r.lines.includes(`you won 0.12 ETH builder bonus (${tag}-ek)`), r.lines.join('; '));
     } finally {
-      await sql()`DROP TABLE bonus_payouts`;
+      await sql()`DELETE FROM bonus_payouts WHERE round_key = ${roundKey}`;
+      await sql()`DELETE FROM bonus_rounds WHERE round_key = ${roundKey}`;
     }
   });
 });

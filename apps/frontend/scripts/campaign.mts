@@ -45,7 +45,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'fallback', 'refund', 'sync'];
+const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'bonus-link', 'fallback', 'refund', 'sync'];
 const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
@@ -61,8 +61,16 @@ if (command === 'payout' && (process.argv.includes('--execute') || process.argv.
   fail('pnpm campaign payout is a dry run only: the cron pays the winners after the 48-hour review.');
 if (!slug && command !== 'sync')
   fail(
-    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
+    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a ${command === 'bonus-link' ? 'builder bonus round key' : `campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}`}.\n\n${USAGE}`,
   );
+// v2.5: a builder bonus round's review link (its own key; no database needed).
+if (command === 'bonus-link') {
+  const { bonusReviewLink } = await import('../lib/earnkit/veto');
+  const link = bonusReviewLink(process.env.EARNKIT_URL ?? 'https://earnkit.com', slug!);
+  if (!link) fail('Set ADMIN_VETO_SECRET in your local shell (the same value as on Railway, 32+ characters).');
+  console.log(link);
+  process.exit(0);
+}
 
 // Set inside main(), only for commands that need it: golive edits the program file directly and
 // must work with no DATABASE_URL (it runs before the owner provisions anything, v2.4 ruling 2).
