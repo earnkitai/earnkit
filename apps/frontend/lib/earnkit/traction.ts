@@ -27,7 +27,7 @@ export type Signals = {
   contributors: number;
   /** Stars and forks in the window by distinct accounts 30+ days old, not the builder's, capped. */
   interest: number;
-  /** Coin holders worth ≥ $1 (or ≥ 0.001% of supply), not the builder, EarnKit or Clanker, capped. */
+  /** Coin holders worth ≥ $1 at the explorer's price (no price: 0), not the builder, EarnKit or Clanker, capped. */
   holders: number;
   /** Tie-breaker only. */
   marketCapUsd: number;
@@ -51,14 +51,15 @@ export const WEIGHTS = { users: 40, live: 20, shipping: 20, interest: 10, holder
 export const ACCOUNT_MIN_AGE_MS = 30 * 86_400_000;
 /** The live ratio's smallest denominator (a few lucky days aren't a record). */
 export const LIVE_MIN_DAYS = 7;
-/** A holder counts at this USD value (Blockscout exchange_rate)... */
+/** A holder counts at this USD value (Blockscout exchange_rate); a coin without a price has 0 holders. */
 export const HOLDER_MIN_USD = 1;
-/** ...or, without a price, at this share of the supply (0.001%), as parts per 100,000. */
-export const HOLDER_MIN_SUPPLY_PER_100K = 1n;
 /** GitHub reads stop when the token has fewer requests left this hour (list_programs keeps headroom). */
 export const GITHUB_MIN_REMAINING = 1000;
-/** Entries read per scoring run (oldest read first): spreads the day's reads across hourly runs. */
+/** Entries read per scoring run, across all rounds (oldest read first): spreads the day's reads across hourly runs. */
 export const ENTRIES_PER_RUN = 10;
+/** Days in a row, each with exactly one new commit, that flag a scheduled-commit pattern for the review. */
+export const SINGLE_COMMIT_STREAK = 7;
+export const SINGLE_COMMIT_FLAG = 'single_commit_streak';
 /** After a round's end, an entry whose final read still has failed sources counts done after this. */
 export const FREEZE_ESCAPE_MS = 24 * 3_600_000;
 
@@ -201,6 +202,8 @@ export type TractionStore = {
   record(roundKey: string, projectId: number, day: string, commits: { sha: string; login: string | null }[]): Promise<void>;
   /** Distinct first-seen days and distinct counted logins of the entry's commits in the round. */
   stats(roundKey: string, projectId: number): Promise<{ days: number; contributors: number }>;
+  /** The longest run of consecutive days on each of which exactly one new commit was first seen. */
+  singleCommitStreak(roundKey: string, projectId: number): Promise<number>;
 };
 
 export const dbStore: TractionStore = {
@@ -233,6 +236,15 @@ export const dbStore: TractionStore = {
       FROM bonus_commits WHERE round_key = ${roundKey} AND project_id = ${projectId}`;
     return r;
   },
+  singleCommitStreak: async (roundKey, projectId) => {
+    const [r] = await sql()<{ streak: number }[]>`
+      WITH d AS (
+        SELECT day FROM bonus_commits WHERE round_key = ${roundKey} AND project_id = ${projectId}
+        GROUP BY day HAVING count(*) = 1),
+      g AS (SELECT day - (row_number() OVER (ORDER BY day))::int AS grp FROM d)
+      SELECT COALESCE(max(n), 0)::int AS streak FROM (SELECT count(*) AS n FROM g GROUP BY grp) x`;
+    return r.streak;
+  },
 };
 
 export type TractionDeps = {
@@ -259,8 +271,10 @@ export type TractionDeps = {
   previous?: Signals;
   /** Only these groups are read; the rest come from `previous`. Default: all. */
   groups?: readonly Group[];
-  /** Entries read per run (default ENTRIES_PER_RUN). */
+  /** Entries read per run (default ENTRIES_PER_RUN), when no shared `allowance` is given. */
   maxEntries?: number;
+  /** The run's remaining entry reads, shared by every round of one scoreOpenRounds run. */
+  allowance?: { left: number };
 };
 
 const lower = (a: string) => a.toLowerCase();
@@ -438,7 +452,8 @@ async function githubSignals(
 
 /**
  * Holders and market cap from Blockscout. A holder counts with a balance worth ≥ HOLDER_MIN_USD at
- * the explorer's exchange_rate, or (no price) ≥ 0.001% of the supply; never one in `never`.
+ * the explorer's exchange_rate, never one in `never`. Without a price, holders is 0 (Ruling 15: a
+ * supply share is cheap to fake with an airdrop) and the holder list isn't read.
  */
 async function coinSignals(coin: string, never: Set<string>, get: (path: string) => Promise<unknown>) {
   const t = (await get(`/api/v2/tokens/${coin}`)) as TokenInfo;
@@ -447,14 +462,11 @@ async function coinSignals(coin: string, never: Set<string>, get: (path: string)
   const supply = t.total_supply ? BigInt(t.total_supply) : null;
   const counts = (value: string) => {
     const v = BigInt(value || '0');
-    if (v <= 0n) return false;
-    if (rate > 0) return (Number(v) / 10 ** decimals) * rate >= HOLDER_MIN_USD;
-    if (supply && supply > 0n) return v * 100_000n >= supply * HOLDER_MIN_SUPPLY_PER_100K;
-    return false;
+    return v > 0n && (Number(v) / 10 ** decimals) * rate >= HOLDER_MIN_USD;
   };
   let holders = 0;
   let query = '';
-  for (let page = 0; page < HOLDER_PAGES && holders < HOLDERS_CAP; page++) {
+  for (let page = 0; rate > 0 && page < HOLDER_PAGES && holders < HOLDERS_CAP; page++) {
     const r = (await get(`/api/v2/tokens/${coin}/holders${query}`)) as Holders;
     for (const h of r.items ?? []) if (!never.has(lower(h.address.hash)) && counts(h.value)) holders++;
     if (!r.next_page_params) break;
@@ -540,22 +552,49 @@ export async function signalsFor(
 
 /**
  * The builder bonus eligibility rule in SQL, for `projects p` (projects.ts bonusEligible is its
- * pure twin): a coin launched, a submission proof that checked out, and the earliest entry of its
- * normalized repo in the program (Ruling 13b: a later duplicate is recorded, never eligible).
+ * pure twin): a coin launched, a submission proof that checked out, and no EARLIER ELIGIBLE entry
+ * (coin and proof) of the same normalized repo in the program (Rulings 13b, 15: an ineligible
+ * earlier row, a squatter's or the builder's own failed attempt, never blocks).
  */
 export const eligibleSql = () => sql()`
   p.coin_address IS NOT NULL AND p.submission_proof_ok_at IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
+      AND q.coin_address IS NOT NULL AND q.submission_proof_ok_at IS NOT NULL
       AND (q.submitted_at, q.id) < (p.submitted_at, p.id))`;
 
-type Cached = { day: string; signals: Signals; failed: Group[]; through: Date; computed_at: Date };
+/**
+ * Ruling 15: a contract backs only one eligible entry per program, the earliest eligible one.
+ * Given the program's eligible entries, each entry's scorable contracts without those an earlier
+ * one already holds, and the contracts it lost. Pure.
+ */
+export function ownContracts(entries: Pick<TractionEntry, 'id' | 'contracts' | 'coin_address' | 'submitted_at'>[]) {
+  const held = new Map<string, number>();
+  const out = new Map<number, { contracts: string[]; dropped: { contract: string; heldBy: number }[] }>();
+  const ordered = [...entries].sort((a, b) => a.submitted_at.getTime() - b.submitted_at.getTime() || a.id - b.id);
+  for (const e of ordered) {
+    const contracts: string[] = [];
+    const dropped: { contract: string; heldBy: number }[] = [];
+    for (const c of scorableContracts(e).map(lower)) {
+      const by = held.get(c);
+      if (by !== undefined && by !== e.id) dropped.push({ contract: c, heldBy: by });
+      else {
+        held.set(c, e.id);
+        if (!contracts.includes(c)) contracts.push(c);
+      }
+    }
+    out.set(e.id, { contracts, dropped });
+  }
+  return out;
+}
+
+type Cached = { day: string; signals: Signals; failed: Group[]; through: Date; computed_at: Date; review_flags: string[] };
 
 /**
  * Scores one round now: for each eligible entry entered before the round's end, reads its signals
  * at most once per UTC day (a failed group is retried alone on the next run; a live link that
- * failed today's probe is re-probed), at most `maxEntries` entries per run, oldest read first. It
+ * failed today's probe is re-probed), within the run's entry allowance, oldest read first. It
  * stores them in `bonus_scores`, ranks the round from each entry's latest signals and writes the
  * score and rank on those rows. After the round's end one final read covers the whole window
  * (`through` = ends_at); only its failed groups are ever read again. Returns the ranking.
@@ -579,7 +618,7 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
   if (entries.length) {
     const ids = entries.map((e) => e.id);
     const rows = await sql()<({ project_id: number } & Cached)[]>`
-      SELECT DISTINCT ON (project_id) project_id, day::text, signals, failed, through, computed_at
+      SELECT DISTINCT ON (project_id) project_id, day::text, signals, failed, through, computed_at, review_flags
       FROM bonus_scores WHERE round_key = ${roundKey} AND project_id IN ${sql()(ids)}
       ORDER BY project_id, day DESC`;
     for (const x of rows) latest.set(x.project_id, x);
@@ -604,20 +643,32 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
     .sort((a, b) => (a.c?.computed_at.getTime() ?? 0) - (b.c?.computed_at.getTime() ?? 0) || a.e.id - b.e.id);
   const budget = deps.budget ?? new GitHubBudget();
   const excluded = deps.excluded ?? resolveBonusWallet();
-  let reads = 0;
+  const allowance = deps.allowance ?? { left: deps.maxEntries ?? ENTRIES_PER_RUN };
+  const store = deps.store ?? dbStore;
+  const own = ownContracts(entries);
   for (const { e, c, fresh, groups } of todo) {
     if (deps.deadline !== undefined && Date.now() >= deps.deadline) break;
-    if (heavy(groups) && reads >= (deps.maxEntries ?? ENTRIES_PER_RUN)) continue;
-    if (heavy(groups)) reads++;
-    const { signals, failed } = await signalsFor(e, round, { ...deps, now, budget, excluded, previous: c?.signals, groups });
+    if (heavy(groups)) {
+      if (allowance.left <= 0) continue;
+      allowance.left--;
+    }
+    const mine = own.get(e.id)!;
+    for (const x of mine.dropped)
+      console.log(`[traction] entry ${e.id}: contract ${x.contract} already backs entry #${x.heldBy}; not counted here`);
+    const { signals, failed } = await signalsFor({ ...e, contracts: mine.contracts }, round, {
+      ...deps, now, budget, excluded, store, previous: c?.signals, groups,
+    });
     // A partial retry keeps the window of the groups it didn't re-read.
     const through = fresh ? c!.through : ended ? round.ends : now;
-    const row = { day: fresh ? c!.day : today, signals, failed, through, computed_at: now };
+    // For the review page (Ruling 15): a scheduled-commit pattern is shown, not scored.
+    const review_flags = e.repo_url && (await store.singleCommitStreak(roundKey, e.id)) >= SINGLE_COMMIT_STREAK ? [SINGLE_COMMIT_FLAG] : [];
+    const row = { day: fresh ? c!.day : today, signals, failed, through, computed_at: now, review_flags };
     await sql()`
-      INSERT INTO bonus_scores (round_key, project_id, day, signals, failed, through, computed_at)
-      VALUES (${roundKey}, ${e.id}, ${row.day}, ${sql().json(signals)}, ${failed}, ${through}, ${now})
+      INSERT INTO bonus_scores (round_key, project_id, day, signals, failed, through, computed_at, review_flags)
+      VALUES (${roundKey}, ${e.id}, ${row.day}, ${sql().json(signals)}, ${failed}, ${through}, ${now}, ${review_flags})
       ON CONFLICT (round_key, project_id, day) DO UPDATE
-        SET signals = EXCLUDED.signals, failed = EXCLUDED.failed, through = EXCLUDED.through, computed_at = EXCLUDED.computed_at`;
+        SET signals = EXCLUDED.signals, failed = EXCLUDED.failed, through = EXCLUDED.through,
+          computed_at = EXCLUDED.computed_at, review_flags = EXCLUDED.review_flags`;
     latest.set(e.id, row);
   }
   const scored = entries.filter((e) => latest.has(e.id));
@@ -634,19 +685,23 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
 /**
  * Traction scoring for the cron (Task 7 wires it; hourly is fine, reads stay once a day): every
  * 'open' round that has started, oldest end first, until `deadline`, sharing one GitHub budget,
- * one bonus wallet lookup and one per-run entry allowance. One round's failure never stops the others.
+ * one bonus wallet lookup and one per-run entry allowance. One round's failure never stops the
+ * others. `only` limits the run to these round keys (tests, like runCron's).
  */
-export async function scoreOpenRounds(deps: TractionDeps = {}) {
+export async function scoreOpenRounds(deps: TractionDeps & { only?: string[] } = {}) {
   const now = deps.now ?? new Date();
   const budget = deps.budget ?? new GitHubBudget();
   const excluded = deps.excluded ?? resolveBonusWallet();
+  const allowance = deps.allowance ?? { left: deps.maxEntries ?? ENTRIES_PER_RUN };
   const rounds = await sql()<{ round_key: string }[]>`
-    SELECT round_key FROM bonus_rounds WHERE state = 'open' AND starts_at <= ${now} ORDER BY ends_at, round_key`;
+    SELECT round_key FROM bonus_rounds WHERE state = 'open' AND starts_at <= ${now}
+      ${deps.only ? sql()`AND round_key IN ${sql()(deps.only)}` : sql()``}
+    ORDER BY ends_at, round_key`;
   const out: { round: string; ranked?: number; error?: string }[] = [];
   for (const { round_key } of rounds) {
     if (deps.deadline !== undefined && Date.now() >= deps.deadline) break;
     try {
-      out.push({ round: round_key, ranked: (await scoreRound(round_key, { ...deps, now, budget, excluded })).length });
+      out.push({ round: round_key, ranked: (await scoreRound(round_key, { ...deps, now, budget, excluded, allowance })).length });
     } catch (err) {
       console.error('[traction]', round_key, err);
       out.push({ round: round_key, error: 'scoring failed; retried next run' });

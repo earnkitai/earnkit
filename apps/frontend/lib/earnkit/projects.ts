@@ -331,12 +331,17 @@ export async function verifiedBonusContracts(
   const never = asked.filter((c) => CLANKER_ADDRESSES.includes(c));
   const candidates = asked.filter((c) => !never.includes(c));
   const notes: string[] = [];
-  if (never.length) notes.push(`${never.join(', ')}: Clanker or Uniswap contracts never count as yours.`);
+  if (never.length)
+    notes.push(
+      `${never.join(', ')}: Clanker or Uniswap contracts never count as yours; leave them out of contracts` +
+        (signature ? ' and sign the list without them next time.' : '.'),
+    );
   if (!candidates.length) return { contracts: [], deployers: [], note: notes.length ? `Contracts not counted for the builder bonus: ${notes.join(' ')}` : null };
   if (!repoUrl) return none('they need the project\'s public GitHub repo_url.');
   if (!wallet || !isWalletAddress(wallet)) return none('pass payout_wallet, the builder\'s Base wallet that deployed them (or signed for them).');
   const w = wallet.toLowerCase();
-  const signer = signature ? await entrySigner(programId, repoUrl, w, candidates, signature) : null;
+  // The signature covers the contract list exactly as the agent submitted it (Ruling 15).
+  const signer = signature ? await entrySigner(programId, repoUrl, w, asked, signature) : null;
   if (signature && !signer) notes.push('deployer_signature is not a valid signature (0x + 130 hex characters).');
   const contracts: string[] = [];
   const deployers = new Set<string>();
@@ -510,12 +515,31 @@ export async function recordSubmission(
       // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
       await deps.charge?.();
       if (bonusRepoKey && program.submission_proof) {
+        // Only an earlier ELIGIBLE entry (coin and proof) holds the repo (Ruling 15): a squatter's
+        // row or the builder's own failed attempt never blocks (traction.ts eligibleSql).
         const [earlier] = await tx<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
+            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL
           ORDER BY submitted_at, id LIMIT 1`;
         if (earlier)
           notes.push(
-            `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest entry of a repo is.`,
+            `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest eligible entry of a repo is.`,
+          );
+      }
+      if (bonusContracts && program.submission_proof) {
+        // A contract backs only one eligible entry per program, the earliest (Ruling 15; scoring
+        // drops it from later entries, traction.ts ownContracts).
+        const held = await tx<{ id: number; contracts: string[] }[]>`
+          SELECT id, contracts FROM projects
+          WHERE program_id = ${program.id} AND contracts && ${bonusContracts}::text[]
+            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL
+          ORDER BY submitted_at, id`;
+        const taken = bonusContracts
+          .map((c) => ({ c, by: held.find((h) => h.contracts.map((x) => x.toLowerCase()).includes(c)) }))
+          .filter((x) => x.by);
+        if (taken.length)
+          notes.push(
+            `Not counted for this entry: ${taken.map((x) => `${x.c} already backs entry #${x.by!.id}`).join('; ')} (a contract counts for one entry per program).`,
           );
       }
       const [project] = await tx<{ id: number; submitted_at: Date }[]>`

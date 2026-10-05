@@ -411,6 +411,9 @@ CREATE TABLE IF NOT EXISTS github_users (
 -- later entry of the same repo in the same program is recorded but never bonus-eligible.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS bonus_repo_key text;
 CREATE INDEX IF NOT EXISTS projects_bonus_repo_key ON projects (program_id, bonus_repo_key) WHERE bonus_repo_key IS NOT NULL;
+-- Fix round 2 (Ruling 15): patterns the review page shows next to a score, e.g.
+-- 'single_commit_streak' (7+ days in a row with exactly one new commit each). Never scored.
+ALTER TABLE bonus_scores ADD COLUMN IF NOT EXISTS review_flags text[] NOT NULL DEFAULT '{}';
 
 -- Each WETH deposit the FeeLocker stored for the bonus wallet (its StoreTokens log), attributed to
 -- a coin and booked to that coin's open round, or to the Safe. Idempotent on (tx_hash, log_index).
