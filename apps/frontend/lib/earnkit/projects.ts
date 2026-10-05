@@ -24,6 +24,7 @@ import {
   SanctionsError,
   screenWallet,
 } from './sanctions';
+import { proofProblem } from './submission-proof';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
@@ -165,6 +166,8 @@ export type EntryDeps = {
   deployer?: DeployerLookup;
   repoFacts?: RepoFactsLookup;
   fetchFile?: OwnershipFetcher;
+  /** v2.5 §3: fetches a program's submission proof page (proofProblem); defaults to safeFetchText. */
+  fetchProof?: (url: string) => Promise<string>;
 };
 
 /**
@@ -280,6 +283,19 @@ export async function campaignEntryProblems(
   };
 }
 
+/**
+ * The builder bonus eligibility rule (v2.5 spec §3): a coin launched through EarnKit for this
+ * entry (ownership was already proven by the token gate to launch it) and a submission proof that
+ * last checked out. Derived, never stored separately, so it can never go stale against either
+ * field; Tasks 6 and 7 use this to rank and pay rounds. Pure; exported for tests.
+ */
+export function bonusEligible(project: {
+  coin_address: string | null;
+  submission_proof_ok_at: Date | string | null;
+}): boolean {
+  return project.coin_address !== null && project.submission_proof_ok_at !== null;
+}
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
@@ -326,6 +342,32 @@ export async function recordSubmission(
     entry = checked.entry;
     proof = checked.proof;
     deployers = checked.deployers;
+  }
+
+  // v2.5 §3: external (non-campaign) programs with a public submission page. The external URL is
+  // the proof EarnKit checks for the builder bonus; a failure never fails the submission — it's
+  // recorded either way, just not (yet) bonus-eligible (bonusEligible), with a note telling the
+  // agent what to fix. The cron re-checks a failed proof daily until the round ends.
+  let submissionProofUrl: string | null = null;
+  let submissionProofOkAt: Date | null = null;
+  let bonusNote: string | null = null;
+  if (!program.campaign && program.submission_proof) {
+    submissionProofUrl = input.external_submission_url ?? null;
+    if (!submissionProofUrl) {
+      bonusNote =
+        `No external_submission_url was given; the builder bonus needs a public link to this ` +
+        `entry on ${program.submission_proof.host} (e.g. a DoraHacks BUIDL page).`;
+    } else {
+      const problem = await proofProblem(
+        program,
+        submissionProofUrl,
+        repo_url,
+        live_url,
+        { fetchText: deps.fetchProof },
+      );
+      if (problem) bonusNote = `Builder bonus not available yet: ${problem}`;
+      else submissionProofOkAt = new Date();
+    }
   }
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
@@ -393,6 +435,8 @@ export async function recordSubmission(
         repo_pushed_at: proof?.repo_pushed_at ?? null,
         contracts: entry?.contracts ?? null,
         deployers,
+        submission_proof_url: submissionProofUrl,
+        submission_proof_ok_at: submissionProofOkAt,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
@@ -409,6 +453,7 @@ export async function recordSubmission(
         recorded: true,
         project_id: project.id,
         submitted_at: project.submitted_at.toISOString(),
+        ...(bonusNote && { bonus_note: bonusNote }),
         ...(entry &&
           program.campaign && {
             campaign_entry:

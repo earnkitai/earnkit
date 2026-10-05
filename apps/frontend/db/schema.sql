@@ -342,6 +342,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS projects_coin_address ON projects (coin_addres
 -- When EarnKit last sent collectRewards for this coin itself (only in a round's last 24 h).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_collected_at timestamptz;
 
+-- Submission proof (spec §3, Eligibility #3): the external program's own public page for this
+-- entry (record_submission's external_submission_url, for a program with submission_proof), and
+-- when EarnKit last confirmed it links the entry's repo or live site. A failed or re-checked
+-- proof keeps the url and clears ok_at; the cron re-checks a failure daily until the round ends.
+-- bonus_eligible is never stored: it's coin_address IS NOT NULL AND submission_proof_ok_at IS NOT
+-- NULL (projects.ts bonusEligible), so it can never go stale against either column.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_proof_url text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_proof_ok_at timestamptz;
+
 -- One builder bonus round: a windowed program's window, or a rolling program's UTC month
 -- (key "<program id>:YYYY-MM"). Created 'open' by the first deposit booked to it.
 CREATE TABLE IF NOT EXISTS bonus_rounds (

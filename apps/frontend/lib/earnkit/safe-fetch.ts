@@ -52,6 +52,13 @@ export type Transport = (req: {
 
 export const FETCH_TIMEOUT_MS = 5_000;
 export const FETCH_MAX_BYTES = 4_096;
+/**
+ * A larger body cap for fetching a whole public HTML page (e.g. a builder bonus submission proof
+ * page: a DoraHacks BUIDL and the like run well past 4 KB) rather than a small text file like
+ * earnkit.txt or a sponsor's earnkit.txt verification. Passed explicitly as `maxBytes`; the
+ * default stays `FETCH_MAX_BYTES` for every existing caller.
+ */
+export const LARGE_PAGE_MAX_BYTES = 512_000;
 
 // IANA special-purpose IPv4 (RFC 6890 and successors): never a sponsor's website.
 const BLOCKED_V4: [string, number][] = [

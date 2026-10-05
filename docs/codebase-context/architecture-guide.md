@@ -707,6 +707,17 @@ during the build); plan: `v2.4-money-first-plan.md`.
   and `bonus-ledger.anvil.test.ts` (real logs on anvil with `contracts/test/mocks/BonusMocks.sol`;
   needs `BONUS_ANVIL_URL` = an anvil started with `--chain-id 8453`). The three files hold one
   Postgres advisory lock (`fixtures/bonus-db-lock.ts`) because the ledger's tables are singletons.
+- **Submission proof at entry (Task 5, spec §3 Eligibility):** `submission-proof.ts`'s
+  `proofProblem(program, url, repoUrl, liveUrl, deps)` checks a non-campaign program's
+  `external_submission_url` at `record_submission` (`projects.ts`): https, on
+  `submission_proof.host`, path matching `path_pattern`, then fetched through `safeFetchText` with
+  the larger `maxBytes: LARGE_PAGE_MAX_BYTES` (512 KB; `safe-fetch.ts`) and checked for the entry's
+  normalized repo link or live host. A failure never fails the submission: the entry is recorded
+  either way, `projects.submission_proof_url` keeps the link, `submission_proof_ok_at` is set only
+  on success, and a `bonus_note` tells the agent what to fix. `bonusEligible` (`projects.ts`) is
+  never stored, only derived: `coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL`
+  (ownership was already proven by the token gate to launch the coin), so it can never go stale
+  against either column; Tasks 6 and 7 read it this way to rank and pay rounds.
 
 ## Abuse limits and response headers (v2.2 §5)
 
