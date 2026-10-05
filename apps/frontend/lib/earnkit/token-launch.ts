@@ -618,8 +618,8 @@ export async function launchToken(
     Object.assign(project, links);
   }
   const out = await runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
-  // The builder bonus counts Base coins only (Ruling 24): a coin on another chain never implies it.
-  if (chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
+  // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
+  if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
   return out;
 }
 
