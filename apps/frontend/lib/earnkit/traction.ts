@@ -551,17 +551,22 @@ export async function signalsFor(
 }
 
 /**
- * The builder bonus eligibility rule in SQL, for `projects p` (projects.ts bonusEligible is its
- * pure twin): a coin launched, a submission proof that checked out, and no EARLIER ELIGIBLE entry
- * (coin and proof) of the same normalized repo in the program (Rulings 13b, 15: an ineligible
- * earlier row, a squatter's or the builder's own failed attempt, never blocks).
+ * The builder bonus eligibility rule in SQL, for `projects p` in a round ending `endsAt`
+ * (projects.ts bonusEligible is its pure twin): a coin launched and a submission proof that
+ * checked out, both before the round's end (Ruling 16: frozen at the end), and no EARLIER entry of
+ * the same normalized repo in the program that is eligible by the same rule (Rulings 13b, 15: an
+ * ineligible earlier row, a squatter's or the builder's own failed attempt, never blocks).
+ * Task 7 picks winners with this (finalRanking), never from a stored rank.
  */
-export const eligibleSql = () => sql()`
-  p.coin_address IS NOT NULL AND p.submission_proof_ok_at IS NOT NULL
+export const eligibleSql = (endsAt: Date) => sql()`
+  p.coin_address IS NOT NULL AND p.coin_launched_at < ${endsAt}
+  AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${endsAt}
+  AND p.submitted_at < ${endsAt}
   AND NOT EXISTS (
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
-      AND q.coin_address IS NOT NULL AND q.submission_proof_ok_at IS NOT NULL
+      AND q.coin_address IS NOT NULL AND q.coin_launched_at < ${endsAt}
+      AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${endsAt}
       AND (q.submitted_at, q.id) < (p.submitted_at, p.id))`;
 
 /**
@@ -610,7 +615,7 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
     SELECT p.id, p.contracts, p.repo_url, p.live_url, p.coin_address, p.creator_wallet, p.payout_wallet, p.deployers,
       p.submitted_at, i.github_user AS builder_login
     FROM projects p LEFT JOIN installations i ON i.id = p.installation_id
-    WHERE p.program_id = ${r.program_id} AND ${eligibleSql()} AND p.submitted_at < ${round.ends}
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(round.ends)}
     ORDER BY p.id`;
   const today = day(now);
   const latest = new Map<number, Cached>();
@@ -727,7 +732,7 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
       WHERE s.round_key = ${roundKey} AND s.project_id = p.id AND s.through >= ${r.ends_at}
       ORDER BY s.day DESC LIMIT 1) AS failed
     FROM projects p
-    WHERE p.program_id = ${r.program_id} AND ${eligibleSql()} AND p.submitted_at < ${r.ends_at}
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at)}
     ORDER BY p.id`;
   const escaped = now.getTime() > r.ends_at.getTime() + FREEZE_ESCAPE_MS;
   const pending: number[] = [];
@@ -738,4 +743,35 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
   }
   const ready = pending.length === 0 && canFreeze(r.ends_at, await indexedThrough());
   return { ready, pending, flagged };
+}
+
+/**
+ * The round's final ranking for the payout (Task 7), best first: only entries eligible at the
+ * round's end (eligibleSql), each with its latest final read (`through` ≥ ends_at), re-ranked
+ * from those signals with rankRound, so a stored rank of an entry displaced since (a duplicate
+ * repo, a coin launched after the end) can never be read as a winner. `flagged` lists entries
+ * whose final read still has failed sources; `review_flags` carries the review page's patterns.
+ * An eligible entry without a final read is left out (readyToFreeze holds the freeze for it).
+ */
+export async function finalRanking(roundKey: string) {
+  const [r] = await sql()<{ program_id: string; ends_at: Date }[]>`
+    SELECT program_id, ends_at FROM bonus_rounds WHERE round_key = ${roundKey}`;
+  if (!r) return [];
+  const rows = await sql()<{ id: number; submitted_at: Date; signals: Signals; failed: string[]; review_flags: string[] }[]>`
+    SELECT p.id, p.submitted_at, s.signals, s.failed, s.review_flags
+    FROM projects p
+    JOIN LATERAL (
+      SELECT signals, failed, review_flags FROM bonus_scores b
+      WHERE b.round_key = ${roundKey} AND b.project_id = p.id AND b.through >= ${r.ends_at}
+      ORDER BY b.day DESC LIMIT 1) s ON true
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at)}`;
+  const byId = new Map(rows.map((x) => [x.id, x]));
+  return rankRound(
+    rows.map((x) => ({ id: x.id, submittedAt: x.submitted_at })),
+    new Map(rows.map((x) => [x.id, x.signals])),
+  ).map((x) => ({
+    ...x,
+    flagged: byId.get(x.id)!.failed.length > 0,
+    review_flags: byId.get(x.id)!.review_flags,
+  }));
 }

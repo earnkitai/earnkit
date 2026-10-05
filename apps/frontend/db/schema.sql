@@ -414,6 +414,11 @@ CREATE INDEX IF NOT EXISTS projects_bonus_repo_key ON projects (program_id, bonu
 -- Fix round 2 (Ruling 15): patterns the review page shows next to a score, e.g.
 -- 'single_commit_streak' (7+ days in a row with exactly one new commit each). Never scored.
 ALTER TABLE bonus_scores ADD COLUMN IF NOT EXISTS review_flags text[] NOT NULL DEFAULT '{}';
+-- Fix round 3 (Ruling 16): when the coin launched. An entry counts in a round only if its coin
+-- launched and its proof checked out before the round's end. Coins recorded before this column
+-- count from their entry's submission.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_launched_at timestamptz;
+UPDATE projects SET coin_launched_at = submitted_at WHERE coin_address IS NOT NULL AND coin_launched_at IS NULL;
 
 -- Each WETH deposit the FeeLocker stored for the bonus wallet (its StoreTokens log), attributed to
 -- a coin and booked to that coin's open round, or to the Safe. Idempotent on (tx_hash, log_index).

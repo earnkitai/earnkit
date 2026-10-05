@@ -541,7 +541,8 @@ test('launchToken: a refused edit is failed (launch_token was asked to launch)',
 });
 
 test('launchToken: live_url and repo_url overrides are cleaned, saved, then gated', async () => {
-  const h = harness({ live_url: 'https://broken.acme.dev' });
+  // A repo link only fills in a missing one (v2.5 Ruling 16: a recorded repo never changes).
+  const h = harness({ live_url: 'https://broken.acme.dev', repo_url: null });
   const out = await launchToken(launchInput({ live_url: 'kit-fixed.acme.dev', repo_url: 'https://github.com/acme/kit2' }), 1, h.deps);
   assert.equal(out.status, 'launched');
   assert.deepEqual(h.links, [{ id: 7, inst: 1, repo_url: 'https://github.com/acme/kit2', live_url: 'https://kit-fixed.acme.dev/' }]);
@@ -552,6 +553,12 @@ test('launchToken: live_url and repo_url overrides are cleaned, saved, then gate
   assert.equal(refused.status, 'failed');
   assert.match(refused.note ?? '', /^repo_url: a campaign entry's repo/);
   assert.equal(c.links.length, 0);
+  // Nor can any recorded entry's repo (the builder bonus keys entries by it); the same repo is fine.
+  const e = harness();
+  const swapped = await launchToken(launchInput({ repo_url: 'https://github.com/acme/other' }), 1, e.deps);
+  assert.equal(swapped.status, 'failed');
+  assert.match(swapped.note ?? '', /can't change once recorded; record a new entry for a different repo/);
+  assert.equal(e.links.length, 0);
   const bad = await launchToken(launchInput({ live_url: 'ftp://x.dev' }), 1, harness().deps);
   assert.equal(bad.status, 'failed');
   assert.match(bad.note ?? '', /^live_url: /);

@@ -13,6 +13,7 @@ import {
   rankNormalize,
   rankRound,
   SINGLE_COMMIT_FLAG,
+  finalRanking,
   readyToFreeze,
   resolveBonusWallet,
   scoreOpenRounds,
@@ -432,9 +433,9 @@ async function setup() {
     contracts = ['0x' + String(++n).padStart(40, '0')],
   ) => {
     const [r] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, repo_url, live_url, contracts, coin_address, creator_wallet,
+      INSERT INTO projects (program_id, name, repo_url, live_url, contracts, coin_address, coin_launched_at, creator_wallet,
         submission_proof_ok_at, submitted_at, bonus_repo_key)
-      VALUES (${PID}, ${name}, 'https://github.com/acme/app', 'https://app.example', ${contracts}, ${coin},
+      VALUES (${PID}, ${name}, 'https://github.com/acme/app', 'https://app.example', ${contracts}, ${coin}, ${coin ? at : null},
         ${E.creator_wallet}, ${eligible ? NOW : null}, ${at}, ${repo.replace('https://', '')})
       RETURNING id`;
     return r.id;
@@ -672,8 +673,8 @@ test('scoreOpenRounds: one entry allowance for the whole run, across rounds', db
       VALUES (${P2}, 'X', 'T6b', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
         ${ROUND.starts}, ${ROUND.ends}, ${sql().json({ host: 'x.example' })})`;
     await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${P2}, ${P2}, ${ROUND.starts}, ${ROUND.ends})`;
-    await sql()`INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, submission_proof_ok_at, submitted_at)
-      VALUES (${P2}, 'z', 'https://github.com/acme/app', ${['0x' + '7'.repeat(40)]}, ${'0x' + 'c9'.repeat(20)}, ${NOW}, ${E.submitted_at})`;
+    await sql()`INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at)
+      VALUES (${P2}, 'z', 'https://github.com/acme/app', ${['0x' + '7'.repeat(40)]}, ${'0x' + 'c9'.repeat(20)}, ${NOW}, ${NOW}, ${E.submitted_at})`;
     const { deps, calls } = dbFakes({ maxEntries: 2 });
     const only = [PID, P2];
     const out = await scoreOpenRounds({ ...deps, only });
@@ -710,6 +711,34 @@ test('scoreRound: 7+ days in a row with exactly one new commit each is flagged f
     assert.deepEqual(await flags(ids.b), []);
     // Shown, not scored: a's flag changes nothing in its signals.
     assert.equal(ranked.length, 2);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('eligibility is frozen at the round end (Ruling 16): a coin or proof after it never counts; finalRanking re-ranks', db, async () => {
+  await cleanup();
+  try {
+    const ids = await setup();
+    const late = await ids.add('late-coin', true, '0x' + 'ca'.repeat(20), 'https://github.com/acme/late', d('2026-10-03T00:00:00Z'));
+    const { deps } = dbFakes();
+    // Final reads after the end, while every entry still looks eligible.
+    await scoreRound(PID, { ...deps, now: d('2026-11-01T01:00:00Z') });
+    const all = await finalRanking(PID);
+    assert.deepEqual(new Set(all.map((r) => r.id)), new Set([ids.a, ids.b, late]));
+    assert.ok(all.every((r) => r.flagged === false && Array.isArray(r.review_flags)));
+    // The late entry's coin actually launched after the end; b's proof checked out only after it.
+    await sql()`UPDATE projects SET coin_launched_at = ${d('2026-11-01T00:00:01Z')} WHERE id = ${late}`;
+    await sql()`UPDATE projects SET submission_proof_ok_at = ${d('2026-11-01T00:00:00Z')} WHERE id = ${ids.b}`;
+    const final = await finalRanking(PID);
+    assert.deepEqual(final.map((r) => [r.id, r.rank]), [[ids.a, 1]], 'stored ranks of displaced entries are never read');
+    const [stored] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM bonus_scores WHERE round_key = ${PID} AND rank IS NOT NULL`;
+    assert.equal(stored.n, 3, 'their stored ranks still exist');
+    // readyToFreeze applies the same rule: only a is waited for.
+    await sql()`UPDATE bonus_scores SET failed = '{github}' WHERE project_id IN (${ids.b}, ${late})`;
+    assert.deepEqual((await readyToFreeze(PID, d('2026-11-01T02:00:00Z'))).pending, []);
+    // A coin launched after the end never holds a contract either: a later eligible entry keeps it.
+    assert.equal((await scoreRound(PID, { ...deps, now: d('2026-11-01T03:00:00Z') })).length, 1);
   } finally {
     await cleanup();
   }

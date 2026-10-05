@@ -273,9 +273,14 @@ const dbStore: FlowStore = {
   repoToken: repoTokenUrl,
   updateLinks: async (projectId, installationId, links) => {
     const live = links.live_url ?? null;
+    const repo = links.repo_url ?? null;
     // Campaign entries (payout_wallet set) keep live_key, the normalized live link, in step.
+    // A recorded repo never changes (v2.5 Ruling 16): only a missing one is filled in, and an
+    // external entry's bonus_repo_key with it.
     await sql()`
-      UPDATE projects SET repo_url = COALESCE(${links.repo_url ?? null}, repo_url),
+      UPDATE projects SET repo_url = COALESCE(repo_url, ${repo}),
+        bonus_repo_key = CASE WHEN repo_url IS NULL AND payout_wallet IS NULL AND ${repo}::text IS NOT NULL
+          THEN ${repo && normalizeRepoUrl(repo)} ELSE bonus_repo_key END,
         live_url = COALESCE(${live}, live_url),
         live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL
           THEN ${live && normalizeLiveUrl(live)} ELSE live_key END
@@ -521,7 +526,7 @@ export const LaunchTokenInput = TokenChoice.extend({
   chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
   /** A new live link (e.g. the old one 404s). */
   live_url: z.string().optional(),
-  /** A new repo link; not for campaign entries (their repo was proven at entry). */
+  /** A repo link for an entry recorded without one; a recorded repo never changes (record a new entry). */
   repo_url: z.string().optional(),
 }).strict();
 
@@ -543,6 +548,13 @@ export async function launchToken(
       return {
         status: 'failed',
         note: "repo_url: a campaign entry's repo was proven at entry and can't change; enter the other repo as a new entry.",
+      };
+    // v2.5 Ruling 16: a recorded repo never changes (the builder bonus keys entries by it); a
+    // missing one may be filled in.
+    if (repo_url && project.repo_url && normalizeRepoUrl(repo_url) !== normalizeRepoUrl(project.repo_url))
+      return {
+        status: 'failed',
+        note: "repo_url: this entry's repo can't change once recorded; record a new entry for a different repo.",
       };
     const links: { repo_url?: string; live_url?: string } = {};
     for (const [field, raw] of [['repo_url', repo_url], ['live_url', live_url]] as const) {

@@ -12,6 +12,8 @@ import {
   selfEntryProblem,
   verifiedBonusContracts,
 } from './projects';
+import { LaunchTokenInput, launchToken } from './token-launch';
+import { eligibleSql } from './traction';
 import { sponsorProgramFile } from './sponsor-rules';
 import { ProgramFile } from './program-file';
 import type { SubmissionRequirement } from './program-file';
@@ -416,55 +418,83 @@ test('record_submission (v2.5 §3): a program without submission_proof never che
 
 // ---- v2.5 Ruling 13: external entries' contracts and one eligible entry per repo ----------------
 
-test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b)', () => {
-  const ok = { coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date() };
+test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b); frozen at the round end (Ruling 16)', () => {
+  const ok = { coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date('2026-10-10T00:00:00Z') };
   assert.equal(bonusEligible({ ...ok, earlier_same_repo: false }), true);
   assert.equal(bonusEligible({ ...ok, earlier_same_repo: true }), false);
+  const ends_at = new Date('2026-10-15T00:00:00Z');
+  assert.equal(bonusEligible({ ...ok, ends_at, coin_launched_at: new Date('2026-10-14T00:00:00Z') }), true);
+  assert.equal(bonusEligible({ ...ok, ends_at, coin_launched_at: new Date('2026-10-16T00:00:00Z') }), false, 'coin after the end');
+  assert.equal(bonusEligible({ ...ok, ends_at, coin_launched_at: null }), false);
+  assert.equal(
+    bonusEligible({ ...ok, submission_proof_ok_at: new Date('2026-10-15T00:00:00Z'), ends_at, coin_launched_at: new Date('2026-10-01T00:00:00Z') }),
+    false,
+    'proof at the end',
+  );
 });
 
-const OTHER = '0x' + 'b'.repeat(40);
-const SIGNER_KEY = ('0x' + '42'.repeat(32)) as `0x${string}`;
-const signer = privateKeyToAccount(SIGNER_KEY);
+/** The builder: their key deploys the contracts, earnkit.txt names its wallet, and they sign. */
+const builder = privateKeyToAccount(('0x' + '42'.repeat(32)) as `0x${string}`);
+const BW = builder.address.toLowerCase();
+/** Someone else, who can name the builder's public wallet but has only their own key. */
+const thief = privateKeyToAccount(('0x' + '43'.repeat(32)) as `0x${string}`);
 const REPO = 'https://github.com/alice/tipjar';
+const KEY = 'github.com/alice/tipjar';
 const byTx = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([c, d]) => [`0x${c.slice(2, 10)}`, d]));
+const depsFor = (wallet: string, deployers: Record<string, string>) => ({
+  ...entryDeps(byTx(deployers)),
+  fetchFile: async () => ({ status: 'ok' as const, text: `payout_wallet: ${wallet}\n` }),
+});
+const sign = (who: typeof builder, list: string[], wallet = BW, program = 'p') =>
+  who.signMessage({ message: entryMessage(program, KEY, wallet, list) });
 
-test('verifiedBonusContracts (Ruling 13a): each contract checked like a v2.4 entry; unverified ones dropped with a note', async () => {
-  // Both deployed by the payout wallet: both count.
-  const both = await verifiedBonusContracts('p', REPO, PAY, [C1, C2.toUpperCase().replace('0X', '0x')], undefined, entryDeps(byTx({ [C1]: PAY, [C2]: PAY })));
-  assert.deepEqual(both, { contracts: [C1, C2], deployers: [PAY], note: null });
-  // One deployed by another wallet, no signature: that one is dropped, and the note says what to sign.
-  const one = await verifiedBonusContracts('p', REPO, PAY, [C1, C2], undefined, entryDeps(byTx({ [C1]: PAY, [C2]: OTHER })));
+test('verifiedBonusContracts (Rulings 13a, 16): a contract counts only with its deployer\'s signature', async () => {
+  const sig = await sign(builder, [C1, C2]);
+  const both = await verifiedBonusContracts('p', REPO, BW, [C1, C2.toUpperCase().replace('0X', '0x')], sig, depsFor(BW, { [C1]: BW, [C2]: BW }));
+  assert.deepEqual(both, { contracts: [C1, C2], deployers: [BW], note: null });
+  // No signature: nothing counts, even contracts the named wallet deployed; the note gives the message.
+  const unsigned = await verifiedBonusContracts('p', REPO, BW, [C1], undefined, depsFor(BW, { [C1]: BW }));
+  assert.deepEqual(unsigned.contracts, []);
+  assert.match(unsigned.note ?? '', /sign exactly "EarnKit entry: p github\.com\/alice\/tipjar 0x[0-9a-f]{40} 0x1{40}"/);
+  // Signed, but C2 was deployed by another wallet: only C1.
+  const one = await verifiedBonusContracts('p', REPO, BW, [C1, C2], sig, depsFor(BW, { [C1]: BW, [C2]: '0x' + 'b'.repeat(40) }));
   assert.deepEqual(one.contracts, [C1]);
   assert.match(one.note ?? '', /Contract 0x2{40} was deployed by 0xb{40}/);
-  assert.match(one.note ?? '', /EarnKit entry: p github\.com\/alice\/tipjar/);
-  // That wallet signed the entry message: both count.
-  const sig = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1, C2]) });
-  const signed = await verifiedBonusContracts('p', REPO, PAY, [C1, C2], sig, entryDeps(byTx({ [C1]: PAY, [C2]: signer.address.toLowerCase() })));
-  assert.deepEqual(signed.contracts, [C1, C2]);
-  assert.deepEqual(new Set(signed.deployers), new Set([PAY, signer.address.toLowerCase()]));
+  // The agent's wallet deployed it and signed: counts (the payout wallet names earnkit.txt).
+  const agent = await verifiedBonusContracts('p', REPO, BW, [C1], await thief.signMessage({ message: entryMessage('p', KEY, BW, [C1]) }), depsFor(BW, { [C1]: thief.address.toLowerCase() }));
+  assert.deepEqual(agent.contracts, [C1]);
   // earnkit.txt names another wallet: nothing counts.
-  const file = await verifiedBonusContracts('p', REPO, PAY, [C1], undefined, {
-    ...entryDeps(byTx({ [C1]: PAY })),
-    fetchFile: async () => ({ status: 'ok' as const, text: `payout_wallet: ${OTHER}\n` }),
-  });
+  const file = await verifiedBonusContracts('p', REPO, BW, [C1], await sign(builder, [C1]), depsFor('0x' + 'b'.repeat(40), { [C1]: BW }));
   assert.deepEqual(file.contracts, []);
   assert.match(file.note ?? '', /says payout_wallet/);
 });
 
+test('verifiedBonusContracts (Ruling 16): naming the victim\'s public wallet without its key claims nothing', async () => {
+  // S's repo's earnkit.txt names W_A (public), and S claims C_A, which W_A deployed.
+  const deps = depsFor(BW, { [C1]: BW });
+  const none = await verifiedBonusContracts('p', REPO, BW, [C1], undefined, deps);
+  assert.deepEqual(none.contracts, []);
+  const forged = await verifiedBonusContracts('p', REPO, BW, [C1], await thief.signMessage({ message: entryMessage('p', KEY, BW, [C1]) }), deps);
+  assert.deepEqual(forged.contracts, []);
+  assert.match(forged.note ?? '', /not by the wallet that signed deployer_signature/);
+});
+
 test('verifiedBonusContracts: Clanker/Uniswap contracts are never accepted; no wallet or a failed read drops them; never throws', async () => {
   const pool = '0x498581fF718922c3f8e6A244956aF099B2652b2b';
-  const r = await verifiedBonusContracts('p', REPO, PAY, [pool, C1], undefined, entryDeps(byTx({ [C1]: PAY })));
+  const r = await verifiedBonusContracts('p', REPO, BW, [pool, C1], await sign(builder, [pool, C1]), depsFor(BW, { [C1]: BW }));
   assert.deepEqual(r.contracts, [C1]);
   assert.match(r.note ?? '', /Clanker or Uniswap contracts never count/);
   const noWallet = await verifiedBonusContracts('p', REPO, undefined, [C1], undefined, entryDeps({}));
   assert.deepEqual(noWallet.contracts, []);
   assert.match(noWallet.note ?? '', /pass payout_wallet/);
-  const noRepo = await verifiedBonusContracts('p', undefined, PAY, [C1], undefined, entryDeps({}));
+  const noRepo = await verifiedBonusContracts('p', undefined, BW, [C1], undefined, entryDeps({}));
   assert.match(noRepo.note ?? '', /repo_url/);
-  const bad = await verifiedBonusContracts('p', REPO, PAY, ['0x123'], undefined, entryDeps({}));
+  const bad = await verifiedBonusContracts('p', REPO, BW, ['0x123'], undefined, entryDeps({}));
   assert.match(bad.note ?? '', /isn't a Base contract address/);
-  const down = await verifiedBonusContracts('p', REPO, PAY, [C1], undefined, {
-    ...entryDeps({}),
+  const badSig = await verifiedBonusContracts('p', REPO, BW, [C1], '0x1234', depsFor(BW, { [C1]: BW }));
+  assert.match(badSig.note ?? '', /not a valid signature/);
+  const down = await verifiedBonusContracts('p', REPO, BW, [C1], await sign(builder, [C1]), {
+    ...depsFor(BW, {}),
     repoFacts: async () => {
       throw new Error('socket hang up');
     },
@@ -473,12 +503,25 @@ test('verifiedBonusContracts: Clanker/Uniswap contracts are never accepted; no w
   assert.ok(down.note);
 });
 
-test('record_submission (Ruling 13): external contracts verified and stored; unverified dropped; a later same-repo entry is noted', dbTest, async () => {
+test('verifiedBonusContracts (Ruling 15): the signature covers the list as submitted; refused addresses are named', async () => {
+  const pool = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+  const deps = depsFor(BW, { [C1]: BW });
+  const r = await verifiedBonusContracts('p', REPO, BW, [C1, pool], await sign(builder, [C1, pool]), deps);
+  assert.deepEqual(r.contracts, [C1]);
+  assert.match(r.note ?? '', new RegExp(`${pool}: Clanker or Uniswap contracts never count as yours; leave them out of contracts and sign the list without them`));
+  // A signature over the list without the pool doesn't match what was submitted.
+  const w = await verifiedBonusContracts('p', REPO, BW, [C1, pool], await sign(builder, [C1]), deps);
+  assert.deepEqual(w.contracts, []);
+});
+
+const randomAddress = () => '0x' + [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+test('record_submission (Rulings 13, 15, 16): signed contracts stored; unsigned dropped; a later same-repo entry is noted', dbTest, async () => {
   const program = proofProgramFile(`t6-contracts-${process.pid}-${Date.now()}`);
   await upsertProgram(program);
   const installationId = await freshInstallation();
   const project = { ...proofProject(9), repo_url: REPO };
-  const submit = (contracts: string[], deployers: Record<string, string>) =>
+  const submit = async (contracts: string[], deployers: Record<string, string>, signed = true) =>
     recordSubmission(
       {
         program_id: program.id,
@@ -486,46 +529,74 @@ test('record_submission (Ruling 13): external contracts verified and stored; unv
         submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
         external_submission_url: 'https://dorahacks.io/buidl/901',
         contracts,
-        payout_wallet: PAY,
+        payout_wallet: BW,
+        ...(signed && { deployer_signature: await sign(builder, contracts, BW, program.id) }),
       } as never,
       installationId,
-      { ...entryDeps(byTx(deployers)), fetchProof: async () => `See ${REPO}` },
+      { ...depsFor(BW, deployers), fetchProof: async () => `See ${REPO}` },
     );
-  const first = await submit([C1, C2], { [C1]: PAY, [C2]: OTHER });
+  const first = await submit([C1, C2], { [C1]: BW, [C2]: '0x' + 'b'.repeat(40) });
   assert.equal(first.recorded, true);
   assert.match((first as { bonus_note?: string }).bonus_note ?? '', /Contracts not counted for the builder bonus/);
   const [row] = await sql()<{ contracts: string[] | null; deployers: string[] | null; creator_wallet: string | null; bonus_repo_key: string | null }[]>`
     SELECT contracts, deployers, creator_wallet, bonus_repo_key FROM projects WHERE id = ${first.project_id}`;
-  assert.deepEqual(row, { contracts: [C1], deployers: [PAY], creator_wallet: PAY, bonus_repo_key: 'github.com/alice/tipjar' });
+  assert.deepEqual(row, { contracts: [C1], deployers: [BW], creator_wallet: BW, bonus_repo_key: KEY });
+
+  const unsigned = await submit([C1], { [C1]: BW }, false);
+  assert.equal(unsigned.recorded, true, 'never fails the submission');
+  const [u] = await sql()<{ contracts: string[] | null }[]>`SELECT contracts FROM projects WHERE id = ${unsigned.project_id}`;
+  assert.equal(u.contracts, null);
 
   // The first entry isn't eligible yet (no coin): it holds neither the repo nor its contract (Ruling 15).
-  const second = await submit([C1], { [C1]: PAY });
-  assert.equal(second.recorded, true);
+  const second = await submit([C1], { [C1]: BW });
   assert.doesNotMatch((second as { bonus_note?: string }).bonus_note ?? '', /already holds this repo|already backs/);
-
   // Once the first is eligible (coin + proof), a later entry of the repo and contract is noted.
-  // A fresh coin address each run (this file's rows stay in the test DB).
-  const coin = '0x' + [...crypto.getRandomValues(new Uint8Array(20))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  await sql()`UPDATE projects SET coin_address = ${coin} WHERE id = ${first.project_id}`;
-  const third = await submit([C1], { [C1]: PAY });
+  await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now() WHERE id = ${first.project_id}`;
+  const third = await submit([C1], { [C1]: BW });
   assert.equal(third.recorded, true, 'a later entry of the same repo is still recorded');
   const note = (third as { bonus_note?: string }).bonus_note ?? '';
   assert.match(note, new RegExp(`entry #${first.project_id} already holds this repo`));
   assert.match(note, new RegExp(`${C1} already backs entry #${first.project_id}`));
 });
 
-test('verifiedBonusContracts (Ruling 15): the signature covers the list as submitted; refused addresses are named', async () => {
-  const pool = '0x498581ff718922c3f8e6a244956af099b2652b2b';
-  const deployed = byTx({ [C1]: signer.address.toLowerCase() });
-  // Signed over [C1, pool], exactly as submitted: valid, so C1 counts; the note names the pool.
-  const sig = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1, pool]) });
-  const r = await verifiedBonusContracts('p', REPO, PAY, [C1, pool], sig, entryDeps(deployed));
-  assert.deepEqual(r.contracts, [C1]);
-  assert.match(r.note ?? '', new RegExp(`${pool}: Clanker or Uniswap contracts never count as yours; leave them out of contracts and sign the list without them`));
-  // A signature over the list without the pool doesn't match what was submitted.
-  const without = await signer.signMessage({ message: entryMessage('p', 'github.com/alice/tipjar', PAY, [C1]) });
-  const w = await verifiedBonusContracts('p', REPO, PAY, [C1, pool], without, entryDeps(deployed));
-  assert.deepEqual(w.contracts, []);
+test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own repo at launch_token; A is not blocked', dbTest, async () => {
+  const program = proofProgramFile(`t6-squat-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const victimRepo = `https://github.com/alice/victim-${process.pid}-${Date.now()}`;
+  const record = (installationId: number) =>
+    recordSubmission(
+      {
+        program_id: program.id,
+        project: { name: 'X', description: 'x', repo_url: victimRepo, live_url: 'https://x.example' },
+        submission_data: { live_deployment_url: 'https://x.example', repo_url: victimRepo, description: 'x', builder_profile: 'https://github.com/alice' },
+        external_submission_url: 'https://dorahacks.io/buidl/902',
+      } as never,
+      installationId,
+      { fetchProof: async () => `See ${victimRepo}` },
+    );
+  const s = await freshInstallation();
+  const squat = await record(s);
+  const swap = await launchToken(
+    LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, repo_url: 'https://github.com/squatter/own' }),
+    s,
+    { available: () => false },
+  );
+  assert.equal(swap.status, 'failed');
+  assert.match(swap.note ?? '', /can't change once recorded; record a new entry for a different repo/);
+  const [kept] = await sql()<{ repo_url: string; bonus_repo_key: string }[]>`SELECT repo_url, bonus_repo_key FROM projects WHERE id = ${squat.project_id}`;
+  assert.equal(kept.repo_url, victimRepo);
+  // The live link may still be fixed (launches are off here, so the flow stops before any gate).
+  await launchToken(LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, live_url: 'https://y.example' }), s, { available: () => false });
+  const [live] = await sql()<{ live_url: string; repo_url: string }[]>`SELECT live_url, repo_url FROM projects WHERE id = ${squat.project_id}`;
+  assert.equal(live.repo_url, victimRepo);
+  assert.match(live.live_url, /^https:\/\/y\.example\/?$/);
+  // A, the repo's builder, enters later and gets a coin: eligible; the squatter's row blocks nothing.
+  const a = await record(await freshInstallation());
+  await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now() WHERE id = ${a.project_id}`;
+  const ends = new Date(Date.now() + 86_400_000);
+  const eligible = await sql()<{ id: number }[]>`
+    SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends)}`;
+  assert.deepEqual(eligible.map((r) => r.id), [a.project_id]);
 });
 
 after(async () => {
