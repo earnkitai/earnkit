@@ -24,6 +24,7 @@ import {
   matchProjects,
 } from './match-projects';
 import {
+  bonusProgramIds,
   closesInDays,
   presentFirstMessage,
   programUpdates,
@@ -55,23 +56,26 @@ export type ToolContext = {
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
-  /** The open round's builder bonus pool in wei, or null; defaults to roundPoolWei. */
-  roundPoolWei?: (programId: string) => Promise<bigint | null>;
+  /** The open rounds' builder bonus pools in wei, by program id; defaults to roundPoolsWei. */
+  roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint>>;
 };
 
 /**
- * The open round's builder bonus pool so far. Null until the bonus ledger exists (v2.5 Task 4
- * replaces this): open programs with a proof pattern then show "opens with your entry".
+ * The open rounds' builder bonus pools so far, by program id, in one read (ruling 3). Empty until
+ * the bonus ledger exists (v2.5 Task 4 replaces this): provable programs then show "opens with
+ * your entry".
  */
-export const roundPoolWei: (programId: string) => Promise<bigint | null> = async () => null;
+export const roundPoolsWei: (programIds: string[]) => Promise<Map<string, bigint>> = async () =>
+  new Map();
 
-/** A pool read never fails list_programs: on any error the cell reads as no pool yet. */
-async function poolOf(read: (id: string) => Promise<bigint | null>, id: string) {
+/** One batched pool read per list_programs; it never fails the tool: on any error, no pools. */
+async function poolsOf(read: (ids: string[]) => Promise<Map<string, bigint>>, ids: string[]) {
+  if (ids.length === 0) return new Map<string, bigint>();
   try {
-    return await read(id);
+    return await read(ids);
   } catch (err) {
-    console.error('[list_programs] builder bonus pool:', err);
-    return null;
+    console.error('[list_programs] builder bonus pools:', err);
+    return new Map<string, bigint>();
   }
 }
 
@@ -166,17 +170,10 @@ export const tools = {
       ? local_repos
       : (memory.local_repos ?? undefined);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
-    const shown = programs.filter((p) => !p.earnkit_campaign);
-    // The builder bonus pool, read only where an entry can earn it (a proof pattern).
-    const readPool = ctx.roundPoolWei ?? roundPoolWei;
-    const pools = await Promise.all(
-      shown.map((p) => (p.submission_proof ? poolOf(readPool, p.id) : null)),
-    );
-    const cards = shown.map((p, i) => ({
+    const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
       ...p,
       is_new: lastCheck !== null && p.opened_at !== null && p.opened_at > lastCheck,
       closes_in_days: closesInDays(p.ends_at),
-      bonus_pool_wei: pools[i],
     }));
 
     let yourRepos: YourRepos | null = null;
@@ -210,11 +207,18 @@ export const tools = {
     // after them (money first). Read last, so nothing after it can throw away the news.
     const alerts = await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins });
 
+    // The builder bonus pools: one read, only for provable programs the message shows.
+    const pools = await poolsOf(
+      ctx.roundPoolsWei ?? roundPoolsWei,
+      bonusProgramIds({ cards, repos: yourRepos }),
+    );
+    const withPools = cards.map((c) => ({ ...c, bonus_pool_wei: pools.get(c.id) ?? null }));
+
     const show_to_builder = presentFirstMessage({
       alerts: alerts.lines,
       updates: programUpdates(cards, lastCheck === null),
       campaigns,
-      cards,
+      cards: withPools,
       repos: yourRepos,
       workingOn: memory.working_on,
       agentCanBuild: agent_can_build,

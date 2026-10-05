@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   BONUS_NOTE,
   bonusCell,
+  bonusProgramIds,
   closesInDays,
   endsOf,
   fieldText,
@@ -98,7 +99,7 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the bonus tab
   noEmoji(text);
 });
 
-test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas (at most 6), build one', () => {
+test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped by program (2 each, 6 in all), build one', () => {
   const ideas = (p: string) => [`${p} idea one`, `${p} idea two`, `${p} idea three`];
   const text = presentFirstMessage(msg({
     cards: [
@@ -112,7 +113,7 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas (at most 
     'Open money right now:',
     '| Program | Prize | Builder bonus | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 | not available | rolling |\n| Arc Microgrants | 500 USDC × 20 grants | opens with your entry | Oct 14 |\n| Tiny Bounty | 50 USDC | not available | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool | not available | Oct 13 |',
     NOTE,
-    'Ideas that fit these programs:\n- Base Builder Grant Program: Base idea one\n- Arc Microgrants: Arc idea one\n- Tiny Bounty: Tiny idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea two\n- Tiny Bounty: Tiny idea two',
+    'Ideas that fit these programs:\n- Base Builder Grant Program: Base idea one; Base idea two\n- Arc Microgrants: Arc idea one; Arc idea two\n- Tiny Bounty: Tiny idea one; Tiny idea two',
     'Want me to build one?',
   ].join('\n\n'));
   noEmoji(text);
@@ -159,6 +160,33 @@ test('v2.5 §1 golden (e): the note sits under the bonus tables only when a bonu
   assert.match(shown, /\| Oct 14 \|\n\nBuilder bonus: paid by EarnKit from coin fees\. EarnKit isn't affiliated with or endorsed by any program's organizer\. Details: earnkit\.com\/policy\n\n/);
   const none = presentFirstMessage(msg({ cards: [base, tiny] }));
   assert.doesNotMatch(none, /Builder bonus: paid/);
+});
+
+test('fix round 1: the note sits right under the table that shows a bonus, never under the campaign table', () => {
+  const text = presentFirstMessage(msg({
+    campaigns: [{ ...campaign, you: '#3, in the top 5' }],
+    cards: [arc, base, tiny],
+    repos: repos(v('arc-microgrants', 'likely', 'ok')),
+  }));
+  const parts = text.split('\n\n');
+  const note = parts.indexOf(NOTE);
+  assert.match(parts[note - 1], /^\| Program \| Prize \| Builder bonus \| Ends \| Your repo \|/);
+  assert.match(parts[note + 1], /^\| Win \|/);
+  assert.equal(parts.filter((p) => p === NOTE).length, 1);
+});
+
+test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
+  const many = Array.from({ length: 5 }, (_, i) => ({ ...tiny, id: `p${i}`, title: `P${i}`, ideas: ['a', 'b', 'c'] }));
+  const text = presentFirstMessage(msg({ cards: many }));
+  assert.match(text, /Ideas that fit these programs:\n- P0: a; b\n- P1: a; b\n- P2: a; b\n\nWant me to build one\?$/);
+});
+
+test('ruling 3: bonusProgramIds lists only provable programs on screen', () => {
+  const extra = Array.from({ length: 6 }, (_, i) => ({ ...arc, id: `x${i}`, max_award_usd: 10_000 + i }));
+  // Six provable programs plus Arc (lowest prize): only the top 5 are shown, so only they are read.
+  assert.deepEqual(bonusProgramIds({ cards: [arc, base, ...extra], repos: null }), ['x5', 'x4', 'x3', 'x2', 'x1']);
+  // A fitted program is on screen too.
+  assert.deepEqual(bonusProgramIds({ cards: [arc, base], repos: repos(v('arc-microgrants', 'likely', 'ok')) }), ['arc-microgrants']);
 });
 
 test('v2.5: no open EarnKit campaign, no campaign table (Campaign #1 is closed)', () => {
