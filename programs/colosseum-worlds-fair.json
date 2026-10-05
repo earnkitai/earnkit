@@ -5,8 +5,8 @@
   "description": "Colosseum's online hackathon (Sep 14 to Oct 12) for builders and founders across all crypto ecosystems to launch startups. $840,000 in prizes across overall awards and ecosystem tracks, including dedicated Tempo and Base tracks. Winners are considered for Colosseum's accelerator ($250,000 pre-seed).",
   "source_url": "https://colosseum.com/worldsfair",
   "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
-  "reward": "Tempo track $100,000 across 10 products; Base track $25,000 across 5; plus overall awards ($30,000 grand prize, $15,000 each for the next 20 teams)",
-  "summary": "Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT",
+  "reward": "$840,000 in prizes: $30,000 grand prize, $15,000 each for the next 20 teams, plus a $100,000 Solana Ecosystem track (10 winners at $10,000 each). Base and Tempo also have dedicated ecosystem tracks; the page doesn't state a per-track prize amount for them.",
+  "summary": "$840K+ in prizes · closes Oct 12, 11:59 PM PT",
   "max_award_usd": 30000,
   "ideas": [
     "A new startup built on Base during the hackathon",
@@ -20,7 +20,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
-  "verified_at": "2026-09-28",
+  "verified_at": "2026-10-05",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [
@@ -128,7 +128,7 @@
     {
       "slug": "base",
       "name": "Base",
-      "description": "$25,000 awarded across 5 of the best products that integrate with the Base blockchain.",
+      "description": "A dedicated ecosystem track for the best products that integrate with the Base blockchain. The page doesn't state a per-track prize amount.",
       "requirements": [
         "Integrates with the Base blockchain."
       ]
@@ -136,7 +136,7 @@
     {
       "slug": "tempo",
       "name": "Tempo",
-      "description": "$100,000 awarded across 10 of the best products that integrate with the Tempo blockchain.",
+      "description": "A dedicated ecosystem track for the best products that integrate with the Tempo blockchain. The page doesn't state a per-track prize amount.",
       "requirements": [
         "Integrates with the Tempo blockchain."
       ]
