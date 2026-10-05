@@ -229,6 +229,11 @@ export const ProgramFile = z
         );
     }
 
+    // v2.5 M4: a builder bonus round is the program's window, so a windowed program with a
+    // builder bonus needs its start (never a round counting activity from 1970).
+    if (p.submission_proof && p.ends_at && !p.starts_at)
+      issue('submission_proof on a program with ends_at needs starts_at (the builder bonus round is the window)');
+
     if (
       p.starts_at &&
       p.ends_at &&

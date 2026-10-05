@@ -691,36 +691,59 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
  * Traction scoring for the cron (Task 7 wires it; hourly is fine, reads stay once a day): every
  * 'open' round that has started, oldest end first, until `deadline`, sharing one GitHub budget,
  * one bonus wallet lookup and one per-run entry allowance. One round's failure never stops the
- * others. `only` limits the run to these round keys (tests, like runCron's).
+ * others; an ended round's failure is pushed to `needsOwner` once (Ruling 23). `only` limits the
+ * run to these round keys (tests, like runCron's); `score` replaces scoreRound (tests).
  */
-export async function scoreOpenRounds(deps: TractionDeps & { only?: string[] } = {}) {
+export async function scoreOpenRounds(
+  deps: TractionDeps & {
+    only?: string[];
+    score?: (roundKey: string, deps: TractionDeps) => Promise<unknown[]>;
+    /** Collects the ended rounds whose scoring failed, once per round (the cron's needs_owner). */
+    needsOwner?: string[];
+  } = {},
+) {
   const now = deps.now ?? new Date();
   const budget = deps.budget ?? new GitHubBudget();
   const excluded = deps.excluded ?? resolveBonusWallet();
   const allowance = deps.allowance ?? { left: deps.maxEntries ?? ENTRIES_PER_RUN };
-  const rounds = await sql()<{ round_key: string }[]>`
-    SELECT round_key FROM bonus_rounds WHERE state = 'open' AND starts_at <= ${now}
+  const rounds = await sql()<{ round_key: string; ends_at: Date }[]>`
+    SELECT round_key, ends_at FROM bonus_rounds WHERE state = 'open' AND starts_at <= ${now}
       ${deps.only ? sql()`AND round_key IN ${sql()(deps.only)}` : sql()``}
     ORDER BY ends_at, round_key`;
   const out: { round: string; ranked?: number; error?: string }[] = [];
-  for (const { round_key } of rounds) {
+  for (const { round_key, ends_at } of rounds) {
     if (deps.deadline !== undefined && Date.now() >= deps.deadline) break;
     try {
-      out.push({ round: round_key, ranked: (await scoreRound(round_key, { ...deps, now, budget, excluded, allowance })).length });
+      out.push({ round: round_key, ranked: (await (deps.score ?? scoreRound)(round_key, { ...deps, now, budget, excluded, allowance })).length });
     } catch (err) {
       console.error('[traction]', round_key, err);
       out.push({ round: round_key, error: 'scoring failed; retried next run' });
+      // Ruling 23: a round failing its final scoring after its end waits on the owner, once per
+      // round (its entries' final reads may never land; the freeze escape then scores them 0).
+      if (now >= ends_at && (await scoreErrorFirstTime(round_key, now))) deps.needsOwner?.push(round_key);
     }
   }
   return out;
 }
 
+/** Marks a round's final-scoring failure notified; true only the first time (Ruling 23). */
+const scoreErrorFirstTime = async (roundKey: string, now: Date) =>
+  (
+    await sql()`
+      UPDATE bonus_rounds SET score_error_notified_at = ${now}
+      WHERE round_key = ${roundKey} AND score_error_notified_at IS NULL RETURNING round_key`
+  ).length > 0;
+
+/** The review flag of an eligible entry frozen without any final read (Ruling 23: scored 0, last). */
+export const NO_FINAL_READ_FLAG = 'no_final_read';
+
 /**
  * Whether a round may freeze now (Task 7): the deposit index has read past its end (canFreeze),
  * and every eligible entry has a final read covering the whole window with no failed source.
- * Escape (Ruling 12): FREEZE_ESCAPE_MS after the end, an entry whose final read still has failed
- * sources counts as done with its last values, and is listed in `flagged` (the review page shows
- * it; the cron puts the round in needs_owner). `pending` lists the entries still holding it.
+ * Escape (Rulings 12, 23): FREEZE_ESCAPE_MS after the end, an entry whose final read still has
+ * failed sources counts as done with its last values, and one with no final read at all counts
+ * with score 0 (finalRanking ranks it last); both are listed in `flagged` (the review page shows
+ * them; the cron puts the round in needs_owner once). `pending` lists the entries still holding it.
  */
 export async function readyToFreeze(roundKey: string, now = new Date()) {
   const [r] = await sql()<{ program_id: string; ends_at: Date }[]>`
@@ -737,10 +760,8 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
   const escaped = now.getTime() > r.ends_at.getTime() + FREEZE_ESCAPE_MS;
   const pending: number[] = [];
   const flagged: number[] = [];
-  for (const x of rows) {
-    if (x.failed === null) pending.push(x.id);
-    else if (x.failed.length > 0) (escaped ? flagged : pending).push(x.id);
-  }
+  for (const x of rows)
+    if (x.failed === null || x.failed.length > 0) (escaped ? flagged : pending).push(x.id);
   const ready = pending.length === 0 && canFreeze(r.ends_at, await indexedThrough());
   return { ready, pending, flagged };
 }
@@ -752,28 +773,46 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
  * repo, a coin launched after the end) can never be read as a winner. `flagged` marks entries
  * whose final read still has failed sources (`failed`: which); `review_flags` carries the review
  * page's patterns.
- * An eligible entry without a final read is left out (readyToFreeze holds the freeze for it).
+ * Ruling 23: an eligible entry with no final read (only possible past readyToFreeze's escape) is
+ * ranked after every read entry, score 0, flagged NO_FINAL_READ_FLAG.
  */
 export async function finalRanking(roundKey: string) {
   const [r] = await sql()<{ program_id: string; ends_at: Date }[]>`
     SELECT program_id, ends_at FROM bonus_rounds WHERE round_key = ${roundKey}`;
   if (!r) return [];
-  const rows = await sql()<{ id: number; submitted_at: Date; signals: Signals; failed: string[]; review_flags: string[] }[]>`
+  const rows = await sql()<
+    { id: number; submitted_at: Date; signals: Signals | null; failed: string[] | null; review_flags: string[] | null }[]
+  >`
     SELECT p.id, p.submitted_at, s.signals, s.failed, s.review_flags
     FROM projects p
-    JOIN LATERAL (
+    LEFT JOIN LATERAL (
       SELECT signals, failed, review_flags FROM bonus_scores b
       WHERE b.round_key = ${roundKey} AND b.project_id = p.id AND b.through >= ${r.ends_at}
       ORDER BY b.day DESC LIMIT 1) s ON true
     WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at)}`;
-  const byId = new Map(rows.map((x) => [x.id, x]));
-  return rankRound(
-    rows.map((x) => ({ id: x.id, submittedAt: x.submitted_at })),
-    new Map(rows.map((x) => [x.id, x.signals])),
+  const read = rows.filter((x) => x.signals !== null);
+  const unread = rows
+    .filter((x) => x.signals === null)
+    .sort((a, b) => a.submitted_at.getTime() - b.submitted_at.getTime() || a.id - b.id);
+  const byId = new Map(read.map((x) => [x.id, x]));
+  const ranked = rankRound(
+    read.map((x) => ({ id: x.id, submittedAt: x.submitted_at })),
+    new Map(read.map((x) => [x.id, x.signals!])),
   ).map((x) => ({
     ...x,
-    flagged: byId.get(x.id)!.failed.length > 0,
-    failed: byId.get(x.id)!.failed,
-    review_flags: byId.get(x.id)!.review_flags,
+    flagged: byId.get(x.id)!.failed!.length > 0,
+    failed: byId.get(x.id)!.failed!,
+    review_flags: byId.get(x.id)!.review_flags ?? [],
   }));
+  return [
+    ...ranked,
+    ...unread.map((x, i) => ({
+      id: x.id,
+      score: 0,
+      rank: ranked.length + i + 1,
+      flagged: true,
+      failed: [] as string[],
+      review_flags: [NO_FINAL_READ_FLAG],
+    })),
+  ];
 }

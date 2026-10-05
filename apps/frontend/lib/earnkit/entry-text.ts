@@ -26,7 +26,9 @@ export function keyTable(rows: [string, string][]) {
  * bonus) swaps the generic "say no token to skip" for what skipping actually costs here: the
  * builder bonus. Pure.
  */
-export const tokenRow = (symbol: string | null, hasBonus = false) => {
+export const tokenRow = (symbol: string | null, hasBonus = false, coinIn: string | null = null) => {
+  // Ruling 25: one coin per repo; this repo's coin is already entered in another program.
+  if (hasBonus && coinIn) return repoCoinNote(coinIn);
   if (hasBonus)
     return symbol
       ? `$${symbol} on tokens.fun, you keep 40% of fees · skip: no builder bonus`
@@ -35,6 +37,9 @@ export const tokenRow = (symbol: string | null, hasBonus = false) => {
     ? `$${symbol} on tokens.fun, you keep 40% of fees (say "no token" to skip)`
     : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip';
 };
+
+/** The no-bonus line for an entry whose repo's coin is entered in another program (Ruling 25). Pure. */
+export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's coin is entered in ${programTitle}`;
 
 /**
  * The line under the table: the earnings detail and both terms links (the v2.3 consent text),
@@ -62,8 +67,12 @@ export function confirmTable(a: {
   payoutWallet: string | null;
   /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
   askWallet?: string | null;
-  /** The token row; `wallet` is the fee wallet, named in the footnote when known. `hasBonus`: v2.5 §3. */
-  token: { symbol: string | null; wallet?: string | null; hasBonus?: boolean } | null;
+  /**
+   * The token row; `wallet` is the fee wallet, named in the footnote when known. `hasBonus`: v2.5
+   * §3. `coinIn`: the program this repo's coin is already entered in (Ruling 25; no new coin, so
+   * no footnote).
+   */
+  token: { symbol: string | null; wallet?: string | null; hasBonus?: boolean; coinIn?: string | null } | null;
 }) {
   const rows: [string, string][] = [['Entry', `${a.project} for ${a.programTitle}`]];
   const c = a.campaign;
@@ -75,9 +84,10 @@ export function confirmTable(a: {
   else if (c?.kind === 'sponsor' && a.endsAt)
     rows.push(['Prize', `the sponsor picks winners after ${shortDate(a.endsAt)}`]);
   else rows.push(['Prize', a.prize]);
-  if (a.token) rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus)]);
+  const coinIn = a.token?.hasBonus ? (a.token.coinIn ?? null) : null;
+  if (a.token) rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn)]);
   const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
-  return keyTable(rows) + ask + (a.token ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
+  return keyTable(rows) + ask + (a.token && !coinIn ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */

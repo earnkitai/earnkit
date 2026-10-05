@@ -16,6 +16,19 @@ export const STATS_KEYS = [
 
 export type PublicStats = Record<(typeof STATS_KEYS)[number], number>;
 
+/**
+ * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
+ * with the v2.5 split, from the start of the bonus index, so it is never "all Safe revenue".
+ */
+export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
+  open_money_usd: 'open money matched (USD)',
+  programs_open: 'programs open',
+  coins_launched: 'coins launched',
+  fees_to_safe_eth: 'fees to the Safe (v2.5 coins)',
+  bonus_paid_eth: 'builder bonus paid (ETH)',
+  installs: 'installs',
+};
+
 /** Wei to ETH as a number, 6 decimals, rounded down. Pure. */
 export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
 
@@ -34,7 +47,8 @@ type Row = {
  * the v2.5 split only (coins launched before it have no builder bonus slot and count 0), accrued
  * rather than claimed (unclaimed FeeLocker balances included), from the start of the bonus
  * ledger's index: every real FeeLocker deposit for the bonus wallet (its 20% slot) comes with the
- * Safe's own 30% slot from the same fees, so that part is 1.5x the indexed bonus deposits; plus
+ * Safe's own 30% slot from the same fees, so that part is 1.5x the indexed bonus deposits of
+ * EarnKit coins (M5: never a deposit from a coin EarnKit didn't launch); plus
  * the builder bonus money routed to the Safe (after a program ends, programs without public
  * submissions, empty rounds, a paid round's unclaimed places). It is not all-time Safe revenue.
  * Pure.
@@ -69,7 +83,11 @@ export async function readStats(now = new Date()): Promise<PublicStats> {
       (SELECT count(*) FROM projects WHERE token_status = 'launched')::int AS coins_launched,
       -- Real FeeLocker deposits only (an onchain tx hash): never a synthetic row such as a paid
       -- round's 'round-rest:<round>' remainder, which is already inside the round's deposits.
-      (SELECT sum(amount_wei) FROM bonus_ledger WHERE tx_hash ~ '^0x[0-9a-f]{64}$')::text AS bonus_deposits_wei,
+      -- M5: and only from EarnKit coins (launched with the v2.5 split, so their Safe slot is 1.5x
+      -- the bonus slot); a deposit from another or unknown coin has no known Safe share.
+      (SELECT sum(amount_wei) FROM bonus_ledger
+        WHERE tx_hash ~ '^0x[0-9a-f]{64}$'
+          AND coin IN (SELECT coin_address FROM projects WHERE coin_address IS NOT NULL))::text AS bonus_deposits_wei,
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe')::text AS bonus_to_safe_wei,
       (SELECT sum(amount_wei) FROM bonus_payouts WHERE status = 'paid')::text AS bonus_paid_wei,
       (SELECT count(*) FROM installations)::int AS installs`;

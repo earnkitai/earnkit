@@ -8,6 +8,7 @@ import { paidBonusWins } from './alerts';
 import { BASE_BONUS, FEE_LOCKER_ABI, bookDeposit, roundsCovered, runBonusLedger, type BonusRpc } from './bonus-ledger';
 import {
   BONUS_SPLIT_BPS,
+  CLAIM_PENDING,
   STORED_SEND_WAIT,
   advanceRounds,
   placesFor,
@@ -17,6 +18,7 @@ import {
 import { runCron } from './cron';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
+import { NO_FINAL_READ_FLAG, scoreOpenRounds } from './traction';
 import { BONUS_WALLET_UNSET } from './cron';
 import { TOP_UP, payCampaign, payRanked, type PayoutRpc, type PayoutStore } from './payout';
 import { VetoError, bonusReviewLink, vetoBonusEntry, vetoKey, vetoPost } from './veto';
@@ -673,10 +675,10 @@ test('(d) an ended round while the ledger is skipped (no payout key) waits on th
     const out = await runCron({ now: at(2), only: ['t7-none'], deps: { bonus: { account: null } } });
     assert.ok(out.needs_owner.includes(BONUS_WALLET_UNSET), JSON.stringify(out.needs_owner));
     assert.equal(BONUS_WALLET_UNSET.includes('payout wallet not configured'), true);
-    // Before any round ends, the same skip is quiet.
+    // Ruling 20: before any round ends, the skip waits on the owner too: EarnKit coins exist and
+    // the program has a builder bonus, so fees would go unbooked.
     const before = await runCron({ now: new Date('2026-10-15T00:00:00Z'), only: ['t7-none'], deps: { bonus: { account: null } } });
-    const ended = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM bonus_rounds WHERE state NOT IN ('paid','empty') AND ends_at <= '2026-10-15T00:00:00Z'`;
-    if (ended[0].n === 0) assert.ok(!before.needs_owner.includes(BONUS_WALLET_UNSET));
+    assert.ok(before.needs_owner.includes(BONUS_WALLET_UNSET), JSON.stringify(before.needs_owner));
   } finally {
     await cleanup();
   }
@@ -710,4 +712,111 @@ test('(2, e) the round review page links stored URLs only through shownUrl, and 
   assert.doesNotMatch(page, /href=\{f\?\./);
   assert.match(page, /try \{\s*round = decodeURIComponent\(raw\);\s*\} catch \{\s*notFound\(\);/);
   assert.ok(page.indexOf("enforce('veto'") < page.indexOf('decodeURIComponent'));
+});
+
+// ---- Final fix wave ---------------------------------------------------------------------------
+
+test('M14: a follow-only pass that follows the last transfer to paid reports the payout done in the same run', async () => {
+  const f = fakeRpc();
+  const s = memStore();
+  const signed = await account.signTransaction({
+    chainId: 8453, type: 'eip1559', to: TOKEN, nonce: 7, gas: 60_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n,
+    data: '0xa9059cbb' as Hex,
+  });
+  const paid = { ...rrow(1), payout_status: 'paid', prize_tx: '0xaa', prize_raw_tx: null, slot: 0 };
+  const inflight = { ...rrow(2), payout_status: 'sending', prize_tx: keccak256(signed), prize_raw_tx: signed, slot: 1 };
+  const r = await payRanked(
+    { token: TOKEN, symbol: 'WETH', decimals: 18, amounts: [5n, 3n], perPlace: true },
+    [paid, inflight, rrow(3)],
+    (pool) => pool[0],
+    { account, rpc: f.rpc, store: s.store, listed: async () => false, followOnly: true },
+  );
+  assert.deepEqual(r, { done: true, note: null });
+  assert.deepEqual(s.calls, [['paid', 2, '3']], 'followed; nothing new signed');
+  // With a free place left, a follow-only pass still signs nothing and is not done.
+  const s2 = memStore();
+  const r2 = await payRanked(
+    { token: TOKEN, symbol: 'WETH', decimals: 18, amounts: [5n, 3n], perPlace: true },
+    [paid, rrow(3)],
+    (pool) => pool[0],
+    { account, rpc: f.rpc, store: s2.store, listed: async () => false, followOnly: true },
+  );
+  assert.deepEqual(r2, { done: false, note: null });
+  assert.deepEqual(s2.calls, []);
+});
+
+test('M3: a pay-step claim not mined yet waits a run; it is never a top-up (no 503)', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 2, pool: 2n * E18 });
+    const f = chain({ balance: 0n, available: 2n * E18 });
+    await advanceRounds(ACCOUNT, f.deps(at(2)));
+    await sql()`UPDATE bonus_rounds SET review_until = ${at(3)} WHERE round_key = ${PID}`;
+    // The claim is accepted but not mined within the wait: the wallet still reads 0.
+    const pending = { ...f.rpc, broadcast: async (raw: Hex) => { f.state.sent.push(raw); return 'sent' as const; }, waitFor: async () => null };
+    const out = (await advanceRounds(ACCOUNT, { ...f.deps(at(4)), rpc: pending as BonusRpc })) as Out;
+    assert.equal(f.state.sent.length, 1, 'the claim only');
+    assert.equal(out.rounds[0].done, false);
+    assert.ok(String(out.rounds[0].note).includes(CLAIM_PENDING), String(out.rounds[0].note));
+    assert.ok(!String(out.rounds[0].note).includes(TOP_UP));
+    assert.deepEqual(out.needs_owner, []);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Ruling 23: an eligible entry with no final read, 25 h after the end, is ranked last with score 0 and waits on the owner once', db, async () => {
+  await cleanup();
+  try {
+    const { ids } = await setup({ n: 3, pool: E18 });
+    // Entry 1 (the best on users) was never read at all.
+    await sql()`DELETE FROM bonus_scores WHERE round_key = ${PID} AND project_id = ${ids[0]}`;
+    const f = chain();
+    let out = (await advanceRounds(ACCOUNT, f.deps(at(2)))) as Out;
+    assert.equal(out.rounds[0].step, 'freeze-wait');
+    assert.deepEqual(out.rounds[0].pending, [ids[0]]);
+    out = (await advanceRounds(ACCOUNT, f.deps(at(25)))) as Out;
+    assert.equal(out.rounds[0].step, 'review', 'never waits forever');
+    assert.deepEqual(out.needs_owner, [PID]);
+    const rows = await payouts();
+    assert.deepEqual(rows.map((r) => r.project_id), [ids[1], ids[2], ids[0]], 'ranked last');
+    assert.deepEqual(rows[2].flags, [NO_FINAL_READ_FLAG]);
+    assert.deepEqual((await round()).terms!.flagged, [ids[0]]);
+    out = (await advanceRounds(ACCOUNT, f.deps(at(26)))) as Out;
+    assert.deepEqual(out.needs_owner, [], 'once per round');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Ruling 23: an ended round whose final scoring throws waits on the owner once per round', db, async () => {
+  await cleanup();
+  try {
+    await setup({ n: 1, pool: E18 });
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const failing = async () => {
+        throw new Error('bonus_scores insert failed');
+      };
+      const before: string[] = [];
+      await scoreOpenRounds({ now: new Date('2026-10-20T00:00:00Z'), only: [PID], score: failing, needsOwner: before });
+      assert.deepEqual(before, [], 'before the end: retried quietly');
+      const first: string[] = [];
+      const out = await scoreOpenRounds({ now: at(2), only: [PID], score: failing, needsOwner: first });
+      assert.deepEqual(out, [{ round: PID, error: 'scoring failed; retried next run' }]);
+      assert.deepEqual(first, [PID]);
+      const second: string[] = [];
+      await scoreOpenRounds({ now: at(3), only: [PID], score: failing, needsOwner: second });
+      assert.deepEqual(second, []);
+      // Through the cron: the round shows in needs_owner (503) on that first failing run.
+      await sql()`UPDATE bonus_rounds SET score_error_notified_at = NULL WHERE round_key = ${PID}`;
+      const cron = await runCron({ now: at(4), only: ['t7-none'], deps: { traction: { only: [PID], score: failing } } });
+      assert.ok(cron.needs_owner.includes(`bonus:${PID}`), JSON.stringify(cron.needs_owner));
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    await cleanup();
+  }
 });

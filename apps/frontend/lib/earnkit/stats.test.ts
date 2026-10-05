@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATS_KEYS, readStats, statsFrom, weiToEth } from './stats';
+import { STATS_KEYS, STATS_LABELS, readStats, statsFrom, weiToEth } from './stats';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -53,6 +53,7 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
   const tag = `stats-${process.pid}-${Date.now()}`;
   const stamp = process.pid.toString(16) + Date.now().toString(16);
   const hash = (n: number) => `0x${(stamp + n).padStart(64, '0')}`;
+  const coin = `0x${stamp.padStart(40, 'c')}`.slice(0, 42);
   const before = await readStats();
   assert.deepEqual(Object.keys(before), [...STATS_KEYS]);
   const prog = (id: string, status: string, endsInMs: number | null, award: number | null) => sql()`
@@ -65,16 +66,18 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
   await prog(`${tag}-closed`, 'closed', 86_400_000, 9999); // closed: not open
   const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
   const [p1] = await sql()<{ id: number }[]>`
-    INSERT INTO projects (program_id, name, installation_id, token_status, token_url)
-    VALUES (${`${tag}-open`}, 'a', ${inst.id}, 'launched', 'https://tokens.fun/x') RETURNING id`;
+    INSERT INTO projects (program_id, name, installation_id, token_status, token_url, coin_address)
+    VALUES (${`${tag}-open`}, 'a', ${inst.id}, 'launched', 'https://tokens.fun/x', ${coin}) RETURNING id`;
   await sql()`INSERT INTO projects (program_id, name, token_status, token_url) VALUES (${`${tag}-open`}, 'b', 'pending', 'pending')`;
   await sql()`
     INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
     VALUES (${tag}, ${`${tag}-open`}, now() - interval '1 day', now() + interval '1 day', 'paid')`;
   await sql()`
     INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time) VALUES
-      (${hash(1)}, 0, NULL, ${tag}, 'round', ${(2n * E18).toString()}, now()),
+      (${hash(1)}, 0, ${coin}, ${tag}, 'round', ${(2n * E18).toString()}, now()),
       (${hash(2)}, 0, NULL, NULL, 'safe', ${(E18 / 2n).toString()}, now()),
+      -- M5: a deposit from a coin EarnKit didn't launch: booked to the Safe, but no Safe slot known.
+      (${hash(3)}, 0, '0x00000000000000000000000000000000000000ff', NULL, 'safe', ${((3n * E18) / 10n).toString()}, now()),
       -- A paid round's remainder (a veto left a place empty): part of the round's own 2 ETH, so
       -- it counts once, as money routed to the Safe, never as a new deposit.
       (${`round-rest:${tag}`}, 0, NULL, ${tag}, 'safe', ${(E18 / 10n).toString()}, now())`;
@@ -90,16 +93,23 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
     assert.ok(d('programs_open') >= 2);
     assert.ok(d('coins_launched') >= 1);
     assert.ok(d('installs') >= 1);
-    // 2.5 ETH of real bonus deposits: the Safe's slot got 3.75; 0.5 of them were booked to it and
-    // 0.1 of the round's pool was left over (counted once): 4.35, not 4.5 (1.5x the remainder).
-    assert.equal(d('fees_to_safe_eth'), 4.35);
+    // 2 ETH of bonus deposits from an EarnKit coin: the Safe's slot got 3 (M5: the 0.5 with no coin
+    // and the 0.3 from a coin EarnKit didn't launch have no known Safe slot). Booked to the Safe:
+    // those 0.8, plus 0.1 of the round's pool left over (counted once): 3.9.
+    assert.equal(d('fees_to_safe_eth'), 3.9);
     assert.equal(d('bonus_paid_eth'), 0.25);
   } finally {
     await sql()`DELETE FROM bonus_payouts WHERE round_key = ${tag}`;
-    await sql()`DELETE FROM bonus_ledger WHERE round_key = ${tag} OR tx_hash IN ${sql()([hash(1), hash(2)])}`;
+    await sql()`DELETE FROM bonus_ledger WHERE round_key = ${tag} OR tx_hash IN ${sql()([hash(1), hash(2), hash(3)])}`;
     await sql()`DELETE FROM bonus_rounds WHERE round_key = ${tag}`;
     await sql()`DELETE FROM projects WHERE program_id LIKE ${`${tag}-%`}`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
     await sql()`DELETE FROM programs WHERE id LIKE ${`${tag}-%`}`;
   }
+});
+
+test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 coins only; every stat has a label', () => {
+  assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 coins)');
+  assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
+  for (const l of Object.values(STATS_LABELS)) assert.doesNotMatch(l, /vault|\p{Extended_Pictographic}/u);
 });

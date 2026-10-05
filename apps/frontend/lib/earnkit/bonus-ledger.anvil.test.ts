@@ -7,6 +7,7 @@ import { createPublicClient, createWalletClient, erc20Abi, http, toHex, type Abi
 import { mnemonicToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 import { CONFIRMATIONS, bonusRpc, runBonusLedger, type BonusChain } from './bonus-ledger';
+import { windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -104,6 +105,8 @@ async function scenario() {
   await rpc('evm_mine');
   const t0 = new Date(Number((await pc.getBlock()).timestamp) * 1000);
   const h = (n: number) => new Date(t0.getTime() + n * 3_600_000);
+  // The open program's round (Ruling 21): keyed by its window's UTC start day.
+  const ROUND = windowKey(PROG, h(-1));
   for (const [id, starts, ends] of [[PROG, h(-1), h(30)], [PROG_ENDED, h(-48), h(-24)]] as const)
     await sql()`
       INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
@@ -146,8 +149,8 @@ async function scenario() {
   assert.deepEqual(
     ledger.map((l) => [l.coin, l.round_key, l.destination, l.amount_wei]),
     [
-      [COIN_A, PROG, 'round', (E18 / 5n).toString()], // 20% of 1
-      [COIN_C, PROG, 'round', ((2n * E18) / 5n).toString()], // 20% of 2
+      [COIN_A, ROUND, 'round', (E18 / 5n).toString()], // 20% of 1
+      [COIN_C, ROUND, 'round', ((2n * E18) / 5n).toString()], // 20% of 2
       [COIN_B, null, 'safe', ((4n * E18) / 5n).toString()], // its program ended
       [null, null, 'safe', (E18 / 10n).toString()], // no ClaimedRewards
     ],
@@ -186,6 +189,6 @@ async function scenario() {
   const r4 = (await runBonusLedger({ ...deps, now: h(15) })) as unknown as Run;
   assert.equal(r4.index.round, 1, `A's collected share is booked to the open round: ${why(r4)}`);
   assert.deepEqual(r4.collect, [], 'collected within 12 h: not again');
-  const pool = await sql()<{ wei: string }[]>`SELECT sum(amount_wei)::text AS wei FROM bonus_ledger WHERE round_key = ${PROG}`;
+  const pool = await sql()<{ wei: string }[]>`SELECT sum(amount_wei)::text AS wei FROM bonus_ledger WHERE round_key = ${ROUND}`;
   assert.equal(pool[0].wei, ((E18 / 5n) * 2n + (2n * E18) / 5n).toString());
 }

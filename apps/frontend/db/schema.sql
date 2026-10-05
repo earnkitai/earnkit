@@ -517,3 +517,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS bonus_payouts_one_per_place ON bonus_payouts (
 ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS flagged_notified_at timestamptz;
 -- Freeze-side steps that failed in a row (6 make the cron answer 503); a freeze step that completes resets it.
 ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS freeze_failures integer NOT NULL DEFAULT 0;
+
+-- v2.5 final fix wave (2026-10-05). Additive and idempotent: safe on a database holding v2.4 rows
+-- (production has no v2.5 rows yet).
+-- Ruling 23: when an ended round's final scoring failure was reported to the owner (503, once).
+ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS score_error_notified_at timestamptz;

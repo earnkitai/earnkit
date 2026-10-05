@@ -36,6 +36,10 @@ import { holdBonusDbLock } from './fixtures/bonus-db-lock';
  * 7. Beta's agent sees the win once;
  * 8. a re-run signs and pays nothing.
  *
+ * Not covered here (task-10-review M2): the veto goes through veto.ts vetoBonusEntry, the function
+ * the admin review page's action calls, not through the page itself; its key check
+ * (bonusVetoKey) and POST are covered by bonus-payout.test.ts ("bonus veto POST").
+ *
  * Runs only with BONUS_ANVIL_URL (a local anvil started with --chain-id 8453) and a local
  * DATABASE_URL, like the other *.anvil.test.ts files:
  *   anvil --port 8574 --chain-id 8453
@@ -46,7 +50,9 @@ const gate = {
   skip:
     (!URL_ && 'no BONUS_ANVIL_URL') ||
     (!process.env.DATABASE_URL && 'no DATABASE_URL') ||
-    (URL_ && !/^http:\/\/127\.0\.0\.1:\d+$/.test(URL_) && 'BONUS_ANVIL_URL must be a local anvil'),
+    (URL_ && !/^http:\/\/127\.0\.0\.1:\d+$/.test(URL_) && 'BONUS_ANVIL_URL must be a local anvil') ||
+    // It wipes the bonus ledger tables: never against anything but a local database (task-10-review M3).
+    (!/^postgres(ql)?:\/\/[^@/]*@?(127\.0\.0\.1|localhost)(:\d+)?\//.test(process.env.DATABASE_URL ?? '') && 'DATABASE_URL must be a local database'),
 };
 holdBonusDbLock();
 
@@ -68,10 +74,10 @@ type Name = keyof typeof BUILDERS;
 const repoOf = (n: Name) => `https://github.com/${BUILDERS[n].login}/app`;
 
 async function cleanup() {
-  await sql()`DELETE FROM bonus_payouts WHERE round_key = ${PROG}`;
-  await sql()`DELETE FROM bonus_vetoes WHERE round_key = ${PROG}`;
-  await sql()`DELETE FROM bonus_scores WHERE round_key = ${PROG}`;
-  await sql()`DELETE FROM bonus_commits WHERE round_key = ${PROG}`;
+  await sql()`DELETE FROM bonus_payouts WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
+  await sql()`DELETE FROM bonus_vetoes WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
+  await sql()`DELETE FROM bonus_scores WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
+  await sql()`DELETE FROM bonus_commits WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
   await sql()`DELETE FROM bonus_ledger`;
   await sql()`DELETE FROM bonus_sweeps`;
   await sql()`DELETE FROM bonus_cursor`;
@@ -198,7 +204,7 @@ async function scenario(mock: Mock) {
   const { CONFIRMATIONS, bonusRpc } = await import('./bonus-ledger');
   const { cronPost, runCron } = await import('./cron');
   const { splitPool } = await import('./bonus-payout');
-  const { roundPoolsWei } = await import('./bonus-rounds');
+  const { roundPoolsWei, windowKey } = await import('./bonus-rounds');
   const { vetoBonusEntry, VetoError } = await import('./veto');
   const { sinceYouLastChecked } = await import('./alerts');
 
@@ -242,6 +248,8 @@ async function scenario(mock: Mock) {
   const file = JSON.parse(readFileSync(join(ROOT, 'programs', 'arc-microgrants.json'), 'utf8'));
   await upsertProgram(ProgramFile.parse({ ...file, id: PROG, status: 'active', starts_at: hour(-1).toISOString(), ends_at: hour(36).toISOString() }));
   const ENDS = hour(36);
+  // The program's round (Ruling 21): keyed by its window's UTC start day.
+  const ROUND = windowKey(PROG, hour(-1));
 
   // ---- 1. Three builders enter; two launch a coin, one says no coin ----
   const proofPages = new Map<number, string>([
@@ -314,9 +322,9 @@ async function scenario(mock: Mock) {
           deps: {
             refreshFees: async () => 0,
             bonus: { account: PAYOUT, rpc: bonusRpc(URL_, chain), chain, startBlock: 0n, now, log: (l) => logs.push(l) },
-            traction: { now, only: [PROG], github: async (path) => github(path), probe: async () => true, excluded: [PAYOUT.address.toLowerCase()] },
+            traction: { now, only: [ROUND], github: async (path) => github(path), probe: async () => true, excluded: [PAYOUT.address.toLowerCase()] },
             proofRecheck: { fetchText: fetchProof },
-            rounds: { listed: async () => false, only: [PROG] },
+            rounds: { listed: async () => false, only: [ROUND] },
           },
         }),
     });
@@ -359,7 +367,7 @@ async function scenario(mock: Mock) {
   assert.equal(collected.length, 1, `Alpha was collected by tokens.fun just now: ${JSON.stringify(collected)}`);
   assert.equal(collected[0].coin, BUILDERS.beta.coin);
   assert.match(collected[0].result, /^collect success/, 'found its locker (the second) and collected');
-  assert.deepEqual(d2.body.bonus_scoring, [{ round: PROG, ranked: 1 }], 'only Alpha is eligible yet');
+  assert.deepEqual(d2.body.bonus_scoring, [{ round: ROUND, ranked: 1 }], 'only Alpha is eligible yet');
   assert.ok((d2.body.proof_recheck?.passed ?? 0) >= 1, JSON.stringify(d2.body.proof_recheck));
   assert.ok((await rows()).get(ids.beta)!.submission_proof_ok_at, "Beta's proof passes on the daily re-check");
   // An hour later: Beta's collected deposit is booked; Beta is read for the first time.
@@ -368,7 +376,7 @@ async function scenario(mock: Mock) {
   const d2b = await cron(await chainNow());
   assert.equal(d2b.status, 200, JSON.stringify(d2b.body));
   assert.equal(d2b.body.bonus.index.round, 1, "Beta's deposit from EarnKit's own collect");
-  assert.deepEqual(d2b.body.bonus_scoring, [{ round: PROG, ranked: 2 }], 'Beta is eligible now');
+  assert.deepEqual(d2b.body.bonus_scoring, [{ round: ROUND, ranked: 2 }], 'Beta is eligible now');
   assert.equal((await roundPoolsWei([PROG], { now: await chainNow() })).get(PROG), E18, 'pool so far: 1 ETH');
 
   // ---- 4. Scoring with no onchain users still ranks ----
@@ -376,7 +384,7 @@ async function scenario(mock: Mock) {
   const latest = async () =>
     sql()<Score[]>`
       SELECT DISTINCT ON (project_id) project_id, rank, score, signals FROM bonus_scores
-      WHERE round_key = ${PROG} ORDER BY project_id, day DESC`;
+      WHERE round_key = ${ROUND} ORDER BY project_id, day DESC`;
   let scores = await latest();
   assert.deepEqual(scores.map((s) => s.project_id).sort(), [ids.alpha, ids.beta].sort(), 'Gamma (no coin) is never scored');
   for (const s of scores) assert.equal(s.signals.users, 0, 'no contracts: no onchain users');
@@ -398,8 +406,12 @@ async function scenario(mock: Mock) {
   assert.equal(end.body.bonus.rounds.rounds[0].step, 'review', JSON.stringify(end.body.bonus.rounds));
   assert.equal(end.body.bonus.sweep.status, 'paid', `the late 0.2 WETH goes to the Safe: ${end.body.bonus.sweep.result}`);
   const [round] = await sql()<{ state: string; review_until: Date; terms: { pool_wei: string; amounts: string[]; flagged: number[] } }[]>`
-    SELECT state, review_until, terms FROM bonus_rounds WHERE round_key = ${PROG}`;
-  const amounts = splitPool(E18, 2);
+    SELECT state, review_until, terms FROM bonus_rounds WHERE round_key = ${ROUND}`;
+  // An oracle independent of splitPool (task-10-review M1): 25 : 18 renormalized over two
+  // places, the rounding dust to first place.
+  const second = (E18 * 1800n) / 4300n;
+  const amounts = [E18 - second, second];
+  assert.deepEqual(splitPool(E18, 2), amounts);
   assert.equal(round.state, 'review');
   assert.equal(round.terms.pool_wei, E18.toString(), 'the pool is every deposit made inside the round');
   assert.deepEqual(round.terms.amounts, amounts.map(String), '25 : 18, renormalized over two places');
@@ -409,8 +421,8 @@ async function scenario(mock: Mock) {
   assert.equal(await bal(PAYOUT.address), E18, 'the bonus wallet holds exactly the frozen pool');
 
   // The owner's veto, during the review: Alpha (first place) is removed; Gamma was never ranked.
-  await vetoBonusEntry(PROG, ids.alpha, 'e2e: removed in review');
-  await assert.rejects(vetoBonusEntry(PROG, ids.gamma, 'not ranked'), VetoError);
+  await vetoBonusEntry(ROUND, ids.alpha, 'e2e: removed in review');
+  await assert.rejects(vetoBonusEntry(ROUND, ids.gamma, 'not ranked'), VetoError);
   const wait = await cron(hour(60));
   assert.equal(wait.body.bonus.rounds.rounds[0].step, 'wait', 'nothing is paid during the 48 h review');
   assert.equal(await bal(BUILDERS.beta.wallet), 0n);
@@ -430,7 +442,7 @@ async function scenario(mock: Mock) {
   // The Safe: its 30% of every fee (6 ETH collected), the post-end bonus share and the unpaid place.
   assert.equal(await bal(SAFE), (18n * E18) / 10n + (2n * E18) / 10n + amounts[1]);
   const paid = await sql()<{ project_id: number; status: string | null; slot: number | null; tx_hash: string | null; amount_wei: string | null }[]>`
-    SELECT project_id, status, slot, tx_hash, amount_wei::text FROM bonus_payouts WHERE round_key = ${PROG} ORDER BY rank`;
+    SELECT project_id, status, slot, tx_hash, amount_wei::text FROM bonus_payouts WHERE round_key = ${ROUND} ORDER BY rank`;
   assert.deepEqual(
     paid.map((r) => [r.project_id, r.status, r.slot]),
     [[ids.alpha, null, null], [ids.beta, 'paid', 0]],
@@ -454,7 +466,7 @@ async function scenario(mock: Mock) {
   }
   assert.equal(await pc.getTransactionCount({ address: PAYOUT.address }), nonce, 'no new transaction');
   assert.deepEqual(await Promise.all([SAFE, BUILDERS.alpha.wallet, BUILDERS.beta.wallet, PAYOUT.address].map(bal)), balances);
-  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM bonus_payouts WHERE round_key = ${PROG} AND status = 'paid'`;
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM bonus_payouts WHERE round_key = ${ROUND} AND status = 'paid'`;
   assert.equal(n, 1);
   p = await rows();
   assert.ok(ENDS.getTime() > p.get(ids.beta)!.submission_proof_ok_at!.getTime(), "Beta's proof passed before the end");

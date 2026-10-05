@@ -118,6 +118,39 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   assert.match(b.say_to_builder, /skip: no builder bonus/);
 });
 
+test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is entered elsewhere gets the no-bonus row', async () => {
+  const bonusProgram = { title: "Crypto World's Fair Hackathon", token_policy: 'encouraged' as const, campaign: null, status: 'active', submission_proof: { host: 'colosseum.com' } } as unknown as ProgramRow;
+  const asked: string[] = [];
+  const repoCoin = async (key: string) => (asked.push(key), key === 'github.com/acme/kit' ? 'Arc Microgrants' : null);
+  const b = await tokenProposalBlock(
+    { program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl: 'https://github.com/Acme/Kit/' },
+    { ...free, repoCoin },
+  );
+  assert.ok(b);
+  assert.deepEqual(asked, ['github.com/acme/kit'], 'looked up by the normalized repo');
+  assert.equal(b.repo_coin_program, 'Arc Microgrants');
+  assert.equal(b.say_to_builder, "no builder bonus: this repo's coin is entered in Arc Microgrants");
+  assert.match(b.note, /don't pass token/);
+  // A repo without a coin keeps the default row; a failed lookup never fails the block.
+  const fresh = await tokenProposalBlock(
+    { program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl: 'https://github.com/acme/new' },
+    { ...free, repoCoin },
+  );
+  assert.equal(fresh?.repo_coin_program, null);
+  assert.match(fresh!.say_to_builder, /skip: no builder bonus/);
+  const err = console.error;
+  console.error = () => {};
+  try {
+    const failed = await tokenProposalBlock(
+      { program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl: 'https://github.com/acme/kit' },
+      { ...free, repoCoin: async () => { throw new Error('db down'); } },
+    );
+    assert.equal(failed?.repo_coin_program, null);
+  } finally {
+    console.error = err;
+  }
+});
+
 test("tokenProposalBlock: with the repo known, this agent's own token line", async () => {
   const repoUrl = 'https://github.com/acme/kit';
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);

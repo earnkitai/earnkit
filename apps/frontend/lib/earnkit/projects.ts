@@ -1,4 +1,6 @@
+import type postgres from 'postgres';
 import { z } from 'zod';
+import { roundFor } from './bonus-rounds';
 import { sql } from './db';
 import {
   EntryError,
@@ -11,7 +13,7 @@ import {
 } from './campaigns';
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
-import { enteredTable, siteUrl } from './entry-text';
+import { enteredTable, repoCoinNote, siteUrl } from './entry-text';
 import {
   checkOwnership,
   type DeployerLookup,
@@ -26,6 +28,7 @@ import {
   screenWallet,
 } from './sanctions';
 import { proofProblem } from './submission-proof';
+import { repoCoinPrograms } from './tokens';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { CLANKER_ADDRESSES } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
@@ -486,6 +489,22 @@ export async function recordSubmission(
   }
   // Ruling 13b: one bonus-eligible entry per normalized repo per program, the earliest.
   const bonusRepoKey = (!program.campaign && repo_url && normalizeRepoUrl(repo_url)) || null;
+  // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
+  // new coin here, so no builder bonus: said now, not discovered at launch.
+  if (bonusRepoKey && program.submission_proof) {
+    const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { title: string }>())).get(bonusRepoKey);
+    if (coin) {
+      const line = repoCoinNote(coin.title);
+      notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
+    }
+  }
+  // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
+  // (traction.ts eligibleSql: coin and proof before the round's end), like scoring does.
+  const roundEnd = roundFor(program, new Date())?.ends ?? null;
+  const beforeEnd = (tx: postgres.TransactionSql) =>
+    roundEnd
+      ? tx`AND coin_launched_at < ${roundEnd} AND submission_proof_ok_at < ${roundEnd} AND submitted_at < ${roundEnd}`
+      : tx``;
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
   // the check below at the database level.
@@ -540,7 +559,7 @@ export async function recordSubmission(
         // row or the builder's own failed attempt never blocks (traction.ts eligibleSql).
         const [earlier] = await tx<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
-            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL
+            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
           ORDER BY submitted_at, id LIMIT 1`;
         if (earlier)
           notes.push(
@@ -553,7 +572,7 @@ export async function recordSubmission(
         const held = await tx<{ id: number; contracts: string[] }[]>`
           SELECT id, contracts FROM projects
           WHERE program_id = ${program.id} AND contracts && ${bonusContracts}::text[]
-            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL
+            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
           ORDER BY submitted_at, id`;
         const taken = bonusContracts
           .map((c) => ({ c, by: held.find((h) => h.contracts.map((x) => x.toLowerCase()).includes(c)) }))

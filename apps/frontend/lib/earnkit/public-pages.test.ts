@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import PolicyPage from '../../app/policy/page';
@@ -143,4 +145,12 @@ test('/bonus/<round>: links defend themselves: a javascript: or http: URL render
   assert.doesNotMatch(h, /href="http:\/\/plain/);
   assert.doesNotMatch(h, /basescan\.org\/tx/);
   assert.match(text(h), /Evil/);
+});
+
+test('M1: the public round page answers a malformed round escape with a 404 (notFound), never a 500', () => {
+  const page = readFileSync(join(import.meta.dirname, '../../app/bonus/[round]/page.tsx'), 'utf8');
+  assert.match(page, /try \{\s*round = decodeURIComponent\(raw\);\s*\} catch \{\s*notFound\(\);/);
+  assert.doesNotMatch(page, /bonusBoard\(decodeURIComponent/);
+  // The escape that made it throw.
+  assert.throws(() => decodeURIComponent('%E0%A4%A'), URIError);
 });
