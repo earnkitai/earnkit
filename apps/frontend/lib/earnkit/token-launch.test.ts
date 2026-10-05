@@ -10,6 +10,7 @@ import { TOKEN_FOOTNOTE, tokenFootnote, tokenRow } from './entry-text';
 import {
   LaunchTokenInput,
   decideToken,
+  hasBuilderBonus,
   launchToken,
   submissionToken,
   tokenAfterSubmission,
@@ -95,9 +96,26 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   // Ruling 14: the footnote names the fee wallet when it is known.
   assert.equal(b.say_to_builder, `${tokenRow('CHAIN')}\n\n${tokenFootnote('0xW')}`);
   assert.ok(TOKEN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && TOKEN_FOOTNOTE.includes(TOKEN_TERMS.risks));
+  // v2.5 Task 8: this program fixture has no status/submission_proof, so no builder bonus.
+  assert.equal(b.has_bonus, false);
   // The repo proof is spelled out for the agent; without a repo there is no token line yet.
   assert.match(b.note, /earnkit\.txt at its root with the line "payout_wallet: 0xW"/);
   assert.match(b.note, /pass the project's repo_url/);
+});
+
+test('hasBuilderBonus: active and a submission_proof pattern, both required', () => {
+  assert.equal(hasBuilderBonus({ status: 'active', submission_proof: { kind: 'dorahacks' } } as unknown as ProgramRow), true);
+  assert.equal(hasBuilderBonus({ status: 'active', submission_proof: null } as unknown as ProgramRow), false);
+  assert.equal(hasBuilderBonus({ status: 'closed', submission_proof: { kind: 'dorahacks' } } as unknown as ProgramRow), false);
+});
+
+test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the row and the block', async () => {
+  const bonusProgram = { title: 'Arc Microgrants', token_policy: 'encouraged' as const, campaign: null, status: 'active', submission_proof: { kind: 'dorahacks' } } as unknown as ProgramRow;
+  const b = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
+  assert.ok(b);
+  assert.equal(b.has_bonus, true);
+  assert.equal(b.say_to_builder, `${tokenRow('CHAIN', true)}\n\n${tokenFootnote('0xW')}`);
+  assert.match(b.say_to_builder, /skip: no builder bonus/);
 });
 
 test("tokenProposalBlock: with the repo known, this agent's own token line", async () => {

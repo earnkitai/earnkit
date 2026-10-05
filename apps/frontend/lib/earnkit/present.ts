@@ -101,8 +101,8 @@ export function openMoneyUsd(matched: Pick<Card, 'id' | 'max_award_usd'>[]): num
   return [...seen.values()].reduce((a, b) => a + b, 0);
 }
 
-/** "0.42" from wei, two decimals, rounded down. */
-const eth = (wei: bigint) => {
+/** "0.42" from wei, two decimals, rounded down. Exported for alerts.ts (the bonus win amount). */
+export const eth = (wei: bigint) => {
   const cents = wei / 10n ** 16n;
   return `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 };

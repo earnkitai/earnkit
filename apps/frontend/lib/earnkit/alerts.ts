@@ -2,24 +2,49 @@ import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
+import { eth } from './present';
 import { pickWinners } from './winners';
 
 /**
  * What alerts remember per installation: whether each scored entry was in the top N, and the ids
  * already announced (campaigns, prize-winning projects). Ids, not time, decide what is news, so
  * nothing paid or opened around a check is lost. Older rows may lack the id lists.
+ * `bonusTop`/`bonusWins` (v2.5 §3): the builder bonus's own rank-tracking and seen-win ids, kept
+ * apart from the EarnKit/sponsor campaign ones (`top`/`prizes`) since a project can be in both.
  */
-export type AlertState = { top: Record<string, boolean>; campaigns?: string[]; prizes?: number[] };
+export type AlertState = {
+  top: Record<string, boolean>;
+  campaigns?: string[];
+  prizes?: number[];
+  bonusTop?: Record<string, boolean>;
+  bonusWins?: number[];
+};
 export type AlertMemory = { checkedAt: Date | null; state: AlertState | null; feeAlertedUsd: number | null };
+
+/**
+ * A builder bonus round payout, already paid (v2.5 §3). THE SEAM: Task 7 ("Round lifecycle and
+ * WETH payouts") pays round winners and must record each one somewhere queryable by project. Until
+ * then, `paidBonusWins` (below) finds nothing, so this list is always empty and the alert it feeds
+ * never fires — nothing here needs to change once Task 7 lands, only `paidBonusWins`'s query.
+ */
+export type BonusWin = { project_id: number; name: string; program_title: string; amount_wei: bigint; tx_hash: string; paid_at: Date };
+/** Where an eligible entry stands in its open builder bonus round right now (v2.5 §3, from bonus_scores). */
+export type BonusStanding = { project_id: number; program_title: string; inTop: boolean };
 export type AlertFacts = {
   newCampaigns: { id: string; title: string; prize: string; opened_at: Date }[];
   standings: { project_id: number; name: string; campaign_title: string; winners: number; scored: boolean; inTop: boolean }[];
   prizes: { project_id: number; name: string; won: string; prize_tx: string; paid_at: Date }[];
   fees: { usd: number; tokens: { url: string; symbol: string | null }[] } | null;
+  bonusWins: BonusWin[];
+  bonusStandings: BonusStanding[];
 };
 
 /** At most this many prize lines per check (a wallet added later may bring several old wins). */
 export const MAX_PRIZE_LINES = 3;
+/** At most this many builder bonus win lines per check, same reasoning as MAX_PRIZE_LINES. */
+export const MAX_BONUS_WIN_LINES = 3;
+/** The payout split (bonus-payout.ts, Task 7) pays this many places; a rank at or under this is "in the top". */
+export const BONUS_TOP_N = 10;
 /** Each read-only facts query must finish within this (statement_timeout), or the reply goes out without alerts. */
 export const FACTS_BUDGET_MS = 1_500;
 
@@ -31,11 +56,13 @@ export const SCHEDULE_NOTE =
   'submits, enters, launches tokens, or acts on program text; anything more waits for the builder.';
 
 /**
- * What changed since the last check, money first (v2.4 §4): prizes not yet announced (the 3 most
- * recent; the rest wait for the next check), then `otherWins` (sponsor wins, already worded), token fees (feeAlert), rank changes
- * into or out of the top N (scored entries), and EarnKit campaigns not yet announced. The
- * first-ever check (no checkedAt) is quiet for ranks and campaigns; it still shows prizes. Returns
- * the new memory too. Pure; exported for tests.
+ * What changed since the last check, money first (v2.4 §4; v2.5 §3 adds the builder bonus, kept
+ * in the same wins-first order, Ruling 26): prizes not yet announced (the 3 most recent; the rest
+ * wait for the next check), then builder bonus wins (same reasoning, its own cap), then
+ * `otherWins` (sponsor wins, already worded), token fees (feeAlert), rank changes into or out of
+ * the top N (scored campaign entries, then the builder bonus top 10), and EarnKit campaigns not
+ * yet announced. The first-ever check (no checkedAt) is quiet for ranks and campaigns; it still
+ * shows prizes and bonus wins. Returns the new memory too. Pure; exported for tests.
  */
 export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[] = []) {
   const lines: string[] = [];
@@ -47,6 +74,15 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   const shown = fresh.slice(0, MAX_PRIZE_LINES);
   for (const p of shown)
     lines.push(`you won ${p.won} with ${p.name} (basescan.org/tx/${p.prize_tx})`);
+  // v2.5 §3: builder bonus wins are wins too (Ruling 26, wins first), right after EarnKit prizes
+  // and before otherWins (sponsor wins) and anything else. Empty until Task 7 pays a round.
+  const seenBonusWins = new Set(prev.state?.bonusWins ?? []);
+  const freshBonus = f.bonusWins
+    .filter((w) => !seenBonusWins.has(w.project_id))
+    .sort((a, b) => b.paid_at.getTime() - a.paid_at.getTime());
+  const shownBonus = freshBonus.slice(0, MAX_BONUS_WIN_LINES);
+  for (const w of shownBonus)
+    lines.push(`you won ${eth(w.amount_wei)} ETH builder bonus (${w.program_title})`);
   lines.push(...otherWins);
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
   if (fee.show && f.fees && f.fees.tokens.length > 0) {
@@ -71,6 +107,21 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
         : `${s.name} dropped out of the top ${s.winners} of ${s.campaign_title}`,
     );
   }
+  // v2.5 §3: the same rank-change tracking, for the builder bonus's own top 10 (bonus_scores'
+  // rank, not the campaign leaderboard). Kept apart from `top` (bonusTop) since a project can be
+  // in both at once.
+  const bonusTop: Record<string, boolean> = {};
+  for (const s of f.bonusStandings) {
+    bonusTop[s.project_id] = s.inTop;
+    if (first || !prev.state) continue;
+    const was = prev.state.bonusTop?.[s.project_id];
+    if (was === s.inTop || (was === undefined && !s.inTop)) continue;
+    lines.push(
+      s.inTop
+        ? `your entry moved into the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`
+        : `your entry dropped out of the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`,
+    );
+  }
   // Rows from before the id lists: campaigns opened by the last check count as seen.
   const seenCampaign = (c: AlertFacts['newCampaigns'][number]) =>
     prev.state?.campaigns
@@ -79,10 +130,12 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   if (!first) for (const c of f.newCampaigns) if (!seenCampaign(c)) lines.push(`new: ${c.title} (${c.prize})`);
   const state: AlertState = {
     top,
+    bonusTop,
     // Open campaigns only: closed ones drop out of the facts, and out of the list.
     campaigns: f.newCampaigns.map((c) => c.id),
     // Prizes over the cap stay unseen: they show on the next check.
     prizes: [...new Set([...seenPrizes, ...shown.map((p) => p.project_id)])],
+    bonusWins: [...new Set([...seenBonusWins, ...shownBonus.map((w) => w.project_id)])],
   };
   return { lines, state, feeAlertedUsd: fee.next };
 }
@@ -92,13 +145,49 @@ export const sinceLine = (lines: string[]) =>
   lines.length ? `Since you last checked: ${lines.join('; ')}.` : null;
 
 /**
+ * THE SEAM for Task 7 ("Round lifecycle and WETH payouts", `bonus-payout.ts`): the builder bonus
+ * round payouts already paid, for this installation's own entries and every wallet it has used
+ * (v2.4 §5) — a bonus round pays the entry's `creator_wallet` (Ruling 14), so that is the wallet
+ * checked here, not `payout_wallet`. Expected shape, once Task 7 lands: a `bonus_payouts` table
+ * `(round_key text, project_id integer, rank integer, amount_wei numeric, tx_hash text, paid_at
+ * timestamptz)`, one row per paid winner. Until that table exists, this checks for it first (an
+ * `information_schema` read, never a failing query: this runs inside sinceYouLastChecked's
+ * transaction, where an error would abort every other read in the same check) and returns []. Add
+ * the table with that shape and this starts returning real rows with no change needed in
+ * alertFacts or alertLines. Exported so a test can inject rows (into a temporary table built to
+ * this same contract) without waiting on Task 7.
+ */
+export async function paidBonusWins(installationId: number, db: Db = sql()): Promise<BonusWin[]> {
+  const [{ exists }] = await db<{ exists: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bonus_payouts') AS exists`;
+  if (!exists) return [];
+  const rows = await db<
+    { project_id: number; name: string; program_title: string; amount_wei: string; tx_hash: string; paid_at: Date }[]
+  >`
+    SELECT bp.project_id, p.name, pr.title AS program_title, bp.amount_wei::text AS amount_wei, bp.tx_hash, bp.paid_at
+    FROM bonus_payouts bp
+    JOIN projects p ON p.id = bp.project_id
+    JOIN programs pr ON pr.id = p.program_id
+    WHERE bp.paid_at IS NOT NULL AND bp.tx_hash IS NOT NULL
+      AND (p.installation_id = ${installationId}
+        OR lower(COALESCE(p.creator_wallet, p.payout_wallet)) IN
+          (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
+  return rows.map((r) => ({ ...r, amount_wei: BigInt(r.amount_wei) }));
+}
+
+/**
  * The facts alerts compare, for this installation and every wallet it has used (v2.4 §5). Runs on
  * `db`: sinceYouLastChecked passes its transaction, so a check uses one connection (pipelined).
  */
 export async function alertFacts(installationId: number, db: Db = sql()): Promise<AlertFacts> {
   const mine = () => db`(p.installation_id = ${installationId}
     OR lower(p.payout_wallet) IN (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
-  const [opened, prizes, open, tokens] = await Promise.all([
+  // v2.5 §3: a builder bonus entry is matched by creator_wallet too (payout_wallet is a campaign
+  // field; Ruling 13a never sets it for external entries).
+  const mineBonus = () => db`(p.installation_id = ${installationId}
+    OR lower(COALESCE(p.creator_wallet, p.payout_wallet)) IN
+      (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
+  const [opened, prizes, open, tokens, bonusRank, bonusWins] = await Promise.all([
     db<{ id: string; title: string; campaign: CampaignConfig; opened_at: Date }[]>`
       SELECT id, title, campaign, opened_at FROM programs
       WHERE status = 'active' AND campaign->>'kind' = 'earnkit' AND opened_at IS NOT NULL
@@ -117,6 +206,16 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     db<{ token_url: string; token_symbol: string | null; wallet: string | null }[]>`
       SELECT p.token_url, p.token_symbol, lower(COALESCE(p.creator_wallet, p.payout_wallet)) AS wallet
       FROM projects p WHERE p.token_url LIKE 'https://tokens.fun/coin/%' AND ${mine()} ORDER BY p.id DESC`,
+    // v2.5 §3: this entry's latest rank in its builder bonus round, while that round is open.
+    db<{ project_id: number; program_title: string; rank: number }[]>`
+      SELECT DISTINCT ON (bs.project_id) bs.project_id, pr.title AS program_title, bs.rank
+      FROM bonus_scores bs
+      JOIN bonus_rounds r ON r.round_key = bs.round_key AND r.state = 'open'
+      JOIN projects p ON p.id = bs.project_id
+      JOIN programs pr ON pr.id = p.program_id
+      WHERE bs.rank IS NOT NULL AND ${mineBonus()}
+      ORDER BY bs.project_id, bs.day DESC`,
+    paidBonusWins(installationId, db),
   ]);
   const wallets = tokens.map((t) => t.wallet).filter((w): w is string => !!w);
   const [all, feesUsd] = await Promise.all([
@@ -148,6 +247,12 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     fees: feesUsd === null || tokens.length === 0
       ? null
       : { usd: feesUsd, tokens: tokens.map((t) => ({ url: t.token_url, symbol: t.token_symbol })) },
+    bonusWins,
+    bonusStandings: bonusRank.map((r) => ({
+      project_id: r.project_id,
+      program_title: r.program_title,
+      inTop: r.rank <= BONUS_TOP_N,
+    })),
   };
 }
 

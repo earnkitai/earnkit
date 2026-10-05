@@ -69,7 +69,16 @@ export type TokenBlock = {
   policy: 'encouraged' | 'allowed';
   say_to_builder: string;
   note: string;
+  /** v2.5 §3: the program is active and has a submission_proof pattern (hasBuilderBonus). */
+  has_bonus: boolean;
 };
+
+/**
+ * Whether a program's entries can earn the builder bonus (v2.5 §3): it has a submission_proof
+ * pattern (so EarnKit can fetch public proof of an entry) and the program is active. Pure.
+ */
+export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'submission_proof'>) =>
+  program.status === 'active' && program.submission_proof != null;
 
 export type Decision =
   | { action: 'skip'; note: string }
@@ -195,6 +204,7 @@ export async function tokenProposalBlock(
   const tokenLine =
     a.repoUrl && proposal.symbol ? tokenLineFor(a.installationId, a.repoUrl, proposal.symbol) : null;
   notes.push(ownershipLine(a.creatorWallet, tokenLine));
+  const hasBonus = hasBuilderBonus(program);
   return {
     proposed:
       proposal.name === null
@@ -206,10 +216,12 @@ export async function tokenProposalBlock(
     earnings,
     terms: TOKEN_TERMS,
     policy: program.token_policy,
+    has_bonus: hasBonus,
     // v2.4: one row in the confirmation (prepare_submission's show_to_builder carries it), with
     // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
-    // the repo needs is the agent's job (note).
-    say_to_builder: `${tokenRow(proposal.name === null ? null : proposal.symbol)}\n\n${tokenFootnote(a.creatorWallet)}`,
+    // the repo needs is the agent's job (note). v2.5: on a program with a builder bonus, skipping
+    // the coin costs the bonus (tokenRow's hasBonus), never advertised past this one row.
+    say_to_builder: `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }

@@ -20,18 +20,29 @@ export function keyTable(rows: [string, string][]) {
   ].join('\n');
 }
 
-/** The one token row (v2.4: a default at submission only, never advertised). Pure. */
-export const tokenRow = (symbol: string | null) =>
-  symbol
+/**
+ * The one token row (v2.4: a default at submission only, never advertised). `hasBonus` (v2.5 §3:
+ * the program is active and has a submission_proof pattern, so its entries can earn the builder
+ * bonus) swaps the generic "say no token to skip" for what skipping actually costs here: the
+ * builder bonus. Pure.
+ */
+export const tokenRow = (symbol: string | null, hasBonus = false) => {
+  if (hasBonus)
+    return symbol
+      ? `$${symbol} on tokens.fun, you keep 40% of fees · skip: no builder bonus`
+      : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker · skip: no builder bonus';
+  return symbol
     ? `$${symbol} on tokens.fun, you keep 40% of fees (say "no token" to skip)`
     : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip';
+};
 
 /**
  * The line under the table: the earnings detail and both terms links (the v2.3 consent text),
- * naming the wallet that receives the fees when it is known (Ruling 14). Pure.
+ * naming the wallet that receives the fees when it is known (Ruling 14). It names the fee split
+ * for the builder only (never the other slots the v2.5 split adds). Pure.
  */
 export const tokenFootnote = (wallet: string | null | undefined) =>
-  `Token: 40% of trading fees after Clanker's 20% cut, paid in WETH${wallet ? ` to ${wallet}` : ''}; tokens.fun pays the gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
+  `Token: you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH${wallet ? ` to ${wallet}` : ''}; tokens.fun pays the gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
 /** The footnote when the fee wallet isn't known yet. */
 export const TOKEN_FOOTNOTE = tokenFootnote(null);
@@ -51,8 +62,8 @@ export function confirmTable(a: {
   payoutWallet: string | null;
   /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
   askWallet?: string | null;
-  /** The token row; `wallet` is the fee wallet, named in the footnote when known. */
-  token: { symbol: string | null; wallet?: string | null } | null;
+  /** The token row; `wallet` is the fee wallet, named in the footnote when known. `hasBonus`: v2.5 §3. */
+  token: { symbol: string | null; wallet?: string | null; hasBonus?: boolean } | null;
 }) {
   const rows: [string, string][] = [['Entry', `${a.project} for ${a.programTitle}`]];
   const c = a.campaign;
@@ -64,7 +75,7 @@ export function confirmTable(a: {
   else if (c?.kind === 'sponsor' && a.endsAt)
     rows.push(['Prize', `the sponsor picks winners after ${shortDate(a.endsAt)}`]);
   else rows.push(['Prize', a.prize]);
-  if (a.token) rows.push(['Token', tokenRow(a.token.symbol)]);
+  if (a.token) rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus)]);
   const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
   return keyTable(rows) + ask + (a.token ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
 }

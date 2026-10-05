@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOKEN_FOOTNOTE, confirmTable, enteredTable, keyTable, tokenFootnote } from './entry-text';
+import { TOKEN_FOOTNOTE, confirmTable, enteredTable, keyTable, tokenFootnote, tokenRow } from './entry-text';
 import { TOKEN_TERMS } from './tokens';
 import type { CampaignConfig } from './campaigns';
 
@@ -77,6 +77,36 @@ test('enteredTable: standing, leaderboard, payout date', () => {
 
 test('keyTable escapes "|" so a cell never breaks the table', () => {
   assert.equal(keyTable([['Entry', 'A | B']]), '| Entry | A \\| B |\n|---|---|');
+});
+
+test('v2.5 Task 8: the coin row on a program with a builder bonus says so, and never otherwise', () => {
+  assert.equal(tokenRow('TIP'), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', false), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', true), '$TIP on tokens.fun, you keep 40% of fees · skip: no builder bonus');
+  assert.equal(
+    tokenRow(null, true),
+    'A token on tokens.fun, you keep 40% of fees: pick a name and ticker · skip: no builder bonus',
+  );
+  assert.equal(
+    tokenRow(null, false),
+    'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip',
+  );
+  for (const row of [tokenRow('TIP', true), tokenRow(null, true)])
+    assert.doesNotMatch(row, /\p{Extended_Pictographic}/u);
+});
+
+test('v2.5 Task 8: confirmTable passes hasBonus through to the token row', () => {
+  const text = confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null,
+    prize: '500 USDC × 20 grants', endsAt: null, payoutWallet: null,
+    token: { symbol: 'TIP', hasBonus: true },
+  });
+  assert.match(text, /\| Token \| \$TIP on tokens\.fun, you keep 40% of fees · skip: no builder bonus \|/);
+});
+
+test('v2.5 Task 8: the footnote names the fee split for the builder only', () => {
+  assert.match(TOKEN_FOOTNOTE, /you keep 40% of trading fees \(after Clanker's 20% protocol cut\)/);
+  assert.doesNotMatch(TOKEN_FOOTNOTE, /MINI buyback|builder bonus|EarnKit Safe/);
 });
 
 test('Ruling 14: the footnote names the fee wallet when it is known (v2.3 consent)', () => {
