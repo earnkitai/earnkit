@@ -675,16 +675,28 @@ during the build); plan: `v2.4-money-first-plan.md`.
 
 - **Wallet.** The payout wallet (`CAMPAIGN_PAYOUT_PRIVATE_KEY`) is also the builder bonus wallet:
   every coin launched through EarnKit from v2.5 on pays it 2000 bps of its fees, in WETH, through
-  Clanker's FeeLocker. `projects.coin_address` (set when tokens.fun confirms a launch) is how a
-  deposit is matched to an entry; pre-v2.5 coins keep NULL.
-- **Rounds** (`bonus-rounds.ts`): a windowed program is one round (`starts_at` inclusive,
-  `ends_at` exclusive), a rolling program has UTC-month rounds `<id>:YYYY-MM`. A deposit goes to
+  Clanker's FeeLocker. `projects.coin_address` (set when tokens.fun confirms a launch, in the same
+  UPDATE as `token_status = 'launched'`; only a duplicate address (23505) is tolerated, logged and
+  left out; Base launches only, Ruling 24: tokens.fun gives other chains the pre-v2.5 split) is how
+  a deposit is matched to an entry; pre-v2.5 and non-Base coins keep NULL.
+- **Rounds** (`bonus-rounds.ts`): a windowed program is one round per window (`starts_at`
+  inclusive, `ends_at` exclusive), keyed `<id>:YYYY-MM-DD` (the window's UTC start day, Ruling 21:
+  a re-run cohort with a new start is a new round); a rolling program has UTC-month rounds
+  `<id>:YYYY-MM`. A windowed program needs `starts_at` for a round (M4; `program-file.ts` refuses
+  `submission_proof` on a windowed program without it). An `open` round's stored window follows
+  the program file until it freezes: `programs:sync` (`upsertProgram`) and every booking
+  (`bookDeposit`) move it to the file's dates, so an extended `ends_at` keeps scoring, eligibility
+  and deposits in the round; a frozen round never moves. A deposit goes to
   the round open at its block time (`bookingFor`), else to the Safe: no coin, not an EarnKit coin,
   no open round, a program without `submission_proof`, a program that isn't `active` (the same
   status rule as `roundPoolsWei`), or a round no longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
-  rounds only.
+  rounds only; a program whose current round exists but froze maps to null, and its builder bonus
+  cell reads "not available".
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
-  `bonus-ledger` lease; skipped quietly without the key or off Base mainnet):
+  `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`
+  (Ruling 7). Skipped without a usable key (missing, or malformed: `skipped` plus
+  `problem: 'malformed'`, the key never logged) or off Base mainnet; the cron then answers 503
+  whenever the bonus can earn (Rulings 19, 20; see the runbook).
   1. *Index.* `getLogs` of FeeLocker `StoreTokens` with `feeOwner` = bonus wallet and `token` =
      WETH (indexed topics), from `bonus_cursor` up to 30 blocks behind the head, in adaptive
      ranges (escrow.ts `logError` rules), 50 calls per run at most. Each deposit's coin is the
@@ -698,14 +710,19 @@ during the build); plan: `v2.4-money-first-plan.md`.
   1b. *Stored sends first.* Before any claim or collect is signed, every open stored send of the
      payout wallet (a sweep or a campaign payout in `'sending'`) is broadcast again. If that fails,
      nothing new is signed this run, and a new signature never takes a nonce at or below an open
-     stored one (`openStoredSends`).
+     stored one (`openStoredSends`). I5: one nonce floor per run (`BonusDeps.nonces`, seeded once
+     from `openStoredSends`) is shared by every claim, collect, round payout and the sweep; each
+     signature the node accepts raises it, so the next never relies on the RPC's `pending` count.
   2. *Collect.* tokens.fun's cron collects every coin; EarnKit sends `collectRewards(coin)` itself
      only for an EarnKit coin in its round's last 24 h with no deposit seen, and no EarnKit collect,
      in 12 h, only if Blockscout lists a transfer of the coin in the last 24 h (an explorer error
      counts as traded), through the first locker that simulates cleanly, and only if the coin's
-     `rewardRecipients` include the bonus wallet.
+     `rewardRecipients` include the bonus wallet. Only a revert means "this locker doesn't hold
+     the coin" (`isRevert`); an RPC error makes that coin `failed` and unstamped, retried next run.
   3. *Claim.* `claim(bonus wallet, WETH)` then `claim(Safe, WETH)` when `availableFees` is at
-     least 10x the estimated gas cost (`worthIt`).
+     least 10x the estimated gas cost (`worthIt`). The bonus wallet's claim also goes when the
+     sweep waits on it (M10: the unswept Safe bookings are worth 10x gas and the wallet can't
+     send them without leaving a round short).
   4. *Sweep.* Safe-booked, unswept WETH goes from the bonus wallet to the Safe when it is at
      least 10x the gas, the wallet holds it, and it never leaves a round short: `wallet − amount ≥
      Σ(round bookings of rounds not 'paid' or 'empty') − Σ(their winners already paid) −
@@ -722,7 +739,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
   ended round not yet `paid`/`empty`, oldest end first:
   1. *Freeze* (`open`): only when `readyToFreeze` is ready (the index read past `ends_at`; every
      eligible entry has a final read; 24 h after the end, failed sources stop holding it and are
-     `flagged`). Under the round row's lock (bookDeposit takes it too): the pool = Σ round
+     `flagged`, and (Ruling 23) an eligible entry with no final read at all is ranked last with
+     score 0, flag `no_final_read`, also `flagged`: a round never waits forever). Under the round row's lock (bookDeposit takes it too): the pool = Σ round
      bookings; the final ranking (`finalRanking`, eligible at the end, re-ranked) is stored in
      `bonus_payouts` (rank, score, `creator_wallet` as `wallet` per Ruling 14, installation,
      `flags`: review flags plus `failed:<group>`); `terms` = `{token WETH, pool_wei, amounts, flagged}`
@@ -742,7 +760,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
   3. *Pay* (`paying`): if the wallet holds less than the round still owes (places not paid), it
      claims `claim(bonus wallet, WETH)` first, when that covers what is owed or is worth 10x its
      gas; still short, nothing new is signed (transfers in
-     flight are still followed) and the note ends with `TOP_UP` (503). Then `payRanked` (payout.ts;
+     flight are still followed) and the note ends with `TOP_UP` (503). A claim not mined yet is
+     not a short wallet (M3): the note is `CLAIM_PENDING`, no 503, retried next run. A follow-only
+     pass that follows the last transfer to paid marks the round paid in the same run (M14). Then `payRanked` (payout.ts;
      `payCampaign` is now a wrapper over it) pays one WETH transfer per place to the next best
      payable entry: sanctions screen (a listed wallet is `refused`, the next moves up), signed and
      stored with its place and amount before broadcast (`bonusPayoutStore`), stale/manual rules,
@@ -753,9 +773,12 @@ during the build); plan: `v2.4-money-first-plan.md`.
      ledger row `round-rest:<round>` and swept; the round is `paid`. Deposits after the end were
      never the round's (bookDeposit books them to the Safe), so the frozen amounts never change.
   If `settleStoredSends` failed this run, the rounds step only follows transfers in flight (no
-  claim, nothing new signed). `needs_owner` entries are `bonus:<round key>`; when the ledger is
-  skipped (no payout key, or off Base mainnet) while a round has ended unpaid, the cron adds
-  `bonus-rounds: payout wallet not configured`.
+  claim, nothing new signed). `needs_owner` entries are `bonus:<round key>` (also, once per
+  round, an ended round whose final scoring throws: `bonus_rounds.score_error_notified_at`,
+  Ruling 23); when the ledger is skipped (payout key missing or malformed, or off Base mainnet)
+  while the bonus can earn (`bonusLive`: an active program with `submission_proof`, an EarnKit coin,
+  or an ended unpaid round; a failed check counts as yes), the cron adds `bonus-rounds: payout
+  wallet not configured` (Rulings 19, 20).
 - **Runbook: a stuck bonus payout (`MANUAL_CHECK` on a round).** As a stuck campaign payout, on
   `bonus_payouts` (`tx_hash`, `raw_tx`, `stale_at`, `slot`, `amount_wei`). Not paid: `UPDATE
   bonus_payouts SET status = NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL, slot = NULL,
@@ -788,14 +811,19 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `tokenRewards` and the `ClaimedRewards` rewards, and `storeLogs`' indexed-topic filter returns the
   same logs. It then simulates `collectRewards(coin)` on both real LP lockers and `claim(owner,
   WETH)` on the real FeeLocker with `eth_call`. It never signs anything. It skips without
-  `BASE_RPC_URL` or a network. The public RPC rate-limits it; use an anvil fork
-  (`anvil --fork-url https://mainnet.base.org --chain-id 8453`). `BONUS_FORK_TX` pins the receipt.
+  `BASE_RPC_URL` or a network (the reachability probe never retries, so that skip is quick). The
+  public RPC rate-limits it; use an anvil fork (`anvil --fork-url https://mainnet.base.org
+  --chain-id 8453`). `BONUS_FORK_TX` pins the receipt; without it, it looks back in 500-block steps
+  (10,000 blocks at most) and, finding nothing, says to set `BONUS_FORK_TX` and skips.
 - **Submission proof at entry (Task 5, spec §3 Eligibility):** `submission-proof.ts`'s
   `proofProblem(program, url, repoUrl, liveUrl, deps)` checks a non-campaign program's
   `external_submission_url` at `record_submission` (`projects.ts`): https, on
   `submission_proof.host`, path matching `path_pattern`, then fetched through `safeFetchText` with
   the larger `maxBytes: LARGE_PAGE_MAX_BYTES` (512 KB; `safe-fetch.ts`) and checked for the entry's
-  normalized repo link or live host. A failure never fails the submission: the entry is recorded
+  normalized repo link (Ruling 22: required whenever the entry has a repo). Only a repo-less entry
+  may match on its live host, and never a shared one (`sharedHost`: the proof host or its
+  subdomains, submission platforms, code hosts and social sites, and the bare apex of hosting
+  platforms such as vercel.app; a project's own subdomain is fine). A failure never fails the submission: the entry is recorded
   either way, `projects.submission_proof_url` keeps the link, `submission_proof_ok_at` is set only
   on success, and a `bonus_note` tells the agent what to fix. `bonusEligible` (`projects.ts`) is
   never stored, only derived: `coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL`
@@ -806,7 +834,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
   no `submission_proof_ok_at`, at most once a day per entry (`submission_proof_checked_at`), while
   its program stays `active` and its bonus round is still open (`roundFor`, bonus-rounds.ts); once
   the round ends (or the program closes), the entry is skipped with no fetch and can never become
-  eligible through this path again. A malformed `liveUrl` (bad stored data) never makes
+  eligible through this path again. M11: that filter is in SQL, with at most `RECHECK_BATCH` (50)
+  entries a run, oldest attempt first; a row the guard still skips is stamped. A malformed `liveUrl` (bad stored data) never makes
   `proofProblem` throw (`URL.canParse` guards it); `program-file.ts`'s `submission_proof.path_pattern`
   must be anchored (`^...$`) so it can only match one specific entry path.
 - **Traction score (Task 6, spec §3, Rulings 12-16; `traction.ts`).** Eligible in a round =
@@ -847,8 +876,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
   page, never scored: `single_commit_streak` = 7+ days in a row with exactly one new commit each. `scoreOpenRounds` scores every open round with one budget and one bonus
   wallet lookup (`resolveBonusWallet`: EARNKIT_BONUS_WALLET, else the payout key). `readyToFreeze`
   = index past `ends_at` (`canFreeze`) and every entry final and clean; 24 h after the end an
-  entry whose final read still has failed sources stops holding the freeze and is returned in
-  `flagged` (review page, needs_owner). `finalRanking(roundKey)` is the payout's ranking: eligible
+  entry whose final read still has failed sources, or has no final read at all (Ruling 23: ranked
+  last, score 0), stops holding the freeze and is returned in `flagged` (review page,
+  needs_owner). `finalRanking(roundKey)` is the payout's ranking: eligible
   entries only, re-ranked from their final reads (a stored rank is never read as a winner). The
   cron wiring, freeze, review and payout are Task 7's.
 - **Submission text and alerts (Task 8).** The coin row (`entry-text.ts` `tokenRow(symbol,
@@ -857,14 +887,21 @@ during the build); plan: `v2.4-money-first-plan.md`.
   && submission_proof != null`, the same rule `bookingFor` uses); without a bonus the row is
   unchanged from v2.3. `tokenFootnote` now reads "you keep 40% of trading fees (after Clanker's
   20% protocol cut)" — the builder's own share only, never the other v2.5 slots. The coin is never
-  advertised past this one row. **Alerts (`alerts.ts`):** builder bonus wins
+  advertised past this one row. Ruling 25 (one coin per repo): on a program with a builder bonus,
+  a repo whose coin is already entered in a program (`tokens.ts` `repoCoinPrograms`, by
+  `token_repo_key`) gets the row "no builder bonus: this repo's coin is entered in <program>" (no
+  fee footnote; prepare_submission's `token.repo_coin_program`), record_submission's `bonus_note`
+  says the same, and list_programs shows that text in the Builder bonus cell of another program's
+  row for that repo. **Alerts (`alerts.ts`):** builder bonus wins
   (`you won 0.12 ETH builder bonus (<program>)`) join EarnKit prizes and sponsor wins in the
-  wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`);
+  wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`,
+  by `bonus_payouts.id` (M2): a second round's win of the same entry is news too);
   the builder bonus's own top 10, from `bonus_scores.rank` (`BONUS_TOP_N = 10`, the payout split's
   width), tracks in/out the same way the campaign top-N does (`AlertState.bonusTop`), as "your
   entry moved into/dropped out of the top 10 for the builder bonus (<program>)". **THE SEAM for
   Task 7:** `paidBonusWins(installationId, db)` is where a round's paid winners reach alerts. It
-  checks `information_schema.tables` for a `bonus_payouts` table first (never a failing query —
+  checks `information_schema.tables` for a `bonus_payouts` table until it first finds it (M15:
+  memoized; a migrated table never goes away), never a failing query —
   this runs inside `sinceYouLastChecked`'s transaction, where an error would abort every other read
   in the same check) and returns `[]` until that table exists. Task 7 ("Round lifecycle and WETH
   payouts") adds it: `bonus_payouts(round_key text, project_id integer, rank integer, amount_wei
@@ -903,21 +940,31 @@ waiting for the sweep, and a little ETH for gas.
 
 **Owner steps after merge.** Merge order: tokens.fun first, then EarnKit.
 
-1. Merge the tokens.fun `earnkit-fee-split` change. Set
+1. Merge the tokens.fun `earnkit-fee-split` change and run its migration
+   (`node scripts/run-migration-0023.mjs`: gross-fee views include the builder bonus slot). Set
    `EARNKIT_SAFE=0xc8A889577446153e28D42254B75238Ae31EC7D57` and
-   `EARNKIT_BONUS_WALLET=<payout wallet address>` on tokens.fun.
-2. Set `CAMPAIGN_PAYOUT_PRIVATE_KEY` on EarnKit (the dedicated payout wallet) and fund it with
-   about $2 of ETH on Base for gas. WETH comes from fees.
+   `EARNKIT_BONUS_WALLET=<payout wallet address>` on tokens.fun. The Safe, the bonus wallet and
+   `NEXT_PUBLIC_BUYBACK_WALLET` must be three different wallets (else EarnKit launches get a 503);
+   an EarnKit creator wallet equal to any of them gets a 400. The 4-way split is Base only.
+2. Set `CAMPAIGN_PAYOUT_PRIVATE_KEY` on EarnKit (the dedicated payout wallet; 64 hex characters,
+   with or without `0x`) and fund it with about $2 of ETH on Base for gas. WETH comes from fees.
 3. Set `CRON_SECRET` on Railway and in GitHub Actions.
-4. Merge EarnKit v2.5.
+4. Merge EarnKit v2.5 the same day as step 1. Coins EarnKit v2.4 launches in between get the
+   4-way split but no `coin_address`, so their 20% always goes to the Safe and their entries are
+   never eligible. If the merges are days apart, backfill `projects.coin_address` (lowercase) and
+   `coin_launched_at` from each such `token_url` (`https://tokens.fun/coin/<address>`, Base only).
 
 Also:
 - `EARNKIT_SAFE` must be live on tokens.fun's revenue cron (its fee indexer) before the first
   EarnKit launch. Otherwise the Safe's 30% isn't counted as revenue. Without both variables,
-  tokens.fun refuses EarnKit launches (503) before minting.
-- Set `BONUS_INDEX_START_BLOCK` on EarnKit at merge time: the Base block when the tokens.fun
-  change went live. No EarnKit coin pays the bonus wallet before it. Without it, the first index
-  run reads 2 days back.
+  tokens.fun refuses EarnKit launches (503) before minting. An invalid `EARNKIT_SAFE` on the
+  revenue cron fails its run (`earnkitSafeError`) and leaves EarnKit coins uncounted until fixed;
+  every other coin still indexes. Its guards (slot 0 moved, deposit from an unknown locker,
+  unattributed deposit) watch the Safe like the platform wallets.
+- Set `BONUS_INDEX_START_BLOCK` on EarnKit before the first deploy of v2.5, at or before the Base
+  block when the tokens.fun change went live (a later block never books or sweeps the WETH paid
+  before it). Digits only. It is read only while the index has no cursor, so it is ignored after
+  the first run; a non-digit value is logged and the first run reads 2 days back.
 - Keep a program file `status: active` until its `ends_at` has passed and one index run has read
   past it (about an hour). Deposits are booked only to an active program's round. Closing it
   early sends in-round deposits that are indexed later to the Safe.
@@ -928,12 +975,14 @@ body's `needs_owner` says what waits:
 | `needs_owner` | Meaning | Fix |
 |---|---|---|
 | `bonus:<round>`, flagged entries | The round froze with entries whose final reads failed. Shown once per round. | Open `pnpm campaign bonus-link <round>`, check the flagged entries, veto if needed. |
-| `bonus:<round>`, note ends "Payouts resume once it is topped up." | The payout wallet holds less WETH than the round owes, or too little ETH for gas. | Send ETH for gas first: the pay step claims the round's WETH itself. Send WETH only if `availableFees` is also short. |
+| `bonus:<round>`, note ends "Payouts resume once it is topped up." | The payout wallet holds less WETH than the round owes, or too little ETH for gas. (A claim that isn't mined yet is never this: its note says so and the next run continues.) | Send ETH for gas first: the pay step claims the round's WETH itself. Send WETH only if `availableFees` is also short. |
 | `bonus:<round>`, "Payouts paused: a transfer needs a manual check." | A payout is stuck in `sending`. | "Runbook: a stuck bonus payout" above. |
 | `bonus:<round>`, 6 failed pay or freeze steps | The step throws every run. | Server log `[bonus] round` or `[bonus] freeze`; usually the RPC. |
 | `bonus-ledger`, sweep "manual check" | A sweep is stuck. | "Runbook: a stuck bonus sweep" above. |
 | `bonus-ledger`, `bonus.index_failures` ≥ 6 | The index failed 6 runs in a row. | Check `BASE_RPC_URL` (`cast block-number`) and the server log `[bonus] index`. The next good run resumes from the cursor; booking is idempotent. |
-| `bonus-rounds: payout wallet not configured` | A round ended, but the key is missing or invalid, or `BASE_RPC_URL` isn't Base mainnet. | Set `CAMPAIGN_PAYOUT_PRIVATE_KEY`; check the RPC's chain id is 8453. |
+| `bonus-rounds: payout wallet not configured` | The bonus ledger can't run (`CAMPAIGN_PAYOUT_PRIVATE_KEY` missing, or malformed: `bonus.problem: 'malformed'`; or `BASE_RPC_URL` isn't Base mainnet) while the bonus can earn: an active program has a builder bonus, an EarnKit coin exists, or a round has ended. Nothing is indexed, claimed or paid until fixed. | Set the key: 64 hex characters, with or without `0x`. Check the RPC's chain id is 8453. |
+| `bonus:<round>`, entries flagged `no_final_read` | 24 h after the end, an eligible entry still had no final read: it froze ranked last with score 0. Shown once per round. | Check it on the review page; veto or hold if the outage hid real traction. |
+| `bonus:<round>`, round scoring failed | An ended round's final scoring threw (server log `[traction] <round>`). Shown once per round; the freeze escape still freezes it 24 h after the end. | Fix the cause (usually the DB or GitHub); the next run retries. |
 
 **Runbook: a stuck collection.** A coin trades but its round's pool doesn't grow. Uncollected fees
 sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show them.
@@ -978,10 +1027,11 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 - **/api/stats** gives jenil.ai aggregates only.
   - `fees_to_safe_eth` covers **v2.5-split coins only** and is not all-time Safe revenue.
     Pre-v2.5 coins count 0. It is accrued, so unclaimed FeeLocker balances are included.
-  - It is derived: the Safe's 30% slot is 1.5x the indexed real bonus-wallet deposits (rows with
-    an onchain tx hash; never the synthetic `round-rest:` remainder), plus the builder bonus
+  - It is derived: the Safe's 30% slot is 1.5x the indexed real bonus-wallet deposits from EarnKit
+    coins (rows with an onchain tx hash and a `coin` some project has as `coin_address`, M5; never
+    the synthetic `round-rest:` remainder or a coin EarnKit didn't launch), plus the builder bonus
     money routed to the Safe. The Safe's own claims aren't recorded in the database.
-  - Label it "fees to the Safe (v2.5 coins)".
+  - Label it "fees to the Safe (v2.5 coins)" (`stats.ts` `STATS_LABELS` has every stat's label).
   - Caching: with `DATABASE_URL` at build time, the route prerenders and revalidates every 600 s.
     Without it (turbo doesn't pass it), the route renders per request. Either way the read is
     cached for 600 s with `unstable_cache`.
