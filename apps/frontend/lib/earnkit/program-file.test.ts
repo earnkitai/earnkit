@@ -27,3 +27,98 @@ test('ProgramFile: token_policy defaults to encouraged and refuses unknown value
     ProgramFile.parse({ ...base, token_policy: 'sometimes' }),
   );
 });
+
+function baseProgram() {
+  return JSON.parse(
+    readFileSync(
+      join(import.meta.dirname, '../../../../programs', firstProgramFile()),
+      'utf8',
+    ),
+  );
+}
+
+test('ProgramFile: accepts ideas and submission_proof', () => {
+  const base = baseProgram();
+  const parsed = ProgramFile.parse({
+    ...base,
+    ideas: ['A tiny app already live on Arc', 'A small working demo'],
+    submission_proof: { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' },
+  });
+  assert.deepEqual(parsed.ideas, [
+    'A tiny app already live on Arc',
+    'A small working demo',
+  ]);
+  assert.deepEqual(parsed.submission_proof, {
+    host: 'dorahacks.io',
+    path_pattern: '^/buidl/\\d+$',
+  });
+});
+
+test('ProgramFile: ideas and submission_proof default to empty/null', () => {
+  const base = baseProgram();
+  delete base.ideas;
+  delete base.submission_proof;
+  const parsed = ProgramFile.parse(base);
+  assert.deepEqual(parsed.ideas, []);
+  assert.equal(parsed.submission_proof, null);
+});
+
+test('ProgramFile: rejects more than 3 ideas', () => {
+  const base = baseProgram();
+  assert.throws(() =>
+    ProgramFile.parse({
+      ...base,
+      ideas: [
+        'A tiny app already live on Arc',
+        'A small working demo today',
+        'A prototype testing a real use case',
+        'One idea too many for this program',
+      ],
+    }),
+  );
+});
+
+test('ProgramFile: rejects a link inside an idea', () => {
+  const base = baseProgram();
+  assert.throws(() =>
+    ProgramFile.parse({
+      ...base,
+      ideas: ['See https://example.com for inspiration please'],
+    }),
+  );
+});
+
+test('ProgramFile: rejects an idea outside the 3-12 word range', () => {
+  const base = baseProgram();
+  assert.throws(() =>
+    ProgramFile.parse({ ...base, ideas: ['Too short'] }),
+  );
+  assert.throws(() =>
+    ProgramFile.parse({
+      ...base,
+      ideas: [
+        'This idea has way too many words in it to count as a short plain idea at all',
+      ],
+    }),
+  );
+});
+
+test('ProgramFile: rejects an invalid submission_proof regex', () => {
+  const base = baseProgram();
+  assert.throws(() =>
+    ProgramFile.parse({
+      ...base,
+      submission_proof: { host: 'dorahacks.io', path_pattern: '^(unclosed' },
+    }),
+  );
+});
+
+test('ProgramFile: every committed program file validates', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const result = ProgramFile.safeParse(
+      JSON.parse(readFileSync(join(dir, f), 'utf8')),
+    );
+    assert.ok(result.success, `${f}: ${JSON.stringify(result.error?.issues)}`);
+  }
+});

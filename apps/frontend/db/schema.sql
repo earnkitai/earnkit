@@ -245,6 +245,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS projects_token_repo_key
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS opened_at timestamptz;
 UPDATE programs SET opened_at = created_at WHERE opened_at IS NULL AND status = 'active';
 
+-- v2.5: up to 3 short ideas drawn from the program's stated focus or its published winners, and
+-- proof a submission is a public page on a known host (e.g. a DoraHacks BUIDL), when it is.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS ideas text[] NOT NULL DEFAULT '{}';
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS submission_proof jsonb;
+
 -- One installation per OAuth client (spec §5): client_key = first 32 hex of sha256(client_id), set
 -- only for client ids carrying a registration nonce (v2.4+). Installations from before v2.4, and
 -- tokens of pre-v2.4 client ids, keep NULL and keep working by token.

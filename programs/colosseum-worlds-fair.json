@@ -7,6 +7,16 @@
   "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
   "reward": "Tempo track $100,000 across 10 products; Base track $25,000 across 5; plus overall awards ($30,000 grand prize, $15,000 each for the next 20 teams)",
   "summary": "Tempo $100K, Base $25K tracks · closes Oct 12, 11:59 PM PT",
+  "max_award_usd": 30000,
+  "ideas": [
+    "A new startup built on Base during the hackathon",
+    "A product integrating with the Tempo blockchain",
+    "A crypto startup pitched like a venture deal"
+  ],
+  "submission_proof": {
+    "host": "colosseum.com",
+    "path_pattern": "^/arena/projects/\\d+$"
+  },
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",

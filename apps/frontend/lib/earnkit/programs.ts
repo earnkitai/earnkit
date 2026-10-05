@@ -6,6 +6,7 @@ import { sql } from './db';
 import {
   type ProgramFile,
   type SubmissionRequirement,
+  type SubmissionProof,
   type TokenPolicy,
 } from './program-file';
 import {
@@ -153,6 +154,10 @@ export type ProgramRow = {
   /** numeric comes back from postgres.js as a string. */
   max_award_usd: string | null;
   submission_requirements: SubmissionRequirement[];
+  /** Up to 3 short ideas drawn from the program's stated focus or its published winners. */
+  ideas: string[];
+  /** Set only when submissions are public pages on a known host; null otherwise. */
+  submission_proof: SubmissionProof | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -495,6 +500,8 @@ export async function upsertProgram(
       verified_at: p.verified_at,
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),
+      ideas: p.ideas,
+      submission_proof: p.submission_proof ? tx.json(p.submission_proof) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

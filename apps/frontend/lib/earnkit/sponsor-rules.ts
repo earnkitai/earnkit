@@ -378,6 +378,9 @@ export function sponsorProgramFile(a: {
     chains: d.chains,
     setup: ['a public GitHub repo', 'a host for a live link'],
     each_time: [],
+    // A sponsor campaign has no program source to draw ideas or submission proof from.
+    ideas: [],
+    submission_proof: null,
     rules: sponsorRules({
       prizeTotal,
       symbol: token.symbol,

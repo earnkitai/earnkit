@@ -55,6 +55,40 @@ const BuildContext = z
   .object({ label: z.string().min(1), url: z.string().url().optional() })
   .strict();
 
+/** A short, plain idea for a builder: 3-12 words, no links, no markup. */
+const Idea = z
+  .string()
+  .min(1)
+  .refine(
+    (s) => !/https?:\/\/|www\./i.test(s),
+    'ideas cannot contain links',
+  )
+  .refine((s) => {
+    const words = s.trim().split(/\s+/).filter(Boolean);
+    return words.length >= 3 && words.length <= 12;
+  }, 'ideas must be 3 to 12 words');
+
+/**
+ * Proof a submission is a public page EarnKit can point to (e.g. a DoraHacks BUIDL): the
+ * hostname it's published on, and a regex matched against the URL's path to confirm it's a
+ * specific submission, not just the platform's homepage. Null when submissions aren't public
+ * pages on a known host (e.g. a Google Form, or a private review dashboard).
+ */
+const SubmissionProof = z
+  .object({
+    host: z.string().min(1),
+    path_pattern: z.string().refine((p) => {
+      try {
+        new RegExp(p);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'path_pattern must be a valid regex'),
+  })
+  .strict();
+export type SubmissionProof = z.infer<typeof SubmissionProof>;
+
 export const ProgramFile = z
   .object({
     id: slug,
@@ -94,6 +128,16 @@ export const ProgramFile = z
     max_award_usd: z.number().positive().optional(),
     /** Shown next to the title so the builder isn't misled about effort or odds. */
     tag: z.enum(['long shot', 'needs a live product']).optional(),
+    /**
+     * Up to 3 short, plain ideas (3-12 words each) drawn from the program's stated focus or its
+     * published winners. Never invent a winner or a focus the source doesn't state.
+     */
+    ideas: z.array(Idea).max(3).default([]),
+    /**
+     * Set only when submissions are public pages on a known host (e.g. DoraHacks /buidl/<id>);
+     * null otherwise (a Google Form, a private review dashboard, EarnKit's own MCP flow).
+     */
+    submission_proof: SubmissionProof.nullable().default(null),
     /** Program-wide rules and requirements every project must meet. */
     rules: z.array(z.string().min(1)),
     /** Present only for EarnKit's own campaigns: builders submit to EarnKit and we pay winners. */
