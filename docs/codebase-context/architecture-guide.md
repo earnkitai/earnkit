@@ -772,6 +772,24 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `BONUS_ANVIL_URL` = an anvil started with `--chain-id 8453`). The bonus test files hold one
   Postgres advisory lock (`fixtures/bonus-db-lock.ts`) because the ledger's tables are singletons;
   `advanceRounds` takes `only` so a test never touches rounds other files create.
+- **End to end (Task 10):** `bonus-lifecycle.anvil.test.ts` runs the whole lifecycle with real code
+  from `record_submission` to the WETH transfer, through `cronPost` (so the HTTP status is checked
+  too). Only the outside world is mocked: anvil with the BonusMocks contracts (two LP lockers; the
+  coins sit on the second), one local HTTP server for tokens.fun, raw GitHub and Blockscout, and the
+  GitHub API, live probe, proof pages and sanctions screen injected. Story: two coins and one
+  entry without a coin; one proof passes on the daily re-check; fees over two days (tokens.fun's
+  batch collect, then EarnKit's own near-end collect); scoring with no onchain users; freeze; a
+  veto; the payout split; a post-end deposit swept to the Safe; the winner alert; a re-run that
+  signs nothing. It skips without `BONUS_ANVIL_URL` and `DATABASE_URL`. Note: a round's row is
+  made by its first booking (the index step, which runs after scoring), so a new round is first
+  scored on the run after its first deposit.
+- **Fork check (Task 10):** `pnpm bonus:fork-check` reads a real Clanker v4 collect receipt on Base
+  and checks `bonusDeposits` against it: each deposit's coin is cross-checked with the locker's
+  `tokenRewards` and the `ClaimedRewards` rewards, and `storeLogs`' indexed-topic filter returns the
+  same logs. It then simulates `collectRewards(coin)` on both real LP lockers and `claim(owner,
+  WETH)` on the real FeeLocker with `eth_call`. It never signs anything. It skips without
+  `BASE_RPC_URL` or a network. The public RPC rate-limits it; use an anvil fork
+  (`anvil --fork-url https://mainnet.base.org --chain-id 8453`). `BONUS_FORK_TX` pins the receipt.
 - **Submission proof at entry (Task 5, spec §3 Eligibility):** `submission-proof.ts`'s
   `proofProblem(program, url, repoUrl, liveUrl, deps)` checks a non-campaign program's
   `external_submission_url` at `record_submission` (`projects.ts`): https, on
@@ -856,6 +874,95 @@ during the build); plan: `v2.4-money-first-plan.md`.
   pays `creator_wallet`, Ruling 14 — not `payout_wallet`, which Ruling 13a never sets for external
   entries). Tested with rows injected into a temporary table built to this same contract
   (`alerts.test.ts`), so the query is proven correct ahead of Task 7.
+
+## Ride programs: money flow, owner steps and runbooks (v2.5)
+
+EarnKit rides programs that already pay builders. It matches a builder to their open money, gives
+each entry a coin, and funds a builder bonus per program from the coins' fees. EarnKit runs no
+campaign of its own; Campaign #1 stays closed and sponsor campaigns stay dormant.
+
+**Money flow** of one coin launched through EarnKit. Fees are WETH, after Clanker's 20% cut:
+
+| Slot | Share | Paid to | How it moves |
+|---|---|---|---|
+| 0 platform | 30% | EarnKit Safe | The cron claims it to the Safe. EarnKit's revenue. |
+| 1 creator | 40% | The builder's wallet | The builder claims it. |
+| 2 MINI buyback | 10% | The buyback wallet | tokens.fun. |
+| 3 builder bonus | 20% | The payout wallet | Booked to the program's open round, claimed, paid to the round's top 10. After the round ends, swept to the Safe. |
+
+1. tokens.fun's cron calls `collectRewards(coin)` on the coin's LP locker. The locker stores each
+   slot's share in Clanker's FeeLocker (`StoreTokens`).
+2. EarnKit's hourly cron indexes the payout wallet's `StoreTokens` and books each deposit to a
+   round or to the Safe. In a round's last 24 h, it collects a quiet coin itself.
+3. It claims the payout wallet's and the Safe's WETH from the FeeLocker when worth 10x the gas.
+4. At a round's end: freeze, a 48 h review, then one WETH transfer per place.
+5. Money that is the Safe's (a deposit after the end, an unpaid place) is swept to the Safe.
+
+The payout key is the only key on Railway. Its wallet holds only unpaid round pools, Safe money
+waiting for the sweep, and a little ETH for gas.
+
+**Owner steps after merge.** Merge order: tokens.fun first, then EarnKit.
+
+1. Merge the tokens.fun `earnkit-fee-split` change. Set
+   `EARNKIT_SAFE=0xc8A889577446153e28D42254B75238Ae31EC7D57` and
+   `EARNKIT_BONUS_WALLET=<payout wallet address>` on tokens.fun.
+2. Set `CAMPAIGN_PAYOUT_PRIVATE_KEY` on EarnKit (the dedicated payout wallet) and fund it with
+   about $2 of ETH on Base for gas. WETH comes from fees.
+3. Set `CRON_SECRET` on Railway and in GitHub Actions.
+4. Merge EarnKit v2.5.
+
+Also:
+- `EARNKIT_SAFE` must be live on tokens.fun's revenue cron (its fee indexer) before the first
+  EarnKit launch. Otherwise the Safe's 30% isn't counted as revenue. Without both variables,
+  tokens.fun refuses EarnKit launches (503) before minting.
+- Set `BONUS_INDEX_START_BLOCK` on EarnKit at merge time: the Base block when the tokens.fun
+  change went live. No EarnKit coin pays the bonus wallet before it. Without it, the first index
+  run reads 2 days back.
+- Keep a program file `status: active` until its `ends_at` has passed and one index run has read
+  past it (about an hour). Deposits are booked only to an active program's round. Closing it
+  early sends in-round deposits that are indexed later to the Safe.
+
+**Runbook: a 503 from `/api/cron`.** The GitHub Actions run fails and GitHub emails the owner. The
+body's `needs_owner` says what waits:
+
+| `needs_owner` | Meaning | Fix |
+|---|---|---|
+| `bonus:<round>`, flagged entries | The round froze with entries whose final reads failed. Shown once per round. | Open `pnpm campaign bonus-link <round>`, check the flagged entries, veto if needed. |
+| `bonus:<round>`, note ends "Payouts resume once it is topped up." | The payout wallet holds less WETH than the round owes, or too little ETH for gas. | Send ETH for gas first: the pay step claims the round's WETH itself. Send WETH only if `availableFees` is also short. |
+| `bonus:<round>`, "Payouts paused: a transfer needs a manual check." | A payout is stuck in `sending`. | "Runbook: a stuck bonus payout" above. |
+| `bonus:<round>`, 6 failed pay or freeze steps | The step throws every run. | Server log `[bonus] round` or `[bonus] freeze`; usually the RPC. |
+| `bonus-ledger`, sweep "manual check" | A sweep is stuck. | "Runbook: a stuck bonus sweep" above. |
+| `bonus-ledger`, `bonus.index_failures` ≥ 6 | The index failed 6 runs in a row. | Check `BASE_RPC_URL` (`cast block-number`) and the server log `[bonus] index`. The next good run resumes from the cursor; booking is idempotent. |
+| `bonus-rounds: payout wallet not configured` | A round ended, but the key is missing or invalid, or `BASE_RPC_URL` isn't Base mainnet. | Set `CAMPAIGN_PAYOUT_PRIVATE_KEY`; check the RPC's chain id is 8453. |
+
+**Runbook: a stuck collection.** A coin trades but its round's pool doesn't grow. Uncollected fees
+sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show them.
+
+1. Find the coin's locker: `cast call <locker> "tokenRewards(address)" <coin>` on each LP locker
+   (`0xffa37784…0762`, `0x63d2dfea…3496`); the other one reverts. Its recipients must include the
+   payout wallet; if not, the coin was launched before the v2.5 split, or tokens.fun's
+   `EARNKIT_BONUS_WALLET` is wrong.
+2. Simulate: `cast call --from <payout wallet> <locker> "collectRewards(address)" <coin>`.
+3. Anyone may collect. Send it from any funded wallet other than the payout wallet (a manual send
+   from the payout key breaks its nonce tracking): `cast send <locker> "collectRewards(address)"
+   <coin>`. The next index run books the deposit to the round open at that block's time.
+4. EarnKit's own near-end collect waits 12 h after an attempt (`projects.coin_collected_at`). To
+   retry sooner: `UPDATE projects SET coin_collected_at = NULL WHERE coin_address = '<coin>'`.
+   "the payout wallet needs ETH for gas" in `bonus.collect` means: send ETH.
+
+**Runbook: a stuck claim.** `bonus.claim` keeps saying "failed", or `availableFees` stays high.
+
+1. Read it: `cast call 0xf3622742b1e446d92e45e22923ef11c2fcd55d68
+   "availableFees(address,address)(uint256)" <owner> 0x4200000000000000000000000000000000000006`.
+2. "under 10x gas" is normal for small amounts; it claims once worth it. At a round's end the pay
+   step claims anyway when that covers what the round owes.
+3. "the payout wallet needs ETH for gas": send ETH.
+4. "failed": read the server log `[bonus] claim`, then simulate `cast call --from <payout wallet>
+   0xf362… "claim(address,address)" <owner> <WETH>`. Anyone may claim, and the WETH always goes
+   to the owner (the payout wallet or the Safe), so a claim sent from any other funded wallet is
+   safe. The books need no change: claims don't touch `bonus_ledger`.
+5. "waiting on a stored send": a stored payout or sweep couldn't be rebroadcast. See the stuck
+   payout and sweep runbooks.
 
 ## Public trust pages (v2.5 §4, Task 9)
 
