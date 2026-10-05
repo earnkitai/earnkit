@@ -2,10 +2,10 @@
   "id": "colosseum-worlds-fair",
   "organizer": "Colosseum",
   "title": "Crypto World's Fair Hackathon",
-  "description": "Colosseum's online hackathon (Sep 14 to Oct 12) for builders and founders across all crypto ecosystems to launch startups. $840,000 in prizes across overall awards and ecosystem tracks, including dedicated Tempo and Base tracks. Winners are considered for Colosseum's accelerator ($250,000 pre-seed).",
+  "description": "Colosseum's online hackathon (Sep 14 to Oct 12) for builders and founders across all crypto ecosystems to launch startups. $840,000 in prizes across overall awards and ecosystem tracks, including dedicated Base, Tempo, and Robinhood Chain tracks. Winners are considered for Colosseum's accelerator ($250,000 pre-seed).",
   "source_url": "https://colosseum.com/worldsfair",
   "submission_url": "https://colosseum.com/arena/hackathon/register?entry=worldsfair",
-  "reward": "$840,000 in prizes: $30,000 grand prize, $15,000 each for the next 20 teams, plus a $100,000 Solana Ecosystem track (10 winners at $10,000 each). Base and Tempo also have dedicated ecosystem tracks; the page doesn't state a per-track prize amount for them.",
+  "reward": "$840,000 in prizes: $30,000 grand prize, $15,000 each for the next 20 teams, plus a $100,000 Solana Ecosystem track (10 winners at $10,000 each). Base, Tempo, and Robinhood Chain also have dedicated ecosystem tracks; the page doesn't state a per-track prize amount for them.",
   "summary": "$840K+ in prizes · closes Oct 12, 11:59 PM PT",
   "max_award_usd": 30000,
   "ideas": [
@@ -25,11 +25,12 @@
   "existing_work": "new_work_only",
   "chains": [
     "base",
-    "tempo"
+    "tempo",
+    "robinhood"
   ],
   "setup": [
     "register on colosseum.com (every teammate)",
-    "gas on Base or Tempo",
+    "gas on Base, Tempo, or Robinhood Chain",
     "a GitHub repo (private is fine if shared with Colosseum)"
   ],
   "each_time": [
@@ -139,6 +140,14 @@
       "description": "A dedicated ecosystem track for the best products that integrate with the Tempo blockchain. The page doesn't state a per-track prize amount.",
       "requirements": [
         "Integrates with the Tempo blockchain."
+      ]
+    },
+    {
+      "slug": "robinhood",
+      "name": "Robinhood Chain",
+      "description": "A dedicated ecosystem track for the best products that integrate with Robinhood Chain. The page doesn't state a per-track prize amount.",
+      "requirements": [
+        "Integrates with Robinhood Chain."
       ]
     }
   ],
