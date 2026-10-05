@@ -343,6 +343,7 @@ export const tools = {
         ? {
             symbol: token.proposed?.symbol ?? null,
             wallet: token.creator_wallet,
+            hasBonus: token.has_bonus,
           }
         : null,
     });

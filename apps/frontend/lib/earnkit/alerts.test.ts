@@ -1,11 +1,20 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCHEDULE_NOTE, alertFacts, alertLines, sinceLine, sinceYouLastChecked, type AlertFacts } from './alerts';
+import {
+  SCHEDULE_NOTE,
+  alertFacts,
+  alertLines,
+  paidBonusWins,
+  sinceLine,
+  sinceYouLastChecked,
+  type AlertFacts,
+  type BonusWin,
+} from './alerts';
 import { sql } from './db';
 import { rememberWallets } from './installations';
 import { tools } from './tools';
 
-const empty: AlertFacts = { newCampaigns: [], standings: [], prizes: [], fees: null };
+const empty: AlertFacts = { newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [] };
 const t = (h: number) => new Date(Date.UTC(2026, 9, 10, h));
 
 test('a prize paid shows once, with its amount and transaction link (seen ids, not time)', () => {
@@ -38,6 +47,72 @@ test('a wallet added later shows its old win once; at most the 3 most recent pri
   const next = alertLines({ checkedAt: t(5), state: m.state, feeAlertedUsd: null }, many);
   assert.deepEqual(next.lines, ['you won $100 in MINI with P1 (basescan.org/tx/0x1)']);
   assert.deepEqual(alertLines({ checkedAt: t(6), state: next.state, feeAlertedUsd: null }, many).lines, []);
+});
+
+test('v2.5 Task 8: a builder bonus win shows once, names the program, before other news (wins first, Ruling 26)', () => {
+  const win = (id: number, h: number, title = 'Arc Microgrants'): BonusWin => ({
+    project_id: id,
+    name: `P${id}`,
+    program_title: title,
+    amount_wei: 12n * 10n ** 16n,
+    tx_hash: `0x${id}`,
+    paid_at: t(h),
+  });
+  const f: AlertFacts = { ...empty, bonusWins: [win(1, 5)] };
+  const r = alertLines({ checkedAt: t(4), state: null, feeAlertedUsd: null }, f);
+  assert.deepEqual(r.lines, ['you won 0.12 ETH builder bonus (Arc Microgrants)']);
+  assert.doesNotMatch(r.lines[0], /\p{Extended_Pictographic}/u);
+  // Seen once (ids, not time), same as prizes.
+  assert.deepEqual(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, f).lines, []);
+  // Bonus wins, EarnKit prizes and sponsor (otherWins) all land before fees/ranks/campaigns.
+  const mixed: AlertFacts = {
+    ...empty,
+    prizes: [{ project_id: 9, name: 'Tip Jar', won: '$100 in MINI', prize_tx: '0x9', paid_at: t(5) }],
+    bonusWins: [win(1, 5)],
+    fees: { usd: 138, tokens: [{ url: 'https://tokens.fun/coin/0xabc', symbol: 'TIP' }] },
+    newCampaigns: [{ id: 'c2', title: 'C2', prize: '$50 each to top 3 (in MINI)', opened_at: t(5) }],
+  };
+  assert.deepEqual(alertLines({ checkedAt: t(4), state: { top: {} }, feeAlertedUsd: null }, mixed, ['you won 900 USDC with Tip Jar']).lines, [
+    'you won $100 in MINI with Tip Jar (basescan.org/tx/0x9)',
+    'you won 0.12 ETH builder bonus (Arc Microgrants)',
+    'you won 900 USDC with Tip Jar',
+    'your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc)',
+    'new: C2 ($50 each to top 3 (in MINI))',
+  ]);
+  // At most 3 per check; the rest wait for the next one (same cap reasoning as prizes).
+  const many: AlertFacts = { ...empty, bonusWins: [win(1, 1), win(2, 4), win(3, 2), win(4, 3)] };
+  const m = alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, many);
+  assert.deepEqual(m.lines, [
+    'you won 0.12 ETH builder bonus (Arc Microgrants)',
+    'you won 0.12 ETH builder bonus (Arc Microgrants)',
+    'you won 0.12 ETH builder bonus (Arc Microgrants)',
+  ]);
+  const next = alertLines({ checkedAt: t(5), state: m.state, feeAlertedUsd: null }, many);
+  assert.deepEqual(next.lines, ['you won 0.12 ETH builder bonus (Arc Microgrants)']);
+  assert.deepEqual(alertLines({ checkedAt: t(6), state: next.state, feeAlertedUsd: null }, many).lines, []);
+});
+
+test('v2.5 Task 8: entering and leaving the builder bonus top 10, only against what was seen; first-ever check is quiet', () => {
+  const s = (inTop: boolean) => ({ project_id: 7, program_title: 'Arc Microgrants', inTop });
+  const prev = { checkedAt: t(1), feeAlertedUsd: null };
+  assert.deepEqual(
+    alertLines({ ...prev, state: { top: {}, bonusTop: { 7: false } } }, { ...empty, bonusStandings: [s(true)] }).lines,
+    ['your entry moved into the top 10 for the builder bonus (Arc Microgrants)'],
+  );
+  assert.deepEqual(
+    alertLines({ ...prev, state: { top: {}, bonusTop: { 7: true } } }, { ...empty, bonusStandings: [s(false)] }).lines,
+    ['your entry dropped out of the top 10 for the builder bonus (Arc Microgrants)'],
+  );
+  assert.deepEqual(
+    alertLines({ ...prev, state: { top: {}, bonusTop: { 7: true } } }, { ...empty, bonusStandings: [s(true)] }).lines,
+    [],
+  );
+  // First score straight into the top 10 is news; the first-ever check (no state) is quiet.
+  assert.deepEqual(
+    alertLines({ ...prev, state: { top: {}, bonusTop: {} } }, { ...empty, bonusStandings: [s(true)] }).lines,
+    ['your entry moved into the top 10 for the builder bonus (Arc Microgrants)'],
+  );
+  assert.deepEqual(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, bonusStandings: [s(true)] }).lines, []);
 });
 
 test('other wins (sponsor) come right after EarnKit wins, before fees and other news', () => {
@@ -160,6 +235,76 @@ async function seeded(run: (s: { tag: string; me: number; other: number; wallet:
     await sql()`DELETE FROM installations WHERE id IN ${sql()([me.id, other.id])}`;
   }
 }
+
+test('v2.5 Task 8: paidBonusWins is the seam for Task 7 — returns nothing while bonus_payouts does not exist', db, async () => {
+  const [{ exists }] = await sql()<{ exists: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bonus_payouts') AS exists`;
+  assert.equal(exists, false, 'Task 7 added bonus_payouts: update this seam test for the new behaviour');
+  assert.deepEqual(await paidBonusWins(1), []);
+});
+
+test('v2.5 Task 8: paidBonusWins reads real rows once a bonus_payouts table exists (injected rows); feeds the win alert', db, async () => {
+  await seeded(async ({ tag, me, wallet }) => {
+    const [{ id: pid }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, creator_wallet) VALUES (${tag + '-ek'}, 'Bonus Win', ${me}, ${wallet}) RETURNING id`;
+    // Simulating Task 7's table, to the contract documented on paidBonusWins.
+    await sql()`
+      CREATE TABLE bonus_payouts (
+        round_key text NOT NULL, project_id integer NOT NULL, rank integer NOT NULL,
+        amount_wei numeric NOT NULL, tx_hash text, paid_at timestamptz)`;
+    try {
+      await sql()`
+        INSERT INTO bonus_payouts (round_key, project_id, rank, amount_wei, tx_hash, paid_at)
+        VALUES (${`${tag}-ek:2026-10`}, ${pid}, 1, ${(12n * 10n ** 16n).toString()}, '0xpaid', now())`;
+      const wins = await paidBonusWins(me);
+      assert.equal(wins.length, 1);
+      assert.equal(wins[0].project_id, pid);
+      assert.equal(wins[0].name, 'Bonus Win');
+      assert.equal(wins[0].program_title, `${tag}-ek`);
+      assert.equal(wins[0].amount_wei, 12n * 10n ** 16n);
+      assert.equal(wins[0].tx_hash, '0xpaid');
+      // Reachable by wallet too (Ruling 14: a bonus round pays creator_wallet), from another installation.
+      const [{ id: otherId }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag + '-winwallet'}) RETURNING id`;
+      await rememberWallets(otherId, [wallet]);
+      try {
+        assert.deepEqual((await paidBonusWins(otherId)).map((w) => w.project_id), [pid]);
+      } finally {
+        await sql()`DELETE FROM installations WHERE id = ${otherId}`;
+      }
+      // End to end: alertFacts sees it, and the win line (program's factual name, wins first) shows.
+      const r = await sinceYouLastChecked(me);
+      assert.ok(r.lines.includes(`you won 0.12 ETH builder bonus (${tag}-ek)`), r.lines.join('; '));
+    } finally {
+      await sql()`DROP TABLE bonus_payouts`;
+    }
+  });
+});
+
+test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the same alerts pipeline', db, async () => {
+  await seeded(async ({ tag, me, wallet }) => {
+    const roundKey = `${tag}-ek`;
+    try {
+      const [{ id: pid }] = await sql()<{ id: number }[]>`
+        INSERT INTO projects (program_id, name, installation_id, creator_wallet) VALUES (${tag + '-ek'}, 'Ranked', ${me}, ${wallet}) RETURNING id`;
+      await sql()`
+        INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
+        VALUES (${roundKey}, ${tag + '-ek'}, now() - interval '1 day', now() + interval '10 days')`;
+      await sql()`
+        INSERT INTO bonus_scores (round_key, project_id, day, signals, through, score, rank)
+        VALUES (${roundKey}, ${pid}, current_date, '{}'::jsonb, now(), 1, 12)`;
+      // Outside the top 10: the first-ever check is quiet either way, but marks rank 12 as seen.
+      await sinceYouLastChecked(me);
+      await sql()`UPDATE bonus_scores SET rank = 3 WHERE round_key = ${roundKey} AND project_id = ${pid}`;
+      const r = await sinceYouLastChecked(me);
+      assert.ok(r.lines.includes(`your entry moved into the top 10 for the builder bonus (${tag}-ek)`), r.lines.join('; '));
+      assert.ok(!(await sinceYouLastChecked(me)).lines.some((l) => l.includes('top 10')));
+    } finally {
+      // bonus_rounds/bonus_scores reference programs; clear them before seeded() deletes programs.
+      await sql()`DELETE FROM bonus_scores WHERE round_key = ${roundKey}`;
+      await sql()`DELETE FROM bonus_rounds WHERE round_key = ${roundKey}`;
+    }
+  });
+});
 
 test('alertFacts: EarnKit prizes only (Ruling 6), matched through installation_wallets in any case', db, async () => {
   await seeded(async ({ tag, me, other, wallet }) => {

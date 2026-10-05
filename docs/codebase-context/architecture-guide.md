@@ -9,11 +9,17 @@
 - **Alerts** (v2.4 §4, `alerts.ts`, `fees.ts`): EarnKit can't message anyone, so every builder
   tool reply opens with `since_you_last_checked` ("Since you last checked: …") when there's news
   for the installation or any wallet it used. Money first (Ruling 26): prizes paid (amount in USD
-  and the basescan link; at most 3 a check, the rest next time), then sponsor wins, then token
-  fees of $100 or more waiting in Clanker's FeeLocker (once per $100 step), then an entry moving
-  into or out of the top N, then EarnKit campaigns opened since (`programs.opened_at`, set when a
-  program becomes active). What was shown is remembered as ids (`installations.alert_state`:
-  prizes, campaigns, top-N flags), never by time, so nothing is lost to clock or ordering skew.
+  and the basescan link; at most 3 a check, the rest next time), then builder bonus wins (v2.5 §3,
+  Task 8: `you won 0.12 ETH builder bonus (<program's factual name>)`, same 3-a-check cap; the data
+  is `paidBonusWins` — THE SEAM for Task 7's `bonus-payout.ts`, documented on that function:
+  it returns `[]` until a `bonus_payouts` table exists, so the alert stays silent until Task 7
+  pays a round), then sponsor wins, then token fees of $100 or more waiting in Clanker's FeeLocker
+  (once per $100 step), then an entry moving into or out of the top N (campaign leaderboard), then
+  the builder bonus's own top 10 (from `bonus_scores.rank`: `your entry moved into the top 10 for
+  the builder bonus (<program>)`), then EarnKit campaigns opened since (`programs.opened_at`, set
+  when a program becomes active). What was shown is remembered as ids (`installations.alert_state`:
+  prizes, campaigns, top-N flags, plus `bonusWins`/`bonusTop` for the builder bonus), never by
+  time, so nothing is lost to clock or ordering skew.
   The facts are read in one transaction on one connection (`FOR UPDATE` on the installation row,
   `lock_timeout` 500 ms, `statement_timeout` 1.5 s): locked or slow means no alerts this time and
   nothing marked seen. `list_programs` puts them first in `show_to_builder`. New curated
@@ -114,8 +120,13 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   `tokens.ts`). Flow: `prepare_submission` returns a `token` block (EarnKit's proposed name and
   ticker — the project name, ticker candidates checked against brands and tokens.fun's
   `check-ticker` —, creator wallet, the verbatim earnings line, terms links, a `note` with what the
-  repo needs, and `say_to_builder`, which alone is the complete consent text: ticker, earnings
-  line, both terms links, the earnkit.txt requirement) unless the program's `token_policy` is
+  repo needs, `has_bonus` (v2.5 §3, Task 8: `hasBuilderBonus` — the program is `active` and has a
+  `submission_proof` pattern), and `say_to_builder`, which alone is the complete consent text: the
+  one token row (`entry-text.ts` `tokenRow`; on a bonus program it reads "$TIP on tokens.fun, you
+  keep 40% of fees · skip: no builder bonus" instead of the generic "say no token to skip" — never
+  shown or mentioned past this one row), the footnote naming the builder's own 40%-of-fees split
+  only ("you keep 40% of trading fees (after Clanker's 20% protocol cut)"), both terms links, the
+  earnkit.txt requirement) unless the program's `token_policy` is
   `off` or launches aren't configured (`TOKENSFUN_DEPLOY_API_KEY` unset). `record_submission`
   records the entry first, then runs the token part (`submissionToken`, which never throws: the
   entry is never failed or rolled back by its token). It launches only with
@@ -778,6 +789,29 @@ during the build); plan: `v2.4-money-first-plan.md`.
   `flagged` (review page, needs_owner). `finalRanking(roundKey)` is the payout's ranking: eligible
   entries only, re-ranked from their final reads (a stored rank is never read as a winner). The
   cron wiring, freeze, review and payout are Task 7's.
+- **Submission text and alerts (Task 8).** The coin row (`entry-text.ts` `tokenRow(symbol,
+  hasBonus)`) adds `· skip: no builder bonus` instead of the generic `(say "no token" to skip)`
+  when the program has a builder bonus (`token-launch.ts` `hasBuilderBonus`: `status === 'active'
+  && submission_proof != null`, the same rule `bookingFor` uses); without a bonus the row is
+  unchanged from v2.3. `tokenFootnote` now reads "you keep 40% of trading fees (after Clanker's
+  20% protocol cut)" — the builder's own share only, never the other v2.5 slots. The coin is never
+  advertised past this one row. **Alerts (`alerts.ts`):** builder bonus wins
+  (`you won 0.12 ETH builder bonus (<program>)`) join EarnKit prizes and sponsor wins in the
+  wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`);
+  the builder bonus's own top 10, from `bonus_scores.rank` (`BONUS_TOP_N = 10`, the payout split's
+  width), tracks in/out the same way the campaign top-N does (`AlertState.bonusTop`), as "your
+  entry moved into/dropped out of the top 10 for the builder bonus (<program>)". **THE SEAM for
+  Task 7:** `paidBonusWins(installationId, db)` is where a round's paid winners reach alerts. It
+  checks `information_schema.tables` for a `bonus_payouts` table first (never a failing query —
+  this runs inside `sinceYouLastChecked`'s transaction, where an error would abort every other read
+  in the same check) and returns `[]` until that table exists. Task 7 ("Round lifecycle and WETH
+  payouts") adds it: `bonus_payouts(round_key text, project_id integer, rank integer, amount_wei
+  numeric, tx_hash text, paid_at timestamptz)`, one row per paid winner; once it exists,
+  `paidBonusWins` starts returning real rows with no change needed in `alerts.ts`. Matched by
+  `installation_id` or by `creator_wallet` remembered in `installation_wallets` (a bonus round
+  pays `creator_wallet`, Ruling 14 — not `payout_wallet`, which Ruling 13a never sets for external
+  entries). Tested with rows injected into a temporary table built to this same contract
+  (`alerts.test.ts`), so the query is proven correct ahead of Task 7.
 
 ## Abuse limits and response headers (v2.2 §5)
 

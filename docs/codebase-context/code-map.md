@@ -226,13 +226,15 @@ apps/frontend/
                                installation, repo and ticker under EARNKIT_AUTH_SECRET),
                                live link via safeProbe, sanctions screen; first failure as a reason
                                with the fix; GitHub/owner/probe/screen injectable (GateDeps)
-    token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token),
-                               decideToken (pure rules; record_submission needs the confirmed
-                               symbol), submissionToken (record_submission's token part, never
-                               throws; loose token object, image ignored), launchToken (launch_token,
-                               with live_url/repo_url overrides); runTokenFlow: launches configured,
-                               decideToken, one token per repo, gate, LIMITS.tokenLaunch, deploy;
-                               TokenFlowDeps (gate, check, deploy, store, limit, available) for tests
+    token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token;
+                               TokenBlock.has_bonus), hasBuilderBonus (v2.5 §3, Task 8: pure,
+                               active && submission_proof != null), decideToken (pure rules;
+                               record_submission needs the confirmed symbol), submissionToken
+                               (record_submission's token part, never throws; loose token object,
+                               image ignored), launchToken (launch_token, with live_url/repo_url
+                               overrides); runTokenFlow: launches configured, decideToken, one
+                               token per repo, gate, LIMITS.tokenLaunch, deploy; TokenFlowDeps
+                               (gate, check, deploy, store, limit, available) for tests
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
                                amount_each, priced_at), prizeColumn/wonUsdText, entry checks
                                (entryFieldProblems: every problem at once; isWalletAddress),
@@ -256,14 +258,17 @@ apps/frontend/
                                signToEnter, entrySigner (EIP-191)
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
                                vetoes, refusals), standingText, RunState
-    entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow, TOKEN_FOOTNOTE, siteUrl
+    entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
+                               Task 8, "· skip: no builder bonus"), TOKEN_FOOTNOTE, siteUrl
     fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
-    alerts.ts(+test)           alertLines (pure, money first), alertFacts, sinceYouLastChecked
+    alerts.ts(+test)           alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
+                               wins and its own top-10 tracking), alertFacts, sinceYouLastChecked
                                (seen ids in alert_state, one transaction, 1.5 s budget),
-                               sinceLine, SCHEDULE_NOTE
+                               sinceLine, SCHEDULE_NOTE, paidBonusWins (THE SEAM for Task 7's
+                               bonus-payout.ts: [] until a bonus_payouts table exists)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling), payCampaign, dbPayoutStore,
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
