@@ -492,8 +492,9 @@ export async function recordSubmission(
   // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
   // new coin here, so no builder bonus: said now, not discovered at launch.
   if (bonusRepoKey && program.submission_proof) {
-    const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { title: string }>())).get(bonusRepoKey);
-    if (coin) {
+    const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
+    // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
+    if (coin && coin.program_id !== program.id) {
       const line = repoCoinNote(coin.title);
       notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
     }

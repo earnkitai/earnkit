@@ -8,6 +8,7 @@ import { RecordSubmissionInput } from './projects';
 import { tokenLineFor } from './token-gate';
 import { TOKEN_FOOTNOTE, tokenFootnote, tokenRow } from './entry-text';
 import {
+  NON_BASE_NO_BONUS,
   LaunchTokenInput,
   decideToken,
   hasBuilderBonus,
@@ -121,7 +122,7 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
 test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is entered elsewhere gets the no-bonus row', async () => {
   const bonusProgram = { title: "Crypto World's Fair Hackathon", token_policy: 'encouraged' as const, campaign: null, status: 'active', submission_proof: { host: 'colosseum.com' } } as unknown as ProgramRow;
   const asked: string[] = [];
-  const repoCoin = async (key: string) => (asked.push(key), key === 'github.com/acme/kit' ? 'Arc Microgrants' : null);
+  const repoCoin = async (key: string) => (asked.push(key), key === 'github.com/acme/kit' ? { program_id: 'arc-microgrants', title: 'Arc Microgrants' } : null);
   const b = await tokenProposalBlock(
     { program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl: 'https://github.com/Acme/Kit/' },
     { ...free, repoCoin },
@@ -654,4 +655,26 @@ test('v2.4: a launch keeps the wallet it used, so fee reads know the creator', a
   await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(h.deploys.length, 1);
   assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: WALLET }]);
+});
+
+test('residual m4: a repo whose coin is entered in this SAME program gets no Ruling 25 row', async () => {
+  const bonusProgram = { id: 'arc-microgrants', title: 'Arc Microgrants', token_policy: 'encouraged' as const, campaign: null, status: 'active', submission_proof: { host: 'dorahacks.io' } } as unknown as ProgramRow;
+  const b = await tokenProposalBlock(
+    { program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl: 'https://github.com/acme/kit' },
+    { ...free, repoCoin: async () => ({ program_id: 'arc-microgrants', title: 'Arc Microgrants' }) },
+  );
+  assert.equal(b?.repo_coin_program, null);
+  assert.doesNotMatch(b!.say_to_builder, /this repo's coin is entered in/);
+});
+
+test('residual m6: a non-Base coin on a program with a builder bonus never implies the bonus', async () => {
+  const h = harness({ has_bonus: true });
+  const out = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, h.deps);
+  assert.equal(out.status, 'launched');
+  assert.ok(out.note?.endsWith(NON_BASE_NO_BONUS), out.note);
+  // Base, or a program without a bonus: no such note.
+  const base = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, ...CONFIRMED }), 1, harness({ has_bonus: true }).deps);
+  assert.ok(!(base.note ?? '').includes(NON_BASE_NO_BONUS));
+  const plain = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, harness().deps);
+  assert.ok(!(plain.note ?? '').includes(NON_BASE_NO_BONUS));
 });

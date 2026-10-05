@@ -441,6 +441,28 @@ test('Ruling 25 (I8): a repo whose coin is entered in another program is told at
   assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No builder bonus: this repo's coin is entered in Coin Home Program\./);
 });
 
+test('residual m4: a repo whose coin is entered in this SAME program gets no Ruling 25 note', dbTest, async () => {
+  const tag = `fw-m4-${process.pid}-${Date.now()}`;
+  const program = proofProgramFile(tag, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(79), repo_url: `https://github.com/alice/${tag}` };
+  await sql()`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, token_url, token_repo_key, token_status)
+    VALUES (${program.id}, 'Same program', ${project.repo_url}, ${installationId}, 'https://tokens.fun/coin/0x2', ${`github.com/alice/${tag}`}, 'launched')`;
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/579',
+    } as never,
+    installationId,
+    { fetchProof: async () => `See the repo: ${project.repo_url}` },
+  );
+  assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /this repo's coin is entered in/);
+});
+
 test('M12: the entry-time note judges an earlier entry by the round rule (coin launched before the end), like scoring', dbTest, async () => {
   const tag = `fw-m12-${process.pid}-${Date.now()}`;
   const program = proofProgramFile(tag, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });

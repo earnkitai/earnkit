@@ -280,6 +280,23 @@ test('Ruling 7: the payout key works with or without 0x (the owner stores it wit
     assert.throws(() => payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: bad }), /CAMPAIGN_PAYOUT_PRIVATE_KEY/, bad);
 });
 
+test('residual m2: a malformed or out-of-range payout key never appears in an error, only its shape', () => {
+  const zero = '0'.repeat(64);
+  const big = 'f'.repeat(64); // above the secp256k1 order: viem would quote it in decimal
+  const shortKey = '1234abcd';
+  for (const bad of [zero, big, `0x${big}`, shortKey]) {
+    let msg = '';
+    try {
+      payoutAccount({ CAMPAIGN_PAYOUT_PRIVATE_KEY: bad });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    assert.match(msg, /CAMPAIGN_PAYOUT_PRIVATE_KEY/, bad);
+    assert.match(msg, /\d+ characters/);
+    assert.ok(!msg.includes(bad.replace(/^0x/, '')) && !/\d{20,}/.test(msg), msg);
+  }
+});
+
 test('safety: an entry already paid before v2.4 (prize_tx kept, no signed bytes, no status) is never paid again', async () => {
   const f = fakeRpc();
   const s = memStore();

@@ -30,9 +30,15 @@ export function payoutAccount(env: Record<string, string | undefined> = process.
   const raw = env.CAMPAIGN_PAYOUT_PRIVATE_KEY?.trim();
   if (!raw) return null;
   const key = /^[0-9a-fA-F]{64}$/.test(raw) ? `0x${raw}` : raw;
-  const problem = privateKeyProblem('CAMPAIGN_PAYOUT_PRIVATE_KEY', key);
-  if (problem) throw new Error(problem);
-  return privateKeyToAccount(key as Hex);
+  // Errors name the key's shape only, never its value (viem's range error quotes it).
+  const shape = `${raw.length} characters${raw.startsWith('0x') ? ', 0x prefix' : ''}`;
+  if (privateKeyProblem('CAMPAIGN_PAYOUT_PRIVATE_KEY', key))
+    throw new Error(`CAMPAIGN_PAYOUT_PRIVATE_KEY must be 64 hex characters, with or without 0x (got ${shape}).`);
+  try {
+    return privateKeyToAccount(key as Hex);
+  } catch {
+    throw new Error(`CAMPAIGN_PAYOUT_PRIVATE_KEY is not a valid private key: out of range (${shape}).`);
+  }
 }
 
 type Receipt = { status: 'success' | 'reverted' };
