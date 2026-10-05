@@ -189,7 +189,7 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
         SELECT rank, score FROM bonus_scores b
         WHERE b.round_key = ${r.round_key} AND b.project_id = p.id ORDER BY b.day DESC LIMIT 1) s ON true
       WHERE p.program_id = ${r.program_id} AND p.submitted_at < ${r.ends_at}
-      ORDER BY p.id
+      ORDER BY s.rank NULLS LAST, p.submitted_at, p.id
       LIMIT 500`;
     return { ...base, pool: ethText(BigInt(wei)), rows: openRows(entries), removed: 0 };
   }

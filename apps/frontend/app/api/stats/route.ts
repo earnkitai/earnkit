@@ -2,10 +2,12 @@ import { unstable_cache } from 'next/cache';
 import { readStats } from '@/lib/earnkit/stats';
 
 /**
- * Public stats for jenil.ai (v2.5 §4): database aggregates only, cached 10 minutes. The route is
- * revalidated every 10 minutes when it was prerendered; the read itself is cached too, so it stays
- * at most one database read per 10 minutes even when the build had no database and the route
- * renders per request. A failed read answers 503 and is never cached.
+ * Public stats for jenil.ai (v2.5 §4): database aggregates only, cached 10 minutes. When the build
+ * can reach the database, the route prerenders and revalidates every 10 minutes. When it can't
+ * (turbo doesn't pass DATABASE_URL to `pnpm build`), the route renders per request, and the read
+ * itself is cached 10 minutes with unstable_cache. Either way it's at most one read per 10 minutes.
+ * A failed read answers 503 and is never cached (Next treats a build-time 503 as dynamic).
+ * `fees_to_safe_eth`: the Safe's fees from v2.5-split coins only, accrued (stats.ts statsFrom).
  */
 export const revalidate = 600;
 

@@ -51,6 +51,8 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 
 test('readStats: DB aggregates move with open programs, launched coins, bonus money and installs', db, async () => {
   const tag = `stats-${process.pid}-${Date.now()}`;
+  const stamp = process.pid.toString(16) + Date.now().toString(16);
+  const hash = (n: number) => `0x${(stamp + n).padStart(64, '0')}`;
   const before = await readStats();
   assert.deepEqual(Object.keys(before), [...STATS_KEYS]);
   const prog = (id: string, status: string, endsInMs: number | null, award: number | null) => sql()`
@@ -71,8 +73,11 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
     VALUES (${tag}, ${`${tag}-open`}, now() - interval '1 day', now() + interval '1 day', 'paid')`;
   await sql()`
     INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time) VALUES
-      (${`${tag}-1`}, 0, NULL, ${tag}, 'round', ${(2n * E18).toString()}, now()),
-      (${`${tag}-2`}, 0, NULL, NULL, 'safe', ${(E18 / 2n).toString()}, now())`;
+      (${hash(1)}, 0, NULL, ${tag}, 'round', ${(2n * E18).toString()}, now()),
+      (${hash(2)}, 0, NULL, NULL, 'safe', ${(E18 / 2n).toString()}, now()),
+      -- A paid round's remainder (a veto left a place empty): part of the round's own 2 ETH, so
+      -- it counts once, as money routed to the Safe, never as a new deposit.
+      (${`round-rest:${tag}`}, 0, NULL, ${tag}, 'safe', ${(E18 / 10n).toString()}, now())`;
   await sql()`
     INSERT INTO bonus_payouts (round_key, project_id, rank, score, wallet, slot, amount_wei, status, tx_hash, paid_at)
     VALUES (${tag}, ${p1.id}, 1, 90, '0x1', 0, ${(E18 / 4n).toString()}, 'paid', '0xabc', now())`;
@@ -85,12 +90,13 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
     assert.ok(d('programs_open') >= 2);
     assert.ok(d('coins_launched') >= 1);
     assert.ok(d('installs') >= 1);
-    // 2.5 ETH of bonus deposits in all: the Safe's slot got 3.75, and 0.5 of them were booked to it.
-    assert.equal(d('fees_to_safe_eth'), 4.25);
+    // 2.5 ETH of real bonus deposits: the Safe's slot got 3.75; 0.5 of them were booked to it and
+    // 0.1 of the round's pool was left over (counted once): 4.35, not 4.5 (1.5x the remainder).
+    assert.equal(d('fees_to_safe_eth'), 4.35);
     assert.equal(d('bonus_paid_eth'), 0.25);
   } finally {
     await sql()`DELETE FROM bonus_payouts WHERE round_key = ${tag}`;
-    await sql()`DELETE FROM bonus_ledger WHERE tx_hash LIKE ${`${tag}-%`}`;
+    await sql()`DELETE FROM bonus_ledger WHERE round_key = ${tag} OR tx_hash IN ${sql()([hash(1), hash(2)])}`;
     await sql()`DELETE FROM bonus_rounds WHERE round_key = ${tag}`;
     await sql()`DELETE FROM projects WHERE program_id LIKE ${`${tag}-%`}`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;

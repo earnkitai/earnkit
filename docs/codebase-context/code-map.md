@@ -42,9 +42,10 @@ apps/frontend/
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes)
-  app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600 + unstable_cache
-                               600 s on the read, since turbo builds have no DATABASE_URL and the
-                               route renders per request); 503 no-store on a failed read
+  app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
+                               the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
+                               for builds without one, where it renders per request); 503 no-store
+                               on a failed read
   app/components/common/Panel.tsx  Panel (the rounded navy section) and Eyebrow
   app/sitemap.ts               force-dynamic: home, /policy, every non-empty bonus round
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
@@ -307,12 +308,13 @@ apps/frontend/
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
       +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
                                review, claim-before-pay, pay per place, rest to the Safe, empty)
-    policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS, SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
+    policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
-                               coins_launched (token_status launched), fees_to_safe_eth (1.5x
-                               indexed bonus deposits + bonus deposits booked to the Safe),
+                               coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
+                               only, accrued: 1.5x real indexed bonus deposits, never round-rest:
+                               rows, + bonus money routed to the Safe),
                                bonus_paid_eth, installs
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
