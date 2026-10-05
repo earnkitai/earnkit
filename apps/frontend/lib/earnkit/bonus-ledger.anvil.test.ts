@@ -128,7 +128,15 @@ async function scenario() {
   await rpc('anvil_mine', [toHex(CONFIRMATIONS)]);
 
   const lines: string[] = [];
-  const deps = { account: PAYOUT, rpc: bonusRpc(URL, chain), chain, startBlock: 0n, now: h(1), log: (l: string) => lines.push(l) };
+  const deps = {
+    account: PAYOUT,
+    rpc: bonusRpc(URL, chain),
+    chain,
+    startBlock: 0n,
+    now: h(1),
+    log: (l: string) => lines.push(l),
+    active: async () => true, // no explorer: every coin traded
+  };
   const r1 = (await runBonusLedger(deps)) as unknown as Run;
   const why = (r: unknown) => JSON.stringify(r, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
   assert.equal(r1.index.round, 2, why(r1));

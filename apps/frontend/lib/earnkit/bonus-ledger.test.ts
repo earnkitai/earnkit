@@ -164,6 +164,7 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
     getLogsCalls: [] as [bigint, bigint][],
     receiptReads: 0,
     broadcastFails: 0,
+    autoMine: true,
     recipients: [BONUS] as string[],
     collectable: new Set<string>([`${NEW_LOCKER}:${COIN_A}`]),
   };
@@ -185,7 +186,7 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
       }
       if (state.sent.includes(raw)) return 'known';
       state.sent.push(raw);
-      state.mined.set(keccak256(raw), 'success');
+      if (state.autoMine) state.mined.set(keccak256(raw), 'success');
       return 'sent';
     },
     waitFor: async (h) => (state.mined.has(h) ? { status: state.mined.get(h)! } : null),
@@ -405,7 +406,13 @@ test('collect: only an EarnKit coin in its round last 24h, quiet for 12h, throug
     await setup(ends);
     const f = fakeChain();
     const at = (h: number) => new Date(ends.getTime() - h * 3_600_000);
-    const run = (now: Date) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now });
+    let traded = true;
+    const asked: string[] = [];
+    const active = async (coin: string, since: Date) => {
+      asked.push(`${coin}@${since.toISOString()}`);
+      return traded;
+    };
+    const run = (now: Date) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now, active });
 
     assert.deepEqual(await run(at(25)), [], 'not in the last 24 h');
     // COIN_B's program has no public submissions: never collected.
@@ -418,6 +425,14 @@ test('collect: only an EarnKit coin in its round last 24h, quiet for 12h, throug
     assert.equal(tx.to?.toLowerCase(), NEW_LOCKER, 'the locker that simulated');
     assert.deepEqual(decodeFunctionData({ abi: LOCKER_ABI, data: tx.data! }).args.map((a) => String(a).toLowerCase()), [COIN_A]);
     assert.deepEqual(await run(at(0.5)), [], 'EarnKit collected it 30 min earlier');
+    assert.equal(asked.at(-1), `${COIN_A}@${new Date(at(1).getTime() - 86_400_000).toISOString()}`, 'transfers in the last 24 h');
+
+    // A coin with no transfers in 24 h has no new fees: no transaction (fix round 1, a).
+    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
+    traded = false;
+    assert.deepEqual(await run(at(1)), [{ coin: COIN_A, result: 'no transfers in 24 h' }]);
+    assert.equal(f.state.sent.length, 1);
+    traded = true;
 
     // A coin only the legacy locker holds, whose split doesn't pay the bonus wallet: no transaction.
     await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
@@ -439,7 +454,7 @@ test('runBonusLedger: skipped without the payout key or off Base mainnet; runs e
     assert.deepEqual(await runBonusLedger({ account: null }), { skipped: "The payout wallet isn't set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY); nothing was sent." });
     const off = { ...f.rpc, getChainId: async () => 84532 };
     assert.match(String((await runBonusLedger({ account: ACCOUNT, rpc: off })).skipped), /not Base mainnet/);
-    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, startBlock: 1_000n, now: new Date('2026-10-02T00:00:00Z'), log: quiet })) as Record<string, unknown>;
+    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, startBlock: 1_000n, now: new Date('2026-10-02T00:00:00Z'), log: quiet, active: async () => true })) as Record<string, unknown>;
     assert.equal((r.index as { round: number }).round, 1);
     assert.ok(Array.isArray(r.collect) && Array.isArray(r.claim));
     assert.deepEqual(r.sweep, { result: 'nothing to sweep' });
@@ -504,5 +519,166 @@ test('runCron runs the bonus ledger step (with its deps under `only`) and report
     assert.equal(without.bonus, undefined, 'tests without bonus deps never reach a chain');
   } finally {
     await cleanup();
+  }
+});
+
+test('I1: the sweep never spends claimed round WETH while the Safe deposit is still unclaimed', db, async () => {
+  try {
+    await setup();
+    const cost = 50_000n * 1_000_000n;
+    const book = (i: number, amount: bigint, coin: string | null) =>
+      bookDeposit({ txHash: `0xt4short${i}`, logIndex: 0, amount, coin, blockNumber: BigInt(i), blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
+    const R = 50n * cost;
+    const S = 20n * cost;
+    await book(1, R, COIN_A); // round: claimed, in the wallet
+    await book(2, S, null); // Safe: still in the FeeLocker, below the claim gate
+    const f = fakeChain({ balance: R, available: { [BONUS]: S } });
+    const r = await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C });
+    assert.match(r.result, /would leave a round short/);
+    assert.equal(f.state.sent.length, 0, 'no transfer');
+    assert.equal((await sql()`SELECT 1 FROM bonus_sweeps`).length, 0, 'nothing reserved');
+
+    // Once the Safe deposit is claimed too, the sweep goes, leaving exactly the round in the wallet.
+    f.state.balance = R + S;
+    f.state.available[BONUS] = 0n;
+    assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
+    // A paid round no longer needs covering.
+    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${PROG}`;
+    await book(3, 10n * cost, null);
+    f.state.balance = 10n * cost;
+    assert.equal((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C })).status, 'paid');
+    // (f) No reservation past the deadline.
+    await book(4, 10n * cost, null);
+    assert.match((await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C, deadline: Date.now() - 1 })).result, /out of time/);
+    assert.equal((await sql()`SELECT 1 FROM bonus_ledger WHERE tx_hash = '0xt4short4' AND sweep_id IS NOT NULL`).length, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('I2: a sweep whose broadcast failed in run k keeps its nonce; run k+1 resends it first and signs after it', db, async () => {
+  try {
+    await setup();
+    const cost = 50_000n * 1_000_000n;
+    await bookDeposit({ txHash: '0xt4nonce', logIndex: 0, amount: 10n * cost, coin: null, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') }, quiet);
+    const f = fakeChain({ balance: 10n ** 18n, head: 100n });
+    const now = new Date('2026-10-02T00:00:00Z');
+    const err = console.error;
+    console.error = () => {};
+    try {
+      // Run k: the sweep is signed and stored, its broadcast fails.
+      f.state.broadcastFails = 1;
+      const k = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 0n, now, log: quiet })) as Record<string, unknown>;
+      assert.equal(k.sweep, 'failed');
+      const [stored] = await sql()<{ raw_tx: Hex }[]>`SELECT raw_tx FROM bonus_sweeps WHERE status = 'sending'`;
+      const sweepNonce = parseTransaction(stored.raw_tx).nonce!;
+
+      // Run k+1, the RPC failing again for the rebroadcast: no claim is signed. (The sweep's own
+      // follower may resend its stored bytes; nothing new.)
+      f.state.available[BONUS] = 10n ** 17n;
+      f.state.broadcastFails = 1;
+      f.state.autoMine = false; // the sweep stays unmined across runs
+      const k1 = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, now, log: quiet })) as Record<string, unknown>;
+      assert.equal(k1.claim, 'waiting on a stored send');
+      assert.ok(f.state.sent.every((r) => r === stored.raw_tx), 'only the stored bytes went out');
+
+      // Run k+2, the sweep still unmined and a node whose pending nonce lags: the claim signs after it.
+      const lagging = { ...f.rpc, nonce: async () => 0 };
+      await runBonusLedger({ account: ACCOUNT, rpc: lagging, chain: C, now, log: quiet });
+      const fresh = f.state.sent.filter((r) => r !== stored.raw_tx);
+      assert.equal(fresh.length, 1, "one claim: the bonus wallet's (the Safe has none)");
+      const nonces = fresh.map((r) => parseTransaction(r).nonce!);
+      assert.ok(nonces.every((n) => n > sweepNonce), 'never at or below the stored sweep nonce');
+      assert.ok(fresh.every((r) => parseTransaction(r).to?.toLowerCase() === C.feeLocker));
+
+      // Mined later: the sweep settles as paid.
+      f.state.mined.set(keccak256(stored.raw_tx), 'success');
+      f.state.autoMine = true;
+      f.state.available[BONUS] = 0n;
+      f.state.available[C.safe] = 0n;
+      const k3 = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, now, log: quiet })) as Record<string, unknown>;
+      assert.equal((k3.sweep as { status: string }).status, 'paid');
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(b) receipt reads are capped per run; the cursor stops where it got to and the next run goes on', db, async () => {
+  try {
+    await setup();
+    const f = fakeChain({ head: 1_000n + CONFIRMATIONS });
+    f.add(500n, [store(1, BONUS, 1n), claimed(2, COIN_A)]);
+    f.add(600n, [store(1, BONUS, 2n), claimed(2, COIN_A)]);
+    const r1 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, maxReceipts: 1, log: quiet });
+    assert.equal(r1.round, 1);
+    assert.equal((r1 as { outOfTime?: boolean }).outOfTime, true);
+    assert.equal(await indexedThrough(), null, 'the cursor did not pass the unbooked deposit');
+    const r2 = await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 0n, maxReceipts: 1, log: quiet });
+    assert.equal(r2.round, 1);
+    assert.equal((await indexedThrough())?.block, 1_000n);
+    assert.equal(f.state.receiptReads, 2, 'the booked transaction is not read again');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(d) an index step failing 6 runs in a row makes the cron wait on the owner; one success resets it', db, async () => {
+  try {
+    await setup();
+    const f = fakeChain({ head: 100n });
+    const broken = { ...f.rpc, blockNumber: async () => { throw new Error('rpc down'); } };
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const deps = { account: ACCOUNT, rpc: broken, chain: C, log: quiet };
+      for (let i = 1; i <= 5; i++) {
+        const r = (await runBonusLedger(deps)) as Record<string, unknown>;
+        assert.equal(r.index_failures, i);
+      }
+      const out = await runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus: deps } });
+      assert.equal((out.bonus as { index_failures: number }).index_failures, 6);
+      assert.deepEqual(out.needs_owner, ['bonus-ledger']);
+      const ok = (await runBonusLedger({ ...deps, rpc: f.rpc, startBlock: 0n })) as Record<string, unknown>;
+      assert.equal(ok.index_failures, 0);
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    await cleanup();
+  }
+});
+
+test('(e) a duplicate coin address is logged and never stops the launch being recorded', db, async () => {
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  const err = console.error;
+  const logged: string[] = [];
+  console.error = (m: unknown) => logged.push(String(m));
+  try {
+    await setup();
+    const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('t4-dup') RETURNING id`;
+    const [p] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${PROG}, 't4 dup', ${inst.id}, 'https://github.com/x/t4dup')
+      RETURNING id`;
+    const out = await deployToken(
+      { projectId: p.id, installationId: inst.id, name: 'T4', symbol: 'TDUP', creatorWallet: CREATOR, image: null, repoUrl: 'https://github.com/x/t4dup', liveUrl: null },
+      { fetch: (async () => Response.json({ success: true, tokenAddress: COIN_A, txHash: '0x1' })) as typeof fetch },
+    );
+    assert.equal(out.status, 'launched');
+    const [row] = await sql()<{ token_status: string; token_url: string; coin_address: string | null }[]>`
+      SELECT token_status, token_url, coin_address FROM projects WHERE id = ${p.id}`;
+    assert.equal(row.token_status, 'launched');
+    assert.match(row.token_url, /tokens\.fun\/coin/);
+    assert.equal(row.coin_address, null);
+    assert.match(logged.join('\n'), /not recorded for the builder bonus/);
+  } finally {
+    console.error = err;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+    await cleanup();
+    await sql()`DELETE FROM installations WHERE token_hash = 't4-dup'`;
   }
 });

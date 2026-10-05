@@ -408,3 +408,7 @@ CREATE TABLE IF NOT EXISTS bonus_cursor (
   block_time  timestamptz,
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Fix round 1: index steps that failed in a row (6 make the cron answer 503). The row may exist
+-- before any block was read (a failing first run), so block is nullable: NULL = no cursor yet.
+ALTER TABLE bonus_cursor ADD COLUMN IF NOT EXISTS index_failures integer NOT NULL DEFAULT 0;
+ALTER TABLE bonus_cursor ALTER COLUMN block DROP NOT NULL;

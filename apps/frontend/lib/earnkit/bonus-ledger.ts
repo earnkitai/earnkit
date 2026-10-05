@@ -6,6 +6,8 @@ import {
   http,
   keccak256,
   parseAbi,
+  parseTransaction,
+  recoverTransactionAddress,
   parseAbiItem,
   toEventSelector,
   type Hex,
@@ -13,6 +15,7 @@ import {
 import type { LocalAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 import { bookingFor } from './bonus-rounds';
+import { blockscout } from './campaigns';
 import { sql } from './db';
 import { LOG_CHUNK, LOG_CHUNK_MIN, RATE_BACKOFF_MS, logError } from './escrow';
 import {
@@ -177,6 +180,10 @@ export type BonusDeps = {
   startBlock?: bigint;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
+  /** Receipt reads per run (default RECEIPTS_PER_RUN). */
+  maxReceipts?: number;
+  /** Whether the coin had token transfers since `since` (default: Base Blockscout). */
+  active?: (coin: Hex, since: Date) => Promise<boolean>;
 };
 
 /** Blocks behind the head the index stays (no reorg reaches them): tokens.fun's Base setting. */
@@ -185,6 +192,10 @@ export const CONFIRMATIONS = 30n;
 export const FIRST_LOOKBACK = 86_400n;
 /** getLogs calls per run: about 2.3 days of blocks at 2,000 each. The hourly run needs 1. */
 export const LOG_CALLS_PER_RUN = 50;
+/** Receipt reads per run; past it the run stops where it got to (booked txs are skipped next run). */
+export const RECEIPTS_PER_RUN = 200;
+/** Index steps failing in a row after which the cron answers 503 (as PAY_FAILED_RUNS). */
+export const INDEX_FAILED_RUNS = 6;
 /** EarnKit collects a coin itself only this close to its round's end... */
 export const COLLECT_WINDOW_MS = 24 * 3_600_000;
 /** ...and only when no deposit from it was seen (and EarnKit didn't collect it) this recently. */
@@ -195,8 +206,8 @@ const toDeadline = (d: BonusDeps) => d.deadline ?? Infinity;
 
 /** Where the index has read up to: the last block read and its time (null: never). For the round freeze. */
 export async function indexedThrough(): Promise<{ block: bigint; time: Date | null } | null> {
-  const [r] = await sql()<{ block: string; block_time: Date | null }[]>`SELECT block, block_time FROM bonus_cursor WHERE id = ${CURSOR}`;
-  return r ? { block: BigInt(r.block), time: r.block_time } : null;
+  const [r] = await sql()<{ block: string | null; block_time: Date | null }[]>`SELECT block, block_time FROM bonus_cursor WHERE id = ${CURSOR}`;
+  return r?.block != null ? { block: BigInt(r.block), time: r.block_time } : null;
 }
 
 /**
@@ -305,6 +316,7 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
     ? cursor.block + 1n
     : (d.startBlock ?? (envStart && /^\d+$/.test(envStart) ? BigInt(envStart) : head > FIRST_LOOKBACK ? head - FIRST_LOOKBACK : 0n));
   const counts = { round: 0, safe: 0 };
+  let receipts = 0;
   if (from > head) return { from, to: head, next: from, ...counts };
   const times = new Map<bigint, Date>();
   const time = async (b: bigint) => {
@@ -328,7 +340,8 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
       const done = new Set(booked.map((b) => `${b.tx_hash}:${b.log_index}`));
       for (const [hash, indexes] of byTx) {
         if (indexes.every((i) => done.has(`${hash}:${i}`))) continue;
-        if (Date.now() >= toDeadline(d)) throw new OutOfTime();
+        if (Date.now() >= toDeadline(d) || receipts >= (d.maxReceipts ?? RECEIPTS_PER_RUN)) throw new OutOfTime();
+        receipts++;
         const receipt = await d.rpc.receiptLogs(hash as Hex);
         const deposits = bonusDeposits(receipt.logs, wallet, d.chain);
         // Every deposit getLogs found must be in its receipt, or the cursor would pass unbooked money.
@@ -344,10 +357,10 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
       await sql()`
         INSERT INTO bonus_cursor (id, block, block_time) VALUES (${CURSOR}, ${hi.toString()}, ${hiTime})
         ON CONFLICT (id) DO UPDATE SET block = EXCLUDED.block, block_time = EXCLUDED.block_time, updated_at = now()
-        WHERE bonus_cursor.block < EXCLUDED.block`;
+        WHERE bonus_cursor.block IS NULL OR bonus_cursor.block < EXCLUDED.block`;
     },
   });
-  return { from, to: head, next: scan.next, ...counts, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
+  return { from, to: head, next: scan.next, ...counts, receipts, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
 }
 
 /** The payout wallet can't pay gas (as payout.ts judges it). Pure. */
@@ -355,12 +368,53 @@ const outOfGas = (err: unknown) =>
   /insufficient funds|exceeds the balance of the account/i.test(err instanceof Error ? `${err.name} ${err.message}` : String(err));
 
 /**
+ * The payout wallet's signed transfers stored before broadcast and not settled yet: a bonus sweep
+ * or a campaign payout in 'sending' (fix round 1, I2), with their nonces. Only ones this key signed.
+ */
+export async function openStoredSends(account: LocalAccount) {
+  const rows = await sql()<{ raw: string }[]>`
+    SELECT raw_tx AS raw FROM bonus_sweeps WHERE status = 'sending' AND raw_tx IS NOT NULL
+    UNION ALL
+    SELECT prize_raw_tx AS raw FROM projects WHERE payout_status = 'sending' AND prize_raw_tx IS NOT NULL`;
+  const out: { raw: Hex; nonce: number }[] = [];
+  for (const r of rows) {
+    const sender = await recoverTransactionAddress({ serializedTransaction: r.raw as never });
+    if (sender.toLowerCase() === account.address.toLowerCase()) out.push({ raw: r.raw as Hex, nonce: parseTransaction(r.raw as Hex).nonce! });
+  }
+  return out.sort((a, b) => a.nonce - b.nonce);
+}
+
+/**
+ * Before the ledger signs anything new: every open stored send is broadcast again (the same
+ * bytes; 'known' and 'stale' are fine, its own follower settles it). False when one can't be sent
+ * (the RPC failed): then nothing new is signed this run, so no new call can take its nonce.
+ */
+export async function settleStoredSends(account: LocalAccount, rpc: BonusRpc) {
+  for (const o of await openStoredSends(account)) {
+    try {
+      await rpc.broadcast(o.raw);
+    } catch (err) {
+      console.error('[bonus] rebroadcast of a stored send failed', err);
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Signs and sends one contract call from the payout wallet and waits for it (until the deadline,
  * 5 to 60 s). Used for claims and collects: anyone may call them, they pay a fixed recipient, and a
  * duplicate only costs gas (the ledger's lease keeps runs from overlapping).
  */
 async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, data: Hex, gas: bigint, deadline: number) {
-  const [chainId, nonce, fees] = await Promise.all([rpc.getChainId(), rpc.nonce(account.address), rpc.fees()]);
+  const [chainId, pending, fees, open] = await Promise.all([
+    rpc.getChainId(),
+    rpc.nonce(account.address),
+    rpc.fees(),
+    openStoredSends(account),
+  ]);
+  // Never at or below the nonce of a stored transfer that isn't mined yet (fix round 1, I2).
+  const nonce = Math.max(pending, ...open.map((o) => o.nonce + 1));
   const raw = await account.signTransaction({
     chainId,
     type: 'eip1559',
@@ -375,6 +429,22 @@ async function sendCall(account: LocalAccount, rpc: BonusRpc, to: Hex, data: Hex
   if ((await rpc.broadcast(raw)) === 'stale') throw new Error('nonce too low');
   const r = await rpc.waitFor(hash, Math.max(5_000, Math.min(60_000, deadline - Date.now())));
   return { hash, status: r?.status ?? ('pending' as const) };
+}
+
+/**
+ * Whether Base Blockscout lists a transfer of `coin` at or after `since` (its newest first). An
+ * explorer failure counts as active: collecting costs a little gas; skipping could leave a round's
+ * fees out of its pool.
+ */
+async function tradedSince(coin: Hex, since: Date, deadline: number) {
+  try {
+    const page = await blockscout<{ items?: { timestamp?: string }[] }>(`/api/v2/tokens/${coin}/transfers`, deadline);
+    const newest = page.items?.[0]?.timestamp;
+    return Boolean(newest && new Date(newest) >= since);
+  } catch (err) {
+    console.error('[bonus] transfers of', coin, err);
+    return true;
+  }
 }
 
 /**
@@ -398,11 +468,17 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
       AND NOT EXISTS (SELECT 1 FROM bonus_ledger l WHERE l.coin = p.coin_address AND l.block_time >= ${quiet})
     ORDER BY p.id`;
   const out: { coin: string; result: string }[] = [];
+  const active = d.active ?? ((coin: Hex, since: Date) => tradedSince(coin, since, toDeadline(d)));
   for (const c of coins) {
     const b = bookingFor(c, now);
     if (b.destination !== 'round' || b.round.ends.getTime() - now.getTime() > COLLECT_WINDOW_MS) continue;
     if (Date.now() >= toDeadline(d)) break;
     try {
+      // Only a coin that traded in the last 24 h has new fees worth the gas (fix round 1, a).
+      if (!(await active(c.coin, new Date(now.getTime() - COLLECT_WINDOW_MS)))) {
+        out.push({ coin: c.coin, result: 'no transfers in 24 h' });
+        continue;
+      }
       let locker: Hex | null = null;
       for (const l of d.chain.lockers) if (await d.rpc.canCollect(l, c.coin, account.address).catch(() => false)) { locker = l; break; }
       // Recorded before sending: a crash or a revert waits COLLECT_QUIET_MS instead of resending hourly.
@@ -510,6 +586,24 @@ export const sweepStore: PayoutStore = {
  * the unswept total is at least 10× the transfer's gas and the wallet holds it, the rows are
  * reserved for a new sweep (one transaction), which `payWinner` then signs, stores and sends.
  */
+/**
+ * Whether sending `amount` from the wallet leaves every unpaid round covered (fix round 1, I1):
+ * wallet − amount ≥ Σ(unpaid round bookings) − (what the FeeLocker still holds for the wallet that
+ * can be round money). Of `availableFees(bonus wallet)`, up to the unswept Safe bookings may be the
+ * Safe's own unclaimed deposits, so only the rest counts toward the rounds.
+ */
+async function roundsCovered(account: LocalAccount, d: { rpc: BonusRpc; chain: BonusChain }, amount: bigint, balance: bigint) {
+  const [{ rounds, safe }] = await sql()<{ rounds: string | null; safe: string | null }[]>`
+    SELECT
+      (SELECT sum(l.amount_wei) FROM bonus_ledger l JOIN bonus_rounds r ON r.round_key = l.round_key
+        WHERE l.destination = 'round' AND r.state <> 'paid')::text AS rounds,
+      (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe' AND swept_tx IS NULL)::text AS safe`;
+  const available = await d.rpc.availableFees(account.address, d.chain.weth);
+  const forRounds = available > BigInt(safe ?? '0') ? available - BigInt(safe ?? '0') : 0n;
+  return balance - amount >= BigInt(rounds ?? '0') - forRounds;
+}
+const SHORT = 'would leave a round short (its WETH is not all claimed yet)';
+
 export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   let [open] = await sql()<SweepRow[]>`SELECT * FROM bonus_sweeps WHERE status IS DISTINCT FROM 'paid' ORDER BY id LIMIT 1`;
   if (!open) {
@@ -523,6 +617,8 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const data = encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [d.chain.safe, amount] });
     const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.weth, data }), d.rpc.fees()]);
     if (!worthIt(amount, gas, fees.maxFeePerGas)) return { result: `${amount} wei: under 10x gas` };
+    if (!(await roundsCovered(account, d, amount, balance))) return { result: `${amount} wei to sweep ${SHORT}` };
+    if (Date.now() >= toDeadline(d)) return { result: 'out of time; next run' };
     open = await sql().begin(async (tx) => {
       const [s] = await tx<{ id: number }[]>`
         INSERT INTO bonus_sweeps (amount_wei, to_wallet) VALUES (${amount.toString()}, ${d.chain.safe}) RETURNING id`;
@@ -540,6 +636,8 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     const balance = await d.rpc.balanceOf(d.chain.weth, account.address);
     if (balance < BigInt(open.amount_wei))
       return { result: `sweep ${open.id} of ${open.amount_wei} wei waits; the wallet holds ${balance}`, sweep: open.id };
+    if (!(await roundsCovered(account, d, BigInt(open.amount_wei), balance)))
+      return { result: `sweep ${open.id} of ${open.amount_wei} wei ${SHORT}`, sweep: open.id };
   }
   const row: PayoutRow = {
     id: open.id,
@@ -553,8 +651,12 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
   const otherPaid = (
     await sql()<{ raw_tx: string }[]>`SELECT raw_tx FROM bonus_sweeps WHERE status = 'paid' AND raw_tx IS NOT NULL AND id <> ${open.id}`
   ).map((r) => r.raw_tx);
+  // A new signature never takes the nonce of another stored, unmined send (fix round 1, I2).
+  const others = (await openStoredSends(account)).filter((o) => o.raw !== open.raw_tx);
+  const nonces = { next: Math.max(0, ...others.map((o) => o.nonce + 1)) };
   try {
     const r = await payWinner(row, {
+      nonces,
       token: d.chain.weth,
       amount: BigInt(open.amount_wei),
       amountText: open.amount_wei,
@@ -570,6 +672,15 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     if (!outOfGas(err)) throw err;
     return { result: 'the payout wallet needs ETH for gas' };
   }
+}
+
+/** Index steps failing in a row (reset by one that completes); stored on the cursor row. */
+async function countIndexRun(ok: boolean) {
+  const [r] = await sql()<{ index_failures: number }[]>`
+    INSERT INTO bonus_cursor (id, block, index_failures) VALUES (${CURSOR}, NULL, ${ok ? 0 : 1})
+    ON CONFLICT (id) DO UPDATE SET index_failures = ${ok ? 0 : sql()`bonus_cursor.index_failures + 1`}
+    RETURNING index_failures`;
+  return r.index_failures;
 }
 
 /**
@@ -597,8 +708,12 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
       }
     };
     await step('index', () => indexDeposits(account.address, d));
-    await step('collect', () => collectNearEnd(account, d));
-    await step('claim', () => claimFees(account, d));
+    out.index_failures = await countIndexRun(out.index !== 'failed');
+    // Stored sends first, so a new claim or collect never takes their nonce (fix round 1, I2).
+    if (await settleStoredSends(account, rpc)) {
+      await step('collect', () => collectNearEnd(account, d));
+      await step('claim', () => claimFees(account, d));
+    } else out.claim = out.collect = 'waiting on a stored send';
     await step('sweep', () => sweepToSafe(account, d));
     return out;
   }, leaseMs);
