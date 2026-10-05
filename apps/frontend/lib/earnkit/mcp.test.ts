@@ -210,3 +210,10 @@ test('v2.4: the instructions say record_submission is the campaign entry, and a 
   assert.match(instructions, /A token is optional: entering never needs one\./);
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
+
+test('v2.5 §1: list_programs says it leads with the open money and shows ideas when there is no repo', async () => {
+  const { tools } = await listed({});
+  const d = tools.find((t) => t.name === 'list_programs')!.description!;
+  assert.match(d, /leads with "EarnKit matches you to \$X in open money"/);
+  assert.match(d, /With no repo, it shows the open money and curated build ideas/);
+});

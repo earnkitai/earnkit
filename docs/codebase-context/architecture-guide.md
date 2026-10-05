@@ -24,6 +24,14 @@
   installation, asking the agent to schedule a daily read-only `list_programs` that messages the
   builder only when that line is there ("a win, a new campaign, your rank"; token fees are never
   advertised there).
+- **First message (v2.5 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
+  to $X in open money" ($X = the per-winner `max_award_usd` of each program the builder's repos
+  fit, once each; unknown amounts count 0 and show their own words). Program tables carry a
+  "Builder bonus" column: the open round's pool (`roundPoolWei`, injected; null until the bonus
+  ledger), "opens with your entry", or "not available" without a `submission_proof`; a note under
+  them says EarnKit isn't affiliated with any organizer (earnkit.com/policy). With no repo it
+  shows "Open money right now:" plus up to 6 curated `ideas` and offers to build one. The EarnKit
+  campaigns table shows only while a campaign is open.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
 - **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos and

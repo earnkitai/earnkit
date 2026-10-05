@@ -55,7 +55,25 @@ export type ToolContext = {
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
+  /** The open round's builder bonus pool in wei, or null; defaults to roundPoolWei. */
+  roundPoolWei?: (programId: string) => Promise<bigint | null>;
 };
+
+/**
+ * The open round's builder bonus pool so far. Null until the bonus ledger exists (v2.5 Task 4
+ * replaces this): open programs with a proof pattern then show "opens with your entry".
+ */
+export const roundPoolWei: (programId: string) => Promise<bigint | null> = async () => null;
+
+/** A pool read never fails list_programs: on any error the cell reads as no pool yet. */
+async function poolOf(read: (id: string) => Promise<bigint | null>, id: string) {
+  try {
+    return await read(id);
+  } catch (err) {
+    console.error('[list_programs] builder bonus pool:', err);
+    return null;
+  }
+}
 
 const ProgramId = z.object({ program_id: z.string() }).strict();
 
@@ -148,10 +166,17 @@ export const tools = {
       ? local_repos
       : (memory.local_repos ?? undefined);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
-    const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
+    const shown = programs.filter((p) => !p.earnkit_campaign);
+    // The builder bonus pool, read only where an entry can earn it (a proof pattern).
+    const readPool = ctx.roundPoolWei ?? roundPoolWei;
+    const pools = await Promise.all(
+      shown.map((p) => (p.submission_proof ? poolOf(readPool, p.id) : null)),
+    );
+    const cards = shown.map((p, i) => ({
       ...p,
       is_new: lastCheck !== null && p.opened_at !== null && p.opened_at > lastCheck,
       closes_in_days: closesInDays(p.ends_at),
+      bonus_pool_wei: pools[i],
     }));
 
     let yourRepos: YourRepos | null = null;
