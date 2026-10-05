@@ -18,13 +18,21 @@ import { loadRepoFacts, saveRepoFacts } from './repo-cache';
  */
 const API = 'https://api.github.com';
 
-export class GitHubError extends Error {}
+export class GitHubError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 
-async function gh<T>(path: string): Promise<T> {
+/** GET from the GitHub API with EarnKit's token; `accept` for media types like star+json. */
+export async function gh<T>(path: string, accept = 'application/vnd.github+json'): Promise<T> {
   const token = process.env.GITHUB_TOKEN;
   const res = await fetch(`${API}${path}`, {
     headers: {
-      Accept: 'application/vnd.github+json',
+      Accept: accept,
       'User-Agent': 'earnkit',
       ...(token && { Authorization: `Bearer ${token}` }),
     },
@@ -33,8 +41,9 @@ async function gh<T>(path: string): Promise<T> {
   if (res.status === 404)
     throw new GitHubError(
       `GitHub: ${path.split('?')[0]} not found (or private)`,
+      404,
     );
-  if (!res.ok) throw new GitHubError(`GitHub request failed (${res.status})`);
+  if (!res.ok) throw new GitHubError(`GitHub request failed (${res.status})`, res.status);
   return res.json() as Promise<T>;
 }
 

@@ -364,6 +364,30 @@ CREATE TABLE IF NOT EXISTS bonus_rounds (
   terms        jsonb
 );
 
+-- Traction score (spec §3, lib/earnkit/traction.ts). One daily probe of each entry's live link
+-- (live product = ok days / days in the round so far).
+CREATE TABLE IF NOT EXISTS live_checks (
+  project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  day        date NOT NULL,
+  ok         boolean NOT NULL,
+  PRIMARY KEY (project_id, day)
+);
+-- Each eligible entry's signals per round per UTC day: read at most once a day (GitHub, Blockscout,
+-- users), with the groups that failed (retried alone), the window end they cover (ends_at = final),
+-- and the round's score and rank from them. No trading volume: it never counts.
+CREATE TABLE IF NOT EXISTS bonus_scores (
+  round_key   text NOT NULL REFERENCES bonus_rounds(round_key),
+  project_id  integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  day         date NOT NULL,
+  signals     jsonb NOT NULL,
+  failed      text[] NOT NULL DEFAULT '{}',
+  through     timestamptz NOT NULL,
+  score       double precision,
+  rank        integer,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (round_key, project_id, day)
+);
+
 -- Each WETH deposit the FeeLocker stored for the bonus wallet (its StoreTokens log), attributed to
 -- a coin and booked to that coin's open round, or to the Safe. Idempotent on (tx_hash, log_index).
 CREATE TABLE IF NOT EXISTS bonus_ledger (

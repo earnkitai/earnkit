@@ -187,7 +187,8 @@ apps/frontend/
                                campaign entry / fastest fit / build one / build something new);
                                markdown tables, no emojis; sponsor campaigns never offered
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
-    match-projects.ts          repo matching for list_programs + get_program's eligibility check
+    match-projects.ts          repo matching for list_programs + get_program's eligibility check;
+                               gh (the authenticated GitHub GET, also used by traction.ts)
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
                                repo-cache.ts)
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
@@ -271,6 +272,10 @@ apps/frontend/
                                getLogs), indexDeposits (cursor), bookDeposit, collectNearEnd,
                                claimFees, sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
                                indexedThrough, runBonusLedger (the cron step)
+    traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
+                               contributors, interest, holders, market cap), rankNormalize, rankRound,
+                               liveRatio (live_checks), scoreRound (daily cache in bonus_scores),
+                               scoreOpenRounds, canFreeze/readyToFreeze (for Task 7's freeze)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
