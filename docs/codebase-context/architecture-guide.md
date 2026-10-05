@@ -728,6 +728,23 @@ during the build); plan: `v2.4-money-first-plan.md`.
   never stored, only derived: `coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL`
   (ownership was already proven by the token gate to launch the coin), so it can never go stale
   against either column; Tasks 6 and 7 read it this way to rank and pay rounds.
+- **Traction score (Task 6, spec §3; `traction.ts`).** `signalsFor(entry, round, deps)` reads seven
+  signals over the round window (start to now, or to `ends_at` once ended) in four groups:
+  *users* (v2.4 `scoreEntry` over the entry's contracts; never the Safe, bonus wallet, payout,
+  creator or deployer wallets), *live* (one `safeProbe` per entry per UTC day into `live_checks`;
+  ratio = ok days / days since the entry joined the round), *github* (the authenticated `gh` helper:
+  commits `since`/`until` → distinct days and authors, bots excluded; stars (star+json, read from
+  the last page back) plus forks in the window from accounts 30+ days old at the time, owner
+  excluded, capped at 50; every read page-capped), and *coin* (Blockscout holders excluding the
+  Safe, bonus wallet, creator, payout wallet, v4 PoolManager, lockers and FeeLocker, capped at 200;
+  market cap). `rankRound` rank-normalizes each signal (rank/n, ties average, 0 stays 0) and scores
+  40·users + 20·live + 20·(3·commit days + 1·contributors)/4 + 10·interest + 10·holders; exact ties
+  break by market cap, then the earlier entry. Trading volume is never an input. `scoreRound`
+  ranks a round's eligible entries, caching each day's signals in `bonus_scores` (one read set per
+  entry per UTC day; a failed group is retried alone and keeps its last value; after the end one
+  final read with `through = ends_at`, then never again). `scoreOpenRounds` scores every open
+  round; `canFreeze`/`readyToFreeze` (index past `ends_at`, every eligible entry final) guard the
+  freeze. The cron wiring, freeze, review and payout are Task 7's.
 
 ## Abuse limits and response headers (v2.2 §5)
 
