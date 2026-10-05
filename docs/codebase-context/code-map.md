@@ -102,7 +102,12 @@ apps/frontend/
                                via safeFetchText (safe-fetch.ts LARGE_PAGE_MAX_BYTES, 512 KB) and
                                looks for the entry's normalized repo link or live host, case- and
                                form-insensitive; any fetch failure reads as "couldn't check yet;
-                               we retry daily" (never throws)
+                               we retry daily" (never throws; a malformed liveUrl is guarded with
+                               URL.canParse, fix round 1 I1); recheckSubmissionProofs(now, deadline,
+                               deps), called from cron.ts's runCron: the daily re-check of a failed
+                               proof (submission_proof_checked_at, at most once a day) while the
+                               program stays active and its round is open (roundFor,
+                               bonus-rounds.ts); ended or closed, it's skipped with no fetch
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile (payout_wallet; plus creator_wallet and token lines

@@ -350,6 +350,7 @@ export async function recordSubmission(
   // agent what to fix. The cron re-checks a failed proof daily until the round ends.
   let submissionProofUrl: string | null = null;
   let submissionProofOkAt: Date | null = null;
+  let submissionProofCheckedAt: Date | null = null;
   let bonusNote: string | null = null;
   if (!program.campaign && program.submission_proof) {
     submissionProofUrl = input.external_submission_url ?? null;
@@ -365,8 +366,9 @@ export async function recordSubmission(
         live_url,
         { fetchText: deps.fetchProof },
       );
+      submissionProofCheckedAt = new Date();
       if (problem) bonusNote = `Builder bonus not available yet: ${problem}`;
-      else submissionProofOkAt = new Date();
+      else submissionProofOkAt = submissionProofCheckedAt;
     }
   }
 
@@ -437,6 +439,7 @@ export async function recordSubmission(
         deployers,
         submission_proof_url: submissionProofUrl,
         submission_proof_ok_at: submissionProofOkAt,
+        submission_proof_checked_at: submissionProofCheckedAt,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
