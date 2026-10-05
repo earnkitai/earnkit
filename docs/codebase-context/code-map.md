@@ -38,7 +38,11 @@ apps/frontend/
   app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
-  app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason)
+  app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
+                               instead of slug for a builder bonus round)
+  app/admin/bonus/[round]/page.tsx  v2.5 Task 7: the owner's builder bonus round review (noindex,
+                               ?key= = bonusVetoKey, rate limited): pool, amounts, note, rank/project/
+                               score/signals/flags/place amount, a Remove form per entry
   app/admin/veto/[slug]/page.tsx  v2.4: the owner's review (noindex, ?key= required, rate limited):
                                live balance, pause note, ranked entries with evidence, a Remove
                                form per entry
@@ -267,14 +271,17 @@ apps/frontend/
     alerts.ts(+test)           alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
                                wins and its own top-10 tracking), alertFacts, sinceYouLastChecked
                                (seen ids in alert_state, one transaction, 1.5 s budget),
-                               sinceLine, SCHEDULE_NOTE, paidBonusWins (THE SEAM for Task 7's
-                               bonus-payout.ts: [] until a bonus_payouts table exists)
+                               sinceLine, SCHEDULE_NOTE, paidBonusWins (paid bonus_payouts rows)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY), payoutRpc, payWinner (sign,
-                               store, broadcast; stale/manual handling), payCampaign, dbPayoutStore,
+                               store, broadcast; stale/manual handling; optional place), payRanked
+                               (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce
+                               floor), payCampaign (wrapper), openStoredSends, dbPayoutStore,
+                               PAY_FAILED/PAY_FAILED_RUNS/STEP_FAILED,
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
-                               campaign under its lease, then the builder bonus ledger, then the fee
+                               campaign under its lease, then builder bonus scoring (scoreOpenRounds),
+                               the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
                                and a MANUAL_CHECK bonus sweep), cronPost
     bonus-rounds.ts(+test)     roundFor (windowed / UTC-month rounds), bookingFor (round or Safe, with
@@ -284,7 +291,11 @@ apps/frontend/
                                ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive
                                getLogs), indexDeposits (cursor), bookDeposit, collectNearEnd,
                                claimFees, sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
-                               indexedThrough, runBonusLedger (the cron step)
+                               indexedThrough, roundsCovered, sendCall, runBonusLedger (the cron step;
+                               `rounds` hook after the claims, before the sweep)
+    bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
+      +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
+                               review, claim-before-pay, pay per place, rest to the Safe, empty)
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
                                liveRatio (live_checks), dbStore (bonus_commits, github_users),
@@ -295,7 +306,8 @@ apps/frontend/
                                finalRanking (eligible at the round end, re-ranked; for the payout)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files)
-    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
+    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
+                               v2.5: bonusVetoKey, bonusReviewLink, vetoBonusEntry (bonus_vetoes)
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
                                approve/createCampaign/award transactions; chain reads: chainReader
