@@ -11,9 +11,8 @@
   for the installation or any wallet it used. Money first (Ruling 26): prizes paid (amount in USD
   and the basescan link; at most 3 a check, the rest next time), then builder bonus wins (v2.5 §3,
   Task 8: `you won 0.12 ETH builder bonus (<program's factual name>)`, same 3-a-check cap; the data
-  is `paidBonusWins` — THE SEAM for Task 7's `bonus-payout.ts`, documented on that function:
-  it returns `[]` until a `bonus_payouts` table exists, so the alert stays silent until Task 7
-  pays a round), then sponsor wins, then token fees of $100 or more waiting in Clanker's FeeLocker
+  is `paidBonusWins`, which reads Task 7's `bonus_payouts` rows that are paid (`paid_at` and
+  `tx_hash` set), matched by installation or creator wallet), then sponsor wins, then token fees of $100 or more waiting in Clanker's FeeLocker
   (once per $100 step), then an entry moving into or out of the top N (campaign leaderboard), then
   the builder bonus's own top 10 (from `bonus_scores.rank`: `your entry moved into the top 10 for
   the builder bonus (<program>)`), then EarnKit campaigns opened since (`programs.opened_at`, set
@@ -709,25 +708,63 @@ during the build); plan: `v2.4-money-first-plan.md`.
      least 10x the estimated gas cost (`worthIt`).
   4. *Sweep.* Safe-booked, unswept WETH goes from the bonus wallet to the Safe when it is at
      least 10x the gas, the wallet holds it, and it never leaves a round short: `wallet − amount ≥
-     Σ(round bookings of rounds not 'paid') − max(0, availableFees(bonus wallet) − Σ(unswept Safe
+     Σ(round bookings of rounds not 'paid' or 'empty') − Σ(their winners already paid) −
+     max(0, availableFees(bonus wallet) − Σ(unswept Safe
      bookings))` (FeeLocker WETH that may be the Safe's own unclaimed deposits never counts for the
      rounds). Nothing is reserved after the deadline. The rows are reserved for one `bonus_sweeps` row
      (at most one unfinished), and v2.4's `payWinner` pays it through `sweepStore`: signed and
      stored before broadcast, the same bytes resent after a crash, `MANUAL_CHECK` when it can't
      be proven dead. Paid, every reserved row gets `swept_tx`. A `MANUAL_CHECK` sweep adds
      `bonus-ledger` to the cron's `needs_owner` (503).
-- **Freeze rule for the round lifecycle (Task 6):** freeze a round only once
-  `indexedThrough().time` is past its `ends_at`, or late deposits still being indexed would go
-  to the Safe (`round … is frozen`).
+- **Round lifecycle and WETH payouts (Task 7, `bonus-payout.ts`).** The cron scores every run
+  (`scoreOpenRounds`, at most half the run's budget, under the `bonus-scoring` lease), then the
+  ledger runs `advanceRounds` under its own lease, after the claims and before the sweep. For each
+  ended round not yet `paid`/`empty`, oldest end first:
+  1. *Freeze* (`open`): only when `readyToFreeze` is ready (the index read past `ends_at`; every
+     eligible entry has a final read; 24 h after the end, failed sources stop holding it and are
+     `flagged`). Under the round row's lock (bookDeposit takes it too): the pool = Σ round
+     bookings; the final ranking (`finalRanking`, eligible at the end, re-ranked) is stored in
+     `bonus_payouts` (rank, score, `creator_wallet` as `wallet` per Ruling 14, installation,
+     `flags`: review flags plus `failed:<group>`); `terms` = `{token WETH, pool_wei, amounts, flagged}`
+     with `amounts = splitPool(pool, payable)`, payable = entries with a wallet, one per wallet and
+     per installation, at most 10 (renormalized). No payable entry: the round's bookings move to
+     the Safe (`destination = 'safe'`, `round_key` kept) and it is `empty` (terminal).
+  2. *Review* (48 h): `/admin/bonus/<round>?key=…` (key = HMAC of `bonus:<round>`, from `pnpm
+     campaign bonus-link <round>`): rank, project, score, signals, flags, the place and frozen
+     amount each entry takes (`placesFor`), and Remove buttons that POST `round, key, entry, reason`
+     to `/api/admin/veto` (`vetoBonusEntry` inserts into `bonus_vetoes(round_key, project_id,
+     reason, at)` only during the review, the round row read `FOR SHARE`). A veto moves the next
+     entry up into the same amounts: the split is made once, at review open. A round with flagged
+     entries is in `needs_owner` (503) on every run of its review.
+  3. *Pay* (`paying`): if the wallet holds less than the round still owes (places not paid), it
+     claims `claim(bonus wallet, WETH)` first; still short, nothing new is signed (transfers in
+     flight are still followed) and the note ends with `TOP_UP` (503). Then `payRanked` (payout.ts;
+     `payCampaign` is now a wrapper over it) pays one WETH transfer per place to the next best
+     payable entry: sanctions screen (a listed wallet is `refused`, the next moves up), signed and
+     stored with its place and amount before broadcast (`bonusPayoutStore`), stale/manual rules,
+     two reverts refuse the entry, never a nonce at or below another stored send
+     (`openStoredSends`, which now includes `bonus_payouts`; payCampaign gets the same floor).
+     A pay step that throws sets `PAY_FAILED`; 6 in a row → 503.
+  4. *Paid*: what no entry took (vetoes or refusals left a place empty) is booked to the Safe as a
+     ledger row `round-rest:<round>` and swept; the round is `paid`. Deposits after the end were
+     never the round's (bookDeposit books them to the Safe), so the frozen amounts never change.
+  `needs_owner` entries are `bonus:<round key>`.
+- **Runbook: a stuck bonus payout (`MANUAL_CHECK` on a round).** As a stuck campaign payout, on
+  `bonus_payouts` (`tx_hash`, `raw_tx`, `stale_at`, `slot`, `amount_wei`). Not paid: `UPDATE
+  bonus_payouts SET status = NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL, slot = NULL,
+  amount_wei = NULL WHERE id = <id>`. Paid by another tx: `status = 'paid', paid_at = now(),
+  tx_hash = '<hash>', raw_tx = NULL` (keep `slot`/`amount_wei`).
 - **Runbook: a stuck bonus sweep (`MANUAL_CHECK`).** Same steps as a stuck payout, on
   `bonus_sweeps` (`tx_hash`, `raw_tx`, `stale_at`). Not paid: `UPDATE bonus_sweeps SET status =
   NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL WHERE id = <id>` (re-signed for the same
   reserved rows). Paid by another tx: set `status = 'paid'`, `tx_hash = '<hash>'`, `raw_tx = NULL`,
   then `UPDATE bonus_ledger SET swept_tx = '<hash>' WHERE sweep_id = <id>`.
-- **Tests:** `bonus-rounds.test.ts`, `bonus-ledger.test.ts` (pure, plus DB against a fake chain),
-  and `bonus-ledger.anvil.test.ts` (real logs on anvil with `contracts/test/mocks/BonusMocks.sol`;
-  needs `BONUS_ANVIL_URL` = an anvil started with `--chain-id 8453`). The three files hold one
-  Postgres advisory lock (`fixtures/bonus-db-lock.ts`) because the ledger's tables are singletons.
+- **Tests:** `bonus-rounds.test.ts`, `bonus-ledger.test.ts`, `bonus-payout.test.ts` (pure, plus
+  DB against a fake chain), and `bonus-ledger.anvil.test.ts` / `bonus-payout.anvil.test.ts` (real
+  logs and WETH transfers on anvil with `contracts/test/mocks/BonusMocks.sol`; needs
+  `BONUS_ANVIL_URL` = an anvil started with `--chain-id 8453`). The bonus test files hold one
+  Postgres advisory lock (`fixtures/bonus-db-lock.ts`) because the ledger's tables are singletons;
+  `advanceRounds` takes `only` so a test never touches rounds other files create.
 - **Submission proof at entry (Task 5, spec §3 Eligibility):** `submission-proof.ts`'s
   `proofProblem(program, url, repoUrl, liveUrl, deps)` checks a non-campaign program's
   `external_submission_url` at `record_submission` (`projects.ts`): https, on
