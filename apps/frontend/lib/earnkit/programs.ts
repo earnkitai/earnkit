@@ -183,6 +183,8 @@ export async function listPrograms() {
       | 'max_award_usd'
       | 'opened_at'
       | 'submission_requirements'
+      | 'ideas'
+      | 'submission_proof'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -191,7 +193,7 @@ export async function listPrograms() {
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
-      p.opened_at, p.submission_requirements, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST`;
@@ -239,6 +241,8 @@ export function programCard(
     | 'max_award_usd'
     | 'opened_at'
     | 'submission_requirements'
+    | 'ideas'
+    | 'submission_proof'
   >,
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
@@ -279,6 +283,9 @@ export function programCard(
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
+    // v2.5 §1: curated build ideas for builders with no repo; the builder bonus needs a proof pattern.
+    ideas: p.ideas ?? [],
+    submission_proof: p.submission_proof ?? null,
   };
 }
 

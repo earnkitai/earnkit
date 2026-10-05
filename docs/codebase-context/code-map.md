@@ -162,11 +162,13 @@ apps/frontend/
                                fallback)
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas
-    present.ts(+test)          presentFirstMessage (v2.4): alerts, the EarnKit campaigns table, "Your
-                               repos already qualify for", at most 5 others, sponsored last, one
-                               offer (keep going / campaign entry / fastest fit / build something
-                               new); markdown tables, no emojis; sponsor campaigns (Card.sponsored)
-                               are never the offer or in a repo's list
+    present.ts(+test)          presentFirstMessage (v2.5): alerts, "EarnKit matches you to $X in
+                               open money" (openMoneyUsd: per-winner prizes of fitted programs) with
+                               a Builder bonus column (bonusCell), open EarnKit campaigns only, at
+                               most 5 others, BONUS_NOTE (not affiliated, earnkit.com/policy), ideas
+                               when the builder has no repo, sponsored last, one offer (keep going /
+                               campaign entry / fastest fit / build one / build something new);
+                               markdown tables, no emojis; sponsor campaigns never offered
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
     match-projects.ts          repo matching for list_programs + get_program's eligibility check
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
@@ -176,7 +178,8 @@ apps/frontend/
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
-                               route never sets it
+                               route never sets it. ToolContext.roundPoolWei overrides the builder
+                               bonus pool read (default roundPoolWei: null until the v2.5 ledger)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
