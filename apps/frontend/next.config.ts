@@ -52,10 +52,12 @@ const nextConfig: NextConfig = {
         source: '/api/projects/:id/token-image',
         headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
       },
-      // v2.7 fix round 1 (Finding 4): a program logo under /public/programs is a static file on
-      // this origin; nothing loads or runs if it's opened directly, same as the token images.
+      // v2.7 fix round 1 (Finding 4), narrowed in fix round 2: a program logo under
+      // /public/programs is a static file on this origin; nothing loads or runs if it's opened
+      // directly, same as the token images. Matched by extension only (never a bare :file*), so
+      // this never catches Task 7's /programs/<id> guide-page route.
       {
-        source: '/programs/:file*',
+        source: '/programs/:file([a-z0-9-]+\\.(?:svg|png))',
         headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
       },
     ];
