@@ -34,9 +34,15 @@ const defaultFetch = (url: string) =>
  * entry); `unreachable` (the fetch failed for any reason: network, timeout, a non-2xx status such
  * as a bot wall's 405, an oversize page; the builder's confirmation then counts, flagged); or
  * `refused` (any other failure: wrong host, path mismatch, nothing to match, or a page that loaded
- * without the entry's link; not eligible). `problem` is the agent-facing sentence.
+ * without the entry's link; not eligible). `problem` is the agent-facing sentence. `loaded`
+ * (fix round 2, N2) marks the one refusal made after the page was actually fetched and read: the
+ * page loaded without the entry's link. Every other refusal is about the link itself (or what the
+ * entry gives to match), never the page.
  */
-export type ProofOutcome = { kind: 'ok' } | { kind: 'unreachable'; problem: string } | { kind: 'refused'; problem: string };
+export type ProofOutcome =
+  | { kind: 'ok' }
+  | { kind: 'unreachable'; problem: string }
+  | { kind: 'refused'; problem: string; loaded?: true };
 
 const refused = (problem: string): ProofOutcome => ({ kind: 'refused', problem });
 
@@ -93,7 +99,7 @@ export async function proofCheck(
   // proof site itself, or a shared platform): otherwise any other team's page would pass.
   if (repoUrl) {
     if (!lower.includes(normalizeRepoUrl(repoUrl)))
-      return refused(`the page at ${url} doesn't link to your repo yet; add the repo link there, and EarnKit checks again daily.`);
+      return { kind: 'refused', loaded: true, problem: `the page at ${url} doesn't link to your repo yet; add the repo link there, and EarnKit checks again daily.` };
     return { kind: 'ok' };
   }
   // Fix I1: a malformed liveUrl (bad stored data, or a caller that skipped canonicalBuilderUrl)
@@ -102,7 +108,7 @@ export async function proofCheck(
   if (!liveNeedle || sharedHost(liveNeedle, proof.host))
     return refused(`a live link on ${liveNeedle ?? 'that host'} can't prove this entry (every submission page can link it); add the project's repo_url, or use a live site on its own domain.`);
   if (!hostLinked(lower, liveNeedle))
-    return refused(`the page at ${url} doesn't link to your live site yet; add the link there, and EarnKit checks again daily.`);
+    return { kind: 'refused', loaded: true, problem: `the page at ${url} doesn't link to your live site yet; add the link there, and EarnKit checks again daily.` };
   return { kind: 'ok' };
 }
 
@@ -124,9 +130,10 @@ export async function proofProblem(
 /**
  * Ruling 4 (plan): the daily re-check's transition for one entry, or null for no change.
  * - the page links the entry: it counts on the page (`page`), since its first count (`ok_at` kept);
- * - the page loaded without the link: no longer eligible (both cleared), and the builder's
- *   confirmation is disproven, so it is cleared too (fix round 1, I2: a later fetch failure must
- *   never turn it back into an unverified page);
+ * - refused: no longer eligible (both cleared). When the page loaded without the link
+ *   (`loaded`), the builder's confirmation is disproven, so it is cleared too (fix round 1, I2: a
+ *   later fetch failure must never turn it back into an unverified page). A refusal of the link
+ *   itself (fix round 2, N2) never read a page, so the confirmation stands;
  * - still unreachable: a confirmed entry that didn't count yet counts as `unverified_page`;
  *   anything else stays as it is.
  * `confirmed` in the result is whether the confirmation still stands. Pure.
@@ -137,8 +144,10 @@ export function recheckUpdate(
   now: Date,
 ): { ok_at: Date | null; basis: string | null; confirmed: boolean } | null {
   if (o.kind === 'ok') return { ok_at: row.ok_at ?? now, basis: 'page', confirmed: row.confirmed };
-  if (o.kind === 'refused')
-    return row.ok_at === null && row.basis === null && !row.confirmed ? null : { ok_at: null, basis: null, confirmed: false };
+  if (o.kind === 'refused') {
+    const confirmed = row.confirmed && !o.loaded;
+    return row.ok_at === null && row.basis === null && confirmed === row.confirmed ? null : { ok_at: null, basis: null, confirmed };
+  }
   if (row.ok_at === null && row.confirmed) return { ok_at: now, basis: 'unverified_page', confirmed: true };
   return null;
 }

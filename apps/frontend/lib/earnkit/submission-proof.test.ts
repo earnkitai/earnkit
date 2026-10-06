@@ -387,7 +387,14 @@ test('Ruling 15 (plan): unreachable vs refused', async () => {
     fetchText: async () => { throw new Error('ECONNRESET'); },
   });
   assert.equal(network.kind, 'unreachable');
-  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => '<html>other</html>' })).kind, 'refused');
+  assert.deepEqual(
+    await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => '<html>other</html>' }),
+    { kind: 'refused', loaded: true, problem: "the page at https://dorahacks.io/buidl/7 doesn't link to your repo yet; add the repo link there, and EarnKit checks again daily." },
+  );
+  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', undefined, 'https://kit.example', { fetchText: async () => 'other' }) as { loaded?: true }).loaded, true);
+  // N2: refusals of the link itself never loaded a page.
+  for (const bad of ['https://evil.io/buidl/7', 'http://dorahacks.io/buidl/7', 'https://dorahacks.io/hackathon/arc'])
+    assert.equal((await proofCheck(arcProgram, bad, KIT, undefined, { fetchText: async () => 'github.com/acme/kit' }) as { loaded?: true }).loaded, undefined, bad);
   assert.equal((await proofCheck(arcProgram, 'https://evil.io/buidl/7', KIT, undefined)).kind, 'refused');
   assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/about', KIT, undefined)).kind, 'refused');
   assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', undefined, undefined)).kind, 'refused');
@@ -420,7 +427,11 @@ test('Ruling 4 (plan): re-check transitions; a loaded page without the link clea
   const now = new Date('2026-10-06T00:00:00Z');
   const t0 = new Date('2026-10-05T00:00:00Z');
   const un = { kind: 'unreachable' as const, problem: 'x' };
-  const no = { kind: 'refused' as const, problem: 'x' };
+  const no = { kind: 'refused' as const, problem: 'x', loaded: true as const };
+  const badLink = { kind: 'refused' as const, problem: 'x' };
+  // N2: a refusal of the link itself (no page read) ends the count but keeps the confirmation.
+  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, badLink, now), { ok_at: null, basis: null, confirmed: true });
+  assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, badLink, now), null);
   assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'ok' }, now), { ok_at: t0, basis: 'page', confirmed: true });
   assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, no, now), { ok_at: null, basis: null, confirmed: false });
   assert.equal(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, un, now), null);
@@ -559,6 +570,65 @@ test('fix round 1 (I2): a confirmed entry whose page loaded without the link sta
     const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
       SELECT submission_proof_ok_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${r.project_id}`;
     assert.deepEqual([row.submission_proof_ok_at, row.submission_basis, row.submission_confirmed_at], [null, null, null]);
+  } finally {
+    await sql()`DELETE FROM submissions WHERE project_id IN (SELECT id FROM projects WHERE program_id = ${program.id})`;
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});
+
+test('fix round 2 (N2): a bad entry link keeps the confirmation and asks for the link; a page without the link of a repo-less entry asks for the live site link', dbTest, async () => {
+  const program = recheckProgram(`t5f2-n2-${process.pid}-${Date.now()}`, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    let fetched = 0;
+    const wrong = await recordSubmission(
+      {
+        program_id: program.id,
+        project: { name: 'N2 Wrong Link', description: 'x', repo_url: 'https://github.com/alice/n2-wrong' },
+        submission_data: { description: 'x' },
+        external_submission_url: 'https://dorahacks.io/hackathon/arc/detail',
+        builder_submitted: true,
+      } as never,
+      installationId,
+      { fetchProof: async () => ((fetched++), '') },
+    );
+    assert.equal(fetched, 0);
+    assert.deepEqual((wrong as { bonus_join?: unknown }).bonus_join, { kind: 'link', site: 'dorahacks.io' });
+    const [w] = await sql()<{ submission_confirmed_at: Date | null; submission_basis: string | null }[]>`
+      SELECT submission_confirmed_at, submission_basis FROM projects WHERE id = ${wrong.project_id}`;
+    assert.ok(w.submission_confirmed_at instanceof Date, 'the confirmation stands: no page was read');
+    assert.equal(w.submission_basis, null);
+    // The right link later, behind a bot wall: the kept confirmation counts (unverified page).
+    const fixed = await recordSubmission(
+      {
+        program_id: program.id,
+        project: { name: 'N2 Wrong Link', description: 'x', repo_url: 'https://github.com/alice/n2-wrong' },
+        submission_data: { description: 'x' },
+        external_submission_url: 'https://dorahacks.io/buidl/3333',
+      } as never,
+      installationId,
+      { fetchProof: async () => { throw new SafeFetchError('it answered 405'); } },
+    );
+    assert.equal(fixed.project_id, wrong.project_id);
+    const [f] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${wrong.project_id}`;
+    assert.equal(f.submission_basis, 'unverified_page');
+    // A repo-less entry whose page loaded without its live site: the live site line, never "repo".
+    const live = await recordSubmission(
+      {
+        program_id: program.id,
+        project: { name: 'N2 Live Only', description: 'x', live_url: 'https://n2-live.example' },
+        submission_data: { description: 'x' },
+        external_submission_url: 'https://dorahacks.io/buidl/4444',
+        builder_submitted: true,
+      } as never,
+      installationId,
+      { fetchProof: async () => '<html>another team</html>' },
+    );
+    assert.deepEqual((live as { bonus_join?: unknown }).bonus_join, { kind: 'page', site: 'dorahacks.io', missing: 'live site' });
+    const [l] = await sql()<{ submission_confirmed_at: Date | null }[]>`SELECT submission_confirmed_at FROM projects WHERE id = ${live.project_id}`;
+    assert.equal(l.submission_confirmed_at, null, 'the page loaded without the link: the confirmation is disproven');
   } finally {
     await sql()`DELETE FROM submissions WHERE project_id IN (SELECT id FROM projects WHERE program_id = ${program.id})`;
     await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;

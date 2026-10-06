@@ -431,6 +431,8 @@ export function submissionBasis(a: {
 type OwnEntry = {
   id: number;
   token_url: string | null;
+  /** Fix round 2 (N1): the row's EarnKit coin or claim, never a builder-typed token_url. */
+  earnkit_coin: boolean;
   submission_proof_url: string | null;
   submission_proof_ok_at: Date | null;
   submission_basis: string | null;
@@ -448,7 +450,9 @@ async function ownEntry(
 ): Promise<OwnEntry | null> {
   const key = k.repoUrl ? normalizeRepoUrl(k.repoUrl) : null;
   const [row] = await q<OwnEntry[]>`
-    SELECT id, token_url, submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at
+    SELECT id, token_url,
+      (coin_address IS NOT NULL OR token_status IN ('launched', 'pending')) AS earnkit_coin,
+      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at
     FROM projects
     WHERE program_id = ${k.programId} AND installation_id = ${k.installationId} AND payout_wallet IS NULL
       AND ${key ? q`bonus_repo_key = ${key}` : q`repo_url IS NULL AND lower(name) = lower(${k.name})`}
@@ -531,7 +535,7 @@ export async function recordSubmission(
   let submissionConfirmedAt: Date | null = existing?.submission_confirmed_at ?? null;
   let bonusNote: string | null = null;
   // Builder text when the entry doesn't count yet (I3): what joins the builder bonus.
-  let bonusJoin: { kind: 'confirm' | 'page' | 'link'; site: string } | null = null;
+  let bonusJoin: { kind: 'confirm' | 'page' | 'link'; site: string; missing?: 'live site' } | null = null;
   if (bonusOn(program)) {
     const now = new Date();
     if (input.builder_submitted === true) submissionConfirmedAt ??= now;
@@ -552,8 +556,9 @@ export async function recordSubmission(
         submissionProofCheckedAt = now;
       }
     }
-    // I2: a page that loaded without the entry's link disproves the confirmation.
-    if (outcome?.kind === 'refused') submissionConfirmedAt = null;
+    // I2: a page that loaded without the entry's link disproves the confirmation (N2: only a page
+    // that was actually read; a refused link never loaded anything).
+    if (outcome?.kind === 'refused' && outcome.loaded) submissionConfirmedAt = null;
     const counted = submissionBasis({
       hasPattern: program.submission_proof !== null,
       outcome,
@@ -567,13 +572,16 @@ export async function recordSubmission(
       submissionProofOkAt = null;
       bonusJoin = {
         // Ruling 24: a public entry page with no link given asks for the link.
+        // N2: 'page' only for a page that loaded without the entry's link (naming what to add); a
+        // link that isn't one checkable entry page asks for the link again.
         kind: !program.submission_proof
           ? 'confirm'
-          : !submissionProofUrl
+          : !submissionProofUrl || (outcome?.kind === 'refused' && !outcome.loaded)
             ? 'link'
             : outcome?.kind === 'refused'
               ? 'page'
               : 'confirm',
+        ...(outcome?.kind === 'refused' && outcome.loaded && !repo_url && { missing: 'live site' as const }),
         site: program.submission_proof?.host ?? siteOf(program.submission_url) ?? program.title,
       };
     }
@@ -765,7 +773,8 @@ export async function recordSubmission(
         recorded: true,
         project_id: project.id,
         // I1: an earlier entry of this project was updated (same id), with its coin if it has one.
-        ...(own && { updated: true as const, coin_url: own.token_url }),
+        // N1: only an EarnKit coin (or a launch in flight); a token_url the builder typed is theirs.
+        ...(own && { updated: true as const, coin_url: own.earnkit_coin ? own.token_url : null }),
         bonus_join: bonusJoin,
         submitted_at: project.submitted_at.toISOString(),
         program_title: program.title,

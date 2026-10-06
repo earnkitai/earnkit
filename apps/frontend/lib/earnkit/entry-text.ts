@@ -98,10 +98,10 @@ export type EnteredText = {
     /**
      * Fix round 1 (I3): set when the entry doesn't count for the builder bonus yet, with what joins
      * it: the builder's word that it's submitted on `site` ('confirm'), the entry page on `site`
-     * linking the project ('page'), or (Ruling 24) the link to the entry page on `site` ('link').
+     * linking the project ('page'; `missing`: 'live site' for an entry without a repo), or (Ruling 24) the link to the entry page on `site` ('link').
      * Null or absent: it counts.
      */
-    join?: { kind: 'confirm' | 'page' | 'link'; site: string } | null;
+    join?: { kind: 'confirm' | 'page' | 'link'; site: string; missing?: 'live site' } | null;
   } | null;
 };
 
@@ -129,7 +129,7 @@ export function enteredText(a: EnteredText) {
   if (!join) return `${entered}${coin}\nBuilder bonus: ${round}`;
   const line =
     join.kind === 'page'
-      ? `Add your repo link to your ${join.site} entry page`
+      ? `Add your ${join.missing ?? 'repo'} link to your ${join.site} entry page`
       : join.kind === 'link'
         ? `Send me your ${join.site} entry link`
         : `Tell me once you've submitted on ${join.site}`;
