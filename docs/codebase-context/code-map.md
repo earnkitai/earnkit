@@ -298,7 +298,10 @@ apps/frontend/
                                tokens.ts repoCoinPrograms), ToolContext.matchProjects overrides the
                                GitHub/local-repo matcher (default match-projects.ts matchProjects);
                                list_programs passes githubGiven (a GitHub user or repo list given
-                               now or remembered) to presentFirstMessage for youCould (Ruling 11)
+                               now or remembered) to presentFirstMessage for youCould (Ruling 11);
+                               prepare_submission returns shown_wallet (Ruling 30: the wallet line's
+                               wallet, for the agent to echo as record_submission's payout_wallet;
+                               record_submission never reads the remembered wallet)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
@@ -338,8 +341,10 @@ apps/frontend/
                                record_submission needs the confirmed symbol), submissionToken
                                (record_submission's token part, never throws; loose token object,
                                image ignored), launchToken (launch_token, with live_url/repo_url
-                               overrides; Ruling 28: the call's creator_wallet or the entry's own
-                               wallet only, never the remembered one, else NO_WALLET);
+                               overrides; Rulings 28, 30: the call's wallet or the entry's own
+                               only, never the remembered one, in either mode, else NO_WALLET;
+                               Ruling 31: plain notes, technical detail in agent_note,
+                               TECHNICAL_TERMS, plainProblem);
                                runTokenFlow: launches configured, decideToken, one
                                token per repo, gate, LIMITS.tokenLaunch, deploy; TokenFlowDeps
                                (gate, check, deploy, store, limit, available) for tests

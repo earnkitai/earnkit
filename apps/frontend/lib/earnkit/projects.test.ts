@@ -796,7 +796,8 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
     { available: () => false },
   );
   assert.equal(swap.status, 'failed');
-  assert.match(swap.note ?? '', /can't change once recorded; record a new entry for a different repo/);
+  assert.match(swap.note ?? '', /can't change once recorded; enter the other repo as a new entry/);
+  assert.match(swap.agent_note ?? '', /^repo_url: /);
   const [kept] = await sql()<{ repo_url: string; bonus_repo_key: string }[]>`SELECT repo_url, bonus_repo_key FROM projects WHERE id = ${squat.project_id}`;
   assert.equal(kept.repo_url, victimRepo);
   // The live link may still be fixed (launches are off here, so the flow stops before any gate).

@@ -406,6 +406,9 @@ export const tools = {
           }
         : { submission_url: program.submission_url }),
       ...(token && { token }),
+      // Ruling 30: the wallet the builder sees on the wallet line, to echo as record_submission's
+      // payout_wallet once they say yes. record_submission never reads the remembered wallet.
+      ...(!program.campaign && token?.creator_wallet && !token.repo_coin_program && { shown_wallet: token.creator_wallet }),
     });
   },
 
@@ -442,7 +445,8 @@ export const tools = {
         choice: parsed.token,
         confirmed: parsed.builder_confirmed === true,
         // Ruling 22: the wallet given with this entry goes straight to the token flow (recordSubmission
-        // validated it); the remembered one is used only when none was given.
+        // validated it). Ruling 30: it is the only wallet from this call; the remembered one is never
+        // read here (the agent echoes prepare_submission's shown_wallet). None: no coin yet.
         givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
       },
       ctx.tokenDeps,
@@ -458,7 +462,8 @@ export const tools = {
     const tokenOut = repoHeld && token.no_wallet
       ? { status: token.status, note: 'No coin: another entry of this repo in this program already has its coin (one coin per repo).' }
       : token.no_wallet
-        ? { ...token, note: noCoinYet(endsLabel) }
+        ? // Ruling 31's split here too: plain note, the instruction (noCoinYet) for the agent.
+          { ...token, note: 'No coin yet: no wallet was given.', agent_note: noCoinYet(endsLabel) }
         : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =

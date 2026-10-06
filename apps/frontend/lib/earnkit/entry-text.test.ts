@@ -294,6 +294,11 @@ test('Ruling 29 (final I2): the round end is the first message\'s day, the real 
   // A rolling program's month ends Nov 1 00:00 UTC (exclusive): its last day.
   assert.equal(roundEndLabel({ summary: 'up to $5,000 · rolling', ends_at: null }, new Date('2026-11-01T00:00:00Z')), 'Oct 31');
   assert.equal(summaryCloses('up to $5,000 · rolling'), null);
+  // Re-review Minor 1: Arc's earlier window (stored, ending a week before the moved deadline, same
+  // ET clock time) still reads its local day, not the next UTC day.
+  assert.equal(roundEndLabel(arc, new Date('2026-10-08T03:59:00Z')), 'Oct 7');
+  // A stored end at another clock time falls back to its own last UTC day.
+  assert.equal(roundEndLabel(arc, new Date('2026-10-01T00:00:00Z')), 'Sep 30');
   // The reply and the agent note carry that same day.
   const label = roundEndLabel(arc, arc.ends_at);
   const reply = enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: { cell: 'new pool', ends: label, board: 'b' } });
@@ -323,7 +328,7 @@ test('final M4: a coin not launched yet joins the builder bonus once it is; neve
   );
   assert.equal(
     enteredText({ programTitle: 'Base Batches', coin: other, bonus: { ...bonus, join: { kind: 'confirm', site: 'base.org' } } }),
-    "Entered in Base Batches. Your coin isn't launched yet.\nTell me once you've submitted on base.org to join the builder bonus when your coin launches (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
+    "Entered in Base Batches. Your coin isn't launched yet.\nTell me once you've submitted on base.org. With your coin launched, that joins the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
   );
   assert.doesNotMatch(enteredText({ programTitle: 'A', coin: other, bonus }), /\nBuilder bonus:|No coin yet/);
 });

@@ -197,11 +197,11 @@ export const TOKENS_UNAVAILABLE = "Token launches aren't available right now.";
 
 /** The claim found the project's links changed after the gate checked them. */
 export const LINKS_CHANGED =
-  "The project's links changed during the launch; call launch_token again.";
+  "The project's links changed during the launch (nothing was launched); say 'launch the token' to try again.";
 
 /** The claim matched nothing although the project had no token: something changed meanwhile. */
 export const STATE_CHANGED =
-  'The project changed during the launch (nothing was launched); call launch_token again.';
+  "The project changed during the launch (nothing was launched); say 'launch the token' to try again.";
 
 /** Starts every "another project on this repo has a token" note. */
 export const REPO_HAS_TOKEN = 'This repo already has a token';

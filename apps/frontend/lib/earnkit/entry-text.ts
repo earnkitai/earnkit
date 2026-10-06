@@ -88,8 +88,18 @@ export function summaryCloses(summary: string): string | null {
  * ending Nov 1). Pure.
  */
 export function roundEndLabel(program: { summary: string; ends_at: Date | null }, ends: Date) {
-  if (program.ends_at && program.ends_at.getTime() === ends.getTime())
-    return summaryCloses(program.summary) ?? deadlineDay(ends);
+  const closes = summaryCloses(program.summary);
+  if (program.ends_at && closes) {
+    if (program.ends_at.getTime() === ends.getTime()) return closes;
+    // Re-review Minor 1: a stored window whose program deadline later moved keeps the same local
+    // clock time: shift its UTC day the way the summary's local day differs from the deadline's.
+    const sameClock = (program.ends_at.getTime() - ends.getTime()) % DAY_MS === 0;
+    if (sameClock)
+      for (const shift of [0, -1, 1])
+        if (shortDate(new Date(program.ends_at.getTime() + shift * DAY_MS)) === closes)
+          return shortDate(new Date(ends.getTime() + shift * DAY_MS));
+  }
+  if (program.ends_at && program.ends_at.getTime() === ends.getTime()) return closes ?? deadlineDay(ends);
   return deadlineDay(ends);
 }
 
@@ -163,7 +173,6 @@ export function enteredText(a: EnteredText) {
   if (!round) return `${entered}${coin}`;
   const join = a.bonus!.join;
   // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
-  const once = a.coin.status === 'other' ? ' when your coin launches' : '';
   if (!join)
     return a.coin.status === 'other'
       ? `${entered} Your coin isn't launched yet; it joins the builder bonus once it is (${round}).`
@@ -174,7 +183,10 @@ export function enteredText(a: EnteredText) {
       : join.kind === 'link'
         ? `Send me your ${join.site} entry link`
         : `Tell me once you've submitted on ${join.site}`;
-  return `${entered}${coin}\n${line} to join the builder bonus${once} (${round}).`;
+  // Re-review Minor 2: with the coin still to launch, the step and the coin are two plain sentences.
+  return a.coin.status === 'other'
+    ? `${entered}${coin}\n${line}. With your coin launched, that joins the builder bonus (${round}).`
+    : `${entered}${coin}\n${line} to join the builder bonus (${round}).`;
 }
 
 /** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
