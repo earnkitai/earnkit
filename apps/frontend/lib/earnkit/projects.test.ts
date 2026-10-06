@@ -856,7 +856,7 @@ test('v2.6 Ruling 10: a non-campaign entry naming a wallet remembers it for the 
       } as never,
       installationId,
     ),
-    (err: unknown) => err instanceof EntryError && err.message === "payout_wallet: That wallet address isn't valid. Check it and send it again.",
+    (err: unknown) => err instanceof EntryError && err.message === "That wallet address isn't valid. Check it and send it again.",
   );
   const after = (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE installation_id = ${installationId}`)[0].n;
   assert.equal(after, before);

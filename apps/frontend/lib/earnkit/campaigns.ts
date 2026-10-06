@@ -242,7 +242,7 @@ export const WALLET_INVALID = "That wallet address isn't valid. Check it and sen
 export function givenWallet(w: string | null | undefined): string | null {
   const t = w?.trim();
   if (!t) return null;
-  if (!isWalletAddress(t)) throw new EntryError(`payout_wallet: ${WALLET_INVALID}`);
+  if (!isWalletAddress(t)) throw new EntryError(WALLET_INVALID);
   return t;
 }
 
