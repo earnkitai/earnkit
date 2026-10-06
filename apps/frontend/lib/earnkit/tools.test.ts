@@ -1,3 +1,4 @@
+import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -448,10 +449,30 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     );
     assert.equal(await count(), 0);
     assert.equal(deploys.length, 0, 'never launched to the remembered wallet');
-    const ok = (await tools.record_submission(coinEntry(4, B), ctxTwo)) as { token: { status: string }; show_to_builder: string };
+    const ok = (await tools.record_submission(coinEntry(4, B), ctxTwo)) as { project_id: number; token: { status: string }; show_to_builder: string };
     assert.equal(ok.token.status, 'launched');
     assert.deepEqual(deploys.map((d) => d.creatorWallet), [B]);
-    assert.match(ok.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: /);
+    // Fix round 1 (I3): no entry page link yet, so the builder is told what joins the bonus.
+    assert.match(
+      ok.show_to_builder,
+      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nTell me once you've submitted on dorahacks\.io to join the builder bonus \(0\.18 ETH so far · ends Dec 31 · earnkit\.com\/bonus\/.+\)\.$/,
+    );
+    assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
+    // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
+    // nothing launched again, and the reply is the counting line.
+    await sql()`UPDATE projects SET token_url = 'https://tokens.fun/coin/0xT', coin_address = ${'0x' + [...crypto.getRandomValues(new Uint8Array(20))].map((x) => x.toString(16).padStart(2, '0')).join('')}, coin_launched_at = now() WHERE id = ${ok.project_id}`;
+    const late = (await tools.record_submission(
+      { ...coinEntry(4, B), external_submission_url: 'https://dorahacks.io/buidl/4040', builder_submitted: true },
+      { ...ctxTwo, entryDeps: { fetchProof: async () => { throw new SafeFetchError('it answered 405'); } } },
+    )) as { project_id: number; updated?: boolean; token: { status: string }; show_to_builder: string };
+    assert.equal(late.project_id, ok.project_id);
+    assert.equal(late.updated, true);
+    assert.equal(late.token.status, 'launched');
+    assert.equal(deploys.length, 1, 'no second launch');
+    assert.match(late.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Dec 31 · /);
+    assert.equal(await count(), 1, 'one entry, not two');
+    const [basis] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${ok.project_id}`;
+    assert.equal(basis.submission_basis, 'unverified_page');
     assert.equal((await sql()<{ payout_wallet: string }[]>`SELECT payout_wallet FROM installations WHERE id = ${two}`)[0].payout_wallet, B);
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;

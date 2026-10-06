@@ -80,9 +80,9 @@ export default async function BonusReviewPage({
   const ids = rows.map((x) => x.project_id);
   const facts = ids.length
     ? await sql()<
-        { id: number; name: string; repo_url: string | null; live_url: string | null; submission_basis: string | null; signals: Signals | null }[]
+        { id: number; name: string; repo_url: string | null; live_url: string | null; submission_basis: string | null; submission_proof_url: string | null; signals: Signals | null }[]
       >`
-        SELECT p.id, p.name, p.repo_url, p.live_url, p.submission_basis, (
+        SELECT p.id, p.name, p.repo_url, p.live_url, p.submission_basis, p.submission_proof_url, (
           SELECT s.signals FROM bonus_scores s
           WHERE s.round_key = ${round} AND s.project_id = p.id AND s.through >= ${r.ends_at}
           ORDER BY s.day DESC LIMIT 1) AS signals
@@ -137,6 +137,8 @@ export default async function BonusReviewPage({
               // Stored URLs are untrusted: https-only canonical, else no link at all.
               const live = shownUrl(f?.live_url);
               const repo = shownUrl(f?.repo_url);
+              // Fix round 1 (M4): the entry page, so an unverified one can be checked by hand.
+              const page = shownUrl(f?.submission_proof_url);
               return (
                 <tr key={x.id} className="border-t border-ek-navy align-top">
                   <td className="py-2">{x.rank}</td>
@@ -157,7 +159,14 @@ export default async function BonusReviewPage({
                       ? `users ${s.users}, live ${Math.round(s.liveRatio * 100)}%, commit days ${s.commitDays}, contributors ${s.contributors}, interest ${s.interest}, holders ${s.holders}`
                       : '–'}
                   </td>
-                  <td className="py-2 text-xs">{f ? submissionText(f.submission_basis) : '–'}</td>
+                  <td className="py-2 text-xs">
+                    {f ? submissionText(f.submission_basis) : '–'}
+                    {page ? (
+                      <div>
+                        <a href={page} target="_blank" rel="noopener noreferrer" className="underline">entry page</a>
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="py-2 text-xs">{x.flags.length ? x.flags.map(flagText).join('; ') : '–'}</td>
                   <td className="py-2">{place ? `#${place.slot + 1}: ${weth(place.amount)}` : '–'}</td>
                   <td className="py-2">

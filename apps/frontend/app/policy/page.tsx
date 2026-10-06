@@ -122,7 +122,7 @@ export default function PolicyPage() {
           <p>
             The builder bonus share of every coin&apos;s fees goes to a pool for the program the project entered.
             A program with an end date has one round. A rolling program has one round per calendar month (UTC).
-            Every program has a builder bonus unless it opts out.
+            Every program except EarnKit campaigns has a builder bonus unless it opts out.
           </p>
           <Sub>Who can win</Sub>
           <List
@@ -131,6 +131,7 @@ export default function PolicyPage() {
               <>
                 Programs with public entry pages: your entry page links your repo or live product. Programs without
                 public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.
+                If EarnKit can&apos;t load an entry page, the builder&apos;s confirmation counts and is reviewed too.
               </>,
               <>
                 You can push to the repo: its <code className="text-ek-white">earnkit.txt</code> carries the token line

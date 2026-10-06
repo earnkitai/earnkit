@@ -17,7 +17,7 @@ import { SafeFetchError } from './safe-fetch';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { submissionBasis } from './projects';
+import { recordSubmission, submissionBasis } from './projects';
 
 const program = {
   id: 'arc-microgrants',
@@ -416,17 +416,22 @@ test('v2.6 §3: how a submission counts', () => {
   assert.match(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).note!, /builder_submitted: true/);
 });
 
-test('Ruling 4 (plan): re-check transitions', () => {
+test('Ruling 4 (plan): re-check transitions; a loaded page without the link clears the confirmation (I2)', () => {
   const now = new Date('2026-10-06T00:00:00Z');
   const t0 = new Date('2026-10-05T00:00:00Z');
   const un = { kind: 'unreachable' as const, problem: 'x' };
-  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'ok' }, now), { ok_at: t0, basis: 'page' });
-  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'refused', problem: 'x' }, now), { ok_at: null, basis: null });
+  const no = { kind: 'refused' as const, problem: 'x' };
+  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'ok' }, now), { ok_at: t0, basis: 'page', confirmed: true });
+  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, no, now), { ok_at: null, basis: null, confirmed: false });
   assert.equal(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, un, now), null);
-  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, un, now), { ok_at: now, basis: 'unverified_page' });
+  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, un, now), { ok_at: now, basis: 'unverified_page', confirmed: true });
   assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, un, now), null);
-  assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, { kind: 'refused', problem: 'x' }, now), null);
-  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, { kind: 'ok' }, now), { ok_at: now, basis: 'page' });
+  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, no, now), { ok_at: null, basis: null, confirmed: false });
+  assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, no, now), null);
+  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, { kind: 'ok' }, now), { ok_at: now, basis: 'page', confirmed: false });
+  // I2: unverified, then a page without the link, then a bot wall again: still not counting.
+  const cleared = recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, no, now)!;
+  assert.equal(recheckUpdate({ ok_at: cleared.ok_at, basis: cleared.basis, confirmed: cleared.confirmed }, un, now), null);
 });
 
 test('Ruling 4 (plan): an unverified page that later loads without the link stops counting; no second fetch within 24 h', dbTest, async () => {
@@ -456,6 +461,15 @@ test('Ruling 4 (plan): an unverified page that later loads without the link stop
     assert.equal(row.submission_proof_checked_at!.getTime(), now.getTime());
     await recheckSubmissionProofs(new Date(now.getTime() + 3_600_000), Date.now() + 60_000, { fetchText });
     assert.equal(fetches, 1, 'a second run within 24 h fetches nothing');
+    const [c] = await sql()<{ submission_confirmed_at: Date | null }[]>`SELECT submission_confirmed_at FROM projects WHERE id = ${id}`;
+    assert.equal(c.submission_confirmed_at, null, 'I2: the page loaded without the link, so the confirmation is cleared');
+    // A day later the site blocks EarnKit again: the entry stays out (never an unverified page again).
+    await recheckSubmissionProofs(new Date(now.getTime() + 25 * 3_600_000), Date.now() + 60_000, {
+      fetchText: async () => { throw new SafeFetchError('it answered 405'); },
+    });
+    const [again] = await sql()<{ submission_proof_ok_at: Date | null; submission_basis: string | null }[]>`
+      SELECT submission_proof_ok_at, submission_basis FROM projects WHERE id = ${id}`;
+    assert.deepEqual([again.submission_proof_ok_at, again.submission_basis], [null, null]);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
     await sql()`DELETE FROM installations WHERE id = ${installationId}`;
@@ -517,6 +531,36 @@ test('v2.6 (N1 scope): a repo filled in at launch_token keeps a builder-confirme
     assert.equal(row.submission_proof_ok_at!.getTime(), t0.getTime());
     assert.equal(row.submission_basis, 'confirmed');
   } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});
+
+test('fix round 1 (I2): a confirmed entry whose page loaded without the link stays out when the site blocks EarnKit later', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const program = recheckProgram(`t5f-i2-${process.pid}-${Date.now()}`, { starts_at: '2026-09-01T00:00:00Z', ends_at: '2026-12-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    const repo = 'https://github.com/alice/i2-entry';
+    const r = await recordSubmission(
+      {
+        program_id: program.id,
+        project: { name: 'I2', description: 'x', repo_url: repo },
+        submission_data: { description: 'x' },
+        external_submission_url: 'https://dorahacks.io/buidl/2222',
+        builder_submitted: true,
+      } as never,
+      installationId,
+      { fetchProof: async () => '<html>another team</html>' },
+    );
+    await sql()`UPDATE projects SET submission_proof_checked_at = ${new Date(now.getTime() - 2 * PROOF_RECHECK_INTERVAL_MS)} WHERE id = ${r.project_id}`;
+    await recheckSubmissionProofs(now, Date.now() + 60_000, { fetchText: async () => { throw new SafeFetchError('it answered 405'); } });
+    const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+      SELECT submission_proof_ok_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${r.project_id}`;
+    assert.deepEqual([row.submission_proof_ok_at, row.submission_basis, row.submission_confirmed_at], [null, null, null]);
+  } finally {
+    await sql()`DELETE FROM submissions WHERE project_id IN (SELECT id FROM projects WHERE program_id = ${program.id})`;
     await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
     await sql()`DELETE FROM installations WHERE id = ${installationId}`;
   }

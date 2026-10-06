@@ -50,7 +50,7 @@ import {
 import { cleanProject, quoted } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
-import { REPO_HAS_TOKEN, repoCoinPrograms } from './tokens';
+import { REPO_HAS_TOKEN, repoCoinPrograms, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -429,8 +429,13 @@ export const tools = {
         ),
     });
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
-    // The token never fails the submission: it is recorded either way.
-    const token = await submissionToken(
+    // The token never fails the submission: it is recorded either way. Fix round 1 (I1): an
+    // updated entry that already has its coin keeps it (no second launch, no refusal shown).
+    const token: TokenOutcome = 'coin_url' in result && result.coin_url
+      ? result.coin_url === 'pending'
+        ? { status: 'pending', note: 'This entry\'s coin is launching.' }
+        : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its coin.' }
+      : await submissionToken(
       {
         projectId: result.project_id,
         installationId: ctx.installationId,
@@ -470,6 +475,7 @@ export const tools = {
           cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool ?? null }),
           lastDay: roundEnds!,
           board: boardLink(result.bonus_round.key),
+          join: 'bonus_join' in result ? result.bonus_join : null,
         };
     }
     const show_to_builder = enteredText({ programTitle: result.program_title, coin, bonus });

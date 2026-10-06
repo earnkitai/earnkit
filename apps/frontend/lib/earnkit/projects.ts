@@ -428,6 +428,39 @@ export function submissionBasis(a: {
     : { basis: null, note: `Builder bonus not available yet: ${a.outcome.problem} ${confirm}` };
 }
 
+type OwnEntry = {
+  id: number;
+  token_url: string | null;
+  submission_proof_url: string | null;
+  submission_proof_ok_at: Date | null;
+  submission_basis: string | null;
+  submission_confirmed_at: Date | null;
+};
+
+/**
+ * Fix round 1 (Ruling 23, I1): this installation's existing entry of the same project in a
+ * program that isn't a campaign: the same normalized repo, or, without a repo, the same name on a
+ * repo-less entry. The one with a coin first, then the earliest. Never another installation's row.
+ */
+async function ownEntry(
+  q: postgres.Sql | postgres.TransactionSql,
+  k: { programId: string; installationId: number; repoUrl: string | null; name: string },
+): Promise<OwnEntry | null> {
+  const key = k.repoUrl ? normalizeRepoUrl(k.repoUrl) : null;
+  const [row] = await q<OwnEntry[]>`
+    SELECT id, token_url, submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at
+    FROM projects
+    WHERE program_id = ${k.programId} AND installation_id = ${k.installationId} AND payout_wallet IS NULL
+      AND ${key ? q`bonus_repo_key = ${key}` : q`repo_url IS NULL AND lower(name) = lower(${k.name})`}
+    ORDER BY (coin_address IS NOT NULL) DESC, submitted_at, id
+    LIMIT 1`;
+  return row ?? null;
+}
+
+/** A program's submission site as builder text ("dorahacks.io"), or null. Pure. */
+const siteOf = (url: string | null | undefined) =>
+  url && URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, '') : null;
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
@@ -479,33 +512,63 @@ export async function recordSubmission(
     deployers = checked.deployers;
   }
 
+  // Fix round 1 (Ruling 23, I1): outside campaigns, the same installation recording the same
+  // project again in this program (same normalized repo, or the same name without a repo) updates
+  // its entry instead of adding a second one, so a late confirmation lands on the row with the coin.
+  const sameEntryKey = { programId: program.id, installationId, repoUrl: repo_url ?? null, name };
+  const existing = program.campaign ? null : await ownEntry(sql(), sameEntryKey);
+
   // v2.6 §3: how this entry's submission counts for the builder bonus (submissionBasis). With a
   // public submission page (a submission_proof pattern) EarnKit checks the external URL; without
   // one, the builder's confirmation counts. A failure never fails the submission: it's recorded
   // either way, just not (yet) bonus-eligible, with a note telling the agent what to fix. The cron
   // re-checks a page daily while the round is open (submission-proof.ts recheckSubmissionProofs).
-  let submissionProofUrl: string | null = null;
-  let submissionProofOkAt: Date | null = null;
+  let submissionProofUrl: string | null = existing?.submission_proof_url ?? null;
+  // An existing entry keeps what it has unless the bonus check below runs (e.g. the program closed).
+  let submissionProofOkAt: Date | null = existing?.submission_proof_ok_at ?? null;
   let submissionProofCheckedAt: Date | null = null;
-  let submissionBasisValue: 'page' | 'unverified_page' | 'confirmed' | null = null;
-  let submissionConfirmedAt: Date | null = null;
+  let submissionBasisValue = (existing?.submission_basis ?? null) as 'page' | 'unverified_page' | 'confirmed' | null;
+  let submissionConfirmedAt: Date | null = existing?.submission_confirmed_at ?? null;
   let bonusNote: string | null = null;
+  // Builder text when the entry doesn't count yet (I3): what joins the builder bonus.
+  let bonusJoin: { kind: 'confirm' | 'page'; site: string } | null = null;
   if (bonusOn(program)) {
-    const confirmed = input.builder_submitted === true;
+    const now = new Date();
+    if (input.builder_submitted === true) submissionConfirmedAt ??= now;
     let outcome: ProofOutcome | null = null;
     if (program.submission_proof) {
-      submissionProofUrl = input.external_submission_url ?? null;
-      if (submissionProofUrl) {
+      submissionProofUrl = input.external_submission_url ?? existing?.submission_proof_url ?? null;
+      // Already counting on this same page: kept as it is, no fetch (a transient failure now must
+      // never undo it; the daily re-check owns unverified pages).
+      const countsOnPage =
+        existing !== null &&
+        existing.submission_proof_ok_at !== null &&
+        existing.submission_basis !== 'unverified_page' &&
+        existing.submission_basis !== 'confirmed' &&
+        existing.submission_proof_url === submissionProofUrl;
+      if (countsOnPage) outcome = { kind: 'ok' };
+      else if (submissionProofUrl) {
         outcome = await proofCheck(program, submissionProofUrl, repo_url, live_url, { fetchText: deps.fetchProof });
-        submissionProofCheckedAt = new Date();
+        submissionProofCheckedAt = now;
       }
     }
-    const counted = submissionBasis({ hasPattern: program.submission_proof !== null, outcome, confirmed });
-    const now = submissionProofCheckedAt ?? new Date();
-    if (confirmed) submissionConfirmedAt = now;
+    // I2: a page that loaded without the entry's link disproves the confirmation.
+    if (outcome?.kind === 'refused') submissionConfirmedAt = null;
+    const counted = submissionBasis({
+      hasPattern: program.submission_proof !== null,
+      outcome,
+      confirmed: submissionConfirmedAt !== null,
+    });
     if (counted.basis) {
       submissionBasisValue = counted.basis;
-      submissionProofOkAt = now;
+      submissionProofOkAt = existing?.submission_proof_ok_at ?? now;
+    } else {
+      submissionBasisValue = null;
+      submissionProofOkAt = null;
+      bonusJoin = {
+        kind: program.submission_proof && outcome?.kind === 'refused' ? 'page' : 'confirm',
+        site: program.submission_proof?.host ?? siteOf(program.submission_url) ?? program.title,
+      };
     }
     bonusNote = counted.note;
   }
@@ -600,13 +663,21 @@ export async function recordSubmission(
             );
         }
       }
+      // I1: one entry per installation, program and project; serialized so two calls at once
+      // can't both insert. A row found now is updated (not charged: no new entry).
+      let own: OwnEntry | null = null;
+      if (!program.campaign) {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
+        own = await ownEntry(tx, sameEntryKey);
+      }
       // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
-      await deps.charge?.();
+      if (!own) await deps.charge?.();
       if (bonusRepoKey && bonusOn(program)) {
         // Only an earlier ELIGIBLE entry (coin and proof) holds the repo (Ruling 15): a squatter's
         // row or the builder's own failed attempt never blocks (traction.ts eligibleSql).
         const [earlier] = await tx<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
+            AND id <> ${existing?.id ?? 0}
             AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
           ORDER BY submitted_at, id LIMIT 1`;
         if (earlier)
@@ -620,6 +691,7 @@ export async function recordSubmission(
         const held = await tx<{ id: number; contracts: string[] }[]>`
           SELECT id, contracts FROM projects
           WHERE program_id = ${program.id} AND contracts && ${bonusContracts}::text[]
+            AND id <> ${existing?.id ?? 0}
             AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
           ORDER BY submitted_at, id`;
         const taken = bonusContracts
@@ -630,7 +702,19 @@ export async function recordSubmission(
             `Not counted for this entry: ${taken.map((x) => `${x.c} already backs entry #${x.by!.id}`).join('; ')} (a contract counts for one entry per program).`,
           );
       }
-      const [project] = await tx<{ id: number; submitted_at: Date }[]>`
+      const [project] = own
+        ? await tx<{ id: number; submitted_at: Date }[]>`
+          UPDATE projects SET
+            submission_proof_url = ${submissionProofUrl},
+            submission_proof_ok_at = ${submissionProofOkAt},
+            submission_basis = ${submissionBasisValue},
+            submission_confirmed_at = ${submissionConfirmedAt},
+            submission_proof_checked_at = COALESCE(${submissionProofCheckedAt}, submission_proof_checked_at),
+            contracts = COALESCE(${bonusContracts}::text[], contracts),
+            deployers = COALESCE(${bonusDeployers}::text[], deployers),
+            creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END
+          WHERE id = ${own.id} RETURNING id, submitted_at`
+        : await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
         program_id: input.program_id,
         name,
@@ -673,6 +757,9 @@ export async function recordSubmission(
       return {
         recorded: true,
         project_id: project.id,
+        // I1: an earlier entry of this project was updated (same id), with its coin if it has one.
+        ...(own && { updated: true as const, coin_url: own.token_url }),
+        bonus_join: bonusJoin,
         submitted_at: project.submitted_at.toISOString(),
         program_title: program.title,
         // For record_submission's reply: a program without coins skips the coin line (M3).
