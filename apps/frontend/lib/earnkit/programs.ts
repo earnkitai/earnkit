@@ -5,6 +5,10 @@ import type { Chain } from './match';
 import { sql } from './db';
 import { bonusOn, windowKey } from './bonus-rounds';
 import {
+  type DifficultyOverride,
+  type Focus,
+  type GuideLogo,
+  type PastRound,
   type ProgramFile,
   type SubmissionRequirement,
   type SubmissionProof,
@@ -161,6 +165,13 @@ export type ProgramRow = {
   submission_proof: SubmissionProof | null;
   /** v2.6 §4: whether this program's entries can earn the builder bonus; on by default. */
   builder_bonus: boolean;
+  /** v2.7 §2: program guide facts (null/empty when the file doesn't set them). */
+  logo: GuideLogo | null;
+  past_rounds: PastRound[];
+  focus: Focus | null;
+  best_bet: string | null;
+  difficulty_override: DifficultyOverride | null;
+  winners_per_round: number | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -189,6 +200,14 @@ export async function listPrograms() {
       | 'ideas'
       | 'submission_proof'
       | 'builder_bonus'
+      | 'logo'
+      | 'past_rounds'
+      | 'focus'
+      | 'best_bet'
+      | 'difficulty_override'
+      | 'winners_per_round'
+      | 'chains'
+      | 'rules'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -198,6 +217,8 @@ export async function listPrograms() {
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
+      p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
+      p.chains, p.rules,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -249,6 +270,8 @@ export function programCard(
     | 'ideas'
     | 'submission_proof'
     | 'builder_bonus'
+    | 'logo'
+    | 'chains'
   >,
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
@@ -295,6 +318,9 @@ export function programCard(
     // v2.6 §4, Ruling 7 (plan): every card here is an active program (listPrograms' WHERE), so
     // this is bonusOn minus the status check; false for any campaign, EarnKit or sponsor.
     builder_bonus: bonusOn({ status: 'active', builder_bonus: p.builder_bonus, campaign: p.campaign }),
+    // v2.7 Ruling 1 (plan): the path only; no logo renders a monogram tile instead.
+    logo: p.logo?.path ?? null,
+    chains: p.chains,
   };
 }
 
@@ -519,6 +545,13 @@ export async function upsertProgram(
       ideas: p.ideas,
       submission_proof: p.submission_proof ? tx.json(p.submission_proof) : null,
       builder_bonus: p.builder_bonus,
+      // v2.7 §2: program guide facts, written straight from the file.
+      logo: p.logo ? tx.json(p.logo) : null,
+      past_rounds: tx.json(p.past_rounds),
+      focus: p.focus ? tx.json(p.focus) : null,
+      best_bet: p.best_bet ?? null,
+      difficulty_override: p.difficulty_override ? tx.json(p.difficulty_override) : null,
+      winners_per_round: p.winners_per_round ?? null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

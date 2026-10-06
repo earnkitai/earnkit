@@ -534,3 +534,12 @@ ALTER TABLE projects ADD CONSTRAINT projects_submission_basis_check
   CHECK (submission_basis IN ('page', 'unverified_page', 'confirmed'));
 -- v2.6 Ruling 5 (plan): when the builder confirmed the submission at record_submission.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_confirmed_at timestamptz;
+
+-- v2.7 §2: program guide facts from programs/*.json. Each fact carries its own source_url inside
+-- the JSON. Additive and idempotent: v2.6 rows get an empty past_rounds and NULLs.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS logo jsonb;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS past_rounds jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS focus jsonb;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS best_bet text;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS difficulty_override jsonb;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS winners_per_round integer;

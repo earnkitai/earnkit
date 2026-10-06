@@ -1,7 +1,7 @@
 import './env.mts';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ProgramFile } from '../lib/earnkit/program-file';
+import { logoFileProblem, ProgramFile } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -24,7 +24,28 @@ for (const { f, result } of invalid) {
     console.error(`  - ${issue.path.join('.') || '(program)'}: ${issue.message}`);
   }
 }
-if (invalid.length > 0) process.exit(1);
+// v2.7 Ruling 23 (plan): a program's logo file must exist under apps/frontend/public and be safe
+// to serve, checked before any DB write, in both --check and sync.
+const logoProblems: { f: string; problem: string }[] = [];
+for (const { f, result } of parsed) {
+  if (!result.success) continue;
+  const logo = result.data.logo;
+  if (!logo) continue;
+  let bytes: Buffer | null;
+  try {
+    bytes = readFileSync(join(import.meta.dirname, '..', 'public', logo.path));
+  } catch {
+    bytes = null;
+  }
+  const problem = logoFileProblem(logo.path, bytes);
+  if (problem) logoProblems.push({ f, problem });
+}
+for (const { f, problem } of logoProblems) {
+  console.error(`${f} is not valid:`);
+  console.error(`  - ${problem}`);
+}
+
+if (invalid.length > 0 || logoProblems.length > 0) process.exit(1);
 
 if (checkOnly) {
   for (const { f } of parsed) console.log(`Valid: ${f}`);

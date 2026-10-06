@@ -165,6 +165,30 @@ try {
 }
 ok(badBasis, "submission_basis rejects anything but 'page', 'unverified_page' or 'confirmed'");
 
+// v2.7 §2: program guide facts are additive; an existing program gets empty/NULL defaults and
+// keeps its builder_bonus.
+const [guide] = await db<{
+  past_rounds: unknown;
+  logo: unknown;
+  focus: unknown;
+  best_bet: string | null;
+  difficulty_override: unknown;
+  winners_per_round: number | null;
+  builder_bonus: boolean;
+}[]>`
+  SELECT past_rounds, logo, focus, best_bet, difficulty_override, winners_per_round, builder_bonus
+  FROM programs WHERE id = 'old-active'`;
+ok(JSON.stringify(guide.past_rounds) === '[]', "an existing program's past_rounds defaults to []");
+ok(
+  guide.logo === null &&
+    guide.focus === null &&
+    guide.best_bet === null &&
+    guide.difficulty_override === null &&
+    guide.winners_per_round === null,
+  'an existing program gets NULL logo, focus, best_bet, difficulty_override and winners_per_round',
+);
+ok(guide.builder_bonus === true, 'builder_bonus is still true after the v2.7 migration');
+
 // v2.6 §4 (fix round 1): a real migration check for submission_proof_ok_at, not a round-trip. The
 // checks above run after `now` has already added builder_bonus/submission_basis (lines 49-50), so
 // a value set there would always just be reading back what was written moments earlier on columns
@@ -193,6 +217,13 @@ ok(
 ok(migrated.submission_basis === null, 'a v2.5 project gets no submission_basis from the v2.6 migration');
 const [migratedProg] = await db<{ builder_bonus: boolean }[]>`SELECT builder_bonus FROM programs WHERE id = 'v25-migrate'`;
 ok(migratedProg.builder_bonus === true, 'a v2.5 program gets builder_bonus = true from the v2.6 migration');
+// v2.7 §2: the same real migration (a v2.5 row, pre-v2.6/v2.7 columns) gets the v2.7 defaults too.
+const [migratedGuide] = await db<{ past_rounds: unknown; logo: unknown }[]>`
+  SELECT past_rounds, logo FROM programs WHERE id = 'v25-migrate'`;
+ok(
+  JSON.stringify(migratedGuide.past_rounds) === '[]' && migratedGuide.logo === null,
+  'a v2.5 program gets empty past_rounds and NULL logo from the v2.7 migration',
+);
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

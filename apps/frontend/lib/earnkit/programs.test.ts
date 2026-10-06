@@ -20,6 +20,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   summary: 'S', tag: null, chains: ['base'], campaign, created_at: new Date(), opened_at: null, rules: [],
   source: 'file', max_award_usd: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
+  logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null,
 });
 const earnkitCampaign = {
   kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },
@@ -291,6 +292,17 @@ test('list_programs: a sponsor campaign shows only its quoted title and sponsor 
     for (const s of [THEME, CRITERIA, 'acme.xyz'])
       assert.ok(!text.includes(s) && !JSON.stringify(card).includes(s));
   }
+});
+
+test('v2.7 §2: programCard carries the logo path and chains', () => {
+  const withLogo = programCard(
+    { ...fileRow(null), logo: { path: 'programs/x.svg', source_url: 'https://e' }, chains: ['arc'] },
+    [],
+  );
+  assert.equal(withLogo.logo, 'programs/x.svg');
+  assert.deepEqual(withLogo.chains, ['arc']);
+  const noLogo = programCard({ ...fileRow(null), logo: null, chains: ['arc'] }, []);
+  assert.equal(noLogo.logo, null);
 });
 
 test('v2.6 Minor 6: programCard.builder_bonus is false for any campaign (sponsor or EarnKit), true otherwise', () => {

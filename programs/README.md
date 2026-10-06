@@ -42,6 +42,12 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
    - `setup`: one-time steps only the builder can do, a few words each
      (e.g. `"log in to DoraHacks"`, `"send about $1 of USDC on Arc to a deploy wallet"`).
    - `each_time`: what the builder must provide for every entry (e.g. `"a 2-3 min pitch video"`).
+   - `logo` (optional): `{ "path": "programs/<id>.svg|png", "source_url": "<the brand kit or
+     official site page it came from>" }`. Save the file itself under
+     `apps/frontend/public/programs/`, taken from the program's or ecosystem's official brand kit
+     or site; never redraw or guess a mark.
+   - `winners_per_round` (optional): only when the source states how many winners a round has
+     (e.g. "Twenty microgrants" → `20`).
    - `submission_requirements`: mirror the real form field by field:
      - `key`: snake_case; `label`: the question as the form asks it
      - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`; `required`
@@ -49,8 +55,39 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      - `project_field` (optional): `name`, `description`, `repo_url`, `live_url`, `demo_url`,
        or `token_url` when the answer is simply that
      - `from`: `project` if the agent can draft it from the project, `builder` for personal info
-4. Do not add starters. The owner decides those.
-5. Run `pnpm programs:check`, then push.
+4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
+   1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
+      Devfolio, and the ecosystem's blog or X.
+      - Predecessor rounds are allowed when the label names the real event (e.g. the
+        ecosystem's prior hackathon, season, or cohort, if this program has no past round of
+        its own yet) — never attribute it to this program.
+      - Never use counts from a different kind of program (for example, an accelerator's counts
+        for a grants program) for the odds. Leave those counts null instead.
+      - Omit anything you can't source. Never invent a count, a theme, or a "why".
+   2. Record only what a source states: `past_rounds` (newest first, at most 5), `submissions`
+      and `winners` as published. Themes: at most 3, counted only from winners you can list by
+      name on the source. Examples: 1–2, with what they did and why they won as judges or
+      organizers said, each with its own `source_url`.
+   3. `focus`: up to 3 areas from the program's current tracks or the ecosystem's published
+      priorities, plus `source_url` and optionally `ecosystem`.
+   4. `best_bet`: one line combining themes and focus, never a new fact. It needs at least one of
+      `past_rounds` or `focus` to draw from (`pnpm programs:check` enforces this).
+   5. `difficulty_override` only when the organizer publishes odds another way than a past
+      round's winners ÷ submissions.
+   6. Never invent a count. Leave a field out when you can't source it.
+5. Do not add starters. The owner decides those.
+6. Run `pnpm programs:check`, then push.
+
+## Weekly re-verification
+
+Once a week, for every active program:
+
+1. Re-read `source_url` and the focus source; update `focus` and `verified_at`.
+2. When a round's winners are announced, add it as the first `past_rounds` entry (newest first),
+   following step 4 above (same sourcing rules, including the predecessor-round and
+   different-kind-of-program limits).
+3. Re-check that `best_bet` still follows from the facts.
+4. Run `pnpm programs:check`, then push.
 
 ## "Add this starter to the <Track> track: <idea>"
 
@@ -80,6 +117,28 @@ track, and each names its `track` slug. Without tracks: at most 2.
   "setup": ["log in to the submission platform", "a public GitHub repo"],
   "each_time": [],
   "rules": ["Open source", "Deployed on Base mainnet"],
+  "logo": { "path": "programs/example-builder-program.svg", "source_url": "https://example.com/brand" },
+  "winners_per_round": 10,
+  "past_rounds": [
+    {
+      "label": "Example Builder Program 2026 Q2",
+      "source_url": "https://example.com/winners",
+      "submissions": 80,
+      "winners": 10,
+      "themes": [{ "theme": "Onchain payments tooling", "count": 3 }],
+      "examples": [
+        {
+          "name": "PayStream",
+          "what": "streamed salaries in USDC",
+          "why": "live mainnet demo",
+          "source_url": "https://example.com/paystream"
+        }
+      ]
+    }
+  ],
+  "focus": { "areas": ["Stablecoin payments", "Agentic commerce"], "source_url": "https://example.com/focus" },
+  "best_bet": "A USDC payout tool with a live mainnet demo",
+  "difficulty_override": null,
   "submission_requirements": [
     { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
     { "key": "github", "label": "GitHub repository", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
