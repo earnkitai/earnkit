@@ -19,7 +19,7 @@
   },
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
-  "verified_at": "2026-10-06",
+  "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -123,8 +123,8 @@
     {
       "label": "Arc's tracks at ETHGlobal HackMoney 2026",
       "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-the-hackmoney-2026-hackathon-and-what-we-learned",
-      "submissions": 155,
-      "winners": 4,
+      "submissions": null,
+      "winners": null,
       "themes": [
         {
           "theme": "Chain-abstracted USDC apps using Arc as liquidity hub",

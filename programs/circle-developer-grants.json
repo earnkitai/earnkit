@@ -5,7 +5,7 @@
   "description": "Grants for teams building on Arc and the Circle Developer Platform: milestone-based USDC funding, co-marketing, technical guidance, and Circle ecosystem access. Focus areas: agentic economic activity, stablecoin FX, peer-to-peer payments, treasury management, prediction markets, and lending and borrowing. The current round is Circle 2026 Cohort 2.",
   "source_url": "https://www.circle.com/grant",
   "submission_url": "https://circle.questbook.app/",
-  "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $204K available)",
+  "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $200K available)",
   "summary": "milestone-based USDC grants · rolling",
   "ideas": [
     "An agent that settles payments in USDC on Arc",
@@ -16,7 +16,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-06",
+  "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -34,7 +34,7 @@
     "Circle prioritizes teams with proven shipping ability and evidence of usage, pilots, partnerships, revenue, or a credible path to get there.",
     "Payments are released as agreed milestones are met and approved, not up front.",
     "Process: application, initial review, finalist technical review (with screenings), milestone design, then disbursement.",
-    "Selective: as of Sep 28, 2026 the Cohort 2 portal showed 824 proposals and 14 accepted.",
+    "Selective: as of Oct 7, 2026 the Cohort 2 portal showed 850 proposals and 14 accepted.",
     "Qualifying Arc builders can also get security audit funding through Developer Grants."
   ],
   "submission_requirements": [
@@ -84,20 +84,6 @@
       "own": true,
       "submissions": null,
       "winners": 19,
-      "themes": [
-        {
-          "theme": "Cross-border payments and stablecoin neobanks",
-          "count": 4
-        },
-        {
-          "theme": "Merchant checkout and wallet infrastructure",
-          "count": 3
-        },
-        {
-          "theme": "Emerging-market stablecoin FX",
-          "count": 1
-        }
-      ],
       "examples": [
         {
           "name": "Hurupay",
@@ -116,10 +102,15 @@
     "areas": [
       "Agentic economic activity",
       "Stablecoin FX and peer-to-peer payments",
-      "Treasury management"
+      "Treasury management, prediction markets, lending and borrowing"
     ],
     "source_url": "https://www.circle.com/grant",
     "ecosystem": "Circle"
   },
-  "best_bet": "A live cross-border USDC payments app with real users, settling on Arc"
+  "best_bet": "A live stablecoin FX or peer-to-peer payments app settling on Arc",
+  "difficulty_override": {
+    "level": "Hard",
+    "basis": "14 of 850 proposals accepted so far in Cohort 2",
+    "source_url": "https://circle.questbook.app/"
+  }
 }

@@ -17,7 +17,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-06",
+  "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -230,5 +230,10 @@
     "source_url": "https://docs.base.org/get-started/builders",
     "ecosystem": "Base"
   },
-  "best_bet": "A live x402 agent-payments product with Builder Codes integrated"
+  "best_bet": "A live x402 agent-payments product with Builder Codes integrated",
+  "difficulty_override": {
+    "level": "Hard",
+    "basis": "Base says it grants very selectively; counts not published",
+    "source_url": "https://docs.base.org/get-started/builders"
+  }
 }

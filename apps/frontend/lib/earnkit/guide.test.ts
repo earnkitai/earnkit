@@ -224,3 +224,23 @@ test('fix round 1: sources labelled by what they back, numbered within a role, s
   assert.equal(wonHeading({ own: true }), 'What won last time');
   assert.equal(wonHeading({ own: false }), 'What won before');
 });
+
+test('Ruling C12 on the committed files: a shown round that is not own is named in the agent text', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { ProgramFile } = await import('./program-file');
+  const dir = join(import.meta.dirname, '../../../../programs');
+  let named = 0;
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    const g = programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW);
+    if (!g.won) continue;
+    const shown = p.past_rounds.find((r) => r.themes?.length || r.examples?.length)!;
+    if (shown === p.past_rounds[0] && shown.own) assert.equal(g.won.event, null, f);
+    else {
+      assert.ok(guideText(g).includes(`\nWhat won before\nin ${shown.label}\n- `), f);
+      named++;
+    }
+  }
+  assert.ok(named >= 4, 'the predecessor rounds of the open programs are named');
+});
