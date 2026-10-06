@@ -889,3 +889,23 @@ test('fix round 1 (I1): a late confirmation updates the entry with the coin (sam
   assert.notEqual(other.project_id, first.project_id);
   assert.deepEqual(await eligible(), [first.project_id], 'the later same-repo entry is never eligible');
 });
+
+test('fix round 2 (N1): a re-record reports a coin only for an EarnKit coin, never a token_url the builder typed', dbTest, async () => {
+  const program = proofProgramFile(`t5f2-n1-${process.pid}-${Date.now()}`, { submission_proof: null, starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(61), token_url: 'https://example.com/their-own-token' };
+  const data = { description: 'x' };
+  const first = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId);
+  const late = await recordSubmission({ program_id: program.id, project, submission_data: data, builder_submitted: true } as never, installationId);
+  assert.equal(late.project_id, first.project_id);
+  assert.equal((late as { coin_url?: string | null }).coin_url, null, 'their own token is not an EarnKit coin');
+  // An EarnKit coin on the row is reported.
+  await sql()`UPDATE projects SET token_url = 'https://tokens.fun/coin/0x9', token_status = 'launched', coin_address = ${randomAddress()} WHERE id = ${first.project_id}`;
+  const again = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId);
+  assert.equal((again as { coin_url?: string | null }).coin_url, 'https://tokens.fun/coin/0x9');
+  // A launch in flight is reported as pending.
+  await sql()`UPDATE projects SET token_url = 'pending', token_status = 'pending', coin_address = NULL WHERE id = ${first.project_id}`;
+  const pending = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId);
+  assert.equal((pending as { coin_url?: string | null }).coin_url, 'pending');
+});

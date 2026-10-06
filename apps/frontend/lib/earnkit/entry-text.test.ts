@@ -255,6 +255,12 @@ test('fix round 1 (I3): an entry that does not count yet is told plainly what jo
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
+  // N2: an entry without a repo is asked for its live site link, never a repo link.
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io', missing: 'live site' } } }),
+    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+      'Add your live site link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+  );
   // Ruling 24: a public entry page, no entry link given yet.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'link', site: 'dorahacks.io' } } }),
