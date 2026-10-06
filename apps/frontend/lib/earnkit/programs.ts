@@ -409,7 +409,7 @@ export async function getProgram(programId: string) {
  * its board. Null for a campaign, a program without a bonus or an open round, or a frozen round. A
  * failed pool read is logged and gives null; it never fails get_program.
  */
-async function guideBonus(program: ProgramRow, now = new Date()) {
+export async function guideBonus(program: ProgramRow, now = new Date()) {
   if (program.source !== 'file' || program.campaign || !bonusOn(program)) return null;
   const round = roundFor(program, now);
   if (!round) return null;

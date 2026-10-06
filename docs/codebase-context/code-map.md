@@ -29,7 +29,17 @@ apps/frontend/
                                (6, "See all" → /programs), StatsStrip, HowItWorks, BackedBy, Footer);
                                landing null (failed read) → hero only, no cards/strip (Ruling 21)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
-                               [landing], await connection() (never prerendered), null
+                               [landing], await connection() (never prerendered), null;
+                               getGuidePage(id) = unstable_cache(readGuidePage, ['guide-v27'], 600 s);
+                               failure → logs [guide], await connection(), 'error'
+  app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards
+                               (no limit, heading h1); getLanding() null → "Programs are unavailable…"
+  app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
+                               the Unavailable panel (HTTP 200, never a 404); generateMetadata
+  app/programs/[id]/GuideView.tsx  pure guide render (header, Difficulty, one Panel per part, builder
+                               bonus + leaderboard, AskAgent (open programs only), All programs,
+                               Sources via shownUrl, Footer); exports askPrompt and Unavailable
+  app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, and each card's
                                "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT
   app/components/sections/{ProgramCards,ProgramLogo,StatsStrip,HowItWorks}.tsx  v2.7 §1 landing sections;
@@ -480,7 +490,9 @@ apps/frontend/
                                prize_note, so the cards add up to open_usd =
                                openMoneyUsd, statItems: Open money / Agents earning ≥100 / Builder
                                bonus paid > pools > programs) and readLanding (listPrograms,
-                               roundPoolsWei, readStats; rejects when the DB is unreachable)
+                               roundPoolsWei, readStats; rejects when the DB is unreachable);
+                               v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
+                               on a DB failure, never null)
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
