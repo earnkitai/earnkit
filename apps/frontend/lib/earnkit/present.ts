@@ -459,7 +459,9 @@ function offer(
   // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no
   // ideas doesn't mean no choice); never fall back to "check your repos" when there's nothing to
   // check (repos === null) and no open campaign took priority above.
-  if (youCould(m.repos, m.githubGiven ?? false) && curated.length > 0 && !m.campaigns.some((r) => r.open))
+  // Ruling 19: a matching error is the no-repo state too, so its build offer closes the same way.
+  const buildOffer = youCould(m.repos, m.githubGiven ?? false) || (m.repos !== null && 'error' in m.repos);
+  if (buildOffer && curated.length > 0 && !m.campaigns.some((r) => r.open))
     return "Pick one and I'll start.";
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';
