@@ -703,16 +703,24 @@ test('v2.6 Ruling 10: a non-campaign entry naming a wallet remembers it for the 
   // The open round of this program now (bonusOn: active, bonus on, not a campaign), for the reply.
   const round = roundFor({ id: program.id, starts_at: program.starts_at ? new Date(program.starts_at) : null, ends_at: program.ends_at ? new Date(program.ends_at) : null }, new Date());
   assert.deepEqual(result.bonus_round, round ? { key: round.key, ends_at: round.ends.toISOString() } : null);
-  // An invalid wallet is never remembered; the earlier one stays.
-  await recordSubmission(
-    {
-      program_id: program.id,
-      project: proofProject(42),
-      submission_data: { live_deployment_url: 'https://proof-42.example', repo_url: 'https://github.com/alice/proof-42', description: 'x', builder_profile: 'https://github.com/alice' },
-      payout_wallet: 'not-a-wallet',
-    } as never,
-    installationId,
+  // Ruling 22: a wallet given but invalid (one typo in a checksummed address) fails the call:
+  // nothing recorded, never silently dropped, and the earlier wallet stays.
+  const typo = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
+  const before = (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE installation_id = ${installationId}`)[0].n;
+  await assert.rejects(
+    recordSubmission(
+      {
+        program_id: program.id,
+        project: proofProject(42),
+        submission_data: { description: 'x' },
+        payout_wallet: typo,
+      } as never,
+      installationId,
+    ),
+    (err: unknown) => err instanceof EntryError && err.message === "payout_wallet: That wallet address isn't valid. Check it and send it again.",
   );
+  const after = (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE installation_id = ${installationId}`)[0].n;
+  assert.equal(after, before);
   assert.equal(await rememberedWallet(installationId), MIXED.toLowerCase());
 });
 

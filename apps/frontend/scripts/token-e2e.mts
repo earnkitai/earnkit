@@ -288,7 +288,15 @@ let aRepo = '';
   const saved = await row(r.project_id);
   check(saved.token_url === `https://tokens.fun/coin/${TOKEN_ADDRESS}` && saved.token_status === 'launched', '(a) project row has the token', saved);
   check(saved.token_repo_key === p.repo_url.replace('https://', ''), '(a) token_repo_key is the normalized repo', saved);
-  check(prep.token?.say_to_builder.includes(`paid in WETH to ${WALLET}`) && prep.token.say_to_builder.includes('risk-disclosure'), '(a) say_to_builder carries the earnings line and terms');
+  // Ruling 22: the full fee wallet once, on the wallet line; the short fee line and both terms links.
+  check(
+    prep.token?.say_to_builder.includes(`Wallet for fees and any bonus: ${WALLET} (yours from last time)`) &&
+      prep.token.say_to_builder.split(WALLET).length === 2 &&
+      prep.token.say_to_builder.includes("Fees in WETH, after Clanker's 20% cut") &&
+      prep.token.say_to_builder.includes('risk-disclosure'),
+    '(a) say_to_builder names the fee wallet once and carries the fee line and terms',
+    prep.token,
+  );
   aProjectId = r.project_id;
   aRepo = p.repo_url;
 }

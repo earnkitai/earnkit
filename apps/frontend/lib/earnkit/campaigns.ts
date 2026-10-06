@@ -231,6 +231,21 @@ export const isWalletAddress = (a: string) =>
     a.slice(2) === a.slice(2).toUpperCase() ||
     isAddress(a, { strict: true }));
 
+/** Ruling 22: what the builder is told when a wallet they gave fails isWalletAddress. */
+export const WALLET_INVALID = "That wallet address isn't valid. Check it and send it again.";
+
+/**
+ * Ruling 22: the one check of a wallet the builder gave (prepare_submission's answers and
+ * record_submission's payout_wallet, outside campaigns): absent or blank is null; present but not
+ * isWalletAddress throws an EntryError, never silently dropped. Returns it trimmed.
+ */
+export function givenWallet(w: string | null | undefined): string | null {
+  const t = w?.trim();
+  if (!t) return null;
+  if (!isWalletAddress(t)) throw new EntryError(`payout_wallet: ${WALLET_INVALID}`);
+  return t;
+}
+
 /** "0xA, 0xB" or ["0xA", "0xB"] → unique lowercase addresses. */
 export function parseAddresses(value: unknown): string[] {
   const parts = Array.isArray(value)

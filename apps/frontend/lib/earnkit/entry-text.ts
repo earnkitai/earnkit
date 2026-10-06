@@ -52,30 +52,39 @@ export function coinRow(a: { symbol: string | null; hasBonus: boolean; coinIn?: 
 }
 
 /**
- * The wallet line under the coin row (v2.6 §3). Ruling 10 (plan): the remembered wallet is shown
- * short here; tokenFootnote names it in full. Without one, the line is the ask. Pure.
+ * The wallet line under the coin row (v2.6 §3). Ruling 22: the wallet is named once, in full,
+ * here (the footnote no longer repeats it). Without one, the line is the ask. Pure.
  */
 export function walletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
   const what = a.hasBonus ? 'fees and any bonus' : 'fees';
   if (!a.wallet) return `Which wallet should get your coin's ${what}?`;
-  return `Wallet for ${what}: ${shortWallet(a.wallet)}${a.remembered ? ' (yours from last time)' : ''} — or tell me another.`;
+  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (yours from last time)' : ''} — or tell me another.`;
 }
+
+/**
+ * Ruling 22: the consent line under the coin row outside campaigns: the fee detail the row leaves
+ * out (WETH, Clanker's cut, gas) and both terms links (v2.3 consent), once. Campaigns keep
+ * tokenFootnote.
+ */
+export const COIN_FOOTNOTE = `Fees in WETH, after Clanker's 20% cut; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
 /** The last day of a round whose end is exclusive ("Oct 31" for a month ending Nov 1 00:00 UTC). */
 const lastDayOf = (ends: Date) => new Date(ends.getTime() - 1);
 
 /**
- * Ruling 18 (plan): an entry recorded without a wallet has no coin yet. `ends` is the open round's
- * exclusive end (null: no open round or no bonus, so no date). Pure.
+ * Ruling 18 (plan), Ruling 22: the AGENT's note for an entry recorded without a wallet (never
+ * shown to the builder, who is told to reply with a wallet). `ends` is the open round's exclusive
+ * end (null: no open round or no bonus, so no date). Pure.
  */
 export const noCoinYet = (ends: Date | null) =>
-  `No coin yet: send a wallet with launch_token to add it${ends ? ` before ${shortDate(lastDayOf(ends))}` : ''}.`;
+  `No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${ends ? ` before ${shortDate(lastDayOf(ends))}` : ''}.`;
 
 export type EnteredText = {
   programTitle: string;
   coin:
     | { status: 'launched'; url: string }
-    | { status: 'no_wallet'; lastDay: Date | null }
+    | { status: 'pending' }
+    | { status: 'no_wallet' }
     | { status: 'skipped' }
     | { status: 'other' };
   /**
@@ -85,20 +94,26 @@ export type EnteredText = {
   bonus: { cell: string; lastDay: Date; board: string } | null;
 };
 
-/** record_submission's show_to_builder outside campaigns (v2.6 §3). Pure. */
+/**
+ * record_submission's show_to_builder outside campaigns (v2.6 §3). Builder text: never names a
+ * tool (Ruling 22). With no wallet, one line, the round's date once. Pure.
+ */
 export function enteredText(a: EnteredText) {
+  const entered = `Entered in ${a.programTitle}.`;
+  const round = a.bonus && `${a.bonus.cell} · ends ${shortDate(lastDayOf(a.bonus.lastDay))} · ${a.bonus.board}`;
+  if (a.coin.status === 'no_wallet')
+    return round
+      ? `${entered} Reply with a wallet to get your coin and join the builder bonus (${round}).`
+      : `${entered} Reply with a wallet to get your coin.`;
   const coin =
     a.coin.status === 'launched'
       ? ` Your coin: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
-      : a.coin.status === 'no_wallet'
-        ? ` ${noCoinYet(a.coin.lastDay)}`
+      : a.coin.status === 'pending'
+        ? ' Your coin is launching.'
         : a.coin.status === 'other'
           ? ' No coin yet.'
           : '';
-  const first = `Entered in ${a.programTitle}.${coin}`;
-  return a.bonus
-    ? `${first}\nBuilder bonus: ${a.bonus.cell} · ends ${shortDate(lastDayOf(a.bonus.lastDay))} · ${a.bonus.board}`
-    : first;
+  return round ? `${entered}${coin}\nBuilder bonus: ${round}` : `${entered}${coin}`;
 }
 
 /** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
@@ -172,7 +187,8 @@ export function confirmTable(a: {
     a.token && coin && !coinIn
       ? `\n\n${walletLine({ wallet: a.token.wallet ?? null, remembered: a.token.remembered === true, hasBonus: a.token.hasBonus === true })}`
       : '';
-  return keyTable(rows) + ask + wallet + (a.token && !coinIn ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
+  const foot = a.token && !coinIn ? `\n\n${coin ? COIN_FOOTNOTE : tokenFootnote(a.token.wallet)}` : '';
+  return keyTable(rows) + ask + wallet + foot;
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */

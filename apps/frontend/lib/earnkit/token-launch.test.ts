@@ -6,7 +6,7 @@ import { RateLimitError } from './rate-limit';
 import { EARNINGS_LINE, LaunchError, TOKEN_TERMS, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
 import { legacyTokenLineCode, tokenLineFor } from './token-gate';
-import { TOKEN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
+import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
   NON_BASE_NO_BONUS,
   LaunchTokenInput,
@@ -98,9 +98,11 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   // Ruling 14: the footnote names the fee wallet when it is known.
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${tokenFootnote('0xW')}`,
+    `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
   );
-  assert.ok(TOKEN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && TOKEN_FOOTNOTE.includes(TOKEN_TERMS.risks));
+  assert.ok(COIN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && COIN_FOOTNOTE.includes(TOKEN_TERMS.risks));
+  // Ruling 22: the agent is told to pass the confirmed wallet on record_submission.
+  assert.match(b.note, /Pass the wallet the builder confirmed \(the wallet line\) as record_submission's payout_wallet\./);
   // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
   assert.equal(b.has_bonus, false);
   // Without a repo there is no token line yet; v2.6: never a wallet line for a coin.
@@ -122,7 +124,7 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   assert.equal(b.has_bonus, true);
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', hasBonus: true })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: true })}\n\n${tokenFootnote('0xW')}`,
+    `${coinRow({ symbol: 'CHAIN', hasBonus: true })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: true })}\n\n${COIN_FOOTNOTE}`,
   );
   assert.match(b.say_to_builder, /skip: no coin, no builder bonus/);
   // Ruling 10: a remembered wallet says so on the wallet line.
@@ -208,7 +210,7 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
   assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
   assert.match(b.note, /^Ask the builder for the wallet that receives creator fees\. /);
   assert.doesNotMatch(b.note, /payout_wallet:/);
-  assert.equal(b.say_to_builder, `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\nWhich wallet should get your coin's fees?\n\n${TOKEN_FOOTNOTE}`);
+  assert.equal(b.say_to_builder, `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\nWhich wallet should get your coin's fees?\n\n${COIN_FOOTNOTE}`);
 });
 
 test('tokenProposalBlock: no proposal asks the builder to pick one', async () => {
@@ -217,7 +219,7 @@ test('tokenProposalBlock: no proposal asks the builder to pick one', async () =>
   assert.equal(b.proposed, null);
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: null, hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${tokenFootnote('0xW')}`,
+    `${coinRow({ symbol: null, hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
   );
   assert.match(b.note, /taken/);
 });
@@ -268,6 +270,22 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
 }
 
 const CONFIRMED = { name: 'Chain Kits', symbol: 'CHAIN' };
+
+test('Ruling 22: the wallet given with the entry goes to the launch, never the remembered one', async () => {
+  const GIVEN = '0x' + '5'.repeat(40);
+  const h = harness();
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: GIVEN }, h.deps);
+  assert.equal(out.status, 'launched');
+  assert.equal(h.deploys[0].creatorWallet, GIVEN);
+  assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: GIVEN }], 'kept on the project and remembered');
+  // creator_wallet in the token object still wins, and must pass the one wallet rule (EIP-55).
+  const bad = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
+  const h2 = harness();
+  const refused = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: bad }, confirmed: true }, h2.deps);
+  assert.equal(refused.status, 'skipped');
+  assert.match(refused.note ?? '', /creator_wallet: a 0x wallet address \(check it for typos\)/);
+  assert.equal(h2.deploys.length, 0);
+});
 
 test('v2.6 Ruling 18: at submission with no wallet anywhere, the coin is skipped with no_wallet and nothing deploys', async () => {
   const h = harness();
