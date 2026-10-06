@@ -535,6 +535,24 @@ test('the cron scores open rounds each run and runs the rounds step inside the b
   }
 });
 
+test('Ruling 4 (plan): an entry counted on an unverified page is a review flag only: never terms.flagged, never needs_owner (no 503)', db, async () => {
+  await cleanup();
+  try {
+    const { ids } = await setup({ n: 2, pool: E18 });
+    await sql()`UPDATE projects SET submission_basis = 'unverified_page', submission_confirmed_at = ${STARTS} WHERE id = ${ids[0]}`;
+    const f = chain();
+    const out = (await advanceRounds(ACCOUNT, f.deps(at(2)))) as Out;
+    assert.equal(out.rounds[0].step, 'review');
+    assert.deepEqual(out.needs_owner, []);
+    assert.deepEqual((await round()).terms!.flagged, []);
+    const frozen = await payouts();
+    assert.deepEqual(frozen[0].flags, ['unverified_page']);
+    assert.deepEqual(frozen[1].flags, ['single_commit_streak']);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('bonus veto POST: per-round key (never a campaign key), the round review page; GET never removes', db, async () => {
   const secret = process.env.ADMIN_VETO_SECRET;
   process.env.ADMIN_VETO_SECRET = 'x'.repeat(40);
@@ -564,6 +582,12 @@ test('bonus veto POST: per-round key (never a campaign key), the round review pa
   assert.match(page, /isn(?:'|&apos;)t affiliated with or endorsed by the organizer/);
   assert.match(page, /single-commit streak/);
   assert.match(page, /failed source/);
+  // v2.6 Ruling 4 (plan): the Submission column and the unverified page flag.
+  assert.match(page, /<th>Submission<\/th>/);
+  assert.match(page, /'page checked'/);
+  assert.match(page, /'unverified page'/);
+  assert.match(page, /'builder confirmed'/);
+  assert.match(page, /unverified page: the program site blocked EarnKit; the builder confirmed it/);
 });
 
 test('POST /api/cron answers with the ledger bigints as strings (Response.json alone throws on them), 503 for a waiting round', async () => {

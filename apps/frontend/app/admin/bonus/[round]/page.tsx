@@ -5,7 +5,7 @@ import { sql } from '@/lib/earnkit/db';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { placesFor, roundRows, type BonusTerms } from '@/lib/earnkit/bonus-payout';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
-import type { Signals } from '@/lib/earnkit/traction';
+import { UNVERIFIED_PAGE_FLAG, type Signals } from '@/lib/earnkit/traction';
 import { VETO_ERRORS, bonusVetoKey } from '@/lib/earnkit/veto';
 import { secretMatches } from '@/lib/earnkit/http';
 import { shownUrl } from '@/lib/earnkit/untrusted-text';
@@ -17,16 +17,26 @@ export const metadata = { robots: { index: false, follow: false } };
 const flagText = (f: string) =>
   f === 'single_commit_streak'
     ? 'single-commit streak (7+ days)'
-    : f.startsWith('failed:')
+    : f === UNVERIFIED_PAGE_FLAG
+      ? 'unverified page: the program site blocked EarnKit; the builder confirmed it'
+      : f.startsWith('failed:')
       ? `failed source: ${f.slice('failed:'.length)} (last value kept)`
       : f;
+
+/**
+ * v2.6 Ruling 4 (plan): how the entry's submission counted. A v2.5 row (no basis) counted on its
+ * checked page. Pure.
+ */
+const submissionText = (basis: string | null) =>
+  basis === 'unverified_page' ? 'unverified page' : basis === 'confirmed' ? 'builder confirmed' : 'page checked';
 
 const weth = (wei: bigint | string | null) => (wei === null ? '–' : `${formatUnits(BigInt(wei), 18)} WETH`);
 
 /**
  * The owner's review of a builder bonus round (v2.5 §3, Ruling 17): the frozen pool and amounts,
  * any pause note, and the frozen ranking with each entry's signals, its flags (scheduled-commit
- * pattern, sources that failed after the 24 h escape), the place and amount it takes, and a remove
+ * pattern, sources that failed after the 24 h escape, an unverified entry page), how its
+ * submission counted (v2.6 Ruling 4 (plan): page checked, unverified page, builder confirmed), the place and amount it takes, and a remove
  * button during the 48 h review. Opening it (GET) only shows, and counts against the veto rate
  * limit per IP; removing is a POST with the round's key. A wrong key is a 404.
  */
@@ -69,8 +79,10 @@ export default async function BonusReviewPage({
   const rows = await roundRows(round);
   const ids = rows.map((x) => x.project_id);
   const facts = ids.length
-    ? await sql()<{ id: number; name: string; repo_url: string | null; live_url: string | null; signals: Signals | null }[]>`
-        SELECT p.id, p.name, p.repo_url, p.live_url, (
+    ? await sql()<
+        { id: number; name: string; repo_url: string | null; live_url: string | null; submission_basis: string | null; signals: Signals | null }[]
+      >`
+        SELECT p.id, p.name, p.repo_url, p.live_url, p.submission_basis, (
           SELECT s.signals FROM bonus_scores s
           WHERE s.round_key = ${round} AND s.project_id = p.id AND s.through >= ${r.ends_at}
           ORDER BY s.day DESC LIMIT 1) AS signals
@@ -114,7 +126,7 @@ export default async function BonusReviewPage({
         <table className="mt-6 w-full text-sm">
           <thead>
             <tr className="text-left text-ek-blue-soft">
-              <th>Rank</th><th>Project</th><th>Score</th><th>Signals</th><th>Flags</th><th>Amount</th><th />
+              <th>Rank</th><th>Project</th><th>Score</th><th>Signals</th><th>Submission</th><th>Flags</th><th>Amount</th><th />
             </tr>
           </thead>
           <tbody>
@@ -145,6 +157,7 @@ export default async function BonusReviewPage({
                       ? `users ${s.users}, live ${Math.round(s.liveRatio * 100)}%, commit days ${s.commitDays}, contributors ${s.contributors}, interest ${s.interest}, holders ${s.holders}`
                       : '–'}
                   </td>
+                  <td className="py-2 text-xs">{f ? submissionText(f.submission_basis) : '–'}</td>
                   <td className="py-2 text-xs">{x.flags.length ? x.flags.map(flagText).join('; ') : '–'}</td>
                   <td className="py-2">{place ? `#${place.slot + 1}: ${weth(place.amount)}` : '–'}</td>
                   <td className="py-2">

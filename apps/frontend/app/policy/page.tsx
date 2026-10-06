@@ -122,18 +122,19 @@ export default function PolicyPage() {
           <p>
             The builder bonus share of every coin&apos;s fees goes to a pool for the program the project entered.
             A program with an end date has one round. A rolling program has one round per calendar month (UTC).
+            Every program has a builder bonus unless it opts out.
           </p>
           <Sub>Who can win</Sub>
           <List
             items={[
               'You entered through EarnKit and launched your coin through EarnKit.',
               <>
-                Your entry has a public submission page on the program&apos;s own site that links your repo or live
-                product. Programs whose submissions aren&apos;t public show &ldquo;builder bonus not available&rdquo;.
+                Programs with public entry pages: your entry page links your repo or live product. Programs without
+                public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.
               </>,
               <>
-                You own the repo: an <code className="text-ek-white">earnkit.txt</code> file at its root names your
-                payout wallet.
+                You can push to the repo: its <code className="text-ek-white">earnkit.txt</code> carries the token line
+                your agent adds.
               </>,
             ]}
           />
@@ -166,7 +167,7 @@ export default function PolicyPage() {
           <p>
             A rolling program&apos;s monthly round is followed by the next month&apos;s round, which gets the fees
             from then on. Once a program ends, its coins&apos; builder bonus share goes to EarnKit&apos;s Safe. So does
-            the share of programs whose submissions aren&apos;t public. Nothing rolls over into another program.
+            the share of programs that opted out. Nothing rolls over into another program.
           </p>
         </Section>
 

@@ -199,6 +199,19 @@ test('record_submission accepts token.proposed echoed verbatim, null, and any bu
   }
 });
 
+test('v2.6 Ruling 5 (plan): record_submission takes builder_submitted, and says when it counts', async () => {
+  const { tools } = await listed({});
+  const rec = tools.find((t) => t.name === 'record_submission')!;
+  const field = (rec.inputSchema.properties as Record<string, { type?: string; description?: string }>).builder_submitted;
+  assert.ok(field, 'builder_submitted is in the schema');
+  assert.equal(field.type, 'boolean');
+  assert.match(field.description ?? '', /confirmed the entry is submitted on the program site/);
+  assert.ok(!(rec.inputSchema.required ?? []).includes('builder_submitted'));
+  assert.match(rec.description ?? '', /builder_submitted: true/);
+  assert.match(rec.description ?? '', /no public entry page, or its page blocks EarnKit/);
+  assert.match(rec.description ?? '', /Did you submit on <program site>\?/);
+});
+
 test('v2.4: the instructions say every reply may open with since_you_last_checked, shown first', async () => {
   const { instructions } = await listed({});
   assert.match(instructions, /since_you_last_checked/);

@@ -67,6 +67,8 @@ export type OpenEntry = {
   live_url: string | null;
   coin: boolean;
   proof: boolean;
+  /** The program has a public entry page pattern (else the builder's confirmation counts). */
+  pattern: boolean;
   eligible: boolean;
   rank: number | null;
   score: number | null;
@@ -78,7 +80,9 @@ const notEligible = (e: OpenEntry) =>
   !e.coin
     ? 'No: no coin'
     : !e.proof
-      ? 'No: submission page not confirmed yet'
+      ? e.pattern
+        ? 'No: submission page not confirmed yet'
+        : 'No: submission not confirmed yet'
       : 'No: an earlier entry of this repo counts';
 
 /**
@@ -183,8 +187,10 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
     const entries = await sql()<OpenEntry[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
         (p.coin_address IS NOT NULL) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
+        (g.submission_proof IS NOT NULL) AS pattern,
         (${eligibleSql(r.ends_at)}) AS eligible, s.rank, s.score
       FROM projects p
+      JOIN programs g ON g.id = p.program_id
       LEFT JOIN LATERAL (
         SELECT rank, score FROM bonus_scores b
         WHERE b.round_key = ${r.round_key} AND b.project_id = p.id ORDER BY b.day DESC LIMIT 1) s ON true

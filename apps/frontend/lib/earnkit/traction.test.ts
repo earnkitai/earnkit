@@ -14,6 +14,7 @@ import {
   rankRound,
   SINGLE_COMMIT_FLAG,
   finalRanking,
+  UNVERIFIED_PAGE_FLAG,
   readyToFreeze,
   resolveBonusWallet,
   scoreOpenRounds,
@@ -739,6 +740,31 @@ test('eligibility is frozen at the round end (Ruling 16): a coin or proof after 
     assert.deepEqual((await readyToFreeze(PID, d('2026-11-01T02:00:00Z'))).pending, []);
     // A coin launched after the end never holds a contract either: a later eligible entry keeps it.
     assert.equal((await scoreRound(PID, { ...deps, now: d('2026-11-01T03:00:00Z') })).length, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Ruling 4 (plan): an entry counted on an unverified page carries the review flag, never flagged', db, async () => {
+  await cleanup();
+  try {
+    const ids = await setup();
+    await sql()`UPDATE projects SET submission_basis = 'unverified_page', submission_confirmed_at = ${NOW} WHERE id = ${ids.b}`;
+    await sql()`UPDATE projects SET submission_basis = 'confirmed', submission_confirmed_at = ${NOW} WHERE id = ${ids.a}`;
+    const { deps } = dbFakes();
+    await scoreRound(PID, { ...deps, now: d('2026-11-01T01:00:00Z') });
+    const final = await finalRanking(PID);
+    const b = final.find((r) => r.id === ids.b)!;
+    const a = final.find((r) => r.id === ids.a)!;
+    assert.equal(UNVERIFIED_PAGE_FLAG, 'unverified_page');
+    assert.ok(b.review_flags.includes('unverified_page'));
+    assert.equal(b.flagged, false);
+    assert.deepEqual(a.review_flags, [], 'a builder-confirmed entry without a page carries no flag');
+    assert.equal(a.flagged, false);
+    // No final read at all: it keeps the flag next to no_final_read.
+    await sql()`DELETE FROM bonus_scores WHERE round_key = ${PID} AND project_id = ${ids.b}`;
+    const unread = (await finalRanking(PID)).find((r) => r.id === ids.b)!;
+    assert.deepEqual(unread.review_flags, ['no_final_read', 'unverified_page']);
   } finally {
     await cleanup();
   }

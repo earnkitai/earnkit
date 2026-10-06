@@ -393,7 +393,7 @@ test('record_submission (v2.5 §3): no external_submission_url notes it, still r
   assert.equal(row.submission_proof_ok_at, null);
 });
 
-test('record_submission (v2.5 §3): a program without submission_proof never checks or notes anything', dbTest, async () => {
+test('record_submission (v2.6 §3): a program without a pattern never fetches; without the builder\'s confirmation it says how to count', dbTest, async () => {
   const program = proofProgramFile(`t5-noproof-${process.pid}-${Date.now()}`, { submission_proof: null });
   await upsertProgram(program);
   const installationId = await freshInstallation();
@@ -410,12 +410,114 @@ test('record_submission (v2.5 §3): a program without submission_proof never che
     { fetchProof: async () => ((fetchCalled = true), 'x') },
   );
   assert.equal(result.recorded, true);
-  assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /builder_submitted: true/);
   assert.equal(fetchCalled, false);
-  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null }[]>`
-    SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${result.project_id}`;
   assert.equal(row.submission_proof_url, null);
   assert.equal(row.submission_proof_ok_at, null);
+  assert.equal(row.submission_basis, null);
+  assert.equal(row.submission_confirmed_at, null);
+});
+
+test('record_submission (v2.6 Ruling 5): a program without a pattern counts on builder_submitted: true (only true)', dbTest, async () => {
+  const program = proofProgramFile(`t5-confirm-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(5);
+  const data = { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' };
+  const result = await recordSubmission(
+    { program_id: program.id, project, submission_data: data, builder_submitted: true } as never,
+    installationId,
+  );
+  assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
+  const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_proof_ok_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_basis, 'confirmed');
+  assert.ok(row.submission_proof_ok_at instanceof Date);
+  assert.ok(row.submission_confirmed_at instanceof Date);
+  // A truthy value that isn't true never counts.
+  const loose = await recordSubmission(
+    { program_id: program.id, project: proofProject(6), submission_data: data, builder_submitted: 'yes' } as never,
+    installationId,
+  );
+  const [l] = await sql()<{ submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_basis, submission_confirmed_at FROM projects WHERE id = ${loose.project_id}`;
+  assert.deepEqual([l.submission_basis, l.submission_confirmed_at], [null, null]);
+  // An opted-out program never counts a submission.
+  const off = proofProgramFile(`t5-confirm-off-${process.pid}-${Date.now()}`, { submission_proof: null, builder_bonus: false });
+  await upsertProgram(off);
+  const offEntry = await recordSubmission(
+    { program_id: off.id, project: proofProject(7), submission_data: data, builder_submitted: true } as never,
+    installationId,
+  );
+  const [o] = await sql()<{ submission_basis: string | null; submission_proof_ok_at: Date | null }[]>`
+    SELECT submission_basis, submission_proof_ok_at FROM projects WHERE id = ${offEntry.project_id}`;
+  assert.deepEqual([o.submission_basis, o.submission_proof_ok_at], [null, null]);
+  assert.equal((offEntry as { bonus_note?: string }).bonus_note, undefined);
+});
+
+test('record_submission (v2.6 Ruling 4): a blocked entry page counts on the builder\'s confirmation as an unverified page', dbTest, async () => {
+  const { SafeFetchError } = await import('./safe-fetch');
+  const program = proofProgramFile(`t5-unv-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(8);
+  const data = { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' };
+  const blocked = async () => { throw new SafeFetchError('it answered 405'); };
+  const result = await recordSubmission(
+    { program_id: program.id, project, submission_data: data, external_submission_url: 'https://dorahacks.io/buidl/558', builder_submitted: true } as never,
+    installationId,
+    { fetchProof: blocked },
+  );
+  assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
+  const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_proof_checked_at: Date | null; submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_proof_ok_at, submission_proof_checked_at, submission_basis, submission_confirmed_at FROM projects WHERE id = ${result.project_id}`;
+  assert.equal(row.submission_basis, 'unverified_page');
+  assert.ok(row.submission_proof_ok_at instanceof Date);
+  assert.ok(row.submission_proof_checked_at instanceof Date);
+  assert.ok(row.submission_confirmed_at instanceof Date);
+  // Without the confirmation the blocked page doesn't count yet, and the note says how it would.
+  const unconfirmed = await recordSubmission(
+    { program_id: program.id, project: proofProject(9), submission_data: data, external_submission_url: 'https://dorahacks.io/buidl/559' } as never,
+    installationId,
+    { fetchProof: blocked },
+  );
+  assert.match((unconfirmed as { bonus_note?: string }).bonus_note ?? '', /builder_submitted: true/);
+  const [u] = await sql()<{ submission_basis: string | null; submission_proof_ok_at: Date | null }[]>`
+    SELECT submission_basis, submission_proof_ok_at FROM projects WHERE id = ${unconfirmed.project_id}`;
+  assert.deepEqual([u.submission_basis, u.submission_proof_ok_at], [null, null]);
+  // A page that loads without the entry's link never counts, confirmed or not.
+  const mismatch = await recordSubmission(
+    { program_id: program.id, project: proofProject(10), submission_data: data, external_submission_url: 'https://dorahacks.io/buidl/560', builder_submitted: true } as never,
+    installationId,
+    { fetchProof: async () => 'another team' },
+  );
+  const [m] = await sql()<{ submission_basis: string | null; submission_proof_ok_at: Date | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_basis, submission_proof_ok_at, submission_confirmed_at FROM projects WHERE id = ${mismatch.project_id}`;
+  assert.deepEqual([m.submission_basis, m.submission_proof_ok_at], [null, null]);
+  assert.ok(m.submission_confirmed_at instanceof Date, 'the confirmation is kept for the re-check');
+  assert.match((mismatch as { bonus_note?: string }).bonus_note ?? '', /doesn't link to your repo yet/);
+});
+
+test('record_submission (v2.6 §3): a checked-out page is stored as basis page', dbTest, async () => {
+  const program = proofProgramFile(`t5-page-${process.pid}-${Date.now()}`);
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(11);
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      external_submission_url: 'https://dorahacks.io/buidl/561',
+    } as never,
+    installationId,
+    { fetchProof: async () => `See ${project.repo_url}` },
+  );
+  const [row] = await sql()<{ submission_basis: string | null; submission_confirmed_at: Date | null }[]>`
+    SELECT submission_basis, submission_confirmed_at FROM projects WHERE id = ${result.project_id}`;
+  assert.deepEqual([row.submission_basis, row.submission_confirmed_at], ['page', null]);
 });
 
 test('Ruling 25 (I8): a repo whose coin is entered in another program is told at record time: no builder bonus here', dbTest, async () => {

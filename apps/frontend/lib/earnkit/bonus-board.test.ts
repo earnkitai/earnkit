@@ -27,7 +27,7 @@ test('ethText: up to 4 decimals, rounded down, never scientific', () => {
 });
 
 const entry = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
-  id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true,
+  id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
   eligible: true, rank: null, score: null, submitted_at: new Date(Date.UTC(2026, 9, 1, id)), ...o,
 });
 
@@ -52,6 +52,19 @@ test('openRows: eligible ranked first (re-numbered), then eligible unscored, the
     ],
   );
   for (const r of rows) assert.deepEqual([r.amount, r.tx], [null, null]);
+});
+
+test('v2.6 §3: a program without a public entry page says the submission is not confirmed yet', () => {
+  const rows = openRows([
+    entry(1, { pattern: false, coin: false, proof: false, eligible: false }),
+    entry(2, { pattern: false, proof: false, eligible: false }),
+    entry(3, { pattern: true, proof: false, eligible: false }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.note), [
+    'No: no coin',
+    'No: submission not confirmed yet',
+    'No: submission page not confirmed yet',
+  ]);
 });
 
 const frozen = (id: number, rank: number, o: Partial<BonusPayoutRow> = {}): BonusPayoutRow => ({

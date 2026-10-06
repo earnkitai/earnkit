@@ -334,13 +334,17 @@ const dbStore: FlowStore = {
     // external entry's bonus_repo_key with it.
     // N1 (Ruling 22): a proof that passed without a repo (on the live site) is re-checked once a
     // repo is filled in, so it must then link the repo: cleared here, the daily re-check reads it.
+    // v2.6 Ruling 4 (plan): only an entry with a page to re-check (submission_proof_url); one
+    // counted on the builder's confirmation alone (basis 'confirmed') has no page and keeps counting.
     await sql()`
       UPDATE projects SET repo_url = COALESCE(repo_url, ${repo}),
         bonus_repo_key = CASE WHEN repo_url IS NULL AND payout_wallet IS NULL AND ${repo}::text IS NOT NULL
           THEN ${repo && normalizeRepoUrl(repo)} ELSE bonus_repo_key END,
-        submission_proof_ok_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL
+        submission_proof_ok_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL AND submission_proof_url IS NOT NULL
           THEN NULL ELSE submission_proof_ok_at END,
-        submission_proof_checked_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL
+        submission_basis = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL AND submission_proof_url IS NOT NULL
+          THEN NULL ELSE submission_basis END,
+        submission_proof_checked_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL AND submission_proof_url IS NOT NULL
           THEN NULL ELSE submission_proof_checked_at END,
         live_url = COALESCE(${live}, live_url),
         live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL

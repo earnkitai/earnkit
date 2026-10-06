@@ -552,8 +552,9 @@ export async function signalsFor(
 
 /**
  * The builder bonus eligibility rule in SQL, for `projects p` in a round ending `endsAt`
- * (projects.ts bonusEligible is its pure twin): a coin launched and a submission proof that
- * checked out, both before the round's end (Ruling 16: frozen at the end), and no EARLIER entry of
+ * (projects.ts bonusEligible is its pure twin): a coin launched and a submission that counts
+ * (`submission_proof_ok_at`, on any v2.6 basis: page, unverified_page or confirmed; a v2.5 row
+ * with it set and no basis counted on its page), both before the round's end (Ruling 16: frozen at the end), and no EARLIER entry of
  * the same normalized repo in the program that is eligible by the same rule (Rulings 13b, 15: an
  * ineligible earlier row, a squatter's or the builder's own failed attempt, never blocks).
  * Task 7 picks winners with this (finalRanking), never from a stored rank.
@@ -734,6 +735,14 @@ const scoreErrorFirstTime = async (roundKey: string, now: Date) =>
       WHERE round_key = ${roundKey} AND score_error_notified_at IS NULL RETURNING round_key`
   ).length > 0;
 
+/**
+ * v2.6 Ruling 4 (plan): the review flag of an entry that counts on the builder's confirmation
+ * because its program's entry page couldn't be fetched (projects.submission_basis). It goes into
+ * the frozen row's flags for the owner's review page only, never into `terms.flagged`, so it never
+ * holds a round for the owner or makes the cron answer 503 by itself.
+ */
+export const UNVERIFIED_PAGE_FLAG = 'unverified_page';
+
 /** The review flag of an eligible entry frozen without any final read (Ruling 23: scored 0, last). */
 export const NO_FINAL_READ_FLAG = 'no_final_read';
 
@@ -772,7 +781,8 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
  * from those signals with rankRound, so a stored rank of an entry displaced since (a duplicate
  * repo, a coin launched after the end) can never be read as a winner. `flagged` marks entries
  * whose final read still has failed sources (`failed`: which); `review_flags` carries the review
- * page's patterns.
+ * page's patterns, plus UNVERIFIED_PAGE_FLAG for an entry counted on an unverified page (Ruling 4
+ * (plan): a review note, never `flagged`).
  * Ruling 23: an eligible entry with no final read (only possible past readyToFreeze's escape) is
  * ranked after every read entry, score 0, flagged NO_FINAL_READ_FLAG.
  */
@@ -781,9 +791,16 @@ export async function finalRanking(roundKey: string) {
     SELECT program_id, ends_at FROM bonus_rounds WHERE round_key = ${roundKey}`;
   if (!r) return [];
   const rows = await sql()<
-    { id: number; submitted_at: Date; signals: Signals | null; failed: string[] | null; review_flags: string[] | null }[]
+    {
+      id: number;
+      submitted_at: Date;
+      submission_basis: string | null;
+      signals: Signals | null;
+      failed: string[] | null;
+      review_flags: string[] | null;
+    }[]
   >`
-    SELECT p.id, p.submitted_at, s.signals, s.failed, s.review_flags
+    SELECT p.id, p.submitted_at, p.submission_basis, s.signals, s.failed, s.review_flags
     FROM projects p
     LEFT JOIN LATERAL (
       SELECT signals, failed, review_flags FROM bonus_scores b
@@ -795,6 +812,8 @@ export async function finalRanking(roundKey: string) {
     .filter((x) => x.signals === null)
     .sort((a, b) => a.submitted_at.getTime() - b.submitted_at.getTime() || a.id - b.id);
   const byId = new Map(read.map((x) => [x.id, x]));
+  const basisFlags = (x: { submission_basis: string | null }) =>
+    x.submission_basis === UNVERIFIED_PAGE_FLAG ? [UNVERIFIED_PAGE_FLAG] : [];
   const ranked = rankRound(
     read.map((x) => ({ id: x.id, submittedAt: x.submitted_at })),
     new Map(read.map((x) => [x.id, x.signals!])),
@@ -802,7 +821,7 @@ export async function finalRanking(roundKey: string) {
     ...x,
     flagged: byId.get(x.id)!.failed!.length > 0,
     failed: byId.get(x.id)!.failed!,
-    review_flags: byId.get(x.id)!.review_flags ?? [],
+    review_flags: [...(byId.get(x.id)!.review_flags ?? []), ...basisFlags(byId.get(x.id)!)],
   }));
   return [
     ...ranked,
@@ -812,7 +831,7 @@ export async function finalRanking(roundKey: string) {
       rank: ranked.length + i + 1,
       flagged: true,
       failed: [] as string[],
-      review_flags: [NO_FINAL_READ_FLAG],
+      review_flags: [NO_FINAL_READ_FLAG, ...basisFlags(x)],
     })),
   ];
 }

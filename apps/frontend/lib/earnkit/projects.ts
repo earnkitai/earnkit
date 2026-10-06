@@ -28,7 +28,7 @@ import {
   SanctionsError,
   screenWallet,
 } from './sanctions';
-import { proofProblem } from './submission-proof';
+import { proofCheck, type ProofOutcome } from './submission-proof';
 import { repoCoinPrograms } from './tokens';
 import { ProjectInfo, prepareSubmission } from './submission';
 import { CLANKER_ADDRESSES } from './traction';
@@ -71,6 +71,11 @@ export const RecordSubmissionInput = z
     contracts: z.array(z.string()).max(5).optional(),
     /** External programs: the builder's Base wallet (kept as the entry's creator wallet). */
     payout_wallet: z.string().optional(),
+    /**
+     * v2.6 Ruling 5 (plan): the builder confirmed the entry is submitted on the program's own site.
+     * Only `true` counts; stored as `submission_confirmed_at`. Never derived from builder_confirmed.
+     */
+    builder_submitted: z.unknown().optional(),
   })
   .strict();
 
@@ -300,8 +305,9 @@ export async function campaignEntryProblems(
 
 /**
  * The builder bonus eligibility rule (v2.5 spec §3): a coin launched through EarnKit for this
- * entry (ownership was already proven by the token gate to launch it) and a submission proof that
- * last checked out. Derived, never stored separately, so it can never go stale against either
+ * entry (ownership was already proven by the token gate to launch it) and a submission that counts
+ * (`submission_proof_ok_at`: since when, on any v2.6 basis; a v2.5 row with it set and no basis
+ * counted on its page). Derived, never stored separately, so it can never go stale against either
  * field; Tasks 6 and 7 use this to rank and pay rounds. Pure; exported for tests.
  */
 export function bonusEligible(project: {
@@ -396,6 +402,32 @@ export async function verifiedBonusContracts(
   };
 }
 
+/**
+ * v2.6 §3, Rulings 4, 5 and 15 (plan): how an entry's submission counts for the builder bonus, and
+ * the agent-facing note when it doesn't (yet).
+ * - A program with a public entry page (`hasPattern`) needs its link: the page checked out counts
+ *   (`page`); a page that can't be fetched counts on the builder's confirmation, flagged
+ *   (`unverified_page`); a page that loaded without the entry's link never counts, confirmed or not.
+ * - A program without one counts on the builder's confirmation (`confirmed`).
+ * Pure.
+ */
+export function submissionBasis(a: {
+  hasPattern: boolean;
+  outcome: ProofOutcome | null;
+  confirmed: boolean;
+}): { basis: 'page' | 'unverified_page' | 'confirmed' | null; note: string | null } {
+  const confirm = 'Pass builder_submitted: true once the builder confirms the entry is submitted on the program site.';
+  if (!a.hasPattern)
+    return a.confirmed ? { basis: 'confirmed', note: null } : { basis: null, note: `Builder bonus not available yet: ${confirm}` };
+  if (!a.outcome)
+    return { basis: null, note: 'No external_submission_url was given; the builder bonus needs the link to this entry on the program site.' };
+  if (a.outcome.kind === 'ok') return { basis: 'page', note: null };
+  if (a.outcome.kind === 'refused') return { basis: null, note: `Builder bonus not available yet: ${a.outcome.problem}` };
+  return a.confirmed
+    ? { basis: 'unverified_page', note: null }
+    : { basis: null, note: `Builder bonus not available yet: ${a.outcome.problem} ${confirm}` };
+}
+
 /** Stores a project after it was actually submitted to the external program. */
 export async function recordSubmission(
   input: z.infer<typeof RecordSubmissionInput>,
@@ -447,32 +479,35 @@ export async function recordSubmission(
     deployers = checked.deployers;
   }
 
-  // v2.5 §3: external (non-campaign) programs with a public submission page. The external URL is
-  // the proof EarnKit checks for the builder bonus; a failure never fails the submission — it's
-  // recorded either way, just not (yet) bonus-eligible (bonusEligible), with a note telling the
-  // agent what to fix. The cron re-checks a failed proof daily until the round ends.
+  // v2.6 §3: how this entry's submission counts for the builder bonus (submissionBasis). With a
+  // public submission page (a submission_proof pattern) EarnKit checks the external URL; without
+  // one, the builder's confirmation counts. A failure never fails the submission: it's recorded
+  // either way, just not (yet) bonus-eligible, with a note telling the agent what to fix. The cron
+  // re-checks a page daily while the round is open (submission-proof.ts recheckSubmissionProofs).
   let submissionProofUrl: string | null = null;
   let submissionProofOkAt: Date | null = null;
   let submissionProofCheckedAt: Date | null = null;
+  let submissionBasisValue: 'page' | 'unverified_page' | 'confirmed' | null = null;
+  let submissionConfirmedAt: Date | null = null;
   let bonusNote: string | null = null;
-  if (!program.campaign && program.submission_proof) {
-    submissionProofUrl = input.external_submission_url ?? null;
-    if (!submissionProofUrl) {
-      bonusNote =
-        `No external_submission_url was given; the builder bonus needs a public link to this ` +
-        `entry on ${program.submission_proof.host} (e.g. a DoraHacks BUIDL page).`;
-    } else {
-      const problem = await proofProblem(
-        program,
-        submissionProofUrl,
-        repo_url,
-        live_url,
-        { fetchText: deps.fetchProof },
-      );
-      submissionProofCheckedAt = new Date();
-      if (problem) bonusNote = `Builder bonus not available yet: ${problem}`;
-      else submissionProofOkAt = submissionProofCheckedAt;
+  if (bonusOn(program)) {
+    const confirmed = input.builder_submitted === true;
+    let outcome: ProofOutcome | null = null;
+    if (program.submission_proof) {
+      submissionProofUrl = input.external_submission_url ?? null;
+      if (submissionProofUrl) {
+        outcome = await proofCheck(program, submissionProofUrl, repo_url, live_url, { fetchText: deps.fetchProof });
+        submissionProofCheckedAt = new Date();
+      }
     }
+    const counted = submissionBasis({ hasPattern: program.submission_proof !== null, outcome, confirmed });
+    const now = submissionProofCheckedAt ?? new Date();
+    if (confirmed) submissionConfirmedAt = now;
+    if (counted.basis) {
+      submissionBasisValue = counted.basis;
+      submissionProofOkAt = now;
+    }
+    bonusNote = counted.note;
   }
 
   // Ruling 13a: an external entry's own contracts, verified, for the builder bonus's users signal.
@@ -480,7 +515,7 @@ export async function recordSubmission(
   let bonusDeployers: string[] | null = null;
   let bonusWallet: string | null = null;
   const notes: string[] = bonusNote ? [bonusNote] : [];
-  if (!program.campaign && program.submission_proof) {
+  if (bonusOn(program)) {
     if (input.payout_wallet && isWalletAddress(input.payout_wallet)) bonusWallet = input.payout_wallet.toLowerCase();
     if (input.contracts?.length) {
       const v = await verifiedBonusContracts(program.id, repo_url, input.payout_wallet, input.contracts, input.deployer_signature, deps);
@@ -496,15 +531,13 @@ export async function recordSubmission(
   // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
   // new coin here, so no builder bonus: said now, not discovered at launch.
   let coinElsewhere = false;
-  if (bonusRepoKey && (program.submission_proof || bonusOn(program))) {
+  if (bonusRepoKey && bonusOn(program)) {
     const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
     // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
     if (coin && coin.program_id !== program.id) {
       coinElsewhere = true;
-      if (program.submission_proof) {
-        const line = repoCoinNote(coin.title);
-        notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
-      }
+      const line = repoCoinNote(coin.title);
+      notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
     }
   }
   // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
@@ -569,7 +602,7 @@ export async function recordSubmission(
       }
       // The daily limit counts recorded entries only (v2.4 §2): checks that failed above cost nothing.
       await deps.charge?.();
-      if (bonusRepoKey && program.submission_proof) {
+      if (bonusRepoKey && bonusOn(program)) {
         // Only an earlier ELIGIBLE entry (coin and proof) holds the repo (Ruling 15): a squatter's
         // row or the builder's own failed attempt never blocks (traction.ts eligibleSql).
         const [earlier] = await tx<{ id: number }[]>`
@@ -581,7 +614,7 @@ export async function recordSubmission(
             `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest eligible entry of a repo is.`,
           );
       }
-      if (bonusContracts && program.submission_proof) {
+      if (bonusContracts && bonusOn(program)) {
         // A contract backs only one eligible entry per program, the earliest (Ruling 15; scoring
         // drops it from later entries, traction.ts ownContracts).
         const held = await tx<{ id: number; contracts: string[] }[]>`
@@ -619,6 +652,8 @@ export async function recordSubmission(
         submission_proof_url: submissionProofUrl,
         submission_proof_ok_at: submissionProofOkAt,
         submission_proof_checked_at: submissionProofCheckedAt,
+        submission_basis: submissionBasisValue,
+        submission_confirmed_at: submissionConfirmedAt,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
