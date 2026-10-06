@@ -288,7 +288,12 @@ let aRepo = '';
   }
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
   // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
-  check(prep.token?.say_to_builder.includes('· skip: no coin, no builder bonus'), '(a) say_to_builder offers the skip (no coin, no builder bonus)', prep.token);
+  check(
+    prep.token?.say_to_builder.startsWith('Your entry gets a token on Base, $CHAIN:') &&
+      prep.token.say_to_builder.includes('· skip: no token, no builder bonus'),
+    '(a) say_to_builder: a token on Base, and offers the skip (no token, no builder bonus)',
+    prep.token,
+  );
   // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
   check(prep.token?.say_to_builder.includes('(used last time) — or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
@@ -311,7 +316,8 @@ let aRepo = '';
   check(
     prep.token?.say_to_builder.includes(`Wallet for fees and any bonus: ${WALLET} (used last time)`) &&
       prep.token.say_to_builder.split(WALLET).length === 2 &&
-      prep.token.say_to_builder.includes("Fees in WETH, after Clanker's 20% cut") &&
+      prep.token.say_to_builder.includes('Fees in WETH; tokens.fun pays gas.') &&
+      !/clanker/i.test(prep.token.say_to_builder) &&
       prep.token.say_to_builder.includes('risk-disclosure'),
     '(a) say_to_builder names the fee wallet once and carries the fee line and terms',
     prep.token,

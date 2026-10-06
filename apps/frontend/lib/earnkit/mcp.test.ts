@@ -274,3 +274,9 @@ test('v2.6: the coin needs one ticker-free line the agent pushes; no wallet line
 test('v2.7 §2: get_program tells the agent to show guide.text as written', () => {
   assert.match(TOOL_DESCRIPTIONS.get_program, /guide\.text is the program's guide .*show it as written/);
 });
+
+test('v2.7 §3, Ruling 15/18 (plan): prepare_submission says what not ready means; no tool names Clanker', () => {
+  assert.match(TOOL_DESCRIPTIONS.prepare_submission, /When ready is false/);
+  assert.match(TOOL_DESCRIPTIONS.prepare_submission, /one Token row \(a token on Base\)/);
+  for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);
+});

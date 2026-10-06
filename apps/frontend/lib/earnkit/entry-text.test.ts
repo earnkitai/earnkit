@@ -10,6 +10,7 @@ import {
   enteredText,
   keyTable,
   noCoinYet,
+  notReadyLine,
   REPO_HELD,
   roundEndLabel,
   summaryCloses,
@@ -17,7 +18,7 @@ import {
   tokenRow,
   walletLine,
 } from './entry-text';
-import { TOKEN_TERMS } from './tokens';
+import { EARNINGS_LINE, TOKEN_TERMS } from './tokens';
 import type { CampaignConfig } from './campaigns';
 
 const campaign: CampaignConfig = {
@@ -43,7 +44,7 @@ test('confirmTable: the spec block, prize first, one token row, terms under the 
       '| Entry | Tip Jar for EarnKit Campaign #1 |',
       '|---|---|',
       '| Prize | $100 in MINI if top 5 with 10+ users, paid to 0xAbCdEf0123456789abcdef0123456789ABCDEf01 by Oct 21 |',
-      '| Token | $TIP on tokens.fun, you keep 40% of fees (say "no token" to skip) |',
+      '| Token | a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip) |',
       '',
       TOKEN_FOOTNOTE,
     ].join('\n'),
@@ -95,20 +96,11 @@ test('keyTable escapes "|" so a cell never breaks the table', () => {
   assert.equal(keyTable([['Entry', 'A | B']]), '| Entry | A \\| B |\n|---|---|');
 });
 
-test('v2.5 Task 8: the coin row on a program with a builder bonus says so, and never otherwise', () => {
-  assert.equal(tokenRow('TIP'), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
-  assert.equal(tokenRow('TIP', false), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
-  assert.equal(tokenRow('TIP', true), '$TIP on tokens.fun, you keep 40% of fees · skip: no builder bonus');
-  assert.equal(
-    tokenRow(null, true),
-    'A token on tokens.fun, you keep 40% of fees: pick a name and ticker · skip: no builder bonus',
-  );
-  assert.equal(
-    tokenRow(null, false),
-    'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip',
-  );
-  for (const row of [tokenRow('TIP', true), tokenRow(null, true)])
-    assert.doesNotMatch(row, /\p{Extended_Pictographic}/u);
+test('v2.5 Task 8: the campaign token row on a program with a builder bonus says so, and never otherwise', () => {
+  assert.equal(tokenRow('TIP'), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', false), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', true), 'a token on Base, $TIP: you earn 40% of its trading fees · skip: no builder bonus');
+  assert.doesNotMatch(tokenRow('TIP', true), /\p{Extended_Pictographic}/u);
 });
 
 test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin row', () => {
@@ -117,13 +109,13 @@ test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin r
     prize: '500 USDC × 20 grants', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIP', hasBonus: true },
   });
-  assert.match(text, /\| Coin \| Your entry gets a coin, \$TIP: .*skip: no coin, no builder bonus \|/);
+  assert.match(text, /\| Token \| Your entry gets a token on Base, \$TIP: .*skip: no token, no builder bonus \|/);
   // No wallet known: the wallet line is the ask.
-  assert.ok(text.endsWith(`\n\nWhich wallet should get your coin's fees and any bonus?\n\n${COIN_FOOTNOTE}`), text);
+  assert.ok(text.endsWith(`\n\nWhich wallet should get your token's fees and any bonus?\n\n${COIN_FOOTNOTE}`), text);
 });
 
 test('v2.5 Task 8: the footnote names the fee split for the builder only', () => {
-  assert.match(TOKEN_FOOTNOTE, /you keep 40% of trading fees \(after Clanker's 20% protocol cut\)/);
+  assert.match(TOKEN_FOOTNOTE, /^Token: you earn 40% of trading fees, paid in WETH; tokens\.fun pays gas\./);
   assert.doesNotMatch(TOKEN_FOOTNOTE, /MINI buyback|builder bonus|EarnKit Safe/);
 });
 
@@ -142,7 +134,7 @@ test('Ruling 14: the footnote names the fee wallet when it is known (v2.3 consen
 test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another program says no builder bonus', () => {
   assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's coin is entered in Arc Microgrants");
   // Only where a bonus could be won; v2.3 rows elsewhere are unchanged.
-  assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), '$TIP on tokens.fun, you keep 40% of fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
   const text = confirmTable({
     project: 'Tip Jar', programTitle: "Crypto World's Fair Hackathon", campaign: null,
     prize: '$30,000', endsAt: null, payoutWallet: null,
@@ -150,7 +142,7 @@ test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another pr
   });
   assert.equal(
     text,
-    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Coin | no builder bonus: this repo's coin is entered in Arc Microgrants |",
+    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's coin is entered in Arc Microgrants |",
     'no new coin, so no wallet line and no fee footnote',
   );
   assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
@@ -158,20 +150,10 @@ test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another pr
 
 const W = '0xab12000000000000000000000000000000ef0123';
 test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full, once)', () => {
-  assert.equal(
-    coinRow({ symbol: 'TIPJAR', hasBonus: true }),
-    'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus',
-  );
-  assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }), 'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees · skip: no coin');
-  assert.equal(coinRow({ symbol: null, hasBonus: true }), 'Your entry gets a coin (pick a name and ticker): you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus');
   assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's coin is entered in Arc Microgrants");
   assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`);
   assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W} — or tell me another.`);
-  assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your coin's fees and any bonus?");
-  assert.equal(
-    COIN_FOOTNOTE,
-    `Fees in WETH, after Clanker's 20% cut; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`,
-  );
+  assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your token's fees and any bonus?");
   for (const line of [coinRow({ symbol: 'TIPJAR', hasBonus: true }), walletLine({ wallet: W, remembered: true, hasBonus: true }), COIN_FOOTNOTE])
     assert.doesNotMatch(line, /vault|\p{Extended_Pictographic}/u);
 });
@@ -185,7 +167,7 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
       '| Entry | TipJar for Arc Microgrants |',
       '|---|---|',
       '| Prize | 500 USDC |',
-      '| Coin | Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus |',
+      '| Token | Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · skip: no token, no builder bonus |',
       '',
       `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`,
       '',
@@ -199,7 +181,7 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
     token: { symbol: 'TIPJAR', wallet: W, remembered: true } });
   assert.match(c, /\| Token \| /);
   assert.ok(c.endsWith(tokenFootnote(W)));
-  assert.doesNotMatch(c, /\| Coin \||Wallet for fees/);
+  assert.doesNotMatch(c, /Your entry gets|Wallet for fees/);
 });
 
 test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () => {
@@ -331,4 +313,40 @@ test('final M4: a coin not launched yet joins the builder bonus once it is; neve
     "Entered in Base Batches. Your coin isn't launched yet.\nTell me once you've submitted on base.org. With your coin launched, that joins the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
   );
   assert.doesNotMatch(enteredText({ programTitle: 'A', coin: other, bonus }), /\nBuilder bonus:|No coin yet/);
+});
+
+test('v2.7 §3: a token on Base, no Clanker', () => {
+  assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: true }),
+    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · skip: no token, no builder bonus');
+  assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }),
+    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees · skip: no token');
+  assert.equal(COIN_FOOTNOTE, `Fees in WETH; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`);
+  for (const s of [COIN_FOOTNOTE, tokenFootnote('0xabc'), tokenRow('TIP', false), EARNINGS_LINE('0xabc')])
+    assert.doesNotMatch(s, /clanker|protocol cut/i);
+});
+
+test('v2.7 §3: not ready leads with what is missing; no token, wallet or footnote', () => {
+  const t = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants',
+    endsAt: null, payoutWallet: null, missing: ['Live deployment on Arc mainnet', 'Public builder profile'],
+    token: { symbol: 'TIPJAR', wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', hasBonus: true } });
+  assert.ok(t.startsWith('Before you submit: Live deployment on Arc mainnet; Public builder profile.\n\n'));
+  assert.doesNotMatch(t, /Token|Wallet|Fees in WETH|0x1581/);
+  assert.match(t, /\| Prize \| 500 USDC × 20 grants \|/);
+  assert.equal(notReadyLine(['A']), 'Before you submit: A.');
+  // Ready (missing: []) keeps the v2.6 shape with the Token row.
+  const ready = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants',
+    endsAt: null, payoutWallet: null, missing: [],
+    token: { symbol: 'TIPJAR', wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', hasBonus: true } });
+  assert.match(ready, /^\| Entry \| TipJar for Arc Microgrants \|/);
+  assert.match(ready, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+  assert.ok(ready.endsWith(COIN_FOOTNOTE));
+});
+
+test('Ruling 15 (plan): a campaign not ready still asks about the remembered payout wallet', () => {
+  const W2 = '0xAbCdEf0123456789abcdef0123456789ABCDEf01';
+  const t = confirmTable({ project: 'Tip Jar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS,
+    payoutWallet: null, askWallet: W2, missing: ['Payout wallet'], token: { symbol: 'TIP' } });
+  assert.ok(t.startsWith('Before you submit: Payout wallet.\n\n| Entry |'), t);
+  assert.ok(t.endsWith(`Pay prizes to ${W2}? It is the wallet from your last entry.`), t);
+  assert.doesNotMatch(t, /\| Token \||Fees in WETH|Token:/);
 });

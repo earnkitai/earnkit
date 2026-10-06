@@ -2,8 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MONOGRAM_PALETTE,
+  cleanTokenName,
+  initialsCandidates,
   monogramFor,
   proposeToken,
+  repoNameOf,
+  type TickerCheck,
   tickerCandidates,
   tickerProblem,
   tokenNameProblem,
@@ -69,13 +73,14 @@ test('proposeToken: the proposed name is cleaned/normalized, not the raw input (
   assert.equal((p as { name: string }).name, "Chain Kits' Bridge");
 });
 
-test('proposeToken: a brand name falls back to "<name> Token", else no proposal', async () => {
+test('v2.7 Ruling 16 (plan): a brand name or an emoji-only name still gets a proposal', async () => {
   const free = async () => true;
-  const none = await proposeToken('Coinbase', free);
-  assert.equal(none.name, null);
-  assert.match((none as { reason: string }).reason, /pick a name/);
+  const brand = await proposeToken('Coinbase', free);
+  assert.ok(brand.name && brand.symbol);
+  assert.equal(tokenNameProblem(brand.name), null);
+  assert.equal(tickerProblem(brand.symbol), null);
   const emoji = await proposeToken('🚀🚀', free);
-  assert.equal(emoji.name, null);
+  assert.deepEqual(emoji, { name: '🚀🚀', symbol: 'ENTRY' });
 });
 
 test('tokensFunTickerCheck: no key means no fetch, returns null (fix round 1, item 5)', async () => {
@@ -176,4 +181,39 @@ test('monogram: deterministic letters and a palette colour', () => {
   assert.equal(monogramFor(7, 'AGENTP').letters, 'AGE');
   assert.ok(MONOGRAM_PALETTE.includes(monogramFor(7, 'CKB').background));
   assert.equal(MONOGRAM_PALETTE.length, 12);
+});
+
+const free: TickerCheck = async () => true;
+test('Ruling 16 (plan): a name and ticker are always proposed', async () => {
+  for (const [name, repo] of [['Base Pay', undefined], ['支付应用', 'https://github.com/a/zhifu-app'], ['支付应用', undefined], ['Go', undefined]] as const) {
+    const p = await proposeToken(name, free, repo);
+    assert.ok(p.name && p.symbol, name);
+    assert.equal(tickerProblem(p.symbol), null, name);
+    assert.ok('name' in cleanTokenName(p.name), name);
+  }
+  assert.equal((await proposeToken('支付应用', free, 'https://github.com/a/zhifu-app')).symbol, 'ZHIFU');
+  assert.equal((await proposeToken('支付应用', free)).symbol, 'ENTRY');
+  assert.equal((await proposeToken('Go', free)).symbol, 'GOX');
+});
+
+test('Ruling 16 (plan): at most 12 checks; then an unchecked candidate with a note', async () => {
+  let calls = 0;
+  const taken: TickerCheck = async () => { calls++; return false; };
+  const p = await proposeToken('TipJar', taken, 'https://github.com/a/tipjar');
+  assert.equal(calls, 12);
+  assert.ok(p.symbol);
+  assert.equal(p.note, 'ticker not checked for duplicates');
+});
+
+test('repoNameOf and initialsCandidates', () => {
+  assert.equal(repoNameOf('https://github.com/acme/tip-jar.git'), 'tip jar');
+  assert.equal(repoNameOf('https://gitlab.com/a/b'), null);
+  assert.deepEqual(initialsCandidates('My Tip Jar').slice(0, 2), ['MTJ', 'MTJ2']);
+});
+
+test('Ruling 16 (plan): the name falls back to the repo name before "<TICKER> Token"', async () => {
+  const p = await proposeToken('支付应用', free, 'https://github.com/a/zhifu-app');
+  assert.deepEqual(p, { name: '支付应用', symbol: 'ZHIFU' });
+  const brand = await proposeToken('Base Pay', free, 'https://github.com/a/tip-jar');
+  assert.equal(brand.name, 'tip jar');
 });

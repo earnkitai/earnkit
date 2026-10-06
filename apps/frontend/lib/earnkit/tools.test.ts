@@ -211,20 +211,77 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
   globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
   type Token = { creator_wallet: string | null; note: string; say_to_builder: string };
-  const prep = async (program_id: string, answers?: Record<string, string>) =>
-    ((await tools.prepare_submission({ program_id, project: { name: 'Tip Jar' }, ...(answers && { answers }) }, { installationId: id })) as {
+  // v2.7 Ruling 15 (plan): the token block appears only once the entry is ready, so every answer is given.
+  const project = { name: 'Tip Jar', description: 'Tips', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.example' };
+  const full = { contracts: '0x' + '1'.repeat(40), builder_profile: 'https://github.com/alice', description: 'Tips' };
+  const call = async (program_id: string, answers?: Record<string, string>) =>
+    (await tools.prepare_submission({ program_id, project, answers: { ...full, ...answers } }, { installationId: id })) as {
       token?: Token;
-    }).token!;
+      show_to_builder: string;
+      ready: boolean;
+    };
+  const prep = async (program_id: string, answers?: Record<string, string>) => (await call(program_id, answers)).token!;
   try {
-    const none = await prep(camp.id);
-    assert.equal(none.creator_wallet, null, 'the remembered wallet is never the fee wallet in a campaign');
-    assert.match(none.note, /Ask the builder for the wallet that receives creator fees\./);
-    assert.ok(!none.say_to_builder.includes(W) && !none.note.includes(W));
+    // A campaign without a payout wallet in this call is not ready: no token block, no fee wallet.
+    const none = await call(camp.id);
+    assert.equal(none.ready, false);
+    assert.equal(none.token, undefined, 'the remembered wallet is never the fee wallet in a campaign');
+    assert.ok(none.show_to_builder.startsWith('Before you submit: Payout wallet.'), none.show_to_builder);
+    assert.ok(!none.show_to_builder.includes(GIVEN));
     const given = await prep(camp.id, { payout_wallet: GIVEN });
     assert.equal(given.creator_wallet, GIVEN);
     assert.doesNotMatch(given.note, /Ask the builder for the wallet/);
     // Not a campaign: v2.3 unchanged, the remembered wallet is the fee wallet.
     assert.equal((await prep(plain.id)).creator_wallet, W);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+});
+
+test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing; the token step waits until ready', dbTest, async () => {
+  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+  const stamp = `${process.pid}-${Date.now()}`;
+  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  Object.assign(arc, { id: `t4-ready-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(arc));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, payout_wallet) VALUES (${`t4-ready-${stamp}`}, ${W}) RETURNING id`;
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const realFetch = globalThis.fetch;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  // The ticker check: every ticker free; counted, so a not-ready call is seen to make none.
+  let tickerChecks = 0;
+  globalThis.fetch = (async (url: string | URL) => {
+    if (String(url).includes('/api/check-ticker')) {
+      tickerChecks++;
+      return Response.json({ available: true });
+    }
+    return new Response('', { status: 503 });
+  }) as typeof fetch;
+  type Reply = { ready: boolean; show_to_builder: string; token?: { proposed: { name: string; symbol: string } }; shown_wallet?: string };
+  const prep = async (project: Record<string, string>, answers: Record<string, string>) =>
+    (await tools.prepare_submission({ program_id: arc.id, project, answers }, { installationId: id })) as Reply;
+  const answers = { description: 'Tips on Arc', builder_profile: 'https://github.com/alice' };
+  try {
+    // Arc without the live mainnet link: not ready, the screen says so first; no token, no wallet.
+    const notReady = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}` }, answers);
+    assert.equal(notReady.ready, false);
+    assert.ok(notReady.show_to_builder.startsWith('Before you submit: Live deployment on Arc mainnet.\n\n'), notReady.show_to_builder);
+    assert.ok(!('token' in notReady));
+    assert.ok(!('shown_wallet' in notReady));
+    assert.doesNotMatch(notReady.show_to_builder, /Token|Wallet|Fees in WETH|0x1581/);
+    assert.equal(tickerChecks, 0, 'no ticker check while not ready');
+    // Every required answer: the Token row (a token on Base) and the wallet line.
+    const ready = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}`, live_url: 'https://tipjar.example' }, answers);
+    assert.equal(ready.ready, true);
+    assert.match(ready.show_to_builder, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+    assert.equal(ready.shown_wallet, W);
+    assert.ok(tickerChecks > 0);
+    // No project name, but a GitHub repo: the repo name is the name.
+    const noName = await prep({ repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.example' }, answers);
+    assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
   } finally {
     globalThis.fetch = realFetch;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
@@ -367,6 +424,11 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   // The ticker check and any other read are unreachable: nothing reaches the network or tokens.fun.
   globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
   const pools = async (ids: string[]) => new Map(ids.map((id) => [id, 180000000000000000n] as [string, bigint]));
+  // v2.7 Ruling 15 (plan): every required answer, so the token step shows.
+  const ready = (name = 'Tip Jar', repo_url = `https://github.com/alice/t4-${stamp}-ready`) => ({
+    project: { name, repo_url, live_url: 'https://tipjar.example' },
+    answers: { description: 'Tips', builder_profile: 'https://github.com/alice' },
+  });
   try {
     // 1. An entry naming a wallet (the builder skipped the coin): remembered for the installation.
     const id = await inst('one');
@@ -377,17 +439,17 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(skipped.recorded, true);
     assert.equal(skipped.show_to_builder, `Entered in ${a.title}.`, 'skipped: no coin, no bonus line');
     // 2. The next prepare_submission, on another non-campaign program, prefills it.
-    const prep = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' } }, { installationId: id })) as {
+    const prep = (await tools.prepare_submission({ program_id: b.id, ...ready() }, { installationId: id })) as {
       show_to_builder: string;
       token: { creator_wallet: string | null };
     };
     assert.equal(prep.token.creator_wallet, W);
-    assert.match(prep.show_to_builder, /\| Coin \| Your entry gets a coin/);
+    assert.match(prep.show_to_builder, /\| Token \| Your entry gets a token on Base, \$/);
     assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`), prep.show_to_builder);
     assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
-    const given = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' }, answers: { payout_wallet: OTHER } }, { installationId: id })) as {
+    const given = (await tools.prepare_submission({ program_id: b.id, ...ready(), answers: { ...ready().answers, payout_wallet: OTHER } }, { installationId: id })) as {
       show_to_builder: string;
     };
     assert.ok(given.show_to_builder.includes(`Wallet for fees and any bonus: ${OTHER} — or tell me another.`));
@@ -526,7 +588,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const SHOWN = '0x' + 'c'.repeat(39) + '1';
     const LATER = '0x' + 'd'.repeat(39) + '2';
     await sql()`UPDATE installations SET payout_wallet = ${SHOWN} WHERE id = ${five}`;
-    const shownPrep = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar 7', repo_url: repoUrl(7) } }, { installationId: five })) as {
+    const shownPrep = (await tools.prepare_submission({ program_id: b.id, ...ready('Tip Jar 7', repoUrl(7)) }, { installationId: five })) as {
       show_to_builder: string;
       shown_wallet?: string;
     };
