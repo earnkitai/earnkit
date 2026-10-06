@@ -240,3 +240,26 @@ test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
     if (prev !== undefined) process.env.EARNKIT_URL = prev;
   }
 });
+
+test('fix round 1 (I3): an entry that does not count yet is told plainly what joins the builder bonus', () => {
+  const ends = new Date('2026-10-15T03:59:00Z');
+  const base = { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
+  const coin = { status: 'launched' as const, url: 'https://tokens.fun/coin/0xabc' };
+  assert.equal(
+    enteredText({ programTitle: 'Base Batches', coin, bonus: { ...base, join: { kind: 'confirm', site: 'base.org' } } }),
+    'Entered in Base Batches. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+      "Tell me once you've submitted on base.org to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
+  );
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io' } } }),
+    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+      'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+  );
+  // Counting (join null): the current line.
+  assert.match(enteredText({ programTitle: 'A', coin, bonus: { ...base, join: null } }), /\nBuilder bonus: 0\.18 ETH so far · ends Oct 15 · /);
+  for (const kind of ['confirm', 'page'] as const)
+    assert.doesNotMatch(
+      enteredText({ programTitle: 'A', coin, bonus: { ...base, join: { kind, site: 'x.io' } } }),
+      /builder_submitted|record_submission|launch_token|external_submission_url|vault/,
+    );
+});

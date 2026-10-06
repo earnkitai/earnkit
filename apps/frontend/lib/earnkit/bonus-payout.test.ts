@@ -588,6 +588,7 @@ test('bonus veto POST: per-round key (never a campaign key), the round review pa
   assert.match(page, /'unverified page'/);
   assert.match(page, /'builder confirmed'/);
   assert.match(page, /unverified page: the program site blocked EarnKit; the builder confirmed it/);
+  assert.match(page, /shownUrl\(f\?\.submission_proof_url\)/);
 });
 
 test('POST /api/cron answers with the ledger bigints as strings (Response.json alone throws on them), 503 for a waiting round', async () => {

@@ -51,7 +51,8 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   assert.match(t, /So does the share of programs that opted out/);
   // v2.6 §3-§4: the bonus is on every program unless it opts out; how a submission counts; a coin
   // needs only the token line (no public payout wallet).
-  assert.match(t, /Every program has a builder bonus unless it opts out\./);
+  assert.match(t, /Every program except EarnKit campaigns has a builder bonus unless it opts out\./);
+  assert.match(t, /If EarnKit can't load an entry page, the builder's confirmation counts and is reviewed too\./);
   assert.ok(
     t.includes('Programs without public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.'),
   );

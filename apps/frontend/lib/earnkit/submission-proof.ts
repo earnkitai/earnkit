@@ -124,18 +124,22 @@ export async function proofProblem(
 /**
  * Ruling 4 (plan): the daily re-check's transition for one entry, or null for no change.
  * - the page links the entry: it counts on the page (`page`), since its first count (`ok_at` kept);
- * - the page loaded without the link: no longer eligible (both cleared);
+ * - the page loaded without the link: no longer eligible (both cleared), and the builder's
+ *   confirmation is disproven, so it is cleared too (fix round 1, I2: a later fetch failure must
+ *   never turn it back into an unverified page);
  * - still unreachable: a confirmed entry that didn't count yet counts as `unverified_page`;
- *   anything else stays as it is. Pure.
+ *   anything else stays as it is.
+ * `confirmed` in the result is whether the confirmation still stands. Pure.
  */
 export function recheckUpdate(
   row: { ok_at: Date | null; basis: string | null; confirmed: boolean },
   o: ProofOutcome,
   now: Date,
-): { ok_at: Date | null; basis: string | null } | null {
-  if (o.kind === 'ok') return { ok_at: row.ok_at ?? now, basis: 'page' };
-  if (o.kind === 'refused') return row.ok_at === null && row.basis === null ? null : { ok_at: null, basis: null };
-  if (row.ok_at === null && row.confirmed) return { ok_at: now, basis: 'unverified_page' };
+): { ok_at: Date | null; basis: string | null; confirmed: boolean } | null {
+  if (o.kind === 'ok') return { ok_at: row.ok_at ?? now, basis: 'page', confirmed: row.confirmed };
+  if (o.kind === 'refused')
+    return row.ok_at === null && row.basis === null && !row.confirmed ? null : { ok_at: null, basis: null, confirmed: false };
+  if (row.ok_at === null && row.confirmed) return { ok_at: now, basis: 'unverified_page', confirmed: true };
   return null;
 }
 
@@ -196,7 +200,8 @@ export const RECHECK_BATCH = 50;
  * or counts only on an unverified page (`submission_basis = 'unverified_page'`), not re-checked
  * within `PROOF_RECHECK_INTERVAL_MS`, whose program is `active` with a builder bonus and a proof
  * pattern, and whose bonus round is still open (`roundFor`, bonus-rounds.ts) at `now`. Each is
- * re-run through `proofCheck` and moved by `recheckUpdate`; the attempt is always stamped
+ * re-run through `proofCheck` and moved by `recheckUpdate` (a page that loads without the link
+ * also clears the builder's confirmation); the attempt is always stamped
  * (`submission_proof_checked_at`). An entry whose round has ended (or hasn't started, or whose
  * program is no longer active) is stamped without a fetch: it is frozen as it stands. `passed`
  * counts entries that start counting (ok_at set where it was NULL). Bounded by `deadline`; one
@@ -259,7 +264,8 @@ export async function recheckSubmissionProofs(
     if (row.submission_proof_ok_at === null && next.ok_at !== null) passed++;
     await sql()`
       UPDATE projects SET submission_proof_checked_at = ${now}, submission_proof_ok_at = ${next.ok_at},
-        submission_basis = ${next.basis}
+        submission_basis = ${next.basis},
+        submission_confirmed_at = CASE WHEN ${next.confirmed} THEN submission_confirmed_at ELSE NULL END
       WHERE id = ${row.project_id}`;
   }
   return { checked, passed };
