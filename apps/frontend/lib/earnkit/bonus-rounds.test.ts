@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { boardSlug, bonusOn, bookingFor, resolveRoundParam, roundFor, roundKeyFromSlug, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
+import { getProgram } from './programs';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
 const d = (s: string) => new Date(s);
@@ -227,4 +228,27 @@ test('Ruling 12 (plan): boardSlug and roundKeyFromSlug round-trip both key forms
   assert.equal(roundKeyFromSlug('no-date-here'), 'no-date-here');
   assert.equal(resolveRoundParam('arc-microgrants%3A2026-09-16'), 'arc-microgrants:2026-09-16');
   assert.equal(resolveRoundParam('%E0%A4%A'), null);
+});
+
+test('v2.7 §2: get_program\'s guide shows the open round\'s pool and board; none for a frozen round', db, async () => {
+  const now = new Date();
+  const starts = new Date(now.getTime() - 86_400_000);
+  const ends = new Date(now.getTime() + 10 * 86_400_000);
+  const key = (id: string) => `${P(id)}:${starts.toISOString().slice(0, 10)}`;
+  try {
+    await program(P('guide'), starts, ends);
+    await program(P('guide-frozen'), starts, ends);
+    await program(P('guide-empty'), starts, ends);
+    await ledger(key('guide'), '180000000000000000');
+    await ledger(key('guide-frozen'), '9');
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${key('guide-frozen')}`;
+    const text = async (id: string) => (await getProgram(P(id))).guide!.text;
+    assert.match(await text('guide'), new RegExp(`\\nBuilder bonus: 0\\.18 ETH so far · [^ ]+/bonus/${P('guide')}-${starts.toISOString().slice(0, 10)}$`));
+    assert.match(await text('guide-empty'), /\nBuilder bonus: new pool · /);
+    assert.doesNotMatch(await text('guide-frozen'), /Builder bonus/);
+  } finally {
+    await sql()`DELETE FROM bonus_ledger WHERE round_key LIKE 't4-pools-guide%'`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id LIKE 't4-pools-guide%'`;
+    await sql()`DELETE FROM programs WHERE id LIKE 't4-pools-guide%'`;
+  }
 });

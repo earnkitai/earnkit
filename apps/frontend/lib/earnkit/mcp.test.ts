@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { OWNERSHIP_FOR_TOKEN, createMcpServer } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, TOOL_DESCRIPTIONS, createMcpServer } from './mcp';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
 
@@ -269,4 +269,8 @@ test('v2.6: the coin needs one ticker-free line the agent pushes; no wallet line
   assert.ok(!launch.includes('live link'));
   for (const name of ['prepare_submission', 'record_submission', 'launch_token'])
     assert.ok(tools.find((t) => t.name === name)!.description!.includes(OWNERSHIP_FOR_TOKEN), name);
+});
+
+test('v2.7 §2: get_program tells the agent to show guide.text as written', () => {
+  assert.match(TOOL_DESCRIPTIONS.get_program, /guide\.text is the program's guide .*show it as written/);
 });

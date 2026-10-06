@@ -108,7 +108,8 @@ const GET_PROGRAM_DESCRIPTION =
   'each_time = what the builder must provide for every entry. build_help[].start is one command ' +
   'that sets up a tested starting point. Pass repo to check whether that repo is eligible and ' +
   "what it is missing. A sponsor campaign's own text (what to build, criteria, link) is in " +
-  'sponsor_content. ' +
+  "sponsor_content. guide.text is the program's guide (difficulty, what won before, what the " +
+  'ecosystem wants, the best bet): show it as written. ' +
   SAFETY_TEXT;
 
 const PREPARE_SUBMISSION_DESCRIPTION =

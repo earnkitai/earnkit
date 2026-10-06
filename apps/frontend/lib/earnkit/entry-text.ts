@@ -80,6 +80,20 @@ export function summaryCloses(summary: string): string | null {
   return null;
 }
 
+/** The prize part of a program's summary ("500 USDC × 20 grants"). Pure. */
+export const prizeOf = (c: { summary: string }) => c.summary.split(' · ')[0];
+
+/**
+ * "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's last day (deadlineDay). Ruling 29:
+ * roundEndLabel gives a round ending at the deadline this same day. Pure; exported for tests.
+ */
+export function endsOf(c: { summary: string; ends_at?: Date | null }) {
+  const closes = summaryCloses(c.summary);
+  if (closes) return closes;
+  if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
+  return c.ends_at ? deadlineDay(c.ends_at) : 'rolling';
+}
+
 /**
  * Ruling 29: a round's end as the builder sees it everywhere, the same day as the first message
  * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14"
