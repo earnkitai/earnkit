@@ -531,7 +531,7 @@ export async function recordSubmission(
   let submissionConfirmedAt: Date | null = existing?.submission_confirmed_at ?? null;
   let bonusNote: string | null = null;
   // Builder text when the entry doesn't count yet (I3): what joins the builder bonus.
-  let bonusJoin: { kind: 'confirm' | 'page'; site: string } | null = null;
+  let bonusJoin: { kind: 'confirm' | 'page' | 'link'; site: string } | null = null;
   if (bonusOn(program)) {
     const now = new Date();
     if (input.builder_submitted === true) submissionConfirmedAt ??= now;
@@ -566,7 +566,14 @@ export async function recordSubmission(
       submissionBasisValue = null;
       submissionProofOkAt = null;
       bonusJoin = {
-        kind: program.submission_proof && outcome?.kind === 'refused' ? 'page' : 'confirm',
+        // Ruling 24: a public entry page with no link given asks for the link.
+        kind: !program.submission_proof
+          ? 'confirm'
+          : !submissionProofUrl
+            ? 'link'
+            : outcome?.kind === 'refused'
+              ? 'page'
+              : 'confirm',
         site: program.submission_proof?.host ?? siteOf(program.submission_url) ?? program.title,
       };
     }

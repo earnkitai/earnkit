@@ -255,9 +255,15 @@ test('fix round 1 (I3): an entry that does not count yet is told plainly what jo
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
+  // Ruling 24: a public entry page, no entry link given yet.
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'link', site: 'dorahacks.io' } } }),
+    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+      'Send me your dorahacks.io entry link to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+  );
   // Counting (join null): the current line.
   assert.match(enteredText({ programTitle: 'A', coin, bonus: { ...base, join: null } }), /\nBuilder bonus: 0\.18 ETH so far · ends Oct 15 · /);
-  for (const kind of ['confirm', 'page'] as const)
+  for (const kind of ['confirm', 'page', 'link'] as const)
     assert.doesNotMatch(
       enteredText({ programTitle: 'A', coin, bonus: { ...base, join: { kind, site: 'x.io' } } }),
       /builder_submitted|record_submission|launch_token|external_submission_url|vault/,

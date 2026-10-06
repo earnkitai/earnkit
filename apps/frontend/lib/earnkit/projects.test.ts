@@ -387,6 +387,8 @@ test('record_submission (v2.5 §3): no external_submission_url notes it, still r
   );
   assert.equal(result.recorded, true);
   assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No external_submission_url was given/);
+  // Ruling 24: the builder is asked for the entry link.
+  assert.deepEqual((result as { bonus_join?: unknown }).bonus_join, { kind: 'link', site: 'dorahacks.io' });
   const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null }[]>`
     SELECT submission_proof_url, submission_proof_ok_at FROM projects WHERE id = ${result.project_id}`;
   assert.equal(row.submission_proof_url, null);

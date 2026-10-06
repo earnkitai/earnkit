@@ -477,9 +477,22 @@ let retryRepo = '';
 // (o) one token per repo: a second entry of (a)'s repo (e.g. a retried record_submission).
 {
   const before = deploys.length;
-  const r = await submit({ project: project('Chain Kit Builder', { repo_url: aRepo }), token: { name: 'Chain Kit Again', symbol: 'CHAN2' }, confirmed: true });
-  check(r.recorded === true && r.token.status === 'skipped' && r.token.note === `This repo already has a token: https://tokens.fun/coin/${TOKEN_ADDRESS}`, '(o) second entry of the repo → skipped', r.token);
-  const l = await launch({ project_id: r.project_id });
+  // v2.6 Ruling 23 (I1): the same agent recording the same repo again updates its entry: same id,
+  // its coin kept, nothing launched.
+  const retry = await submit({ project: project('Chain Kit Builder', { repo_url: aRepo }), token: { name: 'Chain Kit Again', symbol: 'CHAN2' }, confirmed: true });
+  check(
+    retry.recorded === true && retry.project_id === aProjectId && retry.token.status === 'launched' &&
+      retry.token.tokens_fun === `https://tokens.fun/coin/${TOKEN_ADDRESS}`,
+    '(o) the same agent re-recording the repo updates its entry, coin kept',
+    retry,
+  );
+  // Another agent of the builder entering the same repo: a second entry, never a second token.
+  const other = await newInstallation();
+  OWNERS.add(other.id);
+  const otherCtx: Ctx = { installationId: other.id, tokenDeps: { gate: passGate, limit: async () => {} } };
+  const r = await submit({ project: project('Chain Kit Builder', { repo_url: aRepo }), token: { name: 'Chain Kit Again', symbol: 'CHAN2' }, confirmed: true }, undefined, otherCtx);
+  check(r.recorded === true && r.project_id !== aProjectId && r.token.status === 'skipped' && r.token.note === `This repo already has a token: https://tokens.fun/coin/${TOKEN_ADDRESS}`, '(o) second entry of the repo → skipped', r.token);
+  const l = (await tools.launch_token({ builder_confirmed: true, project_id: r.project_id }, otherCtx)) as TokenOutcome;
   check(l.status === 'failed' && /This repo already has a token/.test(l.note ?? ''), '(o) launch_token on it → failed', l);
   check(deploys.length === before, '(o) no deploy sent');
   // The database refuses a second claim on the repo even past the app check.

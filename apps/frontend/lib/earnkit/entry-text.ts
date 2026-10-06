@@ -97,10 +97,11 @@ export type EnteredText = {
     board: string;
     /**
      * Fix round 1 (I3): set when the entry doesn't count for the builder bonus yet, with what joins
-     * it: the builder's word that it's submitted on `site` ('confirm'), or the entry page on `site`
-     * linking the project ('page'). Null or absent: it counts.
+     * it: the builder's word that it's submitted on `site` ('confirm'), the entry page on `site`
+     * linking the project ('page'), or (Ruling 24) the link to the entry page on `site` ('link').
+     * Null or absent: it counts.
      */
-    join?: { kind: 'confirm' | 'page'; site: string } | null;
+    join?: { kind: 'confirm' | 'page' | 'link'; site: string } | null;
   } | null;
 };
 
@@ -126,9 +127,13 @@ export function enteredText(a: EnteredText) {
   if (!round) return `${entered}${coin}`;
   const join = a.bonus!.join;
   if (!join) return `${entered}${coin}\nBuilder bonus: ${round}`;
-  return join.kind === 'page'
-    ? `${entered}${coin}\nAdd your repo link to your ${join.site} entry page to join the builder bonus (${round}).`
-    : `${entered}${coin}\nTell me once you've submitted on ${join.site} to join the builder bonus (${round}).`;
+  const line =
+    join.kind === 'page'
+      ? `Add your repo link to your ${join.site} entry page`
+      : join.kind === 'link'
+        ? `Send me your ${join.site} entry link`
+        : `Tell me once you've submitted on ${join.site}`;
+  return `${entered}${coin}\n${line} to join the builder bonus (${round}).`;
 }
 
 /** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
