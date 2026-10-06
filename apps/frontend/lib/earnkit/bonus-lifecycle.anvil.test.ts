@@ -24,8 +24,10 @@ import { holdBonusDbLock } from './fixtures/bonus-db-lock';
  * cronPost, so the HTTP status is checked too):
  * 1. three builders enter Arc Microgrants with record_submission: Alpha and Beta launch a coin
  *    each, Gamma says no coin (never eligible); Beta's proof page doesn't link its repo yet;
- * 2. proof pages: Alpha and Gamma check out at once; Beta's is fixed and the cron's daily
- *    re-check passes it on day 2;
+ *    Alpha's proof page answers 405 and Alpha's builder confirmed the submission (v2.6 Ruling 4
+ *    (plan)): it counts as `unverified_page`, flagged for the review, never a 503;
+ * 2. proof pages: Gamma checks out at once; Beta's is fixed and the cron's daily re-check passes
+ *    it on day 2;
  * 3. fees: day 1, tokens.fun's cron collects both coins in one transaction; day 2 it collects
  *    Alpha only, and EarnKit collects Beta itself (the round's last 24 h); every deposit is booked
  *    to the round and claimed;
@@ -35,6 +37,25 @@ import { holdBonusDbLock } from './fixtures/bonus-db-lock';
  * 6. a deposit after the end is booked to the Safe and swept there;
  * 7. Beta's agent sees the win once;
  * 8. a re-run signs and pays nothing.
+ *
+ * Then v2.6 (zero friction, Task 8), on the same chain, mocks and cron helper: `e2e-confirm`, a
+ * rolling program with no public entry page (`submission_proof: null`, builder bonus defaulted on),
+ * so the builder's confirmation (`builder_submitted: true`) is the submission basis:
+ * 1. Delta enters with builder_submitted and a coin; its earnkit.txt holds only the ticker-free
+ *    `token: <code>` line; the reply shows the coin, the builder bonus and the leaderboard link;
+ * 2. Echo enters another repo with a coin but no builder_submitted: never ranked;
+ * 3. Foxtrot enters from an installation listed in EARNKIT_TEST_INSTALLATIONS, with a coin and a
+ *    confirmation: on the board as "Test entry: not ranked", never scored or paid, and out of
+ *    /api/stats;
+ * 4. Delta's coin earns fees: the deposit is booked to `e2e-confirm:<YYYY-MM>` (the month of its
+ *    block time), not to the Safe;
+ * 5. the month ends: final reads, the freeze, the 48 h review, the payout: one WETH transfer of
+ *    the whole pool to Delta's creator wallet, nothing for the owner;
+ * 6. Echo confirms late: the same entry is updated (Ruling 23), no second entry and no second coin;
+ * 7. Delta's next list_programs opens with the bonus paid and its leaderboard link;
+ * 8. a re-run signs nothing.
+ * Its round is keyed by the deposit's block time, never the wall clock, so the story holds on any
+ * day of the month (eligibility needs only entry, coin and confirmation before the round's end).
  *
  * Not covered here (task-10-review M2): the veto goes through veto.ts vetoBonusEntry, the function
  * the admin review page's action calls, not through the page itself; its key check
@@ -72,33 +93,50 @@ const BUILDERS = {
 } as const;
 type Name = keyof typeof BUILDERS;
 const repoOf = (n: Name) => `https://github.com/${BUILDERS[n].login}/app`;
+// v2.6: the program without a public entry page, and its three builders (Foxtrot: a test installation).
+const PROG2 = 'e2e-confirm';
+const BUILDERS2 = {
+  delta: { wallet: '0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4', coin: '0xdddd0000000000000000000000000000000010d4', symbol: 'DELTA', login: 't10-delta' },
+  echo: { wallet: '0xe5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5', coin: '0xeeee0000000000000000000000000000000010e5', symbol: 'ECHO', login: 't10-echo' },
+  foxtrot: { wallet: '0xf6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6', coin: '0xffff0000000000000000000000000000000010f6', symbol: 'FOXT', login: 't10-foxtrot' },
+} as const;
+type Name2 = keyof typeof BUILDERS2;
+const repo2 = (n: Name2) => `https://github.com/${BUILDERS2[n].login}/app`;
+/** Every mocked coin, by address or symbol: [builder, wallet] for the Blockscout and tokens.fun mocks. */
+const COINS = [...Object.entries(BUILDERS), ...Object.entries(BUILDERS2)].filter(([, b]) => b.coin) as [string, { coin: string; symbol: string; wallet: string }][];
 
 async function cleanup() {
-  await sql()`DELETE FROM bonus_payouts WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
-  await sql()`DELETE FROM bonus_vetoes WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
-  await sql()`DELETE FROM bonus_scores WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
-  await sql()`DELETE FROM bonus_commits WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${PROG})`;
   await sql()`DELETE FROM bonus_ledger`;
   await sql()`DELETE FROM bonus_sweeps`;
   await sql()`DELETE FROM bonus_cursor`;
-  await sql()`DELETE FROM bonus_rounds WHERE program_id = ${PROG}`;
-  await sql()`DELETE FROM projects WHERE program_id = ${PROG}`;
-  await sql()`DELETE FROM programs WHERE id = ${PROG}`;
+  for (const id of [PROG, PROG2]) {
+    await sql()`DELETE FROM bonus_payouts WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${id})`;
+    await sql()`DELETE FROM bonus_vetoes WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${id})`;
+    await sql()`DELETE FROM bonus_scores WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${id})`;
+    await sql()`DELETE FROM bonus_commits WHERE round_key IN (SELECT round_key FROM bonus_rounds WHERE program_id = ${id})`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id = ${id}`;
+    await sql()`DELETE FROM submissions WHERE project_id IN (SELECT id FROM projects WHERE program_id = ${id})`;
+    await sql()`DELETE FROM projects WHERE program_id = ${id}`;
+    await sql()`DELETE FROM programs WHERE id = ${id}`;
+  }
   await sql()`DELETE FROM installations WHERE token_hash LIKE 't10-e2e-%'`;
   await sql()`DELETE FROM github_users WHERE login LIKE 't10-%'`;
   await sql()`DELETE FROM scoring_leases WHERE program_id IN ('bonus-ledger', 'bonus-scoring')`;
 }
 
-test('e2e: entries with coins, proof pages, fees over 2 days, scoring, freeze, veto, WETH payout, sweep, alert, idempotent re-run', gate, async () => {
+test('e2e: entries with coins, proof pages (one unverified), fees over 2 days, scoring, freeze, veto, WETH payout, sweep, alert, idempotent re-run; v2.6: confirmed entry paid, test installation never ranked, late confirmation', gate, async () => {
   const pc = createPublicClient({ chain: base, transport: http(URL_) });
   assert.equal(await pc.getChainId(), 8453, 'start anvil with --chain-id 8453');
   await pc.request({ method: 'anvil_reset' as never, params: [] as never });
   await pc.request({ method: 'anvil_setBalance' as never, params: [PAYOUT.address, toHex(E18)] as never });
   const mock = await startMocks();
   await cleanup();
+  const testIds = process.env.EARNKIT_TEST_INSTALLATIONS;
   try {
     await scenario(mock);
   } finally {
+    if (testIds === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = testIds;
     mock.server.closeAllConnections();
     await new Promise<void>((r) => mock.server.close(() => r()));
     await cleanup();
@@ -140,7 +178,7 @@ async function startMocks(): Promise<Mock> {
     const token = /^\/api\/v2\/tokens\/(0x[0-9a-f]{40})(\/holders|\/transfers)?$/.exec(url.pathname);
     if (token) {
       const coin = token[1];
-      const who = (Object.keys(BUILDERS) as Name[]).find((n) => BUILDERS[n].coin === coin);
+      const who = COINS.find(([, b]) => b.coin === coin)?.[0];
       if (!who) return json(404, { message: 'Not found' });
       if (token[2] === '/transfers') return json(200, { items: [{ timestamp: m.now.toISOString() }], next_page_params: null });
       if (token[2] === '/holders') {
@@ -154,7 +192,7 @@ async function startMocks(): Promise<Mock> {
                 { address: { hash: '0x7000000000000000000000000000000000000003' }, value: dust },
                 { address: { hash: BUILDERS.alpha.wallet }, value: worth }, // the builder: never counted
               ]
-            : [{ address: { hash: '0x7000000000000000000000000000000000000004' }, value: worth }];
+            : [{ address: { hash: '0x7000000000000000000000000000000000000004' }, value: worth }]; // Beta, and the v2.6 coins
         return json(200, { items, next_page_params: null });
       }
       return json(200, { exchange_rate: '0.001', total_supply: (10n ** 9n * E18).toString(), decimals: '18', circulating_market_cap: who === 'alpha' ? '9000' : '7000' });
@@ -165,8 +203,7 @@ async function startMocks(): Promise<Mock> {
     if (req.method === 'POST' && url.pathname === '/api/v1/deploy') {
       const b = JSON.parse(await body(req)) as Record<string, unknown>;
       m.deploys.push(b);
-      const who = (Object.keys(BUILDERS) as Name[]).find((n) => BUILDERS[n].symbol === b.symbol);
-      const coin = who && BUILDERS[who].coin;
+      const coin = COINS.find(([, c]) => c.symbol === b.symbol)?.[1].coin;
       if (!coin) return json(400, { error: 'unknown symbol' });
       return json(200, {
         success: true,
@@ -204,7 +241,9 @@ async function scenario(mock: Mock) {
   const { CONFIRMATIONS, bonusRpc } = await import('./bonus-ledger');
   const { cronPost, runCron } = await import('./cron');
   const { splitPool } = await import('./bonus-payout');
-  const { roundPoolsWei, windowKey } = await import('./bonus-rounds');
+  const { roundFor, roundPoolsWei, windowKey } = await import('./bonus-rounds');
+  const { bonusBoard } = await import('./bonus-board');
+  const { readStats } = await import('./stats');
   const { vetoBonusEntry, VetoError } = await import('./veto');
   const { sinceYouLastChecked } = await import('./alerts');
 
@@ -252,14 +291,16 @@ async function scenario(mock: Mock) {
   const ROUND = windowKey(PROG, hour(-1));
 
   // ---- 1. Three builders enter; two launch a coin, one says no coin ----
-  const proofPages = new Map<number, string>([
-    [101, `<a href="${repoOf('alpha')}">Alpha on GitHub</a>`],
+  // Alpha's page answers 405 (DoraHacks does to bots): unreachable, so Alpha's confirmation counts.
+  const proofPages = new Map<number, string | 405>([
+    [101, 405],
     [102, 'Beta: an app for teams (repo link coming soon)'],
     [103, `Source: ${repoOf('gamma')}`],
   ]);
   const fetchProof = async (url: string) => {
     const page = proofPages.get(Number(/\/buidl\/(\d+)$/.exec(url)?.[1]));
     if (page === undefined) throw new Error('404');
+    if (page === 405) throw Object.assign(new Error('HTTP 405'), { status: 405 });
     return page;
   };
   const inst: Record<Name, number> = { alpha: 0, beta: 0, gamma: 0 };
@@ -280,6 +321,7 @@ async function scenario(mock: Mock) {
         payout_wallet: b.wallet,
         token: b.symbol ? { name: `${n} app`, symbol: b.symbol } : 'skip',
         builder_confirmed: true,
+        ...(n === 'alpha' && { builder_submitted: true }),
       },
       {
         installationId: row.id,
@@ -296,35 +338,39 @@ async function scenario(mock: Mock) {
   }
   assert.equal(mock.deploys.length, 2, 'tokens.fun got two deploys (Gamma said no coin)');
   for (const d of mock.deploys) assert.equal(d.source, 'earnkit');
-  type Row = { id: number; coin_address: string | null; creator_wallet: string | null; submission_proof_ok_at: Date | null };
-  const rows = async () =>
-    new Map((await sql()<Row[]>`SELECT id, coin_address, creator_wallet, submission_proof_ok_at FROM projects WHERE program_id = ${PROG}`).map((r) => [r.id, r]));
+  type Row = { id: number; coin_address: string | null; creator_wallet: string | null; submission_proof_ok_at: Date | null; submission_basis: string | null };
+  const rows = async (prog = PROG) =>
+    new Map(
+      (await sql()<Row[]>`SELECT id, coin_address, creator_wallet, submission_proof_ok_at, submission_basis FROM projects WHERE program_id = ${prog}`).map((r) => [r.id, r]),
+    );
   let p = await rows();
   assert.equal(p.get(ids.alpha)!.coin_address, BUILDERS.alpha.coin);
   assert.equal(p.get(ids.beta)!.coin_address, BUILDERS.beta.coin);
   assert.equal(p.get(ids.gamma)!.coin_address, null, 'no coin: never bonus-eligible');
   assert.equal(p.get(ids.alpha)!.creator_wallet, BUILDERS.alpha.wallet);
 
-  // ---- 2. Proof pages: Alpha and Gamma check out; Beta's doesn't link its repo yet ----
+  // ---- 2. Proof pages: Gamma checks out; Alpha counts on an unverified page; Beta's doesn't link its repo yet ----
   assert.ok(p.get(ids.alpha)!.submission_proof_ok_at && p.get(ids.gamma)!.submission_proof_ok_at);
+  assert.equal(p.get(ids.gamma)!.submission_basis, 'page');
+  assert.equal(p.get(ids.alpha)!.submission_basis, 'unverified_page', 'a 405 page with the builder confirmation: eligible, flagged');
   assert.equal(p.get(ids.beta)!.submission_proof_ok_at, null);
 
   // The cron, through the route handler (rate limit off). Everything outside is a mock.
   const github = githubMock(t0);
-  const cron = async (now: Date) => {
+  const cron = async (now: Date, scope: { prog: string; round: string } = { prog: PROG, round: ROUND }) => {
     mock.now = now;
     const res = await cronPost(new Request('http://127.0.0.1/api/cron', { method: 'POST', headers: { authorization: `Bearer ${SECRET}` } }), {
       limit: async () => {},
       run: () =>
         runCron({
           now,
-          only: [PROG],
+          only: [scope.prog],
           deps: {
             refreshFees: async () => 0,
             bonus: { account: PAYOUT, rpc: bonusRpc(URL_, chain), chain, startBlock: 0n, now, log: (l) => logs.push(l) },
-            traction: { now, only: [ROUND], github: async (path) => github(path), probe: async () => true, excluded: [PAYOUT.address.toLowerCase()] },
+            traction: { now, only: [scope.round], github: async (path) => github(path), probe: async () => true, excluded: [PAYOUT.address.toLowerCase()] },
             proofRecheck: { fetchText: fetchProof },
-            rounds: { listed: async () => false, only: [ROUND] },
+            rounds: { listed: async () => false, only: [scope.round] },
           },
         }),
     });
@@ -415,7 +461,11 @@ async function scenario(mock: Mock) {
   assert.equal(round.state, 'review');
   assert.equal(round.terms.pool_wei, E18.toString(), 'the pool is every deposit made inside the round');
   assert.deepEqual(round.terms.amounts, amounts.map(String), '25 : 18, renormalized over two places');
-  assert.deepEqual(round.terms.flagged, []);
+  assert.deepEqual(round.terms.flagged, [], 'an unverified page is a review note, never a hold');
+  assert.ok(!end.body.needs_owner.includes(`bonus:${ROUND}`), JSON.stringify(end.body.needs_owner));
+  const [alphaFrozen] = await sql()<{ flags: string[] }[]>`
+    SELECT flags FROM bonus_payouts WHERE round_key = ${ROUND} AND project_id = ${ids.alpha}`;
+  assert.ok(alphaFrozen.flags.includes('unverified_page'), JSON.stringify(alphaFrozen));
   scores = await latest();
   for (const s of scores) assert.ok(s.rank >= 1);
   assert.equal(await bal(PAYOUT.address), E18, 'the bonus wallet holds exactly the frozen pool');
@@ -451,9 +501,15 @@ async function scenario(mock: Mock) {
 
   // ---- 7. The winner alert: Beta's agent sees the win once; Alpha's sees none ----
   const beta = await sinceYouLastChecked(inst.beta);
-  assert.ok(beta.lines.includes('you won 0.58 ETH builder bonus (Arc Microgrants)'), JSON.stringify(beta.lines));
+  // Ruling 25 (v2.6): one natural clause, the tx link (Ruling 26) and the leaderboard slug (Ruling 12).
+  assert.ok(
+    beta.lines.some((l) =>
+      new RegExp(`^you were paid a 0\\.58 ETH builder bonus \\(as WETH\\) for Arc Microgrants, sent to 0xb2b2…b2b2 \\(basescan\\.org/tx/0x[0-9a-f]{64}\\) · earnkit\\.com/bonus/${PROG}-\\d{4}-\\d{2}-\\d{2}$`).test(l),
+    ),
+    JSON.stringify(beta.lines),
+  );
   assert.ok(!(await sinceYouLastChecked(inst.beta)).lines.some((l) => l.includes('builder bonus (')), 'shown once');
-  assert.ok(!(await sinceYouLastChecked(inst.alpha)).lines.some((l) => l.startsWith('you won')));
+  assert.ok(!(await sinceYouLastChecked(inst.alpha)).lines.some((l) => l.includes('builder bonus (')));
 
   // ---- 8. A re-run signs and pays nothing ----
   const nonce = await pc.getTransactionCount({ address: PAYOUT.address });
@@ -470,6 +526,181 @@ async function scenario(mock: Mock) {
   assert.equal(n, 1);
   p = await rows();
   assert.ok(ENDS.getTime() > p.get(ids.beta)!.submission_proof_ok_at!.getTime(), "Beta's proof passed before the end");
+  assert.equal(p.get(ids.alpha)!.submission_basis, 'unverified_page', 'still unreachable on every re-check: no change');
+
+  // ======== v2.6: a program without a public entry page; the builder's confirmation counts ========
+  const baseFile = JSON.parse(readFileSync(join(ROOT, 'programs', 'base-builder-grants.json'), 'utf8'));
+  // Rolling, submission_proof null, builder_bonus left out (defaults on).
+  await upsertProgram(ProgramFile.parse({ ...baseFile, id: PROG2, title: 'E2E Confirm Grants', status: 'active', starts_at: null, ends_at: null }));
+  for (const n of Object.keys(BUILDERS2) as Name2[])
+    await call(locker, 'register', [BUILDERS2[n].coin, [SAFE, BUILDERS2[n].wallet, MINI, PAYOUT.address], [3000, 4000, 1000, 2000]]);
+  const inst2: Record<Name2, number> = { delta: 0, echo: 0, foxtrot: 0 };
+  const ids2: Record<Name2, number> = { delta: 0, echo: 0, foxtrot: 0 };
+  for (const n of Object.keys(BUILDERS2) as Name2[]) {
+    // No remembered wallet: the wallet given at submission is remembered (Ruling 10 (plan)).
+    const [row] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t10-e2e-${n}-${Date.now()}`}) RETURNING id`;
+    inst2[n] = row.id;
+    // v2.6: earnkit.txt holds only the ticker-free code line (Ruling 1 (plan)), no payout_wallet.
+    mock.files.set(BUILDERS2[n].login, `${tokenLineFor(row.id, repo2(n))}\n`);
+  }
+  assert.match(mock.files.get(BUILDERS2.delta.login)!, /^token: [0-9a-f]{16}\n$/);
+  // Foxtrot is the owner's test installation (Ruling 6 (plan)).
+  process.env.EARNKIT_TEST_INSTALLATIONS = ` ${inst2.foxtrot}, `;
+  type Entered = Recorded & { show_to_builder: string; updated?: true; bonus_join: { kind: string } | null };
+  const submit2 = async (n: Name2, confirmed: boolean) =>
+    (await tools.record_submission(
+      {
+        program_id: PROG2,
+        project: { name: `${n} app`, description: 'A tiny app on Base', repo_url: repo2(n), live_url: `https://${n}-app.example` },
+        submission_data: { full_name: n, project_name_description: `${n} app: a tiny app on Base` },
+        payout_wallet: BUILDERS2[n].wallet,
+        token: { name: `${n} app`, symbol: BUILDERS2[n].symbol },
+        builder_confirmed: true,
+        ...(confirmed && { builder_submitted: true }),
+      },
+      {
+        installationId: inst2[n],
+        tokenDeps: {
+          gate: { repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }), screen: async () => {} },
+          limit: async () => {},
+        },
+      },
+    )) as Entered;
+  const deploysBefore = mock.deploys.length;
+  // ---- v2.6 1-3. Delta confirms; Echo doesn't; Foxtrot is a test installation ----
+  const delta = await submit2('delta', true);
+  const echo = await submit2('echo', false);
+  const foxtrot = await submit2('foxtrot', true);
+  for (const [n, r] of [['delta', delta], ['echo', echo], ['foxtrot', foxtrot]] as const) {
+    assert.equal(r.recorded, true, n);
+    assert.equal(r.token.status, 'launched', `${n} token: ${JSON.stringify(r.token)}`);
+    ids2[n] = r.project_id;
+  }
+  assert.equal(mock.deploys.length - deploysBefore, 3, 'three coins on tokens.fun');
+  // The after-submission reply: the coin, then the builder bonus with its leaderboard link.
+  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your coin: tokens\\.fun/coin/${BUILDERS2.delta.coin} · you earn 40% of its fees\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}$`), delta.show_to_builder);
+  // Echo's reply says the one step that joins the bonus; the note tells the agent the field.
+  assert.equal(echo.bonus_join?.kind, 'confirm');
+  assert.match(echo.show_to_builder, /\nTell me once you've submitted on forms\.gle to join the builder bonus \(/, echo.show_to_builder);
+  assert.match(echo.bonus_note ?? '', /builder_submitted: true/);
+  let p2 = await rows(PROG2);
+  assert.equal(p2.get(ids2.delta)!.submission_basis, 'confirmed');
+  assert.ok(p2.get(ids2.delta)!.submission_proof_ok_at, 'counts on the confirmation');
+  assert.equal(p2.get(ids2.delta)!.creator_wallet, BUILDERS2.delta.wallet);
+  assert.equal(p2.get(ids2.echo)!.submission_basis, null, 'not confirmed: not eligible');
+  assert.equal(p2.get(ids2.echo)!.submission_proof_ok_at, null);
+  assert.equal(p2.get(ids2.foxtrot)!.submission_basis, 'confirmed', "a test entry's own row is like any other");
+  const [mem] = await sql()<{ payout_wallet: string | null }[]>`SELECT payout_wallet FROM installations WHERE id = ${inst2.delta}`;
+  assert.equal(mem.payout_wallet, BUILDERS2.delta.wallet, "the installation's last wallet is remembered");
+
+  // /api/stats never counts the test installation (Ruling 16 (plan)); one snapshot, the env toggled.
+  const stats = await sql().begin('isolation level repeatable read', async (tx) => {
+    process.env.EARNKIT_TEST_INSTALLATIONS = '';
+    const all = await readStats(new Date(), tx);
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(inst2.foxtrot);
+    const shown = await readStats(new Date(), tx);
+    return { all, shown };
+  });
+  assert.equal(stats.all.installs - stats.shown.installs, 1, 'installs');
+  assert.equal(stats.all.coins_launched - stats.shown.coins_launched, 1, 'coins_launched');
+
+  // ---- v2.6 4. Delta's coin earns fees: booked to the program's month round, not the Safe ----
+  const safe2Before = await bal(SAFE);
+  await setTime((Number((await pc.getBlock()).timestamp) - t0) / 3600 + 1);
+  await call(locker, 'accrue', [BUILDERS2.delta.coin, 1n * E18]);
+  await call(locker, 'collectRewards', [BUILDERS2.delta.coin]);
+  const depositAt = await chainNow();
+  // The deposit's block time picks the round (bookingFor): never the wall clock.
+  const r2 = roundFor({ id: PROG2, starts_at: null, ends_at: null }, depositAt)!;
+  const ROUND2 = r2.key;
+  assert.match(ROUND2, /^e2e-confirm:\d{4}-\d{2}$/);
+  const scope2 = { prog: PROG2, round: ROUND2 };
+  await mineDeep();
+  const c1 = await cron(await chainNow(), scope2);
+  assert.equal(c1.status, 200, JSON.stringify(c1.body));
+  assert.equal(c1.body.bonus.index.round, 1, "Delta's deposit is booked to its round");
+  assert.equal(c1.body.bonus.index.safe, 0, 'not the Safe');
+  const POOL2 = (2n * E18) / 10n; // the bonus wallet's 20% slot
+  const [booked] = await sql()<{ round_key: string; destination: string; amount_wei: string }[]>`
+    SELECT round_key, destination, amount_wei::text FROM bonus_ledger WHERE coin = ${BUILDERS2.delta.coin}`;
+  assert.deepEqual(booked, { round_key: ROUND2, destination: 'round', amount_wei: POOL2.toString() });
+  // Scoring, once the round has its row (unless the deposit came in the month's last hour).
+  const scoreAt = Math.min(depositAt.getTime() + 3_600_000, r2.ends.getTime() - 60_000);
+  if (scoreAt > (await chainNow()).getTime()) {
+    await setTime((scoreAt / 1000 - t0) / 3600);
+    await mineDeep();
+    const c2 = await cron(await chainNow(), scope2);
+    assert.equal(c2.status, 200, JSON.stringify(c2.body));
+    assert.deepEqual(c2.body.bonus_scoring, [{ round: ROUND2, ranked: 1 }], 'only Delta: Echo unconfirmed, Foxtrot a test entry');
+    const board = (await bonusBoard(ROUND2, await chainNow()))!;
+    assert.equal(board.state, 'open');
+    const byName = new Map(board.rows.map((r) => [r.name, r]));
+    assert.deepEqual([byName.get('delta app')!.rank, byName.get('delta app')!.note], [1, 'Yes']);
+    assert.deepEqual([byName.get('echo app')!.rank, byName.get('echo app')!.note], [null, 'No: submission not confirmed yet']);
+    assert.deepEqual([byName.get('foxtrot app')!.rank, byName.get('foxtrot app')!.note], [null, 'Test entry: not ranked']);
+  }
+
+  // ---- v2.6 5. The month ends: final reads, the freeze, the review, the payout ----
+  await setTime((r2.ends.getTime() / 1000 - t0) / 3600 + 1);
+  await mineDeep();
+  const end2 = await cron(await chainNow(), scope2);
+  assert.equal(end2.status, 200, JSON.stringify(end2.body));
+  assert.equal(end2.body.bonus.rounds.rounds[0]?.step, 'review', JSON.stringify(end2.body.bonus.rounds));
+  const [frozen2] = await sql()<{ review_until: Date; terms: { pool_wei: string; amounts: string[]; flagged: number[] } }[]>`
+    SELECT review_until, terms FROM bonus_rounds WHERE round_key = ${ROUND2}`;
+  assert.equal(frozen2.terms.pool_wei, POOL2.toString());
+  assert.deepEqual(frozen2.terms.amounts, splitPool(POOL2, 1).map(String), 'one place: the whole pool');
+  const ranked2 = await sql()<{ project_id: number }[]>`SELECT project_id FROM bonus_payouts WHERE round_key = ${ROUND2}`;
+  assert.deepEqual(ranked2.map((r) => r.project_id), [ids2.delta], 'Echo (unconfirmed) and Foxtrot (test) are never ranked');
+  const [{ scored }] = await sql()<{ scored: number }[]>`
+    SELECT count(*)::int AS scored FROM bonus_scores WHERE round_key = ${ROUND2} AND project_id IN (${ids2.echo}, ${ids2.foxtrot})`;
+  assert.equal(scored, 0, 'never scored');
+  const fromBlock = (await pc.getBlock()).number;
+  const pay2 = await cron(new Date(frozen2.review_until.getTime() + 3_600_000), scope2);
+  assert.equal(pay2.status, 200, JSON.stringify(pay2.body));
+  assert.equal(pay2.body.bonus.rounds.rounds[0]?.done, true, JSON.stringify(pay2.body.bonus.rounds));
+  assert.deepEqual(pay2.body.needs_owner, [], 'nothing for the owner');
+  assert.deepEqual(pay2.body.bonus.rounds.needs_owner, []);
+  const transfers = await pc.getContractEvents({ address: weth, abi: erc20Abi, eventName: 'Transfer', fromBlock });
+  const toBuilders = transfers.filter((t) => (Object.values(BUILDERS2) as { wallet: string }[]).some((b) => b.wallet === t.args.to?.toLowerCase()));
+  assert.equal(toBuilders.length, 1, 'one WETH transfer');
+  assert.equal(toBuilders[0].args.to!.toLowerCase(), BUILDERS2.delta.wallet, "to the confirmed entry's creator wallet");
+  assert.equal(toBuilders[0].args.value, POOL2, 'the whole pool (splitPool(pool, 1))');
+  assert.equal(await bal(BUILDERS2.echo.wallet), 0n);
+  assert.equal(await bal(BUILDERS2.foxtrot.wallet), 0n, 'a test entry is never paid');
+  assert.equal((await bal(SAFE)) - safe2Before, (3n * E18) / 10n, "the Safe gets its 30% of the fees only: no bonus money");
+
+  // ---- v2.6 6. Echo confirms late: the same entry is updated (Ruling 23) ----
+  const projectsBefore = (await rows(PROG2)).size;
+  const deploysNow = mock.deploys.length;
+  const late = await submit2('echo', true);
+  assert.equal(late.project_id, ids2.echo, 'the same entry');
+  assert.equal(late.updated, true);
+  assert.equal(late.token.status, 'launched', 'keeps its coin');
+  assert.equal(mock.deploys.length, deploysNow, 'no second coin');
+  p2 = await rows(PROG2);
+  assert.equal(p2.size, projectsBefore, 'no second entry');
+  assert.equal(p2.get(ids2.echo)!.submission_basis, 'confirmed');
+  assert.deepEqual(
+    (await sql()<{ project_id: number }[]>`SELECT project_id FROM bonus_payouts WHERE round_key = ${ROUND2}`).map((r) => r.project_id),
+    [ids2.delta],
+    'a frozen round never changes',
+  );
+
+  // ---- v2.6 7. Delta's next list_programs opens with the bonus paid and its leaderboard ----
+  const listed = (await tools.list_programs({}, { installationId: inst2.delta })) as { show_to_builder: string };
+  assert.ok(listed.show_to_builder.startsWith('Since you last checked: you were paid a 0.20 ETH builder bonus (as WETH) for E2E Confirm Grants'), listed.show_to_builder);
+  assert.ok(listed.show_to_builder.includes(`earnkit.com/bonus/${PROG2}-`), listed.show_to_builder);
+
+  // ---- v2.6 8. A re-run signs nothing ----
+  const nonce2 = await pc.getTransactionCount({ address: PAYOUT.address });
+  for (const h of [2, 26]) {
+    const again = await cron(new Date(frozen2.review_until.getTime() + h * 3_600_000), scope2);
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual(again.body.bonus.rounds.rounds, []);
+  }
+  assert.equal(await pc.getTransactionCount({ address: PAYOUT.address }), nonce2, 'no new transaction');
+  assert.equal(await bal(BUILDERS2.delta.wallet), POOL2);
 }
 
 type CronBody = {
@@ -499,6 +730,10 @@ function githubMock(t0: number) {
       { sha: 'a3', login: 't10-carol', at: at(30) },
     ],
     't10-beta': [{ sha: 'b1', login: 't10-bob', at: at(0.5) }],
+    // v2.6: e2e-confirm's builders (only Delta is ever read: the others never qualify).
+    't10-delta': [{ sha: 'd1', login: 't10-dave', at: at(0.5) }],
+    't10-echo': [{ sha: 'e1', login: 't10-erin', at: at(0.5) }],
+    't10-foxtrot': [{ sha: 'f1', login: 't10-fred', at: at(0.5) }],
   };
   return (path: string): unknown => {
     const u = new URL(path, 'https://api.github.com');
