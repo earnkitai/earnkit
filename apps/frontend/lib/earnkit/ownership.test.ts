@@ -113,10 +113,27 @@ test('Ruling 14 (plan): contents API first; raw only when rate-limited; 404 is m
   const moved = await fetchOwnershipViaApi(r, { fetch: async () => res(301, '', { location: 'https://api.github.com/x' }), raw });
   assert.equal(moved.status, 'error', 'a redirect is an error, not followed');
   const down = await fetchOwnershipViaApi(r, { fetch: async () => { throw new TypeError('fetch failed'); }, raw });
-  assert.deepEqual(down, { status: 'error', message: 'the fetch failed' });
+  assert.deepEqual(down, { status: 'error', message: "GitHub couldn't be reached" });
   assert.equal(rawCalls, 2, 'neither falls back');
   const big = await fetchOwnershipViaApi(r, { fetch: async () => res(200, 'x'.repeat(5000)), raw });
-  assert.equal(big.status, 'error', 'the 4 KB cap holds on the API too');
+  assert.deepEqual(big, { status: 'error', message: 'the file is larger than 4 KB' }, 'the 4 KB cap holds on the API too');
+  // Plain messages, no HTTP status codes.
+  assert.deepEqual(e, { status: 'error', message: "GitHub didn't answer" });
+  assert.deepEqual(moved, { status: 'error', message: 'the repo moved; use its current GitHub link' });
+});
+
+test("fix round 1: GitHub's secondary rate limit (403 with retry-after or its message) also falls back to raw", async () => {
+  let rawCalls = 0;
+  const raw = async () => { rawCalls++; return { status: 'ok' as const, text: 'token: from-raw' }; };
+  const r = { owner: 'acme', repo: 'kit' };
+  const f = (body: string, headers: Record<string, string>) => async () => new Response(body, { status: 403, headers });
+  assert.deepEqual(await fetchOwnershipViaApi(r, { fetch: f('', { 'retry-after': '60', 'x-ratelimit-remaining': '4000' }), raw }), { status: 'ok', text: 'token: from-raw' });
+  await fetchOwnershipViaApi(r, { fetch: f('{"message":"You have exceeded a secondary rate limit."}', { 'x-ratelimit-remaining': '4000' }), raw });
+  await fetchOwnershipViaApi(r, { fetch: f('{"message":"You have triggered an abuse detection mechanism."}', {}), raw });
+  assert.equal(rawCalls, 3);
+  const denied = await fetchOwnershipViaApi(r, { fetch: f('{"message":"Resource not accessible by integration"}', { 'x-ratelimit-remaining': '4000' }), raw });
+  assert.deepEqual(denied, { status: 'error', message: "GitHub didn't answer" });
+  assert.equal(rawCalls, 3, 'another 403 never falls back');
 });
 
 test('fetchOwnershipViaApi sends the token as a Bearer header and asks for the raw media type', async () => {

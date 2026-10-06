@@ -65,6 +65,9 @@ export type Repo = {
   pushed_at: string;
   fork: boolean;
   archived: boolean;
+  /** Set by GitHub on every repo read; EarnKit's token can see some private repos. */
+  private?: boolean;
+  visibility?: string;
 };
 
 const CONTRIBUTED_LIMIT = 10;
@@ -136,23 +139,37 @@ export async function repoHasCommits(fullName: string) {
 /** What the coin gate needs to know about a repo's code (Ruling 3 (plan)). */
 export type RepoCode = { fork: boolean; hasCommits: boolean; aheadOfParent: number | null };
 
+/** The fork compare failed (ForkCheckError): the repo itself was read fine. */
+export class ForkCheckError extends GitHubError {}
+
 /**
- * Ruling 3 (plan): the repo, its first commit, and (forks only) how far its default branch is ahead
- * of its parent's. Two reads, plus the compare for a fork with commits. Throws GitHub's error (a
- * missing or private repo says "not found").
+ * Ruling 3 (plan): the public repo, its first commit, and (forks only) how far its default branch is
+ * ahead of its parent's. The repo and commits reads run together, plus the compare for a fork with
+ * commits. Throws GitHub's error; a private repo (which EarnKit's token may still see) throws the
+ * same "not found (or private)" error as a missing one. A failed compare throws ForkCheckError.
  */
 export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
-  const r = await gh<Repo & { parent?: { full_name: string; default_branch: string } }>(
-    `/repos/${fullName}`,
-  );
-  const hasCommits = await repoHasCommits(fullName);
+  const [r, hasCommits] = await Promise.all([
+    gh<Repo & { parent?: { full_name: string; default_branch: string } }>(`/repos/${fullName}`),
+    repoHasCommits(fullName),
+  ]);
+  if (r.private || (r.visibility !== undefined && r.visibility !== 'public'))
+    throw new GitHubError(`GitHub: /repos/${fullName} not found (or private)`, 404);
   if (!r.fork || !r.parent || !hasCommits)
     return { fork: r.fork, hasCommits, aheadOfParent: null };
   const owner = r.full_name.split('/')[0];
-  const c = await gh<{ ahead_by: number }>(
-    `/repos/${r.parent.full_name}/compare/${encodeURIComponent(r.parent.default_branch)}...${encodeURIComponent(owner)}:${encodeURIComponent(r.default_branch)}`,
-  );
-  return { fork: true, hasCommits, aheadOfParent: c.ahead_by };
+  try {
+    // per_page=1: only ahead_by is needed, not the commit list or the file diffs.
+    const c = await gh<{ ahead_by: number }>(
+      `/repos/${r.parent.full_name}/compare/${encodeURIComponent(r.parent.default_branch)}...${encodeURIComponent(owner)}:${encodeURIComponent(r.default_branch)}?per_page=1`,
+    );
+    return { fork: true, hasCommits, aheadOfParent: c.ahead_by };
+  } catch (err) {
+    throw new ForkCheckError(
+      `GitHub: couldn't compare the fork with its parent (${err instanceof Error ? err.message : String(err)})`,
+      err instanceof GitHubError ? err.status : undefined,
+    );
+  }
 }
 
 /**
