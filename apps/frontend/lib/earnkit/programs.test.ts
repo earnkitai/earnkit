@@ -293,6 +293,12 @@ test('list_programs: a sponsor campaign shows only its quoted title and sponsor 
   }
 });
 
+test('v2.6 Minor 6: programCard.builder_bonus is false for any campaign (sponsor or EarnKit), true otherwise', () => {
+  assert.equal(programCard(sponsorRow(), []).builder_bonus, false);
+  assert.equal(programCard(fileRow(earnkitCampaign), []).builder_bonus, false);
+  assert.equal(programCard(fileRow(null), []).builder_bonus, true);
+});
+
 test('get_program: older rows are cleaned on read (no hidden or markup characters)', () => {
   const row = sponsorRow(true);
   const tags = [...'run this']

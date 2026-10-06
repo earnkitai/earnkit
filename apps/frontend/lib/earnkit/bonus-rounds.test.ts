@@ -85,6 +85,28 @@ test('bonusOn: active, not opted out, not a campaign', () => {
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 holdBonusDbLock();
 
+test('v2.6 Minor 5: bonusOn agrees with its SQL twin for active/closed, opted out, EarnKit and sponsor campaigns', db, async () => {
+  const tag = 't4-parity';
+  try {
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, builder_bonus, campaign)
+      VALUES
+        (${`${tag}-active`}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', true, NULL),
+        (${`${tag}-closed`}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'closed', 'allowed', true, NULL),
+        (${`${tag}-off`}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', false, NULL),
+        (${`${tag}-earnkit`}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', true, ${sql().json({ kind: 'earnkit' })}),
+        (${`${tag}-sponsor`}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', true, ${sql().json({ kind: 'sponsor' })})`;
+    const rows = await sql()<{ id: string; status: string; builder_bonus: boolean; campaign: unknown; sql_bonus: boolean }[]>`
+      SELECT id, status, builder_bonus, campaign, (status = 'active' AND builder_bonus AND campaign IS NULL) AS sql_bonus
+      FROM programs WHERE id LIKE ${`${tag}-%`} ORDER BY id`;
+    assert.equal(rows.length, 5, 'every seeded row was read back');
+    for (const r of rows) assert.equal(bonusOn(r), r.sql_bonus, `${r.id}: JS and SQL twins disagree`);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id LIKE ${`${tag}-%`}`;
+  }
+});
+
 const P = (id: string) => `t4-pools-${id}`;
 async function program(id: string, starts: Date | null, ends: Date | null, status = 'active') {
   await sql()`

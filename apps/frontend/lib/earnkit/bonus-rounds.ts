@@ -49,7 +49,9 @@ export function bookingFor(
   program: Window & { status: string; builder_bonus?: boolean | null; campaign?: unknown },
   at: Date,
 ): { destination: 'round'; round: Round } | { destination: 'safe'; reason: string } {
-  if (program.builder_bonus === false || (program.campaign !== null && program.campaign !== undefined))
+  // fix round 1 (Minor 2): the opt-out/campaign test is bonusOn's own (status forced 'active' so
+  // only that part of the rule is checked here); the status check stays below, for its own reason.
+  if (!bonusOn({ ...program, status: 'active' }))
     return { destination: 'safe', reason: 'builder bonus off' };
   const round = program.status !== 'active' ? null : roundFor(program, at);
   return round ? { destination: 'round', round } : { destination: 'safe', reason: 'no open round' };

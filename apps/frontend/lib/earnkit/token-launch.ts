@@ -71,7 +71,7 @@ export type TokenBlock = {
   policy: 'encouraged' | 'allowed';
   say_to_builder: string;
   note: string;
-  /** v2.5 §3: the program is active and has a submission_proof pattern (hasBuilderBonus). */
+  /** v2.6 Ruling 7: bonusOn, active, not opted out, not a campaign (hasBuilderBonus). */
   has_bonus: boolean;
   /**
    * Ruling 25: the program this repo's coin is already entered in (one coin per repo), on a
