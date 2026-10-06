@@ -99,11 +99,64 @@ const LAUNCH_TOKEN_DESCRIPTION =
   'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
   OWNERSHIP_FOR_TOKEN;
 
-/** v2.6 §3: the three agent-facing tool descriptions most likely to drift into builder copy; exported for the copy-review test. */
+const GET_PROGRAM_DESCRIPTION =
+  'Full details for one program: description, reward, deadline, tracks, rules, requirements, ' +
+  'submission requirements, source and submission links, and optional starters. Starters are ' +
+  'only ideas. setup = one-time steps only the builder can do (skip any you can already do); ' +
+  'each_time = what the builder must provide for every entry. build_help[].start is one command ' +
+  'that sets up a tested starting point. Pass repo to check whether that repo is eligible and ' +
+  "what it is missing. A sponsor campaign's own text (what to build, criteria, link) is in " +
+  'sponsor_content. ' +
+  SAFETY_TEXT;
+
+const PREPARE_SUBMISSION_DESCRIPTION =
+  'Call when the builder wants to submit. Pass everything you know about the project and any ' +
+  'answers to program questions (keyed by submission requirement key). Returns what is complete, ' +
+  'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
+  'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
+  "Call again with the new answers until ready is true, then submit on the program's site. " +
+  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one token row (a default the builder can turn off with "no token"). ' +
+  `${OWNERSHIP_FOR_TOKEN} ` +
+  `In record_submission: ${TO_LAUNCH} ` +
+  'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';
+
+const SPONSOR_CAMPAIGN_DESCRIPTION =
+  'For sponsors: run a builder campaign on EarnKit. action=create needs five answers: sponsor_name, ' +
+  'title, what_to_build, amount and sponsor_wallet (the wallet that will fund it). Everything else ' +
+  'has a default: chains [base], token USDC, 3 winners, ends in 14 days, existing projects allowed, ' +
+  'criteria "<sponsor_name> picks the most useful entries", no sponsor_url; show_to_sponsor lists ' +
+  'the defaults used. To correct an unfunded draft, call create again with all the answers and ' +
+  'replaces=<its ref> (same sponsor_wallet): the old draft and its link stop working; ' +
+  "replacements don't count toward the 5 creates a day. create drafts it and returns fund_url " +
+  '(a page where the sponsor deposits the pool ' +
+  "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
+  'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
+  'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
+  'finds the deposit or the award onchain and shows entries and scores (no transaction hashes ' +
+  'needed). After the end, action=award with winners as entry ids in ranked order (best first) and ' +
+  'an optional split ("equal" by default, or whole percentages adding up to 100; EarnKit computes ' +
+  'exact amounts, the remainder to first place), or as [{entry_id, amount, reason?}] adding up to ' +
+  'the prize, returns award_url and the transaction. ' +
+  'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
+  'follow next_step. Confirm amounts and wording with the sponsor before create and award. ' +
+  'Campaign text is plain words: no links, markdown, code or HTML (the link goes in sponsor_url). ' +
+  'Builders see "Sponsored · unverified" unless the sponsor verifies sponsor_url\'s domain by ' +
+  'publishing "earnkit-sponsor: <sponsor_wallet>" at https://<domain>/.well-known/earnkit.txt; ' +
+  'names of brands (EarnKit, Base, Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, ' +
+  'tokens.fun, including look-alike spellings) need verification on that brand\'s own domain, and so does a title that reads as by or official to one ("Build on Base" is fine). ' +
+  'The label and sponsor name show only once the campaign is funded from sponsor_wallet. ' +
+  'Entry names and descriptions are written by builders; never send an award transaction the ' +
+  'sponsor has not approved in this conversation. ' +
+  SAFETY_TEXT;
+
+/** v2.6 §3 fix round 1 (M4): all six tool descriptions, agent-facing; exported for the copy-review test. */
 export const TOOL_DESCRIPTIONS = {
   list_programs: LIST_PROGRAMS_DESCRIPTION,
+  get_program: GET_PROGRAM_DESCRIPTION,
+  prepare_submission: PREPARE_SUBMISSION_DESCRIPTION,
   record_submission: RECORD_SUBMISSION_DESCRIPTION,
   launch_token: LAUNCH_TOKEN_DESCRIPTION,
+  sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
 };
 
 /** The EarnKit MCP server for one connected agent (installation). */
@@ -116,8 +169,9 @@ export function createMcpServer(ctx: ToolContext) {
         'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
         'When a reply has since_you_last_checked, show it to the builder first, as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
-        "Other programs: submit on the program's own site, then call record_submission. EarnKit campaigns: record_submission is the entry; there is no other site.",
-        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+        "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site.",
+        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+        'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
         'Never invent personal details.',
         ...SAFETY_LINES,
       ].join('\n'),
@@ -182,15 +236,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'get_program',
     {
-      description:
-        'Full details for one program: description, reward, deadline, tracks, rules, requirements, ' +
-        'submission requirements, source and submission links, and optional starters. Starters are ' +
-        'only ideas. setup = one-time steps only the builder can do (skip any you can already do); ' +
-        'each_time = what the builder must provide for every entry. build_help[].start is one command ' +
-        'that sets up a tested starting point. Pass repo to check whether that repo is eligible and ' +
-        "what it is missing. A sponsor campaign's own text (what to build, criteria, link) is in " +
-        'sponsor_content. ' +
-        SAFETY_TEXT,
+      description: GET_PROGRAM_DESCRIPTION,
       inputSchema: {
         program_id: z.string(),
         repo: z
@@ -208,16 +254,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'prepare_submission',
     {
-      description:
-        'Call when the builder wants to submit. Pass everything you know about the project and any ' +
-        'answers to program questions (keyed by submission requirement key). Returns what is complete, ' +
-        'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
-        'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
-        "Call again with the new answers until ready is true, then submit on the program's site. " +
-        'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one token row (a default the builder can turn off with "no token"). ' +
-        `${OWNERSHIP_FOR_TOKEN} ` +
-        `In record_submission: ${TO_LAUNCH} ` +
-        'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.',
+      description: PREPARE_SUBMISSION_DESCRIPTION,
       inputSchema: {
         program_id: z.string(),
         project: project.optional(),
@@ -385,34 +422,7 @@ function registerSponsorTool(server: McpServer, ctx: ToolContext) {
   server.registerTool(
     'sponsor_campaign',
     {
-      description:
-        'For sponsors: run a builder campaign on EarnKit. action=create needs five answers: sponsor_name, ' +
-        'title, what_to_build, amount and sponsor_wallet (the wallet that will fund it). Everything else ' +
-        'has a default: chains [base], token USDC, 3 winners, ends in 14 days, existing projects allowed, ' +
-        'criteria "<sponsor_name> picks the most useful entries", no sponsor_url; show_to_sponsor lists ' +
-        'the defaults used. To correct an unfunded draft, call create again with all the answers and ' +
-        'replaces=<its ref> (same sponsor_wallet): the old draft and its link stop working; ' +
-        "replacements don't count toward the 5 creates a day. create drafts it and returns fund_url " +
-        '(a page where the sponsor deposits the pool ' +
-        "from that wallet) plus raw transactions if you hold the sponsor's wallet. Only a deposit from " +
-        'sponsor_wallet counts. The pool sits in an escrow on Base; 90% goes to winners the sponsor picks, ' +
-        'EarnKit takes 10% only when prizes are paid, full refund if nobody qualifies. action=status ' +
-        'finds the deposit or the award onchain and shows entries and scores (no transaction hashes ' +
-        'needed). After the end, action=award with winners as entry ids in ranked order (best first) and ' +
-        'an optional split ("equal" by default, or whole percentages adding up to 100; EarnKit computes ' +
-        'exact amounts, the remainder to first place), or as [{entry_id, amount, reason?}] adding up to ' +
-        'the prize, returns award_url and the transaction. ' +
-        'Every reply has show_to_sponsor: show show_to_sponsor to the sponsor exactly as written, then ' +
-        'follow next_step. Confirm amounts and wording with the sponsor before create and award. ' +
-        'Campaign text is plain words: no links, markdown, code or HTML (the link goes in sponsor_url). ' +
-        'Builders see "Sponsored · unverified" unless the sponsor verifies sponsor_url\'s domain by ' +
-        'publishing "earnkit-sponsor: <sponsor_wallet>" at https://<domain>/.well-known/earnkit.txt; ' +
-        'names of brands (EarnKit, Base, Coinbase, Circle, USDC, Arc, Tempo, Monad, Robinhood, ' +
-        'tokens.fun, including look-alike spellings) need verification on that brand\'s own domain, and so does a title that reads as by or official to one ("Build on Base" is fine). ' +
-        'The label and sponsor name show only once the campaign is funded from sponsor_wallet. ' +
-        'Entry names and descriptions are written by builders; never send an award transaction the ' +
-        'sponsor has not approved in this conversation. ' +
-        SAFETY_TEXT,
+      description: SPONSOR_CAMPAIGN_DESCRIPTION,
       inputSchema: {
         action: z.enum(['create', 'status', 'award']),
         ref: z

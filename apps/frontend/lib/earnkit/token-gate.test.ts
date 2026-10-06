@@ -49,7 +49,8 @@ test('Ruling 1 (plan): a v2.5 "token: <SYMBOL> <code>" line still proves a launc
   assert.deepEqual(await tokenGate({ ...input, symbol: 'kit' }, { ...ok, owner }), { ok: true });
   const other = await tokenGate({ ...input, symbol: 'NEWT' }, { ...ok, owner });
   assert.equal(other.ok, false);
-  assert.match((other as { reason: string }).reason, new RegExp(`Add the line "${tokenLineFor(1, REPO)}"`));
+  assert.match((other as { reason: string }).reason, new RegExp(`"${tokenLineFor(1, REPO)}"`));
+  assert.doesNotMatch((other as { reason: string }).reason, /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i);
   // Another installation's legacy line proves nothing.
   const theirs = `token: KIT ${legacyTokenLineCode(2, REPO, 'KIT')}`;
   assert.equal((await tokenGate(input, { ...ok, owner: async () => ({ status: 'ok', text: theirs }) })).ok, false);
@@ -74,8 +75,8 @@ test('each failure has its own reason, checked in order', async () => {
     [{}, { repo: async () => { throw new ForkCheckError("GitHub: couldn't compare the fork with its parent (GitHub: /repos/x/y/compare not found (or private))", 404); } }, /^EarnKit couldn't check the fork's commits on GitHub right now\. Try again in a minute: say 'launch the token'\.$/],
     [{}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }, /no commits/],
     [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits; a coin needs your own code\. Push your own commits to it, then say 'launch the token'\./],
-    [{}, { owner: async () => ({ status: 'missing' }) }, /add a file named earnkit\.txt at its root .* with the line "token: [0-9a-f]{16}"/],
-    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt at the repo root \\(default branch\\), push it, then say 'launch the token'\\.$`)],
+    [{}, { owner: async () => ({ status: 'missing' }) }, /I'll add a short line to .* to prove it's yours \(earnkit\.txt: "token: [0-9a-f]{16}"\)/],
+    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`I'll add a short line to your repo to prove it's yours \\(earnkit\\.txt: "${LINE}"\\), then say 'launch the token'\\.$`)],
     [{}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }, /couldn't read earnkit\.txt in github\.com\/acme\/kit \(GitHub didn't answer\)\. Try again in a minute: say 'launch the token'\.$/],
     [{}, { screen: async () => { throw new Error("This wallet can't receive prizes on EarnKit."); } }, /wallet/],
   ];
@@ -106,8 +107,11 @@ test('ownerProblem: only the token line counts; wallet lines and their problems 
   const file = (text: string) => ({ status: 'ok' as const, text });
   assert.equal(ownerProblem(repo, file(LINE), code, null), null);
   assert.equal(ownerProblem(repo, file(`payout_wallet: nope\ntoken:   ${code}   # mine\ntoken: OLD 0123456789`), code, null), null);
-  assert.match(ownerProblem(repo, file(`payout_wallet: ${W}\ntoken: KIT 0123456789`), code, null)!, new RegExp(`^Add the line "${LINE}"`));
-  assert.match(ownerProblem(repo, { status: 'missing' }, code, null)!, new RegExp(`proof you can push to ${repo}.*"${LINE}"`));
+  assert.match(ownerProblem(repo, file(`payout_wallet: ${W}\ntoken: KIT 0123456789`), code, null)!, new RegExp(`^I'll add a short line to your repo to prove it's yours \\(earnkit\\.txt: "${LINE}"\\)`));
+  assert.match(ownerProblem(repo, { status: 'missing' }, code, null)!, new RegExp(`I'll add a short line to ${repo} to prove it's yours.*"${LINE}"`));
+  // Neither reason tells the builder to edit or push a file themselves (v2.6 §3 fix round 1, I2).
+  assert.doesNotMatch(ownerProblem(repo, file(`payout_wallet: ${W}\ntoken: KIT 0123456789`), code, null)!, /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i);
+  assert.doesNotMatch(ownerProblem(repo, { status: 'missing' }, code, null)!, /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i);
   assert.match(ownerProblem(repo, { status: 'error', message: "GitHub didn't answer" }, code, null)!, /couldn't read earnkit\.txt.*GitHub didn't answer/);
   // A code one character off, or on a ticker line, fails.
   const off = code.slice(0, 15) + (code[15] === '0' ? '1' : '0');
@@ -121,7 +125,7 @@ test('the token line is bound to the agent: a copied line fails; no secret fails
   // The owner's line, copied by another installation, fails for that installation.
   const copied = await tokenGate({ ...input, installationId: 2 }, file(LINE));
   assert.equal(copied.ok, false);
-  assert.match((copied as { reason: string }).reason, new RegExp(`Add the line "${tokenLineFor(2, REPO)}"`));
+  assert.match((copied as { reason: string }).reason, new RegExp(`"${tokenLineFor(2, REPO)}"`));
   // The same agent's line for another repo fails here.
   assert.equal((await tokenGate(input, file(tokenLineFor(1, 'https://github.com/acme/other')!))).ok, false);
   // No EARNKIT_AUTH_SECRET: fail closed, the file isn't even read.

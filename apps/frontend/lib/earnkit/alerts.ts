@@ -1,3 +1,4 @@
+import { getAddress } from 'viem';
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
 import { boardLink, shortWallet } from './entry-text';
@@ -5,6 +6,17 @@ import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { eth } from './present';
 import { pickWinners } from './winners';
+
+/** The checksummed form (M2, fix round 1): `bonus_payouts.wallet` is stored lowercase; a builder
+ * confirmed the checksummed form on the coin's wallet line, so the alert should match it. Falls
+ * back to the raw value on anything that isn't a valid address (defensive; never throws). */
+const checksummed = (w: string) => {
+  try {
+    return getAddress(w);
+  } catch {
+    return w;
+  }
+};
 
 /**
  * What alerts remember per installation: whether each scored entry was in the top N, and the ids
@@ -102,16 +114,18 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     .filter((w) => !seenBonusWins.has(w.id))
     .sort((a, b) => b.paid_at.getTime() - a.paid_at.getTime());
   const shownBonus = freshBonus.slice(0, MAX_BONUS_WIN_LINES);
-  // v2.6 §3 (Ruling P1): "bonus paid: 0.12 ETH (as WETH) to 0xAB…12 · earnkit.com/bonus/<slug>" —
-  // a lowercase clause continuation (these lines are spliced into "Since you last checked: …; ….").
+  // v2.6 §3 fix round 1 (Ruling 25 supersedes P1's literal wording; I1): a natural clause, money
+  // first, naming the program and (M1) the transaction, same pattern as the EarnKit prize line above.
   for (const w of shownBonus)
     lines.push(
-      `bonus paid: ${eth(w.amount_wei)} ETH (as WETH)${w.wallet ? ` to ${shortWallet(w.wallet)}` : ''} · ${boardLink(w.round_key)}`,
+      `you were paid a ${eth(w.amount_wei)} ETH builder bonus (as WETH) for ${w.program_title}` +
+        `${w.wallet ? `, sent to ${shortWallet(checksummed(w.wallet))}` : ''} (basescan.org/tx/${w.tx_hash}) · ${boardLink(w.round_key)}`,
     );
   lines.push(...otherWins);
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
-  // v2.6 §3: "fees to claim: $X on tokens.fun" regardless of how many tokens or their symbols.
-  if (fee.show && f.fees && f.fees.tokens.length > 0) lines.push(`fees to claim: ${usd(f.fees.usd)} on tokens.fun`);
+  // v2.6 §3 fix round 1 (I1): a clause, not a form label; "coin fees" (not "fees to claim") keeps
+  // the colon count in the joined sentence down to one, after "checked".
+  if (fee.show && f.fees && f.fees.tokens.length > 0) lines.push(`you have ${usd(f.fees.usd)} in coin fees to claim on tokens.fun`);
   const top: Record<string, boolean> = {};
   for (const s of f.standings) {
     if (!s.scored) continue;

@@ -1,16 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alertLines, type AlertFacts } from './alerts';
-import { coinRow, enteredText, noCoinYet, walletLine } from './entry-text';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { alertLines, sinceLine, type AlertFacts } from './alerts';
+import { WALLET_INVALID, type CampaignConfig } from './campaigns';
+import {
+  COIN_FOOTNOTE,
+  confirmTable,
+  coinRow,
+  enteredTable,
+  enteredText,
+  noCoinYet,
+  walletLine,
+} from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, TOOL_DESCRIPTIONS } from './mcp';
 import { presentFirstMessage, type Card, type FirstMessage } from './present';
+import { tools } from './tools';
+import { ownerProblem, tokenGate, type GateDeps, type GateInput } from './token-gate';
+import type { FetchResult } from './ownership';
 import type { Verdict } from './match';
+import PolicyPage from '../../app/policy/page';
+
+(globalThis as { React?: typeof React }).React = React;
+process.env.EARNKIT_AUTH_SECRET ??= 'copy-review-test-secret';
 
 /**
- * v2.6 §3 copy review: every builder-facing template this task touched, scanned for the house
- * style (global-constraints.md): no emojis, never "vault", no tool names in builder text, no
- * implied affiliation. Agent-only text (OWNERSHIP_FOR_TOKEN, TOOL_DESCRIPTIONS) is checked for
- * emojis/vault/affiliation too, but is allowed to name tools and files — that's who it's for.
+ * v2.6 §3 copy review (fix round 1, I2): every builder-facing template this task touched or could
+ * have broken, scanned for the house style (global-constraints.md): no emojis, never "vault", no
+ * tool names in builder text, no implied affiliation, and — new in this round — never a literal
+ * instruction for the builder to add/edit/push a file themselves (the live contradiction I2
+ * found in token-gate.ts's gate_failed reasons). Agent-only text (OWNERSHIP_FOR_TOKEN,
+ * TOOL_DESCRIPTIONS, noCoinYet) is checked for emojis/vault/affiliation too, but is allowed to
+ * name tools and files — that's who it's for.
  */
 
 const arc: Card = {
@@ -54,12 +75,64 @@ const msg = (m: Partial<FirstMessage>): FirstMessage => ({
   ...m,
 });
 
+// ---- The v2.6 §3 alert lines: the builder-bonus win (with/without a wallet), coin fees, and the
+// builder-bonus top-10 move/drop lines, all with their leaderboard links.
+const BONUS_WALLET = '0xab1200000000000000000000000000000000ef01';
+const alertFacts: AlertFacts = {
+  newCampaigns: [],
+  standings: [],
+  prizes: [],
+  fees: { usd: 138, tokens: [{ url: 'https://tokens.fun/coin/0xabc', symbol: 'TIP' }] },
+  bonusWins: [
+    {
+      id: 1,
+      project_id: 7,
+      name: 'TipJar',
+      program_title: 'Arc Microgrants',
+      amount_wei: 12n * 10n ** 16n,
+      tx_hash: '0x' + 'a'.repeat(64),
+      paid_at: new Date('2026-10-20T00:00:00Z'),
+      wallet: BONUS_WALLET,
+      round_key: 'arc-microgrants:2026-09-16',
+    },
+    {
+      id: 2,
+      project_id: 8,
+      name: 'NoWallet',
+      program_title: 'Base Builder Grant Program',
+      amount_wei: 5n * 10n ** 16n,
+      tx_hash: '0x' + 'b'.repeat(64),
+      paid_at: new Date('2026-10-20T00:00:00Z'),
+      wallet: null,
+      round_key: 'base-builder-grants:2026-10',
+    },
+  ],
+  bonusStandings: [
+    { project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' },
+  ],
+};
+const movedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': false } }, feeAlertedUsd: 0 };
+const droppedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': true } }, feeAlertedUsd: 0 };
+const alertLinesMoved = alertLines(movedPrev, alertFacts).lines;
+const alertLinesDropped = alertLines(droppedPrev, { ...alertFacts, bonusStandings: [{ ...alertFacts.bonusStandings[0], inTop: false }] }).lines;
+// I2's size guard: a producer regressing to no lines must fail loudly, not leave every check
+// vacuously passing on an empty scan.
+test('v2.6 §3 copy review: the alert fixtures actually produce lines (not a vacuous scan)', () => {
+  assert.equal(alertLinesMoved.length, 4);
+  assert.equal(alertLinesDropped.length, 4);
+});
+
 // ---- Three presentFirstMessage shapes (Ruling 11 (plan)): no repo/no GitHub, GitHub user with 0
-// repos, and with repos. Only the first gets "You could".
+// repos, and with repos. Only the first gets "You could". Plus the alerts-in-the-reply case (I2)
+// and the "None of your N repos fits" case (I2), both missed by the first round.
 const noRepoNoGithub = presentFirstMessage(msg({ cards: [arc] }));
 const githubZeroRepos = presentFirstMessage(msg({ cards: [arc], repos: { checked: 0, fits: [] }, githubGiven: true }));
 const withRepos = presentFirstMessage(
   msg({ cards: [base], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', 'looks eligible')] }] } }),
+);
+const withAlerts = presentFirstMessage(msg({ alerts: alertLinesMoved, cards: [arc] }));
+const noneOfYourReposFit = presentFirstMessage(
+  msg({ cards: [base], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'no', 'not on Base')] }] } }),
 );
 
 // ---- coinRow, walletLine, enteredText, noCoinYet: every branch.
@@ -71,8 +144,8 @@ const coinRows = [
   coinRow({ symbol: 'TIPJAR', hasBonus: true, coinIn: 'Arc Microgrants' }),
 ];
 const walletLines = [
-  walletLine({ wallet: '0xAB12000000000000000000000000000000ef01', remembered: true, hasBonus: true }),
-  walletLine({ wallet: '0xAB12000000000000000000000000000000ef01', remembered: false, hasBonus: false }),
+  walletLine({ wallet: BONUS_WALLET, remembered: true, hasBonus: true }),
+  walletLine({ wallet: BONUS_WALLET, remembered: false, hasBonus: false }),
   walletLine({ wallet: null, remembered: false, hasBonus: true }),
   walletLine({ wallet: null, remembered: false, hasBonus: false }),
 ];
@@ -102,55 +175,125 @@ const enteredTexts = [
 ];
 const noCoinYets = [noCoinYet(new Date('2026-10-15T03:59:00.000Z')), noCoinYet(null)];
 
-// ---- The v2.6 §3 alert lines: bonus paid (as WETH, with/without a wallet), fees to claim, and
-// the builder-bonus top-10 move/drop lines, all with their leaderboard links.
-const alertFacts: AlertFacts = {
-  newCampaigns: [],
-  standings: [],
-  prizes: [],
-  fees: { usd: 138, tokens: [{ url: 'https://tokens.fun/coin/0xabc', symbol: 'TIP' }] },
-  bonusWins: [
-    {
-      id: 1,
-      project_id: 7,
-      name: 'TipJar',
-      program_title: 'Arc Microgrants',
-      amount_wei: 12n * 10n ** 16n,
-      tx_hash: '0x' + 'a'.repeat(64),
-      paid_at: new Date('2026-10-20T00:00:00Z'),
-      wallet: '0xAB12000000000000000000000000000000ef01',
-      round_key: 'arc-microgrants:2026-09-16',
-    },
-    {
-      id: 2,
-      project_id: 8,
-      name: 'NoWallet',
-      program_title: 'Base Builder Grant Program',
-      amount_wei: 5n * 10n ** 16n,
-      tx_hash: '0x' + 'b'.repeat(64),
-      paid_at: new Date('2026-10-20T00:00:00Z'),
-      wallet: null,
-      round_key: 'base-builder-grants:2026-10',
-    },
-  ],
-  bonusStandings: [
-    { project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' },
-  ],
+// ---- The prepare_submission confirm screen (I2): confirmTable, where the coin row and wallet
+// line actually appear, plus COIN_FOOTNOTE on its own; and the campaign enteredTable.
+const campaign: CampaignConfig = {
+  kind: 'earnkit',
+  prize: { token: '0x534b7aAD1Cdb6F02eC48CAbe428f0D9131E40B07', symbol: 'MINI', decimals: 18, chain: 'base' },
+  winners: 5,
+  amount_each: '84800000',
+  prize_usd_total: 500,
+  metric: 'unique_wallets',
+  min_score: 10,
 };
-const movedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': false } }, feeAlertedUsd: 0 };
-const droppedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': true } }, feeAlertedUsd: 0 };
-const alertLinesMoved = alertLines(movedPrev, alertFacts).lines;
-const alertLinesDropped = alertLines(droppedPrev, { ...alertFacts, bonusStandings: [{ ...alertFacts.bonusStandings[0], inTop: false }] }).lines;
+const ENDS = new Date('2026-10-18T23:59:00Z');
+const confirmTables = [
+  // Non-campaign, with a remembered wallet.
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
+    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true, remembered: true },
+  }),
+  // Non-campaign, with a given (not remembered) wallet.
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
+    payoutWallet: null, token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true },
+  }),
+  // Non-campaign, no wallet yet.
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
+    payoutWallet: null, token: { symbol: null, hasBonus: true },
+  }),
+  // Non-campaign, Ruling 25 (repo's coin already entered elsewhere).
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
+    payoutWallet: null, token: { symbol: 'TIPJAR', hasBonus: true, coinIn: 'Base Builder Grant Program' },
+  }),
+  // One EarnKit campaign (v2.4's Token row, not the v2.6 Coin row).
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS,
+    payoutWallet: '0xAbCdEf0123456789abcdef0123456789ABCDEf01', token: { symbol: 'TIP' },
+  }),
+];
+const enteredTables = [
+  enteredTable({
+    project: 'Tip Jar', programTitle: 'EarnKit Campaign #1', standing: 'not scored yet (scores update daily)',
+    leaderboard: 'https://earnkit.com/campaigns/earnkit-campaign-1-base', campaign, endsAt: ENDS,
+    payoutWallet: '0xabcdef0123456789abcdef0123456789abcdef01',
+  }),
+];
+
+// ---- The policy page (I2): rendered to text the same way public-pages.test.ts verifies it.
+// Cut at the shared Footer (its own copyright boilerplate, unrelated to and unchanged by v2.6):
+// this scan is for the policy copy, not every page's site-wide footer.
+const policyHtml = renderToStaticMarkup(React.createElement(PolicyPage));
+const policyText = policyHtml
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&#x27;|&#39;/g, "'")
+  .replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ')
+  .split('Where agents earn.')[0];
+
+// ---- Gate reasons (T3, I2): every branch of tokenGate's GateResult, which flows straight into
+// record_submission/launch_token's `token.note` ("Tell the builder the result"). This is where
+// the live contradiction lived: a reason that told the builder to add/push earnkit.txt, against
+// "never ask the builder to edit files". gatherGateReasons runs them all with stub deps (no
+// network, no DB).
+async function gatherGateReasons(): Promise<[string, string][]> {
+  const REPO = 'https://github.com/acme/kit';
+  const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
+  const okDeps: Required<GateDeps> = {
+    repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+    owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
+    screen: async () => {},
+  };
+  const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
+    ['policy off', { policy: 'off' }, {}],
+    ['no repo url', { repoUrl: null }, {}],
+    ['not a GitHub link', { repoUrl: 'https://gitlab.com/a/b' }, {}],
+    ['repo not public', {}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }],
+    ['GitHub down (repo read)', {}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }],
+    ['no commits', {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }],
+    ['fork with no new commits', {}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }],
+    ['earnkit.txt missing', {}, { owner: async () => ({ status: 'missing' }) }],
+    ['earnkit.txt lacks the line', {}, { owner: async () => ({ status: 'ok', text: 'payout_wallet: 0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' }) }],
+    ['GitHub down (earnkit.txt read)', {}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }],
+    ['sanctioned wallet', {}, { screen: async () => { throw new Error("This wallet can't receive token fees on EarnKit."); } }],
+  ];
+  const out: [string, string][] = [];
+  for (const [label, i, d] of cases) {
+    const r = await tokenGate({ ...input, ...i }, { ...okDeps, ...d });
+    if (!r.ok) out.push([`gate reason: ${label}`, r.reason]);
+  }
+  // Also directly: the "file exists but the line is for a different ticker" branch (same as
+  // "earnkit.txt lacks the line" but through a file that parses, to exercise ownerProblem's other arm).
+  const mismatched = ownerProblem(
+    'github.com/acme/kit',
+    { status: 'ok', text: 'token: 1111111111111111' } as FetchResult,
+    '0000000000000000',
+    null,
+  );
+  if (mismatched) out.push(['gate reason: earnkit.txt has a different code', mismatched]);
+  return out;
+}
 
 const builderFacing: [string, string][] = [
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
   ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
   ...enteredTexts.map((s, i): [string, string] => [`enteredText[${i}]`, s]),
+  ...confirmTables.map((s, i): [string, string] => [`confirmTable[${i}]`, s]),
+  ...enteredTables.map((s, i): [string, string] => [`enteredTable[${i}]`, s]),
+  ['COIN_FOOTNOTE', COIN_FOOTNOTE],
   ['presentFirstMessage: no repo, no GitHub', noRepoNoGithub],
   ['presentFirstMessage: GitHub user, 0 repos', githubZeroRepos],
   ['presentFirstMessage: with repos', withRepos],
+  ['presentFirstMessage: with alerts', withAlerts],
+  ['presentFirstMessage: none of your repos fit', noneOfYourReposFit],
+  ['sinceLine(alertLinesMoved)', sinceLine(alertLinesMoved)!],
+  ['sinceLine(alertLinesDropped)', sinceLine(alertLinesDropped)!],
   ...alertLinesMoved.map((s, i): [string, string] => [`alertLines moved[${i}]`, s]),
   ...alertLinesDropped.map((s, i): [string, string] => [`alertLines dropped[${i}]`, s]),
+  ['WALLET_INVALID', WALLET_INVALID],
+  ['policy page', policyText],
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
@@ -161,17 +304,28 @@ const agentFacing: [string, string][] = [
   ...noCoinYets.map((s, i): [string, string] => [`noCoinYet[${i}]`, s]),
 ];
 
-const all = [...builderFacing, ...agentFacing];
+// Tool names, derived from the registered tools themselves (I2), not a hard-coded list.
+const TOOL_NAMES = Object.keys(tools);
+const toolNameRe = new RegExp(`\\b(${TOOL_NAMES.join('|')})\\b`);
+const editFileRe = /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i;
 
-test('v2.6 §3 copy review: no emojis anywhere', () => {
+test('v2.6 §3 copy review: no emojis anywhere', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
   for (const [label, text] of all) assert.doesNotMatch(text, /\p{Extended_Pictographic}/u, label);
 });
 
-test('v2.6 §3 copy review: never "vault"', () => {
+test('v2.6 §3 copy review: never "vault"', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
   for (const [label, text] of all) assert.doesNotMatch(text, /vault/i, label);
 });
 
-test('v2.6 §3 copy review: no implied affiliation, except the carved-out BONUS_NOTE phrase', () => {
+test('v2.6 §3 copy review: no implied affiliation, except the carved-out BONUS_NOTE phrase', async () => {
+  // TOOL_DESCRIPTIONS.sponsor_campaign is agent-only (M4) and legitimately explains EarnKit's own
+  // affiliation-word verification rule for sponsors ("a title that reads as by or official to
+  // one"); it never claims an affiliation itself, so it is out of this specific check.
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())].filter(
+    ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign',
+  );
   const carveOut = /isn't affiliated with or endorsed by/gi;
   for (const [label, text] of all) {
     const stripped = text.replace(carveOut, '');
@@ -179,15 +333,29 @@ test('v2.6 §3 copy review: no implied affiliation, except the carved-out BONUS_
   }
 });
 
-test('v2.6 §3 copy review: builder-facing text never names a tool', () => {
-  const toolNames = /\b(list_programs|get_program|prepare_submission|record_submission|launch_token|sponsor_campaign)\b/;
-  for (const [label, text] of builderFacing) assert.doesNotMatch(text, toolNames, label);
+test('v2.6 §3 copy review: builder-facing text never names a tool (derived from the registered tools)', async () => {
+  const gateReasons = await gatherGateReasons();
+  for (const [label, text] of [...builderFacing, ...gateReasons]) assert.doesNotMatch(text, toolNameRe, label);
+});
+
+test('v2.6 §3 copy review (I2): the builder-facing gate reasons never ask the builder to add/edit/push a file themselves', async () => {
+  const gateReasons = await gatherGateReasons();
+  assert.ok(gateReasons.length >= 8, `expected several gate-reason branches, got ${gateReasons.length}`);
+  for (const [label, text] of [...builderFacing, ...gateReasons]) assert.doesNotMatch(text, editFileRe, label);
+});
+
+test('v2.6 §3 copy review (I2): every scanned string is non-empty (never a vacuous pass)', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  assert.ok(all.length > 30, `expected a wide scan, got ${all.length} strings`);
+  for (const [label, text] of all) assert.ok(text.trim().length > 0, label);
 });
 
 test('v2.6 §3 copy review: "You could" shows only with no repo and no GitHub user', () => {
   assert.match(noRepoNoGithub, /You could/);
   assert.doesNotMatch(githubZeroRepos, /You could/i);
   assert.doesNotMatch(withRepos, /You could/i);
+  // withAlerts reuses the same no-repo shape as noRepoNoGithub (only alerts differ), so it is not
+  // part of this exclusivity check; it is in the scan above for its own (alert) copy.
 });
 
 test('v2.6 §3 copy review: the with-repo hook keeps "qualify"', () => {
