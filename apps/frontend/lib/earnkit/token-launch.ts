@@ -103,10 +103,12 @@ export type Decision =
   | { action: 'refuse'; note: string; agent_note?: string; code?: 'no_wallet' };
 
 export const NO_WALLET = "Not launched: no wallet for the token's fees yet.";
-const NO_WALLET_AGENT =
+/** v2.7 §4 fix round 1: exported so copy-review.test.ts can scan it. */
+export const NO_WALLET_AGENT =
   'Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
 const NEEDS_SYMBOL = "Not launched: the token's name and ticker weren't confirmed yet.";
-const NEEDS_SYMBOL_AGENT =
+/** v2.7 §4 fix round 1: exported so copy-review.test.ts can scan it. */
+export const NEEDS_SYMBOL_AGENT =
   "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
 
 /** C6: the builder's note when the final ticker is already used on tokens.fun. Pure. */
