@@ -1371,6 +1371,9 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   (`lib/earnkit/landing.ts`) behind `unstable_cache` for 10 minutes. It renders the same `Guide`
   as get_program (`programGuide` in `guide.ts`, the bonus line from `programs.ts`'s `guideBonus`),
   so the web and the agent never disagree. The value is plain JSON (`GuidePage`).
+- "What won": "What won last time" only for the program's newest own round (`own: true`), else
+  "What won before" plus a small line naming the shown round, "in <label>" (`Guide.won.event`,
+  Ruling C12). The difficulty basis names its own round, which can be a different one.
 - Only curated programs (`source = 'file'`, no campaign) have a page; any other id is null →
   404. The id is gated first (`gatedGuidePage`): a malformed id reads nothing, and an id outside
   the cached curated id set (closed included; one read per 10 minutes in total) is a 404 with no

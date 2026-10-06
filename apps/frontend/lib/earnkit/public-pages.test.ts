@@ -328,7 +328,8 @@ test('v2.7 §2: the full guide page', () => {
   assert.ok(t.includes('500 USDC × 20 grants · ends Oct 14'));
   assert.ok(t.includes('Difficulty: Medium — 20 of ~160 entries won last round'));
   for (const heading of ['What won last time', 'What Arc wants now', 'Your best bet'])
-    assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>\\s*<ul`), heading);
+    // The won section wraps its list (Ruling C12's event line goes above it when not own).
+    assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>\\s*(?:<div>\\s*)?<ul`), heading);
   const items = [...h.matchAll(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/g)].map((m) => text(m[1]).trim());
   for (const line of [
     'USDC payroll and payouts (3 of 20 winners)',
@@ -442,6 +443,13 @@ test('fix round 1, Minor 3: a predecessor round reads "What won before" and name
   assert.match(h, /<h2[^>]*>What won before<\/h2>/);
   assert.doesNotMatch(t, /last (time|round)/);
   assert.ok(t.includes("Difficulty: Medium — 20 of ~160 entries won in Arc's HackMoney 2026 track"));
+});
+
+test('Ruling C12: the web guide names the event under "What won before", never under "What won last time"', () => {
+  const pre = guideHtml(predecessorGuide);
+  assert.match(pre, /<h2[^>]*>What won before<\/h2>\s*<div>\s*<p[^>]*>in Arc&#x27;s HackMoney 2026 track<\/p>\s*<ul/);
+  const own = guideHtml(fullGuide);
+  assert.doesNotMatch(own, /<h2[^>]*>What won last time<\/h2>\s*<div>\s*<p/);
 });
 
 test('fix round 1, Important 1: a malformed or unknown id is a 404 with no per-id read', async () => {
