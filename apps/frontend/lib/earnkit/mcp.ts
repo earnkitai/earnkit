@@ -117,7 +117,7 @@ const PREPARE_SUBMISSION_DESCRIPTION =
   'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
   "Call again with the new answers until ready is true, then submit on the program's site. " +
-  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one Coin row and a wallet line (EarnKit campaigns: one Token row): one yes confirms them, and the builder can skip the coin in one word. ' +
+  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one Coin row and a wallet line (EarnKit campaigns: one Token row): one yes confirms them, and the builder can skip the coin in one word. Other programs: shown_wallet is the wallet on that line; once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
   `${OWNERSHIP_FOR_TOKEN} ` +
   `In record_submission: ${TO_LAUNCH} ` +
   'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';
@@ -172,7 +172,7 @@ export function createMcpServer(ctx: ToolContext) {
         'When a reply has since_you_last_checked, show it to the builder first, as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
         "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site.",
-        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no coin. Write and push earnkit.txt yourself; never ask the builder to edit files.',
         'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
         'Never invent personal details.',
         ...SAFETY_LINES,
@@ -333,7 +333,7 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe(
-            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line (the coin's fees and any bonus; remembered for next time). With contracts, the Base wallet that deployed them. Without any wallet the entry is recorded with no coin yet.",
+            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line, i.e. its shown_wallet, passed back (the coin's fees and any bonus; remembered for next time). EarnKit never uses a remembered wallet here: without one the entry is recorded with no coin yet. With contracts, the Base wallet that deployed them.",
           ),
       },
     },

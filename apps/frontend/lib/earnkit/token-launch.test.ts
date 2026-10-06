@@ -10,11 +10,12 @@ import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './e
 import {
   NON_BASE_NO_BONUS,
   LaunchTokenInput,
+  TECHNICAL_TERMS,
   decideToken,
   hasBuilderBonus,
   launchToken,
   submissionToken,
-  tokenAfterSubmission,
+  tokenAfterSubmission as tokenAfterSubmissionRaw,
   tokenProposalBlock,
   type FlowProject,
   type TokenFlowDeps,
@@ -25,9 +26,10 @@ test('decideToken', () => {
   assert.deepEqual(decideToken(base), { action: 'launch', name: 'Chain Kits', symbol: 'CKIT' });
   assert.equal(decideToken({ ...base, choice: 'skip' }).action, 'skip');
   assert.match((decideToken({ ...base, policy: 'off' }) as { note: string }).note, /doesn't allow tokens/);
-  assert.match((decideToken({ ...base, confirmed: false }) as { note: string }).note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /builder_confirmed/);
   assert.match((decideToken({ ...base, existingTokenUrl: 'https://tokens.fun/coin/0x1' }) as { note: string }).note, /already has a token/);
-  assert.match((decideToken({ ...base, wallet: null }) as { note: string }).note, /creator wallet/);
+  assert.match((decideToken({ ...base, wallet: null }) as { note: string }).note, /no wallet for the coin's fees/);
+  assert.match((decideToken({ ...base, wallet: null }) as { agent_note: string }).agent_note, /creator_wallet/);
   assert.equal((decideToken({ ...base, wallet: null }) as { code?: string }).code, 'no_wallet');
   // Builder edits replace the proposal and go through the same rules.
   assert.deepEqual(decideToken({ ...base, choice: { symbol: 'KITS' } }), { action: 'launch', name: 'Chain Kits', symbol: 'KITS' });
@@ -56,10 +58,10 @@ test('decideToken: checks run in order', () => {
   assert.equal(decideToken({ ...base, choice: 'skip', existingTokenUrl: 'https://x' }).action, 'skip');
   assert.match((decideToken({ ...base, confirmed: false, existingTokenUrl: 'https://x' }) as { note: string }).note, /already has a token/);
   // confirmation before edits; edits before the wallet.
-  assert.match((decideToken({ ...base, confirmed: false, choice: { symbol: 'USDC' } }) as { note: string }).note, /builder_confirmed/);
-  assert.match((decideToken({ ...base, wallet: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /symbol/);
+  assert.match((decideToken({ ...base, confirmed: false, choice: { symbol: 'USDC' } }) as { agent_note: string }).agent_note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, wallet: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /^Ticker: USDC/);
   // An edit's problem is named even when there is no proposal to fall back on.
-  assert.match((decideToken({ ...base, proposal: null, choice: { symbol: 'USDC' } }) as { note: string }).note, /symbol: USDC/);
+  assert.match((decideToken({ ...base, proposal: null, choice: { symbol: 'USDC' } }) as { agent_note: string }).agent_note, /symbol: USDC/);
 });
 
 test('decideToken: at submission only an explicit ticker launches', () => {
@@ -67,11 +69,11 @@ test('decideToken: at submission only an explicit ticker launches', () => {
   for (const choice of [undefined, {}, { name: 'Chain Kits' }, { symbol: '  ' }]) {
     const d = decideToken({ ...base, choice });
     assert.equal(d.action, 'skip');
-    assert.match((d as { note: string }).note, /exactly as shown to the builder/);
+    assert.match((d as { agent_note: string }).agent_note, /exactly as shown to the builder/);
   }
   assert.deepEqual(decideToken({ ...base, choice: { symbol: 'ckit' } }), { action: 'launch', name: 'Chain Kits', symbol: 'CKIT' });
   // Unconfirmed reads as unconfirmed, and an existing token as a token, before the ticker rule.
-  assert.match((decideToken({ ...base, confirmed: false }) as { note: string }).note, /builder_confirmed/);
+  assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /builder_confirmed/);
 });
 
 const program = (policy: 'encouraged' | 'allowed' | 'off') =>
@@ -226,6 +228,12 @@ test('tokenProposalBlock: no proposal asks the builder to pick one', async () =>
 
 // The flow, with the database replaced by an in-memory store.
 const WALLET = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+/**
+ * Ruling 30: record_submission's wallet is only the one given in the call (the agent echoes the
+ * wallet line the builder confirmed). These tests give WALLET unless they pass givenWallet.
+ */
+const tokenAfterSubmission = (a: Parameters<typeof tokenAfterSubmissionRaw>[0], deps: TokenFlowDeps) =>
+  tokenAfterSubmissionRaw({ givenWallet: WALLET, ...a }, deps);
 // The repo's earnkit.txt carries installation 1's token line (v2.6: one line, any ticker).
 const tokenLines = (repoUrl = 'https://github.com/acme/kit') => tokenLineFor(1, repoUrl)!;
 function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {}) {
@@ -259,7 +267,6 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
     store: {
       load: async (id) => (id === project.id ? project : null),
       setStatus: async (id, s) => { writes.push({ id, ...s }); },
-      rememberedWallet: async () => WALLET,
       repoToken: async (_id, key) => repoTokens.get(key) ?? null,
       updateLinks: async (id, inst, l) => { links.push({ id, inst, ...l }); },
       saveCreatorWallet: async (id, inst, w) => { saved.push({ id, inst, w }); },
@@ -289,8 +296,7 @@ test('Ruling 22: the wallet given with the entry goes to the launch, never the r
 
 test('v2.6 Ruling 18: at submission with no wallet anywhere, the coin is skipped with no_wallet and nothing deploys', async () => {
   const h = harness();
-  h.deps.store!.rememberedWallet = async () => null;
-  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: null }, h.deps);
   assert.equal(out.status, 'skipped');
   assert.equal(out.no_wallet, true);
   assert.equal(h.deploys.length, 0);
@@ -298,13 +304,12 @@ test('v2.6 Ruling 18: at submission with no wallet anywhere, the coin is skipped
   assert.deepEqual(h.writes.map((w) => (w as { status: string }).status), ['skipped']);
   // launch_token without a wallet fails, without the submission marker.
   const l = harness();
-  l.deps.store!.rememberedWallet = async () => null;
   const failed = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', ...CONFIRMED }, 1, l.deps);
   assert.equal(failed.status, 'failed');
   assert.equal(failed.no_wallet, undefined);
 });
 
-test('tokenAfterSubmission: the confirmed name and ticker launch on Base with the remembered wallet', async () => {
+test('tokenAfterSubmission: the confirmed name and ticker launch on Base with the wallet given in the call', async () => {
   const h = harness();
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(out.status, 'launched');
@@ -318,7 +323,7 @@ test('tokenAfterSubmission: the confirmed name and ticker launch on Base with th
 
 test('tokenAfterSubmission: skip, unconfirmed and no explicit ticker store the proposal as skipped', async () => {
   for (const [choice, confirmed, re] of [
-    ['skip', true, /no token/],
+    ['skip', true, /Call launch_token later/],
     [CONFIRMED, false, /builder_confirmed/],
     [undefined, true, /exactly as shown to the builder/],
     [{ name: 'Chain Kits' }, true, /exactly as shown to the builder/],
@@ -326,7 +331,9 @@ test('tokenAfterSubmission: skip, unconfirmed and no explicit ticker store the p
     const h = harness();
     const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice, confirmed }, h.deps);
     assert.equal(out.status, 'skipped');
-    assert.match(out.note ?? '', re);
+    // Ruling 31: the technical instruction is the agent's; the note is plain.
+    assert.match(out.agent_note ?? '', re);
+    assert.doesNotMatch(out.note ?? '', TECHNICAL_TERMS);
     assert.equal(out.symbol, 'CHAIN');
     assert.deepEqual(h.writes, [{ id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'CHAIN' }]);
     assert.equal(h.deploys.length, 0);
@@ -417,7 +424,8 @@ test('tokenAfterSubmission: bad image data or a launch error is a failed outcome
   const h = harness();
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, image_data: 'data:text/plain;base64,aGk=' }, confirmed: true }, h.deps);
   assert.equal(out.status, 'failed');
-  assert.match(out.note ?? '', /image_data/);
+  assert.match(out.note ?? '', /image isn't usable/);
+  assert.match(out.agent_note ?? '', /image_data/);
   assert.equal(h.deploys.length, 0);
 
   const h2 = harness({}, { deploy: async () => { throw new LaunchError('Token launches are not available right now.'); } });
@@ -430,7 +438,8 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
   const other = '0x' + 'a'.repeat(40);
   // A campaign entry's payout wallet was proven at entry; earnkit.txt is still read for the token line.
   const h = harness({ payout_wallet: other });
-  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
+  // Campaign entries give no separate wallet (record_submission passes none).
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: null }, h.deps);
   assert.equal(h.deploys[0].creatorWallet, other);
   assert.ok(h.calls.includes('owner'));
   // v2.6 §3: another creator wallet needs no creator_wallet line; the token line is the proof.
@@ -518,7 +527,7 @@ test('echoing token.proposed (with image) and a token: null are accepted', async
   assert.equal(out.status, 'launched');
   const h2 = harness();
   const none = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: null, confirmed: true }, h2.deps);
-  assert.match(none.note ?? '', /exactly as shown to the builder/);
+  assert.match(none.agent_note ?? '', /exactly as shown to the builder/);
   // Any other unknown key is named.
   const h3 = harness();
   const bad = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, ticker: 'X' }, confirmed: true }, h3.deps);
@@ -572,7 +581,7 @@ test('submissionToken: an error after the deploy started says to check tokens.fu
   console.error = () => {};
   try {
     const h = harness({}, { deploy: async () => { throw new Error('db write after deploy failed'); } });
-    const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
+    const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
     assert.equal(out.status, 'failed');
     assert.match(out.note ?? '', /check tokens\.fun before retrying/);
   } finally {
@@ -661,17 +670,20 @@ test('launchToken: live_url and repo_url overrides are cleaned, saved, then gate
   const c = harness({ payout_wallet: WALLET });
   const refused = await launchToken(launchInput({ repo_url: 'https://github.com/acme/other' }), 1, c.deps);
   assert.equal(refused.status, 'failed');
-  assert.match(refused.note ?? '', /^repo_url: a campaign entry's repo/);
+  assert.match(refused.note ?? '', /^A campaign entry's repo/);
+  assert.match(refused.agent_note ?? '', /^repo_url: a campaign entry's repo/);
   assert.equal(c.links.length, 0);
   // Nor can any recorded entry's repo (the builder bonus keys entries by it); the same repo is fine.
   const e = harness();
   const swapped = await launchToken(launchInput({ repo_url: 'https://github.com/acme/other' }), 1, e.deps);
   assert.equal(swapped.status, 'failed');
-  assert.match(swapped.note ?? '', /can't change once recorded; record a new entry for a different repo/);
+  assert.match(swapped.note ?? '', /can't change once recorded; enter the other repo as a new entry/);
+  assert.match(swapped.agent_note ?? '', /^repo_url: /);
   assert.equal(e.links.length, 0);
   const bad = await launchToken(launchInput({ live_url: 'ftp://x.dev' }), 1, harness().deps);
   assert.equal(bad.status, 'failed');
-  assert.match(bad.note ?? '', /^live_url: /);
+  assert.match(bad.note ?? '', /^The live link isn't usable: /);
+  assert.match(bad.agent_note ?? '', /^live_url: /);
   // A campaign entry may fix its live link.
   const c2 = harness({ payout_wallet: WALLET, live_url: null });
   assert.equal((await launchToken(launchInput({ live_url: 'https://kit.acme.dev' }), 1, c2.deps)).status, 'launched');
@@ -688,7 +700,6 @@ test('launchToken: a bad X handle is a failed outcome', async () => {
 test('v2.4 token retry: the creator wallet given at record_submission is kept and launch_token reuses it', async () => {
   const mine = '0x' + 'd'.repeat(40);
   const h = harness();
-  h.deps.store!.rememberedWallet = async () => null;
   // First try: no earnkit.txt yet, so the gate fails; the wallet is still kept.
   h.deps.gate!.owner = async () => ({ status: 'missing' });
   const first = await tokenAfterSubmission(
@@ -762,31 +773,32 @@ test('v2.6: a stored-proposal launch with an edited ticker uses the same line; n
   assert.match(renamed.agent_note ?? '', new RegExp(`"${tokenLines()}"`));
 });
 
-test('Ruling 28 (final I1): launch_token never uses the remembered wallet; a no-wallet entry fails with NO_WALLET', async () => {
-  // A no-wallet entry (creator_wallet and payout_wallet NULL) on an installation that remembers a wallet.
+test('Rulings 28 and 30: no remembered wallet anywhere; a launch with no wallet fails with plain words', async () => {
+  // A no-wallet entry: launch_token without creator_wallet fails; nothing saved, deployed or gated.
   const h = harness();
-  let asked = 0;
-  h.deps.store!.rememberedWallet = async () => { asked++; return WALLET; };
   const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', ...CONFIRMED }, 1, h.deps);
   assert.equal(out.status, 'failed');
-  assert.match(out.note ?? '', /no creator wallet.*creator_wallet/);
+  // Ruling 31: the note is plain; the instruction with the tool and field is for the agent.
+  assert.equal(out.note, "Not launched: no wallet for the coin's fees yet.");
+  assert.match(out.agent_note ?? '', /call launch_token with creator_wallet/);
   assert.equal(out.no_wallet, undefined, 'the submission marker is for record_submission only');
-  assert.equal(asked, 0, 'the remembered wallet is never read on launch');
   assert.deepEqual(h.saved, [], 'nothing saved as the creator wallet');
   assert.equal(h.deploys.length, 0);
   assert.deepEqual(h.calls, [], 'no gate reads, no launch counted');
   // The entry's own wallet, or the call's creator_wallet, still launches.
   const own = harness({ creator_wallet: WALLET.toLowerCase() });
-  own.deps.store!.rememberedWallet = async () => '0x' + '9'.repeat(40);
   assert.equal((await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base' }, 1, own.deps)).status, 'launched');
   assert.equal(own.deploys[0].creatorWallet, WALLET.toLowerCase());
   const mine = '0x' + 'e'.repeat(40);
   const given = harness();
-  given.deps.store!.rememberedWallet = async () => '0x' + '9'.repeat(40);
   await launchToken(launchInput({ creator_wallet: mine }), 1, given.deps);
   assert.equal(given.deploys[0].creatorWallet, mine);
-  // At submission the remembered wallet still fills in: the builder saw it on the wallet line.
+  // Ruling 30: at submission too, only the wallet given in the call (the echoed wallet line).
   const sub = harness();
-  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, sub.deps);
-  assert.equal(sub.deploys[0].creatorWallet, WALLET);
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: mine }, sub.deps);
+  assert.equal(sub.deploys[0].creatorWallet, mine);
+  const none = harness();
+  const skipped = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: null }, none.deps);
+  assert.equal(skipped.no_wallet, true);
+  assert.equal(none.deploys.length, 0);
 });

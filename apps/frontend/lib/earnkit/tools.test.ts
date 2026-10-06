@@ -415,7 +415,8 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14' });
     assert.equal(r.bonus_round!.ends_label, endsOf({ id: a.id, title: a.title, summary: a.summary, tag: null, each_time: [], ends_at: new Date(a.ends_at) }));
     // The agent's note names the tool; the builder's text never does.
-    assert.equal(r.token.note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
+    assert.equal(r.token.note, 'No coin yet: no wallet was given.');
+    assert.equal((r.token as { agent_note?: string }).agent_note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
     assert.equal(
       r.show_to_builder,
       `Entered in ${a.title}. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
@@ -503,6 +504,47 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(own.project_id, ok.project_id);
     assert.equal(own.repo_held, undefined);
     assert.notEqual(own.bonus_round, null);
+
+    // 6. Ruling 30: no unseen wallet at submission. prepare_submission shows a remembered wallet
+    // and returns it as shown_wallet; the remembered wallet then changes (a shared registration).
+    const five = await inst('five');
+    const SHOWN = '0x' + 'c'.repeat(39) + '1';
+    const LATER = '0x' + 'd'.repeat(39) + '2';
+    await sql()`UPDATE installations SET payout_wallet = ${SHOWN} WHERE id = ${five}`;
+    const shownPrep = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar 7', repo_url: repoUrl(7) } }, { installationId: five })) as {
+      show_to_builder: string;
+      shown_wallet?: string;
+    };
+    assert.equal(shownPrep.shown_wallet, SHOWN);
+    assert.ok(shownPrep.show_to_builder.includes(`${SHOWN} (used last time)`));
+    await sql()`UPDATE installations SET payout_wallet = ${LATER} WHERE id = ${five}`;
+    const fiveDeploys: { creatorWallet: string }[] = [];
+    const fiveDeps = {
+      ...tokenDeps,
+      gate: { ...tokenDeps.gate, owner: async (r: { owner: string; repo: string }) => ({ status: 'ok' as const, text: tokenLineFor(five, `https://github.com/${r.owner}/${r.repo}`)! }) },
+      deploy: async (d: { creatorWallet: string; name: string; symbol: string }) => {
+        fiveDeploys.push(d);
+        return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xF' };
+      },
+    } as unknown as TokenFlowDeps;
+    const fiveEntry = (n: number, extra: Record<string, unknown> = {}) =>
+      entry(b.id, n, { token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true, builder_submitted: true, ...extra });
+    // The agent omits the wallet: recorded with no coin, the plain no-wallet line, never the remembered wallet.
+    const omitted = (await tools.record_submission(fiveEntry(7), { installationId: five, roundPoolsWei: pools, tokenDeps: fiveDeps })) as {
+      recorded: boolean;
+      token: { status: string; no_wallet?: boolean };
+      show_to_builder: string;
+    };
+    assert.equal(omitted.recorded, true);
+    assert.equal(omitted.token.no_wallet, true);
+    assert.equal(fiveDeploys.length, 0, 'neither the shown nor the changed remembered wallet is used');
+    assert.match(omitted.show_to_builder, /^Entered in Other Grants\. Reply with a wallet to get your coin and join the builder bonus \(/);
+    // The agent echoes shown_wallet: the coin pays the wallet the builder saw, not the changed one.
+    const echoed = (await tools.record_submission(fiveEntry(8, { payout_wallet: shownPrep.shown_wallet }), { installationId: five, roundPoolsWei: pools, tokenDeps: fiveDeps })) as {
+      token: { status: string };
+    };
+    assert.equal(echoed.token.status, 'launched');
+    assert.deepEqual(fiveDeploys.map((d) => d.creatorWallet), [SHOWN]);
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;

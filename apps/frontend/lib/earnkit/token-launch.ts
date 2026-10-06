@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
-import { rememberWallet, rememberedWallet } from './installations';
+import { rememberWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
 import type { TokenPolicy } from './program-file';
@@ -89,15 +89,30 @@ export type TokenBlock = {
 export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'builder_bonus' | 'campaign'>) =>
   bonusOn(program);
 
+/**
+ * Ruling 31: `note` is plain builder text (never a tool, field or file name); `agent_note`, when
+ * set, carries the technical instruction for the agent.
+ */
 export type Decision =
-  | { action: 'skip'; note: string }
+  | { action: 'skip'; note: string; agent_note?: string }
   | { action: 'launch'; name: string; symbol: string }
-  | { action: 'refuse'; note: string; code?: 'no_wallet' };
+  | { action: 'refuse'; note: string; agent_note?: string; code?: 'no_wallet' };
 
-const NO_WALLET =
-  'Not launched: no creator wallet. Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
-const NEEDS_SYMBOL =
-  "Not launched: pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
+export const NO_WALLET = "Not launched: no wallet for the coin's fees yet.";
+const NO_WALLET_AGENT =
+  'Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
+const NEEDS_SYMBOL = "Not launched: the coin's name and ticker weren't confirmed yet.";
+const NEEDS_SYMBOL_AGENT =
+  "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
+
+/**
+ * Ruling 31: a name or ticker problem in builder words ("Coin name: …", "Ticker: …"), with the
+ * field-named original for the agent. Pure; exported for tests.
+ */
+export function plainProblem(problem: string): { note: string; agent_note: string } {
+  const note = problem.replace(/^name:\s*/, 'Coin name: ').replace(/^symbol:\s*/, 'Ticker: ');
+  return { note, agent_note: problem };
+}
 
 /**
  * The builder's name and ticker edits that pass the rules (cleaned name, uppercased ticker), and
@@ -139,7 +154,7 @@ export function decideToken(a: {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
   if (a.choice === 'skip')
-    return { action: 'skip', note: 'Not launched: the builder said no token. Call launch_token later if they change their mind.' };
+    return { action: 'skip', note: 'Not launched: the builder said no coin.', agent_note: 'Call launch_token later if they change their mind.' };
   if (a.existingTokenUrl)
     return {
       action: 'refuse',
@@ -151,24 +166,26 @@ export function decideToken(a: {
   if (!a.confirmed)
     return {
       action: 'skip',
-      note: 'Not launched: pass builder_confirmed: true once the builder has seen the token line, or call launch_token later.',
+      note: "Not launched: the coin wasn't confirmed yet.",
+      agent_note: 'Pass builder_confirmed: true once the builder has seen the coin row, or call launch_token later.',
     };
   const choice = a.choice ?? {};
-  if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL };
+  if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL, agent_note: NEEDS_SYMBOL_AGENT };
   const edits = editsOf(choice);
-  if (edits.problem) return { action: 'refuse', note: edits.problem };
+  if (edits.problem) return { action: 'refuse', ...plainProblem(edits.problem) };
   const rawName = edits.name ?? a.proposal?.name;
   const symbol = edits.symbol ?? a.proposal?.symbol?.trim().toUpperCase();
   if (!rawName || !symbol)
     return {
       action: 'refuse',
-      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and ticker (3–6 letters or digits) with the builder and pass them.',
+      note: 'Not launched: EarnKit has no proposed coin for this project. Pick a name and a ticker (3–6 letters or digits) with the builder.',
+      agent_note: 'Pass them as name and symbol.',
     };
   const name = cleanTokenName(rawName);
-  if ('problem' in name) return { action: 'refuse', note: name.problem };
+  if ('problem' in name) return { action: 'refuse', ...plainProblem(name.problem) };
   const tickerIssue = tickerProblem(symbol);
-  if (tickerIssue) return { action: 'refuse', note: tickerIssue };
-  if (!a.wallet) return { action: 'refuse', note: NO_WALLET, code: 'no_wallet' };
+  if (tickerIssue) return { action: 'refuse', ...plainProblem(tickerIssue) };
+  if (!a.wallet) return { action: 'refuse', note: NO_WALLET, agent_note: NO_WALLET_AGENT, code: 'no_wallet' };
   return { action: 'launch', name: name.name, symbol };
 }
 
@@ -289,7 +306,6 @@ export type FlowProject = {
 type FlowStore = {
   load: (projectId: number) => Promise<FlowProject | null>;
   setStatus: typeof setTokenStatus;
-  rememberedWallet: (installationId: number) => Promise<string | null>;
   /** Another project's token link (or 'pending') on the same normalized repo, or null. */
   repoToken: (projectId: number, repoKey: string) => Promise<string | null>;
   /** launch_token's link overrides, on a project of this installation with no token yet. */
@@ -324,7 +340,6 @@ const dbStore: FlowStore = {
     return row ?? null;
   },
   setStatus: setTokenStatus,
-  rememberedWallet,
   repoToken: repoTokenUrl,
   updateLinks: async (projectId, installationId, links) => {
     const live = links.live_url ?? null;
@@ -371,10 +386,22 @@ function storedProposal(p: FlowProject) {
   return 'name' in name ? { name: name.name, symbol: p.token_symbol } : null;
 }
 
-const notLaunched = (err: unknown): TokenOutcome | null =>
-  err instanceof LaunchError || err instanceof RateLimitError
-    ? { status: 'failed', note: err.message }
-    : null;
+/** Ruling 31: tool, field or file names a builder-facing note must never carry. */
+export const TECHNICAL_TERMS =
+  /\b(launch_token|record_submission|prepare_submission|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
+
+/**
+ * A LaunchError or RateLimitError as an outcome. Ruling 31: a message naming a field (an image or
+ * a lookup problem) reaches the builder in plain words, with the original for the agent.
+ */
+const notLaunched = (err: unknown): TokenOutcome | null => {
+  if (!(err instanceof LaunchError || err instanceof RateLimitError)) return null;
+  if (!TECHNICAL_TERMS.test(err.message)) return { status: 'failed', note: err.message };
+  const note = /image_data/.test(err.message)
+    ? "Not launched: the coin's image isn't usable (a PNG, JPEG, WebP or GIF up to 1 MB)."
+    : "Not launched: EarnKit couldn't use this entry's coin details.";
+  return { status: 'failed', note, agent_note: err.message };
+};
 
 /** Where a flow got to: once `deploying`, a launch claim may be pending. */
 type Progress = { deploying: boolean };
@@ -388,7 +415,7 @@ async function runTokenFlow(
     choice: 'skip' | Choice | undefined;
     confirmed: boolean;
     chain: 'base' | 'robinhood' | 'arbitrum';
-    /** Ruling 22: the wallet given with this entry (validated), before any stored or remembered one. */
+    /** Ruling 22: the wallet given with this entry (validated), before the entry's own (never a remembered one, Ruling 30). */
     givenWallet?: string | null;
   },
   deps: TokenFlowDeps,
@@ -397,9 +424,9 @@ async function runTokenFlow(
   const store = deps.store ?? dbStore;
   const choice = a.choice === 'skip' ? undefined : a.choice;
 
-  const record = async (status: TokenStatus, note: string, name?: string, symbol?: string) => {
+  const record = async (status: TokenStatus, note: string, name?: string, symbol?: string, agent_note?: string) => {
     await store.setStatus(project.id, { status, note, name, symbol });
-    return { status, note, name, symbol } satisfies TokenOutcome;
+    return { status, note, name, symbol, ...(agent_note && { agent_note }) } satisfies TokenOutcome;
   };
   // Not configured: nothing to check or launch (no GitHub, live-link or tokens.fun calls).
   if (!(deps.available ?? tokenLaunchesAvailable)())
@@ -420,15 +447,12 @@ async function runTokenFlow(
     a.mode === 'submission'
       ? { name: 'name' in projectName ? projectName.name : proposal?.name, symbol: proposal?.symbol }
       : proposal;
-  // Ruling 28: the remembered wallet only fills in at submission, where the builder saw it on the
-  // wallet line and said yes. launch_token never uses it (it may be another entry's, or another
-  // person's on a shared registration): only the call's creator_wallet or the entry's own wallet.
+  // Rulings 28 and 30: never the installation's remembered wallet, in either mode (it may be
+  // another entry's, another person's on a shared registration, or changed since the builder saw
+  // it). Only a wallet given in this call (record_submission's payout_wallet, the agent echoing the
+  // wallet line the builder confirmed, or creator_wallet) or the entry's own wallet.
   const wallet =
-    choice?.creator_wallet ??
-    a.givenWallet ??
-    project.creator_wallet ??
-    project.payout_wallet ??
-    (a.mode === 'submission' ? await store.rememberedWallet(a.installationId) : null);
+    choice?.creator_wallet ?? a.givenWallet ?? project.creator_wallet ?? project.payout_wallet ?? null;
   const decision = decideToken({
     policy: project.token_policy,
     choice: a.choice,
@@ -449,7 +473,8 @@ async function runTokenFlow(
 
   if (decision.action !== 'launch') {
     // A project that has (or is getting) a token is never written to here.
-    if (project.token_url) return { status: notNow, note: decision.note };
+    if (project.token_url)
+      return { status: notNow, note: decision.note, ...(decision.agent_note && { agent_note: decision.agent_note }) };
     // Kept for a later launch_token: the builder's valid edits, else the proposal.
     const edits = choice ? editsOf(choice) : {};
     const out = await record(
@@ -457,6 +482,7 @@ async function runTokenFlow(
       decision.note,
       edits.name ?? fallback?.name ?? undefined,
       edits.symbol ?? proposal?.symbol,
+      decision.agent_note,
     );
     // Ruling 18 (plan): at submission, no wallet means the entry has no coin yet.
     return decision.action === 'refuse' && decision.code === 'no_wallet' && a.mode === 'submission'
@@ -495,7 +521,7 @@ async function runTokenFlow(
   } catch (err) {
     const out = notLaunched(err);
     if (!out) throw err;
-    return record('failed', out.note!, name, symbol);
+    return record('failed', out.note!, name, symbol, out.agent_note);
   }
   try {
     progress.deploying = true;
@@ -522,7 +548,7 @@ async function runTokenFlow(
     // refusal before any claim (e.g. launches unavailable): report it, don't throw.
     const out = notLaunched(err);
     if (!out) throw err;
-    return record('failed', out.note!, name, symbol);
+    return record('failed', out.note!, name, symbol, out.agent_note);
   }
 }
 
@@ -626,20 +652,28 @@ export async function launchToken(
     if (repo_url && project.payout_wallet)
       return {
         status: 'failed',
-        note: "repo_url: a campaign entry's repo was proven at entry and can't change; enter the other repo as a new entry.",
+        note: "A campaign entry's repo was proven at entry and can't change; enter the other repo as a new entry.",
+        agent_note: "repo_url: a campaign entry's repo can't change; record a new entry for the other repo.",
       };
     // v2.5 Ruling 16: a recorded repo never changes (the builder bonus keys entries by it); a
     // missing one may be filled in.
     if (repo_url && project.repo_url && normalizeRepoUrl(repo_url) !== normalizeRepoUrl(project.repo_url))
       return {
         status: 'failed',
-        note: "repo_url: this entry's repo can't change once recorded; record a new entry for a different repo.",
+        note: "This entry's repo can't change once recorded; enter the other repo as a new entry.",
+        agent_note: "repo_url: this entry's repo can't change once recorded; record a new entry for a different repo.",
       };
     const links: { repo_url?: string; live_url?: string } = {};
     for (const [field, raw] of [['repo_url', repo_url], ['live_url', live_url]] as const) {
       if (!raw) continue;
       const c = canonicalBuilderUrl(raw.trim());
-      if (c.problem) return { status: 'failed', note: `${field}: ${c.problem}.` };
+      // Ruling 31: the builder reads which link and why; the agent gets the field name.
+      if (c.problem)
+        return {
+          status: 'failed',
+          note: `The ${field === 'repo_url' ? 'repo' : 'live'} link isn't usable: ${c.problem}.`,
+          agent_note: `${field}: ${c.problem}.`,
+        };
       links[field] = c.url;
     }
     await store.updateLinks(project.id, installationId, links);

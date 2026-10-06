@@ -148,13 +148,20 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   key or a bad field is `skipped` with a note naming it — never a failed entry). `launch_token
   { project_id, builder_confirmed: true }` (strict schema) launches or retries with the stored
   proposal unless given changes, after applying a fixed `live_url` (any entry) or `repo_url`
-  (not campaign entries) to the project row. **Creator wallet** (Ruling 28): the token object's
-  `creator_wallet`, then the wallet given with the entry (`payout_wallet` outside campaigns), then
-  the entry's own (`creator_wallet`, `payout_wallet`); at submission only, the installation's
-  remembered wallet last, because the builder saw it in full on the wallet line and said yes.
-  `launch_token` never reads the remembered wallet (it may be another entry's, or another
-  person's on a shared registration): with no wallet of its own the entry fails with the
-  `NO_WALLET` note, nothing saved or deployed. Both go through one flow (`runTokenFlow`): launches
+  (not campaign entries) to the project row. **Creator wallet** (Rulings 28, 30): the token
+  object's `creator_wallet`, then the wallet given in this call (`record_submission`'s
+  `payout_wallet` outside campaigns), then the entry's own (`creator_wallet`, `payout_wallet`).
+  The installation's remembered wallet is never read by the token flow, in either mode (it may be
+  another entry's, another person's on a shared registration, or changed since the builder saw
+  it). `prepare_submission` shows it on the wallet line and returns it as `shown_wallet`; the agent
+  passes that back as `payout_wallet` after the builder's yes. Omitted: the entry is recorded with
+  no coin and the plain no-wallet reply. `launch_token` with no wallet of its own fails with the
+  `NO_WALLET` note, nothing saved or deployed.
+  **Notes** (Ruling 31): every token outcome's `note` is plain builder text (no tool, field or file
+  names; `token-launch.ts` `TECHNICAL_TERMS`); the technical instruction (call launch_token with
+  creator_wallet, `repo_url:`/`live_url:` problems, `name:`/`symbol:` rule messages, `image_data`,
+  the exact proof line) is in `agent_note`. Name and ticker problems read "Coin name: …" and
+  "Ticker: …" (`plainProblem`). Both go through one flow (`runTokenFlow`): launches
   configured; `decideToken` (policy, "skip", an existing token, confirmation, explicit ticker at
   submission, edits, name/ticker rules, creator wallet); one token per repo (another project with
   the same `token_repo_key` and a token or claim); the gate (`tokenGate`, v2.6 §3: see "Coin gate
@@ -1025,8 +1032,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
     coin and the wallet; the agent passes that wallet as `record_submission`'s `payout_wallet`.
     Campaign entries keep v2.4's `confirmTable`/`tokenRow`/`tokenFootnote`.
   - *Remembered wallet.* The wallet line names it in full with "(used last time)" (final review
-    M8: never "yours", since on a shared registration it may not be). It fills in only at
-    submission; `launch_token` never uses it (Ruling 28, see "Token at submission").
+    M8: never "yours", since on a shared registration it may not be), and `prepare_submission`
+    returns it as `shown_wallet`. Only that echoed wallet reaches the coin (Ruling 30): neither
+    `record_submission` nor `launch_token` reads the remembered wallet (see "Token at submission").
+    The no-wallet case's `token.note` is plain ("No coin yet: no wallet was given."), with
+    `noCoinYet` in `agent_note`.
   - *No wallet* (Ruling 18, Ruling 21, Ruling 22). The entry is recorded and the coin skipped
     (`token.no_wallet`); the builder sees one line, "Reply with a wallet to get your coin and join
     the builder bonus (<pool> · ends <Mon D> · <leaderboard>)"; the agent's note (`noCoinYet`)
@@ -1034,7 +1044,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
   - *Round dates* (Ruling 29). Every builder-facing round end is the day the first message shows:
     `entry-text.ts` `roundEndLabel` (the program summary's "closes Oct 14" for a window ending at
     the program deadline, so Arc's 2026-10-15T03:59Z reads "Oct 14", its real ET deadline; else
-    `deadlineDay`: an end at 00:00 UTC is the day before, "Oct 31" for a month ending Nov 1).
+    `deadlineDay`: an end at 00:00 UTC is the day before, "Oct 31" for a month ending Nov 1). A
+    stored window whose program deadline later moved, at the same clock time, is shifted the way
+    the summary's local day differs from the deadline's UTC day (re-review Minor 1).
     `present.ts` `endsOf` uses the same `summaryCloses`/`deadlineDay`. `recordSubmission` returns
     it as `bonus_round.ends_label`; the reply, `noCoinYet` and `/bonus/<round>` (`Board.ends_label`)
     all show it.
@@ -1048,7 +1060,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
     froze, or the repo's coin is entered elsewhere (Ruling 25). A coin that isn't launched yet
     (the gate failed, or the ticker wasn't confirmed; final review M4) reads "Your coin isn't
     launched yet; it joins the builder bonus once it is (<round>)", or, with a step still to do,
-    "<step> to join the builder bonus when your coin launches (<round>)".
+    "<step>. With your coin launched, that joins the builder bonus (<round>)." (re-review Minor 2).
   - *Repo held* (final review M1). When an earlier eligible entry of the same repo holds it in
     this program, or the repo's one coin is on another entry here (`repoCoinPrograms`, not this
     row's own coin), `recordSubmission` returns `repo_held: true` and no `bonus_round`; the reply is
@@ -1072,7 +1084,9 @@ during the build); plan: `v2.4-money-first-plan.md`.
     `githubRepo` parses it, Ruling 13). Final review M5/M6: `record_submission` says to show
     `show_to_builder` as written and that `token.note`/`token.agent_note` are for the agent;
     `prepare_submission` describes the Coin row and wallet line (campaigns: one Token row);
-    `launch_token` needs `creator_wallet` or the entry's own wallet (Ruling 28).
+    `launch_token` needs `creator_wallet` or the entry's own wallet (Ruling 28) and returns a plain
+    `note` plus `agent_note` (Ruling 31); `prepare_submission` and the server instructions tell the
+    agent to pass `shown_wallet` back as `payout_wallet` (Ruling 30).
 
 ## Ride programs: money flow, owner steps and runbooks (v2.5, v2.6)
 
@@ -1194,7 +1208,9 @@ a wallet you control.
   fork with no new commits, gets no coin).
 - [ ] **Submit.** The agent shows one block: the entry, one coin row ("Your entry gets a coin,
   $TICKER: … and it enters the builder bonus · skip: no coin, no builder bonus"), the wallet line
-  (your wallet in full, or the question) and a one-line footnote. Answer one yes. Don't send a
+  (your wallet in full, or the question) and a one-line footnote. Answer one yes. The agent passes
+  that wallet back with the entry; if it doesn't, the reply is "Reply with a wallet to get your
+  coin …" and no coin launches (Ruling 30), which is a test failure of the agent, not EarnKit. Don't send a
   throwaway to a real program's form: say yes when asked "Did you submit on <site>?" only for
   this test entry (it is never ranked or paid).
 - [ ] **Coin.** The coin launches on tokens.fun. In the repo, `earnkit.txt` holds only
