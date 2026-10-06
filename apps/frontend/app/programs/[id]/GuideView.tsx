@@ -104,16 +104,22 @@ export default function GuideView({ page }: { page: GuidePage }) {
 
         {g.won && (
           <Part title={wonHeading(g.won)}>
-            <ul className="space-y-3 font-funnel-sans text-base text-ek-blue-light md:text-lg">
-              {g.won.lines.map((l) => (
-                <li key={l} className="flex gap-3">
-                  <span aria-hidden="true" className="mt-[0.6em] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-ek-blue-bright" />
-                  <span>
-                    <WonLine line={l} />
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <div>
+              {/* Ruling C12: the event behind a round that isn't this program's own. */}
+              {g.won.event && (
+                <p className="mb-4 font-funnel-sans text-sm text-ek-blue-soft md:text-base">{g.won.event}</p>
+              )}
+              <ul className="space-y-3 font-funnel-sans text-base text-ek-blue-light md:text-lg">
+                {g.won.lines.map((l) => (
+                  <li key={l} className="flex gap-3">
+                    <span aria-hidden="true" className="mt-[0.6em] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-ek-blue-bright" />
+                    <span>
+                      <WonLine line={l} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </Part>
         )}
 

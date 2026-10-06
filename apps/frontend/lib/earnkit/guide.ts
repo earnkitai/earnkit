@@ -101,8 +101,11 @@ export type Guide = {
   /**
    * Theme lines, then example lines, without "- ". `own`: the program's newest own round ("What
    * won last time"); otherwise a predecessor or older round ("What won before", Ruling C3).
+   * `event` (Ruling C12): "in <label>" for any round that isn't the program's newest own round,
+   * shown as a small line under the heading; null for the own round. It names the round shown
+   * here, which may differ from the round the difficulty basis names.
    */
-  won: { own: boolean; lines: string[]; source_url: string } | null;
+  won: { own: boolean; event: string | null; lines: string[]; source_url: string } | null;
   wants: { ecosystem: string; areas: string[]; source_url: string } | null;
   best_bet: string | null;
   /** board: "earnkit.com/bonus/<slug>". */
@@ -139,7 +142,9 @@ export function programGuide(
   return {
     header: `${p.title} · ${prizeOf(p)} · ${end}`,
     difficulty: difficultyOf(p),
-    won: won ? { own: lastOwn(p, won), lines: wonLines(won), source_url: won.source_url } : null,
+    won: won
+      ? { own: lastOwn(p, won), event: lastOwn(p, won) ? null : `in ${won.label}`, lines: wonLines(won), source_url: won.source_url }
+      : null,
     wants: p.focus
       ? {
           ecosystem: p.focus.ecosystem ?? CHAIN_NAMES[p.chains[0]] ?? p.title,
@@ -201,7 +206,7 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
 export function guideText(g: Guide): string {
   const sections = [
     `${g.header}\nDifficulty: ${difficultyLabel(g.difficulty)} — ${g.difficulty.basis}`,
-    g.won && [wonHeading(g.won), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
+    g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
     g.bonus && `Builder bonus: ${g.bonus.cell} · ${g.bonus.board}`,

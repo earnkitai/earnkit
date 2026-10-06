@@ -145,6 +145,34 @@ test('Ruling C3: a predecessor (or older) round reads "What won before"; the new
   assert.match(guideText(older), /\nWhat won before\n/);
 });
 
+test('Ruling C12: a round that is not own names its event under the heading; each part names its own round', () => {
+  // Own newest round: no event line.
+  const own = programGuide(arc, null, NOW);
+  assert.equal(own.won?.event, null);
+  assert.match(guideText(own), /\nWhat won last time\n- /);
+  // A predecessor: the event line follows the heading, before the first item.
+  const p1 = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined, label: 'Base Batches 003' }] }, null, NOW);
+  assert.equal(p1.won?.event, 'in Base Batches 003');
+  assert.match(guideText(p1), /\nWhat won before\nin Base Batches 003\n- /);
+  // Difficulty from one round, the won section from another: each names its own.
+  const split = programGuide({
+    ...arc,
+    past_rounds: [
+      { label: "Arc's tracks at ETHGlobal Cannes 2026", source_url: 'https://e/c', submissions: null, winners: null,
+        themes: [{ theme: 'Pay-per-use micropayments', count: 4 }] },
+      pre(155, 4, "Arc's tracks at ETHGlobal HackMoney 2026"),
+    ],
+  }, null, NOW);
+  assert.equal(split.difficulty.basis, "4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026");
+  assert.equal(split.won?.event, "in Arc's tracks at ETHGlobal Cannes 2026");
+  const t = guideText(split);
+  assert.match(t, /Difficulty: Hard — 4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026\n/);
+  assert.match(t, /\nWhat won before\nin Arc's tracks at ETHGlobal Cannes 2026\n- Pay-per-use micropayments \(4 winners\)/);
+  // An own round that isn't the newest is still named (it's not "last time").
+  const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, null, NOW);
+  assert.equal(older.won?.event, `in ${arc.past_rounds[0].label}`);
+});
+
 test('empty data: the header and the estimate only, no empty headings, no bonus line', () => {
   const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, null, NOW));
   assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14\nDifficulty: Medium (estimate) — no past results yet');
