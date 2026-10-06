@@ -21,11 +21,23 @@ function Row({ label, value }: { label: string; value: string }) {
  * chain, the prize first, then the deadline, difficulty and builder bonus; "Ask your agent" opens
  * the install modal with "What can I earn on <program>?", "Guide" opens /programs/<id>.
  */
-export default function ProgramCards({ tiles, limit, seeAll = false }: { tiles: Tile[]; limit?: number; seeAll?: boolean }) {
+export default function ProgramCards({
+  tiles,
+  limit,
+  seeAll = false,
+  mobileLimit,
+}: {
+  tiles: Tile[];
+  limit?: number;
+  seeAll?: boolean;
+  /** Cards shown below `sm`; the rest are hidden there and "See all programs" follows. */
+  mobileLimit?: number;
+}) {
   const [asking, setAsking] = useState<string | null>(null);
   const close = useCallback(() => setAsking(null), []);
   const shown = limit === undefined ? tiles : tiles.slice(0, limit);
   const more = seeAll && limit !== undefined && tiles.length > limit;
+  const moreMobile = seeAll && mobileLimit !== undefined && tiles.length > mobileLimit;
 
   return (
     <Panel label="Open programs" className="py-12 md:py-16">
@@ -37,7 +49,7 @@ export default function ProgramCards({ tiles, limit, seeAll = false }: { tiles: 
         {more && (
           <Link
             href="/programs"
-            className="font-funnel-sans text-base font-medium text-ek-blue-bright underline-offset-4 transition-colors hover:text-ek-white hover:underline"
+            className="hidden min-h-11 items-center px-2 font-funnel-sans text-base font-medium text-ek-blue-bright underline-offset-4 transition-colors hover:text-ek-white hover:underline sm:inline-flex"
           >
             See all
           </Link>
@@ -45,8 +57,11 @@ export default function ProgramCards({ tiles, limit, seeAll = false }: { tiles: 
       </div>
 
       <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 md:mt-10">
-        {shown.map((t) => (
-          <li key={t.id} className="flex flex-col rounded-[32px] bg-ek-navy p-6">
+        {shown.map((t, i) => (
+          <li
+            key={t.id}
+            className={`flex-col rounded-[32px] bg-ek-navy p-6 ${mobileLimit !== undefined && i >= mobileLimit ? 'hidden sm:flex' : 'flex'}`}
+          >
             <div className="flex items-center gap-4">
               <ProgramLogo logo={t.logo} title={t.title} size={48} />
               <div className="min-w-0">
@@ -59,6 +74,7 @@ export default function ProgramCards({ tiles, limit, seeAll = false }: { tiles: 
               <div className="pb-4">
                 <dt className="font-funnel-sans text-sm text-ek-blue-soft">Prize</dt>
                 <dd className="mt-1 font-funnel-display text-2xl font-medium text-ek-white">{t.prize}</dd>
+                {t.prize_note && <dd className="mt-1 font-funnel-sans text-sm text-ek-blue-soft">{t.prize_note}</dd>}
               </div>
               <Row label="Ends" value={t.ends} />
               <Row label="Difficulty" value={t.difficulty} />
@@ -83,6 +99,15 @@ export default function ProgramCards({ tiles, limit, seeAll = false }: { tiles: 
           </li>
         ))}
       </ul>
+
+      {moreMobile && (
+        <Link
+          href="/programs"
+          className="mt-4 flex min-h-12 items-center justify-center rounded-full border-2 border-ek-blue-soft/50 font-funnel-sans text-base font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white sm:hidden"
+        >
+          See all programs
+        </Link>
+      )}
 
       {asking && <AddToAgent onClose={close} prompt={`What can I earn on ${asking}?`} />}
     </Panel>

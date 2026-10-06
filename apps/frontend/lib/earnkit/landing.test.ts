@@ -77,7 +77,9 @@ test('v2.7 §1: each tile field', () => {
     id: 'monad-metropolis',
     title: 'Monad Metropolis',
     chain: 'Monad · Base · Robinhood Chain',
-    prize: '$25,000 top prize',
+    prize: 'up to $25,000 per winner',
+    prize_note: '$25,000 top prize',
+    prize_usd: 25000,
     difficulty: '—',
     ends: '14 days left',
     bonus: null, // opted out
@@ -89,8 +91,23 @@ test('v2.7 §1: each tile field', () => {
   assert.equal(a.difficulty, 'Medium (estimate)');
   assert.equal(a.bonus, 'new pool'); // no pool read yet
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
-  assert.equal(a.prize, '500 USDC × 20 grants');
+  assert.equal(a.prize, 'up to $500 per winner');
+  assert.equal(a.prize_note, '500 USDC × 20 grants');
+  assert.equal(b.prize, 'up to $5,000 per winner');
+  assert.equal(b.prize_note, null); // "up to $5,000" only restates the amount
   assert.equal(HOME_CARDS, 6);
+});
+
+test('Ruling C8: the cards\' per-winner amounts add up to the hero figure; unknown amounts keep the curated text', () => {
+  const circle: Card = { ...base, id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling', max_award_usd: null };
+  const l = landingFrom([monad, arc, base, circle, sponsored, campaign], new Map(), stats(), now);
+  assert.equal(l.tiles.reduce((sum, t) => sum + t.prize_usd, 0), l.open_usd);
+  assert.equal(l.open_usd, 30500);
+  const c = l.tiles.find((t) => t.id === 'circle-developer-grants')!;
+  assert.equal(c.prize, 'milestone-based USDC grants');
+  assert.equal(c.prize_note, null);
+  assert.equal(c.prize_usd, 0);
+  for (const t of l.tiles.filter((x) => x.prize_usd > 0)) assert.match(t.prize, /^up to \$[\d,]+ per winner$/);
 });
 
 test('Ruling 20 (plan): installs hidden under 100; bonus paid > pools > programs', () => {
@@ -101,6 +118,11 @@ test('Ruling 20 (plan): installs hidden under 100; bonus paid > pools > programs
   assert.ok(label(stats({ installs: 1234 })).includes('Agents earning: 1,234'));
   assert.ok(label(stats({ bonus_paid_eth: 0.5, bonus_pools_eth: 2 })).includes('Builder bonus: 0.50 ETH paid'));
   assert.ok(label(stats({ bonus_pools_eth: 0.6 })).includes('Builder bonus: 0.60 ETH so far'));
+  // Fix round 1, Important 3: float flooring never shows a cent less than the 6-decimal amount.
+  assert.ok(label(stats({ bonus_pools_eth: 0.29 })).includes('Builder bonus: 0.29 ETH so far'));
+  assert.ok(label(stats({ bonus_paid_eth: 1.13 })).includes('Builder bonus: 1.13 ETH paid'));
+  assert.ok(label(stats({ bonus_pools_eth: 0.57 })).includes('Builder bonus: 0.57 ETH so far'));
+  assert.ok(label(stats({ bonus_pools_eth: 0.299999 })).includes('Builder bonus: 0.29 ETH so far')); // still rounds down
   assert.ok(label(stats({ bonus_pools_eth: 0.004 })).includes('Builder bonus: under 0.01 ETH so far'));
   assert.ok(label(stats()).includes('Builder bonus: on 4 programs'));
   assert.equal(label(stats())[0], 'Open money: $500');

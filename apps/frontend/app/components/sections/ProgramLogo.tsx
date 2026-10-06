@@ -13,8 +13,11 @@ export const monogram = (title: string) =>
     .join('')
     .toUpperCase();
 
+/** Ruling 23's only allowed shape, checked again here (defense in depth; sync already checks it). */
+const LOCAL_LOGO = /^\/programs\/[a-z0-9-]+\.(svg|png)$/;
+
 export default function ProgramLogo({ logo, title, size = 48 }: { logo: string | null; title: string; size?: number }) {
-  if (logo)
+  if (logo && LOCAL_LOGO.test(logo))
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img

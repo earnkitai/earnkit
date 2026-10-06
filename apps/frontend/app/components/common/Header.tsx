@@ -1,29 +1,36 @@
 import Link from 'next/link';
 import { Wordmark, Mark } from '../ui/Logo';
-import { FOLLOW_X } from '@/app/lib/links';
+import { FOLLOW_X } from '../../lib/links';
+import InstallButton from './InstallButton';
 
+/**
+ * The site header. v2.7 fix round 1: the persistent call to action is the install ("Add to your
+ * agent", the same modal as the hero); "Follow on X" stays on desktop, beside the wordmark, and in
+ * the footer.
+ */
 export default function Header() {
   return (
     <>
       {/* Desktop */}
       <header className="hidden h-[12vh] w-full items-center justify-between font-funnel-display md:flex">
-        <div className="flex min-h-full flex-1 items-center rounded-[56px] bg-ek-navy px-[5rem]">
+        <div className="flex min-h-full flex-1 items-center justify-between rounded-[56px] bg-ek-navy pl-[5rem] pr-12">
           <Link
             href="/"
             className="logoSVG ml-4 flex-shrink-0 text-ek-blue-light transition-colors hover:text-ek-white"
           >
             <Wordmark />
           </Link>
+          <Link
+            href={FOLLOW_X}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center px-2 font-funnel-sans text-lg font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
+          >
+            Follow on X
+          </Link>
         </div>
 
-        <Link
-          href={FOLLOW_X}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]"
-        >
-          Follow on X
-        </Link>
+        <InstallButton className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright px-8 font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]" />
       </header>
 
       {/* Mobile - fixed bottom bar */}
@@ -68,14 +75,7 @@ export default function Header() {
           >
             <Mark />
           </Link>
-          <Link
-            href={FOLLOW_X}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
-          >
-            Follow on X
-          </Link>
+          <InstallButton className="min-h-11 flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft" />
         </div>
       </header>
     </>

@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import AddToAgent, { START_PROMPT } from './AddToAgent';
-import { usd } from '../../../lib/earnkit/campaigns';
 
 /**
- * v2.7 §1: the promise, the live "open right now" figure (landing.ts, the first message's same $X;
- * null or 0 when the read failed or nothing is open, and then it doesn't show), the install
- * button and what to ask. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
+ * v2.7 §1: the promise, the live "open right now" figure (landing.ts, the first message's same $X,
+ * formatted on the server so this client component never pulls in the server money modules; null
+ * when the read failed or nothing is open, and then it doesn't show), the install button and what
+ * to ask. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
  */
-export default function Hero({ openUsd = null }: { openUsd?: number | null }) {
+export default function Hero({ openText = null }: { openText?: string | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -44,9 +44,9 @@ export default function Hero({ openUsd = null }: { openUsd?: number | null }) {
           Your agent finds money you already qualify for.
         </h1>
 
-        {openUsd != null && openUsd > 0 && (
-          <p className="mt-6 font-funnel-display text-2xl font-medium tracking-[-0.01em] text-ek-blue-bright md:text-4xl">
-            {usd(openUsd)} open right now
+        {openText && (
+          <p className="mt-6 font-funnel-display text-2xl font-medium tracking-[-0.01em] text-ek-blue-bright [text-shadow:0_0_24px_rgba(2,5,44,0.95),0_0_8px_rgba(2,5,44,0.9)] md:text-4xl">
+            {openText} open right now
           </p>
         )}
 
