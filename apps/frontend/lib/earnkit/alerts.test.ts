@@ -362,8 +362,10 @@ test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the sam
   await seeded(async ({ tag, me, wallet }) => {
     const roundKey = `${tag}-ek`;
     try {
+      // Final review M3: an eligible entry (coin and a counting submission before the round's end).
       const [{ id: pid }] = await sql()<{ id: number }[]>`
-        INSERT INTO projects (program_id, name, installation_id, creator_wallet) VALUES (${tag + '-ek'}, 'Ranked', ${me}, ${wallet}) RETURNING id`;
+        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at)
+        VALUES (${tag + '-ek'}, 'Ranked', ${me}, ${wallet}, ${coinFor(tag, 1)}, now(), now(), now() - interval '1 hour') RETURNING id`;
       await sql()`
         INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
         VALUES (${roundKey}, ${tag + '-ek'}, now() - interval '1 day', now() + interval '10 days')`;
@@ -381,6 +383,41 @@ test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the sam
       assert.ok(!(await sinceYouLastChecked(me)).lines.some((l) => l.includes('top 10')));
     } finally {
       // bonus_rounds/bonus_scores reference programs; clear them before seeded() deletes programs.
+      await sql()`DELETE FROM bonus_scores WHERE round_key = ${roundKey}`;
+      await sql()`DELETE FROM bonus_rounds WHERE round_key = ${roundKey}`;
+    }
+  });
+});
+
+/** A unique, valid-looking coin address per test row. */
+const coinFor = (tag: string, n: number) =>
+  '0x' + Buffer.from(`${tag}-${n}`).toString('hex').slice(-38).padStart(38, '0') + n.toString(16).padStart(2, '0');
+
+test('final M3: a stale rank never alerts: test installations and entries no longer eligible are left out', db, async () => {
+  await seeded(async ({ tag, me, wallet }) => {
+    const roundKey = `${tag}-ek`;
+    const prev = process.env.EARNKIT_TEST_INSTALLATIONS;
+    try {
+      // Ranked 3 (inside the top 10), but with no counting submission: not eligible.
+      const [{ id: pid }] = await sql()<{ id: number }[]>`
+        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submitted_at)
+        VALUES (${tag + '-ek'}, 'Stale', ${me}, ${wallet}, ${coinFor(tag, 2)}, now(), now() - interval '1 hour') RETURNING id`;
+      await sql()`
+        INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
+        VALUES (${roundKey}, ${tag + '-ek'}, now() - interval '1 day', now() + interval '10 days')`;
+      await sql()`
+        INSERT INTO bonus_scores (round_key, project_id, day, signals, through, score, rank)
+        VALUES (${roundKey}, ${pid}, current_date, '{}'::jsonb, now(), 1, 3)`;
+      assert.deepEqual((await alertFacts(me)).bonusStandings, [], 'not eligible: no standing');
+      // Eligible now: it shows.
+      await sql()`UPDATE projects SET submission_proof_ok_at = now() WHERE id = ${pid}`;
+      assert.deepEqual((await alertFacts(me)).bonusStandings.map((b) => b.project_id), [pid]);
+      // The owner flags the installation as a test one after it was scored: no standing again.
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(me);
+      assert.deepEqual((await alertFacts(me)).bonusStandings, [], 'test installation: no standing');
+    } finally {
+      if (prev === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      else process.env.EARNKIT_TEST_INSTALLATIONS = prev;
       await sql()`DELETE FROM bonus_scores WHERE round_key = ${roundKey}`;
       await sql()`DELETE FROM bonus_rounds WHERE round_key = ${roundKey}`;
     }

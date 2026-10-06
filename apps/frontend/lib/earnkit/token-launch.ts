@@ -420,12 +420,15 @@ async function runTokenFlow(
     a.mode === 'submission'
       ? { name: 'name' in projectName ? projectName.name : proposal?.name, symbol: proposal?.symbol }
       : proposal;
+  // Ruling 28: the remembered wallet only fills in at submission, where the builder saw it on the
+  // wallet line and said yes. launch_token never uses it (it may be another entry's, or another
+  // person's on a shared registration): only the call's creator_wallet or the entry's own wallet.
   const wallet =
     choice?.creator_wallet ??
     a.givenWallet ??
     project.creator_wallet ??
     project.payout_wallet ??
-    (await store.rememberedWallet(a.installationId));
+    (a.mode === 'submission' ? await store.rememberedWallet(a.installationId) : null);
   const decision = decideToken({
     policy: project.token_policy,
     choice: a.choice,
@@ -478,7 +481,10 @@ async function runTokenFlow(
     },
     deps.gate,
   );
-  if (!gate.ok) return record('gate_failed', gate.reason, name, symbol);
+  if (!gate.ok) {
+    const out = await record('gate_failed', gate.reason, name, symbol);
+    return gate.agent_note ? { ...out, agent_note: gate.agent_note } : out;
+  }
 
   let image: ReturnType<typeof decodeImage> | null;
   try {

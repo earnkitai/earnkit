@@ -83,6 +83,8 @@ const board = (o: Partial<Board> = {}): Board => ({
   title: 'Base Builder Grants',
   state: 'open',
   ends_at: new Date('2026-11-01T00:00:00Z'),
+  // Ruling 29: the month's last day, as the first message and the entry reply show it.
+  ends_label: 'Oct 31',
   review_until: null,
   pool: '0.42',
   days_left: 26,
@@ -101,7 +103,7 @@ test('/bonus/<round> open: name, disclaimer, pool so far, days left, the rank/pr
   assert.match(t, /EarnKit isn't affiliated with or endorsed by the organizer\./);
   assert.match(t, /Pool so far 0\.42 ETH/);
   assert.match(t, /Days left 26/);
-  assert.match(t, /Ends Nov 1, 2026/);
+  assert.match(t, /Ends Oct 31/);
   assert.match(t, /# Project Score Eligible/);
   assert.match(t, /1 Tipjar .*81\.5 Yes/);
   assert.match(t, /– Splitly .*– .*No: no coin/);
@@ -130,7 +132,7 @@ test('/bonus/<round> paid: frozen places with amounts, paid rows link their tran
   assert.equal(h.match(/basescan\.org\/tx\//g)?.length, 1);
   assert.match(t, /0\.105 ETH/);
   // An ended round says when it ended and where it is, not "0 days left".
-  assert.match(t, /Ended Nov 1, 2026/);
+  assert.match(t, /Ended Oct 31/);
   assert.match(t, /Status Paid/);
   assert.doesNotMatch(t, /Days left/);
   assert.match(t, /1 entry was removed in review/);

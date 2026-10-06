@@ -91,6 +91,11 @@ export type TokenOutcome = {
   tx_hash?: string;
   /** v2.6 Ruling 18 (plan): skipped at submission because no wallet was given (no coin yet). */
   no_wallet?: true;
+  /**
+   * Final review M7: for the agent only (e.g. the exact proof line to write and push), never shown
+   * to the builder; `note` stays in plain builder words.
+   */
+  agent_note?: string;
 };
 
 /** What the builder is told about fee splits once a token is live. */

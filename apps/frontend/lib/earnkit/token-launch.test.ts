@@ -129,7 +129,7 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   assert.match(b.say_to_builder, /skip: no coin, no builder bonus/);
   // Ruling 10: a remembered wallet says so on the wallet line.
   const r = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', remembered: true }, free);
-  assert.match(r!.say_to_builder, /\(yours from last time\) — or tell me another\./);
+  assert.match(r!.say_to_builder, /\(used last time\) — or tell me another\./);
   // Campaigns keep v2.4's token row.
   const camp = { ...bonusProgram, campaign: { kind: 'earnkit' } } as unknown as ProgramRow;
   const c = await tokenProposalBlock({ program: camp, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
@@ -407,7 +407,8 @@ test('tokenAfterSubmission: a failed gate is stored with the launch name and tic
   h.deps.gate!.owner = async () => ({ status: 'missing' });
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { symbol: 'kits' }, confirmed: true }, h.deps);
   assert.equal(out.status, 'gate_failed');
-  assert.match(out.note ?? '', /earnkit\.txt/);
+  assert.match(out.note ?? '', /short proof line/);
+  assert.match(out.agent_note ?? '', /earnkit\.txt/);
   assert.deepEqual(h.writes, [{ id: 7, status: 'gate_failed', note: out.note, name: 'Chain Kits', symbol: 'KITS' }]);
   assert.equal(h.deploys.length, 0);
 });
@@ -444,20 +445,20 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
 test('ownership: a repo whose earnkit.txt is missing or lacks this agent\'s line gets no token', async () => {
   const LINE = tokenLines();
   for (const [got, re] of [
-    [{ status: 'missing' }, new RegExp(`I'll add a short line to github\\.com/acme/kit to prove it's yours.*"${LINE}"`)],
+    [{ status: 'missing' }, new RegExp(`^Write earnkit\\.txt at the root of github\\.com/acme/kit .*"${LINE}"`)],
     // A wallet line alone (copied or not) proves nothing.
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`I'll add a short line to your repo to prove it's yours \\(earnkit\\.txt: "${LINE}"\\)`)],
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`"${LINE}"`)],
     // Another agent's line for the same repo (copied from the public file).
     [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit')}` }, new RegExp(`"${LINE}"`)],
-    [{ status: 'error', message: 'it answered 500' }, /couldn't read earnkit\.txt/],
+    [{ status: 'error', message: 'it answered 500' }, /earnkit\.txt in github\.com\/acme\/kit: it answered 500/],
   ] as const) {
     const h = harness();
     h.deps.gate!.owner = async () => { h.calls.push('owner'); return got; };
     const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
     assert.equal(out.status, 'gate_failed');
-    assert.match(out.note ?? '', re);
-    // v2.6 §3 fix round 1 (I2): never tells the builder to add/edit a file or push it themselves.
-    assert.doesNotMatch(out.note ?? '', /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i);
+    // Final review M7: the exact line is in the agent-only note; the note is plain builder words.
+    assert.match(out.agent_note ?? '', re);
+    assert.doesNotMatch(out.note ?? '', /\b(add|edit|create) (a |the )?file\b|\bpush it\b|earnkit\.txt|token:/i);
     assert.equal(h.deploys.length, 0);
     // Checked after the repo.
     assert.deepEqual(h.calls, ['repo', 'owner']);
@@ -472,7 +473,7 @@ test('one token per repo: another entry of the repo with a token is refused befo
   assert.deepEqual(h.calls, []);
   const h2 = harness({ repo_url: 'https://GitHub.com/Acme/Kit.git' });
   h2.repoTokens.set('github.com/acme/kit', 'pending');
-  const l = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true }), 1, h2.deps);
+  const l = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, creator_wallet: WALLET }), 1, h2.deps);
   assert.equal(l.status, 'failed');
   assert.match(l.note ?? '', /This repo already has a token launch in progress/);
   // A claim race lost inside deployToken reads the same way.
@@ -537,7 +538,7 @@ test('the claim is bound to the links the gate checked', async () => {
   assert.ok(h.calls.includes('owner'));
   // launch_token's overrides are what the gate checks and what deployToken binds the claim to.
   const h2 = harness();
-  await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, live_url: 'https://kit2.acme.dev' }), 1, h2.deps);
+  await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, creator_wallet: WALLET, live_url: 'https://kit2.acme.dev' }), 1, h2.deps);
   assert.equal(h2.deploys[0].liveUrl, 'https://kit2.acme.dev/');
   // deployToken finding the row changed (a concurrent launch_token) is reported as is; nothing is recorded.
   const h3 = harness({}, { deploy: async () => ({ status: 'failed', note: "The project's links changed during the launch; call launch_token again." }) });
@@ -579,8 +580,9 @@ test('submissionToken: an error after the deploy started says to check tokens.fu
   }
 });
 
+// Ruling 28: launch_token never uses the remembered wallet, so these launches pass the builder's.
 const launchInput = (extra: object = {}) =>
-  LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, ...extra });
+  LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, creator_wallet: WALLET, ...extra });
 
 test('LaunchTokenInput: only project_id and builder_confirmed are required; chain defaults to base', () => {
   assert.equal(launchInput().chain, 'base');
@@ -725,17 +727,17 @@ test('residual m4: a repo whose coin is entered in this SAME program gets no Rul
 
 test('residual m6: a non-Base coin on a program with a builder bonus never implies the bonus', async () => {
   const h = harness({ has_bonus: true });
-  const out = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, h.deps);
+  const out = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', creator_wallet: WALLET, ...CONFIRMED }), 1, h.deps);
   assert.equal(out.status, 'launched');
   assert.ok(out.note?.endsWith(NON_BASE_NO_BONUS), out.note);
   // Base, or a program without a bonus: no such note.
-  const base = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, ...CONFIRMED }), 1, harness({ has_bonus: true }).deps);
+  const base = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, creator_wallet: WALLET, ...CONFIRMED }), 1, harness({ has_bonus: true }).deps);
   assert.ok(!(base.note ?? '').includes(NON_BASE_NO_BONUS));
-  const plain = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, harness().deps);
+  const plain = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', creator_wallet: WALLET, ...CONFIRMED }), 1, harness().deps);
   assert.ok(!(plain.note ?? '').includes(NON_BASE_NO_BONUS));  // No coin launched (gate failed): the note never mentions "this coin".
   const g = harness({ has_bonus: true });
   g.deps.gate!.owner = async () => ({ status: 'missing' });
-  const gated = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, g.deps);
+  const gated = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', creator_wallet: WALLET, ...CONFIRMED }), 1, g.deps);
   assert.equal(gated.status, 'gate_failed');
   assert.ok(!(gated.note ?? '').includes(NON_BASE_NO_BONUS), gated.note);
 });
@@ -757,5 +759,34 @@ test('v2.6: a stored-proposal launch with an edited ticker uses the same line; n
   h3.deps.gate!.owner = async () => ({ status: 'ok', text: legacy });
   const renamed = await launchToken(launchInput({ symbol: 'NEWT' }), 1, h3.deps);
   assert.equal(renamed.status, 'gate_failed');
-  assert.match(renamed.note ?? '', new RegExp(`"${tokenLines()}"`));
+  assert.match(renamed.agent_note ?? '', new RegExp(`"${tokenLines()}"`));
+});
+
+test('Ruling 28 (final I1): launch_token never uses the remembered wallet; a no-wallet entry fails with NO_WALLET', async () => {
+  // A no-wallet entry (creator_wallet and payout_wallet NULL) on an installation that remembers a wallet.
+  const h = harness();
+  let asked = 0;
+  h.deps.store!.rememberedWallet = async () => { asked++; return WALLET; };
+  const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', ...CONFIRMED }, 1, h.deps);
+  assert.equal(out.status, 'failed');
+  assert.match(out.note ?? '', /no creator wallet.*creator_wallet/);
+  assert.equal(out.no_wallet, undefined, 'the submission marker is for record_submission only');
+  assert.equal(asked, 0, 'the remembered wallet is never read on launch');
+  assert.deepEqual(h.saved, [], 'nothing saved as the creator wallet');
+  assert.equal(h.deploys.length, 0);
+  assert.deepEqual(h.calls, [], 'no gate reads, no launch counted');
+  // The entry's own wallet, or the call's creator_wallet, still launches.
+  const own = harness({ creator_wallet: WALLET.toLowerCase() });
+  own.deps.store!.rememberedWallet = async () => '0x' + '9'.repeat(40);
+  assert.equal((await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base' }, 1, own.deps)).status, 'launched');
+  assert.equal(own.deploys[0].creatorWallet, WALLET.toLowerCase());
+  const mine = '0x' + 'e'.repeat(40);
+  const given = harness();
+  given.deps.store!.rememberedWallet = async () => '0x' + '9'.repeat(40);
+  await launchToken(launchInput({ creator_wallet: mine }), 1, given.deps);
+  assert.equal(given.deploys[0].creatorWallet, mine);
+  // At submission the remembered wallet still fills in: the builder saw it on the wallet line.
+  const sub = harness();
+  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, sub.deps);
+  assert.equal(sub.deploys[0].creatorWallet, WALLET);
 });

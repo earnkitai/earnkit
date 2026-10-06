@@ -432,9 +432,15 @@ test('ruling 12: EarnKit campaigns by prize per winner, then the earlier end; th
   assert.match(text, /Want me to build your entry for the \$200\?$/);
 });
 
-test('I3 offers: no repos known asks to check them; repos known with no fit offers the top quick program', () => {
+test('I3 offers: no repos known closes on the build offer; repos known with no fit offers the top quick program', () => {
+  // Final review M9: no repo and no GitHub, with an open campaign already entered: the no-repo
+  // close ("Pick one"), never "qualify".
   const noRepos = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny] }));
-  assert.match(noRepos, /\n\nWant me to check which of your repos already qualify\?$/);
+  assert.ok(noRepos.endsWith("Pick one and I'll start."), noRepos);
+  assert.doesNotMatch(noRepos, /qualify/);
+  // A GitHub user with no repos found yet (not the no-repo state) is still asked to check them.
+  const githubOnly = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny], githubGiven: true }));
+  assert.match(githubOnly, /\n\nWant me to check which of your repos already qualify\?$/);
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // Base pays more but needs a Loom and 10 personal answers: Arc is the top program without forms.
   // Ruling 28: the repo was ruled out, so the offer is to build something new, never "start on".

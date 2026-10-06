@@ -451,8 +451,15 @@ export const tools = {
     if ('show_to_builder' in result && result.show_to_builder)
       return withAlerts(ctx.installationId, { ...result, token });
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
-    const roundEnds = result.bonus_round ? new Date(result.bonus_round.ends_at) : null;
-    const tokenOut = token.no_wallet ? { ...token, note: noCoinYet(roundEnds) } : token;
+    // Ruling 29: the round's end as the first message shows it.
+    const endsLabel = result.bonus_round?.ends_label ?? null;
+    const repoHeld = 'repo_held' in result && result.repo_held === true;
+    // M1: a held repo can't get a coin here, so never ask the agent to launch one.
+    const tokenOut = repoHeld && token.no_wallet
+      ? { status: token.status, note: 'No coin: another entry of this repo in this program already has its coin (one coin per repo).' }
+      : token.no_wallet
+        ? { ...token, note: noCoinYet(endsLabel) }
+        : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =
       parsed.token === 'skip' || result.token_policy === 'off' || Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
@@ -473,12 +480,12 @@ export const tools = {
       if (pool !== null)
         bonus = {
           cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool ?? null }),
-          lastDay: roundEnds!,
+          ends: endsLabel!,
           board: boardLink(result.bonus_round.key),
           join: 'bonus_join' in result ? result.bonus_join : null,
         };
     }
-    const show_to_builder = enteredText({ programTitle: result.program_title, coin, bonus });
+    const show_to_builder = enteredText({ programTitle: result.program_title, coin, bonus, repoHeld });
     return withAlerts(ctx.installationId, { ...result, token: tokenOut, show_to_builder });
   },
 

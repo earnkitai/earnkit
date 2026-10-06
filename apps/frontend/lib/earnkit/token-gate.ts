@@ -31,7 +31,8 @@ export type GateDeps = {
   owner?: (r: { owner: string; repo: string }) => Promise<FetchResult>;
   screen?: (wallet: string) => Promise<void>;
 };
-export type GateResult = { ok: true } | { ok: false; reason: string };
+/** `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only. */
+export type GateResult = { ok: true } | { ok: false; reason: string; agent_note?: string };
 
 const defaults: Required<GateDeps> = {
   repo: (o, r) => repoCodeFacts(`${o}/${r}`),
@@ -110,25 +111,29 @@ export function ownerProblem(
   got: FetchResult,
   code: string,
   legacy: { symbol: string; code: string } | null,
-): string | null {
+): { reason: string; agent_note?: string } | null {
   const line = `token: ${code}`;
+  // Final review M7: the reason is relayed to the builder, so it never names the file or the line
+  // (and never asks the builder to edit anything); the exact line goes in the agent-only note, for
+  // the coding agent that writes and pushes it.
   if (got.status === 'error')
-    return `EarnKit couldn't read ${OWNERSHIP_FILE} in ${repo} (${got.message}). ${AGAIN}`;
+    return {
+      reason: `EarnKit couldn't read your repo's proof line on GitHub right now. ${AGAIN}`,
+      agent_note: `${OWNERSHIP_FILE} in ${repo}: ${got.message}`,
+    };
   const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
-  // v2.6 §3 fix round 1 (I2): this is relayed to the builder as "the result" (record_submission's
-  // description), so it reads as the agent's own action, never a file-edit instruction to the
-  // builder (who never touches earnkit.txt). The technical detail (file name, exact line) stays,
-  // for the agent that does the writing and pushing.
-  if (!file)
-    return `I'll add a short line to ${repo} to prove it's yours (${OWNERSHIP_FILE}: "${line}"), then ${SAY}.`;
   const sym = legacy?.symbol.toUpperCase();
   const ok =
-    file.codes.some((c) => sameCode(c, code)) ||
-    (legacy !== null &&
-      file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code)));
+    file !== null &&
+    (file.codes.some((c) => sameCode(c, code)) ||
+      (legacy !== null &&
+        file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code))));
   return ok
     ? null
-    : `I'll add a short line to your repo to prove it's yours (${OWNERSHIP_FILE}: "${line}"), then ${SAY}.`;
+    : {
+        reason: `I need to add a short proof line to your repo first, then ${SAY}.`,
+        agent_note: `Write ${OWNERSHIP_FILE} at the root of ${repo} (default branch) with the line "${line}" and push it yourself; never ask the builder to edit files. Then call launch_token.`,
+      };
 }
 
 /** Ruling 3 (plan): a public repo with real code, or why not. Pure. */
@@ -172,7 +177,7 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
     code,
     legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null,
   );
-  if (problem) return { ok: false, reason: problem };
+  if (problem) return { ok: false, ...problem };
   try {
     await d.screen(input.wallet);
   } catch (err) {

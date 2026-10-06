@@ -1,5 +1,5 @@
 import { normalizeRepoUrl, usd } from './campaigns';
-import { repoCoinNote } from './entry-text';
+import { deadlineDay, repoCoinNote, summaryCloses } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Effort, type Verdict } from './match';
 
@@ -217,14 +217,15 @@ export function table(head: string[], rows: string[][]) {
 /** The prize part of a program's summary ("500 USDC × 20 grants"). */
 const prizeOf = (c: Card) => c.summary.split(' · ')[0];
 
-/** "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's UTC day. Pure; exported for tests. */
+/**
+ * "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's last day (deadlineDay). Ruling 29:
+ * entry-text.ts roundEndLabel gives a round ending at the deadline this same day. Pure; exported for tests.
+ */
 export function endsOf(c: Card) {
-  for (const part of c.summary.split(' · ').slice(1)) {
-    const m = /^closes (\w{3} \d{1,2})\b/.exec(part);
-    if (m) return m[1];
-    if (part === 'rolling') return 'rolling';
-  }
-  return c.ends_at ? shortDate(c.ends_at) : 'rolling';
+  const closes = summaryCloses(c.summary);
+  if (closes) return closes;
+  if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
+  return c.ends_at ? deadlineDay(c.ends_at) : 'rolling';
 }
 
 /** Whole UTC calendar days from now to the end: "ends today" only on the last day. */
@@ -461,10 +462,12 @@ function offer(
   // check (repos === null) and no open campaign took priority above.
   // Ruling 19: a matching error is the no-repo state too, so its build offer closes the same way.
   const buildOffer = youCould(m.repos, m.githubGiven ?? false) || (m.repos !== null && 'error' in m.repos);
-  if (buildOffer && curated.length > 0 && !m.campaigns.some((r) => r.open))
-    return "Pick one and I'll start.";
+  // Final review M9: the no-repo close never says "qualify", even with an open campaign (one the
+  // builder hasn't entered took the campaign offer above).
+  if (buildOffer && curated.length > 0) return "Pick one and I'll start.";
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
-  if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';
+  if (anyOpen && !buildOffer && (!m.repos || 'error' in m.repos))
+    return 'Want me to check which of your repos already qualify?';
   // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.
   const top = [...curated].sort((a, b) => Number(needsForms(a)) - Number(needsForms(b)) || byPrize(a, b))[0];
   if (top)

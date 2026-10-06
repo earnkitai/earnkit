@@ -106,7 +106,10 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         WHERE tx_hash ~ '^0x[0-9a-f]{64}$'
           AND coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false)))::text AS bonus_deposits_wei,
-      (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe')::text AS bonus_to_safe_wei,
+      -- Final review M2: never a test installation's coin (synthetic round-rest rows have no coin).
+      (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe'
+        AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects
+          WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_to_safe_wei,
       (SELECT sum(amount_wei) FROM bonus_payouts WHERE status = 'paid')::text AS bonus_paid_wei,
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs`;
   return statsFrom(r);

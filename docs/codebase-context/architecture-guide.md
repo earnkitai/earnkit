@@ -148,7 +148,13 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   key or a bad field is `skipped` with a note naming it — never a failed entry). `launch_token
   { project_id, builder_confirmed: true }` (strict schema) launches or retries with the stored
   proposal unless given changes, after applying a fixed `live_url` (any entry) or `repo_url`
-  (not campaign entries) to the project row. Both go through one flow (`runTokenFlow`): launches
+  (not campaign entries) to the project row. **Creator wallet** (Ruling 28): the token object's
+  `creator_wallet`, then the wallet given with the entry (`payout_wallet` outside campaigns), then
+  the entry's own (`creator_wallet`, `payout_wallet`); at submission only, the installation's
+  remembered wallet last, because the builder saw it in full on the wallet line and said yes.
+  `launch_token` never reads the remembered wallet (it may be another entry's, or another
+  person's on a shared registration): with no wallet of its own the entry fails with the
+  `NO_WALLET` note, nothing saved or deployed. Both go through one flow (`runTokenFlow`): launches
   configured; `decideToken` (policy, "skip", an existing token, confirmation, explicit ticker at
   submission, edits, name/ticker rules, creator wallet); one token per repo (another project with
   the same `token_repo_key` and a token or claim); the gate (`tokenGate`, v2.6 §3: see "Coin gate
@@ -162,7 +168,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   the confirmation). **Statuses** (`projects.token_status`, with `token_note`):
   `launched`; `skipped` (no token, unconfirmed, policy off, no symbol, a bad token field, launches
   not configured, or — at submission — an edit refused or the project or repo already has a token);
-  `gate_failed` (the reason and fix); `pending` (outcome unknown: claim kept); `failed` (tokens.fun
+  `gate_failed` (`note`: the reason in plain builder words, never a file or field name;
+  `agent_note`, final review M7: the technical detail for the agent, e.g. the exact `token: <code>`
+  line to write and push); `pending` (outcome unknown: claim kept); `failed` (tokens.fun
   refused, the daily limit, or — on `launch_token` — a refused edit or an existing/pending token on
   the project or repo). Status writes from the flow only touch rows with `token_url IS NULL`.
   **Claim:** `deployToken` claims the project atomically (`token_url = 'pending'`, only this
@@ -198,7 +206,7 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     it before the deploy can still launch; 16 hex characters never parse as a v2.5 symbol (at most
     10), so the two forms can't collide. No secret: the gate refuses ("Token launches aren't
     configured right now."). The line is shown only to the launching agent (prepare_submission's
-    token note, the gate_failed reason), and the agent writes and pushes it itself; the builder
+    token note, the gate_failed `agent_note`), and the agent writes and pushes it itself; the builder
     never edits files. `earnkit.txt` no longer needs a wallet line for a coin (wallet lines stay
     campaign business, `checkOwnership`).
   - *Reading the file* (Ruling 14 (plan), Ruling 20). Through GitHub's contents API with
@@ -990,7 +998,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
   wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`,
   by `bonus_payouts.id` (M2): a second round's win of the same entry is news too);
   the builder bonus's own top 10, from `bonus_scores.rank` (`BONUS_TOP_N = 10`, the payout split's
-  width), tracks in/out the same way the campaign top-N does (`AlertState.bonusTop`), as "your
+  width; final review M3: only entries `eligibleSql(r.ends_at)` still counts, so a test
+  installation's or a no-longer-eligible entry's stale rank never alerts), tracks in/out the same way the campaign top-N does (`AlertState.bonusTop`), as "your
   entry moved into/dropped out of the top 10 for the builder bonus (<program>)". **THE SEAM for
   Task 7:** `paidBonusWins(installationId, db)` is where a round's paid winners reach alerts. It
   checks `information_schema.tables` for a `bonus_payouts` table until it first finds it (M15:
@@ -1015,10 +1024,20 @@ during the build); plan: `v2.4-money-first-plan.md`.
     (`COIN_FOOTNOTE`: WETH after Clanker's cut, gas paid, Terms and Risks). One yes confirms the
     coin and the wallet; the agent passes that wallet as `record_submission`'s `payout_wallet`.
     Campaign entries keep v2.4's `confirmTable`/`tokenRow`/`tokenFootnote`.
+  - *Remembered wallet.* The wallet line names it in full with "(used last time)" (final review
+    M8: never "yours", since on a shared registration it may not be). It fills in only at
+    submission; `launch_token` never uses it (Ruling 28, see "Token at submission").
   - *No wallet* (Ruling 18, Ruling 21, Ruling 22). The entry is recorded and the coin skipped
     (`token.no_wallet`); the builder sees one line, "Reply with a wallet to get your coin and join
     the builder bonus (<pool> · ends <Mon D> · <leaderboard>)"; the agent's note (`noCoinYet`)
-    keeps `launch_token` with the round's last day.
+    keeps `launch_token` with "by <Mon D>", the round's end label.
+  - *Round dates* (Ruling 29). Every builder-facing round end is the day the first message shows:
+    `entry-text.ts` `roundEndLabel` (the program summary's "closes Oct 14" for a window ending at
+    the program deadline, so Arc's 2026-10-15T03:59Z reads "Oct 14", its real ET deadline; else
+    `deadlineDay`: an end at 00:00 UTC is the day before, "Oct 31" for a month ending Nov 1).
+    `present.ts` `endsOf` uses the same `summaryCloses`/`deadlineDay`. `recordSubmission` returns
+    it as `bonus_round.ends_label`; the reply, `noCoinYet` and `/bonus/<round>` (`Board.ends_label`)
+    all show it.
   - *The after-submission reply* (`enteredText`, `record_submission`'s `show_to_builder`):
     "Entered in <program>. Your coin: tokens.fun/coin/<address> · you earn 40% of its fees." then
     "Builder bonus: <pool> · ends <Mon D> · earnkit.com/bonus/<slug>" (`bonusCell`, the round's
@@ -1026,7 +1045,16 @@ during the build); plan: `v2.4-money-first-plan.md`.
     instead (Rulings 23, 24): "Tell me once you've submitted on <site>", "Send me your <site> entry
     link" (a public-page program with no link) or "Add your repo link to your <site> entry page".
     No bonus line when the coin was skipped, the program has no open round or bonus, the round
-    froze, or the repo's coin is entered elsewhere (Ruling 25).
+    froze, or the repo's coin is entered elsewhere (Ruling 25). A coin that isn't launched yet
+    (the gate failed, or the ticker wasn't confirmed; final review M4) reads "Your coin isn't
+    launched yet; it joins the builder bonus once it is (<round>)", or, with a step still to do,
+    "<step> to join the builder bonus when your coin launches (<round>)".
+  - *Repo held* (final review M1). When an earlier eligible entry of the same repo holds it in
+    this program, or the repo's one coin is on another entry here (`repoCoinPrograms`, not this
+    row's own coin), `recordSubmission` returns `repo_held: true` and no `bonus_round`; the reply is
+    "Entered in <program>. Another entry of this repo already holds its coin and builder bonus
+    here." (`REPO_HELD`), never a wallet ask or a bonus line, and the agent note never asks for a
+    launch.
   - *Leaderboard links* (Ruling 12 (plan)): `boardSlug` turns a round key's `:` into `-`
     (`earnkit.com/bonus/arc-microgrants-2026-09-16`, `.../base-builder-grants-2026-10`);
     `/bonus/[round]` accepts the slug and the v2.5 `:` form (`roundKeyFromSlug`,
@@ -1041,7 +1069,10 @@ during the build); plan: `v2.4-money-first-plan.md`.
   - *Server instructions* (`mcp.ts`): `OWNERSHIP_FOR_TOKEN` (the agent writes and pushes the
     `token: <code>` line itself), `builder_submitted` in `record_submission`'s description (ask
     "Did you submit on <program site>?" first), and `local_repos[].url` (optional; kept only when
-    `githubRepo` parses it, Ruling 13).
+    `githubRepo` parses it, Ruling 13). Final review M5/M6: `record_submission` says to show
+    `show_to_builder` as written and that `token.note`/`token.agent_note` are for the agent;
+    `prepare_submission` describes the Coin row and wallet line (campaigns: one Token row);
+    `launch_token` needs `creator_wallet` or the entry's own wallet (Ruling 28).
 
 ## Ride programs: money flow, owner steps and runbooks (v2.5, v2.6)
 
@@ -1170,7 +1201,8 @@ a wallet you control.
   `token: <16 hex>`, pushed by the agent (you edited nothing).
 - [ ] **After-submission reply.** For Base or Circle: "Entered in <program>. Your coin:
   tokens.fun/coin/<address> · you earn 40% of its fees." then "Builder bonus: <pool> · ends
-  <Mon D> · earnkit.com/bonus/<slug>". If you picked a program with a public entry page (Arc
+  <Mon D> · earnkit.com/bonus/<slug>", where <Mon D> is the same day as the program's Ends
+  column in the first message (for Base or Circle, the month's last day). If you picked a program with a public entry page (Arc
   Microgrants on dorahacks.io, the Crypto World's Fair Hackathon on colosseum.com) and sent no entry link, the second line
   is instead "Send me your <site> entry link to join the builder bonus (<pool> · ends <Mon D> ·
   earnkit.com/bonus/<slug>)." That is expected (Ruling 24), not a failure; the leaderboard link is
@@ -1250,7 +1282,8 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   is open it shows the live ranking from `bonus_scores` (ranked rows first, at most 500),
   eligibility in plain words ("No: no coin", "No: submission page not confirmed yet" on a
   pattern program, "No: submission not confirmed yet" otherwise, "No: an earlier entry of this
-  repo counts", "Test entry: not ranked"), the pool so far, and the days left. An open round with
+  repo counts", "Test entry: not ranked"), the pool so far, the days left and the end
+  (`ends_label`, Ruling 29: the same day as the first message and the entry reply). An open round with
   no deposit yet (no `bonus_rounds` row) still shows, pool 0, while it is the open round of a
   program with `bonusOn`.
   From the review on, it shows the frozen `bonus_payouts` ranking minus vetoes, renumbered, with
@@ -1278,7 +1311,9 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   be blocked by — Rulings 13b/15 never let a test entry squat a repo), so they are never scored,
   ranked or paid. `/bonus/<round>` shows them among the ineligible rows as "Test entry: not
   ranked" (`bonus-board.ts` `OpenEntry.test`). `/api/stats` excludes them from `installs`,
-  `coins_launched` and the bonus deposits behind `fees_to_safe_eth` — their coins are real and
+  `coins_launched` and both parts of `fees_to_safe_eth` (the bonus deposits and, final review
+  M2, the Safe bookings from their coins; a synthetic `round-rest:` row has no coin and stays
+  counted) — their coins are real and
   their fees still flow normally into the round or the Safe, they just never show in public
   numbers. The runbook: use a throwaway repo, since the coin it launches is real.
 - **Design system:** these pages are built from rounded `bg-ek-navy-deep` panels (40px, 56px from

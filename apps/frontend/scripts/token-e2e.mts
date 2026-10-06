@@ -23,7 +23,7 @@ import { join } from 'node:path';
  *   h. no builder_confirmed → skipped
  *   i. the monogram route draws a PNG
  *   j. no answer (timeout) → pending, claim kept; launch_token is refused
- *   k. token omitted → skipped ("pass token"); launch_token launches the stored proposal
+ *   k. token omitted → skipped ("pass token"); launch_token without a wallet fails (never the remembered one), with it launches the stored proposal
  *   l. a 502 "Deployment status unknown" → pending, claim kept; launch_token is refused
  *   m. a project that already has a token → skipped at submission, failed via launch_token
  *   n. ownership: no earnkit.txt → gate_failed with the line to add
@@ -271,7 +271,7 @@ let aRepo = '';
   // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
   check(prep.token?.say_to_builder.includes('· skip: no coin, no builder bonus'), '(a) say_to_builder offers the skip (no coin, no builder bonus)', prep.token);
   // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
-  check(prep.token?.say_to_builder.includes('(yours from last time) — or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
+  check(prep.token?.say_to_builder.includes('(used last time) — or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });
@@ -290,7 +290,7 @@ let aRepo = '';
   check(saved.token_repo_key === p.repo_url.replace('https://', ''), '(a) token_repo_key is the normalized repo', saved);
   // Ruling 22: the full fee wallet once, on the wallet line; the short fee line and both terms links.
   check(
-    prep.token?.say_to_builder.includes(`Wallet for fees and any bonus: ${WALLET} (yours from last time)`) &&
+    prep.token?.say_to_builder.includes(`Wallet for fees and any bonus: ${WALLET} (used last time)`) &&
       prep.token.say_to_builder.split(WALLET).length === 2 &&
       prep.token.say_to_builder.includes("Fees in WETH, after Clanker's 20% cut") &&
       prep.token.say_to_builder.includes('risk-disclosure'),
@@ -323,7 +323,7 @@ let retryRepo = '';
   const before = deploys.length;
   const late = project('Retry Demo', {}, 'late-');
   const noFile = await submit({ project: late, token: { name: 'Retry Demo', symbol: 'RETRY' }, confirmed: true });
-  check(noFile.token.status === 'gate_failed' && /earnkit\.txt/.test(noFile.token.note ?? ''), '(d) no earnkit.txt yet → gate_failed', noFile.token);
+  check(noFile.token.status === 'gate_failed' && /earnkit\.txt/.test(noFile.token.agent_note ?? ''), '(d) no earnkit.txt yet → gate_failed', noFile.token);
   retryProjectId = noFile.project_id;
   retryRepo = late.repo_url;
   const fork = await submit(
@@ -364,7 +364,7 @@ let retryRepo = '';
 // (f) retry after pushing the line: still no file, then the agent pushes it; the stored ticker launches.
 {
   const still = await launch({ project_id: retryProjectId });
-  check(still.status === 'gate_failed' && still.note?.includes(`"${lineFor(inst.id, retryRepo)}"`) === true, '(f) retry before the push → gate_failed with the line', still);
+  check(still.status === 'gate_failed' && still.agent_note?.includes(`"${lineFor(inst.id, retryRepo)}"`) === true, '(f) retry before the push → gate_failed with the line (agent note)', still);
   pushed.add(retryRepo.split('/').pop()!);
   const r = await launch({ project_id: retryProjectId });
   check(r.status === 'launched' && r.symbol === 'RETRY', '(f) launch_token after the push launches the stored RETRY', r);
@@ -429,8 +429,12 @@ let retryRepo = '';
   check(deploys.length === before, '(k) no deploy sent');
   const saved = await row(r.project_id);
   check(saved.token_symbol === 'KAPPA' && saved.token_url === null, '(k) proposal stored for later', saved);
-  const l = await launch({ project_id: r.project_id });
-  check(l.status === 'launched' && l.symbol === 'KAPPA', '(k) launch_token launches the stored proposal', l);
+  // Ruling 28 (final I1): the entry has no wallet of its own, and launch_token never falls back to
+  // the installation's remembered one: it asks for creator_wallet, and nothing deploys.
+  const noWallet = await launch({ project_id: r.project_id });
+  check(noWallet.status === 'failed' && /no creator wallet/.test(noWallet.note ?? '') && deploys.length === before, '(k) launch_token without a wallet → failed, never the remembered wallet', noWallet);
+  const l = await launch({ project_id: r.project_id, creator_wallet: WALLET });
+  check(l.status === 'launched' && l.symbol === 'KAPPA', '(k) launch_token with the builder\'s wallet launches the stored proposal', l);
 }
 
 // (l) tokens.fun unsure (502): pending, the claim kept.
@@ -465,11 +469,11 @@ let retryRepo = '';
   const r = await submit({ project: p, token: { name: 'Not Mine', symbol: 'NOTMN' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note?.includes("I'll add a short line") === true &&
-      r.token.note.includes(`"${lineFor(inst.id, p.repo_url)}"`) &&
-      !/payout_wallet/.test(r.token.note) &&
-      !/\b(add|edit|create) (a |the )?file\b|\bpush it\b/i.test(r.token.note),
-    '(n) no earnkit.txt → gate_failed with the one line to add, never asking the builder to edit a file',
+      r.token.note === "I need to add a short proof line to your repo first, then say 'launch the token'." &&
+      r.token.agent_note?.includes(`"${lineFor(inst.id, p.repo_url)}"`) === true &&
+      !/payout_wallet/.test(r.token.agent_note) &&
+      !/\b(add|edit|create) (a |the )?file\b|\bpush it\b|earnkit\.txt|token:/i.test(r.token.note),
+    '(n) no earnkit.txt → gate_failed: plain words for the builder, the one line in the agent note',
     r.token,
   );
   check(deploys.length === before, '(n) no deploy sent');
@@ -558,7 +562,8 @@ let retryRepo = '';
   const r = await submit({ project: p, token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note === `I'll add a short line to your repo to prove it's yours (earnkit.txt: "${lineFor(inst.id, p.repo_url)}"), then say 'launch the token'.`,
+      r.token.note === "I need to add a short proof line to your repo first, then say 'launch the token'." &&
+      r.token.agent_note === `Write earnkit.txt at the root of ${p.repo_url.replace(/^https:\/\//, '')} (default branch) with the line "${lineFor(inst.id, p.repo_url)}" and push it yourself; never ask the builder to edit files. Then call launch_token.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -576,8 +581,8 @@ let retryRepo = '';
   });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note?.includes(`"${lineFor(inst.id, p.repo_url)}"`) === true &&
-      !r.token.note.includes(lineFor(VICTIM_AGENT, p.repo_url)!),
+      r.token.agent_note?.includes(`"${lineFor(inst.id, p.repo_url)}"`) === true &&
+      !r.token.agent_note.includes(lineFor(VICTIM_AGENT, p.repo_url)!),
     "(t) the line for another agent is refused (its wallet doesn't help)",
     r.token,
   );
@@ -620,7 +625,9 @@ let retryRepo = '';
   );
   const thiefLine = lineFor(thief.id, shared.repo_url)!;
   check(
-    stolen.token.status === 'gate_failed' && stolen.token.note === `I'll add a short line to your repo to prove it's yours (earnkit.txt: "${thiefLine}"), then say 'launch the token'.`,
+    stolen.token.status === 'gate_failed' &&
+      stolen.token.note === "I need to add a short proof line to your repo first, then say 'launch the token'." &&
+      stolen.token.agent_note?.includes(`"${thiefLine}"`) === true,
     "(v) the owner's line is refused for a third party's agent",
     stolen.token,
   );

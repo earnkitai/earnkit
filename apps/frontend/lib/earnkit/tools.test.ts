@@ -11,6 +11,8 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
+import { REPO_HELD } from './entry-text';
+import { endsOf } from './present';
 import type { TokenFlowDeps } from './token-launch';
 
 const REF = `0x${'a'.repeat(64)}`;
@@ -366,7 +368,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     };
     assert.equal(prep.token.creator_wallet, W);
     assert.match(prep.show_to_builder, /\| Coin \| Your entry gets a coin/);
-    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`), prep.show_to_builder);
+    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`), prep.show_to_builder);
     assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
@@ -391,7 +393,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       token?: { creator_wallet: string | null };
     };
     assert.match(cp.show_to_builder, new RegExp(`Pay prizes to ${W}\\? It is the wallet from your last entry\\.`));
-    assert.doesNotMatch(cp.show_to_builder, /yours from last time|Wallet for fees/);
+    assert.doesNotMatch(cp.show_to_builder, /used last time|yours from last time|Wallet for fees/);
     assert.equal(cp.token?.creator_wallet ?? null, null);
 
     // 3. No wallet ever given: the entry is recorded, the coin is not, and the reply says how to add it.
@@ -401,19 +403,22 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       roundPoolsWei: pools,
     })) as {
       recorded: boolean;
-      bonus_round: { key: string; ends_at: string } | null;
+      bonus_round: { key: string; ends_at: string; ends_label: string } | null;
       token: { status: string; note: string; no_wallet?: boolean };
       show_to_builder: string;
     };
     assert.equal(r.recorded, true);
     assert.equal(r.token.status, 'skipped');
     assert.equal(r.token.no_wallet, true);
-    assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z' });
+    // Ruling 29: the round's end is the first message's label for this program (its summary's
+    // "closes Oct 14"), never a UTC day computed separately.
+    assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14' });
+    assert.equal(r.bonus_round!.ends_label, endsOf({ id: a.id, title: a.title, summary: a.summary, tag: null, each_time: [], ends_at: new Date(a.ends_at) }));
     // The agent's note names the tool; the builder's text never does.
-    assert.equal(r.token.note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet before Dec 31.');
+    assert.equal(r.token.note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
     assert.equal(
       r.show_to_builder,
-      `Entered in ${a.title}. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Dec 31 · earnkit.com/bonus/${a.id}-2026-09-16).`,
+      `Entered in ${a.title}. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -455,7 +460,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Dec 31 · earnkit\.com\/bonus\/.+\)\.$/,
+      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.$/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
@@ -469,11 +474,35 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(late.updated, true);
     assert.equal(late.token.status, 'launched');
     assert.equal(deploys.length, 1, 'no second launch');
-    assert.match(late.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Dec 31 · /);
+    assert.match(late.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14 · /);
     assert.equal(await count(), 1, 'one entry, not two');
     const [basis] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${ok.project_id}`;
     assert.equal(basis.submission_basis, 'unverified_page');
     assert.equal((await sql()<{ payout_wallet: string }[]>`SELECT payout_wallet FROM installations WHERE id = ${two}`)[0].payout_wallet, B);
+
+    // 5. Final review M1: another installation enters the same repo here while that eligible entry
+    // holds it: one plain line, no bonus line, no wallet ask, and the agent is never told to launch.
+    type Held = { repo_held?: boolean; bonus_round: unknown; show_to_builder: string; token: { note?: string } };
+    const sameRepo = (n: number) =>
+      entry(a.id, 4, { project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: repoUrl(4), live_url: 'https://t4-4.example' }, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
+    const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPoolsWei: pools })) as Held;
+    assert.equal(held.repo_held, true);
+    assert.equal(held.bonus_round, null);
+    assert.equal(held.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
+    assert.doesNotMatch(held.token.note ?? '', /launch_token|creator_wallet/);
+    assert.match((held as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${ok.project_id} already holds this repo`));
+    // The repo's coin is on an entry here that isn't eligible yet (no counting submission): still held.
+    await sql()`UPDATE projects SET submission_proof_ok_at = NULL, token_repo_key = ${`github.com/alice/t4-${stamp}-4`} WHERE id = ${ok.project_id}`;
+    const coinHeld = (await tools.record_submission(sameRepo(6), { installationId: await inst('four'), roundPoolsWei: pools })) as Held;
+    assert.equal(coinHeld.repo_held, true);
+    assert.equal(coinHeld.bonus_round, null);
+    assert.equal(coinHeld.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
+    assert.match((coinHeld as { bonus_note?: string }).bonus_note ?? '', /another entry of this repo in this program has its coin/);
+    // The holder's own re-record is not "held" by its own coin.
+    const own = (await tools.record_submission({ ...coinEntry(4, B), builder_submitted: true }, ctxTwo)) as Held & { project_id: number };
+    assert.equal(own.project_id, ok.project_id);
+    assert.equal(own.repo_held, undefined);
+    assert.notEqual(own.bonus_round, null);
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;

@@ -5,6 +5,7 @@ import { boardLink, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { eth } from './present';
+import { eligibleSql } from './traction';
 import { pickWinners } from './winners';
 
 /** The checksummed form (M2, fix round 1): `bonus_payouts.wallet` is stored lowercase; a builder
@@ -265,6 +266,9 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       JOIN projects p ON p.id = bs.project_id
       JOIN programs pr ON pr.id = p.program_id
       WHERE bs.rank IS NOT NULL AND ${mineBonus()}
+        -- Final review M3: only an entry that is eligible now (never an owner test installation's,
+        -- which eligibleSql excludes): a stale rank never alerts.
+        AND ${eligibleSql(db`r.ends_at`)}
       ORDER BY bs.project_id, bs.day DESC`,
     paidBonusWins(installationId, db),
   ]);

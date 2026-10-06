@@ -149,7 +149,7 @@ const walletLines = [
   walletLine({ wallet: null, remembered: false, hasBonus: true }),
   walletLine({ wallet: null, remembered: false, hasBonus: false }),
 ];
-const round = { cell: '0.18 ETH so far', lastDay: new Date('2026-10-15T03:59:00.000Z'), board: 'earnkit.com/bonus/arc-microgrants-2026-10-01' };
+const round = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-10-01' };
 const enteredTexts = [
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus: round }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: round }),
@@ -157,6 +157,9 @@ const enteredTexts = [
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' }, bonus: null }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'skipped' }, bonus: null }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: round }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: { ...round, join: { kind: 'confirm', site: 'dorahacks.io' } } }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: null, repoHeld: true }),
   enteredText({
     programTitle: 'Arc Microgrants',
     coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
@@ -173,7 +176,7 @@ const enteredTexts = [
     bonus: { ...round, join: { kind: 'link', site: 'dorahacks.io' } },
   }),
 ];
-const noCoinYets = [noCoinYet(new Date('2026-10-15T03:59:00.000Z')), noCoinYet(null)];
+const noCoinYets = [noCoinYet('Oct 14'), noCoinYet(null)];
 
 // ---- The prepare_submission confirm screen (I2): confirmTable, where the coin row and wallet
 // line actually appear, plus COIN_FOOTNOTE on its own; and the campaign enteredTable.
@@ -234,7 +237,7 @@ const policyText = policyHtml
   .split('Where agents earn.')[0];
 
 // ---- Gate reasons (T3, I2): every branch of tokenGate's GateResult, which flows straight into
-// record_submission/launch_token's `token.note` ("Tell the builder the result"). This is where
+// record_submission/launch_token's `token.note` (plain builder words; agent_note is for the agent). This is where
 // the live contradiction lived: a reason that told the builder to add/push earnkit.txt, against
 // "never ask the builder to edit files". gatherGateReasons runs them all with stub deps (no
 // network, no DB).
@@ -272,7 +275,7 @@ async function gatherGateReasons(): Promise<[string, string][]> {
     '0000000000000000',
     null,
   );
-  if (mismatched) out.push(['gate reason: earnkit.txt has a different code', mismatched]);
+  if (mismatched) out.push(['gate reason: earnkit.txt has a different code', mismatched.reason]);
   return out;
 }
 

@@ -136,7 +136,10 @@ apps/frontend/
                                (submissionBasis, pure: page / unverified_page / confirmed, stored in
                                submission_basis; builder_submitted: true -> submission_confirmed_at,
                                Ruling 5), bonus_join (the one step that joins, for the reply),
-                               bonus_round (the open round, for the reply's link); Ruling 23: the
+                               bonus_round (the open round, for the reply's link, with ends_label:
+                               entry-text.ts roundEndLabel, Ruling 29); repo_held (final review M1:
+                               an earlier eligible entry, or the repo's coin on another entry here,
+                               holds the repo; bonus_round is then null); Ruling 23: the
                                same installation re-recording the same project in a non-campaign
                                program updates its row (ownEntry, under an advisory lock; no daily
                                charge; coin_url returned); Ruling 10: a valid payout_wallet is the
@@ -267,7 +270,9 @@ apps/frontend/
                                BONUS_NOTE (not affiliated, earnkit.com/policy), ideas (one per line)
                                when the builder has no repo, sponsored last, one offer (keep going /
                                campaign entry / fastest fit / "Pick one and I'll start." / build
-                               something new);
+                               something new; final review M9: the no-repo close is never
+                               "qualify", even with an open campaign); endsOf uses
+                               entry-text.ts summaryCloses/deadlineDay (Ruling 29);
                                markdown tables, no emojis; sponsor campaigns never offered
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
@@ -319,8 +324,10 @@ apps/frontend/
                                EARNKIT_AUTH_SECRET, TOKEN_CODE_LENGTH; the v2.5 "token: <SYMBOL>
                                <code10>" line still counts for that ticker, legacyTokenLineCode,
                                Ruling 1; no wallet line needed), sanctions screen; no live-link
-                               check; first failure as a reason with the fix, written as the
-                               agent's own action; repo/owner/screen injectable (GateDeps)
+                               check; first failure as a reason in plain builder words (never the
+                               file or the line) plus agent_note with the technical detail (final
+                               review M7: the exact line to write and push); repo/owner/screen
+                               injectable (GateDeps)
     token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token;
                                TokenBlock.has_bonus, .repo_coin_program: Ruling 25; v2.6: outside
                                campaigns coinRow + walletLine (the remembered wallet prefilled,
@@ -331,7 +338,9 @@ apps/frontend/
                                record_submission needs the confirmed symbol), submissionToken
                                (record_submission's token part, never throws; loose token object,
                                image ignored), launchToken (launch_token, with live_url/repo_url
-                               overrides); runTokenFlow: launches configured, decideToken, one
+                               overrides; Ruling 28: the call's creator_wallet or the entry's own
+                               wallet only, never the remembered one, else NO_WALLET);
+                               runTokenFlow: launches configured, decideToken, one
                                token per repo, gate, LIMITS.tokenLaunch, deploy; TokenFlowDeps
                                (gate, check, deploy, store, limit, available) for tests
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
@@ -363,11 +372,14 @@ apps/frontend/
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and
-                               walletLine (one yes for coin and wallet), COIN_FOOTNOTE,
-                               enteredText (record_submission's reply: the coin, then "Builder
-                               bonus: <pool> · ends <Mon D> · <leaderboard>", or the one step that
-                               joins, or the no-wallet line), noCoinYet (the agent's no-wallet
-                               note), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet
+                               walletLine (one yes for coin and wallet; "(used last time)", M8),
+                               COIN_FOOTNOTE, enteredText (record_submission's reply: the coin,
+                               then "Builder bonus: <pool> · ends <Mon D> · <leaderboard>", or the
+                               one step that joins, or the no-wallet line; M4: a coin not launched
+                               yet joins once it is; M1: REPO_HELD), noCoinYet (the agent's
+                               no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
+                               deadlineDay (Ruling 29: one round date everywhere, the first
+                               message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet
     fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
@@ -381,7 +393,8 @@ apps/frontend/
                                bonus (as WETH) for <program>, sent to <wallet> (basescan.org/tx/…)
                                · <leaderboard>", "you have $X in coin fees to claim on tokens.fun",
                                top-10 lines with their leaderboard link): one colon in the joined
-                               sentence
+                               sentence; final review M3: the top-10 standings read only entries
+                               eligibleSql(r.ends_at) counts (never a test installation's)
     copy-v26.test.ts           v2.6 copy review: every builder-facing string and joined alert
                                sentence (no emojis, "vault", implied affiliation, tool names or
                                file-edit asks; one colon)
@@ -449,8 +462,9 @@ apps/frontend/
                                only, accrued: 1.5x real indexed bonus deposits of EarnKit coins (M5),
                                never round-rest: rows, + bonus money routed to the Safe),
                                bonus_paid_eth, installs; STATS_LABELS for jenil.ai; v2.6 Ruling 6/16
-                               (plan): installs, coins_launched and the bonus_deposits_wei coin
-                               subquery all exclude owner test installations (installations.ts
+                               (plan): installs, coins_launched, the bonus_deposits_wei coin
+                               subquery and (final review M2) bonus_to_safe_wei's coin rows all
+                               exclude owner test installations (installations.ts
                                testInstallationIds, EARNKIT_TEST_INSTALLATIONS)
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
@@ -461,7 +475,8 @@ apps/frontend/
                                listed with the ineligible rows as "Test entry: not ranked";
                                OpenEntry.pattern: "No: submission page not confirmed yet" vs "No:
                                submission not confirmed yet"; a not-yet-booked round shows only for
-                               a bonusOn program
+                               a bonusOn program; Board.ends_label (Ruling 29: entry-text.ts
+                               roundEndLabel, shown by BoardView)
     public-pages.test.ts       markup tests of /policy, BoardView and the footer link
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
