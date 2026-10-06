@@ -696,7 +696,7 @@ test('verifiedBonusContracts: Clanker/Uniswap contracts are never accepted; no w
   const pool = '0x498581fF718922c3f8e6A244956aF099B2652b2b';
   const r = await verifiedBonusContracts('p', REPO, BW, [pool, C1], await sign(builder, [pool, C1]), depsFor(BW, { [C1]: BW }));
   assert.deepEqual(r.contracts, [C1]);
-  assert.match(r.note ?? '', /Clanker or Uniswap contracts never count/);
+  assert.match(r.note ?? '', /token launch or Uniswap contracts never count/);
   const noWallet = await verifiedBonusContracts('p', REPO, undefined, [C1], undefined, entryDeps({}));
   assert.deepEqual(noWallet.contracts, []);
   assert.match(noWallet.note ?? '', /pass payout_wallet/);
@@ -721,7 +721,7 @@ test('verifiedBonusContracts (Ruling 15): the signature covers the list as submi
   const deps = depsFor(BW, { [C1]: BW });
   const r = await verifiedBonusContracts('p', REPO, BW, [C1, pool], await sign(builder, [C1, pool]), deps);
   assert.deepEqual(r.contracts, [C1]);
-  assert.match(r.note ?? '', new RegExp(`${pool}: Clanker or Uniswap contracts never count as yours; leave them out of contracts and sign the list without them`));
+  assert.match(r.note ?? '', new RegExp(`${pool}: token launch or Uniswap contracts never count as yours; leave them out of contracts and sign the list without them`));
   // A signature over the list without the pool doesn't match what was submitted.
   const w = await verifiedBonusContracts('p', REPO, BW, [C1, pool], await sign(builder, [C1]), deps);
   assert.deepEqual(w.contracts, []);

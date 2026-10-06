@@ -95,7 +95,7 @@ const RECORD_SUBMISSION_DESCRIPTION =
 const LAUNCH_TOKEN_DESCRIPTION =
   'Launch (or retry) the token for a project you recorded with record_submission, e.g. after ' +
   'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
-  "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
+  'the gas; the builder earns 40% of trading fees, paid in WETH. Only ' +
   'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
   'Needs a wallet: creator_wallet, or the one the entry was recorded with; never a wallet from another entry. ' +
   'Returns { status, note, agent_note? }: note is in plain words you can pass on; agent_note is for you. ' +
@@ -118,7 +118,7 @@ const PREPARE_SUBMISSION_DESCRIPTION =
   'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
   "Call again with the new answers until ready is true, then submit on the program's site. " +
-  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one Coin row and a wallet line (EarnKit campaigns: one Token row): one yes confirms them, and the builder can skip the coin in one word. Other programs: shown_wallet is the wallet on that line; once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
+  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. When ready, it has one Token row (a token on Base) and a wallet line (EarnKit campaigns: no wallet line): one yes confirms them, and the builder can skip the token in one word. Other programs: shown_wallet is the wallet on that line; once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
   `${OWNERSHIP_FOR_TOKEN} ` +
   `In record_submission: ${TO_LAUNCH} ` +
   'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';

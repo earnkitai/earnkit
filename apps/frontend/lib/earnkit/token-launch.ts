@@ -13,6 +13,7 @@ import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './e
 import {
   cleanTokenName,
   proposeToken,
+  repoNameOf,
   tickerProblem,
   type TickerCheck,
 } from './token-proposal';
@@ -63,7 +64,8 @@ export const TokenChoice = z
 type Choice = z.infer<typeof TokenChoice>;
 
 export type TokenBlock = {
-  proposed: { name: string; symbol: string; image: 'agent' | 'monogram' } | null;
+  /** v2.7 Ruling 16 (plan): always proposed when a block is returned. */
+  proposed: { name: string; symbol: string; image: 'agent' | 'monogram' };
   chain: 'base';
   paired_with: 'WETH';
   creator_wallet: string | null;
@@ -106,11 +108,11 @@ const NEEDS_SYMBOL_AGENT =
   "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
 
 /**
- * Ruling 31: a name or ticker problem in builder words ("Coin name: …", "Ticker: …"), with the
+ * Ruling 31: a name or ticker problem in builder words ("Token name: …", "Ticker: …"), with the
  * field-named original for the agent. Pure; exported for tests.
  */
 export function plainProblem(problem: string): { note: string; agent_note: string } {
-  const note = problem.replace(/^name:\s*/, 'Coin name: ').replace(/^symbol:\s*/, 'Ticker: ');
+  const note = problem.replace(/^name:\s*/, 'Token name: ').replace(/^symbol:\s*/, 'Ticker: ');
   return { note, agent_note: problem };
 }
 
@@ -224,13 +226,13 @@ export async function tokenProposalBlock(
   const { program } = a;
   if (program.token_policy === 'off') return null;
   if (!(deps.available ?? tokenLaunchesAvailable)()) return null;
-  const projectName = a.projectName?.trim();
+  // Ruling 16 (plan): without a project name, the repo name is the name; with neither, nothing to name.
+  const projectName = a.projectName?.trim() || repoNameOf(a.repoUrl) || '';
   if (!projectName) return null;
-  const proposal = await proposeToken(projectName, deps.check);
+  const proposal = await proposeToken(projectName, deps.check, a.repoUrl);
   const earnings = EARNINGS_LINE(a.creatorWallet ?? '<your wallet>');
   const notes: string[] = [];
-  if (proposal.name === null) notes.push(proposal.reason);
-  else if (proposal.note) notes.push(proposal.note);
+  if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
@@ -253,10 +255,7 @@ export async function tokenProposalBlock(
     notes.push(`This repo already has its coin, entered in ${coinIn}: don't pass token; this entry gets no new coin and no builder bonus`);
   else notes.push(ownershipLine(tokenLine));
   return {
-    proposed:
-      proposal.name === null
-        ? null
-        : { name: proposal.name, symbol: proposal.symbol, image: 'monogram' },
+    proposed: { name: proposal.name, symbol: proposal.symbol, image: 'monogram' },
     chain: 'base',
     paired_with: 'WETH',
     creator_wallet: a.creatorWallet,
@@ -271,10 +270,10 @@ export async function tokenProposalBlock(
     // the coin costs the bonus (tokenRow's hasBonus), never advertised past this one row.
     // v2.6 §3: outside campaigns, the coin row and the wallet line (one yes confirms both).
     say_to_builder: coinIn
-      ? tokenRow(null, hasBonus, coinIn)
+      ? tokenRow(proposal.symbol, hasBonus, coinIn)
       : program.campaign
-        ? `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`
-        : `${coinRow({ symbol: proposal.name === null ? null : proposal.symbol, hasBonus })}\n\n` +
+        ? `${tokenRow(proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`
+        : `${coinRow({ symbol: proposal.symbol, hasBonus })}\n\n` +
           `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${COIN_FOOTNOTE}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
@@ -439,8 +438,8 @@ async function runTokenFlow(
   const proposed = explicit
     ? null
     : (a.mode === 'launch' && storedProposal(project)) ||
-      (await proposeToken(project.name, deps.check));
-  const proposal = proposed && proposed.name !== null ? { name: proposed.name, symbol: proposed.symbol } : null;
+      (await proposeToken(project.name, deps.check, project.repo_url ?? undefined));
+  const proposal = proposed ? { name: proposed.name, symbol: proposed.symbol } : null;
   // At submission a ticker without a name takes the (cleaned) project name.
   const projectName = cleanTokenName(project.name);
   const fallback =

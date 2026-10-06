@@ -91,25 +91,83 @@ export const tokensFunTickerCheck: TickerCheck = async (symbol) => {
   }
 };
 
-export type Proposal =
-  | { name: string; symbol: string; note?: string }
-  | { name: null; symbol: null; reason: string };
+/** EarnKit's proposed token: always a name and a ticker (v2.7 Ruling 16 (plan)). */
+export type Proposal = { name: string; symbol: string; note?: string };
 
-/** EarnKit's proposed token for a project (v2.3 §2). */
-export async function proposeToken(projectName: string, check: TickerCheck = tokensFunTickerCheck): Promise<Proposal> {
+/** "tip jar" from a GitHub repo link (dashes, underscores and dots as spaces), or null. Pure. */
+export function repoNameOf(repoUrl: string | undefined): string | null {
+  const m = repoUrl ? /^https:\/\/github\.com\/[^/]+\/([^/?#]+)/i.exec(repoUrl.trim()) : null;
+  const name = m ? m[1].replace(/\.git$/i, '').replace(/[-_.]+/g, ' ').trim() : '';
+  return name || null;
+}
+
+/** The first letters of the name's words (else its first 3 letters, padded with X), then 2-9 variants. Pure. */
+export function initialsCandidates(name: string): string[] {
+  const words = name.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const initials = words.map((w) => w[0]).join('');
+  const base = (initials.length >= 3 ? initials : words.join('').slice(0, 3).padEnd(3, 'X')).slice(0, 6);
+  return [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => `${base.slice(0, 5)}${d}`)];
+}
+
+/** The last-resort tickers: always pass tickerProblem, so a proposal always has one. */
+const LAST_RESORT = ['ENTRY', ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => `ENTRY${d}`)];
+/** At most this many tokens.fun ticker checks per proposal (Ruling 16). */
+const MAX_CHECKS = 12;
+const UNCHECKED = 'ticker not checked for duplicates';
+
+/**
+ * EarnKit's proposed token (v2.3 §2 + v2.7 Ruling 16 (plan)); never null. The name: the project
+ * name, "<name> Token", the repo name, then "<TICKER> Token". The ticker: v2.3's candidates from the
+ * project name, then the repo name, then initials, then ENTRY…; at most 12 checks, then the next
+ * candidate unchecked, with a note.
+ */
+export async function proposeToken(
+  projectName: string,
+  check: TickerCheck = tokensFunTickerCheck,
+  repoUrl?: string,
+): Promise<Proposal> {
   const trimmed = projectName.trim().slice(0, 50);
-  const primary = cleanTokenName(trimmed);
-  const fallback = 'name' in primary ? null : cleanTokenName(`${trimmed.slice(0, 44)} Token`);
-  const name = 'name' in primary ? primary.name : fallback && 'name' in fallback ? fallback.name : null;
-  const candidates = tickerCandidates(projectName).filter((c) => !tickerProblem(c));
-  if (!name || candidates.length === 0)
-    return { name: null, symbol: null, reason: "EarnKit couldn't propose a token for this name: pick a name and ticker with the builder." };
-  for (const c of candidates) {
+  const repo = repoNameOf(repoUrl);
+  const candidates = [
+    ...new Set([
+      ...tickerCandidates(trimmed),
+      ...(repo ? tickerCandidates(repo) : []),
+      ...initialsCandidates(trimmed),
+      ...(repo ? initialsCandidates(repo) : []),
+      ...LAST_RESORT,
+    ]),
+  ].filter((c) => !tickerProblem(c));
+  let symbol: string | null = null;
+  let note: string | undefined;
+  for (const [i, c] of candidates.entries()) {
+    if (i === MAX_CHECKS) {
+      symbol = c;
+      note = UNCHECKED;
+      break;
+    }
     const free = await check(c);
-    if (free === null) return { name, symbol: c, note: 'ticker not checked for duplicates' };
-    if (free) return { name, symbol: c };
+    if (free === null) {
+      symbol = c;
+      note = UNCHECKED;
+      break;
+    }
+    if (free) {
+      symbol = c;
+      break;
+    }
   }
-  return { name: null, symbol: null, reason: 'Every proposed ticker is taken: pick a name and ticker with the builder.' };
+  // Every candidate was checked and taken (a list no longer than MAX_CHECKS): propose the last one.
+  if (symbol === null) {
+    symbol = candidates[candidates.length - 1];
+    note = UNCHECKED;
+  }
+  const sym = symbol;
+  // "<TICKER> Token" always passes cleanTokenName (the ticker passed tickerProblem).
+  const named = [trimmed, trimmed ? `${trimmed.slice(0, 44)} Token` : '', repo ?? '', `${sym} Token`]
+    .map((n) => (n.trim() ? cleanTokenName(n) : { problem: 'empty' }))
+    .find((r): r is { name: string } => 'name' in r);
+  return { name: named?.name ?? `${sym} Token`, symbol: sym, ...(note && { note }) };
 }
 
 /** 12 colours with enough contrast for white letters. */

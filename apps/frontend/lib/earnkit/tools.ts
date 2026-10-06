@@ -343,9 +343,13 @@ export const tools = {
           remembered,
         )
       : { wallet: null, note: null };
+    // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
+    // leads with them and there is no token block, wallet or ticker check yet.
+    const prep = prepareSubmission(program.submission_requirements, known);
+    const missing = prep.ready ? [] : prep.missing.filter((m) => m.required).map((m) => m.label);
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
-    const token = open
+    const token = open && prep.ready
       ? await tokenProposalBlock({
           program,
           projectName: known.project?.name,
@@ -379,10 +383,11 @@ export const tools = {
       prize: program.summary.split(' · ')[0],
       endsAt: program.ends_at,
       payoutWallet,
+      missing,
       askWallet: ask.wallet,
       token: token
         ? {
-            symbol: token.proposed?.symbol ?? null,
+            symbol: token.proposed.symbol,
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
             coinIn: token.repo_coin_program,
@@ -394,7 +399,7 @@ export const tools = {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
-      ...prepareSubmission(program.submission_requirements, known),
+      ...prep,
       ...(ask.note && { payout_wallet_note: ask.note }),
       ...(program.campaign
         ? {

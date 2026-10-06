@@ -141,9 +141,9 @@ const noneOfYourReposFit = presentFirstMessage(
 // ---- coinRow, walletLine, enteredText, noCoinYet: every branch.
 const coinRows = [
   coinRow({ symbol: 'TIPJAR', hasBonus: true }),
-  coinRow({ symbol: null, hasBonus: true }),
+  coinRow({ symbol: 'GOX', hasBonus: true }),
   coinRow({ symbol: 'TIPJAR', hasBonus: false }),
-  coinRow({ symbol: null, hasBonus: false }),
+  coinRow({ symbol: 'ENTRY', hasBonus: false }),
   coinRow({ symbol: 'TIPJAR', hasBonus: true, coinIn: 'Arc Microgrants' }),
 ];
 const walletLines = [
@@ -207,7 +207,12 @@ const confirmTables = [
   // Non-campaign, no wallet yet.
   confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
-    payoutWallet: null, token: { symbol: null, hasBonus: true },
+    payoutWallet: null, token: { symbol: 'TIPJAR', hasBonus: true },
+  }),
+  // v2.7 Ruling 15 (plan): not ready; what's missing leads, no token row or wallet.
+  confirmTable({
+    project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants', endsAt: null,
+    payoutWallet: null, missing: ['Live deployment on Arc mainnet'], token: { symbol: 'TIPJAR', wallet: BONUS_WALLET, hasBonus: true },
   }),
   // Non-campaign, Ruling 25 (repo's coin already entered elsewhere).
   confirmTable({

@@ -355,7 +355,7 @@ export async function verifiedBonusContracts(
   const notes: string[] = [];
   if (never.length)
     notes.push(
-      `${never.join(', ')}: Clanker or Uniswap contracts never count as yours; leave them out of contracts` +
+      `${never.join(', ')}: token launch or Uniswap contracts never count as yours; leave them out of contracts` +
         (signature ? ' and sign the list without them next time.' : '.'),
     );
   if (!candidates.length) return { contracts: [], deployers: [], note: notes.length ? `Contracts not counted for the builder bonus: ${notes.join(' ')}` : null };

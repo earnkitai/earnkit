@@ -130,9 +130,6 @@ test("deploy outcomes: unminted-or-unknown responses stay pending, not released"
   assert.match(unauthorized.note!, /Unauthorized/);
 });
 
-test('earnings line is the spec text', () => {
-  assert.equal(
-    EARNINGS_LINE('0xW'),
-    "You keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH to 0xW. tokens.fun pays the gas.",
-  );
+test('earnings line is the spec text (v2.7 Ruling 18: no launch protocol named)', () => {
+  assert.equal(EARNINGS_LINE('0xW'), 'You earn 40% of trading fees, paid in WETH to 0xW. tokens.fun pays the gas.');
 });

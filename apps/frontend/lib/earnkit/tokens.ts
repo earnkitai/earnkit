@@ -100,7 +100,7 @@ export type TokenOutcome = {
 
 /** What the builder is told about fee splits once a token is live. */
 export const EARNINGS_LINE = (wallet: string) =>
-  `You keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH to ${wallet}. tokens.fun pays the gas.`;
+  `You earn 40% of trading fees, paid in WETH to ${wallet}. tokens.fun pays the gas.`;
 
 /**
  * Maps a tokens.fun deploy response to a TokenOutcome, plus whether the launch claim

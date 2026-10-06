@@ -22,33 +22,29 @@ export function keyTable(rows: [string, string][]) {
 }
 
 /**
- * The one token row (v2.4: a default at submission only, never advertised). `hasBonus` (v2.5 §3:
- * the program is active and has a submission_proof pattern, so its entries can earn the builder
- * bonus) swaps the generic "say no token to skip" for what skipping actually costs here: the
- * builder bonus. Pure.
+ * The one token row in EarnKit campaigns (v2.4: a default at submission only, never advertised).
+ * v2.7 §3: the token's chain is explicit (tokens.fun launches on Base). `hasBonus` (v2.5 §3)
+ * swaps the generic "say no token to skip" for what skipping costs here: the builder bonus. Pure.
  */
-export const tokenRow = (symbol: string | null, hasBonus = false, coinIn: string | null = null) => {
-  // Ruling 25: one coin per repo; this repo's coin is already entered in another program.
+export const tokenRow = (symbol: string, hasBonus = false, coinIn: string | null = null) => {
+  // Ruling 25: one token per repo; this repo's token is already entered in another program.
   if (hasBonus && coinIn) return repoCoinNote(coinIn);
-  if (hasBonus)
-    return symbol
-      ? `$${symbol} on tokens.fun, you keep 40% of fees · skip: no builder bonus`
-      : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker · skip: no builder bonus';
-  return symbol
-    ? `$${symbol} on tokens.fun, you keep 40% of fees (say "no token" to skip)`
-    : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip';
+  return hasBonus
+    ? `a token on Base, $${symbol}: you earn 40% of its trading fees · skip: no builder bonus`
+    : `a token on Base, $${symbol}: you earn 40% of its trading fees (say "no token" to skip)`;
 };
 
 /**
- * v2.6 §3: the coin row outside campaigns (one yes confirms the coin and the wallet under it).
- * `hasBonus`: bonusOn; skipping then costs the builder bonus. `coinIn`: Ruling 25. Pure.
+ * v2.6 §3 + v2.7 Ruling 17 (plan): the Token row outside campaigns (one yes confirms the token and
+ * the wallet under it); the chain is explicit. `hasBonus`: bonusOn; skipping then costs the
+ * builder bonus. `coinIn`: Ruling 25. Pure.
  */
-export function coinRow(a: { symbol: string | null; hasBonus: boolean; coinIn?: string | null }) {
+export function coinRow(a: { symbol: string; hasBonus: boolean; coinIn?: string | null }) {
   if (a.hasBonus && a.coinIn) return repoCoinNote(a.coinIn);
-  const coin = a.symbol ? `, $${a.symbol}` : ' (pick a name and ticker)';
+  const token = `Your entry gets a token on Base, $${a.symbol}: you earn 40% of its trading fees`;
   return a.hasBonus
-    ? `Your entry gets a coin${coin}: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus`
-    : `Your entry gets a coin${coin}: you earn 40% of its trading fees · skip: no coin`;
+    ? `${token}, and it joins the builder bonus · skip: no token, no builder bonus`
+    : `${token} · skip: no token`;
 }
 
 /**
@@ -57,17 +53,17 @@ export function coinRow(a: { symbol: string | null; hasBonus: boolean; coinIn?: 
  */
 export function walletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
   const what = a.hasBonus ? 'fees and any bonus' : 'fees';
-  if (!a.wallet) return `Which wallet should get your coin's ${what}?`;
+  if (!a.wallet) return `Which wallet should get your token's ${what}?`;
   // Final review M8: "used last time", never "yours": on a shared registration it may not be.
   return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (used last time)' : ''} — or tell me another.`;
 }
 
 /**
- * Ruling 22: the consent line under the coin row outside campaigns: the fee detail the row leaves
- * out (WETH, Clanker's cut, gas) and both terms links (v2.3 consent), once. Campaigns keep
- * tokenFootnote.
+ * Ruling 22 + v2.7 §3: the consent line under the token row outside campaigns: the fee detail the
+ * row leaves out (WETH, gas) and both terms links (v2.3 consent), once. It never names the launch
+ * protocol or its cut (Ruling 18 (plan)). Campaigns keep tokenFootnote.
  */
-export const COIN_FOOTNOTE = `Fees in WETH, after Clanker's 20% cut; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
+export const COIN_FOOTNOTE = `Fees in WETH; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
 const DAY_MS = 86_400_000;
 
@@ -215,10 +211,16 @@ export const repoCoinNote = (programTitle: string) => `no builder bonus: this re
  * for the builder only (never the other slots the v2.5 split adds). Pure.
  */
 export const tokenFootnote = (wallet: string | null | undefined) =>
-  `Token: you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH${wallet ? ` to ${wallet}` : ''}; tokens.fun pays the gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
+  `Token: you earn 40% of trading fees, paid in WETH${wallet ? ` to ${wallet}` : ''}; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
 /** The footnote when the fee wallet isn't known yet. */
 export const TOKEN_FOOTNOTE = tokenFootnote(null);
+
+/**
+ * v2.7 §3, Ruling 15 (plan): the lead line while the entry can't be submitted yet, from the
+ * required items prepareSubmission reports missing, by their label as written. Pure.
+ */
+export const notReadyLine = (missing: string[]) => `Before you submit: ${missing.join('; ')}.`;
 
 /**
  * prepare_submission's show_to_builder (v2.4 §2): the one block the builder confirms. The prize
@@ -233,6 +235,12 @@ export function confirmTable(a: {
   prize: string;
   endsAt: Date | null;
   payoutWallet: string | null;
+  /**
+   * v2.7 Ruling 15 (plan): the required items still missing (prepareSubmission's labels). When any
+   * are, the screen leads with them and shows only Entry and Prize (plus the campaign wallet ask):
+   * no token row, wallet line or footnote.
+   */
+  missing?: string[];
   /** A remembered payout wallet to confirm (I8): asked under the table, in full. */
   askWallet?: string | null;
   /**
@@ -241,7 +249,7 @@ export function confirmTable(a: {
    * no footnote).
    */
   token: {
-    symbol: string | null;
+    symbol: string;
     wallet?: string | null;
     hasBonus?: boolean;
     coinIn?: string | null;
@@ -259,17 +267,19 @@ export function confirmTable(a: {
   else if (c?.kind === 'sponsor' && a.endsAt)
     rows.push(['Prize', `the sponsor picks winners after ${shortDate(a.endsAt)}`]);
   else rows.push(['Prize', a.prize]);
+  const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
+  if (a.missing?.length) return `${notReadyLine(a.missing)}\n\n${keyTable(rows)}${ask}`;
   const coinIn = a.token?.hasBonus ? (a.token.coinIn ?? null) : null;
-  // v2.6 §3: outside campaigns, the Coin row and the wallet line under the table (one yes
-  // confirms both); campaigns keep v2.4's Token row.
+  // v2.6 §3: outside campaigns, the token row and the wallet line under the table (one yes
+  // confirms both); campaigns keep v2.4's row. The key is Token everywhere (Ruling 17 (plan)).
   const coin = !c && a.token;
   if (a.token)
-    rows.push(
+    rows.push([
+      'Token',
       coin
-        ? ['Coin', coinRow({ symbol: a.token.symbol, hasBonus: a.token.hasBonus === true, coinIn })]
-        : ['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn)],
-    );
-  const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
+        ? coinRow({ symbol: a.token.symbol, hasBonus: a.token.hasBonus === true, coinIn })
+        : tokenRow(a.token.symbol, a.token.hasBonus, coinIn),
+    ]);
   const wallet =
     a.token && coin && !coinIn
       ? `\n\n${walletLine({ wallet: a.token.wallet ?? null, remembered: a.token.remembered === true, hasBonus: a.token.hasBonus === true })}`
