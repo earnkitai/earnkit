@@ -68,6 +68,86 @@ const Idea = z
     return words.length >= 3 && words.length <= 12;
   }, 'ideas must be 3 to 12 words');
 
+/** v2.7 §2: a short guide string, like `ideas` but 1-12 words ("FX" is one): no links, no markup. */
+export const ShortText = z
+  .string()
+  .min(1)
+  .max(100)
+  .refine((s) => !/https?:\/\/|www\./i.test(s), 'no links')
+  .refine((s) => {
+    const n = s.trim().split(/\s+/).filter(Boolean).length;
+    return n >= 1 && n <= 12;
+  }, 'must be 1 to 12 words');
+
+const HttpsUrl = z.string().url().startsWith('https://');
+
+/** v2.7 §2: a program's own logo, shown on its card and guide page via <img> only. */
+const GuideLogo = z
+  .object({ path: z.string().min(1), source_url: HttpsUrl })
+  .strict();
+export type GuideLogo = z.infer<typeof GuideLogo>;
+
+const PastRoundTheme = z
+  .object({ theme: ShortText, count: z.number().int().positive() })
+  .strict();
+
+const PastRoundExample = z
+  .object({
+    name: z.string().min(1).max(60),
+    what: ShortText,
+    why: ShortText,
+    source_url: HttpsUrl,
+  })
+  .strict();
+
+/** v2.7 §2: a published round of winners, newest first (Ruling 2 (plan)). */
+const PastRound = z
+  .object({
+    label: z.string().min(1).max(80),
+    source_url: HttpsUrl,
+    submissions: z.number().int().positive().optional(),
+    winners: z.number().int().positive().optional(),
+    themes: z.array(PastRoundTheme).min(1).max(3).optional(),
+    examples: z.array(PastRoundExample).min(1).max(2).optional(),
+  })
+  .strict();
+export type PastRound = z.infer<typeof PastRound>;
+
+/** v2.7 §2: what a program (or its ecosystem) is prioritizing right now. */
+const Focus = z
+  .object({
+    areas: z.array(ShortText).min(1).max(3),
+    source_url: HttpsUrl,
+    ecosystem: z.string().min(1).max(40).optional(),
+  })
+  .strict();
+export type Focus = z.infer<typeof Focus>;
+
+/** v2.7 Ruling 5 (plan): when set, wins over the computed difficulty and shows as not an estimate. */
+const DifficultyOverride = z
+  .object({
+    level: z.enum(['Easy', 'Medium', 'Hard']),
+    basis: z.string().min(1),
+    source_url: HttpsUrl,
+  })
+  .strict();
+export type DifficultyOverride = z.infer<typeof DifficultyOverride>;
+
+/**
+ * v2.7 Ruling 23 (plan): why a program logo file can't be served, or null. Logos render only via
+ * <img>, but a file that would run script if opened directly is refused anyway. Pure.
+ */
+export function logoFileProblem(path: string, bytes: Buffer | null): string | null {
+  if (bytes === null) return `logo.path: ${path} not found under apps/frontend/public`;
+  if (bytes.length > 200_000) return `logo.path: ${path} is over 200 KB`;
+  if (path.endsWith('.png'))
+    return bytes[0] === 0x89 && bytes.toString('latin1', 1, 4) === 'PNG' ? null : `logo.path: ${path} is not a PNG`;
+  const svg = bytes.toString('utf8');
+  return /<script|<foreignObject|\son[a-z]+\s*=|href\s*=\s*["']\s*(?:https?:|javascript:|data:)/i.test(svg)
+    ? `logo.path: ${path} has scripts, event handlers or external links`
+    : null;
+}
+
 /**
  * Proof a submission is a public page EarnKit can point to (e.g. a DoraHacks BUIDL): the
  * hostname it's published on, and a regex matched against the URL's path to confirm it's a
@@ -181,6 +261,18 @@ export const ProgramFile = z
           .strict(),
       )
       .default([]),
+    /** v2.7 Ruling 23 (plan): programs/<id>.svg or .png under apps/frontend/public. */
+    logo: GuideLogo.optional(),
+    /** v2.7 §2: published rounds, newest first, at most 5. Never invented; each carries a source_url. */
+    past_rounds: z.array(PastRound).max(5).default([]),
+    /** v2.7 §2: up to 3 current focus areas, from the program's tracks or the ecosystem's priorities. */
+    focus: Focus.optional(),
+    /** v2.7 Ruling 8 (plan): EarnKit's curated advice, never generated; must follow from past_rounds/focus. */
+    best_bet: z.string().min(1).optional(),
+    /** v2.7 Ruling 5 (plan): set only when the organizer publishes odds another way. */
+    difficulty_override: DifficultyOverride.nullable().default(null),
+    /** v2.7 Ruling 6 (plan): set only when source_url states how many winners a round has. */
+    winners_per_round: z.number().int().positive().optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -248,5 +340,34 @@ export const ProgramFile = z
     ) {
       issue('starts_at must be before ends_at');
     }
+
+    // v2.7 §2: program guide facts (logo, past_rounds, focus, best_bet).
+    for (const r of p.past_rounds) {
+      if (
+        r.submissions !== undefined &&
+        r.winners !== undefined &&
+        r.submissions < r.winners
+      )
+        issue('submissions must be at least winners');
+      if (r.themes && r.winners !== undefined) {
+        const over =
+          r.themes.some((t) => t.count > r.winners!) ||
+          r.themes.reduce((sum, t) => sum + t.count, 0) > r.winners;
+        if (over) issue("theme counts can't exceed the round's winners");
+      }
+    }
+    const roundLabels = p.past_rounds.map((r) => r.label);
+    if (new Set(roundLabels).size !== roundLabels.length)
+      issue('past round labels must be unique');
+
+    if (p.logo) {
+      const svg = `programs/${p.id}.svg`;
+      const png = `programs/${p.id}.png`;
+      if (p.logo.path !== svg && p.logo.path !== png)
+        issue(`logo.path must be ${svg} or .png`);
+    }
+
+    if (p.best_bet && p.past_rounds.length === 0 && !p.focus)
+      issue('best_bet must be drawn from past_rounds or focus');
   });
 export type ProgramFile = z.infer<typeof ProgramFile>;

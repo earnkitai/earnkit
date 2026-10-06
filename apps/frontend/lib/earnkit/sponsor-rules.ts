@@ -383,6 +383,9 @@ export function sponsorProgramFile(a: {
     submission_proof: null,
     // Irrelevant here: its campaign (below) already keeps bonusOn false for sponsor campaigns.
     builder_bonus: true,
+    // A sponsor campaign has no program file to draw guide facts from.
+    past_rounds: [],
+    difficulty_override: null,
     rules: sponsorRules({
       prizeTotal,
       symbol: token.symbol,
