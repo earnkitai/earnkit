@@ -52,6 +52,12 @@ const nextConfig: NextConfig = {
         source: '/api/projects/:id/token-image',
         headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
       },
+      // v2.7 fix round 1 (Finding 4): a program logo under /public/programs is a static file on
+      // this origin; nothing loads or runs if it's opened directly, same as the token images.
+      {
+        source: '/programs/:file*',
+        headers: [{ key: 'Content-Security-Policy', value: IMAGE_CSP }],
+      },
     ];
   },
 };
