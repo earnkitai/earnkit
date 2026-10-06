@@ -196,3 +196,16 @@ test('Ruling 13 (plan): ReportedRepoInput accepts an item with url and with no u
   );
   assert.equal(ReportedRepoInput.safeParse({ name: 'tipjar', chains: [] }).success, true);
 });
+
+test('fix round 1, finding 3: Ruling 13 (plan) — a url over 300 characters is dropped, never rejected', () => {
+  const tooLong = `https://github.com/acme/${'a'.repeat(290)}`;
+  assert.ok(tooLong.length > 300, tooLong.length.toString());
+  const r = ReportedRepoInput.safeParse({ name: 'tipjar', chains: [], url: tooLong });
+  assert.equal(r.success, true);
+  assert.equal(r.success && r.data.url, undefined);
+  // At exactly 300 it's kept (and still parses as a GitHub link via reportedFacts).
+  const atLimit = `https://github.com/acme/${'a'.repeat(300 - 'https://github.com/acme/'.length)}`;
+  assert.equal(atLimit.length, 300);
+  const kept = ReportedRepoInput.safeParse({ name: 'tipjar', chains: [], url: atLimit });
+  assert.equal(kept.success && kept.data.url, atLimit);
+});

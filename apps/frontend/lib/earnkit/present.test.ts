@@ -206,11 +206,33 @@ test('Ruling 11 (plan): a GitHub user with no repos found never gets "You could"
   assert.equal(youCould({ error: 'x' }, false), false);
 });
 
+test('fix round 1, finding 1: "You could" with no ideas still closes with "Pick one and I\'ll start.", never "qualify"', () => {
+  const text = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: WEI('0.42') }] }));
+  assert.match(text, /^\$500 is open right now\. I can build an entry for you\.\n\n/);
+  // No ideas on this card (arc carries none here), so the old code fell through to "Want me to
+  // check which of your repos already qualify?" — there's nothing to check with repos === null.
+  assert.ok(text.endsWith("Pick one and I'll start."), text);
+  assert.doesNotMatch(text, /qualify/);
+});
+
+test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos found: "$X is open right now" plus ideas', () => {
+  const text = presentFirstMessage(msg({
+    cards: [{ ...arc, ideas: ['Arc idea'] }],
+    repos: { error: 'GitHub said no' },
+  }));
+  assert.match(text, /^Couldn't read your repos: GitHub said no\n\n\$500 is open right now\. I can build an entry for you\.\n\n\| Program \| Prize \| Builder bonus \| Ends \|/);
+  assert.match(text, /\nIdeas I can build:\n- Arc Microgrants: Arc idea\n/);
+  assert.ok(text.endsWith("Pick one and I'll start."));
+  assert.doesNotMatch(text, /You could/);
+});
+
 test('v2.6 §1: an opted-out program shows "—" and no shown program is opted out leaves no note', () => {
   const text = presentFirstMessage(msg({ cards: [{ ...base, builder_bonus: false }, { ...tiny, builder_bonus: false }] }));
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \| — \| rolling \|/);
   assert.match(text, /\| Tiny Bounty \| 50 USDC \| — \| Oct 9 \|/);
   assert.doesNotMatch(text, /Builder bonus: paid/);
+  // fix round 1, finding 1: no ideas here either; still "Pick one", never "check your repos".
+  assert.ok(text.endsWith("Pick one and I'll start."), text);
 });
 
 test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sentence, and the chat-only offer', () => {
@@ -246,6 +268,20 @@ test('fix round 1: the note sits right under the table that shows a bonus, never
   assert.match(parts[note + 1], /Want me to start on Arc Microgrants with tipjar\?/);
   assert.doesNotMatch(parts[note - 1] + parts[note + 1], /\| Win \|/);
   assert.equal(parts.filter((p) => p === NOTE).length, 1);
+
+  // Minor 6 (fix round 1): the original coverage, preserved — when the "Also open" rows are all
+  // opted out (no bonus there), the note sits right under the repo table, directly above the
+  // campaign table.
+  const text2 = presentFirstMessage(msg({
+    campaigns: [{ ...campaign, you: '#3, in the top 5' }],
+    cards: [arc, { ...base, builder_bonus: false }, { ...tiny, builder_bonus: false }],
+    repos: repos(v('arc-microgrants', 'likely', 'ok')),
+  }));
+  const parts2 = text2.split('\n\n');
+  const note2 = parts2.indexOf(NOTE);
+  assert.match(parts2[note2 - 1], /^\| Program \| Prize \| Builder bonus \| Ends \| Your repo \|/);
+  assert.match(parts2[note2 + 1], /^\| Win \|/);
+  assert.equal(parts2.filter((p) => p === NOTE).length, 1);
 });
 
 test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
@@ -437,7 +473,10 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   const quiet = presentFirstMessage(msg({ cards, updates }));
   assert.doesNotMatch(quiet, /Since you last checked/);
   assert.doesNotMatch(quiet, /^Updates/);
-  assert.match(quiet, /\n\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\.\n\nWant me to /);
+  // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
+  // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
+  // above whatever the offer is.
+  assert.match(quiet, /\n\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\.\n\nPick one and I'll start\.$/);
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);

@@ -192,7 +192,9 @@ export const tools = {
       ? local_repos
       : (memory.local_repos ?? undefined);
     // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
-    const githubGiven = Boolean(user || repoList?.length);
+    // Local repos count too (fix round 1, Minor 5): the spec's gate is "no repos are reported or
+    // found", and a repo the agent reported is a repo reported, matching error or not.
+    const githubGiven = Boolean(user || repoList?.length || local?.length);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
     const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
       ...p,
