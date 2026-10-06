@@ -1,11 +1,11 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
-
-/** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
-export { endsOf };
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Effort, type Verdict } from './match';
 import type { Difficulty } from './guide';
+
+/** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
+export { endsOf } from './entry-text';
 
 /**
  * The builder-facing text for list_programs (v2.5 §1): money first, markdown tables, no emojis.

@@ -15,7 +15,6 @@ export const ODDS_BANDS = { easy: 0.25, medium: 0.08 } as const;
 
 export type GuideFacts = Pick<
   ProgramRow,
-  | 'title'
   | 'past_rounds'
   | 'focus'
   | 'best_bet'
@@ -32,34 +31,33 @@ const VIDEO = /\b(video|loom)\b/i;
 const MAINNET = /\bmainnet\b/i;
 
 /**
- * Whether a past round is this program's own (its label starts with the program's title). Any
- * other round is a predecessor event (Ruling C2), so the basis names it instead of "last round".
+ * Ruling C4: whether a round is this program's newest own round (the file states `own: true`, and
+ * it is first). Only then does the guide say "last round" / "What won last time"; any other round
+ * is named (Rulings C2, C3).
  */
-const ownRound = (title: string, r: PastRound) =>
-  r.label.toLowerCase().startsWith(title.toLowerCase());
+const lastOwn = (p: Pick<GuideFacts, 'past_rounds'>, r: PastRound) => r === p.past_rounds[0] && r.own === true;
 
-/** The round difficulty's odds come from: the newest with both counts (Ruling 2 (plan)). */
-const countedRound = (p: GuideFacts) =>
-  p.past_rounds.find((r) => r.submissions && r.winners) ?? null;
+/** "last round" for the program's newest own round, else "in <label>". */
+const when = (p: GuideFacts, r: PastRound) => (lastOwn(p, r) ? 'last round' : `in ${r.label}`);
 
-/** "last round" for the program's own newest round, else "in <label>". */
-const when = (p: GuideFacts, r: PastRound) =>
-  r === p.past_rounds[0] && ownRound(p.title, r) ? 'last round' : `in ${r.label}`;
-
-/** v2.7 §2, Rulings 2-5 (plan): the program's difficulty from its own data. Pure. */
-export function difficultyOf(p: GuideFacts): Difficulty {
+/**
+ * v2.7 §2, Rulings 2-5 (plan): the difficulty and the source_url its basis rests on (the
+ * override's, the round's, or the program's own for `winners_per_round`, Ruling 6). One
+ * selection for difficultyOf and guideSources, so the cited source always matches the basis. Pure.
+ */
+function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: Difficulty; source_url: string | null } {
   const o = p.difficulty_override;
-  if (o) return { level: o.level, estimate: false, basis: o.basis };
+  if (o) return { difficulty: { level: o.level, estimate: false, basis: o.basis }, source_url: o.source_url };
   const newest = p.past_rounds[0] ?? null;
-  const counted = countedRound(p);
+  // Ruling 2 (plan): odds from the newest round with both counts.
+  const counted = p.past_rounds.find((r) => r.submissions && r.winners);
   if (counted) {
     const odds = counted.winners! / counted.submissions!;
     const level: Level =
       odds >= ODDS_BANDS.easy ? 'Easy' : odds >= ODDS_BANDS.medium ? 'Medium' : 'Hard';
     return {
-      level,
-      estimate: false,
-      basis: `${counted.winners} of ~${counted.submissions} entries won ${when(p, counted)}`,
+      difficulty: { level, estimate: false, basis: `${counted.winners} of ~${counted.submissions} entries won ${when(p, counted)}` },
+      source_url: counted.source_url,
     };
   }
   // Ruling 4 (plan): the estimate. Never Easy (Ruling 3): without counts, no promise of good odds.
@@ -77,14 +75,21 @@ export function difficultyOf(p: GuideFacts): Difficulty {
   if (winners !== null && winners <= 3) score -= 1;
   if (p.tag === 'long shot') score -= 2;
   if (barriers >= 2) score += 1;
-  const basis =
-    winners === null
-      ? 'no past results yet'
-      : newest?.winners
-        ? `${winners} winners ${when(p, newest)}; entry count not published`
-        : `${winners} winners per round; no past results yet`;
-  return { level: score < 0 ? 'Hard' : 'Medium', estimate: true, basis };
+  const level: Level = score < 0 ? 'Hard' : 'Medium';
+  const est = (basis: string, source_url: string | null) => ({ difficulty: { level, estimate: true, basis }, source_url });
+  // "no past results yet" only with no past round at all (Ruling 4; review Finding 2).
+  if (newest?.winners) return est(`${winners} winners ${when(p, newest)}; entry count not published`, newest.source_url);
+  if (newest)
+    return p.winners_per_round
+      ? est(`${p.winners_per_round} winners per round; past counts not published`, p.source_url ?? null)
+      : est('winners not published', null);
+  return winners === null
+    ? est('no past results yet', null)
+    : est(`${winners} winners per round; no past results yet`, p.source_url ?? null);
 }
+
+/** v2.7 §2, Rulings 2-5 (plan): the program's difficulty from its own data. Pure. */
+export const difficultyOf = (p: GuideFacts): Difficulty => difficultyFrom(p).difficulty;
 
 /** The Difficulty cell: "Medium", "Hard (estimate)". Pure. */
 export const difficultyLabel = (d: Difficulty) => (d.estimate ? `${d.level} (estimate)` : d.level);
@@ -93,19 +98,22 @@ export type Guide = {
   /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14". */
   header: string;
   difficulty: Difficulty;
-  /** Theme lines, then example lines, without "- ". */
-  won: { lines: string[]; source_url: string } | null;
+  /**
+   * Theme lines, then example lines, without "- ". `own`: the program's newest own round ("What
+   * won last time"); otherwise a predecessor or older round ("What won before", Ruling C3).
+   */
+  won: { own: boolean; lines: string[]; source_url: string } | null;
   wants: { ecosystem: string; areas: string[]; source_url: string } | null;
   best_bet: string | null;
   /** board: "earnkit.com/bonus/<slug>". */
   bonus: { cell: string; board: string } | null;
 };
 
-/** The round "What won last time" uses: the newest with themes or examples. */
+/** The round "What won" uses: the newest with themes or examples. */
 const wonRound = (p: Pick<GuideFacts, 'past_rounds'>) =>
   p.past_rounds.find((r) => r.themes?.length || r.examples?.length) ?? null;
 
-/** "What won last time" (Ruling 9 (plan)): the top 3 themes by count, then the examples. Pure. */
+/** "What won" lines (Ruling 9 (plan)): the top 3 themes by count, then the examples. Pure. */
 function wonLines(r: PastRound): string[] {
   const themes = [...(r.themes ?? [])].sort((a, b) => b.count - a.count).slice(0, 3);
   return [
@@ -120,7 +128,7 @@ function wonLines(r: PastRound): string[] {
 
 /** v2.7 §2: the guide for one curated program. Pure. */
 export function programGuide(
-  p: GuideFacts & Pick<ProgramRow, 'summary' | 'ends_at' | 'status'>,
+  p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status'>,
   bonus: { cell: string; board: string } | null,
   now = new Date(),
 ): Guide {
@@ -131,7 +139,7 @@ export function programGuide(
   return {
     header: `${p.title} · ${prizeOf(p)} · ${end}`,
     difficulty: difficultyOf(p),
-    won: won ? { lines: wonLines(won), source_url: won.source_url } : null,
+    won: won ? { own: lastOwn(p, won), lines: wonLines(won), source_url: won.source_url } : null,
     wants: p.focus
       ? {
           ecosystem: p.focus.ecosystem ?? CHAIN_NAMES[p.chains[0]] ?? p.title,
@@ -144,16 +152,14 @@ export function programGuide(
   };
 }
 
-/** Every source_url the guide's facts come from, deduped. Pure. */
-export function guideSources(p: GuideFacts): string[] {
+/**
+ * Every source_url the guide's facts come from, deduped. `source_url` is the program's own, cited
+ * when the basis rests on `winners_per_round` (Ruling 6). Pure.
+ */
+export function guideSources(p: GuideFacts & { source_url?: string }): string[] {
   const urls: string[] = [];
-  if (p.difficulty_override) urls.push(p.difficulty_override.source_url);
-  else {
-    const counted = countedRound(p);
-    const newest = p.past_rounds[0];
-    if (counted) urls.push(counted.source_url);
-    else if (newest?.winners) urls.push(newest.source_url);
-  }
+  const basis = difficultyFrom(p).source_url;
+  if (basis) urls.push(basis);
   const won = wonRound(p);
   if (won) urls.push(won.source_url, ...(won.examples ?? []).map((e) => e.source_url));
   if (p.focus) urls.push(p.focus.source_url);
@@ -164,7 +170,7 @@ export function guideSources(p: GuideFacts): string[] {
 export function guideText(g: Guide): string {
   const sections = [
     `${g.header}\nDifficulty: ${difficultyLabel(g.difficulty)} — ${g.difficulty.basis}`,
-    g.won && ['What won last time', ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
+    g.won && [g.won.own ? 'What won last time' : 'What won before', ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
     g.bonus && `Builder bonus: ${g.bonus.cell} · ${g.bonus.board}`,
