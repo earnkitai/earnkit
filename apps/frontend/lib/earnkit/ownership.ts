@@ -158,7 +158,7 @@ const fetchFailed = (signal: AbortSignal): FetchResult => ({
   status: 'error',
   message: signal.aborted
     ? `no answer within ${FETCH_TIMEOUT_MS / 1000} s`
-    : 'the fetch failed',
+    : "GitHub couldn't be reached",
 });
 
 /**
@@ -171,10 +171,10 @@ async function readSmallBody(res: Response): Promise<FetchResult> {
   if (res.status >= 300 && res.status < 400)
     return {
       status: 'error',
-      message: `it redirects (${res.status}); use the repo's current GitHub link`,
+      message: "the repo moved; use its current GitHub link",
     };
   if (res.status !== 200)
-    return { status: 'error', message: `it answered ${res.status}` };
+    return { status: 'error', message: "GitHub didn't answer" };
   const length = Number(res.headers.get('content-length'));
   if (Number.isFinite(length) && length > FETCH_MAX_BYTES) return tooLarge();
   const chunks: Uint8Array[] = [];
@@ -196,8 +196,8 @@ async function readSmallBody(res: Response): Promise<FetchResult> {
 /**
  * v2.6 §3: earnkit.txt through GitHub's contents API with EarnKit's GITHUB_TOKEN (no raw-CDN cache
  * delay after a push). Ruling 14 (plan): raw.githubusercontent.com is read only when the API is
- * rate-limited (429, or 403 with x-ratelimit-remaining 0); a 404 is missing; a redirect, another
- * status or a network failure is a retryable error. The token is sent, never logged.
+ * rate-limited (rateLimited: primary or secondary); a 404 is missing; a redirect, another status or
+ * a network failure is a retryable error. The token is sent, never logged.
  */
 export async function fetchOwnershipViaApi(
   r: { owner: string; repo: string },
@@ -218,21 +218,33 @@ export async function fetchOwnershipViaApi(
         },
       },
     );
-    if (
-      res.status === 429 ||
-      (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')
-    ) {
-      await res.body?.cancel().catch(() => {});
+    if (await rateLimited(res))
       return (deps.raw ?? fetchOwnershipFile)(ownershipFileUrl(r));
-    }
     return await readSmallBody(res);
   } catch {
     return fetchFailed(signal);
   }
 }
+/**
+ * Whether a GitHub API answer is a rate limit (Ruling 14 (plan), fix round 1): 429; a 403 with
+ * x-ratelimit-remaining 0 (primary); or a 403 with retry-after or GitHub's "secondary rate limit" /
+ * "abuse" message (secondary). Consumes the body when it says yes.
+ */
+async function rateLimited(res: Response): Promise<boolean> {
+  if (res.status === 429) return cancelled(res);
+  if (res.status !== 403) return false;
+  if (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')) return cancelled(res);
+  const text = await res.text().catch(() => '');
+  return /secondary rate limit|abuse/i.test(text.slice(0, FETCH_MAX_BYTES));
+}
+const cancelled = async (res: Response) => {
+  await res.body?.cancel().catch(() => {});
+  return true;
+};
+
 const tooLarge = (): FetchResult => ({
   status: 'error',
-  message: `it is larger than ${FETCH_MAX_BYTES} bytes`,
+  message: `the file is larger than ${FETCH_MAX_BYTES / 1024} KB`,
 });
 
 /**

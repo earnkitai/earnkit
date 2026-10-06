@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { ForkCheckError } from './match-projects';
 import {
   codeProblem,
   legacyTokenLineCode,
@@ -67,13 +68,15 @@ test('each failure has its own reason, checked in order', async () => {
     [{ policy: 'off' }, {}, /doesn't allow tokens/],
     [{ repoUrl: null }, {}, /public GitHub repo/],
     [{ repoUrl: 'https://gitlab.com/a/b' }, {}, /public GitHub repo/],
-    [{}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }, /isn't public/],
-    [{}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }, /couldn't check the repo/],
+    [{}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }, /isn't public on GitHub\. Make it public, then say 'launch the token'\./],
+    [{}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }, /couldn't check the repo on GitHub right now\. Try again in a minute: say 'launch the token'\.$/],
+    // A failed fork compare is not "isn't public", even when the compare says not found.
+    [{}, { repo: async () => { throw new ForkCheckError("GitHub: couldn't compare the fork with its parent (GitHub: /repos/x/y/compare not found (or private))", 404); } }, /^EarnKit couldn't check the fork's commits on GitHub right now\. Try again in a minute: say 'launch the token'\.$/],
     [{}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }, /no commits/],
-    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits/],
+    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits; a coin needs your own code\. Push your own commits to it, then say 'launch the token'\./],
     [{}, { owner: async () => ({ status: 'missing' }) }, /add a file named earnkit\.txt at its root .* with the line "token: [0-9a-f]{16}"/],
-    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt at the repo root \\(default branch\\), push it, then call launch_token\\.`)],
-    [{}, { owner: async () => ({ status: 'error', message: 'it answered 500' }) }, /couldn't read earnkit\.txt.*500.*retry/],
+    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt at the repo root \\(default branch\\), push it, then say 'launch the token'\\.$`)],
+    [{}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }, /couldn't read earnkit\.txt in github\.com\/acme\/kit \(GitHub didn't answer\)\. Try again in a minute: say 'launch the token'\.$/],
     [{}, { screen: async () => { throw new Error("This wallet can't receive prizes on EarnKit."); } }, /wallet/],
   ];
   for (const [i, d, re] of cases) {
@@ -105,7 +108,7 @@ test('ownerProblem: only the token line counts; wallet lines and their problems 
   assert.equal(ownerProblem(repo, file(`payout_wallet: nope\ntoken:   ${code}   # mine\ntoken: OLD 0123456789`), code, null), null);
   assert.match(ownerProblem(repo, file(`payout_wallet: ${W}\ntoken: KIT 0123456789`), code, null)!, new RegExp(`^Add the line "${LINE}"`));
   assert.match(ownerProblem(repo, { status: 'missing' }, code, null)!, new RegExp(`proof you can push to ${repo}.*"${LINE}"`));
-  assert.match(ownerProblem(repo, { status: 'error', message: 'it answered 500' }, code, null)!, /couldn't read earnkit\.txt.*500/);
+  assert.match(ownerProblem(repo, { status: 'error', message: "GitHub didn't answer" }, code, null)!, /couldn't read earnkit\.txt.*GitHub didn't answer/);
   // A code one character off, or on a ticker line, fails.
   const off = code.slice(0, 15) + (code[15] === '0' ? '1' : '0');
   assert.notEqual(ownerProblem(repo, file(`token: ${off}`), code, null), null);
@@ -132,5 +135,29 @@ test('the token line is bound to the agent: a copied line fails; no secret fails
     assert.equal(tokenLineFor(1, REPO), null);
   } finally {
     process.env.EARNKIT_AUTH_SECRET = saved;
+  }
+});
+
+test('fix round 1: every reason is plain, uses one retry form, and never shows an HTTP status', async () => {
+  const reasons: string[] = [];
+  const fails: [Partial<GateInput>, Partial<GateDeps>][] = [
+    [{ repoUrl: null }, {}],
+    [{}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }],
+    [{}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }],
+    [{}, { repo: async () => { throw new ForkCheckError('GitHub: couldn\'t compare (GitHub request failed (500))', 500); } }],
+    [{}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }],
+    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }],
+    [{}, { owner: async () => ({ status: 'missing' }) }],
+    [{}, { owner: async () => ({ status: 'ok', text: '' }) }],
+    [{}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }],
+  ];
+  for (const [i, d] of fails) {
+    const r = await tokenGate({ ...input, ...i }, { ...ok, ...d });
+    assert.equal(r.ok, false);
+    reasons.push((r as { reason: string }).reason);
+  }
+  for (const r of reasons) {
+    assert.match(r, /say 'launch the token'\.$/, r);
+    assert.doesNotMatch(r, /call launch_token|\b[2-5]\d\d\b|A token needs/, r);
   }
 });

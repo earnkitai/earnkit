@@ -269,7 +269,7 @@ let aRepo = '';
   };
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
   // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
-  check(/no token|skip: no builder bonus/.test(prep.token?.say_to_builder ?? ''), '(a) say_to_builder offers the skip', prep.token);
+  check(prep.token?.say_to_builder.includes('· skip: no builder bonus'), '(a) say_to_builder offers the skip (no builder bonus)', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });
@@ -534,7 +534,7 @@ let retryRepo = '';
   const r = await submit({ project: p, token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the repo root (default branch), push it, then call launch_token.`,
+      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the repo root (default branch), push it, then say 'launch the token'.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -596,7 +596,7 @@ let retryRepo = '';
   );
   const thiefLine = lineFor(thief.id, shared.repo_url)!;
   check(
-    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), push it, then call launch_token.`,
+    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), push it, then say 'launch the token'.`,
     "(v) the owner's line is refused for a third party's agent",
     stolen.token,
   );

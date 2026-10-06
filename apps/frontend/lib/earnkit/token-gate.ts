@@ -10,7 +10,7 @@ import {
 } from './ownership';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { normalizeRepoUrl } from './campaigns';
-import { repoCodeFacts, type RepoCode } from './match-projects';
+import { ForkCheckError, repoCodeFacts, type RepoCode } from './match-projects';
 import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
 
@@ -45,7 +45,9 @@ const defaults: Required<GateDeps> = {
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
-const RETRY = " Fix it and say 'launch the token'.";
+/** The one retry form in every reason: the builder says it, the agent calls launch_token. */
+const SAY = "say 'launch the token'";
+const AGAIN = `Try again in a minute: ${SAY}.`;
 
 export const TOKENS_NOT_CONFIGURED = "Token launches aren't configured right now.";
 export const TOKEN_CODE_LENGTH = 16;
@@ -111,12 +113,12 @@ export function ownerProblem(
 ): string | null {
   const line = `token: ${code}`;
   if (got.status === 'error')
-    return `EarnKit couldn't read ${OWNERSHIP_FILE} in ${repo} (${got.message}). Say 'launch the token' to retry.`;
+    return `EarnKit couldn't read ${OWNERSHIP_FILE} in ${repo} (${got.message}). ${AGAIN}`;
   const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
   if (!file)
     return (
       `A coin needs proof you can push to ${repo}: add a file named ${OWNERSHIP_FILE} at its root ` +
-      `(default branch) with the line "${line}", push it, then call launch_token.`
+      `(default branch) with the line "${line}", push it, then ${SAY}.`
     );
   const sym = legacy?.symbol.toUpperCase();
   const ok =
@@ -125,14 +127,14 @@ export function ownerProblem(
       file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code)));
   return ok
     ? null
-    : `Add the line "${line}" to ${OWNERSHIP_FILE} at the repo root (default branch), push it, then call launch_token.`;
+    : `Add the line "${line}" to ${OWNERSHIP_FILE} at the repo root (default branch), push it, then ${SAY}.`;
 }
 
 /** Ruling 3 (plan): a public repo with real code, or why not. Pure. */
 export function codeProblem(f: RepoCode): string | null {
-  if (!f.hasCommits) return "The repo has no commits yet. Push the project's code, then say 'launch the token'.";
+  if (!f.hasCommits) return `The repo has no commits yet. Push the project's code, then ${SAY}.`;
   if (f.fork && !(f.aheadOfParent && f.aheadOfParent > 0))
-    return 'The repo is a fork with no new commits; a coin needs your own code.';
+    return `The repo is a fork with no new commits; a coin needs your own code. Push your own commits to it, then ${SAY}.`;
   return null;
 }
 
@@ -147,14 +149,16 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   if (input.policy === 'off') return { ok: false, reason: "This program doesn't allow tokens for entries." };
   const gh = input.repoUrl ? githubRepo(input.repoUrl) : null;
   if (!gh || !input.repoUrl)
-    return { ok: false, reason: "A token needs the project's public GitHub repo: call launch_token with repo_url." };
+    return { ok: false, reason: `A coin needs the project's public GitHub repo. Share its link, then ${SAY}.` };
   let facts: RepoCode;
   try {
     facts = await d.repo(gh.owner, gh.repo);
   } catch (err) {
+    if (err instanceof ForkCheckError)
+      return { ok: false, reason: `EarnKit couldn't check the fork's commits on GitHub right now. ${AGAIN}` };
     return /not found/.test(msg(err))
-      ? { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub.` + RETRY }
-      : { ok: false, reason: "EarnKit couldn't check the repo on GitHub right now. Say 'launch the token' to retry." };
+      ? { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub. Make it public, then ${SAY}.` }
+      : { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}` };
   }
   const noCode = codeProblem(facts);
   if (noCode) return { ok: false, reason: noCode };
