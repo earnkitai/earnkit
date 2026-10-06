@@ -277,6 +277,12 @@ const CHAT_ONLY =
 /** No repo to match: none reported, or none found under the builder's GitHub user. */
 const noRepo = (r: YourRepos | null) => r === null || ('checked' in r && r.checked === 0);
 
+/**
+ * Ruling 11 (plan): a matching error gets the same no-repo treatment as 0 repos found — "$X is
+ * open right now." with ideas, just never "You could" (youCould stays false for an error). Pure.
+ */
+const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in r);
+
 type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict };
 
 /**
@@ -377,7 +383,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   if (shown.length > 0) {
     // The no-repo, nothing-else-shown state gets the money-first headline (v2.6 §1); every other
     // case keeps the v2.5 headings.
-    const zeroState = noRepo(m.repos) && rows.length === 0 && campaigns.length === 0;
+    const zeroState = noMatch(m.repos) && rows.length === 0 && campaigns.length === 0;
     const above = campaigns.length > 0 || rows.length > 0;
     const couldWin = zeroState && youCould(m.repos, m.githubGiven ?? false);
     bonusTable(
@@ -399,7 +405,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   if (noteAfter >= 0) sections.splice(noteAfter, 0, BONUS_NOTE);
 
   // No repo to match: curated ideas for the programs shown (never generated at request time).
-  const ideas = noRepo(m.repos) ? ideaLines(shown) : [];
+  const ideas = noMatch(m.repos) ? ideaLines(shown) : [];
   if (ideas.length > 0)
     sections.push(`${m.agentCanBuild ? 'Ideas I can build:' : 'Ideas for these programs:'}\n${ideas.join('\n')}`);
   const sponsored = m.cards.filter((c) => c.sponsored);
@@ -419,9 +425,11 @@ export function presentFirstMessage(m: FirstMessage): string {
 /**
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
  * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
- * without forms; a fit that needs forms, saying what only they can give; with no repos known, check
- * them; with repos known and no fit, build something new for the top program (without forms first,
- * Ruling 28); else wait for results or news. With no repo and ideas shown: "Pick one and I'll start."
+ * without forms; a fit that needs forms, saying what only they can give; with no repo known (and
+ * no open campaign), "Pick one and I'll start." (task 2 fix round 1, Ruling 11) whether or not
+ * ideas were shown; with repos known and no fit, build something new for the top program (without
+ * forms first, Ruling 28); with a GitHub user or repo list given/remembered but no repo known,
+ * check them; else wait for results or news.
  */
 function offer(
   m: FirstMessage,
@@ -448,6 +456,11 @@ function offer(
   if (forms) return `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`;
   if (ideasShown) return "Pick one and I'll start.";
   const curated = m.cards.filter((c) => !c.sponsored);
+  // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no
+  // ideas doesn't mean no choice); never fall back to "check your repos" when there's nothing to
+  // check (repos === null) and no open campaign took priority above.
+  if (youCould(m.repos, m.githubGiven ?? false) && curated.length > 0 && !m.campaigns.some((r) => r.open))
+    return "Pick one and I'll start.";
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';
   // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.

@@ -218,8 +218,15 @@ export const ReportedRepoInput = z
       .max(CHAINS.length),
     live_url: z.string().url().optional(),
     last_commit_at: z.string().datetime({ offset: true }).optional(),
-    /** Ruling 13 (plan): validated by `githubRepo`, never zod; a bad url is dropped, never an error. */
-    url: z.string().max(300).optional(),
+    /**
+     * Ruling 13 (plan): validated by `githubRepo`, never zod, so a bad url never fails the call.
+     * A `.max()` would reject (not drop) an oversize one, so length is dropped the same way:
+     * anything over 300 characters becomes undefined instead of a parse error.
+     */
+    url: z
+      .string()
+      .optional()
+      .transform((u) => (u === undefined || u.length > 300 ? undefined : u)),
   })
   .strict();
 

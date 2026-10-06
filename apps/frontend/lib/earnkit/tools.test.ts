@@ -9,7 +9,6 @@ import { earnkitTexts } from './campaign-text';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
-import { GitHubError } from './match-projects';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -275,7 +274,7 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   }
 });
 
-test('Ruling 11 (plan): a remembered GitHub user with a matching error never gets "You could"', dbTest, async () => {
+test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fails gets no "You could"; a control without one gets "You could win"', dbTest, async () => {
   const run = `${process.pid}-${Date.now()}`;
   const file = (name: string) =>
     JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
@@ -283,20 +282,40 @@ test('Ruling 11 (plan): a remembered GitHub user with a matching error never get
     id: `v26-ghost-${run}`, title: `Ghost ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 1000,
   });
   await upsertProgram(ProgramFile.parse(prog));
-  const [{ id }] = await sql()<{ id: number }[]>`
+  const [{ id: withUser }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, github_user) VALUES (${`v26-ghost-${run}`}, 'ghost') RETURNING id`;
+  const [{ id: control }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`v26-noghost-${run}`}) RETURNING id`;
+  // Other dbTests in this file leave stray active EarnKit campaigns behind (never closed); any
+  // open campaign makes zeroState false regardless of repos, which would make both assertions below
+  // meaningless. Close them for the duration of this test, then reopen (best effort).
+  const stray = await sql()<{ id: string }[]>`
+    SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
+  if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  const errLog = console.error;
+  console.error = () => {};
   try {
+    // A stub that throws a plain Error (not GitHubError/RateLimitError) makes tools.ts leave
+    // yourRepos = null (matching "failed silently", logged, never surfaced as { error }), so
+    // githubGiven alone decides "You could" — unlike the old GitHubError stub, where
+    // youCould({ error }, anything) was already false and zeroState was already false (finding 2),
+    // so the test could never have failed no matter how githubGiven was wired.
     const r = (await tools.list_programs({}, {
-      installationId: id,
-      // Test-only, like roundPoolsWei: stands in for a real GitHub read.
+      installationId: withUser,
       matchProjects: async () => {
-        throw new GitHubError('GitHub said no', 429);
+        throw new Error('boom');
       },
     })) as { show_to_builder: string };
-    // Not /could/i: "Couldn't read your repos" (the error line itself) contains "could" too.
+    assert.match(r.show_to_builder, /\| Program \| Prize \| Builder bonus \| Ends \|/);
     assert.doesNotMatch(r.show_to_builder, /You could/);
+    // Control: no remembered github_user or repos, so matching is never attempted (yourRepos stays
+    // null the ordinary way) and githubGiven is false: the same program gets "You could win".
+    const c = (await tools.list_programs({}, { installationId: control })) as { show_to_builder: string };
+    assert.match(c.show_to_builder, /\| Program \| You could win \| Builder bonus \| Ends \|/);
   } finally {
+    console.error = errLog;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${prog.id}`;
+    if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
   }
 });
 
