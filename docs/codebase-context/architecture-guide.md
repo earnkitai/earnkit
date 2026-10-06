@@ -530,6 +530,9 @@ Spec: `docs/design-docs-and-implementation-plans/v2.4-money-first.md` (with the 
 during the build); plan: `v2.4-money-first-plan.md`.
 
 - **First message** (`present.ts` presentFirstMessage): money first, markdown tables, no emojis.
+  v2.7 §3: a Difficulty column replaces the per-row Builder bonus column and `BONUS_NOTE`
+  (affiliation line); the builder bonus now closes the message, joined to the offer (a campaign
+  offer gets it as its own paragraph above instead, since campaign entries never earn it).
   The order:
   1. "Since you last checked" (alerts, above);
   2. the EarnKit campaigns table (`leaderboard.ts` earnkitCampaignRows: prize in USD, end date and
@@ -1175,10 +1178,10 @@ a wallet you control.
   memory changes what the first message shows).
 - [ ] **First message without GitHub.** In an empty folder (no git remote), ask "anything worth
   building?" and **note the UTC time you sent it**. Expect "$X is open right now. I can build an
-  entry for you.", a table whose prize column reads "You could win", a Builder bonus column,
-  "Ideas I can build:" (one per line) and "Pick one and I'll start." Do this before giving
-  GitHub: a GitHub user or repo list, once given, is remembered and turns "You could" off for
-  this installation.
+  entry for you.", a table whose prize column reads "You could win", a Difficulty column,
+  "Ideas I can build:" (one per line) and "Pick one and I'll start." closed by the builder bonus
+  sentence (v2.7 §3) when a shown program has one. Do this before giving GitHub: a GitHub user or
+  repo list, once given, is remembered and turns "You could" off for this installation.
 - [ ] **Find the installation id and mark it as a test.** Production EarnKit's database is the
   **Postgres service in the EarnKit project on Railway**. Run the query there: Railway dashboard
   → EarnKit project → Postgres → Data (query), or `railway connect Postgres` from a shell linked to
@@ -1285,8 +1288,9 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from
   `lib/earnkit/policy.ts`, which reads the constants the code applies (traction `WEIGHTS`,
-  `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and from
-  `BONUS_NOTE` (earnkit.com/policy). v2.6: every program except EarnKit campaigns has a builder
+  `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and the guide page
+  (v2.7 §3, Ruling 14 (plan): the first message's `BONUS_NOTE` affiliation line is gone; the
+  policy page keeps that text). v2.6: every program except EarnKit campaigns has a builder
   bonus unless it opts out; programs with public entry pages need the entry page to link the
   repo or live product, programs without them count the builder's confirmation (the owner reviews
   the top 10 before paying), and an entry page EarnKit can't load counts on the confirmation,

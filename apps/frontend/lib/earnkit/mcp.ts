@@ -73,7 +73,7 @@ const LIST_PROGRAMS_DESCRIPTION =
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
   'It leads with "EarnKit matches you to $X in open money you qualify for" when their repos fit, ' +
   'or "$X is open right now" with ideas you can build when there is no repo. Every program shows ' +
-  'its builder bonus. ' +
+  'its difficulty; the builder bonus closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
   SAFETY_TEXT;
