@@ -12,6 +12,7 @@ import {
   LaunchTokenInput,
   TECHNICAL_TERMS,
   decideToken,
+  entryMissing,
   hasBuilderBonus,
   plainProblem,
   tickerTakenNote,
@@ -842,4 +843,88 @@ test('C6: an unreachable ticker check (null) launches as in v2.3', async () => {
   const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
   assert.equal(out.status, 'launched');
   assert.equal(h.deploys[0].symbol, 'CHAIN');
+});
+
+/** C7: Arc-like requirements: a live mainnet link and a repo (project fields), a description and a profile (answers). */
+const ARC_REQS: FlowProject['requirements'] = [
+  { key: 'live_deployment_url', label: 'Live deployment on Arc mainnet', todo: 'a live link on Arc mainnet', type: 'url', required: true, project_field: 'live_url', from: 'project' },
+  { key: 'repo_url', label: 'Public repo', todo: 'a public repo link', type: 'url', required: true, project_field: 'repo_url', from: 'project' },
+  { key: 'description', label: 'Short description', todo: 'a short description', type: 'text', required: true, from: 'project' },
+  { key: 'builder_profile', label: 'Public builder profile', type: 'url', required: false, from: 'builder' },
+];
+const COMPLETE = { description: 'A tip jar for builders.' };
+
+test('C7: record_submission with required items missing launches nothing; the builder note is plain, the agent gets the keys', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: {} }, { check: async () => { h.calls.push('check'); return true; } });
+  const out = await submissionToken(
+    {
+      projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET,
+      known: { project: { name: 'Chain Kits', repo_url: 'https://github.com/acme/kit' }, answers: {} },
+    },
+    h.deps,
+  );
+  assert.equal(out.status, 'skipped');
+  assert.equal(out.note, 'Not launched: the entry still needs a live link on Arc mainnet; a short description.');
+  assert.equal(out.needs, 'a live link on Arc mainnet; a short description');
+  assert.doesNotMatch(out.note ?? '', TECHNICAL_TERMS);
+  assert.doesNotMatch(out.note ?? '', /\bcoins?\b|clanker/i);
+  assert.match(out.agent_note ?? '', /live_deployment_url, description/);
+  assert.equal(h.deploys.length, 0, 'no deploy');
+  assert.deepEqual(h.calls, [], 'no ticker check, no gate read, no launch counted');
+  // The confirmed name and ticker are kept, and the wallet given now, for the launch once ready.
+  assert.deepEqual(h.writes.at(-1), { id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'CHAIN' });
+  assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: WALLET }]);
+});
+
+test('C7: launch_token on an entry that is not ready fails without a deploy; ready entries launch as before', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: COMPLETE });
+  const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, h.deps);
+  assert.equal(out.status, 'failed');
+  assert.equal(out.note, 'Not launched: the entry still needs a live link on Arc mainnet.');
+  assert.equal(h.deploys.length, 0);
+  // The missing link given to launch_token makes it ready: it launches.
+  const fixed = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET, live_url: 'https://kit.acme.dev' }, 1, h.deps);
+  assert.equal(fixed.status, 'launched');
+  assert.equal(h.deploys.length, 1);
+  // Ready at submission (from what record_submission was given): unchanged.
+  const r = harness({ requirements: ARC_REQS });
+  const ok = await submissionToken(
+    {
+      projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET,
+      known: { project: { name: 'Chain Kits', repo_url: 'https://github.com/acme/kit', live_url: 'https://kit.acme.dev' }, answers: COMPLETE },
+    },
+    r.deps,
+  );
+  assert.equal(ok.status, 'launched');
+  assert.equal(r.deploys.length, 1);
+});
+
+test('C7: entryMissing: no gate for campaign entries or without requirements; invalid values count as missing', () => {
+  const p = harness({ requirements: ARC_REQS, live_url: null }).project;
+  assert.deepEqual(entryMissing(p).map((m) => m.key), ['live_deployment_url', 'description']);
+  assert.deepEqual(entryMissing({ ...p, campaign: true }), []);
+  assert.deepEqual(entryMissing({ ...p, requirements: undefined }), []);
+  assert.deepEqual(entryMissing({ ...p, live_url: 'https://kit.acme.dev', submission_data: COMPLETE }), []);
+  // An invalid value counts as missing, with "(check it)".
+  assert.deepEqual(entryMissing({ ...p, live_url: 'http://kit', submission_data: COMPLETE }).map((m) => m.todo), ['a live link on Arc mainnet (check it)']);
+});
+
+test('C7: a "no token" on an entry that is not ready says no token, not the missing items', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null });
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: 'skip', confirmed: true }, h.deps);
+  assert.equal(out.note, 'Not launched: the builder said no token.');
+  // An entry that already has its token is told so, never the missing items.
+  const t = harness({ requirements: ARC_REQS, live_url: null, token_url: 'https://tokens.fun/coin/0x1' });
+  const has = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, t.deps);
+  assert.match(has.note ?? '', /already has a token/);
+});
+
+test('final review M8: a repo that already has its token is refused before any ticker check', async () => {
+  const h = harness({}, { check: async () => { h.calls.push('check'); return false; } });
+  h.repoTokens.set('github.com/acme/kit', 'https://tokens.fun/coin/0x1');
+  const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
+  assert.equal(out.status, 'skipped');
+  assert.doesNotMatch(out.note ?? '', /ticker is taken/);
+  assert.deepEqual(h.calls, [], 'no tokens.fun ticker check');
+  assert.equal(h.deploys.length, 0);
 });

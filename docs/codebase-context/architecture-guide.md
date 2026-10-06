@@ -203,7 +203,7 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
   unless `TREASURY` is `0xc8A889577446153e28D42254B75238Ae31EC7D57`. `pnpm token:e2e` runs every
   flow against a local Postgres and a mock tokens.fun (which also serves `earnkit.txt`).
-- **The token step (v2.7 §3, Rulings 15–18, C5–C6).** Supersedes the v2.3 wording above where
+- **The token step (v2.7 §3, Rulings 15–18, C5–C7).** Supersedes the v2.3 wording above where
   they differ.
   - *Readiness first* (Ruling 15). `prepare_submission` runs `prepareSubmission` before anything
     token-related. While a required item is missing, `show_to_builder` leads with
@@ -219,12 +219,26 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     tokens.fun checks per proposal; a ticker found taken is never proposed, and past the checked
     list the next candidate is proposed with "ticker not checked for duplicates". With neither a
     project name nor a repo there is no block. C6: `token-launch.ts` re-checks the final ticker
-    right before the deploy; taken means no launch and a plain note; unreachable launches as v2.3
-    did.
-  - *On Base* (Ruling 17). The row's key is `Token` everywhere. Outside campaigns:
+    after the one-token-per-repo check (final review M8: a repo that already has a token is
+    refused without a tokens.fun call) and before the gate; taken means no launch and a plain
+    note; unreachable launches as v2.3 did.
+  - *Launch only when ready* (C7). `runTokenFlow` (record_submission and launch_token) runs
+    `entryMissing` first: `prepareSubmission` over the program's requirements, on what
+    record_submission was just given (`known`: its project and `submission_data`), or for
+    launch_token on the stored project (`name`, `description`, `repo_url`, `live_url`,
+    `demo_url`, with launch_token's link fixes applied) and the entry's latest `submissions` row.
+    With a required item missing, nothing is proposed, checked or deployed: `skipped` at
+    submission, `failed` on launch_token, note "Not launched: the entry still needs <to-do>; …"
+    (`notReadyTokenNote`, the C5 to-dos), `needs` (the list, which record_submission's reply
+    shows: "Your token isn't launched yet: the entry still needs …"), and an `agent_note` naming
+    the keys (record the entry again with every answer, or launch_token with `live_url`/`repo_url`).
+    The builder's valid name and ticker and a wallet given now are kept. No gate for EarnKit
+    campaigns (refused at entry by `missingAnswersProblem`), a "skip", policy off, or an entry
+    that already has a token.
+  - *On Base* (Ruling 17, amended by C19). The row's key is `Token` everywhere. Outside campaigns:
     `Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the
-    builder bonus · skip: no token, no builder bonus` (without a bonus: `… trading fees · skip: no
-    token`). The footnote (`tokenFootnote`, `COIN_FOOTNOTE`) says fees are paid in WETH and
+    builder bonus · say skip for no token (and no builder bonus)` (without a bonus: `… trading
+    fees · say skip for no token`). The footnote (`tokenFootnote`, `COIN_FOOTNOTE`) says fees are paid in WETH and
     tokens.fun pays gas.
   - *No Clanker* (Ruling 18). No builder text, agent text (tool descriptions,
     `SERVER_INSTRUCTIONS`, notes) or web page names Clanker; `/policy` and the docs say "The
@@ -1279,7 +1293,10 @@ Ruling C1: after the final review, the controller pushes and merges both repos w
 
 1. Merge and deploy `v2.7-convert-and-guide`. The migration only adds columns (six nullable or
    defaulted `programs` columns); `predeploy` runs it, then `programs:sync` loads the backfilled
-   program files and their logos.
+   program files and their logos. Railway builds before `predeploy`, so this first v2.7 build
+   reads the new columns before they exist: expect one `[landing]` error in the build log, and
+   `/` and `/programs` served dynamically (still cached 10 minutes) for this deploy. Redeploy once
+   after the migration to restore their static ISR (final review M12).
 2. Point the weekly re-verification routine's prompt at `programs/README.md` → "Weekly
    re-verification" (Ruling 26). The routine runs outside this repo; no new service.
 3. Docs: push `/Users/jenil/earnkit-docs-v27` branch `v2.7-docs`, review the Vercel preview, and
@@ -1365,7 +1382,9 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
 - **Program files** (`programs/*.json`, `program-file.ts`) gain optional guide facts, each with
   its own `source_url`: `logo` (`programs/<id>.svg|png` under `apps/frontend/public`, Ruling 23),
   `past_rounds` (newest first, at most 5; `submissions`/`winners` null when unpublished, C2;
-  `own: true` only for the program's own round, C4; themes and examples with an optional `why`),
+  `own: true` only for the program's own round, C4; themes and examples with an optional `why`;
+  `themes_of`, final review M3: how many winners the source describes when it is fewer than
+  `winners`, so theme counts show without "of N" — Colosseum's 26 of 28),
   `focus` (up to 3 areas, optional `ecosystem`, Ruling 7), `best_bet` (EarnKit's curated advice,
   allowed only with `past_rounds` or `focus`, never generated, Ruling 8), `difficulty_override`
   (`{ level, basis, source_url }`, Ruling 5) and `winners_per_round` (Ruling 6). `programs:check`
@@ -1395,7 +1414,9 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   each program." (the sum of pools already read for bonus programs on screen, Ruling 11; "under
   0.01 ETH so far"; empty pools use the no-amount wording). When the offer is an EarnKit campaign
   entry, the sentence comes first as its own paragraph ("Entries in the other open programs also
-  compete for …") and the offer stays last (Ruling 10). "Top 10" is `BONUS_SPLIT_BPS.length`.
+  compete for …") and the offer stays last (Ruling 10). The same paragraph form is used when the
+  offered row carries Ruling 25's "no builder bonus" note, and that program's pool is left out of
+  the sum (final review M4, `Offer.noBonusId`). "Top 10" is `BONUS_SPLIT_BPS.length`.
 - The affiliation line and `BONUS_NOTE` are gone (Ruling 14); a repo whose token is entered in
   another program says so in its own repo cell (Ruling 13).
 
@@ -1481,7 +1502,9 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   Stored links render only through `shownUrl`.
 - **/api/stats** gives jenil.ai aggregates only.
   - v2.7 Ruling 20 (plan): `bonus_pools_eth` sums the `destination = 'round'` bookings of rounds in
-    state `open` (a frozen round's don't count).
+    state `open` (a frozen round's don't count), never from a test installation's coin (final
+    review M7, as `bonus_to_safe_wei`). The first message's per-program pools (`roundPoolsWei`)
+    keep those bookings: they are the round's real prize money, which real winners are paid.
   - `fees_to_safe_eth` covers **v2.5-split coins only** and is not all-time Safe revenue.
     Pre-v2.5 coins count 0. It is accrued, so unclaimed FeeLocker balances are included.
   - It is derived: the Safe's 30% slot is 1.5x the indexed real bonus-wallet deposits from EarnKit

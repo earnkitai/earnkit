@@ -13,6 +13,7 @@ import {
   enteredTable,
   enteredText,
   noCoinYet,
+  notReadyTokenNote,
   walletLine,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './mcp';
@@ -25,6 +26,7 @@ import {
   NEEDS_SYMBOL_AGENT,
   NO_WALLET_AGENT,
   TECHNICAL_TERMS,
+  notReadyAgentNote,
   type FlowProject,
   type TokenFlowDeps,
 } from './token-launch';
@@ -220,6 +222,9 @@ const enteredTexts = [
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'skipped' }, bonus: null }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: round }),
+  // C7: a token waiting on missing items.
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other', needs: 'a live link on Arc mainnet' }, bonus: null }),
+  enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other', needs: 'a live link on Arc mainnet' }, bonus: round }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: { ...round, join: { kind: 'confirm', site: 'dorahacks.io' } } }),
   enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: null, repoHeld: true }),
   enteredText({
@@ -506,6 +511,7 @@ const builderFacing: [string, string][] = [
   ...confirmTables.map((s, i): [string, string] => [`confirmTable[${i}]`, s]),
   ...enteredTables.map((s, i): [string, string] => [`enteredTable[${i}]`, s]),
   ['COIN_FOOTNOTE', COIN_FOOTNOTE],
+  ['C7 notReadyTokenNote', notReadyTokenNote(['a live link on Arc mainnet', 'a short description'])],
   ['presentFirstMessage: no repo, no GitHub', noRepoNoGithub],
   ['presentFirstMessage: GitHub user, 0 repos', githubZeroRepos],
   ['presentFirstMessage: with repos', withRepos],
@@ -536,6 +542,7 @@ const agentFacing: [string, string][] = [
   // v2.7 §4 fix round 1 (Important #1): every agent_note string, directly and harvested.
   ['NO_WALLET_AGENT', NO_WALLET_AGENT],
   ['NEEDS_SYMBOL_AGENT', NEEDS_SYMBOL_AGENT],
+  ['C7 notReadyAgentNote', notReadyAgentNote(['live_deployment_url'])],
   ...gatherDecideTokenAgentNotes(),
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],

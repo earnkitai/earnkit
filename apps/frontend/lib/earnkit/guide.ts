@@ -116,13 +116,18 @@ export type Guide = {
 const wonRound = (p: Pick<GuideFacts, 'past_rounds'>) =>
   p.past_rounds.find((r) => r.themes?.length || r.examples?.length) ?? null;
 
-/** "What won" lines (Ruling 9 (plan)): the top 3 themes by count, then the examples. Pure. */
+/**
+ * "What won" lines (Ruling 9 (plan)): the top 3 themes by count, then the examples. Final review
+ * M3: when the source describes only some winners (`themes_of` below `winners`), the counts are
+ * shown without a denominator, since they aren't "of" every winner. Pure.
+ */
 function wonLines(r: PastRound): string[] {
   const themes = [...(r.themes ?? [])].sort((a, b) => b.count - a.count).slice(0, 3);
+  const of = r.winners && !(r.themes_of != null && r.themes_of < r.winners) ? r.winners : null;
   return [
     ...themes.map((t, i) => {
       const unit = i === 0 ? ' winners' : '';
-      return `${t.theme} (${r.winners ? `${t.count} of ${r.winners}${unit}` : `${t.count}${unit}`})`;
+      return `${t.theme} (${of ? `${t.count} of ${of}${unit}` : `${t.count}${unit}`})`;
     }),
     // Task 1 carry: "cited for" only when a judge or organizer said why.
     ...(r.examples ?? []).map((e) => `Example: ${e.name} — ${e.what}${e.why ? `; cited for ${e.why}` : ''}`),

@@ -10,7 +10,7 @@ import { mnemonicToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
-import { committedProgram } from './fixtures/program-file';
+import { committedProgram, completeAnswers } from './fixtures/program-file';
 
 /**
  * The builder bonus lifecycle, end to end (v2.5 §7 local e2e, Task 10). Real code from the MCP
@@ -553,7 +553,12 @@ async function scenario(mock: Mock) {
       {
         program_id: PROG2,
         project: { name: `${n} app`, description: 'A tiny app on Base', repo_url: repo2(n), live_url: `https://${n}-app.example` },
-        submission_data: { full_name: n, project_name_description: `${n} app: a tiny app on Base` },
+        // C7: every required answer, so the entry is ready and its token launches.
+        submission_data: completeAnswers(baseFile.submission_requirements, {
+          full_name: n,
+          project_name_description: `${n} app: a tiny app on Base`,
+          live_product_url: `https://${n}-app.example`,
+        }),
         payout_wallet: BUILDERS2[n].wallet,
         token: { name: `${n} app`, symbol: BUILDERS2[n].symbol },
         builder_confirmed: true,

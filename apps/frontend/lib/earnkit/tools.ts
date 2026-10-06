@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import {
   RecordSubmissionInput,
+  answersOf,
   recordSubmission,
   type EntryDeps,
 } from './projects';
@@ -463,6 +464,8 @@ export const tools = {
         // validated it). Ruling 30: it is the only wallet from this call; the remembered one is never
         // read here (the agent echoes prepare_submission's shown_wallet). None: no coin yet.
         givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
+        // C7: what this call was given (what prepare_submission saw): the token waits until it is complete.
+        known: { project: parsed.project, answers: answersOf(parsed.submission_data) },
       },
       ctx.tokenDeps,
     );
@@ -492,7 +495,7 @@ export const tools = {
             ? { status: 'skipped' }
             : token.status === 'pending'
               ? { status: 'pending' }
-              : { status: 'other' };
+              : { status: 'other', ...(token.needs && { needs: token.needs }) };
     let bonus: EnteredText['bonus'] = null;
     if (result.bonus_round && coin.status !== 'skipped') {
       const pool = (await poolsOf(ctx.roundPoolsWei ?? roundPoolsWei, [parsed.program_id])).get(parsed.program_id);

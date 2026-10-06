@@ -135,6 +135,12 @@ const PastRound = z
     own: z.boolean().optional(),
     submissions: z.number().int().positive().nullable().optional(),
     winners: z.number().int().positive().nullable().optional(),
+    /**
+     * v2.7 final review M3: how many of `winners` the source describes, when it doesn't describe
+     * them all (at most `winners`). Theme counts are out of these, so the guide shows them without
+     * a denominator ("(4 winners)", then "(4)").
+     */
+    themes_of: z.number().int().positive().optional(),
     themes: z.array(PastRoundTheme).min(1).max(3).optional(),
     examples: z.array(PastRoundExample).min(1).max(2).optional(),
   })
@@ -426,6 +432,12 @@ export const ProgramFile = z
           r.themes.some((t) => t.count > winners) ||
           r.themes.reduce((sum, t) => sum + t.count, 0) > winners;
         if (over) issue("theme counts can't exceed the round's winners");
+      }
+      if (r.themes_of != null) {
+        if (!r.themes) issue('themes_of needs themes');
+        if (r.winners != null && r.themes_of > r.winners) issue("themes_of can't exceed the round's winners");
+        if (r.themes && r.themes.reduce((sum, t) => sum + t.count, 0) > r.themes_of)
+          issue("theme counts can't exceed themes_of");
       }
     }
     const roundLabels = p.past_rounds.map((r) => r.label);

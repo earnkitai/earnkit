@@ -8,6 +8,7 @@ import {
   confirmTable,
   enteredTable,
   enteredText,
+  notReadyTokenNote,
   keyTable,
   noCoinYet,
   notReadyLine,
@@ -214,6 +215,20 @@ test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () =>
   assert.equal(noCoinYet('Oct 14'), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
   assert.equal(noCoinYet(null), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
 });
+test('C7: a token waiting on missing items says what the entry still needs, in plain words', () => {
+  const bonus = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
+  const coin = { status: 'other' as const, needs: 'a live link on Arc mainnet' };
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin, bonus: null }),
+    "Entered in Arc Microgrants. Your token isn't launched yet: the entry still needs a live link on Arc mainnet.",
+  );
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin, bonus }),
+    "Entered in Arc Microgrants. Your token isn't launched yet: the entry still needs a live link on Arc mainnet; it joins the builder bonus once it is (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
+  );
+  assert.equal(notReadyTokenNote(['a', 'b', 'c', 'd']), 'Not launched: the entry still needs a; b; c; and 1 more.');
+});
+
 test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
   const prev = process.env.EARNKIT_URL;
   delete process.env.EARNKIT_URL;

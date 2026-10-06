@@ -114,7 +114,7 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
   }
 });
 
-test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in installs or coins_launched', db, async () => {
+test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in installs, coins_launched or bonus_pools_eth', db, async () => {
   const tag = `stats-test-inst-${process.pid}-${Date.now()}`;
   const coin = `0x${(process.pid.toString(16) + Date.now().toString(16)).padStart(40, 'e')}`.slice(0, 42);
   await sql()`
@@ -128,6 +128,13 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
   await sql()`
     INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time)
     VALUES (${`${tag}-safe`}, 0, ${coin}, NULL, 'safe', ${(4n * E18 / 10n).toString()}, now())`;
+  // Final review M7: nor its booking into an open round's pool (bonus_pools_eth).
+  await sql()`
+    INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
+    VALUES (${`${tag}-round`}, ${tag}, now() - interval '1 day', now() + interval '1 day', 'open')`;
+  await sql()`
+    INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time)
+    VALUES (${`${tag}-round`}, 0, ${coin}, ${`${tag}-round`}, 'round', ${(2n * E18 / 10n).toString()}, now())`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   try {
     // Fix round 1, finding 2: one repeatable-read transaction so both reads see the same
@@ -142,10 +149,12 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
     assert.equal(withoutFlag.installs - withFlag.installs, 1);
     assert.equal(withoutFlag.coins_launched - withFlag.coins_launched, 1);
     assert.equal(Math.round((withoutFlag.fees_to_safe_eth - withFlag.fees_to_safe_eth) * 1e6) / 1e6, 0.4);
+    assert.equal(Math.round((withoutFlag.bonus_pools_eth - withFlag.bonus_pools_eth) * 1e6) / 1e6, 0.2);
   } finally {
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
-    await sql()`DELETE FROM bonus_ledger WHERE tx_hash = ${`${tag}-safe`}`;
+    await sql()`DELETE FROM bonus_ledger WHERE tx_hash IN (${`${tag}-safe`}, ${`${tag}-round`})`;
+    await sql()`DELETE FROM bonus_rounds WHERE round_key = ${`${tag}-round`}`;
     await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
     await sql()`DELETE FROM programs WHERE id = ${tag}`;

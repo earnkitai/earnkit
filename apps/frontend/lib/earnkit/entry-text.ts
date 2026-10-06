@@ -144,7 +144,11 @@ export type EnteredText = {
     | { status: 'pending' }
     | { status: 'no_wallet' }
     | { status: 'skipped' }
-    | { status: 'other' };
+    | {
+        status: 'other';
+        /** C7: what the entry still needs before its token launches (todoList), when that's why. */
+        needs?: string;
+      };
   /**
    * The open round (`ends` is its end as the first message shows it, roundEndLabel). Null when the
    * program has no bonus, the coin was skipped, the repo is held (M1), or Ruling 25 applies.
@@ -184,14 +188,16 @@ export function enteredText(a: EnteredText) {
       : a.coin.status === 'pending'
         ? ' Your token is launching.'
         : a.coin.status === 'other'
-          ? " Your token isn't launched yet."
+          ? a.coin.needs
+            ? ` Your token isn't launched yet: the entry still needs ${a.coin.needs}.`
+            : " Your token isn't launched yet."
           : '';
   if (!round) return `${entered}${coin}`;
   const join = a.bonus!.join;
   // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
   if (!join)
     return a.coin.status === 'other'
-      ? `${entered} Your token isn't launched yet; it joins the builder bonus once it is (${round}).`
+      ? `${entered}${coin.replace(/\.$/, '')}; it joins the builder bonus once it is (${round}).`
       : `${entered}${coin}\nBuilder bonus: ${round}`;
   const line =
     join.kind === 'page'
@@ -228,10 +234,22 @@ export const TOKEN_FOOTNOTE = tokenFootnote(null);
  * "and N more". Pure.
  */
 export function notReadyLine(missing: string[]) {
+  return `Before you submit: ${todoList(missing)}.`;
+}
+
+/** C5: the to-dos as one list: at most 3, then "and N more". Pure. */
+export function todoList(missing: string[]) {
   const shown = missing.slice(0, MAX_NOT_READY);
   const more = missing.length - shown.length;
-  return `Before you submit: ${[...shown, ...(more > 0 ? [`and ${more} more`] : [])].join('; ')}.`;
+  return [...shown, ...(more > 0 ? [`and ${more} more`] : [])].join('; ');
 }
+
+/**
+ * C7: the builder's note when a token isn't launched because the entry still misses required
+ * items (to-dos from todoOf). Pure.
+ */
+export const notReadyTokenNote = (missing: string[]) =>
+  `Not launched: the entry still needs ${todoList(missing)}.`;
 
 /** C5: at most this many items in the not-ready line, then "and N more". */
 const MAX_NOT_READY = 3;

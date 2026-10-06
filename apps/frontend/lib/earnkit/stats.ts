@@ -85,7 +85,7 @@ export function statsFrom(r: Row): PublicStats {
  * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. Bonus pools (v2.7
  * Ruling 20 (plan)): every open round's bookings (`destination = 'round'`); a frozen round's don't count. v2.6 Ruling 6/16
  * (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS) counts in none of `installs`,
- * `coins_launched` or the bonus deposits behind `fees_to_safe_eth` — its coin and fees are real,
+ * `coins_launched`, `bonus_pools_eth` (final review M7) or the bonus deposits behind `fees_to_safe_eth` — its coin and fees are real,
  * but it never shows in public stats. `db` defaults to the pool; a test that needs two reads to
  * agree despite other test files writing in parallel passes one transaction (fix round 1,
  * finding 2), the way `alertFacts` takes one.
@@ -116,9 +116,12 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects
           WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_to_safe_wei,
       (SELECT sum(amount_wei) FROM bonus_payouts WHERE status = 'paid')::text AS bonus_paid_wei,
+      -- Final review M7: never a test installation's coin, as bonus_to_safe_wei.
       (SELECT sum(l.amount_wei) FROM bonus_ledger l
         WHERE l.destination = 'round'
-          AND l.round_key IN (SELECT round_key FROM bonus_rounds WHERE state = 'open'))::text AS bonus_pools_wei,
+          AND l.round_key IN (SELECT round_key FROM bonus_rounds WHERE state = 'open')
+          AND NOT (l.coin IS NOT NULL AND l.coin IN (SELECT coin_address FROM projects
+            WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_pools_wei,
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs`;
   return statsFrom(r);
 }

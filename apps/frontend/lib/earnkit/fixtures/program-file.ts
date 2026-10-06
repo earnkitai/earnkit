@@ -12,3 +12,22 @@ export function committedProgram(name: string): any {
   delete p.logo;
   return p;
 }
+
+/**
+ * C7: a valid answer for every required item of a program file's `submission_requirements`,
+ * so an entry is ready and its token can launch. `overrides` win.
+ */
+export function completeAnswers(
+  requirements: { key: string; type: string; required: boolean; options?: string[] }[],
+  overrides: Record<string, string> = {},
+): Record<string, string> {
+  const value = (r: (typeof requirements)[number]) =>
+    r.type === 'url'
+      ? `https://example.com/${r.key}`
+      : r.type === 'email'
+        ? 'builder@example.com'
+        : r.type === 'choice' && r.options?.length
+          ? r.options[0]
+          : `${r.key} answer`;
+  return { ...Object.fromEntries(requirements.filter((r) => r.required).map((r) => [r.key, value(r)])), ...overrides };
+}

@@ -81,7 +81,9 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
         `winners_per_round`, the whole round). Never invent a count, a theme, or a "why".
    2. Record only what a source states: `past_rounds` (newest first, at most 5); `submissions`
       and `winners` as published, or `null` per the rule above. Themes: at most 3, counted only
-      from winners you can list by name on the source. Examples: 1–2, with `what` they did; `why`
+      from winners you can list by name on the source. When the source describes only some of
+      the winners, set `themes_of` to how many it describes (at most `winners`): the guide then
+      shows the theme counts without "of N". Examples: 1–2, with `what` they did; `why`
       only when a judge or organizer stated a reason — omit it otherwise, never invent one. Every
       example carries its own `source_url`.
    3. `focus`: up to 3 areas from the program's current tracks or the ecosystem's published
