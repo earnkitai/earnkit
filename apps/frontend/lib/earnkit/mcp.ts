@@ -65,6 +65,47 @@ export const OWNERSHIP_FOR_TOKEN =
   'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
   'someone else. One coin per repo.';
 
+const LIST_PROGRAMS_DESCRIPTION =
+  'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
+  "First read the builder's local git remotes (git remote -v in their project folders) and pass " +
+  'them as local_repos with what you see (chains, mainnet, live link, last commit); never ask for ' +
+  'a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
+  'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
+  'It leads with "EarnKit matches you to $X in open money you qualify for" when their repos fit, ' +
+  'or "$X is open right now" with ideas you can build when there is no repo. Every program shows ' +
+  'its builder bonus. ' +
+  'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
+  'real_users) and the effort (minutes to weeks), for your own plan. ' +
+  SAFETY_TEXT;
+
+const RECORD_SUBMISSION_DESCRIPTION =
+  'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
+  "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
+  "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
+  'Pass the final answers that were submitted. ' +
+  "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
+  'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
+  `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
+  'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
+  'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show it exactly as written. ' +
+  `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
+  `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
+  SAFETY_TEXT;
+
+const LAUNCH_TOKEN_DESCRIPTION =
+  'Launch (or retry) the token for a project you recorded with record_submission, e.g. after ' +
+  'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
+  "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
+  'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
+  OWNERSHIP_FOR_TOKEN;
+
+/** v2.6 §3: the three agent-facing tool descriptions most likely to drift into builder copy; exported for the copy-review test. */
+export const TOOL_DESCRIPTIONS = {
+  list_programs: LIST_PROGRAMS_DESCRIPTION,
+  record_submission: RECORD_SUBMISSION_DESCRIPTION,
+  launch_token: LAUNCH_TOKEN_DESCRIPTION,
+};
+
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
   const server = new McpServer(
@@ -76,7 +117,7 @@ export function createMcpServer(ctx: ToolContext) {
         'When a reply has since_you_last_checked, show it to the builder first, as written.',
         'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
         "Other programs: submit on the program's own site, then call record_submission. EarnKit campaigns: record_submission is the entry; there is no other site.",
-        'A token is optional: entering never needs one. Launch one only after the builder said yes, and tell them the token result.',
+        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. Write and push earnkit.txt yourself; never ask the builder to edit files.',
         'Never invent personal details.',
         ...SAFETY_LINES,
       ].join('\n'),
@@ -86,18 +127,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'list_programs',
     {
-      description:
-        'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
-        "First read the builder's local git remotes (git remote -v in their project folders) and pass " +
-        'them as local_repos with what you see (chains, mainnet, live link, last commit); never ask for ' +
-        'a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
-        'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
-        'It leads with "EarnKit matches you to $X in open money you qualify for" when their repos fit, ' +
-        'or "$X is open right now" with ideas you can build when there is no repo. Every program shows ' +
-        'its builder bonus. ' +
-        'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
-        'real_users) and the effort (minutes to weeks), for your own plan. ' +
-        SAFETY_TEXT,
+      description: LIST_PROGRAMS_DESCRIPTION,
       inputSchema: {
         github_user: z
           .string()
@@ -204,19 +234,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'record_submission',
     {
-      description:
-        'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
-        "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
-        "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
-        'Pass the final answers that were submitted. ' +
-        "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
-        'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
-        `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
-        'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
-        'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show it exactly as written. ' +
-        `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
-        `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
-        SAFETY_TEXT,
+      description: RECORD_SUBMISSION_DESCRIPTION,
       inputSchema: {
         program_id: z.string(),
         project: project.extend({ name: z.string() }),
@@ -286,12 +304,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'launch_token',
     {
-      description:
-        'Launch (or retry) the token for a project you recorded with record_submission, e.g. after ' +
-        'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
-        "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
-        'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
-        OWNERSHIP_FOR_TOKEN,
+      description: LAUNCH_TOKEN_DESCRIPTION,
       // Strict, so a misnamed key (say `ticker`) is an error, not silently dropped.
       inputSchema: z
         .object({
