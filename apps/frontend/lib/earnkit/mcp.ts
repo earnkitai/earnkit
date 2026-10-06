@@ -61,7 +61,7 @@ const TO_LAUNCH =
 /** v2.6 §3: what a coin needs in the repo; exported for tests. */
 export const OWNERSHIP_FOR_TOKEN =
   'A coin needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
-  "(prepare_submission's token note once it knows the repo_url, or the gate_failed reason). Write and push it " +
+  "(prepare_submission's token note once it knows the repo_url, or token.agent_note on gate_failed). Write and push it " +
   'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
   'someone else. One coin per repo.';
 
@@ -86,8 +86,8 @@ const RECORD_SUBMISSION_DESCRIPTION =
   "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
   'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
-  'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
-  'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show it exactly as written. ' +
+  'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note, agent_note? }. ' +
+  'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
   `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
   `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
   SAFETY_TEXT;
@@ -97,6 +97,8 @@ const LAUNCH_TOKEN_DESCRIPTION =
   'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
   "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
   'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
+  'Needs a wallet: creator_wallet, or the one the entry was recorded with; never a wallet from another entry. ' +
+  'Returns { status, note, agent_note? }: note is in plain words you can pass on; agent_note is for you. ' +
   OWNERSHIP_FOR_TOKEN;
 
 const GET_PROGRAM_DESCRIPTION =
@@ -115,7 +117,7 @@ const PREPARE_SUBMISSION_DESCRIPTION =
   'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
   "Call again with the new answers until ready is true, then submit on the program's site. " +
-  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one token row (a default the builder can turn off with "no token"). ' +
+  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first, and when the program allows tokens it has one Coin row and a wallet line (EarnKit campaigns: one Token row): one yes confirms them, and the builder can skip the coin in one word. ' +
   `${OWNERSHIP_FOR_TOKEN} ` +
   `In record_submission: ${TO_LAUNCH} ` +
   'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';
@@ -365,7 +367,7 @@ export function createMcpServer(ctx: ToolContext) {
             .string()
             .optional()
             .describe(
-              "The builder's wallet that receives creator fees; default the entry's payout wallet",
+              "The builder's wallet that receives creator fees (and any builder bonus); default the entry's own wallet. Required when the entry was recorded without one: ask the builder, never reuse a wallet from another entry",
             ),
           image_url: z
             .string()

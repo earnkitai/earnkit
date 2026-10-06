@@ -58,7 +58,8 @@ export function coinRow(a: { symbol: string | null; hasBonus: boolean; coinIn?: 
 export function walletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
   const what = a.hasBonus ? 'fees and any bonus' : 'fees';
   if (!a.wallet) return `Which wallet should get your coin's ${what}?`;
-  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (yours from last time)' : ''} — or tell me another.`;
+  // Final review M8: "used last time", never "yours": on a shared registration it may not be.
+  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (used last time)' : ''} — or tell me another.`;
 }
 
 /**
@@ -68,16 +69,47 @@ export function walletLine(a: { wallet: string | null; remembered: boolean; hasB
  */
 export const COIN_FOOTNOTE = `Fees in WETH, after Clanker's 20% cut; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`;
 
-/** The last day of a round whose end is exclusive ("Oct 31" for a month ending Nov 1 00:00 UTC). */
-const lastDayOf = (ends: Date) => new Date(ends.getTime() - 1);
+const DAY_MS = 86_400_000;
+
+/** "Oct 14" from a program summary's "closes Oct 14, …" part, or null. Pure; exported for tests. */
+export function summaryCloses(summary: string): string | null {
+  for (const part of summary.split(' · ').slice(1)) {
+    const m = /^closes (\w{3} \d{1,2})\b/.exec(part);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Ruling 29: a round's end as the builder sees it everywhere, the same day as the first message
+ * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14"
+ * (the program's real local deadline), else deadlineDay, as the first message does. Any other round
+ * (a rolling program's month, ending 00:00 UTC, exclusive) shows its last day ("Oct 31" for a month
+ * ending Nov 1). Pure.
+ */
+export function roundEndLabel(program: { summary: string; ends_at: Date | null }, ends: Date) {
+  if (program.ends_at && program.ends_at.getTime() === ends.getTime())
+    return summaryCloses(program.summary) ?? deadlineDay(ends);
+  return deadlineDay(ends);
+}
+
+/**
+ * The last day of an exclusive end, in UTC: an end at 00:00 UTC is the day before ("Oct 31" for
+ * Nov 1 00:00), any other end is its own day. Pure.
+ */
+export const deadlineDay = (ends: Date) =>
+  shortDate(ends.getTime() % DAY_MS === 0 ? new Date(ends.getTime() - 1) : ends);
 
 /**
  * Ruling 18 (plan), Ruling 22: the AGENT's note for an entry recorded without a wallet (never
- * shown to the builder, who is told to reply with a wallet). `ends` is the open round's exclusive
- * end (null: no open round or no bonus, so no date). Pure.
+ * shown to the builder, who is told to reply with a wallet). `endsLabel` is the open round's end
+ * (roundEndLabel; null: no open round or no bonus, so no date). Pure.
  */
-export const noCoinYet = (ends: Date | null) =>
-  `No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${ends ? ` before ${shortDate(lastDayOf(ends))}` : ''}.`;
+export const noCoinYet = (endsLabel: string | null) =>
+  `No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
+
+/** Final review M1: the one line for an entry whose repo another entry already holds here. */
+export const REPO_HELD = 'Another entry of this repo already holds its coin and builder bonus here.';
 
 export type EnteredText = {
   programTitle: string;
@@ -88,12 +120,12 @@ export type EnteredText = {
     | { status: 'skipped' }
     | { status: 'other' };
   /**
-   * The open round (`lastDay` is its exclusive end). Null when the program has no bonus, the coin
-   * was skipped, or Ruling 25 applies.
+   * The open round (`ends` is its end as the first message shows it, roundEndLabel). Null when the
+   * program has no bonus, the coin was skipped, the repo is held (M1), or Ruling 25 applies.
    */
   bonus: {
     cell: string;
-    lastDay: Date;
+    ends: string;
     board: string;
     /**
      * Fix round 1 (I3): set when the entry doesn't count for the builder bonus yet, with what joins
@@ -103,6 +135,8 @@ export type EnteredText = {
      */
     join?: { kind: 'confirm' | 'page' | 'link'; site: string; missing?: 'live site' } | null;
   } | null;
+  /** Final review M1: an earlier entry of this repo holds its coin and builder bonus in this program. */
+  repoHeld?: boolean;
 };
 
 /**
@@ -111,7 +145,9 @@ export type EnteredText = {
  */
 export function enteredText(a: EnteredText) {
   const entered = `Entered in ${a.programTitle}.`;
-  const round = a.bonus && `${a.bonus.cell} · ends ${shortDate(lastDayOf(a.bonus.lastDay))} · ${a.bonus.board}`;
+  // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
+  if (a.repoHeld) return `${entered} ${REPO_HELD}`;
+  const round = a.bonus && `${a.bonus.cell} · ends ${a.bonus.ends} · ${a.bonus.board}`;
   if (a.coin.status === 'no_wallet')
     return round
       ? `${entered} Reply with a wallet to get your coin and join the builder bonus (${round}).`
@@ -122,18 +158,23 @@ export function enteredText(a: EnteredText) {
       : a.coin.status === 'pending'
         ? ' Your coin is launching.'
         : a.coin.status === 'other'
-          ? ' No coin yet.'
+          ? " Your coin isn't launched yet."
           : '';
   if (!round) return `${entered}${coin}`;
   const join = a.bonus!.join;
-  if (!join) return `${entered}${coin}\nBuilder bonus: ${round}`;
+  // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
+  const once = a.coin.status === 'other' ? ' when your coin launches' : '';
+  if (!join)
+    return a.coin.status === 'other'
+      ? `${entered} Your coin isn't launched yet; it joins the builder bonus once it is (${round}).`
+      : `${entered}${coin}\nBuilder bonus: ${round}`;
   const line =
     join.kind === 'page'
       ? `Add your ${join.missing ?? 'repo'} link to your ${join.site} entry page`
       : join.kind === 'link'
         ? `Send me your ${join.site} entry link`
         : `Tell me once you've submitted on ${join.site}`;
-  return `${entered}${coin}\n${line} to join the builder bonus (${round}).`;
+  return `${entered}${coin}\n${line} to join the builder bonus${once} (${round}).`;
 }
 
 /** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */

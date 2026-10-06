@@ -485,6 +485,48 @@ test('v2.6 Ruling 6 (plan), fix round 1: an entry frozen before its installation
   }
 });
 
+test('final M10: a round whose only ranked entries are test installations goes empty (or its places pass to the Safe), never a 503', db, async () => {
+  await cleanup();
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const pool = 4n * E18;
+    // Flagged before the end: the one entry (a test installation's) is never eligible, so the round is empty.
+    const { installation } = await setup({ n: 1, pool, id: PID_TEST });
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(installation);
+    const f = chain({ balance: pool });
+    const out = (await advanceRounds(ACCOUNT, { ...f.deps(at(2)), only: [PID_TEST] })) as Out;
+    assert.equal(out.rounds[0].step, 'empty', JSON.stringify(out));
+    assert.deepEqual(out.needs_owner, [], 'no 503');
+    assert.equal((await round(PID_TEST)).state, 'empty');
+    assert.equal((await payouts(PID_TEST)).length, 0);
+    assert.equal(f.state.sent.length, 0, 'nothing paid');
+    const rows = await sql()<{ destination: string }[]>`SELECT destination FROM bonus_ledger WHERE round_key = ${PID_TEST}`;
+    assert.ok(rows.length > 0 && rows.every((r) => r.destination === 'safe'), 'the pool goes to the Safe');
+    await cleanup();
+
+    // Flagged after the freeze: its place passes down to no one, so the whole pool goes to the Safe as round-rest.
+    delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    const late = await setup({ n: 1, pool, id: PID_TEST });
+    const g = chain({ balance: pool });
+    let o2 = (await advanceRounds(ACCOUNT, { ...g.deps(at(2)), only: [PID_TEST] })) as Out;
+    assert.equal(o2.rounds[0].step, 'review');
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(late.installation);
+    await sql()`UPDATE bonus_rounds SET review_until = now() - interval '1 minute' WHERE round_key = ${PID_TEST}`;
+    o2 = (await advanceRounds(ACCOUNT, { ...g.deps(at(51)), only: [PID_TEST] })) as Out;
+    assert.equal(o2.rounds[0].step, 'pay', JSON.stringify(o2));
+    assert.equal(o2.rounds[0].done, true, JSON.stringify(o2));
+    assert.deepEqual(o2.needs_owner, [], 'no 503');
+    assert.equal(g.state.paidTo.size, 0, 'the test installation is never paid');
+    const [rest] = await sql()<{ amount_wei: string; destination: string }[]>`
+      SELECT amount_wei::text, destination FROM bonus_ledger WHERE tx_hash = ${`round-rest:${PID_TEST}`}`;
+    assert.deepEqual(rest, { amount_wei: pool.toString(), destination: 'safe' });
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    await cleanup();
+  }
+});
+
 test('an empty round (no eligible entry) books its pool to the Safe and is terminal; the sweep may take it', db, async () => {
   await cleanup();
   try {

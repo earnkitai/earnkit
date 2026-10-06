@@ -1,6 +1,7 @@
 import { sql } from './db';
 import { placesFor, roundRows, type BonusPayoutRow, type BonusTerms } from './bonus-payout';
 import { bonusOn, roundFor } from './bonus-rounds';
+import { roundEndLabel } from './entry-text';
 import { testInstallationIds } from './installations';
 import { eligibleSql } from './traction';
 import { shownUrl } from './untrusted-text';
@@ -36,6 +37,8 @@ export type Board = {
   title: string;
   state: BoardState;
   ends_at: Date;
+  /** Ruling 29: the round's end as the first message and the entry reply show it ("Oct 14"). */
+  ends_label: string;
   review_until: Date | null;
   /** The round's pool so far (frozen at the review), ETH. */
   pool: string;
@@ -160,6 +163,8 @@ type RoundRow = {
   state: BoardState;
   review_until: Date | null;
   terms: BonusTerms | null;
+  summary: string;
+  program_ends_at: Date | null;
 };
 
 /**
@@ -169,20 +174,22 @@ type RoundRow = {
  */
 export async function bonusBoard(roundKey: string, now = new Date()): Promise<Board | null> {
   let [r] = await sql()<RoundRow[]>`
-    SELECT b.round_key, b.program_id, p.title, b.starts_at, b.ends_at, b.state, b.review_until, b.terms
+    SELECT b.round_key, b.program_id, p.title, b.starts_at, b.ends_at, b.state, b.review_until, b.terms,
+      p.summary, p.ends_at AS program_ends_at
     FROM bonus_rounds b JOIN programs p ON p.id = b.program_id WHERE b.round_key = ${roundKey}`;
   if (!r) {
-    const [p] = await sql()<{ id: string; title: string; status: string; starts_at: Date | null; ends_at: Date | null; builder_bonus: boolean | null; campaign: unknown }[]>`
-      SELECT id, title, status, starts_at, ends_at, builder_bonus, campaign FROM programs WHERE id = ${roundKey.split(':')[0]}`;
+    const [p] = await sql()<{ id: string; title: string; summary: string; status: string; starts_at: Date | null; ends_at: Date | null; builder_bonus: boolean | null; campaign: unknown }[]>`
+      SELECT id, title, summary, status, starts_at, ends_at, builder_bonus, campaign FROM programs WHERE id = ${roundKey.split(':')[0]}`;
     const round = p && bonusOn(p) ? roundFor(p, now) : null;
     if (!p || round?.key !== roundKey) return null;
-    r = { round_key: roundKey, program_id: p.id, title: p.title, starts_at: round.starts, ends_at: round.ends, state: 'open', review_until: null, terms: null };
+    r = { round_key: roundKey, program_id: p.id, title: p.title, starts_at: round.starts, ends_at: round.ends, state: 'open', review_until: null, terms: null, summary: p.summary, program_ends_at: p.ends_at };
   }
   const base = {
     round: r.round_key,
     title: r.title,
     state: r.state,
     ends_at: r.ends_at,
+    ends_label: roundEndLabel({ summary: r.summary, ends_at: r.program_ends_at }, r.ends_at),
     review_until: r.review_until,
     days_left: daysLeft(r.ends_at, now),
   };

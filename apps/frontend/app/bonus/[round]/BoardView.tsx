@@ -61,9 +61,10 @@ export default function BoardView({ board: b }: { board: Board }) {
   const ended = b.days_left === 0;
   const day = (d: Date) => formatDeadline(d).replace(/, \d\d:\d\d UTC$/, '');
   // Open: the time left. Ended: when it ended, then where the round is (review, paying, paid).
-  const second = ended ? { label: 'Ended', value: day(b.ends_at) } : { label: 'Days left', value: String(b.days_left) };
+  // Ruling 29: the round's end is the day the first message and the entry reply show.
+  const second = ended ? { label: 'Ended', value: b.ends_label } : { label: 'Days left', value: String(b.days_left) };
   const third = !ended
-    ? { label: 'Ends', value: day(b.ends_at) }
+    ? { label: 'Ends', value: b.ends_label }
     : b.state === 'review' && b.review_until
       ? { label: 'Review until', value: day(b.review_until) }
       : { label: 'Status', value: STATUS[b.state] };

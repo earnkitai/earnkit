@@ -155,6 +155,8 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
     const paid = await bonusBoard(paidKey, realNow);
     assert.ok(paid);
     assert.deepEqual([paid.state, paid.pool, paid.days_left], ['paid', '1', 0]);
+    // Ruling 29: a month ending Oct 1 00:00 UTC (exclusive) ended on Sep 30, as every reply says.
+    assert.equal(paid.ends_label, 'Sep 30');
     assert.deepEqual(paid.rows.map((r) => [r.name, r.rank, r.amount, r.tx]), [['alpha', 1, '1', '0x' + 'c'.repeat(64)]]);
     assert.ok(!JSON.stringify(paid).includes('00aa'), 'no wallet');
     assert.equal(await bonusBoard(`${tag}-missing`, realNow), null);

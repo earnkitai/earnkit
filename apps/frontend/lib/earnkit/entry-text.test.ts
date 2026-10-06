@@ -10,6 +10,9 @@ import {
   enteredText,
   keyTable,
   noCoinYet,
+  REPO_HELD,
+  roundEndLabel,
+  summaryCloses,
   tokenFootnote,
   tokenRow,
   walletLine,
@@ -162,7 +165,7 @@ test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full,
   assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }), 'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees · skip: no coin');
   assert.equal(coinRow({ symbol: null, hasBonus: true }), 'Your entry gets a coin (pick a name and ticker): you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus');
   assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's coin is entered in Arc Microgrants");
-  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`);
+  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`);
   assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W} — or tell me another.`);
   assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your coin's fees and any bonus?");
   assert.equal(
@@ -184,7 +187,7 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
       '| Prize | 500 USDC |',
       '| Coin | Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus |',
       '',
-      `Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`,
+      `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`,
       '',
       COIN_FOOTNOTE,
     ].join('\n'),
@@ -200,35 +203,33 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
 });
 
 test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () => {
-  const ends = new Date('2026-10-15T03:59:00Z');
-  const bonus = { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
+  // Ruling 29: Arc's round ends 2026-10-15T03:59Z, which is Oct 14, 11:59 PM ET: "Oct 14".
+  const bonus = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus }),
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
-      'Builder bonus: 0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16',
+      'Builder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
   assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'skipped' }, bonus: null }), 'Entered in Base Builder Grant Program.');
   // No wallet: one line, the date once.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus }),
-    'Entered in Arc Microgrants. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+    'Entered in Arc Microgrants. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'no_wallet' }, bonus: null }), 'Entered in Base Builder Grant Program. Reply with a wallet to get your coin.');
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' }, bonus }),
-    'Entered in Arc Microgrants. Your coin is launching.\nBuilder bonus: 0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16',
+    'Entered in Arc Microgrants. Your coin is launching.\nBuilder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
-  assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), 'Entered in Arc Microgrants. No coin yet.');
+  assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), "Entered in Arc Microgrants. Your coin isn't launched yet.");
   for (const status of ['launched', 'pending', 'no_wallet', 'skipped', 'other'] as const)
     assert.doesNotMatch(
       enteredText({ programTitle: 'P', coin: status === 'launched' ? { status, url: 'https://tokens.fun/coin/0x1' } : { status }, bonus }),
       /launch_token|record_submission|creator_wallet|payout_wallet/,
     );
   // The agent's note (never shown to the builder) names the tool and the date.
-  assert.equal(noCoinYet(ends), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet before Oct 15.');
+  assert.equal(noCoinYet('Oct 14'), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
   assert.equal(noCoinYet(null), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
-  // A month ending Nov 1 00:00 UTC (exclusive) shows its last day.
-  assert.match(noCoinYet(new Date('2026-11-01T00:00:00Z')), / before Oct 31\.$/);
 });
 test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
   const prev = process.env.EARNKIT_URL;
@@ -242,36 +243,87 @@ test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
 });
 
 test('fix round 1 (I3): an entry that does not count yet is told plainly what joins the builder bonus', () => {
-  const ends = new Date('2026-10-15T03:59:00Z');
-  const base = { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
+  const base = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
   const coin = { status: 'launched' as const, url: 'https://tokens.fun/coin/0xabc' };
   assert.equal(
     enteredText({ programTitle: 'Base Batches', coin, bonus: { ...base, join: { kind: 'confirm', site: 'base.org' } } }),
     'Entered in Base Batches. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
-      "Tell me once you've submitted on base.org to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
+      "Tell me once you've submitted on base.org to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
   );
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io' } } }),
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
-      'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+      'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // N2: an entry without a repo is asked for its live site link, never a repo link.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io', missing: 'live site' } } }),
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
-      'Add your live site link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+      'Add your live site link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Ruling 24: a public entry page, no entry link given yet.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'link', site: 'dorahacks.io' } } }),
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
-      'Send me your dorahacks.io entry link to join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+      'Send me your dorahacks.io entry link to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Counting (join null): the current line.
-  assert.match(enteredText({ programTitle: 'A', coin, bonus: { ...base, join: null } }), /\nBuilder bonus: 0\.18 ETH so far · ends Oct 15 · /);
+  assert.match(enteredText({ programTitle: 'A', coin, bonus: { ...base, join: null } }), /\nBuilder bonus: 0\.18 ETH so far · ends Oct 14 · /);
   for (const kind of ['confirm', 'page', 'link'] as const)
     assert.doesNotMatch(
       enteredText({ programTitle: 'A', coin, bonus: { ...base, join: { kind, site: 'x.io' } } }),
       /builder_submitted|record_submission|launch_token|external_submission_url|vault/,
     );
+});
+
+test('Ruling 29 (final I2): the round end is the first message\'s day, the real local deadline', async () => {
+  const { endsOf } = await import('./present');
+  // Arc: closes Oct 14, 11:59 PM ET = 2026-10-15T03:59Z. The first message says "Oct 14"; so does every reply.
+  const arc = { summary: '500 USDC × 20 grants · closes Oct 14, 11:59 PM ET', ends_at: new Date('2026-10-15T03:59:00Z') };
+  const card = { id: 'arc', title: 'Arc', tag: null, each_time: [], ...arc };
+  assert.equal(endsOf(card), 'Oct 14');
+  assert.equal(roundEndLabel(arc, arc.ends_at), endsOf(card));
+  // Monad and Colosseum: the same, never the next UTC day.
+  const monad = { summary: '$250K+ prize pool · closes Oct 13, 11:59 PM ET', ends_at: new Date('2026-10-14T03:59:00Z') };
+  assert.equal(roundEndLabel(monad, monad.ends_at), 'Oct 13');
+  const colosseum = { summary: '$840K+ in prizes · closes Oct 12, 11:59 PM PT', ends_at: new Date('2026-10-13T06:59:00Z') };
+  assert.equal(roundEndLabel(colosseum, colosseum.ends_at), 'Oct 12');
+  // No "closes" in the summary: the deadline's UTC day, as endsOf shows it.
+  const plain = { summary: 'up to $5,000', ends_at: new Date('2026-10-15T03:59:00Z') };
+  assert.equal(roundEndLabel(plain, plain.ends_at), endsOf({ ...card, ...plain }));
+  // A rolling program's month ends Nov 1 00:00 UTC (exclusive): its last day.
+  assert.equal(roundEndLabel({ summary: 'up to $5,000 · rolling', ends_at: null }, new Date('2026-11-01T00:00:00Z')), 'Oct 31');
+  assert.equal(summaryCloses('up to $5,000 · rolling'), null);
+  // The reply and the agent note carry that same day.
+  const label = roundEndLabel(arc, arc.ends_at);
+  const reply = enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: { cell: 'new pool', ends: label, board: 'b' } });
+  assert.match(reply, /ends Oct 14 /);
+  assert.match(noCoinYet(label), /by Oct 14\.$/);
+});
+
+test('final M1: an entry whose repo another entry holds here gets one plain line, no bonus or wallet ask', () => {
+  for (const status of ['launched', 'pending', 'no_wallet', 'skipped', 'other'] as const) {
+    const text = enteredText({
+      programTitle: 'Arc Microgrants',
+      coin: status === 'launched' ? { status, url: 'https://tokens.fun/coin/0x1' } : { status },
+      bonus: null,
+      repoHeld: true,
+    });
+    assert.equal(text, `Entered in Arc Microgrants. ${REPO_HELD}`);
+    assert.doesNotMatch(text, /Reply with a wallet|Builder bonus:|launch_token|creator_wallet/);
+  }
+});
+
+test('final M4: a coin not launched yet joins the builder bonus once it is; never an unconditional bonus line', () => {
+  const bonus = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc' };
+  const other = { status: 'other' as const };
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin: other, bonus }),
+    "Entered in Arc Microgrants. Your coin isn't launched yet; it joins the builder bonus once it is (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
+  );
+  assert.equal(
+    enteredText({ programTitle: 'Base Batches', coin: other, bonus: { ...bonus, join: { kind: 'confirm', site: 'base.org' } } }),
+    "Entered in Base Batches. Your coin isn't launched yet.\nTell me once you've submitted on base.org to join the builder bonus when your coin launches (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
+  );
+  assert.doesNotMatch(enteredText({ programTitle: 'A', coin: other, bonus }), /\nBuilder bonus:|No coin yet/);
 });

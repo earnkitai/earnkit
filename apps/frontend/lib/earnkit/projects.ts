@@ -14,7 +14,7 @@ import {
 } from './campaigns';
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
-import { enteredTable, repoCoinNote, siteUrl } from './entry-text';
+import { enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
 import { testInstallationIds } from './installations';
 import {
   checkOwnership,
@@ -610,6 +610,8 @@ export async function recordSubmission(
   // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
   // new coin here, so no builder bonus: said now, not discovered at launch.
   let coinElsewhere = false;
+  // Final review M1: the repo's coin is already on an entry in this same program (Ruling 13b's case).
+  let coinHere = false;
   if (bonusRepoKey && bonusOn(program)) {
     const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
     // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
@@ -617,7 +619,7 @@ export async function recordSubmission(
       coinElsewhere = true;
       const line = repoCoinNote(coin.title);
       notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
-    }
+    } else if (coin) coinHere = true;
   }
   // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
   // no bonus, no open round, or Ruling 25).
@@ -645,6 +647,8 @@ export async function recordSubmission(
       `repo_url: this repo is already entered in this campaign (entry #${same.id}).`,
     );
 
+  // M1: set in the transaction when another entry of this repo holds its coin or bonus here.
+  let repoHeld = false;
   return sql()
     .begin(async (tx) => {
       if (entry) {
@@ -703,6 +707,11 @@ export async function recordSubmission(
           notes.push(
             `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest eligible entry of a repo is.`,
           );
+        // M1: the repo's one coin is on another entry here (this row's own coin, or its launch in
+        // flight, is not "another"), so this entry can get no coin and no builder bonus.
+        else if (coinHere && !own?.earnkit_coin)
+          notes.push('Not eligible for the builder bonus: another entry of this repo in this program has its coin (one coin per repo).');
+        repoHeld = Boolean(earlier) || (coinHere && !own?.earnkit_coin);
       }
       if (bonusContracts && bonusOn(program)) {
         // A contract backs only one eligible entry per program, the earliest (Ruling 15; scoring
@@ -784,7 +793,13 @@ export async function recordSubmission(
         program_title: program.title,
         // For record_submission's reply: a program without coins skips the coin line (M3).
         token_policy: program.token_policy,
-        bonus_round: openRound ? { key: openRound.key, ends_at: openRound.ends.toISOString() } : null,
+        // Ruling 29: `ends_label` is the round's end as the first message shows it. M1: a held repo
+        // has no round to join (and says so, `repo_held`).
+        bonus_round:
+          openRound && !repoHeld
+            ? { key: openRound.key, ends_at: openRound.ends.toISOString(), ends_label: roundEndLabel(program, openRound.ends) }
+            : null,
+        ...(repoHeld && { repo_held: true as const }),
         ...(notes.length && { bonus_note: notes.join(' ') }),
         ...(entry &&
           program.campaign && {
