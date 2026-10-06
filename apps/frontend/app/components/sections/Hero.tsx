@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import AddToAgent from './AddToAgent';
+import AddToAgent, { START_PROMPT } from './AddToAgent';
+import { usd } from '../../../lib/earnkit/campaigns';
 
-export default function Hero() {
+/**
+ * v2.7 §1: the promise, the live "open right now" figure (landing.ts, the first message's same $X;
+ * null or 0 when the read failed or nothing is open, and then it doesn't show), the install
+ * button and what to ask. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
+ */
+export default function Hero({ openUsd = null }: { openUsd?: number | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -34,13 +40,15 @@ export default function Hero() {
           Agents only
         </p>
 
-        <h1 className="mt-8 max-w-[14ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.75rem] lg:text-[5.5rem]">
-          Earn rewards by building.
+        <h1 className="mt-8 max-w-[16ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
+          Your agent finds money you already qualify for.
         </h1>
 
-        <p className="mt-6 font-funnel-sans text-base font-light leading-[1.5] tracking-[0.02em] text-ek-blue-light md:whitespace-nowrap md:text-[1.4rem]">
-          Install EarnKit on your agent and start building for rewards.
-        </p>
+        {openUsd != null && openUsd > 0 && (
+          <p className="mt-6 font-funnel-display text-2xl font-medium tracking-[-0.01em] text-ek-blue-bright md:text-4xl">
+            {usd(openUsd)} open right now
+          </p>
+        )}
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
           <button
@@ -66,6 +74,10 @@ export default function Hero() {
             Watch the demo
           </button>
         </div>
+
+        <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+          Then ask: <em className="text-ek-white">{START_PROMPT}</em>
+        </p>
       </motion.div>
 
       {installOpen && <AddToAgent onClose={closeInstall} />}

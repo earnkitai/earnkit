@@ -1,7 +1,7 @@
 import { normalizeRepoUrl, usd } from './campaigns';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
-import { EFFORT_ORDER, type Effort, type Verdict } from './match';
+import { EFFORT_ORDER, type Chain, type Effort, type Verdict } from './match';
 import { difficultyLabel, type Difficulty } from './guide';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
@@ -48,6 +48,12 @@ export type Card = {
   bonus_closed?: boolean;
   /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
   difficulty?: Difficulty | null;
+  /** An EarnKit campaign (programs.ts programCard): its own table, never a program card. */
+  earnkit_campaign?: boolean;
+  /** v2.7 Ruling 23 (plan): the logo file's path under public/ ("programs/<id>.svg"), or null. */
+  logo?: string | null;
+  /** The program's chains (program file `chains`). */
+  chains?: Chain[];
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -243,8 +249,11 @@ export function table(head: string[], rows: string[][]) {
   ].join('\n');
 }
 
-/** Whole UTC calendar days from now to the end: "ends today" only on the last day. */
-const left = (endsAt: Date, now: Date) => {
+/**
+ * Whole UTC calendar days from now to the end: "ends today" only on the last day. Exported for the
+ * landing page's cards (landing.ts), so the page and the first message count days the same way.
+ */
+export const daysLeftText = (endsAt: Date, now: Date) => {
   const day = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   const days = Math.round((day(endsAt) - day(now)) / DAY_MS);
   return days <= 0 ? 'ends today' : `${days} day${days === 1 ? '' : 's'} left`;
@@ -270,8 +279,11 @@ export const prizePerHour = (c: Card, v: Verdict) => (c.max_award_usd ?? 0) / EF
 
 const quickness = (v: Verdict) => (v.status === 'likely' ? 0 : 10) + EFFORT_ORDER.indexOf(v.effort);
 
-/** Larger known per-winner prize first (unknown last), then the earlier deadline (rolling last). */
-const byPrize = (a: Card, b: Card) =>
+/**
+ * Larger known per-winner prize first (unknown last), then the earlier deadline (rolling last).
+ * Exported for the landing page (landing.ts), which sorts its cards the same way.
+ */
+export const byPrize = (a: Pick<Card, 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'max_award_usd' | 'ends_at'>) =>
   (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) ||
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
@@ -381,7 +393,7 @@ export function presentFirstMessage(m: FirstMessage): string {
         campaigns.map((r) => [
           r.title,
           r.prize,
-          `${shortDate(r.ends_at)}, ${left(r.ends_at, m.now)}`,
+          `${shortDate(r.ends_at)}, ${daysLeftText(r.ends_at, m.now)}`,
           r.you ?? fieldText(r),
         ]),
       ),

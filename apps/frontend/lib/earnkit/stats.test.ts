@@ -24,6 +24,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     bonus_deposits_wei: (2n * E18).toString(),
     bonus_to_safe_wei: (E18 / 2n).toString(),
     bonus_paid_wei: (E18 / 4n).toString(),
+    bonus_pools_wei: ((6n * E18) / 10n).toString(),
     installs: 12,
   });
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
@@ -36,6 +37,8 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     // deposits booked to the Safe (0.5 ETH: ended rounds, no open round).
     fees_to_safe_eth: 3.5,
     bonus_paid_eth: 0.25,
+    // v2.7 Ruling 20 (plan): open rounds' bookings, wei to ETH.
+    bonus_pools_eth: 0.6,
     installs: 12,
   });
   for (const v of Object.values(s)) assert.equal(typeof v, 'number');
@@ -44,9 +47,9 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom({
     open_money_usd: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
-    bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, installs: 0,
+    bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
   });
-  assert.deepEqual(Object.values(s), [0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -153,6 +156,39 @@ test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 tokens only; every s
   assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 tokens)');
   assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
   for (const l of Object.values(STATS_LABELS)) assert.doesNotMatch(l, /vault|\p{Extended_Pictographic}/u);
+});
+
+test('v2.7 Ruling 20 (plan): bonus_pools_eth key and label', () => {
+  assert.ok((STATS_KEYS as readonly string[]).includes('bonus_pools_eth'));
+  assert.equal(STATS_LABELS.bonus_pools_eth, 'builder bonus pools open (ETH)');
+});
+
+test('v2.7 Ruling 20 (plan): bonus_pools_eth sums open rounds\' round bookings; a frozen round never counts', db, async () => {
+  const tag = `stats-pools-${process.pid}-${Date.now()}`;
+  const program = `${tag}-p`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${program}, 'o', ${program}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown')`;
+  const round = (key: string, state: string) => sql()`
+    INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
+    VALUES (${key}, ${program}, now() - interval '1 day', now() + interval '1 day', ${state})`;
+  const book = (hash: string, key: string | null, destination: string, wei: bigint) => sql()`
+    INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time)
+    VALUES (${hash}, 0, NULL, ${key}, ${destination}, ${wei.toString()}, now())`;
+  try {
+    const before = await readStats();
+    await round(`${tag}-open`, 'open');
+    await round(`${tag}-frozen`, 'frozen');
+    await book(`${tag}-1`, `${tag}-open`, 'round', E18 / 10n);
+    await book(`${tag}-2`, `${tag}-frozen`, 'round', E18); // frozen: not an open pool
+    await book(`${tag}-3`, null, 'safe', E18); // booked to the Safe, not a pool
+    const after = await readStats();
+    assert.equal(Math.round((after.bonus_pools_eth - before.bonus_pools_eth) * 1e6) / 1e6, 0.1);
+  } finally {
+    await sql()`DELETE FROM bonus_ledger WHERE tx_hash LIKE ${`${tag}-%`}`;
+    await sql()`DELETE FROM bonus_rounds WHERE round_key LIKE ${`${tag}-%`}`;
+    await sql()`DELETE FROM programs WHERE id = ${program}`;
+  }
 });
 
 test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {

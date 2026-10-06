@@ -9,6 +9,11 @@ import BoardView from '../../app/bonus/[round]/BoardView';
 import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
 import { resolveRoundParam } from './bonus-rounds';
+import HomeView from '../../app/HomeView';
+import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
+import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
+import type { Landing } from './landing';
+import { homeFixture } from './fixtures/landing';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
@@ -178,4 +183,79 @@ test('Ruling 12 (plan): the board page resolves the slug and the v2.5 ":" form t
   assert.equal(resolveRoundParam('arc-microgrants:2026-09-16'), 'arc-microgrants:2026-09-16');
   const sitemap = readFileSync(join(import.meta.dirname, '../../app/sitemap.ts'), 'utf8');
   assert.match(sitemap, /\/bonus\/\$\{boardSlug\(r\.round_key\)\}/);
+});
+
+// ---- v2.7 §1: the homepage (HomeView is the pure render; app/page.tsx does the cached read).
+const home = (landing: Landing | null) => html(React.createElement(HomeView, { landing }));
+
+test('v2.7 §1: the full home view', () => {
+  const h = home(homeFixture);
+  const t = text(h);
+  for (const s of ['Your agent finds money you already qualify for.', '$60,500 open right now', 'Add to your agent', 'Then ask: What can I earn?', 'Watch the demo', 'Agents only'])
+    assert.ok(t.includes(s), s);
+  // 6 cards, then "See all" to /programs.
+  const cards = h.split('<li class="flex flex-col rounded-[32px]').slice(1);
+  assert.equal(cards.length, 6);
+  assert.ok(!t.includes('Program Seven'));
+  assert.match(h, /<a[^>]*href="\/programs"[^>]*>See all<\/a>/);
+  for (const [i, c] of cards.entries()) {
+    const ct = text(c);
+    const tl = homeFixture.tiles[i];
+    assert.ok(ct.includes('Ask your agent'), tl.id);
+    assert.match(c, new RegExp(`href="/programs/${tl.id}"[^>]*>Guide</a>`), tl.id);
+    for (const v of [tl.title, tl.chain, tl.prize, tl.difficulty, tl.ends, tl.bonus!]) assert.ok(ct.includes(v), `${tl.id}: ${v}`);
+  }
+  // The strip.
+  for (const s of ['Open money $60,500', 'Agents earning 120', 'Builder bonus 0.60 ETH so far']) assert.ok(t.includes(s), s);
+  // The 3 steps.
+  for (const s of ['Add EarnKit', 'One link, any agent. Free, no account.', 'Ask “What can I earn?”', 'Your agent shows open money you qualify for.', 'Your agent builds and submits', 'Your entry gets a token and joins the builder bonus.'])
+    assert.ok(t.includes(s), s);
+  // Footer: Docs, Policy, Programs.
+  for (const href of ['https://docs.earnkit.com', '/policy', '/programs']) assert.match(h, new RegExp(`href="${href}"`), href);
+  assert.ok(t.includes('Docs · Policy · Programs'));
+  // The design system: Funnel type, navy panels, the panel radius; no emojis, never "coin".
+  assert.match(h, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
+  assert.match(h, /<h2[^>]*font-funnel-display[^>]*>Open programs<\/h2>/);
+  assert.doesNotMatch(t, /\bcoins?\b/i);
+});
+
+test('Review Focus 1: a failed read renders the headline and the button, without the live parts', () => {
+  const h = home(null);
+  const t = text(h);
+  assert.ok(t.includes('Your agent finds money you already qualify for.'));
+  assert.ok(t.includes('Add to your agent'));
+  assert.ok(t.includes('Then ask: What can I earn?'));
+  assert.ok(!t.includes('open right now'));
+  assert.ok(!t.includes('Ask your agent'));
+  assert.ok(!t.includes('Open programs'));
+  assert.ok(!t.includes('Open money'));
+  assert.ok(t.includes('Your agent builds and submits')); // how it works stays
+});
+
+test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a local <img>', () => {
+  const none = html(React.createElement(ProgramLogo, { logo: null, title: 'Arc Microgrants' }));
+  assert.match(none, />AM</);
+  assert.doesNotMatch(none, /<img/);
+  assert.match(none, /font-funnel-display/);
+  assert.match(none, /bg-ek-navy/);
+  const one = html(React.createElement(ProgramLogo, { logo: '/programs/arc-microgrants.svg', title: 'Arc Microgrants' }));
+  assert.match(one, /<img src="\/programs\/arc-microgrants.svg" alt="Arc Microgrants"/);
+  assert.equal(monogram('Base Builder Grant Program'), 'BB');
+  assert.equal(monogram('Monad'), 'M');
+});
+
+test('v2.7 §1: the install modal asks the starting phrase, or the program\'s own', () => {
+  assert.equal(START_PROMPT, 'What can I earn?');
+  const t = text(html(React.createElement(AddToAgent, { onClose: () => {}, prompt: 'What can I earn on Arc Microgrants?' })));
+  assert.ok(t.includes('Then ask your agent: “What can I earn on Arc Microgrants?”'));
+  assert.ok(text(html(React.createElement(AddToAgent, { onClose: () => {} }))).includes('Then ask your agent: “What can I earn?”'));
+});
+
+test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {
+  const layout = readFileSync(join(import.meta.dirname, '../../app/layout.tsx'), 'utf8');
+  assert.ok(layout.includes('EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "What can I earn?", build, and submit.'));
+  const llms = readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8');
+  assert.ok(llms.includes('What can I earn?'));
+  assert.match(llms, /earnkit\.com\/programs\/<id>/);
+  assert.doesNotMatch(llms, /Anything worth building/);
 });

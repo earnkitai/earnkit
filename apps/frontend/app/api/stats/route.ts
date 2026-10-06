@@ -13,7 +13,7 @@ import { readStats } from '@/lib/earnkit/stats';
  */
 export const revalidate = 600;
 
-const cachedStats = unstable_cache(() => readStats(), ['public-stats'], { revalidate: 600 });
+const cachedStats = unstable_cache(() => readStats(), ['public-stats-v27'], { revalidate: 600 });
 
 export async function GET() {
   try {

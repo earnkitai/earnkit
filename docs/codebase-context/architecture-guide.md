@@ -1310,6 +1310,8 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   each place's amount and the mined transaction. Wallets, flags and veto reasons never show.
   Stored links render only through `shownUrl`.
 - **/api/stats** gives jenil.ai aggregates only.
+  - v2.7 Ruling 20 (plan): `bonus_pools_eth` sums the `destination = 'round'` bookings of rounds in
+    state `open` (a frozen round's don't count).
   - `fees_to_safe_eth` covers **v2.5-split coins only** and is not all-time Safe revenue.
     Pre-v2.5 coins count 0. It is accrued, so unclaimed FeeLocker balances are included.
   - It is derived: the Safe's 30% slot is 1.5x the indexed real bonus-wallet deposits from EarnKit
@@ -1339,6 +1341,22 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 - **Design system:** these pages are built from rounded `bg-ek-navy-deep` panels (40px, 56px from
   md, 16px apart), the uppercase eyebrow, Funnel Display headings, Funnel Sans light body text,
   and the v2.4 campaign table style.
+
+## Landing page (v2.7 §1)
+
+- `/` (`app/page.tsx`, `revalidate = 600`) reads `getLanding()` (`app/lib/landing-cache.ts`):
+  `readLanding` behind `unstable_cache` for 10 minutes, so at most one DB read per 10 minutes and
+  no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
+- Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
+  (`byPrize`); the hero's "$X open right now" is `openMoneyUsd` of the same cards, so it always
+  matches the first message (Ruling 20). The stats strip hides installs under 100.
+- A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls
+  `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure,
+  no cards, no strip. Because of `connection()`, a build without the DB makes `/` dynamic instead
+  of prerendering the fallback (Ruling 21). Note: a local rebuild reuses `.next/cache`, so test
+  this with a clean `.next`.
+- Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;
+  without one, the Ruling 1 monogram.
 
 ## Abuse limits and response headers (v2.2 §5)
 
