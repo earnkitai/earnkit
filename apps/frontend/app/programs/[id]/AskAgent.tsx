@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react';
 import AddToAgent from '../../components/sections/AddToAgent';
 
 /** The guide's one primary action: the install modal, ending with the program's own question. */
-export default function AskAgent({ prompt, defaultOpen = false }: { prompt: string; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+export default function AskAgent({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   return (
     <>

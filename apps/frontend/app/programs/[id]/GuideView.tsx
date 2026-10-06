@@ -4,7 +4,7 @@ import Footer from '../../components/common/Footer';
 import { Eyebrow, Panel } from '../../components/common/Panel';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
-import { difficultyLabel } from '../../../lib/earnkit/guide';
+import { difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
 
@@ -39,27 +39,30 @@ function WonLine({ line }: { line: string }) {
   );
 }
 
-/** "Sources:" links, each the canonical https form (shownUrl); the host is the label. */
-function Sources({ urls }: { urls: string[] }) {
-  const links = [...new Set(urls.map((u) => shownUrl(u)).filter((u): u is string => u !== null))];
+/** "Sources:" links, each the canonical https form (shownUrl), labelled by what it backs. */
+function Sources({ sources }: { sources: GuideSource[] }) {
+  const links = sources.flatMap((s) => {
+    const url = shownUrl(s.url);
+    return url ? [{ label: s.label, url }] : [];
+  });
   if (links.length === 0) return null;
-  const seen = new Map<string, number>();
   return (
     <p className="mt-6 font-funnel-sans text-sm font-light leading-relaxed text-ek-blue-soft">
       Sources:{' '}
-      {links.map((u, i) => {
-        const host = new URL(u).hostname.replace(/^www\./, '');
-        const n = (seen.get(host) ?? 0) + 1;
-        seen.set(host, n);
-        return (
-          <span key={u}>
-            {i > 0 && ' · '}
-            <a href={u} target="_blank" rel="noopener noreferrer" className={`${LINK} inline-block py-1.5`}>
-              {n > 1 ? `${host} (${n})` : host}
-            </a>
-          </span>
-        );
-      })}
+      {links.map((l, i) => (
+        <span key={l.url}>
+          {i > 0 && ' · '}
+          <a
+            href={l.url}
+            title={new URL(l.url).hostname}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${LINK} inline-block py-1.5`}
+          >
+            {l.label}
+          </a>
+        </span>
+      ))}
     </p>
   );
 }
@@ -91,10 +94,16 @@ export default function GuideView({ page }: { page: GuidePage }) {
               <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}</span> — {g.difficulty.basis}
             </dd>
           </dl>
+          {/* Fix round 1: the next step above the fold on mobile; the action row below repeats it. */}
+          {page.open && (
+            <div className="mt-8">
+              <AskAgent prompt={askPrompt(page.title)} />
+            </div>
+          )}
         </Panel>
 
         {g.won && (
-          <Part title={g.won.own ? 'What won last time' : 'What won before'}>
+          <Part title={wonHeading(g.won)}>
             <ul className="space-y-3 font-funnel-sans text-base text-ek-blue-light md:text-lg">
               {g.won.lines.map((l) => (
                 <li key={l} className="flex gap-3">
@@ -131,7 +140,10 @@ export default function GuideView({ page }: { page: GuidePage }) {
         <Panel className="py-8 md:py-10">
           {g.bonus && page.board_path && (
             <p className="mb-6 font-funnel-sans text-base text-ek-blue-light md:text-lg">
-              Builder bonus: <span className="font-medium text-ek-white">{g.bonus.cell}</span> ·{' '}
+              <Link href="/policy#the-builder-bonus" className={LINK}>
+                Builder bonus
+              </Link>
+              : <span className="font-medium text-ek-white">{g.bonus.cell}</span> ·{' '}
               <Link href={page.board_path} className={LINK}>
                 leaderboard
               </Link>
@@ -143,7 +155,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
               All programs
             </Link>
           </div>
-          <Sources urls={[page.source_url, ...page.sources]} />
+          <Sources sources={page.sources} />
         </Panel>
       </div>
 

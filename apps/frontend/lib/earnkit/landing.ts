@@ -1,11 +1,12 @@
 import { usd } from './campaigns';
 import { prizeOf } from './entry-text';
-import { difficultyLabel, guideSources, programGuide, type Guide } from './guide';
+import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, byPrize, daysLeftText, openMoneyUsd, type Card } from './present';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { readStats, type PublicStats } from './stats';
+import { sql } from './db';
 
 /**
  * The landing page's live data (v2.7 §1): the open curated programs as cards, the "open right now"
@@ -132,8 +133,8 @@ export type GuidePage = {
   board_path: string | null;
   /** The program's own page. */
   source_url: string;
-  /** Every source_url the guide's facts rest on (guideSources), deduped. */
-  sources: string[];
+  /** The program's own page, then every source the guide's facts rest on, labelled by role. */
+  sources: GuideSource[];
   /** The ecosystem the page's description names: focus.ecosystem, else the first chain's name. */
   ecosystem: string;
 };
@@ -163,7 +164,43 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
     board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
     source_url: row.source_url,
-    sources: guideSources(row),
+    sources: guideSourceList(row, [{ label: 'program page', url: row.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,
   };
+}
+
+/** A guide page id: a program file's id shape. Anything else is a 404 with no read. */
+export const GUIDE_ID = /^[a-z0-9-]{1,64}$/;
+
+/** Every curated program id, closed ones included (Ruling 22: old links keep working). */
+export async function readGuideIds(): Promise<string[]> {
+  const rows = await sql()<{ id: string }[]>`
+    SELECT id FROM programs WHERE source = 'file' AND campaign IS NULL ORDER BY id`;
+  return rows.map((r) => r.id);
+}
+
+/**
+ * The guide page for `id`, gated (fix round 1, Important 1): a malformed id is null with no read;
+ * an id outside the curated set is null with no per-id read, so random ids cost at most the one
+ * cached id-set read. A failed read rejects (the caller shows "unavailable", never a 404).
+ */
+export async function gatedGuidePage(
+  id: string,
+  ids: () => Promise<string[]>,
+  read: (id: string) => Promise<GuidePage | null>,
+): Promise<GuidePage | null> {
+  if (!GUIDE_ID.test(id)) return null;
+  if (!(await ids()).includes(id)) return null;
+  return read(id);
+}
+
+/** The guide page's description, naming only the parts it has. Pure. */
+export function guideDescription(page: Pick<GuidePage, 'title' | 'guide' | 'ecosystem'>): string {
+  const parts = [
+    'Difficulty',
+    ...(page.guide.won ? ['what won before'] : []),
+    ...(page.guide.wants ? [`what ${page.ecosystem} wants now`] : []),
+  ];
+  const list = parts.length < 3 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
+  return `What can I earn on ${page.title}? ${list}.`;
 }

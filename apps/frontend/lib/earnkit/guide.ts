@@ -166,11 +166,42 @@ export function guideSources(p: GuideFacts & { source_url?: string }): string[] 
   return [...new Set(urls)];
 }
 
+/** "What won last time" for the program's newest own round, else "What won before" (Ruling C3). */
+export const wonHeading = (won: { own: boolean }) => (won.own ? 'What won last time' : 'What won before');
+
+/** A guide source and what it backs (the page labels each link by its role, not its host). */
+export type GuideSource = { label: string; url: string };
+
+/**
+ * Every source the guide's facts rest on, labelled by what it backs: "difficulty", "past winners",
+ * "priorities". Deduped by URL (the first role wins); a role with several sources is numbered
+ * ("past winners 1", "past winners 2"). Same URLs as guideSources. Pure.
+ */
+export function guideSourceList(p: GuideFacts & { source_url?: string }, first: GuideSource[] = []): GuideSource[] {
+  const raw: GuideSource[] = [...first];
+  const basis = difficultyFrom(p).source_url;
+  const won = wonRound(p);
+  if (won) for (const url of [won.source_url, ...(won.examples ?? []).map((e) => e.source_url)]) raw.push({ label: 'past winners', url });
+  if (p.focus) raw.push({ label: 'priorities', url: p.focus.source_url });
+  // The basis's source, when it isn't already cited for the round it was read from.
+  if (basis) raw.push({ label: 'difficulty', url: basis });
+  const seen = new Set<string>();
+  const kept = raw.filter((s) => !seen.has(s.url) && seen.add(s.url));
+  const total = new Map<string, number>();
+  for (const s of kept) total.set(s.label, (total.get(s.label) ?? 0) + 1);
+  const n = new Map<string, number>();
+  return kept.map((s) => {
+    if (total.get(s.label)! < 2) return s;
+    n.set(s.label, (n.get(s.label) ?? 0) + 1);
+    return { label: `${s.label} ${n.get(s.label)}`, url: s.url };
+  });
+}
+
 /** The guide as builder text: short sections, no paragraphs, empty sections left out. Pure. */
 export function guideText(g: Guide): string {
   const sections = [
     `${g.header}\nDifficulty: ${difficultyLabel(g.difficulty)} — ${g.difficulty.basis}`,
-    g.won && [g.won.own ? 'What won last time' : 'What won before', ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
+    g.won && [wonHeading(g.won), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     g.best_bet && `Your best bet\n- ${g.best_bet}`,
     g.bonus && `Builder bonus: ${g.bonus.cell} · ${g.bonus.board}`,

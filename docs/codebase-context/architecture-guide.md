@@ -1369,7 +1369,9 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   as get_program (`programGuide` in `guide.ts`, the bonus line from `programs.ts`'s `guideBonus`),
   so the web and the agent never disagree. The value is plain JSON (`GuidePage`).
 - Only curated programs (`source = 'file'`, no campaign) have a page; any other id is null →
-  404. A closed or past-deadline program still renders (`· closed`, no "Ask your agent"), so old
+  404. The id is gated first (`gatedGuidePage`): a malformed id reads nothing, and an id outside
+  the cached curated id set (closed included; one read per 10 minutes in total) is a 404 with no
+  per-id read or cache entry, so random ids can't keep Neon awake. A closed or past-deadline program still renders (`· closed`, no "Ask your agent"), so old
   links keep working (Ruling 22).
 - `readGuidePage` rejects on a DB failure (never null); `getGuidePage` logs `[guide]`, calls
   `await connection()` and returns `'error'`, which renders the "unavailable" panel with HTTP 200,
@@ -1378,7 +1380,9 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   cache does the 10-minute revalidation.
 - `/programs` is the cards of `getLanding()` with no limit, under an `h1`. The sitemap lists
   `/programs` and each open curated program's guide.
-- Sources link through `shownUrl` (canonical https only). The logo CSP (`IMAGE_CSP`) matches
+- Sources are labelled by what they back (`guideSourceList`: program page, past winners,
+  priorities, difficulty; numbered within a role) and link through `shownUrl` (canonical https
+  only); a test checks every `source_url` in `programs/*.json` survives it. The logo CSP (`IMAGE_CSP`) matches
   only `/programs/<id>.svg|png`, never the page routes.
 
 ## Abuse limits and response headers (v2.2 §5)

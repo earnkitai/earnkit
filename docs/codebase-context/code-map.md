@@ -30,8 +30,9 @@ apps/frontend/
                                landing null (failed read) → hero only, no cards/strip (Ruling 21)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
-                               getGuidePage(id) = unstable_cache(readGuidePage, ['guide-v27'], 600 s);
-                               failure → logs [guide], await connection(), 'error'
+                               getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
+                               the cached curated id set ['guide-ids-v27'], else null with no per-id read;
+                               then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
   app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards
                                (no limit, heading h1); getLanding() null → "Programs are unavailable…"
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →

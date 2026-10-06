@@ -1,4 +1,4 @@
-import { guideSources, programGuide, type GuideFacts } from '../guide';
+import { guideSourceList, programGuide, type GuideFacts } from '../guide';
 import type { GuidePage } from '../landing';
 
 /**
@@ -38,7 +38,7 @@ const page = (facts: Facts, bonus: typeof BONUS | null, o: Partial<GuidePage> = 
     open: facts.status === 'active',
     board_path: bonus ? '/bonus/arc-microgrants-2026-09-16' : null,
     source_url: facts.source_url,
-    sources: guideSources(facts),
+    sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? 'Arc',
     ...o,
   };
@@ -58,3 +58,14 @@ export const emptyGuide = page(
 );
 /** Ruling 22 (plan): a closed program still renders, header "· closed", no "Ask your agent". */
 export const closedGuide = page({ ...arcFacts, status: 'closed' }, null);
+/**
+ * Ruling C2/C3: what every real program shows after Task 8: a predecessor round (not own), so
+ * "What won before" and a basis naming the round.
+ */
+export const predecessorGuide = page(
+  {
+    ...arcFacts,
+    past_rounds: [{ ...arcFacts.past_rounds[0], own: undefined, label: "Arc's HackMoney 2026 track" }],
+  },
+  BONUS,
+);

@@ -22,7 +22,9 @@ const link = 'text-ek-white underline underline-offset-4 transition-colors hover
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="grid gap-4 border-t border-ek-navy py-10 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
+    <div
+      id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}
+      className="scroll-mt-32 grid gap-4 border-t border-ek-navy py-10 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
       <h2 className="font-funnel-display text-2xl font-medium text-ek-white md:text-3xl">{title}</h2>
       <div className="max-w-2xl space-y-4 font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
         {children}
