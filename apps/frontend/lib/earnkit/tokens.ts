@@ -89,6 +89,8 @@ export type TokenOutcome = {
   tokens_fun?: string;
   explorer?: string;
   tx_hash?: string;
+  /** v2.6 Ruling 18 (plan): skipped at submission because no wallet was given (no coin yet). */
+  no_wallet?: true;
 };
 
 /** What the builder is told about fee splits once a token is live. */

@@ -1,4 +1,5 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
+import { boardSlug } from './bonus-rounds';
 import { shortDate } from './dates';
 import { TOKEN_TERMS } from './tokens';
 
@@ -38,6 +39,71 @@ export const tokenRow = (symbol: string | null, hasBonus = false, coinIn: string
     : 'A token on tokens.fun, you keep 40% of fees: pick a name and ticker, or say "no token" to skip';
 };
 
+/**
+ * v2.6 §3: the coin row outside campaigns (one yes confirms the coin and the wallet under it).
+ * `hasBonus`: bonusOn; skipping then costs the builder bonus. `coinIn`: Ruling 25. Pure.
+ */
+export function coinRow(a: { symbol: string | null; hasBonus: boolean; coinIn?: string | null }) {
+  if (a.hasBonus && a.coinIn) return repoCoinNote(a.coinIn);
+  const coin = a.symbol ? `, $${a.symbol}` : ' (pick a name and ticker)';
+  return a.hasBonus
+    ? `Your entry gets a coin${coin}: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus`
+    : `Your entry gets a coin${coin}: you earn 40% of its trading fees · skip: no coin`;
+}
+
+/**
+ * The wallet line under the coin row (v2.6 §3). Ruling 10 (plan): the remembered wallet is shown
+ * short here; tokenFootnote names it in full. Without one, the line is the ask. Pure.
+ */
+export function walletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {
+  const what = a.hasBonus ? 'fees and any bonus' : 'fees';
+  if (!a.wallet) return `Which wallet should get your coin's ${what}?`;
+  return `Wallet for ${what}: ${shortWallet(a.wallet)}${a.remembered ? ' (yours from last time)' : ''} — or tell me another.`;
+}
+
+/** The last day of a round whose end is exclusive ("Oct 31" for a month ending Nov 1 00:00 UTC). */
+const lastDayOf = (ends: Date) => new Date(ends.getTime() - 1);
+
+/**
+ * Ruling 18 (plan): an entry recorded without a wallet has no coin yet. `ends` is the open round's
+ * exclusive end (null: no open round or no bonus, so no date). Pure.
+ */
+export const noCoinYet = (ends: Date | null) =>
+  `No coin yet: send a wallet with launch_token to add it${ends ? ` before ${shortDate(lastDayOf(ends))}` : ''}.`;
+
+export type EnteredText = {
+  programTitle: string;
+  coin:
+    | { status: 'launched'; url: string }
+    | { status: 'no_wallet'; lastDay: Date | null }
+    | { status: 'skipped' }
+    | { status: 'other' };
+  /**
+   * The open round (`lastDay` is its exclusive end). Null when the program has no bonus, the coin
+   * was skipped, or Ruling 25 applies.
+   */
+  bonus: { cell: string; lastDay: Date; board: string } | null;
+};
+
+/** record_submission's show_to_builder outside campaigns (v2.6 §3). Pure. */
+export function enteredText(a: EnteredText) {
+  const coin =
+    a.coin.status === 'launched'
+      ? ` Your coin: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
+      : a.coin.status === 'no_wallet'
+        ? ` ${noCoinYet(a.coin.lastDay)}`
+        : a.coin.status === 'other'
+          ? ' No coin yet.'
+          : '';
+  const first = `Entered in ${a.programTitle}.${coin}`;
+  return a.bonus
+    ? `${first}\nBuilder bonus: ${a.bonus.cell} · ends ${shortDate(lastDayOf(a.bonus.lastDay))} · ${a.bonus.board}`
+    : first;
+}
+
+/** A round's public leaderboard, as builder text (Ruling 12 (plan)): "earnkit.com/bonus/<slug>". */
+export const boardLink = (roundKey: string) => `${siteUrl().replace(/^https?:\/\//, '')}/bonus/${boardSlug(roundKey)}`;
+
 /** The no-bonus line for an entry whose repo's coin is entered in another program (Ruling 25). Pure. */
 export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's coin is entered in ${programTitle}`;
 
@@ -72,7 +138,14 @@ export function confirmTable(a: {
    * §3. `coinIn`: the program this repo's coin is already entered in (Ruling 25; no new coin, so
    * no footnote).
    */
-  token: { symbol: string | null; wallet?: string | null; hasBonus?: boolean; coinIn?: string | null } | null;
+  token: {
+    symbol: string | null;
+    wallet?: string | null;
+    hasBonus?: boolean;
+    coinIn?: string | null;
+    /** v2.6 Ruling 10: `wallet` is the installation's remembered one (not given in this call). */
+    remembered?: boolean;
+  } | null;
 }) {
   const rows: [string, string][] = [['Entry', `${a.project} for ${a.programTitle}`]];
   const c = a.campaign;
@@ -85,9 +158,21 @@ export function confirmTable(a: {
     rows.push(['Prize', `the sponsor picks winners after ${shortDate(a.endsAt)}`]);
   else rows.push(['Prize', a.prize]);
   const coinIn = a.token?.hasBonus ? (a.token.coinIn ?? null) : null;
-  if (a.token) rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn)]);
+  // v2.6 §3: outside campaigns, the Coin row and the wallet line under the table (one yes
+  // confirms both); campaigns keep v2.4's Token row.
+  const coin = !c && a.token;
+  if (a.token)
+    rows.push(
+      coin
+        ? ['Coin', coinRow({ symbol: a.token.symbol, hasBonus: a.token.hasBonus === true, coinIn })]
+        : ['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn)],
+    );
   const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
-  return keyTable(rows) + ask + (a.token && !coinIn ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
+  const wallet =
+    a.token && coin && !coinIn
+      ? `\n\n${walletLine({ wallet: a.token.wallet ?? null, remembered: a.token.remembered === true, hasBonus: a.token.hasBonus === true })}`
+      : '';
+  return keyTable(rows) + ask + wallet + (a.token && !coinIn ? `\n\n${tokenFootnote(a.token.wallet)}` : '');
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bonusOn, bookingFor, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
+import { boardSlug, bonusOn, bookingFor, resolveRoundParam, roundFor, roundKeyFromSlug, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -216,4 +216,15 @@ test('I2 / Ruling 21: programs:sync moves an open round with its program file; a
     await sql()`DELETE FROM tracks WHERE program_id = ${id}`;
     await sql()`DELETE FROM programs WHERE id = ${id}`;
   }
+});
+
+test('Ruling 12 (plan): boardSlug and roundKeyFromSlug round-trip both key forms', () => {
+  assert.equal(boardSlug('arc-microgrants:2026-09-16'), 'arc-microgrants-2026-09-16');
+  assert.equal(boardSlug('base-builder-grants:2026-10'), 'base-builder-grants-2026-10');
+  for (const key of ['arc-microgrants:2026-09-16', 'base-builder-grants:2026-10', 'monad-2026:2026-10'])
+    assert.equal(roundKeyFromSlug(boardSlug(key)), key);
+  assert.equal(roundKeyFromSlug('arc-microgrants:2026-09-16'), 'arc-microgrants:2026-09-16');
+  assert.equal(roundKeyFromSlug('no-date-here'), 'no-date-here');
+  assert.equal(resolveRoundParam('arc-microgrants%3A2026-09-16'), 'arc-microgrants:2026-09-16');
+  assert.equal(resolveRoundParam('%E0%A4%A'), null);
 });

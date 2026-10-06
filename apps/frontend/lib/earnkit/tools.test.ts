@@ -322,3 +322,79 @@ test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fail
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });
+
+test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet records the entry with no coin yet', dbTest, async () => {
+  const W = '0x' + 'e'.repeat(39) + '3';
+  const stamp = `${process.pid}-${Date.now()}`;
+  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const a = { ...arc, id: `t4-a-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  const b = { ...arc, id: `t4-b-${stamp}`, title: 'Other Grants', status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_proof: null };
+  await upsertProgram(ProgramFile.parse(a));
+  await upsertProgram(ProgramFile.parse(b));
+  const inst = async (tag: string) =>
+    (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-${tag}-${stamp}`}) RETURNING id`)[0].id;
+  const entry = (program_id: string, n: number, extra: Record<string, unknown>) => ({
+    program_id,
+    project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: `https://github.com/alice/t4-${stamp}-${n}`, live_url: `https://t4-${n}.example` },
+    submission_data: { description: 'Tips' },
+    ...extra,
+  });
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const realFetch = globalThis.fetch;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  // The ticker check and any other read are unreachable: nothing reaches the network or tokens.fun.
+  globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
+  const pools = async (ids: string[]) => new Map(ids.map((id) => [id, 180000000000000000n] as [string, bigint]));
+  try {
+    // 1. An entry naming a wallet (the builder skipped the coin): remembered for the installation.
+    const id = await inst('one');
+    const skipped = (await tools.record_submission(entry(a.id, 1, { payout_wallet: W, token: 'skip' }), { installationId: id, roundPoolsWei: pools })) as {
+      recorded: boolean;
+      show_to_builder: string;
+    };
+    assert.equal(skipped.recorded, true);
+    assert.equal(skipped.show_to_builder, `Entered in ${a.title}.`, 'skipped: no coin, no bonus line');
+    // 2. The next prepare_submission, on another non-campaign program, prefills it.
+    const prep = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' } }, { installationId: id })) as {
+      show_to_builder: string;
+      token: { creator_wallet: string | null };
+    };
+    assert.equal(prep.token.creator_wallet, W);
+    assert.match(prep.show_to_builder, /\| Coin \| Your entry gets a coin/);
+    assert.match(prep.show_to_builder, /Wallet for fees and any bonus: 0xeeee…eee3 \(yours from last time\) — or tell me another\./);
+    assert.ok(prep.show_to_builder.includes(`paid in WETH to ${W};`), 'the full wallet in the footnote');
+    // A wallet given in this call is not "from last time".
+    const OTHER = '0x' + 'f'.repeat(39) + '4';
+    const given = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' }, answers: { payout_wallet: OTHER } }, { installationId: id })) as {
+      show_to_builder: string;
+    };
+    assert.match(given.show_to_builder, /Wallet for fees and any bonus: 0xffff…fff4 — or tell me another\./);
+
+    // 3. No wallet ever given: the entry is recorded, the coin is not, and the reply says how to add it.
+    const none = await inst('none');
+    const r = (await tools.record_submission(entry(a.id, 2, { token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true }), {
+      installationId: none,
+      roundPoolsWei: pools,
+    })) as {
+      recorded: boolean;
+      bonus_round: { key: string; ends_at: string } | null;
+      token: { status: string; note: string; no_wallet?: boolean };
+      show_to_builder: string;
+    };
+    assert.equal(r.recorded, true);
+    assert.equal(r.token.status, 'skipped');
+    assert.equal(r.token.no_wallet, true);
+    assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z' });
+    assert.equal(r.token.note, 'No coin yet: send a wallet with launch_token to add it before Dec 31.');
+    assert.equal(
+      r.show_to_builder,
+      `Entered in ${a.title}. No coin yet: send a wallet with launch_token to add it before Dec 31.\n` +
+        `Builder bonus: 0.18 ETH so far · ends Dec 31 · earnkit.com/bonus/${a.id}-2026-09-16`,
+    );
+    assert.doesNotMatch(r.show_to_builder, /vault|\p{Extended_Pictographic}/u);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+});

@@ -7,12 +7,12 @@ import {
 } from './projects';
 import { normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { confirmTable } from './entry-text';
+import { boardLink, confirmTable, enteredText, noCoinYet, type EnteredText } from './entry-text';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
   rememberWallets,
-  rememberedPayoutWallet,
+  rememberedWallet,
   setWorkingOn,
 } from './installations';
 import { sinceLine, sinceYouLastChecked } from './alerts';
@@ -24,6 +24,7 @@ import {
   matchProjects,
 } from './match-projects';
 import {
+  bonusCell,
   bonusProgramIds,
   closesInDays,
   presentFirstMessage,
@@ -326,9 +327,11 @@ export const tools = {
     const open = isOpen(program);
     // Remember it, so list_programs leads with "You're working on".
     if (open) await setWorkingOn(ctx.installationId, program_id, true);
-    // Campaign entries: the payout wallet of this installation's last entry, asked about in full
-    // and never prefilled (I8: a hosted client sharing one registration shares this memory).
-    const remembered = await rememberedPayoutWallet(ctx.installationId);
+    // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
+    // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
+    // programs: prefilled as the coin's fee wallet, shown short on the wallet line.
+    const remembered = await rememberedWallet(ctx.installationId);
+    const givenWallet = validWallet(known.answers?.payout_wallet);
     const ask = program.campaign
       ? rememberedWalletQuestion(
           program.submission_requirements,
@@ -344,10 +347,10 @@ export const tools = {
           projectName: known.project?.name,
           // Campaigns: only a payout wallet given in this call (never the remembered one, which
           // is asked about, not assumed); without one the block asks the builder for the fee
-          // wallet. Other programs, v2.3 unchanged: the remembered wallet, named in full in the footnote.
-          creatorWallet: program.campaign
-            ? validWallet(known.answers?.payout_wallet)
-            : remembered,
+          // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one,
+          // named in full in the footnote.
+          creatorWallet: program.campaign ? givenWallet : (givenWallet ?? remembered),
+          remembered: !program.campaign && !givenWallet && remembered !== null,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
@@ -355,7 +358,7 @@ export const tools = {
       : null;
     // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
-    const payoutWallet = validWallet(known.answers?.payout_wallet);
+    const payoutWallet = givenWallet;
     const sign_to_enter = signToEnter(
       program_id,
       repoUrl,
@@ -379,6 +382,7 @@ export const tools = {
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
             coinIn: token.repo_coin_program,
+            remembered: !program.campaign && !givenWallet && remembered !== null,
           }
         : null,
     });
@@ -431,7 +435,35 @@ export const tools = {
       },
       ctx.tokenDeps,
     );
-    return withAlerts(ctx.installationId, { ...result, token });
+    // Campaign entries carry their own table (enteredTable).
+    if ('show_to_builder' in result && result.show_to_builder)
+      return withAlerts(ctx.installationId, { ...result, token });
+    // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
+    const roundEnds = result.bonus_round ? new Date(result.bonus_round.ends_at) : null;
+    const tokenOut = token.no_wallet ? { ...token, note: noCoinYet(roundEnds) } : token;
+    const policyOff =
+      (await getProgramRow(parsed.program_id).catch(() => null))?.token_policy === 'off';
+    const coin: EnteredText['coin'] =
+      token.status === 'launched' && token.tokens_fun
+        ? { status: 'launched', url: token.tokens_fun }
+        : token.no_wallet
+          ? { status: 'no_wallet', lastDay: roundEnds }
+          : parsed.token === 'skip' || policyOff
+            ? { status: 'skipped' }
+            : { status: 'other' };
+    let bonus: EnteredText['bonus'] = null;
+    if (result.bonus_round && coin.status !== 'skipped') {
+      const pool = (await poolsOf(ctx.roundPoolsWei ?? roundPoolsWei, [parsed.program_id])).get(parsed.program_id);
+      // null: the round froze (I2), so no bonus line.
+      if (pool !== null)
+        bonus = {
+          cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pool ?? null }),
+          lastDay: roundEnds!,
+          board: boardLink(result.bonus_round.key),
+        };
+    }
+    const show_to_builder = enteredText({ programTitle: result.program_title, coin, bonus });
+    return withAlerts(ctx.installationId, { ...result, token: tokenOut, show_to_builder });
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
