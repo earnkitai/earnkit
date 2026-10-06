@@ -500,7 +500,7 @@ test('Ruling 25: a repo whose coin is entered in another program keeps its own p
   // Arc: its own program, so the repo cell stays plain.
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \| — \| Oct 14 \| tipjar \|/);
   // Colosseum: a new coin there would conflict, so the repo cell says so (Ruling 13 (plan)).
-  assert.match(text, /\| Crypto World's Fair Hackathon \| [^|]+ \| — \| [^|]+ \| tipjar \(no builder bonus: this repo's coin is entered in Arc Microgrants\) \|/);
+  assert.match(text, /\| Crypto World's Fair Hackathon \| [^|]+ \| — \| [^|]+ \| tipjar \(no builder bonus: this repo's token is entered in Arc Microgrants\) \|/);
   noEmoji(text);
 });
 

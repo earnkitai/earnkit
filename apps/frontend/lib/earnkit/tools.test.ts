@@ -498,11 +498,11 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14' });
     assert.equal(r.bonus_round!.ends_label, endsOf({ summary: a.summary, ends_at: new Date(a.ends_at) }));
     // The agent's note names the tool; the builder's text never does.
-    assert.equal(r.token.note, 'No coin yet: no wallet was given.');
-    assert.equal((r.token as { agent_note?: string }).agent_note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
+    assert.equal(r.token.note, 'No token yet: no wallet was given.');
+    assert.equal((r.token as { agent_note?: string }).agent_note, 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
     assert.equal(
       r.show_to_builder,
-      `Entered in ${a.title}. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
+      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -544,7 +544,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.$/,
+      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.$/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
@@ -558,7 +558,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(late.updated, true);
     assert.equal(late.token.status, 'launched');
     assert.equal(deploys.length, 1, 'no second launch');
-    assert.match(late.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14 · /);
+    assert.match(late.show_to_builder, /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14 · /);
     assert.equal(await count(), 1, 'one entry, not two');
     const [basis] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${ok.project_id}`;
     assert.equal(basis.submission_basis, 'unverified_page');
@@ -581,7 +581,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(coinHeld.repo_held, true);
     assert.equal(coinHeld.bonus_round, null);
     assert.equal(coinHeld.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
-    assert.match((coinHeld as { bonus_note?: string }).bonus_note ?? '', /another entry of this repo in this program has its coin/);
+    assert.match((coinHeld as { bonus_note?: string }).bonus_note ?? '', /another entry of this repo in this program has its token/);
     // The holder's own re-record is not "held" by its own coin.
     const own = (await tools.record_submission({ ...coinEntry(4, B), builder_submitted: true }, ctxTwo)) as Held & { project_id: number };
     assert.equal(own.project_id, ok.project_id);
@@ -621,7 +621,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(omitted.recorded, true);
     assert.equal(omitted.token.no_wallet, true);
     assert.equal(fiveDeploys.length, 0, 'neither the shown nor the changed remembered wallet is used');
-    assert.match(omitted.show_to_builder, /^Entered in Other Grants\. Reply with a wallet to get your coin and join the builder bonus \(/);
+    assert.match(omitted.show_to_builder, /^Entered in Other Grants\. Reply with a wallet to get your token and join the builder bonus \(/);
     // The agent echoes shown_wallet: the coin pays the wallet the builder saw, not the changed one.
     const echoed = (await tools.record_submission(fiveEntry(8, { payout_wallet: shownPrep.shown_wallet }), { installationId: five, roundPoolsWei: pools, tokenDeps: fiveDeps })) as {
       token: { status: string };

@@ -223,10 +223,10 @@ test('v2.4: the instructions say record_submission is the campaign entry', async
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
 
-test('v2.6 §3: the instructions say every entry gets a coin by default and one yes confirms the coin and the wallet', async () => {
+test('v2.6 §3: the instructions say every entry gets a token by default and one yes confirms the token and the wallet', async () => {
   const { instructions } = await listed({});
-  assert.match(instructions, /Every entry gets a coin by default; the builder can skip it in one word\./);
-  assert.match(instructions, /One yes confirms the coin and the wallet\./);
+  assert.match(instructions, /Every entry gets a token by default; the builder can skip it in one word\./);
+  assert.match(instructions, /One yes confirms the token and the wallet\./);
   assert.match(instructions, /Write and push earnkit\.txt yourself; never ask the builder to edit files\./);
   assert.doesNotMatch(instructions, /A token is optional: entering never needs one\./);
 });

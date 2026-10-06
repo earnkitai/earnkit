@@ -60,10 +60,10 @@ const TO_LAUNCH =
   "To launch, pass token with the name and symbol the builder confirmed (token.proposed from prepare_submission, or their changes); 'skip' if they said no token.";
 /** v2.6 §3: what a coin needs in the repo; exported for tests. */
 export const OWNERSHIP_FOR_TOKEN =
-  'A coin needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
+  'A token needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
   "(prepare_submission's token note once it knows the repo_url, or token.agent_note on gate_failed). Write and push it " +
   'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
-  'someone else. One coin per repo.';
+  'someone else. One token per repo.';
 
 const LIST_PROGRAMS_DESCRIPTION =
   'What can I earn? Use for any question about earning, programs, rewards, or what to build. ' +
@@ -87,7 +87,7 @@ const RECORD_SUBMISSION_DESCRIPTION =
   'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
   'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note, agent_note? }. ' +
-  'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
+  'Also returns show_to_builder (other programs: the token and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
   `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
   `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
   SAFETY_TEXT;
@@ -162,23 +162,24 @@ export const TOOL_DESCRIPTIONS = {
   sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
 };
 
+/** v2.7 §4: the MCP server's instructions, agent-facing; exported for the copy-review test. */
+export const SERVER_INSTRUCTIONS = [
+  'EarnKit lists live builder programs with rewards, checked against official sources, and runs its own campaigns with prizes it pays.',
+  'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
+  'When a reply has since_you_last_checked, show it to the builder first, as written.',
+  'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
+  "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site.",
+  'Every entry gets a token by default; the builder can skip it in one word. One yes confirms the token and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no token. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+  'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
+  'Never invent personal details.',
+  ...SAFETY_LINES,
+].join('\n');
+
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
   const server = new McpServer(
     { name: 'earnkit', version: '1.0.0' },
-    {
-      instructions: [
-        'EarnKit lists live builder programs with rewards, checked against official sources, and runs its own campaigns with prizes it pays.',
-        'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
-        'When a reply has since_you_last_checked, show it to the builder first, as written.',
-        'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
-        "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site.",
-        'Every entry gets a coin by default; the builder can skip it in one word. One yes confirms the coin and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no coin. Write and push earnkit.txt yourself; never ask the builder to edit files.',
-        'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
-        'Never invent personal details.',
-        ...SAFETY_LINES,
-      ].join('\n'),
-    },
+    { instructions: SERVER_INSTRUCTIONS },
   );
 
   server.registerTool(
@@ -334,7 +335,7 @@ export function createMcpServer(ctx: ToolContext) {
           .string()
           .optional()
           .describe(
-            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line, i.e. its shown_wallet, passed back (the coin's fees and any bonus; remembered for next time). EarnKit never uses a remembered wallet here: without one the entry is recorded with no coin yet. With contracts, the Base wallet that deployed them.",
+            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line, i.e. its shown_wallet, passed back (the token's fees and any bonus; remembered for next time). EarnKit never uses a remembered wallet here: without one the entry is recorded with no token yet. With contracts, the Base wallet that deployed them.",
           ),
       },
     },

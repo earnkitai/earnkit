@@ -28,8 +28,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   open_money_usd: 'open money matched (USD)',
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
-  coins_launched: 'coins launched',
-  fees_to_safe_eth: 'fees to the Safe (v2.5 coins)',
+  coins_launched: 'tokens launched',
+  fees_to_safe_eth: 'fees to the Safe (v2.5 tokens)',
   bonus_paid_eth: 'builder bonus paid (ETH)',
   installs: 'installs',
 };

@@ -89,7 +89,7 @@ test('v2.5 Task 8: a builder bonus win shows once, names the program, before oth
     'you won $100 in MINI with Tip Jar (basescan.org/tx/0x9)',
     line(1),
     'you won 900 USDC with Tip Jar',
-    'you have $138 in coin fees to claim on tokens.fun',
+    'you have $138 in token fees to claim on tokens.fun',
     'new: C2 ($50 each to top 3 (in MINI))',
   ]);
   // At most 3 per check; the rest wait for the next one (same cap reasoning as prizes).
@@ -127,14 +127,14 @@ test('v2.6 §3 fix round 1 (Ruling 25 supersedes P1): alert wording, money first
   });
   assert.deepEqual(lines, [
     `you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16`,
-    'you have $138 in coin fees to claim on tokens.fun',
+    'you have $138 in token fees to claim on tokens.fun',
     'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16',
   ]);
   const joined = sinceLine(lines)!;
   assert.equal(
     joined,
     `Since you last checked: you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16; ` +
-      'you have $138 in coin fees to claim on tokens.fun; ' +
+      'you have $138 in token fees to claim on tokens.fun; ' +
       'your entry moved into the top 10 for the builder bonus (Arc Microgrants) · earnkit.com/bonus/arc-microgrants-2026-09-16.',
   );
   // I1's guard: exactly one colon in the joined sentence, right after "checked".
@@ -200,7 +200,7 @@ test('other wins (sponsor) come right after EarnKit wins, before fees and other 
   assert.deepEqual(alertLines({ checkedAt: t(4), state: { top: {} }, feeAlertedUsd: null }, f, ['you won 900 USDC with Tip Jar']).lines, [
     'you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)',
     'you won 900 USDC with Tip Jar',
-    'you have $138 in coin fees to claim on tokens.fun',
+    'you have $138 in token fees to claim on tokens.fun',
     'new: C2 ($50 each to top 3 (in MINI))',
   ]);
 });
@@ -239,13 +239,13 @@ test('token fees from $100, once per crossing; money lines first', () => {
   const r = alertLines({ checkedAt: t(4), state: { top: {} }, feeAlertedUsd: null }, f);
   assert.deepEqual(r.lines, [
     'you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)',
-    'you have $138 in coin fees to claim on tokens.fun',
+    'you have $138 in token fees to claim on tokens.fun',
     'new: C2 ($50 each to top 3 (in MINI))',
   ]);
   assert.equal(r.feeAlertedUsd, 138);
   assert.deepEqual(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: 138 }, f).lines, []);
   const two = { ...f, fees: { usd: 250, tokens: [{ url: 'https://tokens.fun/coin/0xa', symbol: 'A' }, { url: 'https://tokens.fun/coin/0xb', symbol: 'B' }] } };
-  assert.equal(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, two).lines[0], 'you have $250 in coin fees to claim on tokens.fun');
+  assert.equal(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, two).lines[0], 'you have $250 in token fees to claim on tokens.fun');
 });
 
 test('the daily-check offer never mentions tokens', () => {

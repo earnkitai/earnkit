@@ -30,7 +30,7 @@ test('decideToken', () => {
   assert.match((decideToken({ ...base, policy: 'off' }) as { note: string }).note, /doesn't allow tokens/);
   assert.match((decideToken({ ...base, confirmed: false }) as { agent_note: string }).agent_note, /builder_confirmed/);
   assert.match((decideToken({ ...base, existingTokenUrl: 'https://tokens.fun/coin/0x1' }) as { note: string }).note, /already has a token/);
-  assert.match((decideToken({ ...base, wallet: null }) as { note: string }).note, /no wallet for the coin's fees/);
+  assert.match((decideToken({ ...base, wallet: null }) as { note: string }).note, /no wallet for the token's fees/);
   assert.match((decideToken({ ...base, wallet: null }) as { agent_note: string }).agent_note, /creator_wallet/);
   assert.equal((decideToken({ ...base, wallet: null }) as { code?: string }).code, 'no_wallet');
   // Builder edits replace the proposal and go through the same rules.
@@ -151,7 +151,7 @@ test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is en
   assert.ok(b);
   assert.deepEqual(asked, ['github.com/acme/kit'], 'looked up by the normalized repo');
   assert.equal(b.repo_coin_program, 'Arc Microgrants');
-  assert.equal(b.say_to_builder, "no builder bonus: this repo's coin is entered in Arc Microgrants");
+  assert.equal(b.say_to_builder, "no builder bonus: this repo's token is entered in Arc Microgrants");
   assert.match(b.note, /don't pass token/);
   // A repo without a coin keeps the default row; a failed lookup never fails the block.
   const fresh = await tokenProposalBlock(
@@ -748,7 +748,7 @@ test('residual m4: a repo whose coin is entered in this SAME program gets no Rul
     { ...free, repoCoin: async () => ({ program_id: 'arc-microgrants', title: 'Arc Microgrants' }) },
   );
   assert.equal(b?.repo_coin_program, null);
-  assert.doesNotMatch(b!.say_to_builder, /this repo's coin is entered in/);
+  assert.doesNotMatch(b!.say_to_builder, /this repo's token is entered in/);
 });
 
 test('residual m6: a non-Base coin on a program with a builder bonus never implies the bonus', async () => {
@@ -794,7 +794,7 @@ test('Rulings 28 and 30: no remembered wallet anywhere; a launch with no wallet 
   const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', ...CONFIRMED }, 1, h.deps);
   assert.equal(out.status, 'failed');
   // Ruling 31: the note is plain; the instruction with the tool and field is for the agent.
-  assert.equal(out.note, "Not launched: no wallet for the coin's fees yet.");
+  assert.equal(out.note, "Not launched: no wallet for the token's fees yet.");
   assert.match(out.agent_note ?? '', /call launch_token with creator_wallet/);
   assert.equal(out.no_wallet, undefined, 'the submission marker is for record_submission only');
   assert.deepEqual(h.saved, [], 'nothing saved as the creator wallet');

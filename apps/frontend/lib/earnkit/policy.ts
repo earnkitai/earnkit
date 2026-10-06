@@ -34,7 +34,7 @@ export const SIGNAL_ROWS: [string, number][] = [
   ['Live product that loads (daily checks)', WEIGHTS.live],
   ['Shipping: commit days and contributors', WEIGHTS.shipping],
   ['New repo interest: stars and forks from real accounts, capped', WEIGHTS.interest],
-  ['Coin holders, capped', WEIGHTS.holders],
+  ['Token holders, capped', WEIGHTS.holders],
 ];
 
 /** The round pool's split by place (bonus-payout.ts BONUS_SPLIT_BPS). */

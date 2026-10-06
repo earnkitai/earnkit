@@ -76,7 +76,7 @@ export default function BoardView({ board: b }: { board: Board }) {
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">{b.title}</h1>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
           EarnKit isn&apos;t affiliated with or endorsed by the organizer. The builder bonus is paid by EarnKit from
-          the fees of coins entered in this program.
+          the fees of tokens entered in this program.
         </p>
         <dl className="mt-8 grid gap-6 font-funnel-sans sm:grid-cols-3">
           <Fact label={frozen ? 'Pool' : 'Pool so far'} value={`${b.pool} ETH`} />
@@ -171,7 +171,7 @@ export default function BoardView({ board: b }: { board: Board }) {
         ) : null}
         <p className="mt-4 font-funnel-sans text-xs font-light text-ek-blue-soft">
           Score: traction out of 100 (onchain users {WEIGHTS.users}, live product {WEIGHTS.live}, shipping{' '}
-          {WEIGHTS.shipping}, repo interest {WEIGHTS.interest}, coin holders {WEIGHTS.holders}). Market cap only
+          {WEIGHTS.shipping}, repo interest {WEIGHTS.interest}, token holders {WEIGHTS.holders}). Market cap only
           breaks ties.
         </p>
       </Panel>

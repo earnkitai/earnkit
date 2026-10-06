@@ -13,16 +13,38 @@ import {
   noCoinYet,
   walletLine,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, TOOL_DESCRIPTIONS } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './mcp';
 import { presentFirstMessage, type Card, type FirstMessage } from './present';
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import { launchToken, TECHNICAL_TERMS, type FlowProject, type TokenFlowDeps } from './token-launch';
 import { LINKS_CHANGED, STATE_CHANGED, LaunchError, repoHasTokenNote, TOKENS_UNAVAILABLE, type TokenOutcome } from './tokens';
 import { RateLimitError } from './rate-limit';
+import { openRows, type OpenEntry } from './bonus-board';
+import { STATS_LABELS } from './stats';
 import type { FetchResult } from './ownership';
 import type { Verdict } from './match';
 import PolicyPage from '../../app/policy/page';
+import BoardView from '../../app/bonus/[round]/BoardView';
+import type { Board } from './bonus-board';
+
+/**
+ * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
+ */
+export function coinWords(text: string): string[] {
+  const stripped = text
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ') // host paths: tokens.fun/coin/0x…, earnkit.com/…
+    .replace(/\b\w*_\w*\b/g, ' ') // snake_case: coin_address, coins_launched
+    .replace(/\b[a-z]+[A-Z]\w*\b/g, ' '); // camelCase: coinRow
+  return stripped.match(/\bcoins?\b/gi) ?? [];
+}
+
+test('coinWords: identifiers, URLs and stablecoin are exempt', () => {
+  assert.deepEqual(coinWords('Your coin: tokens.fun/coin/0xabc'), ['coin']);
+  assert.deepEqual(coinWords('coin_address coinRow https://tokens.fun/coin/0x1 Stablecoin payments Coinbase'), []);
+  assert.deepEqual(coinWords('Coins launched'), ['Coins']);
+});
 
 (globalThis as { React?: typeof React }).React = React;
 process.env.EARNKIT_AUTH_SECRET ??= 'copy-review-test-secret';
@@ -287,6 +309,42 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   return out;
 }
 
+// ---- v2.7 T6/T7 carry: bonus-board rows (with a no-token entry) and the two /bonus/<round> board
+// renders (open and paid), the same fixtures public-pages.test.ts verifies.
+const openEntryBase = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
+  id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
+  eligible: true, test: false, rank: null, score: null, submitted_at: new Date('2026-10-01T00:00:00Z'), ...o,
+});
+const openEntryRows = openRows([openEntryBase(1), openEntryBase(2, { coin: false, eligible: false })]);
+
+const boardFixture = (o: Partial<Board> = {}): Board => ({
+  round: 'base-builder-grants:2026-10',
+  title: 'Base Builder Grants',
+  state: 'open',
+  ends_at: new Date('2026-11-01T00:00:00Z'),
+  ends_label: 'Oct 31',
+  review_until: null,
+  pool: '0.42',
+  days_left: 26,
+  removed: 0,
+  rows: [
+    { rank: 1, name: 'Tipjar', repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.app', score: '81.5', eligible: true, note: 'Yes', amount: null, tx: null },
+    { rank: null, name: 'Splitly', repo_url: null, live_url: null, score: null, eligible: false, note: 'No: no token', amount: null, tx: null },
+  ],
+  ...o,
+});
+// Cut at the shared Footer, same as the policy page above: this scan is for the board's own
+// copy, not every page's site-wide footer (its "©" is Extended_Pictographic, not an emoji we add).
+const boardText = (b: Board) =>
+  renderToStaticMarkup(React.createElement(BoardView, { board: b }))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .split('Where agents earn.')[0];
+const openBoardText = boardText(boardFixture());
+const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null }));
+
 const builderFacing: [string, string][] = [
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
   ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
@@ -305,11 +363,16 @@ const builderFacing: [string, string][] = [
   ...alertLinesDropped.map((s, i): [string, string] => [`alertLines dropped[${i}]`, s]),
   ['WALLET_INVALID', WALLET_INVALID],
   ['policy page', policyText],
+  ...openEntryRows.map((r, i): [string, string] => [`openRows[${i}].note`, r.note]),
+  ['/bonus/<round> open', openBoardText],
+  ['/bonus/<round> paid', paidBoardText],
+  ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
 ];
 
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
-// may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN and the tool descriptions.
+// may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
+  ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
   ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
   ...noCoinYets.map((s, i): [string, string] => [`noCoinYet[${i}]`, s]),
@@ -330,22 +393,43 @@ test('v2.6 §3 copy review: never "vault"', async () => {
   for (const [label, text] of all) assert.doesNotMatch(text, /vault/i, label);
 });
 
-test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved-out policy page phrase', async () => {
+test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved-out negated disclaimer', async () => {
   // TOOL_DESCRIPTIONS.sponsor_campaign is agent-only (M4) and legitimately explains EarnKit's own
   // affiliation-word verification rule for sponsors ("a title that reads as by or official to
   // one"); it never claims an affiliation itself, so it is out of this specific check.
+  // SERVER_INSTRUCTIONS is agent-only too, and says EarnKit's listed facts are "checked against
+  // official sources" — EarnKit's own verification, not a claim that EarnKit is official to anyone.
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())].filter(
-    ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign',
+    ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign' && label !== 'SERVER_INSTRUCTIONS',
   );
-  // Only the policy page's own negated disclaimer ("isn't affiliated with or endorsed by",
-  // Ruling 14 (plan)) is allowed; the carve-out is scoped to that one label so it can't mask a
-  // real affiliation claim anywhere else (the first message, entry tables, tool descriptions,
-  // gate reasons).
+  // Only the negated disclaimer ("isn't affiliated with or endorsed by", Ruling 14 (plan)) is
+  // allowed, on the policy page and the /bonus board pages that carry the same sentence; the
+  // carve-out is the exact phrase, so it can't mask a real affiliation claim anywhere else (the
+  // first message, entry tables, tool descriptions, gate reasons).
   const carveOut = /isn't affiliated with or endorsed by/gi;
   for (const [label, text] of all) {
-    const stripped = label === 'policy page' ? text.replace(carveOut, '') : text;
+    const stripped = text.replace(carveOut, '');
     assert.doesNotMatch(stripped, /\b(partner|official|endorsed by|sponsored by)\b/i, label);
   }
+});
+
+test('v2.7 §4: "coin" never appears in human-facing text', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  for (const [label, text] of all) assert.deepEqual(coinWords(text), [], label);
+});
+
+test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  for (const [label, text] of all) assert.doesNotMatch(text, /clanker/i, label);
+});
+
+test('v2.7 §3: never "affiliated" in the first message', () => {
+  for (const [label, text] of [
+    ['presentFirstMessage: no repo, no GitHub', noRepoNoGithub],
+    ['presentFirstMessage: GitHub user, 0 repos', githubZeroRepos],
+    ['presentFirstMessage: with repos', withRepos],
+  ] as [string, string][])
+    assert.doesNotMatch(text, /affiliat/i, label);
 });
 
 test('v2.6 §3 copy review: builder-facing text never names a tool (derived from the registered tools)', async () => {

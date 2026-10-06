@@ -102,10 +102,10 @@ export type Decision =
   | { action: 'launch'; name: string; symbol: string }
   | { action: 'refuse'; note: string; agent_note?: string; code?: 'no_wallet' };
 
-export const NO_WALLET = "Not launched: no wallet for the coin's fees yet.";
+export const NO_WALLET = "Not launched: no wallet for the token's fees yet.";
 const NO_WALLET_AGENT =
   'Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
-const NEEDS_SYMBOL = "Not launched: the coin's name and ticker weren't confirmed yet.";
+const NEEDS_SYMBOL = "Not launched: the token's name and ticker weren't confirmed yet.";
 const NEEDS_SYMBOL_AGENT =
   "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
 
@@ -161,7 +161,7 @@ export function decideToken(a: {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
   if (a.choice === 'skip')
-    return { action: 'skip', note: 'Not launched: the builder said no coin.', agent_note: 'Call launch_token later if they change their mind.' };
+    return { action: 'skip', note: 'Not launched: the builder said no token.', agent_note: 'Call launch_token later if they change their mind.' };
   if (a.existingTokenUrl)
     return {
       action: 'refuse',
@@ -173,8 +173,8 @@ export function decideToken(a: {
   if (!a.confirmed)
     return {
       action: 'skip',
-      note: "Not launched: the coin wasn't confirmed yet.",
-      agent_note: 'Pass builder_confirmed: true once the builder has seen the coin row, or call launch_token later.',
+      note: "Not launched: the token wasn't confirmed yet.",
+      agent_note: 'Pass builder_confirmed: true once the builder has seen the token row, or call launch_token later.',
     };
   const choice = a.choice ?? {};
   if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL, agent_note: NEEDS_SYMBOL_AGENT };
@@ -185,7 +185,7 @@ export function decideToken(a: {
   if (!rawName || !symbol)
     return {
       action: 'refuse',
-      note: 'Not launched: EarnKit has no proposed coin for this project. Pick a name and a ticker (3–6 letters or digits) with the builder.',
+      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3–6 letters or digits) with the builder.',
       agent_note: 'Pass them as name and symbol.',
     };
   const name = cleanTokenName(rawName);
@@ -257,7 +257,7 @@ export async function tokenProposalBlock(
   // A coin entered in this same program is this repo's own (Ruling 13b covers a second entry).
   const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
   if (coinIn)
-    notes.push(`This repo already has its coin, entered in ${coinIn}: don't pass token; this entry gets no new coin and no builder bonus`);
+    notes.push(`This repo already has its token, entered in ${coinIn}: don't pass token; this entry gets no new token and no builder bonus`);
   else notes.push(ownershipLine(tokenLine));
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: 'monogram' },
@@ -402,8 +402,8 @@ const notLaunched = (err: unknown): TokenOutcome | null => {
   if (!(err instanceof LaunchError || err instanceof RateLimitError)) return null;
   if (!TECHNICAL_TERMS.test(err.message)) return { status: 'failed', note: err.message };
   const note = /image_data/.test(err.message)
-    ? "Not launched: the coin's image isn't usable (a PNG, JPEG, WebP or GIF up to 1 MB)."
-    : "Not launched: EarnKit couldn't use this entry's coin details.";
+    ? "Not launched: the token's image isn't usable (a PNG, JPEG, WebP or GIF up to 1 MB)."
+    : "Not launched: EarnKit couldn't use this entry's token details.";
   return { status: 'failed', note, agent_note: err.message };
 };
 
@@ -709,4 +709,4 @@ export async function launchToken(
 }
 
 /** launch_token's note for a coin on another chain, on a program with a builder bonus (Ruling 24). */
-export const NON_BASE_NO_BONUS = 'No builder bonus for this coin: the builder bonus counts Base coins only.';
+export const NON_BASE_NO_BONUS = 'No builder bonus for this token: the builder bonus counts Base tokens only.';

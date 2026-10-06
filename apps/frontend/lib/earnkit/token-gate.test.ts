@@ -75,7 +75,7 @@ test('each failure has its own reason, checked in order', async () => {
     // A failed fork compare is not "isn't public", even when the compare says not found.
     [{}, { repo: async () => { throw new ForkCheckError("GitHub: couldn't compare the fork with its parent (GitHub: /repos/x/y/compare not found (or private))", 404); } }, /^EarnKit couldn't check the fork's commits on GitHub right now\. Try again in a minute: say 'launch the token'\.$/],
     [{}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }, /no commits/],
-    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits; a coin needs your own code\. Push your own commits to it, then say 'launch the token'\./],
+    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits; a token needs your own code\. Push your own commits to it, then say 'launch the token'\./],
     [{}, { owner: async () => ({ status: 'missing' }) }, /^I need to add a short proof line to your repo first, then say 'launch the token'\.$/],
     [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, /^I need to add a short proof line to your repo first, then say 'launch the token'\.$/],
     [{}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }, /^EarnKit couldn't read your repo's proof line on GitHub right now\. Try again in a minute: say 'launch the token'\.$/],
@@ -168,6 +168,9 @@ test('fix round 1: every reason is plain, uses one retry form, and never shows a
   }
   for (const r of reasons) {
     assert.match(r, /say 'launch the token'\.$/, r);
-    assert.doesNotMatch(r, /call launch_token|\b[2-5]\d\d\b|A token needs/, r);
+    // v2.7 §4: "coin" became "token" everywhere, so the old regression guard against the pre-fix
+    // "A token needs ... call launch_token with repo_url" wording is now this exact phrase, not the
+    // bare "A token needs" start (which the renamed, correct reason now legitimately has).
+    assert.doesNotMatch(r, /call launch_token|\b[2-5]\d\d\b|A token needs the project's public GitHub repo: call/, r);
   }
 });

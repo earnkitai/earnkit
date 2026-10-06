@@ -22,15 +22,15 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   const t = text(h);
   for (const heading of [
     'How matching works',
-    'Where coin fees go',
+    'Where token fees go',
     'The builder bonus',
-    'The coin is optional',
+    'The token is optional',
     'No affiliation',
     'Contact',
   ])
     assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>`), heading);
-  // Fee split, after Clanker's 20%.
-  assert.match(t, /Clanker keeps 20%/);
+  // Fee split, after the launch protocol's 20%.
+  assert.match(t, /The launch protocol keeps 20% of trading fees/);
   for (const [who, share] of [['Your project', '40%'], ['MINI buyback', '10%'], ['Builder bonus', '20%'], ['EarnKit', '30%']])
     assert.match(t, new RegExp(`${who} ${share}`), who);
   // Signals and weights; market cap only breaks ties; never trading volume.
@@ -47,9 +47,9 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   // Where the bonus share goes after a round: the next month for a rolling program; the Safe once
   // a program ends, and for programs without public submissions.
   assert.match(t, /monthly round is followed by the next month's round/);
-  assert.match(t, /Once a program ends, its coins' builder bonus share goes to EarnKit's Safe/);
+  assert.match(t, /Once a program ends, its tokens' builder bonus share goes to EarnKit's Safe/);
   assert.match(t, /So does the share of programs that opted out/);
-  // v2.6 §3-§4: the bonus is on every program unless it opts out; how a submission counts; a coin
+  // v2.6 §3-§4: the bonus is on every program unless it opts out; how a submission counts; a token
   // needs only the token line (no public payout wallet).
   assert.match(t, /Every program except EarnKit campaigns has a builder bonus unless it opts out\./);
   assert.match(t, /If EarnKit can't load an entry page, the builder's confirmation counts and is reviewed too\./);
@@ -91,7 +91,7 @@ const board = (o: Partial<Board> = {}): Board => ({
   removed: 0,
   rows: [
     { rank: 1, name: 'Tipjar', repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.app', score: '81.5', eligible: true, note: 'Yes', amount: null, tx: null },
-    { rank: null, name: 'Splitly', repo_url: null, live_url: null, score: null, eligible: false, note: 'No: no coin', amount: null, tx: null },
+    { rank: null, name: 'Splitly', repo_url: null, live_url: null, score: null, eligible: false, note: 'No: no token', amount: null, tx: null },
   ],
   ...o,
 });
@@ -106,7 +106,7 @@ test('/bonus/<round> open: name, disclaimer, pool so far, days left, the rank/pr
   assert.match(t, /Ends Oct 31/);
   assert.match(t, /# Project Score Eligible/);
   assert.match(t, /1 Tipjar .*81\.5 Yes/);
-  assert.match(t, /– Splitly .*– .*No: no coin/);
+  assert.match(t, /– Splitly .*– .*No: no token/);
   assert.match(h, /href="\/policy"/);
   assert.match(h, /href="https:\/\/tipjar\.app\/"/);
   assert.doesNotMatch(t, /vault/i);

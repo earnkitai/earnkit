@@ -140,7 +140,7 @@ export function ownerProblem(
 export function codeProblem(f: RepoCode): string | null {
   if (!f.hasCommits) return `The repo has no commits yet. Push the project's code, then ${SAY}.`;
   if (f.fork && !(f.aheadOfParent && f.aheadOfParent > 0))
-    return `The repo is a fork with no new commits; a coin needs your own code. Push your own commits to it, then ${SAY}.`;
+    return `The repo is a fork with no new commits; a token needs your own code. Push your own commits to it, then ${SAY}.`;
   return null;
 }
 
@@ -155,7 +155,7 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   if (input.policy === 'off') return { ok: false, reason: "This program doesn't allow tokens for entries." };
   const gh = input.repoUrl ? githubRepo(input.repoUrl) : null;
   if (!gh || !input.repoUrl)
-    return { ok: false, reason: `A coin needs the project's public GitHub repo. Share its link, then ${SAY}.` };
+    return { ok: false, reason: `A token needs the project's public GitHub repo. Share its link, then ${SAY}.` };
   let facts: RepoCode;
   try {
     facts = await d.repo(gh.owner, gh.repo);
