@@ -209,6 +209,8 @@ export function createMcpServer(ctx: ToolContext) {
         "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
         "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
         'Pass the final answers that were submitted. ' +
+        "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
+        'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
         `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
         'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show it exactly as written. ' +
@@ -253,6 +255,10 @@ export function createMcpServer(ctx: ToolContext) {
           .describe(
             'true once the builder confirmed the summary that includes the token line',
           ),
+        builder_submitted: z
+          .boolean()
+          .optional()
+          .describe('true once the builder confirmed the entry is submitted on the program site'),
         deployer_signature: z
           .string()
           .optional()

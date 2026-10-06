@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import {
   PROOF_RECHECK_INTERVAL_MS,
   RECHECK_BATCH,
+  proofCheck,
   proofProblem,
   recheckSubmissionProofs,
+  recheckUpdate,
   hostLinked,
   sharedHost,
 } from './submission-proof';
@@ -15,6 +17,7 @@ import { SafeFetchError } from './safe-fetch';
 import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
+import { submissionBasis } from './projects';
 
 const program = {
   id: 'arc-microgrants',
@@ -360,6 +363,159 @@ test('residual N1: an entry proven by its live site, then given a repo, is not e
     await sql()`UPDATE projects SET submission_proof_checked_at = NULL WHERE id = ${id}`;
     await recheckSubmissionProofs(later, Date.now() + 60_000, { fetchText: async () => 'Repo: https://github.com/mallory/dex' });
     assert.ok((await proofRow(id)).submission_proof_ok_at);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});
+
+// ---- v2.6: submission proof is a bonus check (spec §3; Rulings 4, 5, 15 (plan)) ---------------
+
+const arcProgram = { id: 'arc', submission_proof: { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' } };
+const KIT = 'https://github.com/acme/kit';
+
+test('Ruling 15 (plan): unreachable vs refused', async () => {
+  const blocked = await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, {
+    fetchText: async () => { throw new SafeFetchError('it answered 405'); },
+  });
+  assert.equal(blocked.kind, 'unreachable');
+  const big = await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, {
+    fetchText: async () => { throw new SafeFetchError('larger than 512000 bytes'); },
+  });
+  assert.equal(big.kind, 'unreachable');
+  const network = await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, {
+    fetchText: async () => { throw new Error('ECONNRESET'); },
+  });
+  assert.equal(network.kind, 'unreachable');
+  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => '<html>other</html>' })).kind, 'refused');
+  assert.equal((await proofCheck(arcProgram, 'https://evil.io/buidl/7', KIT, undefined)).kind, 'refused');
+  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/about', KIT, undefined)).kind, 'refused');
+  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', undefined, undefined)).kind, 'refused');
+  assert.equal((await proofCheck(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => 'github.com/acme/kit' })).kind, 'ok');
+  // proofProblem keeps its v2.5 shape: the problem, or null.
+  assert.equal(await proofProblem(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => 'github.com/acme/kit' }), null);
+  assert.equal(
+    await proofProblem(arcProgram, 'https://dorahacks.io/buidl/7', KIT, undefined, { fetchText: async () => { throw new SafeFetchError('it answered 405'); } }),
+    "couldn't check yet; we retry daily.",
+  );
+});
+
+test('v2.6 §3: how a submission counts', () => {
+  const un = { kind: 'unreachable' as const, problem: "couldn't check yet; we retry daily." };
+  const no = { kind: 'refused' as const, problem: "the page at x doesn't link to your repo yet" };
+  assert.deepEqual(submissionBasis({ hasPattern: true, outcome: { kind: 'ok' }, confirmed: false }), { basis: 'page', note: null });
+  assert.deepEqual(submissionBasis({ hasPattern: true, outcome: { kind: 'ok' }, confirmed: true }), { basis: 'page', note: null });
+  assert.deepEqual(submissionBasis({ hasPattern: true, outcome: un, confirmed: true }), { basis: 'unverified_page', note: null });
+  assert.equal(submissionBasis({ hasPattern: true, outcome: un, confirmed: false }).basis, null);
+  assert.match(submissionBasis({ hasPattern: true, outcome: un, confirmed: false }).note!, /builder_submitted: true/);
+  assert.equal(submissionBasis({ hasPattern: true, outcome: no, confirmed: true }).basis, null, 'a mismatch is never rescued by confirmation');
+  assert.doesNotMatch(submissionBasis({ hasPattern: true, outcome: no, confirmed: false }).note!, /builder_submitted/);
+  assert.equal(submissionBasis({ hasPattern: true, outcome: null, confirmed: true }).basis, null, 'a pattern program still needs its link');
+  assert.deepEqual(submissionBasis({ hasPattern: false, outcome: null, confirmed: true }), { basis: 'confirmed', note: null });
+  assert.equal(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).basis, null);
+  assert.match(submissionBasis({ hasPattern: false, outcome: null, confirmed: false }).note!, /builder_submitted: true/);
+});
+
+test('Ruling 4 (plan): re-check transitions', () => {
+  const now = new Date('2026-10-06T00:00:00Z');
+  const t0 = new Date('2026-10-05T00:00:00Z');
+  const un = { kind: 'unreachable' as const, problem: 'x' };
+  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'ok' }, now), { ok_at: t0, basis: 'page' });
+  assert.deepEqual(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, { kind: 'refused', problem: 'x' }, now), { ok_at: null, basis: null });
+  assert.equal(recheckUpdate({ ok_at: t0, basis: 'unverified_page', confirmed: true }, un, now), null);
+  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, un, now), { ok_at: now, basis: 'unverified_page' });
+  assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, un, now), null);
+  assert.equal(recheckUpdate({ ok_at: null, basis: null, confirmed: true }, { kind: 'refused', problem: 'x' }, now), null);
+  assert.deepEqual(recheckUpdate({ ok_at: null, basis: null, confirmed: false }, { kind: 'ok' }, now), { ok_at: now, basis: 'page' });
+});
+
+test('Ruling 4 (plan): an unverified page that later loads without the link stops counting; no second fetch within 24 h', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const t0 = new Date('2026-10-02T00:00:00Z');
+  const program = recheckProgram(`t5v26-unv-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2026-12-01T00:00:00Z',
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, installation_id, submission_proof_url, submission_proof_ok_at,
+        submission_basis, submission_confirmed_at, submission_proof_checked_at)
+      VALUES (${program.id}, 'Unverified', 'https://github.com/alice/unverified', ${installationId},
+        'https://dorahacks.io/buidl/31337', ${t0}, 'unverified_page', ${t0}, ${t0})
+      RETURNING id`;
+    let fetches = 0;
+    const fetchText = async () => ((fetches++), '<html>another team</html>');
+    await recheckSubmissionProofs(now, Date.now() + 60_000, { fetchText });
+    assert.equal(fetches, 1);
+    const [row] = await sql()<{ submission_proof_ok_at: Date | null; submission_basis: string | null; submission_proof_checked_at: Date | null }[]>`
+      SELECT submission_proof_ok_at, submission_basis, submission_proof_checked_at FROM projects WHERE id = ${id}`;
+    assert.equal(row.submission_proof_ok_at, null);
+    assert.equal(row.submission_basis, null);
+    assert.equal(row.submission_proof_checked_at!.getTime(), now.getTime());
+    await recheckSubmissionProofs(new Date(now.getTime() + 3_600_000), Date.now() + 60_000, { fetchText });
+    assert.equal(fetches, 1, 'a second run within 24 h fetches nothing');
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});
+
+test('Ruling 4 (plan): a confirmed entry whose page stays blocked starts counting as unverified; a v2.5 page row is never re-read', dbTest, async () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const t0 = new Date('2026-10-02T00:00:00Z');
+  const program = recheckProgram(`t5v26-blk-${process.pid}-${Date.now()}`, {
+    starts_at: '2026-09-01T00:00:00Z',
+    ends_at: '2026-12-01T00:00:00Z',
+  });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    const [{ id: blocked }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, installation_id, submission_proof_url, submission_confirmed_at, submission_proof_checked_at)
+      VALUES (${program.id}, 'Blocked', 'https://github.com/alice/blocked', ${installationId}, 'https://dorahacks.io/buidl/1', ${t0}, ${t0})
+      RETURNING id`;
+    const [{ id: v25 }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, installation_id, submission_proof_url, submission_proof_ok_at, submission_proof_checked_at)
+      VALUES (${program.id}, 'V25', 'https://github.com/alice/v25', ${installationId}, 'https://dorahacks.io/buidl/2', ${t0}, ${t0})
+      RETURNING id`;
+    const urls: string[] = [];
+    const r = await recheckSubmissionProofs(now, Date.now() + 60_000, {
+      fetchText: async (u) => { urls.push(u); throw new SafeFetchError('it answered 405'); },
+    });
+    assert.deepEqual(urls, ['https://dorahacks.io/buidl/1']);
+    assert.equal(r.passed, 1);
+    const rows = await sql()<{ id: number; submission_proof_ok_at: Date | null; submission_basis: string | null }[]>`
+      SELECT id, submission_proof_ok_at, submission_basis FROM projects WHERE program_id = ${program.id} ORDER BY id`;
+    const by = new Map(rows.map((x) => [x.id, x]));
+    assert.equal(by.get(blocked)!.submission_basis, 'unverified_page');
+    assert.equal(by.get(blocked)!.submission_proof_ok_at!.getTime(), now.getTime());
+    assert.equal(by.get(v25)!.submission_basis, null);
+    assert.equal(by.get(v25)!.submission_proof_ok_at!.getTime(), t0.getTime());
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${installationId}`;
+  }
+});
+
+test('v2.6 (N1 scope): a repo filled in at launch_token keeps a builder-confirmed entry counting (no page to re-check)', dbTest, async () => {
+  const { launchToken, LaunchTokenInput } = await import('./token-launch');
+  const t0 = new Date('2026-10-02T00:00:00Z');
+  const program = recheckProgram(`t5v26-n1-${process.pid}-${Date.now()}`, { submission_proof: null, starts_at: '2026-09-01T00:00:00Z', ends_at: '2026-12-01T00:00:00Z' });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, live_url, installation_id, submission_proof_ok_at, submission_basis, submission_confirmed_at)
+      VALUES (${program.id}, 'Confirmed', 'https://confirmed.example', ${installationId}, ${t0}, 'confirmed', ${t0})
+      RETURNING id`;
+    await launchToken(LaunchTokenInput.parse({ project_id: id, builder_confirmed: true, repo_url: 'https://github.com/alice/confirmed' }), installationId, { available: () => false });
+    const [row] = await sql()<{ repo_url: string | null; submission_proof_ok_at: Date | null; submission_basis: string | null }[]>`
+      SELECT repo_url, submission_proof_ok_at, submission_basis FROM projects WHERE id = ${id}`;
+    assert.equal(row.repo_url, 'https://github.com/alice/confirmed');
+    assert.equal(row.submission_proof_ok_at!.getTime(), t0.getTime());
+    assert.equal(row.submission_basis, 'confirmed');
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${program.id}`;
     await sql()`DELETE FROM installations WHERE id = ${installationId}`;

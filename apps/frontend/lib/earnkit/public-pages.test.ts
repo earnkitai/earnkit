@@ -38,7 +38,7 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   assert.match(t, /Market cap only breaks ties/);
   assert.match(t, /Trading volume never counts/);
   // Eligibility, review, payout split in WETH, after the end.
-  assert.match(t, /submission page/);
+  assert.match(t, /entry page/);
   assert.match(t, /earnkit\.txt/);
   assert.match(t, /48 hours/);
   assert.match(t, /farmed/);
@@ -48,7 +48,18 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   // a program ends, and for programs without public submissions.
   assert.match(t, /monthly round is followed by the next month's round/);
   assert.match(t, /Once a program ends, its coins' builder bonus share goes to EarnKit's Safe/);
-  assert.match(t, /So does the share of programs whose submissions aren't public/);
+  assert.match(t, /So does the share of programs that opted out/);
+  // v2.6 §3-§4: the bonus is on every program unless it opts out; how a submission counts; a coin
+  // needs only the token line (no public payout wallet).
+  assert.match(t, /Every program has a builder bonus unless it opts out\./);
+  assert.ok(
+    t.includes('Programs without public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.'),
+  );
+  assert.match(t, /Programs with public entry pages: your entry page links your repo or live product\./);
+  assert.match(t, /You can push to the repo: its earnkit\.txt carries the token line your agent adds\./);
+  assert.doesNotMatch(t, /names your payout wallet/);
+  assert.doesNotMatch(h, /submissions aren&apos;t public show/);
+  assert.doesNotMatch(t, /submissions aren't public/);
   assert.doesNotMatch(t, /round ends go to EarnKit/);
   assert.match(t, /skip/i);
   assert.match(t, /isn't affiliated with or endorsed by/);
