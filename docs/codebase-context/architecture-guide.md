@@ -1349,7 +1349,11 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
 - Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
   (`byPrize`); the hero's "$X open right now" is `openMoneyUsd` of the same cards, so it always
-  matches the first message (Ruling 20). The stats strip hides installs under 100.
+  matches the first message (Ruling 20). Each card's main prize line is that card's share of it
+  ("up to $X per winner", Ruling C8), with the program's own pool text as a small line. The stats
+  strip hides installs under 100.
+- The figure is formatted on the server (`HomeView`) and passed to the client `Hero` as a string:
+  client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
 - A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls
   `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure,
   no cards, no strip. Because of `connection()`, a build without the DB makes `/` dynamic instead

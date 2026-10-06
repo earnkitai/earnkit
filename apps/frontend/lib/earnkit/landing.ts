@@ -17,14 +17,23 @@ import { readStats, type PublicStats } from './stats';
 export const INSTALLS_SHOWN_FROM = 100;
 /** Spec §1: the first 6 cards, then "See all". */
 export const HOME_CARDS = 6;
+/** v2.7 fix round 1: below the `sm` breakpoint the homepage shows 3 cards, then "See all programs". */
+export const HOME_CARDS_MOBILE = 3;
 
 export type Tile = {
   id: string;
   title: string;
   /** "Base · Tempo · Robinhood Chain". */
   chain: string;
-  /** The program summary's prize part as curated: "500 USDC × 20 grants". */
+  /**
+   * Ruling C8: the per-winner amount that feeds the hero total ("up to $25,000 per winner"); the
+   * curated prize text ("milestone-based USDC grants") when no per-winner amount is known.
+   */
   prize: string;
+  /** Ruling C8: the curated prize text ("$250K+ prize pool") as a small line, when it differs. */
+  prize_note: string | null;
+  /** The per-winner USD amount behind `prize` (0 when unknown): the tiles sum to `open_usd`. */
+  prize_usd: number;
   /** "Medium (estimate)", or "—" without one. */
   difficulty: string;
   /** "8 days left", "ends today" or "rolling". */
@@ -38,7 +47,12 @@ export type StatItem = { label: string; value: string };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = { open_usd: number; tiles: Tile[]; stats: StatItem[] };
 
-const ethText = (eth: number) => (eth < 0.01 ? 'under 0.01' : (Math.floor(eth * 100) / 100).toFixed(2));
+/**
+ * Two decimals, rounded down. `eth` has 6 decimals (weiToEth); rounding to whole micro-ETH first
+ * keeps float error from flooring 0.29 to 0.28 (fix round 1, Important 3).
+ */
+const ethText = (eth: number) =>
+  eth < 0.01 ? 'under 0.01' : (Math.floor(Math.round(eth * 1e6) / 1e4) / 100).toFixed(2);
 
 /** v2.7 §1, Ruling 20 (plan): the stats strip. Pure. */
 export function statItems(openUsd: number, s: PublicStats): StatItem[] {
@@ -68,11 +82,17 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
   const tiles = kept.map((c): Tile => {
     const pool = pools.get(c.id);
     const bonus = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
+    const curated = prizeOf(c);
+    const perWinner = c.max_award_usd ?? 0;
+    const prize = perWinner > 0 ? `up to ${usd(perWinner)} per winner` : curated;
     return {
       id: c.id,
       title: c.title,
       chain: (c.chains ?? []).map((ch) => CHAIN_NAMES[ch]).join(' · '),
-      prize: prizeOf(c),
+      prize,
+      // No note when the curated text only restates the amount ("up to $5,000").
+      prize_note: perWinner > 0 && ![usd(perWinner), `up to ${usd(perWinner)}`].includes(curated) ? curated : null,
+      prize_usd: perWinner,
       difficulty: c.difficulty ? difficultyLabel(c.difficulty) : '—',
       ends: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
       bonus: bonus === '—' ? null : bonus,

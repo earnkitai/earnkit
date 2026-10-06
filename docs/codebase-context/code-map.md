@@ -33,7 +33,10 @@ apps/frontend/
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, and each card's
                                "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT
   app/components/sections/{ProgramCards,ProgramLogo,StatsStrip,HowItWorks}.tsx  v2.7 §1 landing sections;
-                               ProgramLogo: local <img> or the Ruling 1 monogram
+                               ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
+                               ProgramCards shows 3 cards below sm, then "See all programs"
+  app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
+                               Header keeps "Follow on X" on desktop only
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -472,7 +475,9 @@ apps/frontend/
                                BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
-    landing.ts(+test)          v2.7 §1: landingFrom (pure: curated cards by prize → Tile JSON, open_usd =
+    landing.ts(+test)          v2.7 §1: landingFrom (pure: curated cards by prize → Tile JSON; Ruling C8:
+                               prize = "up to $X per winner" from max_award_usd, the curated text as
+                               prize_note, so the cards add up to open_usd =
                                openMoneyUsd, statItems: Open money / Agents earning ≥100 / Builder
                                bonus paid > pools > programs) and readLanding (listPrograms,
                                roundPoolsWei, readStats; rejects when the DB is unreachable)

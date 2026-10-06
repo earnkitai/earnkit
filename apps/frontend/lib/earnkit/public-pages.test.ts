@@ -10,6 +10,7 @@ import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
 import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
+import Header from '../../app/components/common/Header';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
@@ -193,11 +194,24 @@ test('v2.7 §1: the full home view', () => {
   const t = text(h);
   for (const s of ['Your agent finds money you already qualify for.', '$60,500 open right now', 'Add to your agent', 'Then ask: What can I earn?', 'Watch the demo', 'Agents only'])
     assert.ok(t.includes(s), s);
-  // 6 cards, then "See all" to /programs.
-  const cards = h.split('<li class="flex flex-col rounded-[32px]').slice(1);
+  // 6 cards, then "See all" to /programs; below `sm`, 3 cards, then "See all programs" (fix round 1).
+  const cards = h.split(/<li class="[^"]*rounded-\[32px\] bg-ek-navy p-6/).slice(1);
   assert.equal(cards.length, 6);
   assert.ok(!t.includes('Program Seven'));
   assert.match(h, /<a[^>]*href="\/programs"[^>]*>See all<\/a>/);
+  const seeAllMobile = h.match(/<a [^>]*>See all programs<\/a>/)?.[0] ?? '';
+  assert.match(seeAllMobile, /href="\/programs"/);
+  assert.match(seeAllMobile, /(^|[ "])sm:hidden[ "]/);
+  assert.match(seeAllMobile, /min-h-12/);
+  const liClass = [...h.matchAll(/<li class="([^"]*rounded-\[32px\] bg-ek-navy p-6[^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(liClass.map((c) => /(^| )hidden sm:flex( |$)/.test(c)), [false, false, false, true, true, true]);
+  // 44px tap targets: both "See all" links and the footer links.
+  assert.match(h, /min-h-11[^"]*"[^>]*>See all<\/a>/);
+  for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
+  // Ruling C8: the per-winner line first; the curated pool text as a small line under it.
+  assert.ok(t.includes('Prize up to $30,000 per winner $840K+ in prizes'));
+  assert.ok(t.includes('Prize up to $5,000 per winner Ends'));
+  assert.ok(t.includes('Prize milestone-based USDC grants Ends'));
   for (const [i, c] of cards.entries()) {
     const ct = text(c);
     const tl = homeFixture.tiles[i];
@@ -244,6 +258,26 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
+test('fix round 1: the header\'s call to action is the install; Follow on X stays on desktop', () => {
+  const h = html(React.createElement(Header));
+  assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
+  const mobile = h.slice(h.indexOf('md:hidden'));
+  assert.doesNotMatch(mobile, /Follow on X/);
+  assert.match(h.slice(0, h.indexOf('md:hidden')), /Follow on X/);
+});
+
+test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
+  const hero = readFileSync(join(import.meta.dirname, '../../app/components/sections/Hero.tsx'), 'utf8');
+  assert.doesNotMatch(hero, /lib\/earnkit\/campaigns|from 'viem'|from 'zod'/);
+  for (const f of ['ProgramCards.tsx', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
+    assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\//, f);
+});
+
+test('fix round 1: a logo path that is not a local programs file renders the monogram', () => {
+  for (const logo of ['https://evil.example/x.svg', '/programs/../x.svg', 'javascript:alert(1)', '/programs/x.gif'])
+    assert.doesNotMatch(html(React.createElement(ProgramLogo, { logo, title: 'Arc Microgrants' })), /<img/, logo);
+});
+
 test('v2.7 §1: the install modal asks the starting phrase, or the program\'s own', () => {
   assert.equal(START_PROMPT, 'What can I earn?');
   const t = text(html(React.createElement(AddToAgent, { onClose: () => {}, prompt: 'What can I earn on Arc Microgrants?' })));
@@ -258,4 +292,8 @@ test('v2.7: the site description and llms.txt use the starting phrase and name t
   assert.ok(llms.includes('What can I earn?'));
   assert.match(llms, /earnkit\.com\/programs\/<id>/);
   assert.doesNotMatch(llms, /Anything worth building/);
+  // Ruling C9: the homepage publishes live figures, so llms.txt no longer forbids stating them.
+  assert.doesNotMatch(llms, /Do not state any/);
+  assert.match(llms, /earnkit\.com\/api\/stats/);
+  assert.match(llms, /open money/);
 });

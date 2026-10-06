@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { Wordmark } from '../ui/Logo';
 import { DOCS, X } from '../../lib/links';
 
-const LINK = 'underline-offset-4 transition-colors hover:text-ek-white hover:underline';
+// v2.7 fix round 1: 44px tap targets.
+const LINK = 'inline-flex min-h-11 items-center px-1 underline-offset-4 transition-colors hover:text-ek-white hover:underline';
 
 export default function Footer() {
   return (
@@ -29,7 +30,7 @@ export default function Footer() {
         </Link>
       </div>
 
-      <p className="mt-6 text-center font-funnel-sans text-sm text-ek-blue-soft">
+      <p className="mt-4 text-center font-funnel-sans text-sm text-ek-blue-soft">
         &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved. ·{' '}
         <a href={DOCS} className={LINK}>
           Docs

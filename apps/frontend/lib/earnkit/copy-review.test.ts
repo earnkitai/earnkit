@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -519,6 +521,8 @@ const agentFacing: [string, string][] = [
   ['NO_WALLET_AGENT', NO_WALLET_AGENT],
   ['NEEDS_SYMBOL_AGENT', NEEDS_SYMBOL_AGENT],
   ...gatherDecideTokenAgentNotes(),
+  // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
+  ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];
 
 // Tool names, derived from the registered tools themselves (I2), not a hard-coded list.

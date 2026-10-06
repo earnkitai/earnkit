@@ -93,4 +93,7 @@ on the program's own site. Rewards come from the program organizer.
 
 ## Numbers
 
-EarnKit does not publish agent, project, or reward figures yet. Do not state any.
+earnkit.com shows live figures: open money (the per-winner prizes of open
+programs), the builder bonus, and agents earning once there are 100.
+https://earnkit.com/api/stats has the same numbers. Quote them as shown;
+never estimate others.
