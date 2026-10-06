@@ -595,6 +595,40 @@ test('M12: the entry-time note judges an earlier entry by the round rule (coin l
   assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /already holds this repo/);
 });
 
+test('v2.6 Ruling 6 (plan), fix round 1: an owner test installation never holds a repo at entry time either', dbTest, async () => {
+  const tag = `fw-ruling6-${process.pid}-${Date.now()}`;
+  const program = proofProgramFile(tag, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  const testInstallationId = await freshInstallation();
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(79), repo_url: `https://github.com/alice/${tag}` };
+  // An otherwise-eligible-looking earlier entry of the same repo, but from an owner test
+  // installation: it must never be named as holding the repo (traction.ts eligibleSql agrees).
+  await sql()`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, coin_address, coin_launched_at, submission_proof_ok_at)
+    VALUES (${program.id}, 'Earlier (test)', ${project.repo_url}, ${testInstallationId}, ${`github.com/alice/${tag}`},
+      ${`0x${'f'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`}, now(), now())`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  process.env.EARNKIT_TEST_INSTALLATIONS = String(testInstallationId);
+  try {
+    const result = await recordSubmission(
+      {
+        program_id: program.id,
+        project,
+        submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+        external_submission_url: 'https://dorahacks.io/buidl/580',
+      } as never,
+      installationId,
+      { fetchProof: async () => `See the repo: ${project.repo_url}` },
+    );
+    assert.equal(result.recorded, true);
+    assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /already holds this repo/);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+  }
+});
+
 // ---- v2.5 Ruling 13: external entries' contracts and one eligible entry per repo ----------------
 
 test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b); frozen at the round end (Ruling 16)', () => {

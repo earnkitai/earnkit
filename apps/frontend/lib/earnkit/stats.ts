@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
 
@@ -81,11 +81,13 @@ export function statsFrom(r: Row): PublicStats {
  * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. v2.6 Ruling 6/16
  * (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS) counts in none of `installs`,
  * `coins_launched` or the bonus deposits behind `fees_to_safe_eth` — its coin and fees are real,
- * but it never shows in public stats.
+ * but it never shows in public stats. `db` defaults to the pool; a test that needs two reads to
+ * agree despite other test files writing in parallel passes one transaction (fix round 1,
+ * finding 2), the way `alertFacts` takes one.
  */
-export async function readStats(now = new Date()): Promise<PublicStats> {
+export async function readStats(now = new Date(), db: Db = sql()): Promise<PublicStats> {
   const ids = testInstallationIds();
-  const [r] = await sql()<Row[]>`
+  const [r] = await db<Row[]>`
     WITH open AS (
       SELECT max_award_usd, builder_bonus, campaign FROM programs
       WHERE status = 'active' AND (starts_at IS NULL OR starts_at <= ${now}) AND (ends_at IS NULL OR ${now} < ends_at)

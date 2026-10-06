@@ -3,6 +3,7 @@ import type { LocalAccount } from 'viem/accounts';
 import { FEE_LOCKER_ABI, sendCall, worthIt, type BonusChain, type BonusDeps, type BonusRpc } from './bonus-ledger';
 import { REVIEW_MS } from './campaigns';
 import { sql } from './db';
+import { testInstallationIds } from './installations';
 import {
   PAY_FAILED,
   PAY_FAILED_RUNS,
@@ -87,18 +88,29 @@ export type BonusPayoutRow = {
   paid_at: Date | null;
   vetoed: boolean;
   veto_reason: string | null;
+  /**
+   * v2.6 Ruling 6 (plan), fix round 1: `installation_id` is currently an owner test installation
+   * (EARNKIT_TEST_INSTALLATIONS). Re-checked on every read (roundRows), never stored: an entry
+   * frozen before its id was flagged is caught here too, not only when payees are first chosen.
+   */
+  test: boolean;
 };
 
 const lower = (s: string) => s.toLowerCase();
 
-/** Whether a row can still take a place: a wallet, not vetoed, not refused. Pure. */
-const payable = (r: Pick<BonusPayoutRow, 'wallet' | 'vetoed' | 'status'>) => Boolean(r.wallet) && !r.vetoed && r.status !== 'refused';
+/** Whether a row can still take a place: a wallet, not vetoed, not a test installation, not refused. Pure. */
+const payable = (r: Pick<BonusPayoutRow, 'wallet' | 'vetoed' | 'status' | 'test'>) =>
+  Boolean(r.wallet) && !r.vetoed && !r.test && r.status !== 'refused';
 
 /**
- * Who takes which frozen place, best first: rows with a transfer keep their stored place; the
- * other places go, in rank order, to payable rows (not vetoed or refused, with a wallet) whose
- * wallet and installation hold no place yet. The same rule payRanked pays by; the review page
- * shows it. Pure.
+ * Who takes which frozen place, best first: rows with a transfer keep their stored place (once
+ * sent, never reversed — same as a veto can't undo a mined transfer); the other places go, in
+ * rank order, to payable rows (not vetoed, not a test installation, not refused, with a wallet)
+ * whose wallet and installation hold no place yet. An owner test installation (v2.6 Ruling 6
+ * (plan), fix round 1) is treated exactly like a vetoed row here, even when it was frozen before
+ * its id was added to EARNKIT_TEST_INSTALLATIONS: its place passes down the ranking, or to the
+ * Safe through round-rest if nobody else can take it. The same rule payRanked pays by; the review
+ * page shows it. Pure.
  */
 export function placesFor(rows: BonusPayoutRow[], amounts: bigint[]) {
   const byRank = [...rows].sort((a, b) => a.rank - b.rank);
@@ -124,14 +136,22 @@ export function placesFor(rows: BonusPayoutRow[], amounts: bigint[]) {
 export const payablePlaces = (rows: BonusPayoutRow[]) =>
   placesFor(rows, Array.from({ length: BONUS_PLACES }, () => 0n)).length;
 
-/** A round's frozen ranking with its vetoes, best first. */
-export const roundRows = (roundKey: string) => sql()<BonusPayoutRow[]>`
-  SELECT b.id, b.project_id, b.rank, b.score, b.wallet, b.installation_id, b.flags, b.slot,
-    b.amount_wei::text AS amount_wei, b.status, b.tx_hash, b.raw_tx, b.stale_at, b.reverts, b.paid_at,
-    (v.project_id IS NOT NULL) AS vetoed, v.reason AS veto_reason
-  FROM bonus_payouts b LEFT JOIN bonus_vetoes v ON v.round_key = b.round_key AND v.project_id = b.project_id
-  WHERE b.round_key = ${roundKey}
-  ORDER BY b.rank`;
+/**
+ * A round's frozen ranking with its vetoes, best first. `test` is computed fresh from the current
+ * EARNKIT_TEST_INSTALLATIONS on every call, never stored, so a row frozen before its installation
+ * was flagged still comes back marked (v2.6 Ruling 6 (plan), fix round 1).
+ */
+export const roundRows = (roundKey: string) => {
+  const testIds = testInstallationIds();
+  return sql()<BonusPayoutRow[]>`
+    SELECT b.id, b.project_id, b.rank, b.score, b.wallet, b.installation_id, b.flags, b.slot,
+      b.amount_wei::text AS amount_wei, b.status, b.tx_hash, b.raw_tx, b.stale_at, b.reverts, b.paid_at,
+      (v.project_id IS NOT NULL) AS vetoed, v.reason AS veto_reason,
+      COALESCE(b.installation_id = ANY(${testIds}::int[]), false) AS test
+    FROM bonus_payouts b LEFT JOIN bonus_vetoes v ON v.round_key = b.round_key AND v.project_id = b.project_id
+    WHERE b.round_key = ${roundKey}
+    ORDER BY b.rank`;
+};
 
 /**
  * The v2.4 PayoutStore over bonus_payouts: a transfer is stored with its place and that place's
@@ -199,6 +219,10 @@ export async function freezeRound(roundKey: string, now: Date, a: { weth: string
     paid_at: null,
     vetoed: false,
     veto_reason: null,
+    // finalRanking already excludes a current owner test installation (eligibleSql); placesFor
+    // and payablePlaces still see test: false for every row freezeRound builds. roundRows (every
+    // later read) recomputes it fresh, which is what catches an installation flagged afterward.
+    test: false,
   }));
   return sql().begin(async (tx) => {
     const [r] = await tx<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${roundKey} FOR UPDATE`;
@@ -339,6 +363,7 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
         id: w.id,
         rank: w.rank,
         vetoed: w.vetoed,
+        test: w.test,
         payout_wallet: w.wallet!,
         installation_id: w.installation_id,
         payout_status: w.status,
@@ -347,12 +372,13 @@ async function payRound(roundKey: string, account: LocalAccount, d: Deps, now: D
         payout_stale_at: w.stale_at,
         payout_reverts: w.reverts,
         slot: w.slot,
-      })) satisfies (RankedRow & { rank: number; vetoed: boolean })[];
+      })) satisfies (RankedRow & { rank: number; vetoed: boolean; test: boolean })[];
     r = await payRanked(
       { token: t.token, symbol: t.symbol, decimals: t.decimals, amounts, perPlace: true, nothing: null },
       entries,
-      // Best first; never a vetoed or refused entry (payRanked already skips taken wallets and installations).
-      (pool) => pool.filter((e) => !e.vetoed && e.payout_status !== 'refused').sort((a, b) => a.rank - b.rank)[0],
+      // Best first; never a vetoed, test-installation (v2.6 Ruling 6 (plan), fix round 1) or
+      // refused entry (payRanked already skips taken wallets and installations).
+      (pool) => pool.filter((e) => !e.vetoed && !e.test && e.payout_status !== 'refused').sort((a, b) => a.rank - b.rank)[0],
       {
         account,
         rpc: d.rpc,
