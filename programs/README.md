@@ -102,7 +102,10 @@ Once a week, for every active program:
    following step 4 above (same sourcing rules, including the predecessor-round and
    different-kind-of-program limits).
 3. Re-check that `best_bet` still follows from the facts.
-4. Run `pnpm programs:check`, then push.
+4. Refresh any live count in a `difficulty_override` from its `source_url` (Circle Developer
+   Grants: the accepted and submitted proposal counts on circle.questbook.app move every week).
+   If it can't be re-confirmed, remove the override.
+5. Run `pnpm programs:check`, then push.
 
 ## "Add this starter to the <Track> track: <idea>"
 

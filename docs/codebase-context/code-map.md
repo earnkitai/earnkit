@@ -24,6 +24,11 @@ programs/                      program files (+ README: how Claude Code adds pro
 .github/workflows/earnkit-cron.yml  v2.4: hourly (:15) POST https://earnkit.com/api/cron with the
                                CRON_SECRET repo secret (also workflow_dispatch)
 apps/frontend/
+  public/programs/             v2.7 Ruling 23: program logos (<id>.svg|png, ≤200 KB, checked by
+                               programs:check), served under a scoped image CSP (next.config.ts IMAGE_CSP); rendered
+                               only via <img> (ProgramLogo, GuideView)
+  public/llms.txt              agent-readable summary: install, "What can I earn?", program guides
+                               (earnkit.com/programs/<id>), the tools, live numbers (C9)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1: the pure home render (hero with "$X open right now", ProgramCards
                                (6, "See all" → /programs), StatsStrip, HowItWorks, BackedBy, Footer);
@@ -126,7 +131,12 @@ apps/frontend/
                                token_policy encouraged|allowed|off, default encouraged; tokenPolicyLine);
                                v2.6 §4: builder_bonus (default true; false opts out); Ruling 8 (plan):
                                a windowed program with the bonus on (not opted out, not a campaign)
-                               needs starts_at
+                               needs starts_at; v2.7 §2: guide facts with their own source_url —
+                               logo (GuideLogo, programs/<id>.svg|png, Ruling 23; logoFileProblem), past_rounds
+                               (PastRound: newest first, ≤5, counts nullable C2, own C4), focus (Focus, ecosystem Ruling 7),
+                               best_bet (ShortText, only with past_rounds or focus, Ruling 8), difficulty_override
+                               (DifficultyOverride, Ruling 5), winners_per_round (Ruling 6); requirements' `todo` (C5) and
+                               requiredWithoutTodo (programs:check refuses a required item without one)
     programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
@@ -135,7 +145,11 @@ apps/frontend/
                                generic rules and a neutral description, their own text only
                                in sponsor_content; v2.6: ProgramRow.builder_bonus (upserted from
                                the file), Card.builder_bonus = bonusOn minus the status check
-                               (false for every campaign)
+                               (false for every campaign); v2.7: ProgramRow/Card gain logo, past_rounds,
+                               focus, best_bet, difficulty_override, winners_per_round, chains and Card.difficulty
+                               (difficultyOf); upsertProgram writes them; get_program's guide block (guideBlock: guide
+                               { text, difficulty, best_bet, sources } + guide_note, curated programs only) with
+                               guideBonus (the open round's pool so far)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
@@ -279,7 +293,14 @@ apps/frontend/
                                OWNERSHIP_FOR_TOKEN (the agent writes and pushes `token: <code>`
                                itself), record_submission's builder_submitted (ask "Did you submit on
                                <site>?" first), local_repos[].url (Ruling 13), builder text never
-                               names a tool
+                               names a tool; v2.7: SERVER_INSTRUCTIONS exported (scanned by
+                               copy-review), list_programs' description leads with "What can I earn?", all say "token", never name Clanker
+                               (Ruling 18), get_program describes the guide
+    guide.ts(+test)            v2.7 §2 (pure): difficultyOf/difficultyFrom (Rulings 2–5: odds from the
+                               newest round with both counts, ODDS_BANDS Easy ≥0.25 / Medium ≥0.08 / Hard; else an
+                               estimate, never Easy; the override wins), difficultyLabel, programGuide → Guide (Ruling 9
+                               header, difficulty, "What won last time/before" + event C3/C12, ecosystem focus, best bet,
+                               builder bonus), guideText (the agent's text), guideSources/guideSourceList, wonHeading
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
                                open money you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
@@ -317,6 +338,9 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.7: prepare_submission checks readiness first (Ruling 15): not ready → "Before you
+                               submit: …" (notReadyLine/todoOf), no token block, shown_wallet or ticker check; ready → the
+                               token block (tokenProposalBlock) and the Token row; list_programs closes on bonusClose;
                                includes sponsor_campaign (create/status/award). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
                                route never sets it. ToolContext.roundPoolsWei overrides the builder
@@ -343,7 +367,10 @@ apps/frontend/
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
                                (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
-                               monogramFor (12-colour palette)
+                               monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
+                               check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), "<TICKER>
+                               Token"; tickers: project, repo, initialsCandidates, ENTRY…; ≤12 checks, a taken ticker never
+                               proposed (C6), else "ticker not checked for duplicates"; titleCase
     token-gate.ts(+test)       tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
                                match-projects.ts repoCodeFacts: commits, a fork only when ahead of
                                its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via
@@ -374,7 +401,10 @@ apps/frontend/
                                TECHNICAL_TERMS, plainProblem);
                                runTokenFlow: launches configured, decideToken, one
                                token per repo, gate, LIMITS.tokenLaunch, deploy; TokenFlowDeps
-                               (gate, check, deploy, store, limit, available) for tests
+                               (gate, check, deploy, store, limit, available) for tests; v2.7:
+                               tokenProposalBlock always has a proposal (no project name → the repo name; neither → no
+                               block), C6: the final ticker is re-checked right before deployToken (taken → no launch,
+                               plain note; unreachable → launch); plainProblem says "Token name"
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
                                amount_each, priced_at), prizeColumn/wonUsdText, entry checks
                                (entryFieldProblems: every problem at once; isWalletAddress),
@@ -411,7 +441,11 @@ apps/frontend/
                                yet joins once it is; M1: REPO_HELD), noCoinYet (the agent's
                                no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
                                deadlineDay (Ruling 29: one round date everywhere, the first
-                               message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet
+                               message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
+                               v2.7: prizeOf/endsOf (moved from present.ts), coinRow is the `Token` row "Your entry gets a
+                               token on Base, $X: you earn 40% of its trading fees[, and it joins the builder bonus] · skip:
+                               …" (Ruling 17), notReadyLine ("Before you submit: …", ≤3 then "and N more") and todoOf (C5),
+                               confirmTable(missing) shows only Entry and Prize while not ready; no Clanker (Ruling 18)
     fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
@@ -427,9 +461,20 @@ apps/frontend/
                                top-10 lines with their leaderboard link): one colon in the joined
                                sentence; final review M3: the top-10 standings read only entries
                                eligibleSql(r.ends_at) counts (never a test installation's)
-    copy-v26.test.ts           v2.6 copy review: every builder-facing string and joined alert
-                               sentence (no emojis, "vault", implied affiliation, tool names or
-                               file-edit asks; one colon)
+    copy-review.test.ts        renamed from copy-v26.test.ts in v2.7: every builder-facing string and
+                               joined alert sentence (no emojis, "vault", implied affiliation, tool names or file-edit
+                               asks; one colon); v2.7: coinWords (Ruling 19: "coin" banned in human-facing text,
+                               identifiers/URLs/stablecoin exempt) over builder, agent (SERVER_INSTRUCTIONS, descriptions,
+                               notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18)
+    v27-journey.test.ts        v2.7 DB-gated journey in its own throwaway database (schema.sql, dropped
+                               after): real programs/*.json, "What can I earn?" (Difficulty, the bonus close with stubbed
+                               pools), get_program's guide, prepare_submission not ready ("Before you submit:", no token)
+                               then ready ("a token on Base", no Clanker); local fetch stub for the ticker check
+    campaign-page-text.ts      v2.7 §4: every human-facing string of app/campaigns/[slug]/page.tsx as pure
+                               functions (campaignEyebrow, closesText, sponsorDisclosureParts, earnkitCampaignBlurb,
+                               removedLine…), so copy-review scans them
+    logo-check.ts(+test)       v2.7: checkLogoFile(logo, publicDir) reads the file and runs
+                               program-file.ts logoFileProblem (used by programs-sync.mts --check)
     payout.ts(+test)           payoutAccount (CAMPAIGN_PAYOUT_PRIVATE_KEY, with or without 0x: Ruling 7), payoutRpc, payWinner (sign,
                                store, broadcast; stale/manual handling; optional place), payRanked
                                (per-place amounts, any ERC-20, every v2.4 rule, openSends nonce
@@ -505,7 +550,9 @@ apps/frontend/
                                (plan): installs, coins_launched, the bonus_deposits_wei coin
                                subquery and (final review M2) bonus_to_safe_wei's coin rows all
                                exclude owner test installations (installations.ts
-                               testInstallationIds, EARNKIT_TEST_INSTALLATIONS)
+                               testInstallationIds, EARNKIT_TEST_INSTALLATIONS); v2.7 Ruling 20:
+                               bonus_pools_eth (open rounds' `destination = 'round'` bookings), STATS_LABELS.coins_launched
+                               = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
                                minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
@@ -582,13 +629,18 @@ apps/frontend/
                                bonus_ledger, bonus_sweeps, bonus_cursor; v2.6, additive:
                                programs.builder_bonus (default true), projects.submission_basis
                                (CHECK page | unverified_page | confirmed, drop-then-add) and
-                               projects.submission_confirmed_at)
-  scripts/                     db-migrate.mts, programs-sync.mts (load .env.local)
+                               projects.submission_confirmed_at; v2.7, additive: programs.logo,
+                               past_rounds (default []), focus, best_bet, difficulty_override, winners_per_round)
+  scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
+                               writes the guide columns; --check (pnpm programs:check) also checks each logo file
+                               (logo-check.ts) and the required items' todo
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,
                                 the v2.5 bonus tables' constraints, and (v2.6) the migration over real
                                 v2.5 rows (main's 1823018 schema): builder_bonus true, no
                                 submission_basis, submission_proof_ok_at kept; the basis CHECK
+                                v2.7: the migration over a v2.6 program row: empty past_rounds, NULL logo
+                                and guide facts, builder_bonus unchanged
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate

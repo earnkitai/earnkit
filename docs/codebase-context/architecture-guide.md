@@ -203,6 +203,40 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
   unless `TREASURY` is `0xc8A889577446153e28D42254B75238Ae31EC7D57`. `pnpm token:e2e` runs every
   flow against a local Postgres and a mock tokens.fun (which also serves `earnkit.txt`).
+- **The token step (v2.7 §3, Rulings 15–18, C5–C6).** Supersedes the v2.3 wording above where
+  they differ.
+  - *Readiness first* (Ruling 15). `prepare_submission` runs `prepareSubmission` before anything
+    token-related. While a required item is missing, `show_to_builder` leads with
+    `Before you submit: <to-do>; <to-do>.` (`entry-text.ts` `notReadyLine`, at most 3, then
+    "and N more"; each item is the program file's `todo`, else its label normalized, C5;
+    `todoOf`), followed by the Entry and Prize rows only: no `token` block, no `shown_wallet`, no
+    wallet line or footnote, and no tokens.fun ticker check. A campaign's remembered
+    payout-wallet question still shows. `programs:check` requires a `todo` on every required item.
+  - *Always proposed* (Ruling 16, `token-proposal.ts` `proposeToken`, never null). The name: the
+    project name, `<name> Token`, the repo name (`repoNameOf`: `-`, `_`, `.` as spaces), then
+    `<TICKER> Token`. Tickers: `tickerCandidates(project)`, `tickerCandidates(repo)`,
+    `initialsCandidates`, then `ENTRY`, `ENTRY2`…; each must pass `tickerProblem`. At most 12
+    tokens.fun checks per proposal; a ticker found taken is never proposed, and past the checked
+    list the next candidate is proposed with "ticker not checked for duplicates". With neither a
+    project name nor a repo there is no block. C6: `token-launch.ts` re-checks the final ticker
+    right before the deploy; taken means no launch and a plain note; unreachable launches as v2.3
+    did.
+  - *On Base* (Ruling 17). The row's key is `Token` everywhere. Outside campaigns:
+    `Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the
+    builder bonus · skip: no token, no builder bonus` (without a bonus: `… trading fees · skip: no
+    token`). The footnote (`tokenFootnote`, `COIN_FOOTNOTE`) says fees are paid in WETH and
+    tokens.fun pays gas.
+  - *No Clanker* (Ruling 18). No builder text, agent text (tool descriptions,
+    `SERVER_INSTRUCTIONS`, notes) or web page names Clanker; `/policy` and the docs say "The
+    launch protocol keeps 20% of trading fees" (`CLANKER_CUT_PCT`). Code comments, identifiers,
+    contract tables and logs keep the name. `copy-review.test.ts` scans for it.
+- **Coin → token (v2.7 §4, Ruling 19).** Human-facing text says "token", never "coin" (builder and
+  agent text, web pages including admin, `/policy`, alerts, `STATS_LABELS.coins_launched` =
+  "tokens launched"). Identifiers keep their names (`coin_address`, `coins_launched`, `coinRow`,
+  JSON keys), as do URLs (`tokens.fun/coin/0x…`), words that only contain "coin" (stablecoin,
+  Coinbase), code comments, logs, SQL, test names, and the decorative `CoinsField` / `coin-float`.
+  `copy-review.test.ts` (`coinWords`, renamed from `copy-v26.test.ts`) scans every builder, agent
+  and page string for it.
 - **Coin gate (v2.6 §3; `token-gate.ts`, `ownership.ts`, `match-projects.ts`).** A launched coin is
   never re-gated (`runTokenFlow` stops at the existing token first), so no v2.5 coin is affected.
   - *The line* (Ruling 1 (plan)). `token: <code>`, where `code` is the first 16 hex characters of
@@ -1091,7 +1125,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
     `note` plus `agent_note` (Ruling 31); `prepare_submission` and the server instructions tell the
     agent to pass `shown_wallet` back as `payout_wallet` (Ruling 30).
 
-## Ride programs: money flow, owner steps and runbooks (v2.5, v2.6)
+## Ride programs: money flow, owner steps and runbooks (v2.5, v2.6, v2.7)
 
 EarnKit rides programs that already pay builders. It matches a builder to their open money, gives
 each entry a coin, and funds a builder bonus per program from the coins' fees. EarnKit runs no
@@ -1240,6 +1274,41 @@ a wallet you control.
   entry). Don't delete database rows. Remove EarnKit from the test agent if you don't keep it for
   the next test.
 
+**Owner steps for the v2.7 deploy** (convert and guide; spec `v2.7-convert-and-guide.md`).
+Ruling C1: after the final review, the controller pushes and merges both repos with the owner's go.
+
+1. Merge and deploy `v2.7-convert-and-guide`. The migration only adds columns (six nullable or
+   defaulted `programs` columns); `predeploy` runs it, then `programs:sync` loads the backfilled
+   program files and their logos.
+2. Point the weekly re-verification routine's prompt at `programs/README.md` → "Weekly
+   re-verification" (Ruling 26). The routine runs outside this repo; no new service.
+3. Docs: push `/Users/jenil/earnkit-docs-v27` branch `v2.7-docs`, review the Vercel preview, and
+   merge to `main`; Vercel deploys docs.earnkit.com (Ruling 24). Deploy EarnKit first: the docs
+   link `earnkit.com/programs`, which 404s until v2.7 is live. Old docs pages
+   (`/buyback-and-burn`, `/monetization-sdk`, `/quick-start-guide`, `/sdk-reference`,
+   `/engineering-and-design`) redirect (307) to `/`.
+4. Follow "Test the journey (v2.7)" below with a throwaway public repo.
+
+**Runbook: Test the journey (v2.7).** On production, with a throwaway public repo: tokens are real
+and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v27-journey.test.ts` (its own
+throwaway database, real program files, no network).
+
+1. Open `/` at phone width (390): the open money in the hero, 3 cards then "See all programs"
+   (6 at desktop width), and a guide (`/programs/<id>`) opens from a card.
+2. Ask "What can I earn?": the tables have a Difficulty column, and the message closes on the
+   builder bonus ("Every entry also competes for the builder bonus: …").
+3. Submit before going live (no live link): the reply leads with "Before you submit: …" and has
+   no Token row.
+4. Submit when ready: the Token row reads "Your entry gets a token on Base, $…".
+
+**Runbook: weekly re-verification (v2.7, Ruling 26).** The steps live in `programs/README.md`
+("Weekly re-verification"): re-read each active program's sources and refresh `focus` and
+`verified_at`; add newly announced winners as the first `past_rounds` entry; re-check `best_bet`;
+refresh any live count in a `difficulty_override`; then `pnpm programs:check` and push. Circle
+Developer Grants' override ("14 of 850 proposals accepted so far in Cohort 2", from
+circle.questbook.app) is a live, moving count: refresh it every week, or remove the override
+when it can't be re-confirmed (C14).
+
 **Runbook: a 503 from `/api/cron`.** The GitHub Actions run fails and GitHub emails the owner. The
 body's `needs_owner` says what waits:
 
@@ -1284,6 +1353,100 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 5. "waiting on a stored send": a stored payout or sweep couldn't be rebroadcast. See the stuck
    payout and sweep runbooks.
 
+## Program guides and the landing page (v2.7)
+
+The v2.7 job: convert a visitor into an install, then guide the builder to a winnable entry.
+Spec `v2.7-convert-and-guide.md`, plan `v2.7-convert-and-guide-plan.md` (Rulings 1–27 and the
+controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.md`).
+
+### From a program file to the guide (Rulings 2–9)
+
+- **Program files** (`programs/*.json`, `program-file.ts`) gain optional guide facts, each with
+  its own `source_url`: `logo` (`programs/<id>.svg|png` under `apps/frontend/public`, Ruling 23),
+  `past_rounds` (newest first, at most 5; `submissions`/`winners` null when unpublished, C2;
+  `own: true` only for the program's own round, C4; themes and examples with an optional `why`),
+  `focus` (up to 3 areas, optional `ecosystem`, Ruling 7), `best_bet` (EarnKit's curated advice,
+  allowed only with `past_rounds` or `focus`, never generated, Ruling 8), `difficulty_override`
+  (`{ level, basis, source_url }`, Ruling 5) and `winners_per_round` (Ruling 6). `programs:check`
+  (`scripts/programs-sync.mts --check`) validates them, the logo file (`logo-check.ts`
+  `checkLogoFile` → `logoFileProblem`: at most 200 KB, PNG signature, SVG without script,
+  foreignObject, `on*=` or external/data hrefs) and the required items' `todo`.
+- **Database:** six additive columns on `programs` (`logo`, `past_rounds` default `[]`, `focus`,
+  `best_bet`, `difficulty_override`, `winners_per_round`), written by `upsertProgram` and read into
+  `ProgramRow`/`programCard` (`programs.ts`).
+- **`guide.ts`** (pure): `difficultyOf` (Ruling 2: odds = winners ÷ submissions of the newest
+  round with both, Easy ≥ 0.25, Medium ≥ 0.08, else Hard; basis "20 of ~160 entries won last
+  round" or "… in <label>"; Ruling 3–4: otherwise an estimate from winners, "long shot" and
+  barriers, never Easy; the override wins), `difficultyLabel` ("Hard (estimate)"), `programGuide`
+  → `Guide` (header "<title> · <prize> · <ends>", Ruling 9; difficulty; "What won last time" for an
+  own round, else "What won before" naming the event, C3/C12; what the ecosystem wants now; best
+  bet; builder bonus line), `guideText` (the agent's plain text), `guideSourceList`.
+- **Where it shows:** `get_program` returns `guide { text, difficulty, best_bet, sources }` and a
+  `guide_note` for the agent (it may add one line on how the builder's repo fits the best bet,
+  never as EarnKit's); the first message's Difficulty column (`present.ts` `difficultyCell`,
+  label only, Ruling 12; campaign and sponsored tables have none); the landing cards; and
+  `/programs/<id>`. All read the same `programGuide`, so the agent and the web never disagree.
+
+### The first message (v2.7 §3, Rulings 10–14)
+
+- Tables carry a Difficulty column; the message closes on the builder bonus (`bonusClose`):
+  "<offer> Every entry also competes for the builder bonus: 0.60 ETH so far, paid to the top 10 on
+  each program." (the sum of pools already read for bonus programs on screen, Ruling 11; "under
+  0.01 ETH so far"; empty pools use the no-amount wording). When the offer is an EarnKit campaign
+  entry, the sentence comes first as its own paragraph ("Entries in the other open programs also
+  compete for …") and the offer stays last (Ruling 10). "Top 10" is `BONUS_SPLIT_BPS.length`.
+- The affiliation line and `BONUS_NOTE` are gone (Ruling 14); a repo whose token is entered in
+  another program says so in its own repo cell (Ruling 13).
+
+### The landing page (v2.7 §1, Rulings 20–21)
+
+- `/` (`app/page.tsx`, `revalidate = 600`) reads `getLanding()` (`app/lib/landing-cache.ts`):
+  `readLanding` behind `unstable_cache` for 10 minutes, so at most one DB read per 10 minutes and
+  no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
+- Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
+  (`byPrize`); the hero's "$X open right now" is `openMoneyUsd` of the same cards, so it always
+  matches the first message (Ruling 20). Each card's main prize line is that card's share of it
+  ("up to $X per winner", Ruling C8), with the program's own pool text as a small line. The stats
+  strip hides installs under 100.
+- The figure is formatted on the server (`HomeView`) and passed to the client `Hero` as a string:
+  client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
+- A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls
+  `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure,
+  no cards, no strip. Because of `connection()`, a build without the DB makes `/` dynamic instead
+  of prerendering the fallback (Ruling 21). Note: a local rebuild reuses `.next/cache`, so test
+  this with a clean `.next`.
+- Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;
+  without one, the Ruling 1 monogram. The five open programs carry official marks from their
+  brand kits (Task 8; `logo.source_url` is the kit page). The frame is a white circle, so a square
+  mark needs room in its viewBox (Base's Square is padded) and a gradient SVG that uses `url(#…)`
+  fails the check, so Circle's mark is the kit's PNG.
+
+### Guide pages (v2.7 §2, Ruling 22)
+
+- `/programs/<id>` (`app/programs/[id]/page.tsx`) reads `getGuidePage(id)`: `readGuidePage`
+  (`lib/earnkit/landing.ts`) behind `unstable_cache` for 10 minutes. It renders the same `Guide`
+  as get_program (`programGuide` in `guide.ts`, the bonus line from `programs.ts`'s `guideBonus`),
+  so the web and the agent never disagree. The value is plain JSON (`GuidePage`).
+- "What won": "What won last time" only for the program's newest own round (`own: true`), else
+  "What won before" plus a small line naming the shown round, "in <label>" (`Guide.won.event`,
+  Ruling C12). The difficulty basis names its own round, which can be a different one.
+- Only curated programs (`source = 'file'`, no campaign) have a page; any other id is null →
+  404. The id is gated first (`gatedGuidePage`): a malformed id reads nothing, and an id outside
+  the cached curated id set (closed included; one read per 10 minutes in total) is a 404 with no
+  per-id read or cache entry, so random ids can't keep Neon awake. A closed or past-deadline program still renders (`· closed`, no "Ask your agent"), so old
+  links keep working (Ruling 22).
+- `readGuidePage` rejects on a DB failure (never null); `getGuidePage` logs `[guide]`, calls
+  `await connection()` and returns `'error'`, which renders the "unavailable" panel with HTTP 200,
+  never a 404. The route has no `generateStaticParams`: a runtime `connection()` inside an ISR
+  route throws `DYNAMIC_SERVER_USAGE` (a 500), so the route is rendered on demand and the data
+  cache does the 10-minute revalidation.
+- `/programs` is the cards of `getLanding()` with no limit, under an `h1`. The sitemap lists
+  `/programs` and each open curated program's guide.
+- Sources are labelled by what they back (`guideSourceList`: program page, past winners,
+  priorities, difficulty; numbered within a role) and link through `shownUrl` (canonical https
+  only); a test checks every `source_url` in `programs/*.json` survives it. The logo CSP (`IMAGE_CSP`) matches
+  only `/programs/<id>.svg|png`, never the page routes.
+
 ## Public trust pages (v2.5 §4, Task 9)
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from
@@ -1296,6 +1459,12 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   the top 10 before paying), and an entry page EarnKit can't load counts on the confirmation,
   reviewed too; the coin needs push access (the agent's `earnkit.txt` token line), not a wallet
   line; Safe money is the share of programs that opted out.
+- **/policy wording (v2.7):** "The launch protocol keeps 20% of trading fees" (`CLANKER_CUT_PCT`;
+  never the protocol's name, Ruling 18), "token" throughout (Ruling 19). docs.earnkit.com's "Money
+  and trust" page restates the same facts and links here.
+- **/programs** (v2.7 Ruling 22): every open curated program as cards, the target of the
+  landing's "See all" and the footer's "Programs"; each card links its guide
+  `/programs/<id>` (see "Program guides and the landing page (v2.7)").
 - **/bonus/<round>** (`bonus-board.ts`) shows public data only. The URL segment is the slug
   `<program id>-<YYYY-MM-DD | YYYY-MM>` (v2.6 Ruling 12 (plan), `boardSlug`); the v2.5 `:` form
   (also `%3A`) still resolves (`resolveRoundParam`), and a malformed escape is a 404. While a round
@@ -1341,55 +1510,6 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 - **Design system:** these pages are built from rounded `bg-ek-navy-deep` panels (40px, 56px from
   md, 16px apart), the uppercase eyebrow, Funnel Display headings, Funnel Sans light body text,
   and the v2.4 campaign table style.
-
-## Landing page (v2.7 §1)
-
-- `/` (`app/page.tsx`, `revalidate = 600`) reads `getLanding()` (`app/lib/landing-cache.ts`):
-  `readLanding` behind `unstable_cache` for 10 minutes, so at most one DB read per 10 minutes and
-  no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
-- Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
-  (`byPrize`); the hero's "$X open right now" is `openMoneyUsd` of the same cards, so it always
-  matches the first message (Ruling 20). Each card's main prize line is that card's share of it
-  ("up to $X per winner", Ruling C8), with the program's own pool text as a small line. The stats
-  strip hides installs under 100.
-- The figure is formatted on the server (`HomeView`) and passed to the client `Hero` as a string:
-  client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
-- A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls
-  `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure,
-  no cards, no strip. Because of `connection()`, a build without the DB makes `/` dynamic instead
-  of prerendering the fallback (Ruling 21). Note: a local rebuild reuses `.next/cache`, so test
-  this with a clean `.next`.
-- Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;
-  without one, the Ruling 1 monogram. The five open programs carry official marks from their
-  brand kits (Task 8; `logo.source_url` is the kit page). The frame is a white circle, so a square
-  mark needs room in its viewBox (Base's Square is padded) and a gradient SVG that uses `url(#…)`
-  fails the check, so Circle's mark is the kit's PNG.
-
-## Program guide pages (v2.7 §2)
-
-- `/programs/<id>` (`app/programs/[id]/page.tsx`) reads `getGuidePage(id)`: `readGuidePage`
-  (`lib/earnkit/landing.ts`) behind `unstable_cache` for 10 minutes. It renders the same `Guide`
-  as get_program (`programGuide` in `guide.ts`, the bonus line from `programs.ts`'s `guideBonus`),
-  so the web and the agent never disagree. The value is plain JSON (`GuidePage`).
-- "What won": "What won last time" only for the program's newest own round (`own: true`), else
-  "What won before" plus a small line naming the shown round, "in <label>" (`Guide.won.event`,
-  Ruling C12). The difficulty basis names its own round, which can be a different one.
-- Only curated programs (`source = 'file'`, no campaign) have a page; any other id is null →
-  404. The id is gated first (`gatedGuidePage`): a malformed id reads nothing, and an id outside
-  the cached curated id set (closed included; one read per 10 minutes in total) is a 404 with no
-  per-id read or cache entry, so random ids can't keep Neon awake. A closed or past-deadline program still renders (`· closed`, no "Ask your agent"), so old
-  links keep working (Ruling 22).
-- `readGuidePage` rejects on a DB failure (never null); `getGuidePage` logs `[guide]`, calls
-  `await connection()` and returns `'error'`, which renders the "unavailable" panel with HTTP 200,
-  never a 404. The route has no `generateStaticParams`: a runtime `connection()` inside an ISR
-  route throws `DYNAMIC_SERVER_USAGE` (a 500), so the route is rendered on demand and the data
-  cache does the 10-minute revalidation.
-- `/programs` is the cards of `getLanding()` with no limit, under an `h1`. The sitemap lists
-  `/programs` and each open curated program's guide.
-- Sources are labelled by what they back (`guideSourceList`: program page, past winners,
-  priorities, difficulty; numbered within a role) and link through `shownUrl` (canonical https
-  only); a test checks every `source_url` in `programs/*.json` survives it. The logo CSP (`IMAGE_CSP`) matches
-  only `/programs/<id>.svg|png`, never the page routes.
 
 ## Abuse limits and response headers (v2.2 §5)
 
