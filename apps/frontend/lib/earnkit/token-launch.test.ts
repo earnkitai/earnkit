@@ -97,17 +97,18 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   // Ruling 14: the footnote names the fee wallet when it is known.
   assert.equal(b.say_to_builder, `${tokenRow('CHAIN')}\n\n${tokenFootnote('0xW')}`);
   assert.ok(TOKEN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && TOKEN_FOOTNOTE.includes(TOKEN_TERMS.risks));
-  // v2.5 Task 8: this program fixture has no status/submission_proof, so no builder bonus.
+  // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
   assert.equal(b.has_bonus, false);
   // The repo proof is spelled out for the agent; without a repo there is no token line yet.
   assert.match(b.note, /earnkit\.txt at its root with the line "payout_wallet: 0xW"/);
   assert.match(b.note, /pass the project's repo_url/);
 });
 
-test('hasBuilderBonus: active and a submission_proof pattern, both required', () => {
-  assert.equal(hasBuilderBonus({ status: 'active', submission_proof: { kind: 'dorahacks' } } as unknown as ProgramRow), true);
-  assert.equal(hasBuilderBonus({ status: 'active', submission_proof: null } as unknown as ProgramRow), false);
-  assert.equal(hasBuilderBonus({ status: 'closed', submission_proof: { kind: 'dorahacks' } } as unknown as ProgramRow), false);
+test('hasBuilderBonus: active, not opted out, not a campaign (v2.6 Ruling 7)', () => {
+  assert.equal(hasBuilderBonus({ status: 'active', builder_bonus: true, campaign: null, submission_proof: null } as unknown as ProgramRow), true);
+  assert.equal(hasBuilderBonus({ status: 'active', builder_bonus: false, campaign: null } as unknown as ProgramRow), false);
+  assert.equal(hasBuilderBonus({ status: 'closed', builder_bonus: true, campaign: null } as unknown as ProgramRow), false);
+  assert.equal(hasBuilderBonus({ status: 'active', builder_bonus: true, campaign: { kind: 'sponsor' } } as unknown as ProgramRow), false);
 });
 
 test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the row and the block', async () => {

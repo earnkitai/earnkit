@@ -27,6 +27,7 @@ import {
   type RawLog,
 } from './bonus-ledger';
 import { sql } from './db';
+import { roundPoolsWei } from './bonus-rounds';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
 import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
@@ -227,12 +228,14 @@ const ROUND = `${PROG}:2026-10-01`;
 const PROG_NOPROOF = 't4-ledger-noproof';
 async function setup(ends = new Date('2026-10-08T00:00:00Z')) {
   await cleanup();
-  for (const [id, proof] of [[PROG, { host: 'x.example' }], [PROG_NOPROOF, null]] as const)
+  // v2.6 Ruling 7: every program has the bonus by default; PROG_NOPROOF opts out (builder_bonus
+  // = false), standing in for the old "no submission_proof" case so its coin still books to the Safe.
+  for (const [id, builderBonus] of [[PROG, true], [PROG_NOPROOF, false]] as const)
     await sql()`
       INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
-        status, existing_work, starts_at, ends_at, submission_proof)
+        status, existing_work, starts_at, ends_at, builder_bonus)
       VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
-        '2026-10-01T00:00:00Z', ${ends}, ${proof === null ? null : sql().json(proof)})`;
+        '2026-10-01T00:00:00Z', ${ends}, ${builderBonus})`;
   await sql()`
     INSERT INTO projects (program_id, name, token_status, coin_address)
     VALUES (${PROG}, 't4 a', 'launched', ${COIN_A}), (${PROG_NOPROOF}, 't4 b', 'launched', ${COIN_B})`;
@@ -279,7 +282,7 @@ test('index: books by coin and block time to the round or the Safe; idempotent; 
     const got = (await rows()).map((r) => [r.tx_hash, r.log_index, r.coin, r.round_key, r.destination, r.amount_wei]);
     assert.deepEqual(got, [
       [t1, 2, COIN_A, ROUND, 'round', '20'],
-      [t1, 4, COIN_B, null, 'safe', '200'], // its program has no public submissions
+      [t1, 4, COIN_B, null, 'safe', '200'], // its program opted out (builder_bonus = false)
       [t2, 7, '0xdead00000000000000000000000000000000dead', null, 'safe', '5'],
       [t3, 2, null, null, 'safe', '6'],
       [t4, 1, COIN_A, ROUND, 'round', '40'],
@@ -419,7 +422,7 @@ test('collect: only an EarnKit coin in its round last 24h, quiet for 12h, throug
     const run = (now: Date) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now, active });
 
     assert.deepEqual(await run(at(25)), [], 'not in the last 24 h');
-    // COIN_B's program has no public submissions: never collected.
+    // COIN_B's program opted out (builder_bonus = false): never collected.
     await bookDeposit({ txHash: '0xt4collect', logIndex: 0, amount: 1n, coin: COIN_A, blockNumber: 1n, blockTime: at(14) }, quiet);
     assert.deepEqual(await run(at(10)), [], 'a deposit seen 4 h earlier');
     const out = await run(at(1));
@@ -759,6 +762,34 @@ test('I2 / Ruling 21: a deposit in an extended window is booked to the same roun
     // A re-run cohort (a new start day) is a new round.
     await sql()`UPDATE programs SET starts_at = '2026-11-01T00:00:00Z', ends_at = '2026-11-20T00:00:00Z' WHERE id = ${PROG}`;
     assert.deepEqual(await book(4, '2026-11-02T00:00:00Z'), { destination: 'round', roundKey: `${PROG}:2026-11-01`, inserted: true });
+  } finally {
+    await cleanup();
+  }
+});
+
+test('Review Focus 5 / v2.6 Ruling 7: builder_bonus = false on a program with an open round sends new deposits to the Safe, logged', db, async () => {
+  try {
+    await setup();
+    // 1. Book deposit A for a coin of an active program at a time inside its round.
+    const a = await bookDeposit(
+      { txHash: '0xt4bbonusa', logIndex: 0, amount: 11n, coin: COIN_A, blockNumber: 1n, blockTime: new Date('2026-10-02T00:00:00Z') },
+      quiet,
+    );
+    assert.deepEqual(a, { destination: 'round', roundKey: ROUND, inserted: true });
+    // 2. The program opts out.
+    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
+    // 3. Book deposit B (another tx hash): the Safe, logged with "builder bonus off".
+    const lines: string[] = [];
+    const b = await bookDeposit(
+      { txHash: '0xt4bbonusb', logIndex: 0, amount: 7n, coin: COIN_A, blockNumber: 2n, blockTime: new Date('2026-10-03T00:00:00Z') },
+      (l) => lines.push(l),
+    );
+    assert.deepEqual(b, { destination: 'safe', roundKey: null, inserted: true });
+    assert.match(lines.join('\n'), /builder bonus off/);
+    // 4. The round row is still 'open', and roundPoolsWei still maps to A's amount only.
+    const [round] = await sql()<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${ROUND}`;
+    assert.equal(round.state, 'open');
+    assert.deepEqual(await roundPoolsWei([PROG], { now: new Date('2026-10-03T00:00:00Z') }), new Map([[PROG, 11n]]));
   } finally {
     await cleanup();
   }

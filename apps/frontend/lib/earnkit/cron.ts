@@ -95,12 +95,13 @@ export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
 export const BONUS_WALLET_UNSET = 'bonus-rounds: payout wallet not configured';
 
 /**
- * Whether the builder bonus can earn money now (Ruling 20): an active program with a builder bonus
- * (submission_proof), an EarnKit coin (coin_address), or an ended round not paid or empty.
+ * Whether the builder bonus can earn money now (Ruling 20; v2.6 Ruling 17 (plan)): an active,
+ * non-campaign program (bonusOn's SQL twin: every program has the bonus unless it opted out or is
+ * a campaign), an EarnKit coin (coin_address), or an ended round not paid or empty.
  */
 export async function bonusLive(now: Date) {
   const [r] = await sql()<{ live: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM programs WHERE status = 'active' AND submission_proof IS NOT NULL)
+    SELECT EXISTS (SELECT 1 FROM programs WHERE status = 'active' AND builder_bonus AND campaign IS NULL)
       OR EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL)
       OR EXISTS (SELECT 1 FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}) AS live`;
   return r.live;

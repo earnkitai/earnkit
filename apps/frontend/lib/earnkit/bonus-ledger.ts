@@ -252,7 +252,7 @@ export async function indexedThrough(): Promise<{ block: bigint; time: Date | nu
 /**
  * Books one deposit, idempotently on (tx_hash, log_index): to the open round of the program its coin
  * was entered in, at the block's time; else to the Safe (no coin, not an EarnKit coin, no open
- * round, no public submissions, or the round is no longer 'open'), logged. The round row is
+ * round, the program opted out or is a campaign, or the round is no longer 'open'), logged. The round row is
  * created 'open' on its first deposit and locked while booking, so a freeze never races a deposit.
  */
 export async function bookDeposit(
@@ -263,8 +263,8 @@ export async function bookDeposit(
     let roundKey: string | null = null;
     let reason = 'no ClaimedRewards from its locker after it in the transaction';
     if (dep.coin) {
-      const [p] = await tx<{ id: string; starts_at: Date | null; ends_at: Date | null; status: string; submission_proof: unknown }[]>`
-        SELECT g.id, g.starts_at, g.ends_at, g.status, g.submission_proof
+      const [p] = await tx<{ id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]>`
+        SELECT g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
         FROM projects p JOIN programs g ON g.id = p.program_id
         WHERE p.coin_address = ${dep.coin}`;
       if (!p) reason = `${dep.coin} is not an EarnKit coin`;
@@ -502,9 +502,9 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
   const now = d.now ?? new Date();
   const quiet = new Date(now.getTime() - COLLECT_QUIET_MS);
   const coins = await sql()<
-    { project: number; coin: Hex; id: string; starts_at: Date | null; ends_at: Date | null; status: string; submission_proof: unknown }[]
+    { project: number; coin: Hex; id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]
   >`
-    SELECT p.id AS project, p.coin_address AS coin, g.id, g.starts_at, g.ends_at, g.status, g.submission_proof
+    SELECT p.id AS project, p.coin_address AS coin, g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
     FROM projects p JOIN programs g ON g.id = p.program_id
     WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched'
       AND (p.coin_collected_at IS NULL OR p.coin_collected_at < ${quiet})

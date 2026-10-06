@@ -3,7 +3,7 @@ import { prizeText, prizeUsdEach, type CampaignConfig } from './campaigns';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
-import { windowKey } from './bonus-rounds';
+import { bonusOn, windowKey } from './bonus-rounds';
 import {
   type ProgramFile,
   type SubmissionRequirement,
@@ -159,6 +159,8 @@ export type ProgramRow = {
   ideas: string[];
   /** Set only when submissions are public pages on a known host; null otherwise. */
   submission_proof: SubmissionProof | null;
+  /** v2.6 §4: whether this program's entries can earn the builder bonus; on by default. */
+  builder_bonus: boolean;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -186,6 +188,7 @@ export async function listPrograms() {
       | 'submission_requirements'
       | 'ideas'
       | 'submission_proof'
+      | 'builder_bonus'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -194,7 +197,8 @@ export async function listPrograms() {
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
-      p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
+      sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST`;
@@ -244,6 +248,7 @@ export function programCard(
     | 'submission_requirements'
     | 'ideas'
     | 'submission_proof'
+    | 'builder_bonus'
   >,
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
@@ -287,6 +292,9 @@ export function programCard(
     // v2.5 §1: curated build ideas for builders with no repo; the builder bonus needs a proof pattern.
     ideas: p.ideas ?? [],
     submission_proof: p.submission_proof ?? null,
+    // v2.6 §4, Ruling 7 (plan): every card here is an active program (listPrograms' WHERE), so
+    // this is bonusOn minus the status check; false for any campaign, EarnKit or sponsor.
+    builder_bonus: bonusOn({ status: 'active', builder_bonus: p.builder_bonus, campaign: p.campaign }),
   };
 }
 
@@ -510,6 +518,7 @@ export async function upsertProgram(
       submission_requirements: tx.json(p.submission_requirements),
       ideas: p.ideas,
       submission_proof: p.submission_proof ? tx.json(p.submission_proof) : null,
+      builder_bonus: p.builder_bonus,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

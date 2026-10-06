@@ -150,5 +150,24 @@ try {
 }
 ok(vetoTwice, 'one veto per entry per round');
 
+// v2.6 §4: every existing program gets the builder bonus by default; existing projects keep their
+// submission_proof_ok_at and get no submission_basis; the new CHECK rejects an unknown basis.
+const [prog] = await db<{ builder_bonus: boolean }[]>`SELECT builder_bonus FROM programs WHERE id = 'old-active'`;
+ok(prog.builder_bonus === true, 'an existing program gets builder_bonus = true');
+const [proj] = await db<{ submission_proof_ok_at: Date | null; submission_basis: string | null }[]>`
+  SELECT submission_proof_ok_at, submission_basis FROM projects WHERE program_id = 'old-active' LIMIT 1`;
+ok(proj.submission_basis === null, 'an existing project has no submission_basis yet');
+await db`UPDATE projects SET submission_proof_ok_at = now() WHERE program_id = 'old-active'`;
+const [keptProof] = await db<{ submission_proof_ok_at: Date | null }[]>`
+  SELECT submission_proof_ok_at FROM projects WHERE program_id = 'old-active' LIMIT 1`;
+ok(keptProof.submission_proof_ok_at !== null, 'an existing project keeps submission_proof_ok_at');
+let badBasis = false;
+try {
+  await db`UPDATE projects SET submission_basis = 'other' WHERE program_id = 'old-active'`;
+} catch {
+  badBasis = true;
+}
+ok(badBasis, "submission_basis rejects anything but 'page', 'unverified_page' or 'confirmed'");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

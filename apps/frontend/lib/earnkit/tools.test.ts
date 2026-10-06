@@ -235,7 +235,10 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     id: `v25-proof-${run}`, title: `Proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_999,
   });
   const noProof = Object.assign(file('base-builder-grants'), {
+    // v2.6 Ruling 8: ends_at with no starts_at needs builder_bonus: false (this fixture has
+    // neither a submission_proof pattern nor, now, a builder bonus).
     id: `v25-noproof-${run}`, title: `No proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_998,
+    builder_bonus: false,
   });
   assert.ok(proof.submission_proof && noProof.submission_proof === null);
   try {

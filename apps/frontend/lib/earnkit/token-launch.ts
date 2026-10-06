@@ -3,6 +3,7 @@ import { normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { rememberWallets, rememberedPayoutWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
+import { bonusOn } from './bonus-rounds';
 import type { TokenPolicy } from './program-file';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
@@ -80,11 +81,12 @@ export type TokenBlock = {
 };
 
 /**
- * Whether a program's entries can earn the builder bonus (v2.5 §3): it has a submission_proof
- * pattern (so EarnKit can fetch public proof of an entry) and the program is active. Pure.
+ * Whether a program's entries can earn the builder bonus (v2.6 §4, Ruling 7 (plan)): `bonusOn`,
+ * same name kept for callers. `submission_proof` now only decides how a submission is checked,
+ * never whether the program has a bonus.
  */
-export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'submission_proof'>) =>
-  program.status === 'active' && program.submission_proof != null;
+export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'builder_bonus' | 'campaign'>) =>
+  bonusOn(program);
 
 export type Decision =
   | { action: 'skip'; note: string }
@@ -308,7 +310,7 @@ const dbStore: FlowStore = {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.installation_id, pr.token_policy,
-        (pr.status = 'active' AND pr.submission_proof IS NOT NULL) AS has_bonus
+        (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.id = ${projectId}`;
     return row ?? null;
