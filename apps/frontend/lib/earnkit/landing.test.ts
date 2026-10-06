@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuidePage, readLanding } from './landing';
+import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding } from './landing';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { sql } from './db';
@@ -168,6 +168,8 @@ test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache seri
   assert.equal(page.board_path, '/bonus/arc-microgrants-2026-09-16');
   assert.equal(page.guide.bonus?.board.endsWith(page.board_path!), true);
   assert.equal(page.ecosystem, page.guide.wants?.ecosystem ?? 'Arc');
+  assert.deepEqual(page.sources[0], { label: 'program page', url: page.source_url });
+  assert.ok((await readGuideIds()).includes('arc-microgrants'));
 });
 
 test('readGuidePage: a closed curated program still has a page, not open', dbTest, async () => {
@@ -179,6 +181,8 @@ test('readGuidePage: a closed curated program still has a page, not open', dbTes
     assert.equal(page.open, false);
     assert.match(page.guide.header, /· closed$/);
     assert.equal(page.board_path, null);
+    // Fix round 1: the gate's id set keeps closed curated programs (old links keep working).
+    assert.ok((await readGuideIds()).includes(f.id));
   } finally {
     await sql()`DELETE FROM programs WHERE id = ${f.id}`;
   }
@@ -188,6 +192,7 @@ test('readGuidePage: an EarnKit campaign, a sponsor campaign and an unknown id a
   const camp = programFile('earnkit-campaign-1-base');
   await upsertProgram(ProgramFile.parse(camp));
   assert.equal(await readGuidePage(camp.id, now), null);
+  assert.ok(!(await readGuideIds()).includes(camp.id), 'campaigns are not in the gate set');
   const sponsor = `t7-sponsor-${process.pid}`;
   try {
     await sql()`
@@ -196,6 +201,7 @@ test('readGuidePage: an EarnKit campaign, a sponsor campaign and an unknown id a
       VALUES (${sponsor}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', true,
         ${sql().json({ kind: 'sponsor' })}, 'sponsor')`;
     assert.equal(await readGuidePage(sponsor, now), null);
+    assert.ok(!(await readGuideIds()).includes(sponsor));
   } finally {
     await sql()`DELETE FROM programs WHERE id = ${sponsor}`;
   }

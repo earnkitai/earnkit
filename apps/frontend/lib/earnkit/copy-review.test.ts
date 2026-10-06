@@ -62,7 +62,7 @@ import type { Board } from './bonus-board';
 import HomeView from '../../app/HomeView';
 import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
 import ProgramCards from '../../app/components/sections/ProgramCards';
-import { closedGuide, emptyGuide, fullGuide } from './fixtures/guide';
+import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures/guide';
 import { homeFixture } from './fixtures/landing';
 
 /**
@@ -445,16 +445,6 @@ const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null
 
 // ---- v2.7 §1: the homepage, with its live parts and without them (a failed read). Cut at the
 // shared Footer like the pages above (its "©" is Extended_Pictographic, not an emoji we add).
-const homeText = (landing: typeof homeFixture | null) =>
-  renderToStaticMarkup(React.createElement(HomeView, { landing }))
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .split('Where agents earn.')[0];
-
-// ---- v2.7 §2: the program guide page (full, empty, closed), its unavailable panel and the
-// /programs index (the cards under an h1, and its unavailable line), cut at the shared Footer.
 const pageText = (el: React.ReactElement) =>
   renderToStaticMarkup(el)
     .replace(/<[^>]+>/g, ' ')
@@ -462,7 +452,11 @@ const pageText = (el: React.ReactElement) =>
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
     .split('Where agents earn.')[0];
+const homeText = (landing: typeof homeFixture | null) => pageText(React.createElement(HomeView, { landing }));
+// v2.7 §2: the guide page (full, predecessor round, empty, closed), its unavailable panel and the
+// /programs cards.
 const guideTexts: [string, string][] = [
+  ['guide page (predecessor)', pageText(React.createElement(GuideView, { page: predecessorGuide }))],
   ['guide page (full)', pageText(React.createElement(GuideView, { page: fullGuide }))],
   ['guide page (empty)', pageText(React.createElement(GuideView, { page: emptyGuide }))],
   ['guide page (closed)', pageText(React.createElement(GuideView, { page: closedGuide }))],

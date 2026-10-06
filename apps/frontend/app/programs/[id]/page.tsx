@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getGuidePage } from '../../lib/landing-cache';
+import { guideDescription } from '../../../lib/earnkit/landing';
 import GuideView, { Unavailable } from './GuideView';
 
 /** v2.7 §2: read server-side, revalidated every 10 minutes (no new service). */
@@ -14,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (page === null || page === 'error') return { title: 'Program guide · EarnKit' };
   return {
     title: `${page.title} guide · EarnKit`,
-    description: `What can I earn on ${page.title}? Difficulty, what won before, and what ${page.ecosystem} wants now.`,
+    description: guideDescription(page),
     alternates: { canonical: `https://earnkit.com/programs/${id}` },
   };
 }

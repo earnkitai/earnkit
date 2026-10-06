@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -19,7 +19,8 @@ import GuideView, { askPrompt, Unavailable } from '../../app/programs/[id]/Guide
 import AskAgent from '../../app/programs/[id]/AskAgent';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { GuidePage } from './landing';
-import { closedGuide, emptyGuide, fullGuide, partialGuide } from './fixtures/guide';
+import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
+import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
@@ -337,17 +338,21 @@ test('v2.7 §2: the full guide page', () => {
     'A USDC payout tool with a live mainnet demo',
   ])
     assert.ok(items.includes(line), line);
-  assert.ok(t.includes('Builder bonus: 0.18 ETH so far · leaderboard'));
+  assert.ok(t.includes('Builder bonus : 0.18 ETH so far · leaderboard'));
+  assert.match(h, /<a[^>]*href="\/policy#the-builder-bonus"[^>]*>Builder bonus<\/a>/);
   assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>leaderboard<\/a>/);
-  // Sources: the program's own page, then every fact's source_url, through shownUrl.
-  assert.ok(t.includes('Sources: community.arc.io · community.arc.io (2) · x.com · arc.io'));
-  for (const u of [fullGuide.source_url, ...fullGuide.sources])
-    assert.match(h, new RegExp(`<a[^>]*href="${shownUrl(u)!.replace(/[.?]/g, '\\$&')}"[^>]*rel="noopener noreferrer"`), u);
+  // Sources: labelled by what each backs (fix round 1), each link through shownUrl, host as title.
+  assert.ok(t.includes('Sources: program page · past winners 1 · past winners 2 · priorities'));
+  assert.doesNotMatch(t, /community\.arc\.io|\(2\)/);
+  for (const { url } of fullGuide.sources)
+    assert.match(h, new RegExp(`<a[^>]*href="${shownUrl(url)!.replace(/[.?]/g, '\\$&')}"[^>]*title="${new URL(url).hostname.replace(/\./g, '\\.')}"[^>]*rel="noopener noreferrer"`), url);
   // Every visible link is https or a local path.
   for (const [, href] of h.matchAll(/href="([^"]+)"/g)) assert.match(href, /^(https:\/\/|\/)/, href);
   // One primary action, with the program's own question; "All programs" goes to the index.
   assert.ok(t.includes('Ask your agent'));
-  assert.deepEqual(asks(fullGuide), ['What can I earn on Arc Microgrants?']);
+  // Twice (fix round 1): under the difficulty line, above the fold, and in the action row.
+  assert.deepEqual(asks(fullGuide), ['What can I earn on Arc Microgrants?', 'What can I earn on Arc Microgrants?']);
+  assert.ok(h.indexOf('Ask your agent') < h.indexOf('What won last time'), 'the first is in the header');
   assert.equal(askPrompt('Arc Microgrants'), 'What can I earn on Arc Microgrants?');
   assert.match(h, /<a[^>]*href="\/programs"[^>]*>All programs<\/a>/);
   // No paragraphs of prose.
@@ -372,9 +377,10 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
   assert.ok(t.includes('Difficulty: Medium (estimate) — no past results yet'));
   assert.doesNotMatch(h, /<h2/);
   assert.doesNotMatch(t, /Builder bonus/);
-  assert.deepEqual(asks(emptyGuide), ['What can I earn on Circle Developer Grants?']);
+  assert.equal(asks(emptyGuide).length, 2);
+  assert.ok(asks(emptyGuide).every((p) => p === 'What can I earn on Circle Developer Grants?'));
   assert.match(h, /<span[^>]*aria-hidden="true"[^>]*>CD<\/span>/, 'the monogram (Ruling 1)');
-  assert.ok(t.includes('Sources: circle.com'));
+  assert.ok(t.includes('Sources: program page'));
 });
 
 test('Ruling 22 (plan): a closed program still renders, "· closed", with no "Ask your agent"', () => {
@@ -394,7 +400,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   // A runtime connection() in an ISR route is a 500 (DYNAMIC_SERVER_USAGE), not the panel.
   assert.doesNotMatch(page, /generateStaticParams/);
   assert.ok(page.includes('This guide is unavailable right now. Try again in a few minutes.'));
-  assert.ok(page.includes('What can I earn on ${page.title}? Difficulty, what won before, and what ${page.ecosystem} wants now.'));
+  assert.ok(page.includes('description: guideDescription(page)'));
   assert.ok(page.includes('`${page.title} guide · EarnKit`'));
   const index = read('app/programs/page.tsx');
   assert.match(index, /export const revalidate = 600;/);
@@ -402,6 +408,9 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.doesNotMatch(index, /limit=/);
   const cache = read('app/lib/landing-cache.ts');
   assert.match(cache, /\['guide-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /gatedGuidePage\(id, cachedIds, cachedGuide\)/);
+  assert.match(cache, /export const getGuidePage = cache\(/);
   assert.match(cache, /console\.error\('\[guide\]'/);
   const sitemap = read('app/sitemap.ts');
   assert.ok(sitemap.includes('`${SITE}/programs`'));
@@ -418,9 +427,56 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
 test('/programs: every open program as cards under an h1, or the unavailable line', async () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
   assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
+  assert.ok(text(h).includes('By prize'));
+  assert.doesNotMatch(text(h), /Open now/);
   assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
   assert.ok(u.includes('Where agents earn.'), 'the footer');
+});
+
+test('fix round 1, Minor 3: a predecessor round reads "What won before" and names the round', () => {
+  const h = guideHtml(predecessorGuide);
+  const t = text(h);
+  assert.match(h, /<h2[^>]*>What won before<\/h2>/);
+  assert.doesNotMatch(t, /last (time|round)/);
+  assert.ok(t.includes("Difficulty: Medium — 20 of ~160 entries won in Arc's HackMoney 2026 track"));
+});
+
+test('fix round 1, Important 1: a malformed or unknown id is a 404 with no per-id read', async () => {
+  const read: string[] = [];
+  let idReads = 0;
+  const ids = async () => { idReads++; return ['arc-microgrants', 'old-closed']; };
+  const reader = async (id: string) => { read.push(id); return fullGuide; };
+  for (const id of ['Arc', '../x', 'a'.repeat(65), '', 'arc microgrants', 'x.svg']) assert.equal(await gatedGuidePage(id, ids, reader), null, id);
+  assert.equal(idReads, 0, 'a malformed id reads nothing');
+  assert.equal(await gatedGuidePage('nope', ids, reader), null);
+  assert.equal(await gatedGuidePage('old-closed', ids, reader), fullGuide, 'closed ids keep their page');
+  assert.equal(await gatedGuidePage('arc-microgrants', ids, reader), fullGuide);
+  assert.deepEqual(read, ['old-closed', 'arc-microgrants'], 'only known ids are read');
+  // A failed id-set read rejects (the unavailable panel), never null (a 404).
+  await assert.rejects(gatedGuidePage('arc-microgrants', async () => { throw new Error('db down'); }, reader));
+});
+
+test('fix round 1, Minor 6: the description names only the parts the guide has', () => {
+  assert.equal(guideDescription(fullGuide), 'What can I earn on Arc Microgrants? Difficulty, what won before, and what Arc wants now.');
+  assert.equal(guideDescription(partialGuide), 'What can I earn on Arc Microgrants? Difficulty and what Arc wants now.');
+  assert.equal(guideDescription(emptyGuide), 'What can I earn on Circle Developer Grants? Difficulty.');
+});
+
+test('fix round 1, Minor 5: every source_url in programs/*.json survives shownUrl (no source silently dropped)', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const urls: string[] = [];
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object')
+      for (const [k, x] of Object.entries(v)) {
+        if (k === 'source_url' && typeof x === 'string') urls.push(x);
+        else walk(x);
+      }
+  };
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) walk(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+  assert.ok(urls.length >= 6);
+  for (const u of urls) assert.notEqual(shownUrl(u), null, u);
 });

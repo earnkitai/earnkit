@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { difficultyLabel, difficultyOf, guideSources, guideText, programGuide, type GuideFacts } from './guide';
+import { difficultyLabel, difficultyOf, guideSourceList, guideSources, guideText, programGuide, wonHeading, type GuideFacts } from './guide';
 import type { PastRound } from './program-file';
 
 const base: GuideFacts = {
@@ -178,4 +178,21 @@ test('guideSources follow the basis: the round, or the program for winners_per_r
   assert.deepEqual(guideSources({ ...base, winners_per_round: 20, source_url: 'https://prog' }), ['https://prog']);
   assert.deepEqual(guideSources({ ...base, past_rounds: [pre(null, 11, 'X')], source_url: 'https://prog' }), ['https://e/p']);
   assert.deepEqual(guideSources(base), []);
+});
+
+test('fix round 1: sources labelled by what they back, numbered within a role, same URLs as guideSources', () => {
+  const list = guideSourceList(arc, [{ label: 'program page', url: 'https://e/p' }]);
+  assert.deepEqual(list, [
+    { label: 'program page', url: 'https://e/p' },
+    { label: 'past winners 1', url: 'https://e/r' },
+    { label: 'past winners 2', url: 'https://e/x' },
+    { label: 'priorities', url: 'https://e/f' },
+  ]);
+  assert.deepEqual(new Set(list.slice(1).map((s) => s.url)), new Set(guideSources(arc)));
+  // A basis from another round than "What won" shows is cited as "difficulty".
+  const other = { ...arc, past_rounds: [arc.past_rounds[0], { ...round(300, 10, 'Arc Microgrants R1'), source_url: 'https://e/o' }] };
+  other.past_rounds[0] = { ...arc.past_rounds[0], submissions: null };
+  assert.deepEqual(guideSourceList(other).at(-1), { label: 'difficulty', url: 'https://e/o' });
+  assert.equal(wonHeading({ own: true }), 'What won last time');
+  assert.equal(wonHeading({ own: false }), 'What won before');
 });

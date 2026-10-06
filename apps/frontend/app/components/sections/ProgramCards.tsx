@@ -47,7 +47,7 @@ export default function ProgramCards({
     <Panel label="Open programs" className="py-12 md:py-16">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Eyebrow>Open now</Eyebrow>
+          <Eyebrow>{heading === 'h1' ? 'By prize' : 'Open now'}</Eyebrow>
           <Heading className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</Heading>
         </div>
         {more && (
