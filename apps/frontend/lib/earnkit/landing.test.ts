@@ -1,13 +1,12 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding } from './landing';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { sql } from './db';
 import type { Card } from './present';
 import type { PublicStats } from './stats';
+import { committedProgram } from './fixtures/program-file';
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
@@ -154,7 +153,7 @@ test('Review Focus 1: an unreachable database rejects; never empty data that wou
 // ---- v2.7 §2, Ruling 22 (plan): readGuidePage.
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const programFile = (name: string) =>
-  JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
+  committedProgram(name);
 
 test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async () => {
   await upsertProgram(ProgramFile.parse(programFile('arc-microgrants')));

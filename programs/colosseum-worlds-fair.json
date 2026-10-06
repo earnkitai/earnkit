@@ -20,7 +20,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
-  "verified_at": "2026-10-05",
+  "verified_at": "2026-10-06",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [
@@ -161,5 +161,53 @@
       ]
     }
   ],
-  "starters": []
+  "starters": [],
+  "logo": {
+    "path": "programs/colosseum-worlds-fair.svg",
+    "source_url": "https://colosseum.com/press-and-brand"
+  },
+  "past_rounds": [
+    {
+      "label": "Colosseum's 2026 Solana Frontier Hackathon",
+      "source_url": "https://blog.colosseum.com/announcing-the-winners-of-the-solana-frontier-hackathon/",
+      "submissions": 2857,
+      "winners": 26,
+      "themes": [
+        {
+          "theme": "Prediction markets",
+          "count": 4
+        },
+        {
+          "theme": "Stablecoin payments, FX and neobanks",
+          "count": 4
+        },
+        {
+          "theme": "AI agent finance and infrastructure",
+          "count": 4
+        }
+      ],
+      "examples": [
+        {
+          "name": "CrowdBrain",
+          "what": "Robotics DePIN that trains and routes operators to robots",
+          "source_url": "https://blog.colosseum.com/announcing-the-winners-of-the-solana-frontier-hackathon/"
+        },
+        {
+          "name": "DashX",
+          "what": "Stablecoin infrastructure for compliant cross-border payments",
+          "source_url": "https://blog.colosseum.com/announcing-the-winners-of-the-solana-frontier-hackathon/"
+        }
+      ]
+    }
+  ],
+  "focus": {
+    "areas": [
+      "Startups bringing the world's markets onchain",
+      "Base ecosystem track",
+      "Tempo and Robinhood Chain tracks"
+    ],
+    "source_url": "https://colosseum.com/worldsfair",
+    "ecosystem": "Colosseum"
+  },
+  "best_bet": "A stablecoin payments or prediction-market startup built on Base or Tempo"
 }

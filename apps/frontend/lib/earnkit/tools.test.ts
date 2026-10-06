@@ -1,8 +1,6 @@
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { SponsorCampaignInput, tools } from './tools';
 import { sql } from './db';
 import { EntryError } from './campaigns';
@@ -14,6 +12,7 @@ import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
 import { endsOf } from './present';
 import type { TokenFlowDeps } from './token-launch';
+import { committedProgram } from './fixtures/program-file';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -90,9 +89,7 @@ const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async () => {
   const PAY = '0x' + 'a'.repeat(40);
   const C1 = '0x' + '1'.repeat(40);
-  const f = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
-  );
+  const f = committedProgram('earnkit-campaign-1-base');
   Object.assign(f, {
     id: `t4-limit-${process.pid}-${Date.now()}`,
     status: 'active',
@@ -141,9 +138,7 @@ test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses on
 });
 
 test('v2.4 §6 (audit C22): prepare_submission on a closed program has no token block', dbTest, async () => {
-  const f = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
-  );
+  const f = committedProgram('arc-microgrants');
   Object.assign(f, { id: `t9-closed-${process.pid}-${Date.now()}`, status: 'closed' });
   await upsertProgram(ProgramFile.parse(f));
   const [{ id }] = await sql()<{ id: number }[]>`
@@ -158,9 +153,7 @@ test('v2.4 §6 (audit C22): prepare_submission on a closed program has no token 
 
 test('I8: prepare_submission asks about the remembered payout wallet in full and never prefills it', dbTest, async () => {
   const W = '0x' + 'b'.repeat(39) + '7';
-  const f = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
-  );
+  const f = committedProgram('earnkit-campaign-1-base');
   Object.assign(f, {
     id: `i8-wallet-${process.pid}-${Date.now()}`,
     status: 'active',
@@ -194,13 +187,11 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
   const W = '0x' + 'c'.repeat(39) + '7';
   const GIVEN = '0x' + 'd'.repeat(39) + '1';
   const stamp = `${process.pid}-${Date.now()}`;
-  const camp = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'),
-  );
+  const camp = committedProgram('earnkit-campaign-1-base');
   Object.assign(camp, { id: `fee-camp-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
   Object.assign(camp, earnkitTexts(camp));
   await upsertProgram(ProgramFile.parse(camp));
-  const plain = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const plain = committedProgram('arc-microgrants');
   Object.assign(plain, { id: `fee-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(ProgramFile.parse(plain));
   const [{ id }] = await sql()<{ id: number }[]>`
@@ -243,7 +234,7 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
 test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing; the token step waits until ready', dbTest, async () => {
   const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
   const stamp = `${process.pid}-${Date.now()}`;
-  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const arc = committedProgram('arc-microgrants');
   Object.assign(arc, { id: `t4-ready-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(ProgramFile.parse(arc));
   const [{ id }] = await sql()<{ id: number }[]>`
@@ -297,7 +288,7 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
 
 test('v2.5 §1: list_programs reads the builder bonus pools once, only where entries are provable; no repo shows ideas', dbTest, async () => {
   const file = (name: string) =>
-    JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
+    committedProgram(name);
   const run = `${process.pid}-${Date.now()}`;
   const proof = Object.assign(file('arc-microgrants'), {
     id: `v25-proof-${run}`, title: `Proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_999,
@@ -360,7 +351,7 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
 test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fails gets no "You could"; a control without one gets "You could win"', dbTest, async () => {
   const run = `${process.pid}-${Date.now()}`;
   const file = (name: string) =>
-    JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
+    committedProgram(name);
   const prog = Object.assign(file('arc-microgrants'), {
     id: `v26-ghost-${run}`, title: `Ghost ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 1000,
   });
@@ -409,7 +400,7 @@ after(async () => {
 test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet records the entry with no coin yet', dbTest, async () => {
   const W = '0x' + 'e'.repeat(39) + '3';
   const stamp = `${process.pid}-${Date.now()}`;
-  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const arc = committedProgram('arc-microgrants');
   const a = { ...arc, id: `t4-a-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
   const b = { ...arc, id: `t4-b-${stamp}`, title: 'Other Grants', status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_proof: null };
   await upsertProgram(ProgramFile.parse(a));
@@ -467,7 +458,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     );
     // M5 / I8: a campaign prepare_submission after this non-campaign entry asks about the wallet in
     // full and never prefills it as the fee wallet.
-    const camp = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'));
+    const camp = committedProgram('earnkit-campaign-1-base');
     Object.assign(camp, { id: `t4-camp-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
     Object.assign(camp, earnkitTexts(camp));
     await upsertProgram(ProgramFile.parse(camp));

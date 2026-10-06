@@ -76,6 +76,8 @@ const file = ProgramFile.parse({
   ...JSON.parse(readFileSync(join(root, 'programs', 'arc-microgrants.json'), 'utf8')),
   id: 'sync-check',
   status: 'closed',
+  // v2.7: a logo path is tied to its program id (programs/<id>.svg), so the clone has none.
+  logo: undefined,
 });
 const openedAt = async () =>
   (await db<{ opened_at: Date | null }[]>`SELECT opened_at FROM programs WHERE id = 'sync-check'`)[0].opened_at;

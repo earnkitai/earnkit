@@ -19,7 +19,7 @@
   },
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
-  "verified_at": "2026-10-05",
+  "verified_at": "2026-10-06",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -86,5 +86,83 @@
     }
   ],
   "tracks": [],
-  "starters": []
+  "starters": [],
+  "logo": {
+    "path": "programs/arc-microgrants.svg",
+    "source_url": "https://www.circle.com/pressroom#brandkit"
+  },
+  "winners_per_round": 20,
+  "past_rounds": [
+    {
+      "label": "Arc's tracks at ETHGlobal Cannes 2026",
+      "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-ethglobal-cannes-hackathon-and-what-we-learned",
+      "submissions": null,
+      "winners": null,
+      "themes": [
+        {
+          "theme": "Pay-per-use micropayments for agents and content",
+          "count": 4
+        },
+        {
+          "theme": "Prediction markets settled on real-world signals",
+          "count": 2
+        },
+        {
+          "theme": "Real-world USDC payments: offline mesh, trip pooling",
+          "count": 2
+        }
+      ],
+      "examples": [
+        {
+          "name": "NanoCrawl",
+          "what": "Agents pay publishers per page in sub-cent USDC",
+          "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-ethglobal-cannes-hackathon-and-what-we-learned"
+        }
+      ]
+    },
+    {
+      "label": "Arc's tracks at ETHGlobal HackMoney 2026",
+      "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-the-hackmoney-2026-hackathon-and-what-we-learned",
+      "submissions": 155,
+      "winners": 4,
+      "themes": [
+        {
+          "theme": "Chain-abstracted USDC apps using Arc as liquidity hub",
+          "count": 2
+        },
+        {
+          "theme": "Payroll and treasury in USDC",
+          "count": 1
+        },
+        {
+          "theme": "Agentic commerce with real-world assets",
+          "count": 1
+        }
+      ],
+      "examples": [
+        {
+          "name": "ArcFlow",
+          "what": "Treasury puts idle payroll into yield, then pays salaries crosschain",
+          "why": "showing programmable treasuries can optimize cash flow",
+          "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-the-hackmoney-2026-hackathon-and-what-we-learned"
+        },
+        {
+          "name": "arctan(x)",
+          "what": "Chain-agnostic FX DEX with unified multichain balances",
+          "why": "showing Arc as settlement for multichain trading",
+          "source_url": "https://www.arc.io/blog/meet-the-arc-track-winners-from-the-hackmoney-2026-hackathon-and-what-we-learned"
+        }
+      ]
+    }
+  ],
+  "focus": {
+    "areas": [
+      "Agentic economic activity",
+      "Stablecoin FX and peer-to-peer payments",
+      "Treasury management"
+    ],
+    "source_url": "https://www.arc.io/",
+    "ecosystem": "Arc"
+  },
+  "best_bet": "A pay-per-use agent app settling USDC micropayments, live on Arc mainnet"
 }

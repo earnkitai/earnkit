@@ -55,6 +55,9 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      - `project_field` (optional): `name`, `description`, `repo_url`, `live_url`, `demo_url`,
        or `token_url` when the answer is simply that
      - `from`: `project` if the agent can draft it from the project, `builder` for personal info
+     - `todo` (required when `required` is true; `pnpm programs:check` enforces it): the item as a
+       short builder to-do for "Before you submit: …" — lowercase start, at most 40 characters,
+       no trailing punctuation or links (e.g. `"a live link on Arc mainnet"`)
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
       Devfolio, and the ecosystem's blog or X.
@@ -153,9 +156,9 @@ track, and each names its `track` slug. Without tracks: at most 2.
   "best_bet": "A USDC payout tool with a live mainnet demo",
   "difficulty_override": null,
   "submission_requirements": [
-    { "key": "project_name", "label": "Project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
-    { "key": "github", "label": "GitHub repository", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
-    { "key": "contact_email", "label": "Email", "type": "email", "required": true, "from": "builder" }
+    { "key": "project_name", "label": "Project name", "todo": "a project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "github", "label": "GitHub repository", "todo": "a GitHub repo link", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
+    { "key": "contact_email", "label": "Email", "todo": "your email", "type": "email", "required": true, "from": "builder" }
   ],
   "tracks": [],
   "starters": []

@@ -26,8 +26,7 @@ import { sql } from './db';
 import { rememberedWallet } from './installations';
 import { roundFor } from './bonus-rounds';
 import type { ProgramRow } from './programs';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { committedProgram } from './fixtures/program-file';
 
 const W = '0x' + 'a'.repeat(40);
 const SPONSOR = '0x' + 'b'.repeat(40);
@@ -131,7 +130,7 @@ const PAY = '0x' + 'a'.repeat(40);
 const C1 = '0x' + '1'.repeat(40);
 const C2 = '0x' + '2'.repeat(40);
 const campaignProgram = (): ProgramRow => {
-  const f = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'));
+  const f = committedProgram('earnkit-campaign-1-base');
   return {
     ...f, status: 'active', starts_at: new Date('2026-10-05T00:00:00Z'), ends_at: new Date('2099-01-01T00:00:00Z'),
     verified_at: null, created_at: new Date(), opened_at: null, source: 'file', max_award_usd: '100',
@@ -304,9 +303,7 @@ test('bonusEligible: a coin and a checked-out proof, both required', () => {
 
 /** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
 function proofProgramFile(id: string, overrides: Record<string, unknown> = {}) {
-  const f = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
-  );
+  const f = committedProgram('arc-microgrants');
   return ProgramFile.parse({ ...f, id, ...overrides });
 }
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { logoFileProblem, ProgramFile } from './program-file';
+import { logoFileProblem, ProgramFile, requiredWithoutTodo } from './program-file';
 
 /** The repo's first program file (any one will do; they all predate token_policy). */
 function firstProgramFile() {
@@ -28,13 +28,17 @@ test('ProgramFile: token_policy defaults to encouraged and refuses unknown value
   );
 });
 
+/** The first committed program file without its v2.7 guide facts, so these tests don't depend on
+ * the curated data (Task 8 backfilled it). */
 function baseProgram() {
-  return JSON.parse(
+  const p = JSON.parse(
     readFileSync(
       join(import.meta.dirname, '../../../../programs', firstProgramFile()),
       'utf8',
     ),
   );
+  for (const k of ['logo', 'past_rounds', 'focus', 'best_bet', 'difficulty_override', 'winners_per_round']) delete p[k];
+  return p;
 }
 
 test('ProgramFile: accepts ideas and submission_proof', () => {
@@ -515,4 +519,18 @@ test('C5: a requirement todo is a short lowercase phrase: at most 40 characters,
   // Arc's live item reads as the spec gives it.
   const arc = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8')));
   assert.equal(arc.submission_requirements.find((r) => r.key === 'live_deployment_url')?.todo, 'a live link on Arc mainnet');
+});
+
+test('C5 carry: requiredWithoutTodo names required items with no todo; optional items and committed files pass', () => {
+  const req = (key: string, required: boolean, todo?: string) => ({
+    key, label: key, type: 'text' as const, required, from: 'project' as const, ...(todo ? { todo } : {}),
+  });
+  assert.deepEqual(
+    requiredWithoutTodo({ submission_requirements: [req('a', true, 'a thing'), req('b', true), req('c', false)] }),
+    ['b'],
+  );
+  for (const f of readdirSync(join(import.meta.dirname, '../../../../programs')).filter((f) => f.endsWith('.json'))) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')));
+    assert.deepEqual(requiredWithoutTodo(p), [], f);
+  }
 });

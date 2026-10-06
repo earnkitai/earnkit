@@ -533,7 +533,9 @@ apps/frontend/
                                UNVERIFIED_PAGE_FLAG in review_flags for an unverified_page entry,
                                never `flagged`, so never needs_owner or a 503)
     fixtures/                  clanker-base-launch.json (a real Base receipt, from tokens.fun),
-                               bonus-db-lock.ts (test-only advisory lock for the bonus test files)
+                               bonus-db-lock.ts (test-only advisory lock for the bonus test files),
+                               program-file.ts (committedProgram: a programs/*.json without its
+                               id-bound logo, for tests that clone files under test ids)
     veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
                                v2.5: bonusVetoKey, bonusReviewLink, vetoBonusEntry (bonus_vetoes)
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
@@ -630,7 +632,8 @@ apps/frontend/
                                 anvil + Postgres; `pnpm sponsor:e2e`
 ```
 
-Root commands: `pnpm programs:check` (validate program files), `pnpm test`,
+Root commands: `pnpm programs:check` (validate program files, logo files, and a `todo` on every
+required submission item), `pnpm test`,
 `pnpm campaign --help`, `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;

@@ -16,7 +16,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-05",
+  "verified_at": "2026-10-06",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -72,5 +72,54 @@
     }
   ],
   "tracks": [],
-  "starters": []
+  "starters": [],
+  "logo": {
+    "path": "programs/circle-developer-grants.png",
+    "source_url": "https://www.circle.com/pressroom#brandkit"
+  },
+  "past_rounds": [
+    {
+      "label": "Circle's first 2026 grant cohort",
+      "source_url": "https://www.circle.com/blog/announcing-the-first-circle-grant-recipients-in-2026",
+      "own": true,
+      "submissions": null,
+      "winners": 19,
+      "themes": [
+        {
+          "theme": "Cross-border payments and stablecoin neobanks",
+          "count": 4
+        },
+        {
+          "theme": "Merchant checkout and wallet infrastructure",
+          "count": 3
+        },
+        {
+          "theme": "Emerging-market stablecoin FX",
+          "count": 1
+        }
+      ],
+      "examples": [
+        {
+          "name": "Hurupay",
+          "what": "USD accounts for non-US users, auto-converted to USDC",
+          "source_url": "https://www.arc.io/blog/arc-as-a-catalyst-for-circle-grant-recipients-in-africa-and-the-global-south"
+        },
+        {
+          "name": "Blockradar",
+          "what": "Wallet-as-a-Service and settlement API for fintechs",
+          "source_url": "https://www.arc.io/blog/arc-as-a-catalyst-for-circle-grant-recipients-in-africa-and-the-global-south"
+        }
+      ]
+    }
+  ],
+  "focus": {
+    "areas": [
+      "Agentic economic activity",
+      "Stablecoin FX and peer-to-peer payments",
+      "Treasury management"
+    ],
+    "source_url": "https://www.circle.com/grant",
+    "ecosystem": "Circle"
+  },
+  "best_bet": "A live cross-border USDC payments app with real users, settling on Arc"
 }
