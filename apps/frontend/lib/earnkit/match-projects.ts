@@ -218,6 +218,8 @@ export const ReportedRepoInput = z
       .max(CHAINS.length),
     live_url: z.string().url().optional(),
     last_commit_at: z.string().datetime({ offset: true }).optional(),
+    /** Ruling 13 (plan): validated by `githubRepo`, never zod; a bad url is dropped, never an error. */
+    url: z.string().max(300).optional(),
   })
   .strict();
 

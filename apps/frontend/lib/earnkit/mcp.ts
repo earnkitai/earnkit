@@ -92,9 +92,9 @@ export function createMcpServer(ctx: ToolContext) {
         'them as local_repos with what you see (chains, mainnet, live link, last commit); never ask for ' +
         'a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
         'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
-        'It leads with "EarnKit matches you to $X in open money" (the top per-winner prize of each ' +
-        'program their repos fit) and a builder bonus column. With no repo, it shows the open money ' +
-        'and curated build ideas for those programs. ' +
+        'It leads with "EarnKit matches you to $X in open money you qualify for" when their repos fit, ' +
+        'or "$X is open right now" with ideas you can build when there is no repo. Every program shows ' +
+        'its builder bonus. ' +
         'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
         'real_users) and the effort (minutes to weeks), for your own plan. ' +
         SAFETY_TEXT,
@@ -127,6 +127,10 @@ export function createMcpServer(ctx: ToolContext) {
                 ),
               live_url: z.string().optional(),
               last_commit_at: z.string().optional().describe('ISO 8601'),
+              url: z
+                .string()
+                .optional()
+                .describe("The repo's GitHub link, if the local remote is on GitHub"),
             }),
           )
           .optional()

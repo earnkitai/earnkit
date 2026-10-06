@@ -33,8 +33,10 @@ export type Card = {
   builder_fields?: number;
   /** Up to 3 curated build ideas (program file `ideas`), shown when the builder has no repo. */
   ideas?: string[];
-  /** Set when entries are public pages EarnKit can check: only then can an entry earn the builder bonus. */
+  /** Set when entries are public pages EarnKit can check: how the submission is checked, never whether it has a bonus (Ruling 7 (plan)). */
   submission_proof?: object | null;
+  /** Ruling 7 (plan): false only when the program file opts out (`builder_bonus: false`); every other active, non-campaign program has a bonus. */
+  builder_bonus?: boolean;
   /** The open round's builder bonus pool so far (bonus-rounds.ts roundPoolsWei), or null when none. */
   bonus_pool_wei?: bigint | null;
   /** The program's current round exists but isn't open any more (it froze): no bonus to win (I2). */
@@ -78,6 +80,8 @@ export type FirstMessage = {
   /** Open programs that aren't EarnKit campaigns (curated and sponsored). */
   cards: Card[];
   repos: YourRepos | null;
+  /** Ruling 11 (plan): a GitHub user or repo list was given now, or remembered from an earlier call. */
+  githubGiven?: boolean;
   workingOn: string[];
   agentCanBuild: boolean;
   /** "Your campaign entries" for sponsor campaigns (campaigns.ts presentYourEntries), or null. */
@@ -94,7 +98,7 @@ export type FirstMessage = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
 const MAX_OTHERS = 5;
-/** Ideas under "Ideas that fit these programs" in all (v2.5 §1). */
+/** Ideas under "Ideas I can build"/"Ideas for these programs" in all (v2.6 §1). */
 const MAX_IDEAS = 6;
 
 /** Under any table that shows a builder bonus (v2.5 naming rule). */
@@ -117,14 +121,14 @@ export const eth = (wei: bigint) => {
 };
 
 /**
- * The builder bonus cell: the open round's pool in ETH (WETH); "opens with your entry" while the
- * round has nothing yet; "not available" when entries aren't public pages EarnKit can check, or
- * when the program's round has already frozen (I2). Pure; exported for tests.
+ * The builder bonus cell: the open round's pool in ETH (WETH); "new pool" while the round has
+ * nothing yet; "—" when the program opted out of the builder bonus (Ruling 7 (plan)), or when the
+ * program's round has already frozen (I2). Pure; exported for tests.
  */
-export function bonusCell(c: Pick<Card, 'submission_proof' | 'bonus_pool_wei' | 'bonus_closed'>) {
-  if (!c.submission_proof || c.bonus_closed) return 'not available';
+export function bonusCell(c: Pick<Card, 'builder_bonus' | 'bonus_pool_wei' | 'bonus_closed'>) {
+  if (c.builder_bonus === false || c.bonus_closed) return '—';
   const wei = c.bonus_pool_wei ?? 0n;
-  if (wei <= 0n) return 'opens with your entry';
+  if (wei <= 0n) return 'new pool';
   return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
 }
 
@@ -134,25 +138,24 @@ export function bonusCell(c: Pick<Card, 'submission_proof' | 'bonus_pool_wei' | 
  * Null otherwise. Pure.
  */
 function repoCoinElsewhere(m: Pick<FirstMessage, 'repoCoins'>, card: Card, repoUrl: string | null) {
-  if (!card.submission_proof || !repoUrl || !m.repoCoins) return null;
+  if (card.builder_bonus === false || !repoUrl || !m.repoCoins) return null;
   const coin = m.repoCoins.get(normalizeRepoUrl(repoUrl));
   return coin && coin.program_id !== card.id ? repoCoinNote(coin.title) : null;
 }
 
-/** Ideas per program in "Ideas that fit these programs" (fix round 1, ruling 3). */
+/** Ideas per program in the ideas list (fix round 1, ruling 3). */
 const IDEAS_PER_PROGRAM = 2;
 
 /**
- * One line per program in table order, its title once: "- Arc Microgrants: <idea>; <idea>". At
- * most 2 ideas per program and 6 ideas in all.
+ * One line per idea, in table order, its program title on every line: "- Arc Microgrants: <idea>".
+ * At most 2 ideas per program and 6 ideas in all (v2.6 §1).
  */
 function ideaLines(cards: Card[]) {
   const lines: string[] = [];
   let left = MAX_IDEAS;
   for (const c of cards) {
     const ideas = (c.ideas ?? []).slice(0, Math.min(IDEAS_PER_PROGRAM, left));
-    if (ideas.length === 0) continue;
-    lines.push(`- ${c.title}: ${ideas.join('; ')}`);
+    for (const idea of ideas) lines.push(`- ${c.title}: ${idea}`);
     left -= ideas.length;
     if (left === 0) break;
   }
@@ -177,6 +180,9 @@ export type YourRepos =
       fits: { repo: string; repo_url: string | null; verdicts: Verdict[] }[];
     }
   | { error: string };
+
+/** Ruling 11 (plan): "You could" only with no repo known and no GitHub user given or remembered. Pure. */
+export const youCould = (repos: YourRepos | null, githubGiven: boolean) => repos === null && !githubGiven;
 
 /**
  * Program news for the body (never "Since you last checked", I7): new curated ones by name, new
@@ -297,8 +303,13 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
 /** Programs on screen whose entries can earn the builder bonus: the ones whose pool is read. Pure. */
 export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
   const { rows, shown } = layout(m);
-  return [...rows.map((r) => r.card), ...shown].filter((c) => c.submission_proof).map((c) => c.id);
+  return [...rows.map((r) => r.card), ...shown].filter((c) => c.builder_bonus !== false).map((c) => c.id);
 };
+
+/** The no-repo headline: "$60,500 is open right now." (all open curated programs' per-winner prizes). Pure. */
+const openHeadline = (total: number, agentCanBuild: boolean) =>
+  `${total > 0 ? `${usd(total)} is open right now.` : 'These programs are open right now.'}` +
+  (agentCanBuild ? ' I can build an entry for you.' : '');
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(m: FirstMessage): string {
@@ -321,7 +332,7 @@ export function presentFirstMessage(m: FirstMessage): string {
     let any = false;
     const text = render((c) => {
       const cell = bonusCell(c);
-      if (cell !== 'not available') any = true;
+      if (cell !== '—') any = true;
       return cell;
     });
     sections.push(text);
@@ -336,7 +347,7 @@ export function presentFirstMessage(m: FirstMessage): string {
     const total = openMoneyUsd(rows.map((r) => r.card));
     bonusTable(
       (bonus) =>
-        `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money.` : 'Your repos fit these open programs:'}\n\n` +
+        `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Builder bonus', 'Ends', 'Your repo'],
           rows.map(({ card, repo, repo_url, v }) => [
@@ -364,12 +375,22 @@ export function presentFirstMessage(m: FirstMessage): string {
     );
 
   if (shown.length > 0) {
+    // The no-repo, nothing-else-shown state gets the money-first headline (v2.6 §1); every other
+    // case keeps the v2.5 headings.
+    const zeroState = noRepo(m.repos) && rows.length === 0 && campaigns.length === 0;
     const above = campaigns.length > 0 || rows.length > 0;
+    const couldWin = zeroState && youCould(m.repos, m.githubGiven ?? false);
     bonusTable(
       (bonus) =>
-        `${above ? 'Also open:' : 'Open money right now:'}\n\n` +
+        `${
+          zeroState
+            ? openHeadline(openMoneyUsd(m.cards.filter((c) => !c.sponsored)), m.agentCanBuild)
+            : above
+              ? 'Also open:'
+              : 'Open money right now:'
+        }\n\n` +
         table(
-          ['Program', 'Prize', 'Builder bonus', 'Ends'],
+          ['Program', couldWin ? 'You could win' : 'Prize', 'Builder bonus', 'Ends'],
           shown.map((c) => [c.title, prizeOf(c), bonus(c), endsOf(c)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
@@ -379,7 +400,8 @@ export function presentFirstMessage(m: FirstMessage): string {
 
   // No repo to match: curated ideas for the programs shown (never generated at request time).
   const ideas = noRepo(m.repos) ? ideaLines(shown) : [];
-  if (ideas.length > 0) sections.push(`Ideas that fit these programs:\n${ideas.join('\n')}`);
+  if (ideas.length > 0)
+    sections.push(`${m.agentCanBuild ? 'Ideas I can build:' : 'Ideas for these programs:'}\n${ideas.join('\n')}`);
   const sponsored = m.cards.filter((c) => c.sponsored);
   if (sponsored.length > 0)
     sections.push(
@@ -399,7 +421,7 @@ export function presentFirstMessage(m: FirstMessage): string {
  * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
  * without forms; a fit that needs forms, saying what only they can give; with no repos known, check
  * them; with repos known and no fit, build something new for the top program (without forms first,
- * Ruling 28); else wait for results or news. With no repo and ideas shown, build one of them.
+ * Ruling 28); else wait for results or news. With no repo and ideas shown: "Pick one and I'll start."
  */
 function offer(
   m: FirstMessage,
@@ -424,7 +446,7 @@ function offer(
   if (fastest) return `Want me to start on ${fastest.card.title} with ${fastest.repo}?`;
   const forms = byHour[0];
   if (forms) return `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`;
-  if (ideasShown) return 'Want me to build one?';
+  if (ideasShown) return "Pick one and I'll start.";
   const curated = m.cards.filter((c) => !c.sponsored);
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && (!m.repos || 'error' in m.repos)) return 'Want me to check which of your repos already qualify?';

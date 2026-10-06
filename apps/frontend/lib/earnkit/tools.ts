@@ -65,11 +65,13 @@ export type ToolContext = {
   roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint | null>>;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
+  /** Test and e2e injection only; never set by the MCP route. */
+  matchProjects?: typeof matchProjects;
 };
 
 /**
  * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
- * bonus ledger). A provable program with no pool yet shows "opens with your entry".
+ * bonus ledger). A program with no pool yet shows "new pool" (v2.6 §1).
  */
 export const roundPoolsWei = (programIds: string[]): Promise<Map<string, bigint | null>> => readRoundPools(programIds);
 
@@ -189,6 +191,8 @@ export const tools = {
     const local = local_repos?.length
       ? local_repos
       : (memory.local_repos ?? undefined);
+    // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
+    const githubGiven = Boolean(user || repoList?.length);
     // EarnKit campaigns are their own table (campaigns), not program cards (v2.4 §1).
     const cards = programs.filter((p) => !p.earnkit_campaign).map((p) => ({
       ...p,
@@ -202,7 +206,7 @@ export const tools = {
         // Reading GitHub is limited per installation; reported local repos alone read nothing.
         if (user || repoList?.length)
           await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
-        yourRepos = await matchProjects(
+        yourRepos = await (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
             github_user: user,
             repos: repoList,
@@ -245,6 +249,7 @@ export const tools = {
       campaigns,
       cards: withPools,
       repos: yourRepos,
+      githubGiven,
       workingOn: memory.working_on,
       agentCanBuild: agent_can_build,
       sponsorEntries: entries.section,

@@ -9,6 +9,7 @@ import { earnkitTexts } from './campaign-text';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
+import { GitHubError } from './match-projects';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -258,19 +259,44 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.equal(calls.length, 1);
     assert.ok(calls[0].includes(proof.id) && !calls[0].includes(noProof.id), calls[0].join());
     assert.match(text, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| 0\\.42 ETH so far \\|`));
-    assert.match(text, new RegExp(`\\| No proof ${run} \\| [^|]+ \\| not available \\|`));
+    assert.match(text, new RegExp(`\\| No proof ${run} \\| [^|]+ \\| — \\|`));
     assert.match(text, /\n\nBuilder bonus: paid by EarnKit from coin fees\. EarnKit isn't affiliated with or endorsed by any program's organizer\. Details: earnkit\.com\/policy\n\n/);
-    assert.match(text, /\n\nIdeas that fit these programs:\n- /);
-    assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}; ${proof.ideas[1]}\n`), text);
-    assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}; ${noProof.ideas[1]}\n`), text);
-    // Without injection: no pools yet, so the provable program opens with the builder's entry.
+    assert.match(text, /\n\nIdeas I can build:\n- /);
+    assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
+    assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
+    // Without injection: no pools yet, so the provable program opens with a new pool.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| opens with your entry \\|`));
+    assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| new pool \\|`));
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win.
     const frozen = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
-    assert.match(frozen.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| not available \\|`));
+    assert.match(frozen.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| — \\|`));
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
+  }
+});
+
+test('Ruling 11 (plan): a remembered GitHub user with a matching error never gets "You could"', dbTest, async () => {
+  const run = `${process.pid}-${Date.now()}`;
+  const file = (name: string) =>
+    JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
+  const prog = Object.assign(file('arc-microgrants'), {
+    id: `v26-ghost-${run}`, title: `Ghost ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 1000,
+  });
+  await upsertProgram(ProgramFile.parse(prog));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, github_user) VALUES (${`v26-ghost-${run}`}, 'ghost') RETURNING id`;
+  try {
+    const r = (await tools.list_programs({}, {
+      installationId: id,
+      // Test-only, like roundPoolsWei: stands in for a real GitHub read.
+      matchProjects: async () => {
+        throw new GitHubError('GitHub said no', 429);
+      },
+    })) as { show_to_builder: string };
+    // Not /could/i: "Couldn't read your repos" (the error line itself) contains "could" too.
+    assert.doesNotMatch(r.show_to_builder, /You could/);
+  } finally {
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${prog.id}`;
   }
 });
 

@@ -264,6 +264,28 @@ export function normalizeRepoUrl(url: string) {
 }
 
 /**
+ * Owner and repo of a GitHub repo link (as spelled in the link; normalizeRepoUrl decides what a
+ * repo link is), or null for anything else. Pure; exported for tests. Lives here (not ownership.ts,
+ * which re-exports it) so match.ts can use it without a circular import through match-projects.ts.
+ */
+export function githubRepo(
+  url: string,
+): { owner: string; repo: string } | null {
+  const key = normalizeRepoUrl(url);
+  if (!/^github\.com\/[a-z0-9-]{1,39}\/[a-z0-9._-]{1,100}$/.test(key))
+    return null;
+  const [, owner, repo] = key.split('/');
+  // Wikis are world-editable by default; names of only dots aren't repos.
+  if (/^\.+$/.test(repo) || repo.endsWith('.wiki')) return null;
+  // The original spelling of the same path, so the raw link keeps its case.
+  const m = new RegExp(
+    `github\\.com/(${owner})/(${repo.replace(/\./g, '\\.')})`,
+    'i',
+  ).exec(url);
+  return m ? { owner: m[1], repo: m[2] } : { owner, repo };
+}
+
+/**
  * A live link in the form used to spot the same site entered twice (stored as projects.live_key):
  * lowercased, without the scheme, user info, "www.", query, fragment or trailing "/".
  * "HTTPS://www.App.xyz/?ref=x#top" and "http://app.xyz" -> "app.xyz". Pure; exported for tests.

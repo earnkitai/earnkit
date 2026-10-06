@@ -1,3 +1,5 @@
+import { githubRepo } from './campaigns';
+
 /**
  * Matching a builder's public repos to open programs (pure; no network).
  *
@@ -217,6 +219,8 @@ export type ReportedRepo = {
   chains: { chain: Chain; mainnet: boolean }[];
   live_url?: string;
   last_commit_at?: string;
+  /** Ruling 13 (plan): the repo's GitHub link, if the local remote is on GitHub. */
+  url?: string;
 };
 
 /** Turns an agent's report into the same facts matching uses for public repos. */
@@ -232,9 +236,11 @@ export function reportedFacts(
       evidence: 'reported by the agent',
     };
   const last = r.last_commit_at ? new Date(r.last_commit_at) : null;
+  // Ruling 13 (plan): kept only when it parses as a GitHub repo link; anything else is dropped.
+  const repo = r.url ? githubRepo(r.url) : null;
   return {
     name: r.name,
-    url: '',
+    url: repo ? `https://github.com/${repo.owner}/${repo.repo}` : '',
     homepage: r.live_url ?? null,
     created_at: '',
     chains,
