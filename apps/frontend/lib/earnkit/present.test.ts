@@ -440,8 +440,10 @@ test('I3 offers: no repos known asks to check them; repos known with no fit offe
   // Ruling 28: the repo was ruled out, so the offer is to build something new, never "start on".
   assert.match(noFit, /\n\nWant me to build something new for Arc Microgrants \(500 USDC × 20 grants\)\?$/);
   assert.doesNotMatch(noFit, /start on/);
-  // A repo error counts as "no repos known".
-  assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /check which of your repos already qualify\?$/);
+  // Ruling 19: a repo error is the no-repo state, so even with no ideas it closes on the build offer.
+  const errNoIdeas = presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' }, githubGiven: true }));
+  assert.ok(errNoIdeas.endsWith("Pick one and I'll start."), errNoIdeas);
+  assert.doesNotMatch(errNoIdeas, /qualify/);
   // An open campaign without an entry stays the top choice.
   assert.match(presentFirstMessage(msg({ campaigns: [campaign], cards: [arc] })), /build your entry for the \$100\?$/);
 });
