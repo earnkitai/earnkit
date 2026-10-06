@@ -452,10 +452,10 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const ok = (await tools.record_submission(coinEntry(4, B), ctxTwo)) as { project_id: number; token: { status: string }; show_to_builder: string };
     assert.equal(ok.token.status, 'launched');
     assert.deepEqual(deploys.map((d) => d.creatorWallet), [B]);
-    // Fix round 1 (I3): no entry page link yet, so the builder is told what joins the bonus.
+    // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nTell me once you've submitted on dorahacks\.io to join the builder bonus \(0\.18 ETH so far · ends Dec 31 · earnkit\.com\/bonus\/.+\)\.$/,
+      /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Dec 31 · earnkit\.com\/bonus\/.+\)\.$/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
