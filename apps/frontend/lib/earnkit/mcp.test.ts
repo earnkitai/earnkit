@@ -217,11 +217,18 @@ test('v2.4: the instructions say every reply may open with since_you_last_checke
   assert.match(instructions, /since_you_last_checked/);
 });
 
-test('v2.4: the instructions say record_submission is the campaign entry, and a token is optional', async () => {
+test('v2.4: the instructions say record_submission is the campaign entry', async () => {
   const { instructions } = await listed({});
   assert.match(instructions, /EarnKit campaigns: record_submission is the entry; there is no other site\./);
-  assert.match(instructions, /A token is optional: entering never needs one\./);
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
+});
+
+test('v2.6 §3: the instructions say every entry gets a coin by default and one yes confirms the coin and the wallet', async () => {
+  const { instructions } = await listed({});
+  assert.match(instructions, /Every entry gets a coin by default; the builder can skip it in one word\./);
+  assert.match(instructions, /One yes confirms the coin and the wallet\./);
+  assert.match(instructions, /Write and push earnkit\.txt yourself; never ask the builder to edit files\./);
+  assert.doesNotMatch(instructions, /A token is optional: entering never needs one\./);
 });
 
 test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {

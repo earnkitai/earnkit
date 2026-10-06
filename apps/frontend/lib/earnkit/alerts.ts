@@ -1,5 +1,6 @@
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
+import { boardLink, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { eth } from './present';
@@ -37,9 +38,19 @@ export type BonusWin = {
   amount_wei: bigint;
   tx_hash: string;
   paid_at: Date;
+  /** bonus_payouts.wallet: the entry's creator_wallet at payout time (Ruling 14), for the alert line (v2.6 §3). */
+  wallet: string | null;
+  /** The round this win was paid for, for its leaderboard link (v2.6 §3, Ruling 12 (plan)). */
+  round_key: string;
 };
 /** Where an eligible entry stands in its open builder bonus round right now (v2.5 §3, from bonus_scores). */
-export type BonusStanding = { project_id: number; program_title: string; inTop: boolean };
+export type BonusStanding = {
+  project_id: number;
+  program_title: string;
+  inTop: boolean;
+  /** The open round, for its leaderboard link (v2.6 §3, Ruling 12 (plan)). */
+  round_key: string;
+};
 export type AlertFacts = {
   newCampaigns: { id: string; title: string; prize: string; opened_at: Date }[];
   standings: { project_id: number; name: string; campaign_title: string; winners: number; scored: boolean; inTop: boolean }[];
@@ -91,19 +102,16 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     .filter((w) => !seenBonusWins.has(w.id))
     .sort((a, b) => b.paid_at.getTime() - a.paid_at.getTime());
   const shownBonus = freshBonus.slice(0, MAX_BONUS_WIN_LINES);
+  // v2.6 §3 (Ruling P1): "bonus paid: 0.12 ETH (as WETH) to 0xAB…12 · earnkit.com/bonus/<slug>" —
+  // a lowercase clause continuation (these lines are spliced into "Since you last checked: …; ….").
   for (const w of shownBonus)
-    lines.push(`you won ${eth(w.amount_wei)} ETH builder bonus (${w.program_title})`);
+    lines.push(
+      `bonus paid: ${eth(w.amount_wei)} ETH (as WETH)${w.wallet ? ` to ${shortWallet(w.wallet)}` : ''} · ${boardLink(w.round_key)}`,
+    );
   lines.push(...otherWins);
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
-  if (fee.show && f.fees && f.fees.tokens.length > 0) {
-    const [one] = f.fees.tokens;
-    const where = one.url.replace(/^https:\/\//, '');
-    lines.push(
-      f.fees.tokens.length === 1 && one.symbol
-        ? `your token $${one.symbol} has ${usd(f.fees.usd)} in fees to claim (${where})`
-        : `your tokens have ${usd(f.fees.usd)} in fees to claim (${where})`,
-    );
-  }
+  // v2.6 §3: "fees to claim: $X on tokens.fun" regardless of how many tokens or their symbols.
+  if (fee.show && f.fees && f.fees.tokens.length > 0) lines.push(`fees to claim: ${usd(f.fees.usd)} on tokens.fun`);
   const top: Record<string, boolean> = {};
   for (const s of f.standings) {
     if (!s.scored) continue;
@@ -127,9 +135,10 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     const was = prev.state.bonusTop?.[s.project_id];
     if (was === s.inTop || (was === undefined && !s.inTop)) continue;
     lines.push(
-      s.inTop
+      (s.inTop
         ? `your entry moved into the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`
-        : `your entry dropped out of the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`,
+        : `your entry dropped out of the top ${BONUS_TOP_N} for the builder bonus (${s.program_title})`) +
+        ` · ${boardLink(s.round_key)}`,
     );
   }
   // Rows from before the id lists: campaigns opened by the last check count as seen.
@@ -179,9 +188,20 @@ export async function paidBonusWins(installationId: number, db: Db = sql()): Pro
     bonusPayoutsExists = true;
   }
   const rows = await db<
-    { id: number; project_id: number; name: string; program_title: string; amount_wei: string; tx_hash: string; paid_at: Date }[]
+    {
+      id: number;
+      project_id: number;
+      name: string;
+      program_title: string;
+      amount_wei: string;
+      tx_hash: string;
+      paid_at: Date;
+      wallet: string | null;
+      round_key: string;
+    }[]
   >`
-    SELECT bp.id, bp.project_id, p.name, pr.title AS program_title, bp.amount_wei::text AS amount_wei, bp.tx_hash, bp.paid_at
+    SELECT bp.id, bp.project_id, p.name, pr.title AS program_title, bp.amount_wei::text AS amount_wei, bp.tx_hash, bp.paid_at,
+      bp.wallet, bp.round_key
     FROM bonus_payouts bp
     JOIN projects p ON p.id = bp.project_id
     JOIN programs pr ON pr.id = p.program_id
@@ -224,8 +244,8 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       SELECT p.token_url, p.token_symbol, lower(COALESCE(p.creator_wallet, p.payout_wallet)) AS wallet
       FROM projects p WHERE p.token_url LIKE 'https://tokens.fun/coin/%' AND ${mine()} ORDER BY p.id DESC`,
     // v2.5 §3: this entry's latest rank in its builder bonus round, while that round is open.
-    db<{ project_id: number; program_title: string; rank: number }[]>`
-      SELECT DISTINCT ON (bs.project_id) bs.project_id, pr.title AS program_title, bs.rank
+    db<{ project_id: number; program_title: string; rank: number; round_key: string }[]>`
+      SELECT DISTINCT ON (bs.project_id) bs.project_id, pr.title AS program_title, bs.rank, bs.round_key
       FROM bonus_scores bs
       JOIN bonus_rounds r ON r.round_key = bs.round_key AND r.state = 'open'
       JOIN projects p ON p.id = bs.project_id
@@ -268,6 +288,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
     bonusStandings: bonusRank.map((r) => ({
       project_id: r.project_id,
       program_title: r.program_title,
+      round_key: r.round_key,
       inTop: r.rank <= BONUS_TOP_N,
     })),
   };
