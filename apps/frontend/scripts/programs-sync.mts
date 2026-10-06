@@ -2,7 +2,7 @@ import './env.mts';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
-import { ProgramFile } from '../lib/earnkit/program-file';
+import { ProgramFile, requiredWithoutTodo } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -26,22 +26,27 @@ for (const { f, result } of invalid) {
   }
 }
 // v2.7 Ruling 23 (plan): a program's logo file must exist under apps/frontend/public and be safe
-// to serve, checked before any DB write, in both --check and sync.
+// to serve, checked before any DB write, in both --check and sync. Ruling C5's required-item todo
+// is checked in the same pass.
 const publicDir = join(import.meta.dirname, '..', 'public');
-const logoProblems: { f: string; problem: string }[] = [];
+const fileProblems: { f: string; problem: string }[] = [];
 for (const { f, result } of parsed) {
   if (!result.success) continue;
+  // v2.7 Ruling C5 carry: every required submission item needs its builder to-do phrase.
+  const noTodo = requiredWithoutTodo(result.data);
+  if (noTodo.length > 0)
+    fileProblems.push({ f, problem: `submission_requirements: add a "todo" to each required item (${noTodo.join(', ')})` });
   const logo = result.data.logo;
   if (!logo) continue;
   const problem = checkLogoFile(logo, publicDir);
-  if (problem) logoProblems.push({ f, problem });
+  if (problem) fileProblems.push({ f, problem });
 }
-for (const { f, problem } of logoProblems) {
+for (const { f, problem } of fileProblems) {
   console.error(`${f} is not valid:`);
   console.error(`  - ${problem}`);
 }
 
-if (invalid.length > 0 || logoProblems.length > 0) process.exit(1);
+if (invalid.length > 0 || fileProblems.length > 0) process.exit(1);
 
 if (checkOnly) {
   for (const { f } of parsed) console.log(`Valid: ${f}`);

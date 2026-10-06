@@ -1360,7 +1360,10 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
   of prerendering the fallback (Ruling 21). Note: a local rebuild reuses `.next/cache`, so test
   this with a clean `.next`.
 - Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;
-  without one, the Ruling 1 monogram.
+  without one, the Ruling 1 monogram. The five open programs carry official marks from their
+  brand kits (Task 8; `logo.source_url` is the kit page). The frame is a white circle, so a square
+  mark needs room in its viewBox (Base's Square is padded) and a gradient SVG that uses `url(#…)`
+  fails the check, so Circle's mark is the kit's PNG.
 
 ## Program guide pages (v2.7 §2)
 

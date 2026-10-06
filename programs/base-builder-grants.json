@@ -17,7 +17,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-05",
+  "verified_at": "2026-10-06",
   "status": "active",
   "existing_work": "allowed",
   "chains": [
@@ -182,5 +182,53 @@
     }
   ],
   "tracks": [],
-  "starters": []
+  "starters": [],
+  "logo": {
+    "path": "programs/base-builder-grants.svg",
+    "source_url": "https://www.base.org/brand"
+  },
+  "past_rounds": [
+    {
+      "label": "Base Batches 003, Base's 2026 accelerator",
+      "source_url": "https://www.dtso.org/startups/base-batches-003",
+      "submissions": null,
+      "winners": null,
+      "themes": [
+        {
+          "theme": "AI agent payments, x402 and agent credit",
+          "count": 4
+        },
+        {
+          "theme": "Prediction market trading",
+          "count": 3
+        },
+        {
+          "theme": "Onchain credit and lending",
+          "count": 2
+        }
+      ],
+      "examples": [
+        {
+          "name": "Blockrun.ai",
+          "what": "Lets AI agents pay for LLMs, tools and data via x402",
+          "source_url": "https://www.dtso.org/startups/base-batches-003"
+        },
+        {
+          "name": "Forecast",
+          "what": "A new leverage primitive for prediction markets",
+          "source_url": "https://www.dtso.org/startups/base-batches-003"
+        }
+      ]
+    }
+  ],
+  "focus": {
+    "areas": [
+      "Prediction markets",
+      "Agents: commerce, x402, autonomous trading",
+      "DeFi 2.0: lending, borrowing, yield, vaults"
+    ],
+    "source_url": "https://docs.base.org/get-started/builders",
+    "ecosystem": "Base"
+  },
+  "best_bet": "A live x402 agent-payments product with Builder Codes integrated"
 }

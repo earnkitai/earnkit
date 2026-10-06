@@ -1,7 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   PROOF_RECHECK_INTERVAL_MS,
   RECHECK_BATCH,
@@ -18,6 +16,7 @@ import { sql } from './db';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { recordSubmission, submissionBasis } from './projects';
+import { committedProgram } from './fixtures/program-file';
 
 const program = {
   id: 'arc-microgrants',
@@ -182,9 +181,7 @@ holdBonusDbLock();
 
 /** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
 function recheckProgram(id: string, overrides: Record<string, unknown> = {}) {
-  const f = JSON.parse(
-    readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'),
-  );
+  const f = committedProgram('arc-microgrants');
   return ProgramFile.parse({ ...f, id, ...overrides });
 }
 

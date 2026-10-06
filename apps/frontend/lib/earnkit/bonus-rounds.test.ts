@@ -4,6 +4,7 @@ import { boardSlug, bonusOn, bookingFor, resolveRoundParam, roundFor, roundKeyFr
 import { sql } from './db';
 import { getProgram } from './programs';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
+import { committedProgram } from './fixtures/program-file';
 
 const d = (s: string) => new Date(s);
 const windowed = { id: 'arc', starts_at: d('2026-09-16T10:00:00Z'), ends_at: d('2026-10-15T04:00:00Z') };
@@ -186,11 +187,9 @@ test('roundPoolsWei agrees with roundFor on the open round key at a month bounda
 });
 
 test('I2 / Ruling 21: programs:sync moves an open round with its program file; a frozen round or another cohort never moves', db, async () => {
-  const { readFileSync } = await import('node:fs');
-  const { join } = await import('node:path');
   const { ProgramFile } = await import('./program-file');
   const { upsertProgram } = await import('./programs');
-  const f = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  const f = committedProgram('arc-microgrants');
   const id = P('sync');
   const file = (starts: string, ends: string) => ProgramFile.parse({ ...f, id, starts_at: starts, ends_at: ends });
   const window = async (key: string) =>

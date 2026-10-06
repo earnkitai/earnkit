@@ -443,3 +443,12 @@ export const ProgramFile = z
       issue('best_bet must be drawn from past_rounds or focus');
   });
 export type ProgramFile = z.infer<typeof ProgramFile>;
+
+/**
+ * v2.7 Task 4 carry (Ruling C5): `pnpm programs:check` requires a `todo` on every required
+ * submission item, so "Before you submit: …" always reads as a curated builder to-do, never a
+ * normalized form label. A check-time rule (not the schema), so DB rows and test fixtures without
+ * one still parse; the runtime keeps its label fallback. Returns the keys missing one. Pure.
+ */
+export const requiredWithoutTodo = (p: Pick<ProgramFile, 'submission_requirements'>): string[] =>
+  p.submission_requirements.filter((r) => r.required && !r.todo).map((r) => r.key);

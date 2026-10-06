@@ -17,7 +17,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-01T00:00:00Z",
   "ends_at": "2026-10-14T03:59:00Z",
-  "verified_at": "2026-10-05",
+  "verified_at": "2026-10-06",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [
@@ -109,5 +109,53 @@
       "requirements": []
     }
   ],
-  "starters": []
+  "starters": [],
+  "logo": {
+    "path": "programs/monad-metropolis.svg",
+    "source_url": "https://www.monad.xyz/brand-and-media-kit"
+  },
+  "past_rounds": [
+    {
+      "label": "Monad's 2026 Rebel in Paradise AI Hackathon",
+      "source_url": "https://www.kucoin.com/news/flash/monad-ai-hackathon-concludes-with-11-winning-projects-and-major-llm-partnerships",
+      "submissions": null,
+      "winners": 11,
+      "themes": [
+        {
+          "theme": "Agent payments and settlement",
+          "count": 3
+        },
+        {
+          "theme": "Developer tools and infrastructure for agents",
+          "count": 3
+        },
+        {
+          "theme": "Trading agents and quant trading tools",
+          "count": 2
+        }
+      ],
+      "examples": [
+        {
+          "name": "OpenAlice",
+          "what": "Local trading agent covering research, strategy, execution, risk",
+          "source_url": "https://www.kucoin.com/news/flash/monad-ai-hackathon-concludes-with-11-winning-projects-and-major-llm-partnerships"
+        },
+        {
+          "name": "TickPay",
+          "what": "High-frequency micro-streaming payments for APIs and video",
+          "source_url": "https://www.kucoin.com/news/flash/monad-ai-hackathon-concludes-with-11-winning-projects-and-major-llm-partnerships"
+        }
+      ]
+    }
+  ],
+  "focus": {
+    "areas": [
+      "Onchain finance and trading",
+      "Consumer products and payments",
+      "Trust, identity and AI infrastructure"
+    ],
+    "source_url": "https://monad.xyz/developers/hackathons/metropolis",
+    "ecosystem": "Monad"
+  },
+  "best_bet": "Per-second streaming payments for agents or APIs on Monad"
 }

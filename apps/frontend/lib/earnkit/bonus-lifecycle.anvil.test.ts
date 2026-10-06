@@ -10,6 +10,7 @@ import { mnemonicToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
+import { committedProgram } from './fixtures/program-file';
 
 /**
  * The builder bonus lifecycle, end to end (v2.5 §7 local e2e, Task 10). Real code from the MCP
@@ -284,7 +285,7 @@ async function scenario(mock: Mock) {
 
   // The program: Arc Microgrants' real file (submission_proof: dorahacks.io, /buidl/<id>), under a
   // test id, open from an hour ago for 36 hours.
-  const file = JSON.parse(readFileSync(join(ROOT, 'programs', 'arc-microgrants.json'), 'utf8'));
+  const file = committedProgram('arc-microgrants');
   await upsertProgram(ProgramFile.parse({ ...file, id: PROG, status: 'active', starts_at: hour(-1).toISOString(), ends_at: hour(36).toISOString() }));
   const ENDS = hour(36);
   // The program's round (Ruling 21): keyed by its window's UTC start day.
@@ -529,7 +530,7 @@ async function scenario(mock: Mock) {
   assert.equal(p.get(ids.alpha)!.submission_basis, 'unverified_page', 'still unreachable on every re-check: no change');
 
   // ======== v2.6: a program without a public entry page; the builder's confirmation counts ========
-  const baseFile = JSON.parse(readFileSync(join(ROOT, 'programs', 'base-builder-grants.json'), 'utf8'));
+  const baseFile = committedProgram('base-builder-grants');
   // Rolling, submission_proof null, builder_bonus left out (defaults on).
   await upsertProgram(ProgramFile.parse({ ...baseFile, id: PROG2, title: 'E2E Confirm Grants', status: 'active', starts_at: null, ends_at: null }));
   for (const n of Object.keys(BUILDERS2) as Name2[])
