@@ -513,6 +513,31 @@ test('Ruling 13 (plan): a repo whose token is entered elsewhere says so in its r
   assert.match(t, /\| tipjar \(no builder bonus: this repo's (coin|token) is entered in Base Builder Grant Program\) \|/);
 });
 
+test('final review M4: an offer whose row has no builder bonus gets the bonus sentence as its own paragraph first', () => {
+  const t = presentFirstMessage(msg({
+    cards: [pool(arc, 0.42), pool(base, 0.18)],
+    repos: fit('tipjar', 'arc-microgrants', 'https://github.com/a/tipjar'),
+    repoCoins: new Map([['github.com/a/tipjar', { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' }]]),
+  }));
+  // The offered program's pool (0.42) isn't one of "the other open programs".
+  assert.ok(
+    t.endsWith(
+      'Entries in the other open programs also compete for the builder bonus: 0.18 ETH so far, paid to the top 10 on each program.\n\n' +
+        'Want me to start on Arc Microgrants with tipjar?',
+    ),
+    t,
+  );
+  assert.doesNotMatch(t, /Every entry also competes/);
+  // Nothing else with a bonus on screen: no bonus sentence at all.
+  const only = presentFirstMessage(msg({
+    cards: [pool(arc, 0.42)],
+    repos: fit('tipjar', 'arc-microgrants', 'https://github.com/a/tipjar'),
+    repoCoins: new Map([['github.com/a/tipjar', { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' }]]),
+  }));
+  assert.ok(only.endsWith('Want me to start on Arc Microgrants with tipjar?'), only);
+  assert.doesNotMatch(only, /compete for the builder bonus/);
+});
+
 test('Ruling 12 (plan): the Difficulty cell is the label only', () => {
   assert.equal(difficultyCell({ difficulty: { level: 'Hard', estimate: true, basis: 'x' } }), 'Hard (estimate)');
   assert.equal(difficultyCell({ difficulty: null }), '—');

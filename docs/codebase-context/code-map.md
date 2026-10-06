@@ -133,7 +133,7 @@ apps/frontend/
                                a windowed program with the bonus on (not opted out, not a campaign)
                                needs starts_at; v2.7 §2: guide facts with their own source_url —
                                logo (GuideLogo, programs/<id>.svg|png, Ruling 23; logoFileProblem), past_rounds
-                               (PastRound: newest first, ≤5, counts nullable C2, own C4), focus (Focus, ecosystem Ruling 7),
+                               (PastRound: newest first, ≤5, counts nullable C2, own C4, themes_of ≤ winners M3), focus (Focus, ecosystem Ruling 7),
                                best_bet (ShortText, only with past_rounds or focus, Ruling 8), difficulty_override
                                (DifficultyOverride, Ruling 5), winners_per_round (Ruling 6); requirements' `todo` (C5) and
                                requiredWithoutTodo (programs:check refuses a required item without one)
@@ -300,7 +300,8 @@ apps/frontend/
                                newest round with both counts, ODDS_BANDS Easy ≥0.25 / Medium ≥0.08 / Hard; else an
                                estimate, never Easy; the override wins), difficultyLabel, programGuide → Guide (Ruling 9
                                header, difficulty, "What won last time/before" + event C3/C12, ecosystem focus, best bet,
-                               builder bonus), guideText (the agent's text), guideSources/guideSourceList, wonHeading
+                               builder bonus), guideText (the agent's text), guideSources/guideSourceList, wonHeading;
+                               final review M3: wonLines drops "of N" when a round's themes_of is below its winners
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
                                open money you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
@@ -317,7 +318,8 @@ apps/frontend/
                                builder bonus sentence (bonusClose: sum of the pools already read for
                                the programs on screen with a bonus; a campaign offer never earns the
                                bonus, so the sentence becomes its own paragraph above it instead,
-                               Ruling 10 (plan)); endsOf uses entry-text.ts
+                               Ruling 10 (plan); final review M4: so does an offer whose row says
+                               "no builder bonus" (Offer.noBonusId, its pool left out of the sum)); endsOf uses entry-text.ts
                                summaryCloses/deadlineDay (Ruling 29); markdown tables, no emojis;
                                sponsor campaigns never offered; no per-row bonus column or
                                affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
@@ -403,8 +405,12 @@ apps/frontend/
                                token per repo, gate, LIMITS.tokenLaunch, deploy; TokenFlowDeps
                                (gate, check, deploy, store, limit, available) for tests; v2.7:
                                tokenProposalBlock always has a proposal (no project name → the repo name; neither → no
-                               block), C6: the final ticker is re-checked right before deployToken (taken → no launch,
-                               plain note; unreachable → launch); plainProblem says "Token name"
+                               block), C6: the final ticker is re-checked after the one-token-per-repo check (M8) and
+                               before the gate (taken → no launch, plain note; unreachable → launch); plainProblem says
+                               "Token name"; C7: entryMissing (prepareSubmission over FlowProject.requirements, on
+                               record_submission's `known` input or the stored project + latest submissions row) runs
+                               first: missing required items → skipped/failed, notReadyTokenNote, `needs`,
+                               notReadyAgentNote, nothing proposed or deployed (campaigns, skip, policy off exempt)
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
                                amount_each, priced_at), prizeColumn/wonUsdText, entry checks
                                (entryFieldProblems: every problem at once; isWalletAddress),
@@ -444,7 +450,9 @@ apps/frontend/
                                message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
                                v2.7: prizeOf/endsOf (moved from present.ts), coinRow is the `Token` row "Your entry gets a
                                token on Base, $X: you earn 40% of its trading fees[, and it joins the builder bonus] · skip:
-                               …" (Ruling 17), notReadyLine ("Before you submit: …", ≤3 then "and N more") and todoOf (C5),
+                               …" (Ruling 17; skip text "say skip for no token (and no builder bonus)", C19), notReadyLine
+                               ("Before you submit: …", ≤3 then "and N more"), todoList and todoOf (C5), notReadyTokenNote
+                               and enteredText's coin `needs` (C7: "Your token isn't launched yet: the entry still needs …"),
                                confirmTable(missing) shows only Entry and Prize while not ready; no Clanker (Ruling 18)
     fees.ts(+test)             Clanker FeeLocker WETH reads (setFeeSource), the 6 h cache (token_fees),
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
@@ -551,7 +559,8 @@ apps/frontend/
                                subquery and (final review M2) bonus_to_safe_wei's coin rows all
                                exclude owner test installations (installations.ts
                                testInstallationIds, EARNKIT_TEST_INSTALLATIONS); v2.7 Ruling 20:
-                               bonus_pools_eth (open rounds' `destination = 'round'` bookings), STATS_LABELS.coins_launched
+                               bonus_pools_eth (open rounds' `destination = 'round'` bookings, test installations' coins
+                               excluded, final review M7), STATS_LABELS.coins_launched
                                = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts

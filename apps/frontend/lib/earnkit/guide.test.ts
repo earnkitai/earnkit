@@ -134,6 +134,30 @@ test('Review Focus 5: partial data — no round winners, no why', () => {
   assert.ok(!guideText(g).includes('cited for'));
 });
 
+test('final review M3: themes counted over only the described winners (themes_of) show no denominator', () => {
+  const r: PastRound = {
+    ...pre(2857, 28, "Colosseum's 2026 Solana Frontier Hackathon"),
+    themes_of: 26,
+    themes: [{ theme: 'Prediction markets', count: 4 }, { theme: 'Stablecoin payments', count: 4 }],
+  };
+  assert.deepEqual(programGuide({ ...arc, past_rounds: [r] }, null, NOW).won?.lines, ['Prediction markets (4 winners)', 'Stablecoin payments (4)']);
+  // themes_of equal to winners keeps "of N"; the difficulty still uses every winner.
+  const all = programGuide({ ...arc, past_rounds: [{ ...r, themes_of: 28 }] }, null, NOW);
+  assert.deepEqual(all.won?.lines, ['Prediction markets (4 of 28 winners)', 'Stablecoin payments (4 of 28)']);
+  assert.match(programGuide({ ...arc, past_rounds: [r] }, null, NOW).difficulty.basis, /28 of ~2857/);
+});
+
+test('final review M3: the committed Colosseum file shows its themes without a denominator', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { ProgramFile } = await import('./program-file');
+  const raw = readFileSync(join(import.meta.dirname, '../../../../programs/colosseum-worlds-fair.json'), 'utf8');
+  const p = ProgramFile.parse(JSON.parse(raw));
+  const text = guideText(programGuide({ ...p, ends_at: p.ends_at ? new Date(p.ends_at) : null } as never, null, NOW));
+  assert.match(text, /- Prediction markets \(4 winners\)/);
+  assert.doesNotMatch(text, /of 28\)|of 28 winners/);
+});
+
 test('Ruling C3: a predecessor (or older) round reads "What won before"; the newest own round "What won last time"', () => {
   assert.match(guideText(programGuide(arc, null, NOW)), /\nWhat won last time\n/);
   const predecessor = programGuide({ ...arc, past_rounds: [{ ...arc.past_rounds[0], own: undefined }] }, null, NOW);

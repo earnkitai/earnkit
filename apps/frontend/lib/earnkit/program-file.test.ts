@@ -312,6 +312,16 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
     },
     /theme counts can't exceed the round's winners/,
   );
+  // Final review M3: themes_of is at most winners, needs themes, and bounds the theme counts.
+  refused(
+    { ...valid, past_rounds: [round({ winners: 5, themes_of: 6, themes: [{ theme: 'Big theme', count: 1 }] })] },
+    /themes_of can't exceed the round's winners/,
+  );
+  refused({ ...valid, past_rounds: [round({ winners: 5, themes_of: 4 })] }, /themes_of needs themes/);
+  refused(
+    { ...valid, past_rounds: [round({ winners: 5, themes_of: 2, themes: [{ theme: 'Big theme', count: 3 }] })] },
+    /theme counts can't exceed themes_of/,
+  );
   refused(
     {
       ...valid,

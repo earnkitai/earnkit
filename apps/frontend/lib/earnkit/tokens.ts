@@ -91,6 +91,8 @@ export type TokenOutcome = {
   tx_hash?: string;
   /** v2.6 Ruling 18 (plan): skipped at submission because no wallet was given (no coin yet). */
   no_wallet?: true;
+  /** C7: not launched because the entry still misses required items: those items as one list (todoList). */
+  needs?: string;
   /**
    * Final review M7: for the agent only (e.g. the exact proof line to write and push), never shown
    * to the builder; `note` stays in plain builder words.

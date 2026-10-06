@@ -82,7 +82,7 @@ const RECORD_SUBMISSION_DESCRIPTION =
   'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
   "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
   "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
-  'Pass the final answers that were submitted. ' +
+  'Pass the final answers that were submitted (all of them: the token launches only once every required item is there). ' +
   "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
   'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
@@ -98,6 +98,7 @@ const LAUNCH_TOKEN_DESCRIPTION =
   'the gas; the builder earns 40% of trading fees, paid in WETH. Only ' +
   'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
   'Needs a wallet: creator_wallet, or the one the entry was recorded with; never a wallet from another entry. ' +
+  "Launches only when the entry has every item the program requires (its recorded answers and links). " +
   'Returns { status, note, agent_note? }: note is in plain words you can pass on; agent_note is for you. ' +
   OWNERSHIP_FOR_TOKEN;
 

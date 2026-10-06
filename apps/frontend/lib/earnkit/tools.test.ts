@@ -410,7 +410,8 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   const entry = (program_id: string, n: number, extra: Record<string, unknown>) => ({
     program_id,
     project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: `https://github.com/alice/t4-${stamp}-${n}`, live_url: `https://t4-${n}.example` },
-    submission_data: { description: 'Tips' },
+    // C7: a complete entry (every required item), so the token step runs.
+    submission_data: { description: 'Tips', builder_profile: 'https://github.com/alice' },
     ...extra,
   });
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
@@ -623,6 +624,93 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;
     globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+});
+
+test('C7: record_submission and launch_token launch no token until the entry has every required item', dbTest, async () => {
+  const W = '0x' + 'c'.repeat(39) + '7';
+  const stamp = `${process.pid}-${Date.now()}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = { ...arc, id: `c7-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`c7-${stamp}`}) RETURNING id`;
+  const repo = `https://github.com/alice/c7-${stamp}`;
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_AUTH_SECRET ||= 'tools-test-secret';
+  const deploys: { symbol: string }[] = [];
+  const checks: string[] = [];
+  const tokenDeps = {
+    available: () => true,
+    limit: async () => {},
+    check: async (s: string) => { checks.push(s); return true; },
+    gate: {
+      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(inst, repo)! }),
+      screen: async () => {},
+    },
+    deploy: async (d: { name: string; symbol: string }) => {
+      deploys.push(d);
+      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xC7' };
+    },
+  } as unknown as TokenFlowDeps;
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), tokenDeps };
+  try {
+    // No live link and no builder profile: entered, but no token, and the builder reads why.
+    const r = (await tools.record_submission(
+      {
+        program_id: p.id,
+        project: { name: 'Tip Jar', repo_url: repo },
+        submission_data: { description: 'Tips' },
+        payout_wallet: W,
+        token: { name: 'Tip Jar', symbol: 'TIPJAR' },
+        builder_confirmed: true,
+      },
+      ctx,
+    )) as { recorded: boolean; project_id: number; token: { status: string; note: string; agent_note: string }; show_to_builder: string };
+    assert.equal(r.recorded, true);
+    assert.equal(r.token.status, 'skipped');
+    assert.equal(r.token.note, 'Not launched: the entry still needs a live link on Arc mainnet; a public builder profile.');
+    assert.match(r.token.agent_note, /live_deployment_url, builder_profile/);
+    assert.match(r.show_to_builder, /Your token isn't launched yet: the entry still needs a live link on Arc mainnet; a public builder profile/);
+    assert.doesNotMatch(r.show_to_builder, /launch_token|record_submission|live_url|\bcoin\b|Clanker/);
+    assert.equal(deploys.length, 0);
+    assert.deepEqual(checks, [], 'no tokens.fun ticker check while not ready');
+    // The confirmed name and ticker are kept for later.
+    const [row] = await sql()<{ token_name: string; token_symbol: string; token_status: string }[]>`
+      SELECT token_name, token_symbol, token_status FROM projects WHERE id = ${r.project_id}`;
+    assert.deepEqual({ ...row }, { token_name: 'Tip Jar', token_symbol: 'TIPJAR', token_status: 'skipped' });
+
+    // launch_token with the live link: the stored answers still lack the profile, so it fails.
+    const l = (await tools.launch_token(
+      { project_id: r.project_id, builder_confirmed: true, live_url: 'https://tipjar.example' },
+      ctx,
+    )) as { status: string; note: string };
+    assert.equal(l.status, 'failed');
+    assert.equal(l.note, 'Not launched: the entry still needs a public builder profile.');
+    assert.equal(deploys.length, 0);
+
+    // Recorded again with every answer: ready, so the token launches with the kept ticker.
+    const again = (await tools.record_submission(
+      {
+        program_id: p.id,
+        project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' },
+        submission_data: { description: 'Tips', builder_profile: 'https://github.com/alice' },
+        payout_wallet: W,
+        token: { name: 'Tip Jar', symbol: 'TIPJAR' },
+        builder_confirmed: true,
+      },
+      ctx,
+    )) as { project_id: number; token: { status: string } };
+    assert.equal(again.project_id, r.project_id, 'the same entry, updated');
+    assert.equal(again.token.status, 'launched');
+    assert.deepEqual(deploys.map((d) => d.symbol), ['TIPJAR']);
+  } finally {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
   }

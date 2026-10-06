@@ -4,12 +4,23 @@ import { sql } from './db';
 import { rememberWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
-import type { TokenPolicy } from './program-file';
+import type { SubmissionRequirement, TokenPolicy } from './program-file';
+import { answersOf } from './projects';
+import { prepareSubmission, type KnownInfo } from './submission';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
-import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
+import {
+  COIN_FOOTNOTE,
+  coinRow,
+  notReadyTokenNote,
+  todoList,
+  todoOf,
+  tokenFootnote,
+  tokenRow,
+  walletLine,
+} from './entry-text';
 import {
   cleanTokenName,
   proposeToken,
@@ -306,7 +317,50 @@ export type FlowProject = {
   token_policy: TokenPolicy;
   /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
   has_bonus?: boolean;
+  /**
+   * C7: what the readiness gate reads. The program's submission requirements (absent: no gate),
+   * whether it is an EarnKit campaign (its entries were checked complete at entry, so no gate),
+   * the stored project fields a requirement can be filled from, and the latest recorded answers.
+   */
+  requirements?: SubmissionRequirement[];
+  campaign?: boolean;
+  description?: string | null;
+  demo_url?: string | null;
+  submission_data?: Record<string, unknown> | null;
 };
+
+/**
+ * C7: the required items this entry still misses, by key and as a short to-do (todoOf), or [] when
+ * it is ready or not gated (an EarnKit campaign, or no requirements read). `known`: what
+ * record_submission was just given (what prepare_submission saw); else the stored project and its
+ * latest answers (launch_token). Pure; exported for tests.
+ */
+export function entryMissing(project: FlowProject, known?: KnownInfo): { key: string; todo: string }[] {
+  if (project.campaign || !project.requirements?.length) return [];
+  const opt = (v: string | null | undefined) => v ?? undefined;
+  const info: KnownInfo = known ?? {
+    project: {
+      name: project.name,
+      description: opt(project.description),
+      repo_url: opt(project.repo_url),
+      live_url: opt(project.live_url),
+      demo_url: opt(project.demo_url),
+    },
+    answers: answersOf(project.submission_data ?? {}),
+  };
+  const prep = prepareSubmission(project.requirements, info);
+  if (prep.ready) return [];
+  const reqs = new Map(project.requirements.map((r) => [r.key, r]));
+  return prep.missing
+    .filter((m) => m.required)
+    .map((m) => ({ key: m.key, todo: todoOf(reqs.get(m.key) ?? { label: m.label }, Boolean(m.problem)) }));
+}
+
+/** C7: the agent's side of a not-ready skip: which keys, and how the token launches afterwards. Exported for the copy review. */
+export const notReadyAgentNote = (keys: string[]) =>
+  `Required items are missing (${keys.join(', ')}), so no token was launched. Once the builder has them, ` +
+  'call record_submission again with every answer (it updates this entry and launches the token), or ' +
+  'launch_token with live_url or repo_url when only a link was missing.';
 
 /** The flow's reads and writes, injectable so tests need no database. */
 type FlowStore = {
@@ -340,7 +394,10 @@ const dbStore: FlowStore = {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.installation_id, pr.token_policy,
-        (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus
+        (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
+        pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
+        p.description, p.demo_url,
+        (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.id = ${projectId}`;
     return row ?? null;
@@ -423,6 +480,8 @@ async function runTokenFlow(
     chain: 'base' | 'robinhood' | 'arbitrum';
     /** Ruling 22: the wallet given with this entry (validated), before the entry's own (never a remembered one, Ruling 30). */
     givenWallet?: string | null;
+    /** C7: at submission, the project and answers record_submission was given (the gate reads them). */
+    known?: KnownInfo;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -439,6 +498,29 @@ async function runTokenFlow(
     return project.token_url
       ? { status: 'skipped', note: TOKENS_UNAVAILABLE }
       : record('skipped', TOKENS_UNAVAILABLE);
+
+  // C7: a token launches only when the entry is ready. While required items are missing, nothing
+  // is proposed, checked or deployed; the builder's valid name and ticker (and a wallet given now)
+  // are kept, so the token launches once the entry is complete. Not for a "no token", a program
+  // without tokens, or an entry that already has one (decideToken says so).
+  if (a.choice !== 'skip' && project.token_policy !== 'off' && !project.token_url) {
+    const missing = entryMissing(project, a.known);
+    if (missing.length) {
+      const given = choice?.creator_wallet ?? a.givenWallet;
+      if (given && given.toLowerCase() !== project.creator_wallet)
+        await store.saveCreatorWallet(project.id, a.installationId, given);
+      const edits = choice ? editsOf(choice) : {};
+      const todos = missing.map((m) => m.todo);
+      const out = await record(
+        a.mode === 'launch' ? 'failed' : 'skipped',
+        notReadyTokenNote(todos),
+        edits.name,
+        edits.symbol,
+        notReadyAgentNote(missing.map((m) => m.key)),
+      );
+      return { ...out, needs: todoList(todos) };
+    }
+  }
 
   // At submission an explicit ticker is the builder's; no proposal (and no ticker lookups) needed.
   const explicit = a.mode === 'submission' && Boolean(choice?.symbol?.trim());
@@ -498,6 +580,12 @@ async function runTokenFlow(
 
   const { name, symbol } = decision;
   const repoNotNow = a.mode === 'launch' ? 'failed' : 'skipped';
+  // One token per repo across EarnKit: checked before the ticker re-check (final review M8: no
+  // tokens.fun call for a repo that is refused anyway) and the gate (deployToken's claim enforces it).
+  const repoKey = project.repo_url ? normalizeRepoUrl(project.repo_url) : null;
+  const other = repoKey && (await store.repoToken(project.id, repoKey));
+  if (other) return record(repoNotNow, repoHasTokenNote(other), name, symbol);
+
   // C6: one last check of the final ticker (proposed or the builder's own). tokens.fun doesn't
   // refuse a duplicate from EarnKit, so a taken ticker is never launched; unreachable (null)
   // launches as in v2.3. The suggestion is stored, so "go" launches it via launch_token.
@@ -517,10 +605,6 @@ async function runTokenFlow(
         `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`,
     );
   }
-  // One token per repo across EarnKit: checked before the gate (deployToken's claim enforces it).
-  const repoKey = project.repo_url ? normalizeRepoUrl(project.repo_url) : null;
-  const other = repoKey && (await store.repoToken(project.id, repoKey));
-  if (other) return record(repoNotNow, repoHasTokenNote(other), name, symbol);
 
   const gate = await tokenGate(
     {
@@ -602,6 +686,8 @@ export async function tokenAfterSubmission(
     confirmed: boolean;
     /** Ruling 22: the entry's validated wallet (record_submission's payout_wallet, not campaigns). */
     givenWallet?: string | null;
+    /** C7: the project and answers record_submission was given; the readiness gate reads them. */
+    known?: KnownInfo;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -626,7 +712,15 @@ export async function tokenAfterSubmission(
   }
   return runTokenFlow(
     project,
-    { mode: 'submission', installationId: a.installationId, choice, confirmed: a.confirmed, chain: 'base', givenWallet: a.givenWallet },
+    {
+      mode: 'submission',
+      installationId: a.installationId,
+      choice,
+      confirmed: a.confirmed,
+      chain: 'base',
+      givenWallet: a.givenWallet,
+      known: a.known,
+    },
     deps,
     progress,
   );

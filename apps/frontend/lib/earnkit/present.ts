@@ -438,16 +438,23 @@ export function presentFirstMessage(m: FirstMessage): string {
   // v2.7 §3, Ruling 10 (plan): the builder bonus closes the message, joined to the offer; a
   // campaign offer (which never earns the bonus itself) gets the sentence as its own paragraph
   // first instead, so the campaign offer stays the last line.
+  // Final review M4: an offer whose row says "no builder bonus" (Ruling 25: the repo's token is
+  // entered elsewhere) takes the campaign form too, and that program's pool isn't counted as "other".
   const close = offer(m, byId, rows, ideas.length > 0);
-  const bonus = bonusClose([...rows.map((r) => r.card), ...shown]);
+  const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId));
   if (!bonus) sections.push(close.text);
-  else if (close.campaign) sections.push(`Entries in the other open programs also compete for ${bonus}`, close.text);
+  else if (close.campaign || close.noBonusId)
+    sections.push(`Entries in the other open programs also compete for ${bonus}`, close.text);
   else sections.push(`${close.text} Every entry also competes for ${bonus}`);
   return sections.join('\n\n');
 }
 
-/** One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)). */
-type Offer = { text: string; campaign: boolean };
+/**
+ * One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)).
+ * `noBonusId` (final review M4): the offered program, when its row carries Ruling 25's "no builder
+ * bonus" note, so the entry offered can't earn the bonus.
+ */
+type Offer = { text: string; campaign: boolean; noBonusId?: string };
 
 /**
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
@@ -471,20 +478,31 @@ function offer(
     const camp = m.campaigns.find((r) => r.id === id && r.open);
     return camp ? { text: camp.title, campaign: true } : undefined;
   };
-  const resume = m.workingOn.map(titleOf).find(Boolean);
-  if (resume) return { text: `Want me to keep going on ${resume.text}?`, campaign: resume.campaign };
+  // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
+  const noBonus = (r: Fit | undefined) =>
+    r && repoCoinElsewhere(m, r.card, r.repo_url) ? { noBonusId: r.card.id } : {};
+  const resumeId = m.workingOn.find((id) => titleOf(id));
+  const resume = resumeId && titleOf(resumeId);
+  if (resume)
+    return {
+      text: `Want me to keep going on ${resume.text}?`,
+      campaign: resume.campaign,
+      ...noBonus(rows.find((r) => r.card.id === resumeId)),
+    };
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
   if (campaign) return { text: `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`, campaign: true };
   const byHour = [...rows].sort(
     (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
   );
   const fastest = byHour.find((r) => !needsForms(r.card));
-  if (fastest) return { text: `Want me to start on ${fastest.card.title} with ${fastest.repo}?`, campaign: false };
+  if (fastest)
+    return { text: `Want me to start on ${fastest.card.title} with ${fastest.repo}?`, campaign: false, ...noBonus(fastest) };
   const forms = byHour[0];
   if (forms)
     return {
       text: `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`,
       campaign: false,
+      ...noBonus(forms),
     };
   if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
