@@ -1110,8 +1110,9 @@ Also:
 2. Optional: set `EARNKIT_TEST_INSTALLATIONS` to your own test agent's installation id (see
    "Test the journey (v2.6)" below for how to find it). Comma-separated ids; a malformed part is
    ignored with one warning.
-3. `GITHUB_TOKEN` is already set: the coin gate's contents-API read of `earnkit.txt` uses it (one
-   read per launch, the raw URL only under a rate limit). Nothing to add.
+3. Confirm `GITHUB_TOKEN` is set on Railway (presence only, never print it): the coin gate's
+   contents-API read of `earnkit.txt` uses it (one read per launch, the raw URL only under a rate
+   limit). No new variable is needed.
 4. Merge and deploy. `predeploy` (`db:migrate` then `programs:sync`) runs the migration, which is
    additive only: `programs.builder_bonus` (default true), `projects.submission_basis` (NULL, with
    its CHECK) and `projects.submission_confirmed_at` (NULL). Nothing is renamed, dropped or
@@ -1127,25 +1128,39 @@ a wallet you control.
 - [ ] **Install.** Open earnkit.com, pick the Claude Code tab on the install page and add EarnKit
   to a coding agent you use only for testing (one agent = one installation; a reused agent's
   memory changes what the first message shows).
-- [ ] **Find the installation id and mark it as a test.** The installation row is created when the
-  agent connects (OAuth token). In the production database:
-  `SELECT id, created_at, github_user, local_repos FROM installations ORDER BY id DESC LIMIT 5;`
-  Yours is the newest one created when you connected (`SELECT id FROM installations ORDER BY id
-  DESC LIMIT 1` if nobody else installed at the same moment). Confirm it after the first message:
-  its `local_repos` (or `github_user`) is what your agent just reported. Set
-  `EARNKIT_TEST_INSTALLATIONS=<id>` on Railway (append with a comma if it holds other ids) and
-  redeploy. The list is read on every call, so an entry recorded before the redeploy is still
-  excluded once it is set; a frozen round re-checks it before paying.
 - [ ] **First message without GitHub.** In an empty folder (no git remote), ask "anything worth
-  building?". Expect "$X is open right now. I can build an entry for you.", a table whose prize
-  column reads "You could win", a Builder bonus column, "Ideas I can build:" (one per line) and
-  "Pick one and I'll start." Do this first: a GitHub user or repo list, once given, is remembered
-  and turns "You could" off for this installation.
+  building?" and **note the UTC time you sent it**. Expect "$X is open right now. I can build an
+  entry for you.", a table whose prize column reads "You could win", a Builder bonus column,
+  "Ideas I can build:" (one per line) and "Pick one and I'll start." Do this before giving
+  GitHub: a GitHub user or repo list, once given, is remembered and turns "You could" off for
+  this installation.
+- [ ] **Find the installation id and mark it as a test.** Production EarnKit's database is the
+  **Postgres service in the EarnKit project on Railway**. Run the query there: Railway dashboard
+  → EarnKit project → Postgres → Data (query), or `railway connect Postgres` from a shell linked to
+  the EarnKit project (opens psql). Every `list_programs` stamps the calling installation's
+  `programs_checked_at` (`installations.ts` `checkPrograms`), so yours is the row stamped at the
+  minute you sent the first message (put that time in both places):
+  ```sql
+  SELECT id, created_at, programs_checked_at
+  FROM installations
+  WHERE programs_checked_at BETWEEN timestamptz '2026-10-06 14:05:00+00' - interval '2 minutes'
+                                AND timestamptz '2026-10-06 14:05:00+00' + interval '2 minutes'
+    AND created_at > now() - interval '1 day'
+  ORDER BY programs_checked_at DESC;
+  ```
+  One row: that `id` is yours. More than one (another new builder in the same minutes): ask the
+  agent the same question again, note the new time and run the query with it; yours is the row
+  that moved. Set `EARNKIT_TEST_INSTALLATIONS=<id>` on Railway (EarnKit service → Variables;
+  append with a comma if it holds other ids) and deploy the change. The list is read on every call, so
+  an entry recorded before the redeploy is still excluded once it is set; a frozen round
+  re-checks it before paying.
 - [ ] **First message with GitHub.** Give your GitHub username (or run it in a folder with your
   repos). Expect "EarnKit matches you to $X in open money you qualify for" when a repo fits, or
   "$X is open right now." with a "Prize" column (no "could") when none does.
-- [ ] **Build.** Pick an idea; the agent builds it in the throwaway public repo and pushes real
-  commits (an empty repo, or a fork with no new commits, gets no coin).
+- [ ] **Build.** Pick an idea for **Base Builder Grants or Circle Developer Grants** (rolling, no
+  public entry page, so your yes is what counts; Monad Metropolis Hackathon works too while it is open).
+  The agent builds it in the throwaway public repo and pushes real commits (an empty repo, or a
+  fork with no new commits, gets no coin).
 - [ ] **Submit.** The agent shows one block: the entry, one coin row ("Your entry gets a coin,
   $TICKER: … and it enters the builder bonus · skip: no coin, no builder bonus"), the wallet line
   (your wallet in full, or the question) and a one-line footnote. Answer one yes. Don't send a
@@ -1153,12 +1168,20 @@ a wallet you control.
   this test entry (it is never ranked or paid).
 - [ ] **Coin.** The coin launches on tokens.fun. In the repo, `earnkit.txt` holds only
   `token: <16 hex>`, pushed by the agent (you edited nothing).
-- [ ] **After-submission reply.** "Entered in <program>. Your coin: tokens.fun/coin/<address> · you
-  earn 40% of its fees." then "Builder bonus: <pool> · ends <Mon D> · earnkit.com/bonus/<slug>".
+- [ ] **After-submission reply.** For Base or Circle: "Entered in <program>. Your coin:
+  tokens.fun/coin/<address> · you earn 40% of its fees." then "Builder bonus: <pool> · ends
+  <Mon D> · earnkit.com/bonus/<slug>". If you picked a program with a public entry page (Arc
+  Microgrants on dorahacks.io, the Crypto World's Fair Hackathon on colosseum.com) and sent no entry link, the second line
+  is instead "Send me your <site> entry link to join the builder bonus (<pool> · ends <Mon D> ·
+  earnkit.com/bonus/<slug>)." That is expected (Ruling 24), not a failure; the leaderboard link is
+  inside it.
 - [ ] **Leaderboard.** Open that link: your entry is listed as "Test entry: not ranked" (never a
   rank, score or amount).
-- [ ] **Stats.** `curl -s https://earnkit.com/api/stats`: `installs` and `coins_launched` don't
-  count your installation or coin (cached 10 minutes; compare with a read from before the test).
+- [ ] **Stats.** Proof the coin exists, in the same Railway Postgres:
+  `SELECT count(*) FROM projects WHERE installation_id = <id> AND token_status = 'launched';`
+  (1). `curl -s https://earnkit.com/api/stats` never counts it in `installs` or `coins_launched`,
+  but those numbers can still move between two reads because of other builders, and the read is
+  cached 10 minutes, so don't expect a before/after match.
 - [ ] **Cleanup.** Keep the id in `EARNKIT_TEST_INSTALLATIONS` for as long as the entry exists
   (removing it makes the entry an ordinary, rankable one). The coin can't be undone; its 40% of
   fees is yours to claim on tokens.fun, and its bonus slot books to the round like any coin's.
