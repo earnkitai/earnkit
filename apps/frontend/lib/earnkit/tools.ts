@@ -5,7 +5,7 @@ import {
   recordSubmission,
   type EntryDeps,
 } from './projects';
-import { normalizeRepoUrl, presentYourEntries } from './campaigns';
+import { givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, type EnteredText } from './entry-text';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
@@ -50,7 +50,7 @@ import {
 import { cleanProject, quoted } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
-import { repoCoinPrograms } from './tokens';
+import { REPO_HAS_TOKEN, repoCoinPrograms } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -160,8 +160,9 @@ async function withAlerts<T extends object>(installationId: number, result: T) {
   return { ...(line && { since_you_last_checked: line }), ...result };
 }
 
+/** Campaigns (v2.4): a valid wallet answer or null (still missing); the one rule, isWalletAddress. */
 const validWallet = (w: string | undefined) =>
-  w && /^0x[0-9a-fA-F]{40}$/.test(w.trim()) ? w.trim() : null;
+  w && isWalletAddress(w.trim()) ? w.trim() : null;
 
 const GITHUB_LIMITED =
   'Too many GitHub repo checks from this agent (30 an hour), so none were run this time.';
@@ -331,7 +332,10 @@ export const tools = {
     // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
     // programs: prefilled as the coin's fee wallet, shown short on the wallet line.
     const remembered = await rememberedWallet(ctx.installationId);
-    const givenWallet = validWallet(known.answers?.payout_wallet);
+    // Ruling 22: outside campaigns a wallet the builder gave is valid or the call fails.
+    const given = program.campaign
+      ? validWallet(known.answers?.payout_wallet)
+      : givenWallet(known.answers?.payout_wallet);
     const ask = program.campaign
       ? rememberedWalletQuestion(
           program.submission_requirements,
@@ -349,8 +353,8 @@ export const tools = {
           // is asked about, not assumed); without one the block asks the builder for the fee
           // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one,
           // named in full in the footnote.
-          creatorWallet: program.campaign ? givenWallet : (givenWallet ?? remembered),
-          remembered: !program.campaign && !givenWallet && remembered !== null,
+          creatorWallet: program.campaign ? given : (given ?? remembered),
+          remembered: !program.campaign && !given && remembered !== null,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
           repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
@@ -358,7 +362,7 @@ export const tools = {
       : null;
     // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
     const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
-    const payoutWallet = givenWallet;
+    const payoutWallet = given;
     const sign_to_enter = signToEnter(
       program_id,
       repoUrl,
@@ -382,7 +386,7 @@ export const tools = {
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
             coinIn: token.repo_coin_program,
-            remembered: !program.campaign && !givenWallet && remembered !== null,
+            remembered: !program.campaign && !given && remembered !== null,
           }
         : null,
     });
@@ -432,6 +436,9 @@ export const tools = {
         installationId: ctx.installationId,
         choice: parsed.token,
         confirmed: parsed.builder_confirmed === true,
+        // Ruling 22: the wallet given with this entry goes straight to the token flow (recordSubmission
+        // validated it); the remembered one is used only when none was given.
+        givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
       },
       ctx.tokenDeps,
     );
@@ -441,16 +448,19 @@ export const tools = {
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
     const roundEnds = result.bonus_round ? new Date(result.bonus_round.ends_at) : null;
     const tokenOut = token.no_wallet ? { ...token, note: noCoinYet(roundEnds) } : token;
-    const policyOff =
-      (await getProgramRow(parsed.program_id).catch(() => null))?.token_policy === 'off';
+    // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
+    const skipped =
+      parsed.token === 'skip' || result.token_policy === 'off' || Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
     const coin: EnteredText['coin'] =
       token.status === 'launched' && token.tokens_fun
         ? { status: 'launched', url: token.tokens_fun }
         : token.no_wallet
-          ? { status: 'no_wallet', lastDay: roundEnds }
-          : parsed.token === 'skip' || policyOff
+          ? { status: 'no_wallet' }
+          : skipped
             ? { status: 'skipped' }
-            : { status: 'other' };
+            : token.status === 'pending'
+              ? { status: 'pending' }
+              : { status: 'other' };
     let bonus: EnteredText['bonus'] = null;
     if (result.bonus_round && coin.status !== 'skipped') {
       const pool = (await poolsOf(ctx.roundPoolsWei ?? roundPoolsWei, [parsed.program_id])).get(parsed.program_id);

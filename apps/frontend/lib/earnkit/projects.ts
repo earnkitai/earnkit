@@ -5,6 +5,7 @@ import { sql } from './db';
 import {
   EntryError,
   entryFieldProblems,
+  givenWallet,
   isWalletAddress,
   normalizeLiveUrl,
   normalizeRepoUrl,
@@ -411,6 +412,9 @@ export async function recordSubmission(
     program.campaign ? SUBMISSION_VALUE_MAX : OTHER_VALUE_MAX,
   );
   if (tooLarge) throw new EntryError(tooLarge);
+  // Ruling 22: outside campaigns a wallet the builder gave is valid or the call fails (never
+  // dropped, so a typo never falls back to the remembered wallet). Campaigns keep v2.4's checks.
+  const entryWallet = program.campaign ? null : givenWallet(input.payout_wallet);
   // A campaign entry's name and description reach the sponsor's agent: cleaned like all
   // third-party text. Other programs' projects go only to the builder's own submission.
   const cleaned = program.campaign
@@ -508,10 +512,7 @@ export async function recordSubmission(
   const openRound = bonusOn(program) && !coinElsewhere ? roundFor(program, new Date()) : null;
   // Ruling 10 (plan): outside campaigns, a valid wallet named here is this installation's last
   // wallet, prefilled next time (campaign entries remember their proven payout wallet below).
-  const lastWallet =
-    !program.campaign && input.payout_wallet && isWalletAddress(input.payout_wallet)
-      ? input.payout_wallet.toLowerCase()
-      : null;
+  const lastWallet = entryWallet?.toLowerCase() ?? null;
   // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
   // (traction.ts eligibleSql: coin and proof before the round's end), like scoring does.
   const roundEnd = roundFor(program, new Date())?.ends ?? null;
@@ -639,6 +640,8 @@ export async function recordSubmission(
         project_id: project.id,
         submitted_at: project.submitted_at.toISOString(),
         program_title: program.title,
+        // For record_submission's reply: a program without coins skips the coin line (M3).
+        token_policy: program.token_policy,
         bonus_round: openRound ? { key: openRound.key, ends_at: openRound.ends.toISOString() } : null,
         ...(notes.length && { bonus_note: notes.join(' ') }),
         ...(entry &&

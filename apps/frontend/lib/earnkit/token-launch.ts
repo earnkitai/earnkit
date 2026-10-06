@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
+import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { rememberWallet, rememberedWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
@@ -9,7 +9,7 @@ import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
-import { coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
+import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
   cleanTokenName,
   proposeToken,
@@ -52,9 +52,10 @@ export const TokenChoice = z
       .optional(),
     /** Or the image itself as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB); EarnKit hosts it. */
     image_data: z.string().optional(),
+    // Ruling 22: the one wallet rule (isWalletAddress: EIP-55 when it mixes cases), as everywhere.
     creator_wallet: z
       .string()
-      .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x wallet address')
+      .refine(isWalletAddress, 'a 0x wallet address (check it for typos)')
       .optional(),
     builder_x: z.string().trim().min(1).optional(),
   })
@@ -214,6 +215,9 @@ export async function tokenProposalBlock(
   if (proposal.name === null) notes.push(proposal.reason);
   else if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
+  // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
+  if (!program.campaign)
+    notes.push("Pass the wallet the builder confirmed (the wallet line) as record_submission's payout_wallet");
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
   const tokenLine = a.repoUrl ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);
@@ -254,7 +258,7 @@ export async function tokenProposalBlock(
       : program.campaign
         ? `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`
         : `${coinRow({ symbol: proposal.name === null ? null : proposal.symbol, hasBonus })}\n\n` +
-          `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${tokenFootnote(a.creatorWallet)}`,
+          `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${COIN_FOOTNOTE}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
@@ -380,6 +384,8 @@ async function runTokenFlow(
     choice: 'skip' | Choice | undefined;
     confirmed: boolean;
     chain: 'base' | 'robinhood' | 'arbitrum';
+    /** Ruling 22: the wallet given with this entry (validated), before any stored or remembered one. */
+    givenWallet?: string | null;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -412,6 +418,7 @@ async function runTokenFlow(
       : proposal;
   const wallet =
     choice?.creator_wallet ??
+    a.givenWallet ??
     project.creator_wallet ??
     project.payout_wallet ??
     (await store.rememberedWallet(a.installationId));
@@ -426,7 +433,7 @@ async function runTokenFlow(
   });
   // Token retry (v2.4 §6, audit C14): a creator wallet given now, or the one a launch uses, is
   // kept, so launch_token after a gate failure doesn't ask for it again (and fee reads know it).
-  const keep = choice?.creator_wallet ?? (decision.action === 'launch' ? wallet : null);
+  const keep = choice?.creator_wallet ?? a.givenWallet ?? (decision.action === 'launch' ? wallet : null);
   if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
     await store.saveCreatorWallet(project.id, a.installationId, keep);
   // Not launching here: at submission it's skipped; launch_token was asked to launch, so a refusal
@@ -532,6 +539,8 @@ export async function tokenAfterSubmission(
     installationId: number;
     choice: unknown;
     confirmed: boolean;
+    /** Ruling 22: the entry's validated wallet (record_submission's payout_wallet, not campaigns). */
+    givenWallet?: string | null;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -556,7 +565,7 @@ export async function tokenAfterSubmission(
   }
   return runTokenFlow(
     project,
-    { mode: 'submission', installationId: a.installationId, choice, confirmed: a.confirmed, chain: 'base' },
+    { mode: 'submission', installationId: a.installationId, choice, confirmed: a.confirmed, chain: 'base', givenWallet: a.givenWallet },
     deps,
     progress,
   );

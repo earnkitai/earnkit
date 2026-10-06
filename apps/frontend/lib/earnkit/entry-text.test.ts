@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  COIN_FOOTNOTE,
   TOKEN_FOOTNOTE,
   boardLink,
   coinRow,
@@ -115,7 +116,7 @@ test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin r
   });
   assert.match(text, /\| Coin \| Your entry gets a coin, \$TIP: .*skip: no coin, no builder bonus \|/);
   // No wallet known: the wallet line is the ask.
-  assert.match(text, /\n\nWhich wallet should get your coin's fees and any bonus\?\n\nToken: /);
+  assert.ok(text.endsWith(`\n\nWhich wallet should get your coin's fees and any bonus?\n\n${COIN_FOOTNOTE}`), text);
 });
 
 test('v2.5 Task 8: the footnote names the fee split for the builder only', () => {
@@ -152,8 +153,8 @@ test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another pr
   assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
 });
 
-const W = '0xAB12000000000000000000000000000000ef01';
-test('v2.6 §3: the coin row and the wallet line', () => {
+const W = '0xab12000000000000000000000000000000ef0123';
+test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full, once)', () => {
   assert.equal(
     coinRow({ symbol: 'TIPJAR', hasBonus: true }),
     'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus',
@@ -161,42 +162,74 @@ test('v2.6 §3: the coin row and the wallet line', () => {
   assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }), 'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees · skip: no coin');
   assert.equal(coinRow({ symbol: null, hasBonus: true }), 'Your entry gets a coin (pick a name and ticker): you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus');
   assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's coin is entered in Arc Microgrants");
-  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), 'Wallet for fees and any bonus: 0xAB12…ef01 (yours from last time) — or tell me another.');
-  assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), 'Wallet for fees: 0xAB12…ef01 — or tell me another.');
+  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`);
+  assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W} — or tell me another.`);
   assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your coin's fees and any bonus?");
-  for (const line of [coinRow({ symbol: 'TIPJAR', hasBonus: true }), walletLine({ wallet: W, remembered: true, hasBonus: true })])
+  assert.equal(
+    COIN_FOOTNOTE,
+    `Fees in WETH, after Clanker's 20% cut; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`,
+  );
+  for (const line of [coinRow({ symbol: 'TIPJAR', hasBonus: true }), walletLine({ wallet: W, remembered: true, hasBonus: true }), COIN_FOOTNOTE])
     assert.doesNotMatch(line, /vault|\p{Extended_Pictographic}/u);
 });
 
-test('v2.6 §3: confirmTable outside campaigns: Coin row, the wallet line, the full wallet in the footnote', () => {
+test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wallet once, the short footnote', () => {
   const t = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIPJAR', wallet: W, hasBonus: true, remembered: true } });
-  assert.match(t, /\| Coin \| Your entry gets a coin, \$TIPJAR: .* skip: no coin, no builder bonus \|/);
-  assert.match(t, /\n\nWallet for fees and any bonus: 0xAB12…ef01 \(yours from last time\) — or tell me another\.\n\nToken: you keep 40%.* to 0xAB12000000000000000000000000000000ef01;/);
-  // Campaign tables keep v2.4's Token row and no wallet line.
+  assert.equal(
+    t,
+    [
+      '| Entry | TipJar for Arc Microgrants |',
+      '|---|---|',
+      '| Prize | 500 USDC |',
+      '| Coin | Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus |',
+      '',
+      `Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`,
+      '',
+      COIN_FOOTNOTE,
+    ].join('\n'),
+  );
+  assert.equal(t.split(W).length, 2, 'the wallet appears once');
+  assert.equal(t.split('40%').length, 2, '40% appears once');
+  // Campaign tables keep v2.4's Token row and footnote, and no wallet line.
   const c = confirmTable({ project: 'TipJar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS, payoutWallet: null,
     token: { symbol: 'TIPJAR', wallet: W, remembered: true } });
   assert.match(c, /\| Token \| /);
+  assert.ok(c.endsWith(tokenFootnote(W)));
   assert.doesNotMatch(c, /\| Coin \||Wallet for fees/);
 });
 
-test('v2.6 §3: the after-submission reply', () => {
+test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () => {
   const ends = new Date('2026-10-15T03:59:00Z');
+  const bonus = { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
   assert.equal(
-    enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
-      bonus: { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' } }),
+    enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus }),
     'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Builder bonus: 0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
   assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'skipped' }, bonus: null }), 'Entered in Base Builder Grant Program.');
-  assert.match(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet', lastDay: ends }, bonus: null }),
-    /^Entered in Arc Microgrants\. No coin yet: send a wallet with launch_token to add it before Oct 15\.$/);
-  assert.equal(noCoinYet(null), 'No coin yet: send a wallet with launch_token to add it.');
-  // A month ending Nov 1 00:00 UTC (exclusive) shows its last day.
-  assert.equal(noCoinYet(new Date('2026-11-01T00:00:00Z')), 'No coin yet: send a wallet with launch_token to add it before Oct 31.');
+  // No wallet: one line, the date once.
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus }),
+    'Entered in Arc Microgrants. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+  );
+  assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'no_wallet' }, bonus: null }), 'Entered in Base Builder Grant Program. Reply with a wallet to get your coin.');
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' }, bonus }),
+    'Entered in Arc Microgrants. Your coin is launching.\nBuilder bonus: 0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16',
+  );
   assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), 'Entered in Arc Microgrants. No coin yet.');
+  for (const status of ['launched', 'pending', 'no_wallet', 'skipped', 'other'] as const)
+    assert.doesNotMatch(
+      enteredText({ programTitle: 'P', coin: status === 'launched' ? { status, url: 'https://tokens.fun/coin/0x1' } : { status }, bonus }),
+      /launch_token|record_submission|creator_wallet|payout_wallet/,
+    );
+  // The agent's note (never shown to the builder) names the tool and the date.
+  assert.equal(noCoinYet(ends), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet before Oct 15.');
+  assert.equal(noCoinYet(null), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
+  // A month ending Nov 1 00:00 UTC (exclusive) shows its last day.
+  assert.match(noCoinYet(new Date('2026-11-01T00:00:00Z')), / before Oct 31\.$/);
 });
-
 test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
   const prev = process.env.EARNKIT_URL;
   delete process.env.EARNKIT_URL;

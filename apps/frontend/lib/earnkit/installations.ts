@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ReportedRepo } from './match';
+import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 
 const hash = (token: string) =>
@@ -141,7 +142,7 @@ export const rememberedPayoutWallet = rememberedWallet;
 
 /** Remembers `wallet` as this installation's last wallet (Ruling 10); an invalid one is ignored. */
 export async function rememberWallet(installationId: number, wallet: string) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
+  if (!isWalletAddress(wallet)) return;
   const w = wallet.toLowerCase();
   await sql()`UPDATE installations SET payout_wallet = ${w} WHERE id = ${installationId}`;
   await rememberWallets(installationId, [w]);

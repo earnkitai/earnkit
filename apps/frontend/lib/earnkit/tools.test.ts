@@ -9,6 +9,8 @@ import { earnkitTexts } from './campaign-text';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
+import { tokenLineFor } from './token-gate';
+import type { TokenFlowDeps } from './token-launch';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -340,8 +342,10 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     ...extra,
   });
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const secret = process.env.EARNKIT_AUTH_SECRET;
   const realFetch = globalThis.fetch;
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_AUTH_SECRET ||= 'tools-test-secret'; // token lines are HMACs under it
   // The ticker check and any other read are unreachable: nothing reaches the network or tokens.fun.
   globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
   const pools = async (ids: string[]) => new Map(ids.map((id) => [id, 180000000000000000n] as [string, bigint]));
@@ -361,14 +365,33 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     };
     assert.equal(prep.token.creator_wallet, W);
     assert.match(prep.show_to_builder, /\| Coin \| Your entry gets a coin/);
-    assert.match(prep.show_to_builder, /Wallet for fees and any bonus: 0xeeee…eee3 \(yours from last time\) — or tell me another\./);
-    assert.ok(prep.show_to_builder.includes(`paid in WETH to ${W};`), 'the full wallet in the footnote');
+    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (yours from last time) — or tell me another.`), prep.show_to_builder);
+    assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
     const given = (await tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' }, answers: { payout_wallet: OTHER } }, { installationId: id })) as {
       show_to_builder: string;
     };
-    assert.match(given.show_to_builder, /Wallet for fees and any bonus: 0xffff…fff4 — or tell me another\./);
+    assert.ok(given.show_to_builder.includes(`Wallet for fees and any bonus: ${OTHER} — or tell me another.`));
+    // Ruling 22: a typo'd wallet (bad EIP-55 checksum) is refused with a clear error, never shown or dropped.
+    const TYPO = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
+    await assert.rejects(
+      tools.prepare_submission({ program_id: b.id, project: { name: 'Tip Jar' }, answers: { payout_wallet: TYPO } }, { installationId: id }),
+      (err: unknown) => err instanceof EntryError && err.message.includes("That wallet address isn't valid. Check it and send it again."),
+    );
+    // M5 / I8: a campaign prepare_submission after this non-campaign entry asks about the wallet in
+    // full and never prefills it as the fee wallet.
+    const camp = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/earnkit-campaign-1-base.json'), 'utf8'));
+    Object.assign(camp, { id: `t4-camp-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+    Object.assign(camp, earnkitTexts(camp));
+    await upsertProgram(ProgramFile.parse(camp));
+    const cp = (await tools.prepare_submission({ program_id: camp.id, project: { name: 'Tip Jar' } }, { installationId: id })) as {
+      show_to_builder: string;
+      token?: { creator_wallet: string | null };
+    };
+    assert.match(cp.show_to_builder, new RegExp(`Pay prizes to ${W}\\? It is the wallet from your last entry\\.`));
+    assert.doesNotMatch(cp.show_to_builder, /yours from last time|Wallet for fees/);
+    assert.equal(cp.token?.creator_wallet ?? null, null);
 
     // 3. No wallet ever given: the entry is recorded, the coin is not, and the reply says how to add it.
     const none = await inst('none');
@@ -385,14 +408,54 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(r.token.status, 'skipped');
     assert.equal(r.token.no_wallet, true);
     assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z' });
-    assert.equal(r.token.note, 'No coin yet: send a wallet with launch_token to add it before Dec 31.');
+    // The agent's note names the tool; the builder's text never does.
+    assert.equal(r.token.note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet before Dec 31.');
     assert.equal(
       r.show_to_builder,
-      `Entered in ${a.title}. No coin yet: send a wallet with launch_token to add it before Dec 31.\n` +
-        `Builder bonus: 0.18 ETH so far · ends Dec 31 · earnkit.com/bonus/${a.id}-2026-09-16`,
+      `Entered in ${a.title}. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Dec 31 · earnkit.com/bonus/${a.id}-2026-09-16).`,
     );
-    assert.doesNotMatch(r.show_to_builder, /vault|\p{Extended_Pictographic}/u);
+    assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
+
+    // 4. C1: remembered wallet A, the builder gives B. A typo'd B fails the entry (nothing recorded,
+    // nothing launched to A); a valid B is the coin's creator wallet.
+    const two = await inst('two');
+    const A = '0x' + 'a'.repeat(39) + '9';
+    const B = '0x' + 'b'.repeat(39) + '8';
+    await sql()`UPDATE installations SET payout_wallet = ${A} WHERE id = ${two}`;
+    const deploys: { creatorWallet: string }[] = [];
+    const repoUrl = (n: number) => `https://github.com/alice/t4-${stamp}-${n}`;
+    const tokenDeps = {
+      available: () => true,
+      limit: async () => {},
+      check: async () => true,
+      gate: {
+        repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+        owner: async () => ({ status: 'ok' as const, text: tokenLineFor(two, repoUrl(4))! }),
+        screen: async () => {},
+      },
+      deploy: async (d: { creatorWallet: string; name: string; symbol: string }) => {
+        deploys.push(d);
+        return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' };
+      },
+    } as unknown as TokenFlowDeps;
+    const ctxTwo = { installationId: two, roundPoolsWei: pools, tokenDeps };
+    const coinEntry = (n: number, wallet: string) =>
+      entry(a.id, n, { payout_wallet: wallet, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
+    const count = async () => (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE installation_id = ${two}`)[0].n;
+    await assert.rejects(
+      tools.record_submission(coinEntry(3, '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4'), ctxTwo),
+      (err: unknown) => err instanceof EntryError && err.message.includes("That wallet address isn't valid."),
+    );
+    assert.equal(await count(), 0);
+    assert.equal(deploys.length, 0, 'never launched to the remembered wallet');
+    const ok = (await tools.record_submission(coinEntry(4, B), ctxTwo)) as { token: { status: string }; show_to_builder: string };
+    assert.equal(ok.token.status, 'launched');
+    assert.deepEqual(deploys.map((d) => d.creatorWallet), [B]);
+    assert.match(ok.show_to_builder, /^Entered in .*\. Your coin: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: /);
+    assert.equal((await sql()<{ payout_wallet: string }[]>`SELECT payout_wallet FROM installations WHERE id = ${two}`)[0].payout_wallet, B);
   } finally {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
     globalThis.fetch = realFetch;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
