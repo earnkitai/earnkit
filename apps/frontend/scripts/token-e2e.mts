@@ -8,16 +8,17 @@ import { join } from 'node:path';
  *   DATABASE_URL=postgres://postgres@127.0.0.1:<port>/postgres?sslmode=disable \
  *   TOKENSFUN_API_URL=http://127.0.0.1:0 pnpm token:e2e
  * Port 0 picks a free port for the mock. TOKENSFUN_DEPLOY_API_KEY defaults to a dummy value; it
- * only ever reaches the mock. The gate's GitHub, live-link and sanctions checks are faked through
- * ToolContext.tokenDeps, so nothing touches a real network and no real token is launched.
+ * only ever reaches the mock. The gate's GitHub repo facts and the sanctions screen are faked through
+ * ToolContext.tokenDeps, so nothing touches a real network and no real token is launched. v2.6: a
+ * live link is not a gate; earnkit.txt needs only the agent's ticker-free "token: <code>" line.
  *
  * Flows (all through the `tools` layer, with the real database store):
  *   a. default: proposal CHAIN (CKB is taken), confirmed ticker passed back → launched
  *   b. an edited ticker launches as given
  *   c. token: 'skip' → skipped, no deploy
- *   d. gate failures: live link 404, a fork, no live link → gate_failed
+ *   d. gate failures: a fork with no new commits, no commits → gate_failed; no live link still launches
  *   e. a program with token_policy 'off' → skipped, and prepare_submission has no token block
- *   f. launch_token retries (d)'s 404 project with the stored ticker → launched
+ *   f. retry after pushing the line: (d)'s project without earnkit.txt, then with it → launched
  *   g. tokens.fun refuses (400) → failed, claim released; launch_token with another ticker launches
  *   h. no builder_confirmed → skipped
  *   i. the monogram route draws a PNG
@@ -25,18 +26,18 @@ import { join } from 'node:path';
  *   k. token omitted → skipped ("pass token"); launch_token launches the stored proposal
  *   l. a 502 "Deployment status unknown" → pending, claim kept; launch_token is refused
  *   m. a project that already has a token → skipped at submission, failed via launch_token
- *   n. ownership: a repo without earnkit.txt naming the creator wallet → gate_failed
+ *   n. ownership: no earnkit.txt → gate_failed with the line to add
  *   o. one token per repo: a second entry of (a)'s repo → skipped; launch_token on it → failed
  *   p. the per-installation limit: a fresh agent launches 3, the 4th is failed
  *   q. no deploy key: no token block, and record_submission → skipped, nothing checked or sent
  *   r. through the MCP server: token.proposed echoed verbatim (with `image`) launches
- *   s. earnkit.txt without this launch's "token: <SYMBOL> <code>" line → gate_failed
- *   t. a wallet copied from someone else's earnkit.txt (no token line for this ticker) → refused
+ *   s. earnkit.txt without the token line (a payout_wallet line only) → gate_failed
+ *   t. someone else's repo: the line for another agent is refused (even with its wallet)
  *   u. the links change between the gate and the claim (a concurrent launch_token) → failed, no deploy
  * The mock also serves earnkit.txt (EARNKIT_OWNERSHIP_BASE_URL, NODE_ENV=test), read by the real
- * ownership fetch: the builder's wallet plus, for each ticker in TICKERS, the "token: <SYMBOL> <code>"
- * line EarnKit gives the builder's agents (OWNERS) for that repo, except for repos named "noproof"
- * (no file), "notoken" (no token lines) and "victim" (another builder's file).
+ * ownership fetch: the "token: <code>" line EarnKit gives each of the builder's agents (OWNERS) for that
+ * repo, any ticker, except for repos named "noproof" (no file), "late" (no file until (f) pushes it),
+ * "notoken" (a payout_wallet line only) and "victim" (another builder's file, for their own agent).
  *   v. a third party copies the owner's full token line: refused for the third party's agent; the
  *      owner's own launch with that line then succeeds
  */
@@ -71,15 +72,13 @@ const TOKEN_ADDRESS = '0x' + 'ab'.repeat(20);
 const WALLET = '0x' + '12'.repeat(20);
 const VICTIM_WALLET = '0x' + '34'.repeat(20);
 const ownershipReads: string[] = [];
-// Every ticker this script launches has its "token:" line in the builder's earnkit.txt.
 // The installations whose token lines the builder's earnkit.txt carries (set once they exist).
 const OWNERS = new Set<number>();
-let lineFor: (installationId: number, repoUrl: string, symbol: string) => string | null = () => null;
-const TICKERS = [
-  'CHAIN', 'KITS', 'RETRY', 'FORKD', 'OFFL', 'OFFP', 'FAIL4', 'KITS2', 'UNCF', 'HANG5', 'KAPPA',
-  'UNKN6', 'UNKN7', 'HAST', 'NOTMN', 'CHAN2', 'LIMA', 'LIMB', 'LIMC', 'LIMD', 'KEYL', 'ECHO', 'RACE',
-  'OWNR',
-];
+let lineFor: (installationId: number, repoUrl: string) => string | null = () => null;
+// The other builder's agent (an installation id never created here): their file carries its line.
+const VICTIM_AGENT = 2_000_000_000;
+// "late" repos whose earnkit.txt has been pushed ((f)).
+const pushed = new Set<string>();
 const deploys: Record<string, unknown>[] = [];
 let authFailures = 0;
 const hanging = new Set<IncomingMessage>();
@@ -99,18 +98,16 @@ const server = createServer(async (req, res) => {
   const file = url.pathname.match(/^\/([^/]+)\/([^/]+)\/HEAD\/earnkit\.txt$/);
   if (req.method === 'GET' && file) {
     ownershipReads.push(file[2]);
-    if (file[2].includes('noproof')) {
+    if (file[2].includes('noproof') || (file[2].includes('late') && !pushed.has(file[2]))) {
       res.writeHead(404);
       return res.end('404: Not Found');
     }
+    const repo = `https://github.com/${file[1]}/${file[2]}`;
     const text = file[2].includes('victim')
-      ? `payout_wallet: ${VICTIM_WALLET}\ntoken: VICT 0123456789\n`
-      : `# e2e\npayout_wallet: ${WALLET}\n` +
-        (file[2].includes('notoken')
-          ? ''
-          : [...OWNERS]
-              .flatMap((id) => TICKERS.map((t) => `${lineFor(id, `https://github.com/${file[1]}/${file[2]}`, t)}\n`))
-              .join(''));
+      ? `payout_wallet: ${VICTIM_WALLET}\n${lineFor(VICTIM_AGENT, repo)}\n`
+      : file[2].includes('notoken')
+        ? `# e2e\npayout_wallet: ${WALLET}\n`
+        : `# e2e\n${[...OWNERS].map((id) => `${lineFor(id, repo)}\n`).join('')}`;
     res.writeHead(200, { 'content-type': 'text/plain' });
     return res.end(text);
   }
@@ -209,13 +206,9 @@ lineFor = (await import('../lib/earnkit/token-gate')).tokenLineFor;
 OWNERS.add(inst.id);
 
 // ---- helpers ----
-// GitHub and the sanctions screen are faked; earnkit.txt is read for real (from the mock). A live
-// link with "broken" in it answers 404.
+// GitHub's repo facts and the sanctions screen are faked; earnkit.txt is read for real (from the mock).
 const passGate: GateDeps = {
-  repo: async () => ({ fork: false, hasCommits: true }),
-  probe: async (url) => {
-    if (url.includes('broken')) throw new Error('answered 404, not 2xx');
-  },
+  repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   screen: async () => {},
 };
 // The daily launch limit is lifted for the main agent (it launches more than 3); (p) tests it.
@@ -275,7 +268,8 @@ let aRepo = '';
     token?: { proposed: { name: string; symbol: string } | null; say_to_builder: string; creator_wallet: string | null };
   };
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
-  check(prep.token?.say_to_builder.includes('no token'), '(a) say_to_builder offers "no token"');
+  // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
+  check(/no token|skip: no builder bonus/.test(prep.token?.say_to_builder ?? ''), '(a) say_to_builder offers the skip', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });
@@ -312,26 +306,41 @@ let aRepo = '';
   check(deploys.length === before, '(c) no deploy sent');
 }
 
-// (d) gate failures.
+// (d) gate failures (Ruling 3 (plan): a repo with real code); the live link is no longer one.
 let retryProjectId = 0;
+let retryRepo = '';
 {
   const before = deploys.length;
-  const r404 = await submit({
-    project: project('Retry Demo', { live_url: 'https://broken-retry.example.com' }),
-    token: { name: 'Retry Demo', symbol: 'RETRY' },
-    confirmed: true,
-  });
-  check(r404.token.status === 'gate_failed' && /live link.*call launch_token with live_url/.test(r404.token.note ?? ''), '(d) live link 404 → gate_failed', r404.token);
-  retryProjectId = r404.project_id;
+  const late = project('Retry Demo', {}, 'late-');
+  const noFile = await submit({ project: late, token: { name: 'Retry Demo', symbol: 'RETRY' }, confirmed: true });
+  check(noFile.token.status === 'gate_failed' && /earnkit\.txt/.test(noFile.token.note ?? ''), '(d) no earnkit.txt yet → gate_failed', noFile.token);
+  retryProjectId = noFile.project_id;
+  retryRepo = late.repo_url;
   const fork = await submit(
     { project: project('Forked Thing'), token: { name: 'Forked Thing', symbol: 'FORKD' }, confirmed: true },
-    { ...passGate, repo: async () => ({ fork: true, hasCommits: true }) },
+    { ...passGate, repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) },
   );
-  check(fork.token.status === 'gate_failed' && /fork/.test(fork.token.note ?? ''), '(d) fork → gate_failed', fork.token);
-  const { live_url: _l, ...noLive } = project('Offline App');
-  const nl = await submit({ project: noLive, token: { name: 'Offline App', symbol: 'OFFL' }, confirmed: true });
-  check(nl.token.status === 'gate_failed' && /no live link/.test(nl.token.note ?? ''), '(d) missing live_url → gate_failed', nl.token);
+  check(fork.token.status === 'gate_failed' && /fork with no new commits/.test(fork.token.note ?? ''), '(d) fork with no new commits → gate_failed', fork.token);
+  // The v2.6 cases run on a second agent of the builder: the main agent's 20 submissions a day are spoken for.
+  const second = await newInstallation();
+  OWNERS.add(second.id);
+  const on = (gate: GateDeps): Ctx => ({ installationId: second.id, tokenDeps: { gate, limit: async () => {} } });
+  const empty = await submit(
+    { project: project('Empty Repo'), token: { name: 'Empty Repo', symbol: 'EMPTY' }, confirmed: true },
+    undefined,
+    on({ ...passGate, repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
+  );
+  check(empty.token.status === 'gate_failed' && /no commits/.test(empty.token.note ?? ''), '(d) no commits → gate_failed', empty.token);
   check(deploys.length === before, '(d) no deploys on gate failures');
+  const { live_url: _l, ...noLive } = project('Offline App');
+  const nl = await submit({ project: noLive, token: { name: 'Offline App', symbol: 'OFFL' }, confirmed: true }, undefined, on(passGate));
+  check(nl.token.status === 'launched' && nl.token.symbol === 'OFFL', '(d) no live link: still launches (v2.6)', nl.token);
+  const forkAhead = await submit(
+    { project: project('Own Fork'), token: { name: 'Own Fork', symbol: 'OWNFK' }, confirmed: true },
+    undefined,
+    on({ ...passGate, repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 2 }) }),
+  );
+  check(forkAhead.token.status === 'launched', '(d) a fork with new commits launches', forkAhead.token);
 }
 
 // (e) a program that doesn't allow tokens.
@@ -342,14 +351,14 @@ let retryProjectId = 0;
   check(r.token.status === 'skipped' && /doesn't allow tokens/.test(r.token.note ?? ''), '(e) off program → skipped', r.token);
 }
 
-// (f) retry after the 404: still broken, then with a fixed live_url and the stored ticker.
+// (f) retry after pushing the line: still no file, then the agent pushes it; the stored ticker launches.
 {
   const still = await launch({ project_id: retryProjectId });
-  check(still.status === 'gate_failed', '(f) retry with the same broken link → gate_failed', still);
-  const r = await launch({ project_id: retryProjectId, live_url: 'https://fixed-retry.example.com' });
-  check(r.status === 'launched' && r.symbol === 'RETRY', '(f) launch_token with live_url launches the stored RETRY', r);
+  check(still.status === 'gate_failed' && still.note?.includes(`"${lineFor(inst.id, retryRepo)}"`) === true, '(f) retry before the push → gate_failed with the line', still);
+  pushed.add(retryRepo.split('/').pop()!);
+  const r = await launch({ project_id: retryProjectId });
+  check(r.status === 'launched' && r.symbol === 'RETRY', '(f) launch_token after the push launches the stored RETRY', r);
   check(lastDeploy().symbol === 'RETRY', '(f) mock saw RETRY');
-  check((await row(retryProjectId)).live_url === 'https://fixed-retry.example.com/', '(f) the fixed live_url is saved');
 }
 
 // (g) tokens.fun refuses before minting: the claim is released.
@@ -439,11 +448,19 @@ let retryProjectId = 0;
   check(deploys.length === before, '(m) no deploy sent');
 }
 
-// (n) ownership: no earnkit.txt naming the creator wallet.
+// (n) ownership: no earnkit.txt.
 {
   const before = deploys.length;
-  const r = await submit({ project: project('Not Mine', {}, 'noproof-'), token: { name: 'Not Mine', symbol: 'NOTMN' }, confirmed: true });
-  check(r.token.status === 'gate_failed' && /proof the builder owns .*earnkit\.txt.*payout_wallet: /.test(r.token.note ?? ''), '(n) no earnkit.txt → gate_failed with the line to add', r.token);
+  const p = project('Not Mine', {}, 'noproof-');
+  const r = await submit({ project: p, token: { name: 'Not Mine', symbol: 'NOTMN' }, confirmed: true });
+  check(
+    r.token.status === 'gate_failed' &&
+      r.token.note?.includes('proof you can push to') === true &&
+      r.token.note.includes(`with the line "${lineFor(inst.id, p.repo_url)}"`) &&
+      !/payout_wallet/.test(r.token.note),
+    '(n) no earnkit.txt → gate_failed with the one line to add',
+    r.token,
+  );
   check(deploys.length === before, '(n) no deploy sent');
 }
 
@@ -510,29 +527,36 @@ let retryProjectId = 0;
   await client.close();
 }
 
-// (s) earnkit.txt names the wallet but has no "token:" line for this launch.
+// (s) earnkit.txt without the token line (a payout_wallet line only).
 {
   const before = deploys.length;
   const p = project('No Token Line', {}, 'notoken-');
   const r = await submit({ project: p, token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url, 'NOTOK')}" to earnkit.txt at the repo root (default branch), then call launch_token.`,
+      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the repo root (default branch), push it, then call launch_token.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
   check(deploys.length === before, '(s) no deploy sent');
 }
 
-// (t) someone else's repo, launched with the wallet its earnkit.txt names (copied), new ticker.
+// (t) someone else's repo: its file carries the line for their agent, never this one.
 {
   const before = deploys.length;
+  const p = project('Not My Project', {}, 'victim-');
   const r = await submit({
-    project: project('Not My Project', {}, 'victim-'),
+    project: p,
     token: { name: 'Not My Project', symbol: 'STEAL', creator_wallet: VICTIM_WALLET },
     confirmed: true,
   });
-  check(r.token.status === 'gate_failed' && /"token: STEAL [0-9a-f]{10}"/.test(r.token.note ?? ''), '(t) copied wallet without the token line → refused', r.token);
+  check(
+    r.token.status === 'gate_failed' &&
+      r.token.note?.includes(`"${lineFor(inst.id, p.repo_url)}"`) === true &&
+      !r.token.note.includes(lineFor(VICTIM_AGENT, p.repo_url)!),
+    "(t) the line for another agent is refused (its wallet doesn't help)",
+    r.token,
+  );
   check(deploys.length === before, '(t) no deploy sent');
 }
 
@@ -543,7 +567,7 @@ let retryProjectId = 0;
   const swapped = 'https://github.com/someone-else/their-repo';
   const raceGate: GateDeps = {
     ...passGate,
-    // The gate's last step: by now ownership and the live link were checked for p's repo.
+    // The gate's last step: by now the repo and its earnkit.txt were checked for p's repo.
     screen: async () => {
       await db`UPDATE projects SET repo_url = ${swapped} WHERE repo_url = ${p.repo_url}`;
     },
@@ -563,27 +587,27 @@ let retryProjectId = 0;
   const ownerCtx: Ctx = { installationId: owner.id, tokenDeps: { gate: passGate, limit: async () => {} } };
   const thief = await newInstallation(); // not in OWNERS: the file has only the owners' lines
   const shared = project('Shared Repo', {}, 'shared-');
-  const ownerLine = lineFor(owner.id, shared.repo_url, 'OWNR')!;
+  const ownerLine = lineFor(owner.id, shared.repo_url)!;
   const before = deploys.length;
   const stolen = await submit(
     { project: shared, token: { name: 'Shared Repo', symbol: 'OWNR', creator_wallet: WALLET }, confirmed: true },
     undefined,
     { installationId: thief.id, tokenDeps: { gate: passGate, limit: async () => {} } },
   );
-  const thiefLine = lineFor(thief.id, shared.repo_url, 'OWNR')!;
+  const thiefLine = lineFor(thief.id, shared.repo_url)!;
   check(
-    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), then call launch_token.`,
+    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), push it, then call launch_token.`,
     "(v) the owner's line is refused for a third party's agent",
     stolen.token,
   );
   check(!stolen.token.note?.includes(ownerLine), "(v) the refusal never shows the owner's line");
   check(deploys.length === before, '(v) no deploy for the third party');
-  // prepare_submission shows the owner's agent its own line for this repo and ticker.
+  // prepare_submission shows the owner's agent its own line for this repo (any ticker).
   const prep = (await tools.prepare_submission(
     { program_id: ON, project: { name: 'Owner Repo', repo_url: shared.repo_url } },
     ownerCtx,
   )) as { token?: { note: string } };
-  check(prep.token?.note.includes(lineFor(owner.id, shared.repo_url, 'OWNER')!) === true, '(v) prepare_submission gives the agent its own line', prep.token);
+  check(prep.token?.note.includes(`Write the line "${ownerLine}"`) === true, '(v) prepare_submission gives the agent its own line', prep.token);
   const mine = await submit(
     { project: { ...shared, name: 'Shared Repo' }, token: { name: 'Shared Repo', symbol: 'OWNR' }, confirmed: true },
     undefined,

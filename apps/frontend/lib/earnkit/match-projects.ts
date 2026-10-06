@@ -133,6 +133,28 @@ export async function repoHasCommits(fullName: string) {
   }
 }
 
+/** What the coin gate needs to know about a repo's code (Ruling 3 (plan)). */
+export type RepoCode = { fork: boolean; hasCommits: boolean; aheadOfParent: number | null };
+
+/**
+ * Ruling 3 (plan): the repo, its first commit, and (forks only) how far its default branch is ahead
+ * of its parent's. Two reads, plus the compare for a fork with commits. Throws GitHub's error (a
+ * missing or private repo says "not found").
+ */
+export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
+  const r = await gh<Repo & { parent?: { full_name: string; default_branch: string } }>(
+    `/repos/${fullName}`,
+  );
+  const hasCommits = await repoHasCommits(fullName);
+  if (!r.fork || !r.parent || !hasCommits)
+    return { fork: r.fork, hasCommits, aheadOfParent: null };
+  const owner = r.full_name.split('/')[0];
+  const c = await gh<{ ahead_by: number }>(
+    `/repos/${r.parent.full_name}/compare/${encodeURIComponent(r.parent.default_branch)}...${encodeURIComponent(owner)}:${encodeURIComponent(r.default_branch)}`,
+  );
+  return { fork: true, hasCommits, aheadOfParent: c.ahead_by };
+}
+
 /**
  * Reads a handful of config-like files and detects which chains the repo targets. `complete` is
  * false when the tree or a file couldn't be read (such a result isn't cached).

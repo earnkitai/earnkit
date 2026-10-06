@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  codeProblem,
+  legacyTokenLineCode,
   ownerProblem,
+  tokenCode,
   tokenGate,
-  tokenLineCode,
   tokenLineFor,
   type GateDeps,
   type GateInput,
@@ -12,33 +14,66 @@ import {
 process.env.EARNKIT_AUTH_SECRET = 'gate-test-secret';
 const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
 const REPO = 'https://github.com/acme/kit';
-// The line EarnKit gives installation 1 for $KIT from acme/kit.
-const LINE = tokenLineFor(1, REPO, 'KIT')!;
+// The line EarnKit gives installation 1 for acme/kit, any ticker.
+const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
-  repo: async () => ({ fork: false, hasCommits: true }),
-  owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}\n${LINE}` }),
-  probe: async () => {},
+  repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+  owner: async () => ({ status: 'ok', text: LINE }),
   screen: async () => {},
 };
-const input: GateInput = { policy: 'encouraged', repoUrl: 'https://github.com/acme/kit', liveUrl: 'https://kit.acme.dev', wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
+const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: W, symbol: 'KIT', installationId: 1 };
 
-test('passes when the repo is real, the live link loads, and the wallet is clean', async () => {
+test('passes when the repo has code, earnkit.txt has the line, and the wallet is clean', async () => {
   assert.deepEqual(await tokenGate(input, ok), { ok: true });
 });
 
+test('v2.6: the token line is ticker-free and bound to the agent and the repo only', () => {
+  assert.match(tokenLineFor(1, REPO)!, /^token: [0-9a-f]{16}$/);
+  assert.equal(tokenLineFor(1, REPO), tokenLineFor(1, 'https://github.com/ACME/kit.git'), 'normalized repo');
+  assert.notEqual(tokenLineFor(1, REPO), tokenLineFor(2, REPO));
+  assert.notEqual(tokenLineFor(1, REPO), tokenLineFor(1, 'https://github.com/acme/other'));
+  assert.notEqual(tokenCode(1, REPO), tokenCode(1, REPO, 'another-secret'));
+});
+
+test('v2.6: a ticker change needs no new push; no wallet line and no live link needed', async () => {
+  assert.deepEqual(await tokenGate({ ...input, symbol: 'NEWT' }, ok), { ok: true });
+  assert.deepEqual(await tokenGate({ ...input, liveUrl: null } as GateInput, ok), { ok: true });
+});
+
+test('Ruling 1 (plan): a v2.5 "token: <SYMBOL> <code>" line still proves a launch of that ticker', async () => {
+  const legacy = `token: KIT ${legacyTokenLineCode(1, REPO, 'KIT')}`;
+  const owner = async () => ({ status: 'ok' as const, text: `payout_wallet: ${W}\n${legacy}` });
+  assert.deepEqual(await tokenGate({ ...input, symbol: 'KIT' }, { ...ok, owner }), { ok: true });
+  // Ticker case-insensitive, as in v2.5.
+  assert.deepEqual(await tokenGate({ ...input, symbol: 'kit' }, { ...ok, owner }), { ok: true });
+  const other = await tokenGate({ ...input, symbol: 'NEWT' }, { ...ok, owner });
+  assert.equal(other.ok, false);
+  assert.match((other as { reason: string }).reason, new RegExp(`Add the line "${tokenLineFor(1, REPO)}"`));
+  // Another installation's legacy line proves nothing.
+  const theirs = `token: KIT ${legacyTokenLineCode(2, REPO, 'KIT')}`;
+  assert.equal((await tokenGate(input, { ...ok, owner: async () => ({ status: 'ok', text: theirs }) })).ok, false);
+});
+
+test('Ruling 3 (plan): a repo with real code', () => {
+  assert.equal(codeProblem({ fork: false, hasCommits: true, aheadOfParent: null }), null);
+  assert.match(codeProblem({ fork: false, hasCommits: false, aheadOfParent: null })!, /no commits/);
+  assert.equal(codeProblem({ fork: true, hasCommits: true, aheadOfParent: 3 }), null);
+  assert.match(codeProblem({ fork: true, hasCommits: true, aheadOfParent: 0 })!, /fork with no new commits/);
+  assert.match(codeProblem({ fork: true, hasCommits: true, aheadOfParent: null })!, /fork with no new commits/);
+});
+
 test('each failure has its own reason, checked in order', async () => {
-  const cases: [Partial<typeof input>, Partial<typeof ok>, RegExp][] = [
+  const cases: [Partial<GateInput>, Partial<GateDeps>, RegExp][] = [
     [{ policy: 'off' }, {}, /doesn't allow tokens/],
     [{ repoUrl: null }, {}, /public GitHub repo/],
     [{ repoUrl: 'https://gitlab.com/a/b' }, {}, /public GitHub repo/],
-    [{}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }, /isn't public|couldn't check/],
-    [{}, { repo: async () => ({ fork: true, hasCommits: true }) }, /fork/],
-    [{}, { repo: async () => ({ fork: false, hasCommits: false }) }, /no commits/],
-    [{}, { owner: async () => ({ status: 'missing' }) }, /proof the builder owns github\.com\/acme\/kit.*earnkit\.txt/],
-    [{}, { owner: async () => ({ status: 'ok', text: 'payout_wallet: 0x' + 'd'.repeat(40) + `\n${LINE}` }) }, /doesn't name the creator wallet/],
-    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt at the repo root \\(default branch\\), then call launch_token\\.`)],
-    [{ liveUrl: null }, {}, /no live link.*call launch_token with live_url/],
-    [{}, { probe: async () => { throw new Error('answered 404, not 2xx'); } }, /live link .*404.*call launch_token with live_url/],
+    [{}, { repo: async () => { throw new Error('GitHub: /repos/acme/kit not found (or private)'); } }, /isn't public/],
+    [{}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }, /couldn't check the repo/],
+    [{}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }, /no commits/],
+    [{}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }, /fork with no new commits/],
+    [{}, { owner: async () => ({ status: 'missing' }) }, /add a file named earnkit\.txt at its root .* with the line "token: [0-9a-f]{16}"/],
+    [{}, { owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt at the repo root \\(default branch\\), push it, then call launch_token\\.`)],
+    [{}, { owner: async () => ({ status: 'error', message: 'it answered 500' }) }, /couldn't read earnkit\.txt.*500.*retry/],
     [{}, { screen: async () => { throw new Error("This wallet can't receive prizes on EarnKit."); } }, /wallet/],
   ];
   for (const [i, d, re] of cases) {
@@ -48,75 +83,44 @@ test('each failure has its own reason, checked in order', async () => {
   }
 });
 
-test('stops at the first failure (no live-link fetch for a fork)', async () => {
-  let probed = false;
-  await tokenGate(input, { ...ok, repo: async () => ({ fork: true, hasCommits: true }), probe: async () => { probed = true; } });
-  assert.equal(probed, false);
-});
-
-test('ownership: checked after the repo and before the live link; read for every launch, campaign entries too', async () => {
+test('order: repo, then earnkit.txt, then the screen; stops at the first failure', async () => {
   const seen: string[] = [];
   const trace: Required<GateDeps> = {
-    repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true }; },
-    owner: async () => { seen.push('owner'); return { status: 'ok', text: `payout_wallet: ${W.toLowerCase()}\n${LINE.replace('KIT', 'kit')}` }; },
-    probe: async () => { seen.push('probe'); },
+    repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
+    owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
     screen: async () => { seen.push('screen'); },
   };
-  assert.deepEqual(await tokenGate(input, trace), { ok: true });
-  assert.deepEqual(seen, ['repo', 'owner', 'probe', 'screen']);
+  assert.deepEqual(await tokenGate(input, trace), { ok: true }, 'an uppercased code still matches');
+  assert.deepEqual(seen, ['repo', 'owner', 'screen']);
   seen.length = 0;
-  assert.deepEqual(await tokenGate({ ...input, provenWallet: W.toLowerCase() }, trace), { ok: true });
-  assert.deepEqual(seen, ['repo', 'owner', 'probe', 'screen']);
-  // A campaign entry's proven wallet still needs this launch's token line.
-  const noLine = await tokenGate({ ...input, provenWallet: W.toLowerCase() }, { ...trace, owner: async () => ({ status: 'ok', text: `payout_wallet: ${W}` }) });
-  assert.equal(noLine.ok, false);
-  assert.match((noLine as { reason: string }).reason, new RegExp(`"${LINE}"`));
+  await tokenGate(input, { ...trace, repo: async () => { seen.push('repo'); return { fork: true, hasCommits: true, aheadOfParent: 0 }; } });
+  assert.deepEqual(seen, ['repo'], 'a fork without new commits never reads earnkit.txt');
 });
 
-test('ownerProblem: the wallet line and the per-launch token line', () => {
+test('ownerProblem: only the token line counts; wallet lines and their problems are campaign business', () => {
   const repo = 'github.com/acme/kit';
-  const C = '0x' + 'c'.repeat(40);
-  const code = tokenLineCode(1, REPO, 'KIT')!;
-  const ok = (text: string) => ({ status: 'ok' as const, text });
-  assert.equal(ownerProblem(repo, ok(`payout_wallet: ${W}\n${LINE}`), W, 'KIT', code), null);
-  // Symbol case-insensitive, extra whitespace tolerated, other lines allowed.
-  assert.equal(ownerProblem(repo, ok(`payout_wallet: ${W}\ntoken:   kit    ${code}  # mine\ntoken: OLD 0123456789`), W, 'kit', code), null);
-  assert.equal(ownerProblem(repo, ok(`payout_wallet: ${W}\ncreator_wallet: ${C}\n${LINE}`), C, 'KIT', code, W.toLowerCase()), null);
-  // A wallet copied from someone else's file proves nothing without this launch's token line.
-  const stealCode = tokenLineCode(2, REPO, 'STEAL')!;
-  assert.match(ownerProblem(repo, ok(`payout_wallet: ${W}\ntoken: OLD 0123456789`), W, 'STEAL', stealCode)!, new RegExp(`^Add the line "token: STEAL ${stealCode}"`));
-  // Another creator wallet goes on a creator_wallet line, campaign or not, when payout_wallet is taken.
-  assert.match(ownerProblem(repo, ok(`payout_wallet: ${W}\n${LINE}`), C, 'KIT', code, W.toLowerCase())!, new RegExp(`"creator_wallet: ${C}"`));
-  const other = ownerProblem(repo, ok(`payout_wallet: ${W}`), C, 'KIT', code)!;
-  assert.match(other, new RegExp(`add the line "creator_wallet: ${C}" and the line "${LINE}"`));
-  assert.doesNotMatch(other, /"payout_wallet: /);
-  // No file: both lines.
-  assert.match(ownerProblem(repo, { status: 'missing' }, W, 'KIT', code)!, new RegExp(`"payout_wallet: ${W}" and "${LINE}"`));
-  assert.match(ownerProblem(repo, ok('payout_wallet: nope'), W, 'KIT', code)!, /line 1: payout_wallet needs one 0x address/);
-  // Malformed creator_wallet/token lines are ignored, not problems.
-  assert.match(ownerProblem(repo, ok(`payout_wallet: ${W}\ncreator_wallet: nope\ntoken: a b c`), W, 'KIT', code)!, /^Add the line "token: KIT /);
-  assert.match(ownerProblem(repo, { status: 'error', message: 'it answered 500' }, W, 'KIT', code)!, /couldn't read earnkit\.txt.*500/);
+  const code = tokenCode(1, REPO)!;
+  const file = (text: string) => ({ status: 'ok' as const, text });
+  assert.equal(ownerProblem(repo, file(LINE), code, null), null);
+  assert.equal(ownerProblem(repo, file(`payout_wallet: nope\ntoken:   ${code}   # mine\ntoken: OLD 0123456789`), code, null), null);
+  assert.match(ownerProblem(repo, file(`payout_wallet: ${W}\ntoken: KIT 0123456789`), code, null)!, new RegExp(`^Add the line "${LINE}"`));
+  assert.match(ownerProblem(repo, { status: 'missing' }, code, null)!, new RegExp(`proof you can push to ${repo}.*"${LINE}"`));
+  assert.match(ownerProblem(repo, { status: 'error', message: 'it answered 500' }, code, null)!, /couldn't read earnkit\.txt.*500/);
+  // A code one character off, or on a ticker line, fails.
+  const off = code.slice(0, 15) + (code[15] === '0' ? '1' : '0');
+  assert.notEqual(ownerProblem(repo, file(`token: ${off}`), code, null), null);
+  assert.notEqual(ownerProblem(repo, file(`token: KIT ${code}`), code, null), null);
 });
 
-test('the token line is bound to the agent, the repo and the ticker', async () => {
-  const code = tokenLineCode(1, REPO, 'KIT')!;
-  assert.match(code, /^[0-9a-f]{10}$/);
-  // Deterministic; the repo is normalized; the symbol is case-insensitive.
-  assert.equal(tokenLineCode(1, 'https://GitHub.com/Acme/Kit.git', 'kit'), code);
-  assert.notEqual(tokenLineCode(2, REPO, 'KIT'), code);
-  assert.notEqual(tokenLineCode(1, 'https://github.com/acme/other', 'KIT'), code);
-  assert.notEqual(tokenLineCode(1, REPO, 'KITS'), code);
-  assert.notEqual(tokenLineCode(1, REPO, 'KIT', 'another-secret'), code);
-  const file = (line: string) => ({ ...ok, owner: async () => ({ status: 'ok' as const, text: `payout_wallet: ${W}\n${line}` }) });
-  // The right code passes.
+test('the token line is bound to the agent: a copied line fails; no secret fails closed', async () => {
+  const file = (line: string) => ({ ...ok, owner: async () => ({ status: 'ok' as const, text: line }) });
   assert.deepEqual(await tokenGate(input, file(LINE)), { ok: true });
   // The owner's line, copied by another installation, fails for that installation.
   const copied = await tokenGate({ ...input, installationId: 2 }, file(LINE));
   assert.equal(copied.ok, false);
-  assert.match((copied as { reason: string }).reason, new RegExp(`Add the line "${tokenLineFor(2, REPO, 'KIT')}"`));
-  // No code, a wrong code, or the code under another ticker fails.
-  for (const line of ['token: KIT', `token: KIT ${code.slice(0, 9)}0`, `token: KIT ${code.toUpperCase()}`, `token: KITS ${code}`])
-    assert.equal((await tokenGate(input, file(line))).ok, false, line);
+  assert.match((copied as { reason: string }).reason, new RegExp(`Add the line "${tokenLineFor(2, REPO)}"`));
+  // The same agent's line for another repo fails here.
+  assert.equal((await tokenGate(input, file(tokenLineFor(1, 'https://github.com/acme/other')!))).ok, false);
   // No EARNKIT_AUTH_SECRET: fail closed, the file isn't even read.
   const saved = process.env.EARNKIT_AUTH_SECRET;
   delete process.env.EARNKIT_AUTH_SECRET;
@@ -125,7 +129,7 @@ test('the token line is bound to the agent, the repo and the ticker', async () =
     const r = await tokenGate(input, { ...ok, owner: async () => { read = true; return { status: 'ok', text: LINE }; } });
     assert.deepEqual(r, { ok: false, reason: "Token launches aren't configured right now." });
     assert.equal(read, false);
-    assert.equal(tokenLineFor(1, REPO, 'KIT'), null);
+    assert.equal(tokenLineFor(1, REPO), null);
   } finally {
     process.env.EARNKIT_AUTH_SECRET = saved;
   }

@@ -10,6 +10,7 @@ import {
   ownershipProblem,
   ownershipProblems,
   parseOwnershipFile,
+  fetchOwnershipViaApi,
   deployerOf,
   type DeployerLookup,
   type FetchResult,
@@ -48,12 +49,14 @@ test('parseOwnershipFile: the payout_wallet line; contracts and other lines are 
     payoutWallet: W,
     creatorWallets: [],
     tokens: [],
+    codes: [],
     problems: [],
   });
   assert.deepEqual(parseOwnershipFile(''), {
     payoutWallet: null,
     creatorWallets: [],
     tokens: [],
+    codes: [],
     problems: [],
   });
 });
@@ -78,6 +81,53 @@ test('parseOwnershipFile: creator_wallet and token lines; malformed ones are ign
     }),
     null,
   );
+});
+
+test('v2.6: parseOwnershipFile reads a ticker-free token line; legacy lines unchanged', () => {
+  const f = parseOwnershipFile('token: A1B2C3D4E5F60718\ntoken: KIT a1b2c3d4e5\npayout_wallet: nonsense');
+  assert.deepEqual(f.codes, ['a1b2c3d4e5f60718']);
+  assert.deepEqual(f.tokens, [{ symbol: 'KIT', code: 'a1b2c3d4e5' }]);
+  // Not 16 hex: never a code (a 15- or 17-character value, or a non-hex one).
+  const g = parseOwnershipFile('token: a1b2c3d4e5f6071\ntoken: a1b2c3d4e5f607189\ntoken: g1b2c3d4e5f60718');
+  assert.deepEqual(g.codes, []);
+});
+
+test('Ruling 14 (plan): contents API first; raw only when rate-limited; 404 is missing', async () => {
+  const res = (status: number, body = '', headers: Record<string, string> = {}) =>
+    new Response(status === 204 || status === 304 ? null : body, { status, headers });
+  let rawCalls = 0;
+  const raw = async () => { rawCalls++; return { status: 'ok' as const, text: 'token: from-raw' }; };
+  const r = { owner: 'acme', repo: 'kit' };
+  assert.deepEqual(await fetchOwnershipViaApi(r, { fetch: async () => res(200, 'token: x'), raw }), { status: 'ok', text: 'token: x' });
+  assert.deepEqual(await fetchOwnershipViaApi(r, { fetch: async () => res(404), raw }), { status: 'missing' });
+  assert.equal(rawCalls, 0);
+  assert.deepEqual(
+    await fetchOwnershipViaApi(r, { fetch: async () => res(403, '', { 'x-ratelimit-remaining': '0' }), raw }),
+    { status: 'ok', text: 'token: from-raw' },
+  );
+  await fetchOwnershipViaApi(r, { fetch: async () => res(429), raw });
+  assert.equal(rawCalls, 2);
+  const e = await fetchOwnershipViaApi(r, { fetch: async () => res(403, '', { 'x-ratelimit-remaining': '42' }), raw });
+  assert.equal(e.status, 'error');
+  assert.equal(rawCalls, 2, 'a 403 that is not a rate limit never falls back');
+  const moved = await fetchOwnershipViaApi(r, { fetch: async () => res(301, '', { location: 'https://api.github.com/x' }), raw });
+  assert.equal(moved.status, 'error', 'a redirect is an error, not followed');
+  const down = await fetchOwnershipViaApi(r, { fetch: async () => { throw new TypeError('fetch failed'); }, raw });
+  assert.deepEqual(down, { status: 'error', message: 'the fetch failed' });
+  assert.equal(rawCalls, 2, 'neither falls back');
+  const big = await fetchOwnershipViaApi(r, { fetch: async () => res(200, 'x'.repeat(5000)), raw });
+  assert.equal(big.status, 'error', 'the 4 KB cap holds on the API too');
+});
+
+test('fetchOwnershipViaApi sends the token as a Bearer header and asks for the raw media type', async () => {
+  let seen: RequestInit | undefined;
+  let url = '';
+  await fetchOwnershipViaApi({ owner: 'acme', repo: 'kit' }, { token: 't0k', fetch: async (u, init) => { url = String(u); seen = init; return new Response('', { status: 404 }); } });
+  assert.equal(url, 'https://api.github.com/repos/acme/kit/contents/earnkit.txt');
+  const h = new Headers(seen!.headers);
+  assert.equal(h.get('authorization'), 'Bearer t0k');
+  assert.equal(h.get('accept'), 'application/vnd.github.raw');
+  assert.equal(seen!.redirect, 'manual');
 });
 
 test('parseOwnershipFile: bad lines are named by number, never echoed', () => {
@@ -161,6 +211,7 @@ test('ownershipProblem: wallet match and mismatch', () => {
     payoutWallet: W,
     creatorWallets: [],
     tokens: [],
+    codes: [],
     problems: [],
   };
   assert.equal(
@@ -189,7 +240,7 @@ test('ownershipProblem: wallet match and mismatch', () => {
   assert.match(
     ownershipProblem(
       where,
-      { payoutWallet: null, creatorWallets: [], tokens: [], problems: [] },
+      { payoutWallet: null, creatorWallets: [], tokens: [], codes: [], problems: [] },
       { payoutWallet: W, contracts: [] },
     )!,
     /has no payout_wallet line/,
@@ -201,6 +252,7 @@ test('ownershipProblem: wallet match and mismatch', () => {
         payoutWallet: null,
         creatorWallets: [],
         tokens: [],
+        codes: [],
         problems: ['line 1: x'],
       },
       { payoutWallet: W, contracts: [] },
@@ -215,6 +267,7 @@ test('ownershipProblem: every contract must be deployed from the payout wallet (
     payoutWallet: W,
     creatorWallets: [],
     tokens: [],
+    codes: [],
     problems: [],
   };
   assert.equal(
@@ -419,7 +472,7 @@ test('v2.4: a contract deployed by the wallet that signed the entry is proven; e
   const C1 = '0x' + '1'.repeat(40);
   const C2 = '0x' + '2'.repeat(40);
   const C3 = '0x' + '3'.repeat(40);
-  const file = { payoutWallet: PAYOUT, creatorWallets: [], tokens: [], problems: [] };
+  const file = { payoutWallet: PAYOUT, creatorWallets: [], tokens: [], codes: [], problems: [] };
   const deployers = { [C1]: AGENT, [C2]: PAYOUT, [C3]: OTHER };
   assert.deepEqual(
     ownershipProblems(where, file, { payoutWallet: PAYOUT, contracts: [C1, C2], signer: AGENT }, deployers),

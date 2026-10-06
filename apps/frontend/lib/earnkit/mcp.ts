@@ -58,12 +58,12 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
 
 const TO_LAUNCH =
   "To launch, pass token with the name and symbol the builder confirmed (token.proposed from prepare_submission, or their changes); 'skip' if they said no token.";
-const OWNERSHIP_FOR_TOKEN =
-  "A token needs the project's public GitHub repo to hold earnkit.txt at its root with the lines " +
-  '"payout_wallet: <creator wallet>" (campaign entries already have it; if it names another wallet, ' +
-  'add "creator_wallet: <creator wallet>") and "token: <SYMBOL> <code>": the exact line EarnKit gives you ' +
-  "(prepare_submission's token note once it knows the repo_url, or the gate_failed reason). It is bound to " +
-  'you, the repo and the ticker; never reuse a line from someone else. One token per repo.';
+/** v2.6 §3: what a coin needs in the repo; exported for tests. */
+export const OWNERSHIP_FOR_TOKEN =
+  'A coin needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
+  "(prepare_submission's token note once it knows the repo_url, or the gate_failed reason). Write and push it " +
+  'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
+  'someone else. One coin per repo.';
 
 /** The EarnKit MCP server for one connected agent (installation). */
 export function createMcpServer(ctx: ToolContext) {
@@ -279,8 +279,8 @@ export function createMcpServer(ctx: ToolContext) {
     'launch_token',
     {
       description:
-        'Launch (or retry) the token for a project you recorded with record_submission, e.g. after the ' +
-        'builder fixed the live link (pass live_url) or added earnkit.txt. Uses the stored proposal unless you pass changes. tokens.fun pays ' +
+        'Launch (or retry) the token for a project you recorded with record_submission, e.g. after ' +
+        'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
         "the gas; you keep 40% of trading fees (after Clanker's 20% protocol cut), paid in WETH. Only " +
         'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
         OWNERSHIP_FOR_TOKEN,
