@@ -1,7 +1,11 @@
 import { normalizeRepoUrl, usd } from './campaigns';
-import { deadlineDay, repoCoinNote, summaryCloses } from './entry-text';
+import { endsOf, prizeOf, repoCoinNote } from './entry-text';
+
+/** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
+export { endsOf };
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Effort, type Verdict } from './match';
+import type { Difficulty } from './guide';
 
 /**
  * The builder-facing text for list_programs (v2.5 §1): money first, markdown tables, no emojis.
@@ -41,6 +45,8 @@ export type Card = {
   bonus_pool_wei?: bigint | null;
   /** The program's current round exists but isn't open any more (it froze): no bonus to win (I2). */
   bonus_closed?: boolean;
+  /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
+  difficulty?: Difficulty | null;
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -212,20 +218,6 @@ export function table(head: string[], rows: string[][]) {
     `|${head.map(() => '---').join('|')}|`,
     ...rows.map((r) => `| ${r.map(cell).join(' | ')} |`),
   ].join('\n');
-}
-
-/** The prize part of a program's summary ("500 USDC × 20 grants"). */
-const prizeOf = (c: Card) => c.summary.split(' · ')[0];
-
-/**
- * "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's last day (deadlineDay). Ruling 29:
- * entry-text.ts roundEndLabel gives a round ending at the deadline this same day. Pure; exported for tests.
- */
-export function endsOf(c: Card) {
-  const closes = summaryCloses(c.summary);
-  if (closes) return closes;
-  if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
-  return c.ends_at ? deadlineDay(c.ends_at) : 'rolling';
 }
 
 /** Whole UTC calendar days from now to the end: "ends today" only on the last day. */

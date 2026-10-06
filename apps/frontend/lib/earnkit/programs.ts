@@ -3,7 +3,10 @@ import { prizeText, prizeUsdEach, type CampaignConfig } from './campaigns';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
-import { bonusOn, windowKey } from './bonus-rounds';
+import { bonusOn, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
+import { boardLink } from './entry-text';
+import { difficultyOf, guideSources, guideText, programGuide, type Difficulty } from './guide';
+import { bonusCell } from './present';
 import {
   type DifficultyOverride,
   type Focus,
@@ -272,6 +275,12 @@ export function programCard(
     | 'builder_bonus'
     | 'logo'
     | 'chains'
+    | 'past_rounds'
+    | 'focus'
+    | 'best_bet'
+    | 'difficulty_override'
+    | 'winners_per_round'
+    | 'rules'
   >,
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
@@ -321,6 +330,8 @@ export function programCard(
     // v2.7 Ruling 1 (plan): the path only; no logo renders a monogram tile instead.
     logo: p.logo?.path ?? null,
     chains: p.chains,
+    // v2.7 §2, Ruling 12 (plan): campaigns (EarnKit or sponsor) have no difficulty.
+    difficulty: p.campaign ? null : difficultyOf(p),
   };
 }
 
@@ -390,7 +401,47 @@ export async function getProgram(programId: string) {
         track_record: await trackRecord(sponsorRow.sponsor_wallet),
       }
     : undefined;
-  return programDetails(program, tracks, starters, who);
+  return programDetails(program, tracks, starters, who, await guideBonus(program));
+}
+
+/**
+ * v2.7 §2: the guide's builder bonus line for a curated program: its open round's pool so far and
+ * its board. Null for a campaign, a program without a bonus or an open round, or a frozen round. A
+ * failed pool read is logged and gives null; it never fails get_program.
+ */
+async function guideBonus(program: ProgramRow, now = new Date()) {
+  if (program.source !== 'file' || program.campaign || !bonusOn(program)) return null;
+  const round = roundFor(program, now);
+  if (!round) return null;
+  try {
+    const pools = await roundPoolsWei([program.id], { now });
+    const bonus_closed = pools.has(program.id) && pools.get(program.id) === null;
+    if (bonus_closed) return null;
+    return {
+      cell: bonusCell({ builder_bonus: true, bonus_pool_wei: pools.get(program.id) ?? null, bonus_closed }),
+      board: boardLink(round.key),
+    };
+  } catch (err) {
+    console.error('[get_program] pool', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** v2.7 Ruling 8 (plan): how the agent shows the guide and tailors the best bet. */
+export const GUIDE_NOTE =
+  "Show guide.text as written when the builder asks about this program. If the builder's repo fits (see eligibility), you may add one line in your own words on how their repo fits this best bet; never present it as EarnKit's.";
+
+/** get_program's guide block for a curated program (never a campaign). Pure. */
+function guideBlock(
+  program: ProgramRow,
+  bonus: { cell: string; board: string } | null,
+): { guide: { text: string; difficulty: Difficulty; best_bet: string | null; sources: string[] }; guide_note: string } | null {
+  if (program.source !== 'file' || program.campaign) return null;
+  const g = programGuide(program, bonus);
+  return {
+    guide: { text: guideText(g), difficulty: g.difficulty, best_bet: g.best_bet, sources: guideSources(program) },
+    guide_note: GUIDE_NOTE,
+  };
 }
 
 /** get_program's answer for one program. Pure; exported for tests. */
@@ -400,6 +451,8 @@ export function programDetails(
   starters: StarterRow[],
   /** A sponsor campaign's identity and its wallet's track record. */
   who?: { identity: SponsorIdentity; track_record: TrackRecord },
+  /** v2.7 §2: the builder bonus line of a curated program's guide (getProgram's guideBonus). */
+  bonus: { cell: string; board: string } | null = null,
 ) {
   const identity = who?.identity ?? UNVERIFIED;
   const trackName = (id: string | null) =>
@@ -502,6 +555,7 @@ export function programDetails(
       starters_note:
         'Starters are optional ideas. The builder can build anything that meets the requirements.',
     }),
+    ...guideBlock(program, bonus),
   };
 }
 

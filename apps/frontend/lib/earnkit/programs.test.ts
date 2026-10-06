@@ -334,3 +334,25 @@ test('v2.4 §7: an EarnKit campaign\'s build help is the campaign starter, not t
   const other = programDetails(fileRow(null), [], []).build_help;
   assert.ok(other.some((h) => /needed for Base grants/.test(h.use)));
 });
+
+test('v2.7 §2: programCard.difficulty for a curated program; null for any campaign', () => {
+  assert.deepEqual(programCard(fileRow(null), []).difficulty, { level: 'Medium', estimate: true, basis: 'no past results yet' });
+  assert.equal(programCard(fileRow(earnkitCampaign), []).difficulty, null);
+  assert.equal(programCard(sponsorRow(), []).difficulty, null);
+});
+
+test('v2.7 §2: get_program carries the guide for curated programs only', () => {
+  const curated: ProgramRow = { ...fileRow(null), title: 'Base Builder Grant Program', summary: 'up to $5,000 · rolling' };
+  const d = programDetails(curated, [], [], undefined, { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/x-2026-09-16' });
+  assert.ok(d.guide);
+  assert.ok(d.guide.text.includes('Builder bonus: 0.18 ETH so far · earnkit.com/bonus/x-2026-09-16'));
+  assert.ok(d.guide.text.startsWith('Base Builder Grant Program · up to $5,000 · rolling\nDifficulty: Medium (estimate)'));
+  assert.equal(d.guide.difficulty.level, 'Medium');
+  assert.equal(d.guide.best_bet, null);
+  assert.deepEqual(d.guide.sources, []);
+  assert.match(d.guide_note!, /never present it as EarnKit's/);
+  assert.ok(!programDetails(curated, [], []).guide!.text.includes('Builder bonus'), 'no bonus line without a bonus');
+  assert.ok(!('guide' in programDetails(sponsorRow(), [], [])), 'sponsor campaign');
+  assert.ok(!('guide_note' in programDetails(sponsorRow(), [], [])), 'sponsor campaign note');
+  assert.ok(!('guide' in programDetails(fileRow(earnkitCampaign), [], [])), 'EarnKit campaign');
+});

@@ -413,7 +413,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 29: the round's end is the first message's label for this program (its summary's
     // "closes Oct 14"), never a UTC day computed separately.
     assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14' });
-    assert.equal(r.bonus_round!.ends_label, endsOf({ id: a.id, title: a.title, summary: a.summary, tag: null, each_time: [], ends_at: new Date(a.ends_at) }));
+    assert.equal(r.bonus_round!.ends_label, endsOf({ summary: a.summary, ends_at: new Date(a.ends_at) }));
     // The agent's note names the tool; the builder's text never does.
     assert.equal(r.token.note, 'No coin yet: no wallet was given.');
     assert.equal((r.token as { agent_note?: string }).agent_note, 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
