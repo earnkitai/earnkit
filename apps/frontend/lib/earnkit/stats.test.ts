@@ -19,6 +19,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
   const s = statsFrom({
     open_money_usd: '15500.00',
     programs_open: 4,
+    bonus_programs_open: 3,
     coins_launched: 7,
     bonus_deposits_wei: (2n * E18).toString(),
     bonus_to_safe_wei: (E18 / 2n).toString(),
@@ -29,6 +30,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
   assert.deepEqual(s, {
     open_money_usd: 15500,
     programs_open: 4,
+    bonus_programs_open: 3,
     coins_launched: 7,
     // The Safe's 30% slot is 1.5x the bonus wallet's 20% of the same fees (3 ETH), plus the bonus
     // deposits booked to the Safe (0.5 ETH: ended rounds, no open round).
@@ -41,10 +43,10 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom({
-    open_money_usd: null, programs_open: 0, coins_launched: 0,
+    open_money_usd: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
     bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, installs: 0,
   });
-  assert.deepEqual(Object.values(s), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -91,6 +93,7 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
     // lower bound. The bonus tables are held by this file's lock: exact.
     assert.ok(d('open_money_usd') >= 5250, `open money +${d('open_money_usd')}`);
     assert.ok(d('programs_open') >= 2);
+    assert.ok(d('bonus_programs_open') >= 2); // both open programs default to builder_bonus: true, no campaign
     assert.ok(d('coins_launched') >= 1);
     assert.ok(d('installs') >= 1);
     // 2 ETH of bonus deposits from an EarnKit coin: the Safe's slot got 3 (M5: the 0.5 with no coin
@@ -108,8 +111,40 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
   }
 });
 
+test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in installs or coins_launched', db, async () => {
+  const tag = `stats-test-inst-${process.pid}-${Date.now()}`;
+  const coin = `0x${(process.pid.toString(16) + Date.now().toString(16)).padStart(40, 'e')}`.slice(0, 42);
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown')`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO projects (program_id, name, installation_id, token_status, token_url, coin_address)
+    VALUES (${tag}, 'test entry', ${inst.id}, 'launched', 'https://tokens.fun/x', ${coin})`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    const withoutFlag = await readStats();
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(inst.id);
+    const withFlag = await readStats();
+    assert.equal(withoutFlag.installs - withFlag.installs, 1);
+    assert.equal(withoutFlag.coins_launched - withFlag.coins_launched, 1);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+  }
+});
+
 test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 coins only; every stat has a label', () => {
   assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 coins)');
   assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
   for (const l of Object.values(STATS_LABELS)) assert.doesNotMatch(l, /vault|\p{Extended_Pictographic}/u);
+});
+
+test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
+  assert.ok((STATS_KEYS as readonly string[]).includes('bonus_programs_open'));
+  assert.equal(STATS_LABELS.bonus_programs_open, 'programs with a builder bonus');
 });

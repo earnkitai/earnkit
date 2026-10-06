@@ -1045,9 +1045,23 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
     the synthetic `round-rest:` remainder or a coin EarnKit didn't launch), plus the builder bonus
     money routed to the Safe. The Safe's own claims aren't recorded in the database.
   - Label it "fees to the Safe (v2.5 coins)" (`stats.ts` `STATS_LABELS` has every stat's label).
+  - `bonus_programs_open` (v2.6 Ruling 16 (plan)): open programs with the builder bonus on
+    (`bonusOn`'s SQL twin, `builder_bonus AND campaign IS NULL`). Label: "programs with a builder
+    bonus".
   - Caching: with `DATABASE_URL` at build time, the route prerenders and revalidates every 600 s.
     Without it (turbo doesn't pass it), the route renders per request. Either way the read is
     cached for 600 s with `unstable_cache`.
+- **Owner test installations (v2.6 §5, Ruling 6 (plan)):** `EARNKIT_TEST_INSTALLATIONS` is a
+  comma-separated list of installation ids (`installations.ts` `testInstallationIds`; malformed
+  parts are dropped, one `console.warn` per distinct value naming only the count and positions,
+  never the text). These installations' entries are excluded everywhere eligibility is computed
+  (`traction.ts` `eligibleSql`, for both the entry itself and the earlier entry it would otherwise
+  be blocked by — Rulings 13b/15 never let a test entry squat a repo), so they are never scored,
+  ranked or paid. `/bonus/<round>` shows them among the ineligible rows as "Test entry: not
+  ranked" (`bonus-board.ts` `OpenEntry.test`). `/api/stats` excludes them from `installs`,
+  `coins_launched` and the bonus deposits behind `fees_to_safe_eth` — their coins are real and
+  their fees still flow normally into the round or the Safe, they just never show in public
+  numbers. The runbook: use a throwaway repo, since the coin it launches is real.
 - **Design system:** these pages are built from rounded `bg-ek-navy-deep` panels (40px, 56px from
   md, 16px apart), the uppercase eyebrow, Funnel Display headings, Funnel Sans light body text,
   and the v2.4 campaign table style.

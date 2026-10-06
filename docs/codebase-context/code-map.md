@@ -200,9 +200,12 @@ apps/frontend/
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
                                start) in github_repo_facts, 1 h per (repo, pushed_at)
-    installations.ts           save / touch installation by token hash or (v2.4) OAuth client key
+    installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
-                               rememberWallets, installationWallets (installation_wallets)
+                               rememberWallets, installationWallets (installation_wallets);
+                               testInstallationIds (v2.6 Ruling 6 (plan)): EARNKIT_TEST_INSTALLATIONS,
+                               comma-separated ids, malformed parts dropped with one console.warn per
+                               distinct value naming positions only, never the text
     oauth-routes.ts(+limits test) token + authorize handlers (app/oauth/* re-export them)
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id),
                                authorize, code -> token, metadata, clientKeyOf;
@@ -360,21 +363,30 @@ apps/frontend/
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
+                               bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
+                               builder_bonus AND campaign IS NULL, bonusOn's SQL twin),
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
                                only, accrued: 1.5x real indexed bonus deposits of EarnKit coins (M5),
                                never round-rest: rows, + bonus money routed to the Safe),
-                               bonus_paid_eth, installs; STATS_LABELS for jenil.ai
+                               bonus_paid_eth, installs; STATS_LABELS for jenil.ai; v2.6 Ruling 6/16
+                               (plan): installs, coins_launched and the bonus_deposits_wei coin
+                               subquery all exclude owner test installations (installations.ts
+                               testInstallationIds, EARNKIT_TEST_INSTALLATIONS)
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
                                minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
                                openRows/frozenRows/daysLeft/ethText pure; no wallets, flags or
-                               veto reasons; a not-yet-booked open round shows with pool 0
+                               veto reasons; a not-yet-booked open round shows with pool 0;
+                               OpenEntry.test (v2.6 Ruling 6 (plan)): an owner test installation,
+                               listed with the ineligible rows as "Test entry: not ranked"
     public-pages.test.ts       markup tests of /policy, BoardView and the footer link
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
                                liveRatio (live_checks), dbStore (bonus_commits, github_users),
                                GitHubBudget, CLANKER_ADDRESSES, scorableContracts, ownContracts,
-                               eligibleSql, review_flags (single_commit_streak),
+                               eligibleSql (v2.6 Ruling 6 (plan): excludes an owner test
+                               installation, EARNKIT_TEST_INSTALLATIONS, for both the entry and the
+                               earlier entry it would otherwise be blocked by), review_flags (single_commit_streak),
                                resolveBonusWallet, scoreRound (daily cache in bonus_scores, batched),
                                scoreOpenRounds (needsOwner: an ended round's scoring failure, once),
                                canFreeze/readyToFreeze (+24 h escape, flagged; no final read also

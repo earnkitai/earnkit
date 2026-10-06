@@ -1,6 +1,7 @@
 import { sql } from './db';
 import { placesFor, roundRows, type BonusPayoutRow, type BonusTerms } from './bonus-payout';
 import { bonusOn, roundFor } from './bonus-rounds';
+import { testInstallationIds } from './installations';
 import { eligibleSql } from './traction';
 import { shownUrl } from './untrusted-text';
 
@@ -70,6 +71,8 @@ export type OpenEntry = {
   /** The program has a public entry page pattern (else the builder's confirmation counts). */
   pattern: boolean;
   eligible: boolean;
+  /** v2.6 §5, Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS). */
+  test: boolean;
   rank: number | null;
   score: number | null;
   submitted_at: Date;
@@ -88,20 +91,22 @@ const notEligible = (e: OpenEntry) =>
 /**
  * An open round's rows: eligible entries with a score first, by their stored rank renumbered 1..n
  * (an entry that lost eligibility since keeps no rank), then eligible entries not scored yet, then
- * the rest with the reason. Pure.
+ * the rest with the reason — an owner test installation (v2.6 Ruling 6 (plan)) listed among them
+ * as `Test entry: not ranked`, never scored or ranked whatever its own eligible/rank fields say.
+ * Pure.
  */
 export function openRows(entries: OpenEntry[]): BoardRow[] {
   const byTime = (a: OpenEntry, b: OpenEntry) => a.submitted_at.getTime() - b.submitted_at.getTime() || a.id - b.id;
-  const ranked = entries.filter((e) => e.eligible && e.rank !== null).sort((a, b) => a.rank! - b.rank!);
-  const waiting = entries.filter((e) => e.eligible && e.rank === null).sort(byTime);
-  const out = entries.filter((e) => !e.eligible).sort(byTime);
+  const ranked = entries.filter((e) => !e.test && e.eligible && e.rank !== null).sort((a, b) => a.rank! - b.rank!);
+  const waiting = entries.filter((e) => !e.test && e.eligible && e.rank === null).sort(byTime);
+  const out = entries.filter((e) => e.test || !e.eligible).sort(byTime);
   const row = (e: OpenEntry, rank: number | null, note: string): BoardRow => ({
     rank,
     name: e.name,
     repo_url: shownUrl(e.repo_url),
     live_url: shownUrl(e.live_url),
     score: rank === null ? null : scoreText(e.score),
-    eligible: e.eligible,
+    eligible: e.test ? false : e.eligible,
     note,
     amount: null,
     tx: null,
@@ -109,7 +114,7 @@ export function openRows(entries: OpenEntry[]): BoardRow[] {
   return [
     ...ranked.map((e, i) => row(e, i + 1, 'Yes')),
     ...waiting.map((e) => row(e, null, 'Yes, not scored yet')),
-    ...out.map((e) => row(e, null, notEligible(e))),
+    ...out.map((e) => row(e, null, e.test ? 'Test entry: not ranked' : notEligible(e))),
   ];
 }
 
@@ -184,11 +189,13 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
   if (r.state === 'open' || r.state === 'frozen') {
     const [{ wei }] = await sql()<{ wei: string }[]>`
       SELECT COALESCE(sum(amount_wei), 0)::text AS wei FROM bonus_ledger WHERE round_key = ${r.round_key} AND destination = 'round'`;
+    const testIds = testInstallationIds();
     const entries = await sql()<OpenEntry[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
         (p.coin_address IS NOT NULL) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
         (g.submission_proof IS NOT NULL) AS pattern,
-        (${eligibleSql(r.ends_at)}) AS eligible, s.rank, s.score
+        (${eligibleSql(r.ends_at)}) AS eligible,
+        COALESCE(p.installation_id = ANY(${testIds}::int[]), false) AS test, s.rank, s.score
       FROM projects p
       JOIN programs g ON g.id = p.program_id
       LEFT JOIN LATERAL (
