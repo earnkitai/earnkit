@@ -544,7 +544,7 @@ test('Ruling 25 (I8): a repo whose coin is entered in another program is told at
     { fetchProof: async () => `See the repo: ${project.repo_url}` },
   );
   assert.equal(result.recorded, true);
-  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No builder bonus: this repo's coin is entered in Coin Home Program\./);
+  assert.match((result as { bonus_note?: string }).bonus_note ?? '', /No builder bonus: this repo's token is entered in Coin Home Program\./);
 });
 
 test('residual m4: a repo whose coin is entered in this SAME program gets no Ruling 25 note', dbTest, async () => {
@@ -566,7 +566,7 @@ test('residual m4: a repo whose coin is entered in this SAME program gets no Rul
     installationId,
     { fetchProof: async () => `See the repo: ${project.repo_url}` },
   );
-  assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /this repo's coin is entered in/);
+  assert.doesNotMatch((result as { bonus_note?: string }).bonus_note ?? '', /this repo's token is entered in/);
 });
 
 test('M12: the entry-time note judges an earlier entry by the round rule (coin launched before the end), like scoring', dbTest, async () => {

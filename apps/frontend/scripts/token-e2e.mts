@@ -281,7 +281,7 @@ let aRepo = '';
     const none = (await submit({ project: project('No Wallet Echo'), token: { name: 'No Wallet Echo', symbol: 'NOECH' }, confirmed: true, wallet: null })) as Recorded & { show_to_builder?: string };
     check(
       none.recorded === true && none.token.status === 'skipped' && none.token.no_wallet === true && deploys.length === before &&
-        /Reply with a wallet to get your coin/.test(none.show_to_builder ?? ''),
+        /Reply with a wallet to get your token/.test(none.show_to_builder ?? ''),
       '(a) no wallet passed back → recorded, no coin, the plain no-wallet line',
       none,
     );
@@ -465,7 +465,7 @@ let retryRepo = '';
   // Ruling 28 (final I1): the entry has no wallet of its own, and launch_token never falls back to
   // the installation's remembered one: it asks for creator_wallet, and nothing deploys.
   const noWallet = await launch({ project_id: r.project_id });
-  check(noWallet.status === 'failed' && /no wallet for the coin's fees/.test(noWallet.note ?? '') && /creator_wallet/.test(noWallet.agent_note ?? '') && deploys.length === before, '(k) launch_token without a wallet → failed, never the remembered wallet', noWallet);
+  check(noWallet.status === 'failed' && /no wallet for the token's fees/.test(noWallet.note ?? '') && /creator_wallet/.test(noWallet.agent_note ?? '') && deploys.length === before, '(k) launch_token without a wallet → failed, never the remembered wallet', noWallet);
   const l = await launch({ project_id: r.project_id, creator_wallet: WALLET });
   check(l.status === 'launched' && l.symbol === 'KAPPA', '(k) launch_token with the builder\'s wallet launches the stored proposal', l);
 }

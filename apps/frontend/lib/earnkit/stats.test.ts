@@ -149,8 +149,8 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
   }
 });
 
-test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 coins only; every stat has a label', () => {
-  assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 coins)');
+test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 tokens only; every stat has a label', () => {
+  assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 tokens)');
   assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
   for (const l of Object.values(STATS_LABELS)) assert.doesNotMatch(l, /vault|\p{Extended_Pictographic}/u);
 });

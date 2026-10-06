@@ -14,7 +14,7 @@ import {
 export const metadata = {
   title: 'Policy · EarnKit',
   description:
-    'How EarnKit matches builders to programs, where coin fees go, and how the builder bonus is funded, ranked and paid.',
+    'How EarnKit matches builders to programs, where token fees go, and how the builder bonus is funded, ranked and paid.',
   alternates: { canonical: 'https://earnkit.com/policy' },
 };
 
@@ -78,7 +78,7 @@ export default function PolicyPage() {
           How EarnKit works
         </h1>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
-          Plain answers on matching, coin fees and the builder bonus.
+          Plain answers on matching, token fees and the builder bonus.
         </p>
       </Panel>
 
@@ -96,9 +96,9 @@ export default function PolicyPage() {
           <p>You submit on each program&apos;s own site. EarnKit never decides a program&apos;s winners.</p>
         </Section>
 
-        <Section title="Where coin fees go">
+        <Section title="Where token fees go">
           <p>
-            When a project launches its coin through EarnKit, Clanker keeps {CLANKER_CUT_PCT}% of trading fees.
+            A project launches its token through EarnKit. The launch protocol keeps {CLANKER_CUT_PCT}% of trading fees.
             The rest is split, paid in WETH on Base:
           </p>
           <Table head={['Recipient', 'Share']} rows={FEE_ROWS} />
@@ -113,21 +113,21 @@ export default function PolicyPage() {
               {SAFE_ADDRESS}
             </a>
           </p>
-          <p>Coins launched before this split keep the split they launched with.
+          <p>Tokens launched before this split keep the split they launched with.
           </p>
         </Section>
 
         <Section title="The builder bonus">
           <Sub>How it&apos;s funded</Sub>
           <p>
-            The builder bonus share of every coin&apos;s fees goes to a pool for the program the project entered.
+            The builder bonus share of every token&apos;s fees goes to a pool for the program the project entered.
             A program with an end date has one round. A rolling program has one round per calendar month (UTC).
             Every program except EarnKit campaigns has a builder bonus unless it opts out.
           </p>
           <Sub>Who can win</Sub>
           <List
             items={[
-              'You entered through EarnKit and launched your coin through EarnKit.',
+              'You entered through EarnKit and launched your token through EarnKit.',
               <>
                 Programs with public entry pages: your entry page links your repo or live product. Programs without
                 public entry pages: the builder confirms the submission; the owner reviews the top 10 before paying.
@@ -167,22 +167,22 @@ export default function PolicyPage() {
           <Sub>After the round</Sub>
           <p>
             A rolling program&apos;s monthly round is followed by the next month&apos;s round, which gets the fees
-            from then on. Once a program ends, its coins&apos; builder bonus share goes to EarnKit&apos;s Safe. So does
+            from then on. Once a program ends, its tokens&apos; builder bonus share goes to EarnKit&apos;s Safe. So does
             the share of programs that opted out. Nothing rolls over into another program.
           </p>
         </Section>
 
-        <Section title="The coin is optional">
+        <Section title="The token is optional">
           <p>
-            Every entry gets a coin by default, named after the project. Tell your agent to skip it and there&apos;s
-            no coin. Skipping means no builder bonus, nothing else.
+            Every entry gets a token by default, named after the project. Tell your agent to skip it and there&apos;s
+            no token. Skipping means no builder bonus, nothing else.
           </p>
         </Section>
 
         <Section title="No affiliation">
           <p>
             EarnKit lists programs by their factual names. EarnKit isn&apos;t affiliated with or endorsed by any
-            program or its organizer. The builder bonus is paid by EarnKit from coin fees, never by an organizer.
+            program or its organizer. The builder bonus is paid by EarnKit from token fees, never by an organizer.
           </p>
         </Section>
 

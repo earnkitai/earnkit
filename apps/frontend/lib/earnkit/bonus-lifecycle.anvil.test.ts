@@ -578,7 +578,7 @@ async function scenario(mock: Mock) {
   }
   assert.equal(mock.deploys.length - deploysBefore, 3, 'three coins on tokens.fun');
   // The after-submission reply: the coin, then the builder bonus with its leaderboard link.
-  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your coin: tokens\\.fun/coin/${BUILDERS2.delta.coin} · you earn 40% of its fees\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}$`), delta.show_to_builder);
+  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your token: tokens\\.fun/coin/${BUILDERS2.delta.coin} · you earn 40% of its fees\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}$`), delta.show_to_builder);
   // Echo's reply says the one step that joins the bonus; the note tells the agent the field.
   assert.equal(echo.bonus_join?.kind, 'confirm');
   assert.match(echo.show_to_builder, /\nTell me once you've submitted on forms\.gle to join the builder bonus \(/, echo.show_to_builder);

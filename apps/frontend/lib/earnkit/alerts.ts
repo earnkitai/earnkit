@@ -126,7 +126,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
   const fee = f.fees ? feeAlert(f.fees.usd, prev.feeAlertedUsd) : { show: false, next: null };
   // v2.6 §3 fix round 1 (I1): a clause, not a form label; "coin fees" (not "fees to claim") keeps
   // the colon count in the joined sentence down to one, after "checked".
-  if (fee.show && f.fees && f.fees.tokens.length > 0) lines.push(`you have ${usd(f.fees.usd)} in coin fees to claim on tokens.fun`);
+  if (fee.show && f.fees && f.fees.tokens.length > 0) lines.push(`you have ${usd(f.fees.usd)} in token fees to claim on tokens.fun`);
   const top: Record<string, boolean> = {};
   for (const s of f.standings) {
     if (!s.scored) continue;

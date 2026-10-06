@@ -88,7 +88,7 @@ export default async function CampaignPage({
               {usd(prizeUsdEach(c))} each to the top {c.winners}, paid automatically on Base by{' '}
               {formatDeadline(payoutBy(program.ends_at))} after a 48-hour public review. Ranked by unique
               users of each project&apos;s contracts; at least {c.min_score} to be eligible. Enter through
-              your agent: ask it &ldquo;what can I earn?&rdquo; with EarnKit connected (earnkit.com/mcp).
+              your agent: ask it &ldquo;What can I earn?&rdquo; with EarnKit connected (earnkit.com/mcp).
             </p>
             <p className="mt-2 break-all font-funnel-sans text-sm font-light text-ek-blue-soft">
               {funds ? (

@@ -132,8 +132,8 @@ test('Ruling 14: the footnote names the fee wallet when it is known (v2.3 consen
   assert.ok(text.endsWith(`\n\n${tokenFootnote(W)}`));
 });
 
-test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another program says no builder bonus', () => {
-  assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's coin is entered in Arc Microgrants");
+test('Ruling 25 (I8): the token row of a repo whose token is entered in another program says no builder bonus', () => {
+  assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's token is entered in Arc Microgrants");
   // Only where a bonus could be won; v2.3 rows elsewhere are unchanged.
   assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token');
   const text = confirmTable({
@@ -143,15 +143,15 @@ test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another pr
   });
   assert.equal(
     text,
-    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's coin is entered in Arc Microgrants |",
-    'no new coin, so no wallet line and no fee footnote',
+    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's token is entered in Arc Microgrants |",
+    'no new token, so no wallet line and no fee footnote',
   );
   assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
 });
 
 const W = '0xab12000000000000000000000000000000ef0123';
 test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full, once)', () => {
-  assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's coin is entered in Arc Microgrants");
+  assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's token is entered in Arc Microgrants");
   assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`);
   assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W} — or tell me another.`);
   assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your token's fees and any bonus?");
@@ -190,29 +190,29 @@ test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () =>
   const bonus = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus }),
-    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Builder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
   assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'skipped' }, bonus: null }), 'Entered in Base Builder Grant Program.');
   // No wallet: one line, the date once.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus }),
-    'Entered in Arc Microgrants. Reply with a wallet to get your coin and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
+    'Entered in Arc Microgrants. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
-  assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'no_wallet' }, bonus: null }), 'Entered in Base Builder Grant Program. Reply with a wallet to get your coin.');
+  assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'no_wallet' }, bonus: null }), 'Entered in Base Builder Grant Program. Reply with a wallet to get your token.');
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'pending' }, bonus }),
-    'Entered in Arc Microgrants. Your coin is launching.\nBuilder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
+    'Entered in Arc Microgrants. Your token is launching.\nBuilder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
-  assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), "Entered in Arc Microgrants. Your coin isn't launched yet.");
+  assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), "Entered in Arc Microgrants. Your token isn't launched yet.");
   for (const status of ['launched', 'pending', 'no_wallet', 'skipped', 'other'] as const)
     assert.doesNotMatch(
       enteredText({ programTitle: 'P', coin: status === 'launched' ? { status, url: 'https://tokens.fun/coin/0x1' } : { status }, bonus }),
       /launch_token|record_submission|creator_wallet|payout_wallet/,
     );
   // The agent's note (never shown to the builder) names the tool and the date.
-  assert.equal(noCoinYet('Oct 14'), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
-  assert.equal(noCoinYet(null), 'No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
+  assert.equal(noCoinYet('Oct 14'), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
+  assert.equal(noCoinYet(null), 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet.');
 });
 test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
   const prev = process.env.EARNKIT_URL;
@@ -230,24 +230,24 @@ test('fix round 1 (I3): an entry that does not count yet is told plainly what jo
   const coin = { status: 'launched' as const, url: 'https://tokens.fun/coin/0xabc' };
   assert.equal(
     enteredText({ programTitle: 'Base Batches', coin, bonus: { ...base, join: { kind: 'confirm', site: 'base.org' } } }),
-    'Entered in Base Batches. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Base Batches. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       "Tell me once you've submitted on base.org to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
   );
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io' } } }),
-    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // N2: an entry without a repo is asked for its live site link, never a repo link.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io', missing: 'live site' } } }),
-    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Add your live site link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Ruling 24: a public entry page, no entry link given yet.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'link', site: 'dorahacks.io' } } }),
-    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
       'Send me your dorahacks.io entry link to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Counting (join null): the current line.
@@ -307,13 +307,13 @@ test('final M4: a coin not launched yet joins the builder bonus once it is; neve
   const other = { status: 'other' as const };
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: other, bonus }),
-    "Entered in Arc Microgrants. Your coin isn't launched yet; it joins the builder bonus once it is (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
+    "Entered in Arc Microgrants. Your token isn't launched yet; it joins the builder bonus once it is (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
   );
   assert.equal(
     enteredText({ programTitle: 'Base Batches', coin: other, bonus: { ...bonus, join: { kind: 'confirm', site: 'base.org' } } }),
-    "Entered in Base Batches. Your coin isn't launched yet.\nTell me once you've submitted on base.org. With your coin launched, that joins the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
+    "Entered in Base Batches. Your token isn't launched yet.\nTell me once you've submitted on base.org. With your token launched, that joins the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc).",
   );
-  assert.doesNotMatch(enteredText({ programTitle: 'A', coin: other, bonus }), /\nBuilder bonus:|No coin yet/);
+  assert.doesNotMatch(enteredText({ programTitle: 'A', coin: other, bonus }), /\nBuilder bonus:|No token yet/);
 });
 
 test('v2.7 §3: a token on Base, no Clanker', () => {

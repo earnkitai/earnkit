@@ -451,8 +451,8 @@ export const tools = {
     // updated entry that already has its coin keeps it (no second launch, no refusal shown).
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
-        ? { status: 'pending', note: 'This entry\'s coin is launching.' }
-        : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its coin.' }
+        ? { status: 'pending', note: 'This entry\'s token is launching.' }
+        : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its token.' }
       : await submissionToken(
       {
         projectId: result.project_id,
@@ -475,10 +475,10 @@ export const tools = {
     const repoHeld = 'repo_held' in result && result.repo_held === true;
     // M1: a held repo can't get a coin here, so never ask the agent to launch one.
     const tokenOut = repoHeld && token.no_wallet
-      ? { status: token.status, note: 'No coin: another entry of this repo in this program already has its coin (one coin per repo).' }
+      ? { status: token.status, note: 'No token: another entry of this repo in this program already has its token (one token per repo).' }
       : token.no_wallet
         ? // Ruling 31's split here too: plain note, the instruction (noCoinYet) for the agent.
-          { ...token, note: 'No coin yet: no wallet was given.', agent_note: noCoinYet(endsLabel) }
+          { ...token, note: 'No token yet: no wallet was given.', agent_note: noCoinYet(endsLabel) }
         : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =

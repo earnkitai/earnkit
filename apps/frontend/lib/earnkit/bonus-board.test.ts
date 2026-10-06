@@ -46,7 +46,7 @@ test('openRows: eligible ranked first (re-numbered), then eligible unscored, the
       ['P3', 1, '88.0', true, 'Yes'],
       ['P2', 2, '40.1', true, 'Yes'],
       ['P4', null, null, true, 'Yes, not scored yet'],
-      ['P1', null, null, false, 'No: no coin'],
+      ['P1', null, null, false, 'No: no token'],
       ['P5', null, null, false, 'No: submission page not confirmed yet'],
       ['P6', null, null, false, 'No: an earlier entry of this repo counts'],
     ],
@@ -61,7 +61,7 @@ test('v2.6 §3: a program without a public entry page says the submission is not
     entry(3, { pattern: true, proof: false, eligible: false }),
   ]);
   assert.deepEqual(rows.map((r) => r.note), [
-    'No: no coin',
+    'No: no token',
     'No: submission not confirmed yet',
     'No: submission page not confirmed yet',
   ]);
@@ -150,7 +150,7 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
     );
     assert.deepEqual(open.rows.map((r) => [r.name, r.rank, r.score, r.note]), [
       ['alpha', 1, '61.5', 'Yes'],
-      ['beta', null, null, 'No: no coin'],
+      ['beta', null, null, 'No: no token'],
     ]);
     const paid = await bonusBoard(paidKey, realNow);
     assert.ok(paid);

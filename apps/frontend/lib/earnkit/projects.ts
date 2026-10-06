@@ -710,7 +710,7 @@ export async function recordSubmission(
         // M1: the repo's one coin is on another entry here (this row's own coin, or its launch in
         // flight, is not "another"), so this entry can get no coin and no builder bonus.
         else if (coinHere && !own?.earnkit_coin)
-          notes.push('Not eligible for the builder bonus: another entry of this repo in this program has its coin (one coin per repo).');
+          notes.push('Not eligible for the builder bonus: another entry of this repo in this program has its token (one token per repo).');
         repoHeld = Boolean(earlier) || (coinHere && !own?.earnkit_coin);
       }
       if (bonusContracts && bonusOn(program)) {

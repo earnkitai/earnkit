@@ -84,7 +84,7 @@ export type OpenEntry = {
 /** Why an entry isn't eligible, in plain words. Pure. */
 const notEligible = (e: OpenEntry) =>
   !e.coin
-    ? 'No: no coin'
+    ? 'No: no token'
     : !e.proof
       ? e.pattern
         ? 'No: submission page not confirmed yet'

@@ -132,10 +132,10 @@ export const deadlineDay = (ends: Date) =>
  * (roundEndLabel; null: no open round or no bonus, so no date). Pure.
  */
 export const noCoinYet = (endsLabel: string | null) =>
-  `No coin yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
+  `No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet${endsLabel ? ` by ${endsLabel}` : ''}.`;
 
 /** Final review M1: the one line for an entry whose repo another entry already holds here. */
-export const REPO_HELD = 'Another entry of this repo already holds its coin and builder bonus here.';
+export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';
 
 export type EnteredText = {
   programTitle: string;
@@ -176,22 +176,22 @@ export function enteredText(a: EnteredText) {
   const round = a.bonus && `${a.bonus.cell} · ends ${a.bonus.ends} · ${a.bonus.board}`;
   if (a.coin.status === 'no_wallet')
     return round
-      ? `${entered} Reply with a wallet to get your coin and join the builder bonus (${round}).`
-      : `${entered} Reply with a wallet to get your coin.`;
+      ? `${entered} Reply with a wallet to get your token and join the builder bonus (${round}).`
+      : `${entered} Reply with a wallet to get your token.`;
   const coin =
     a.coin.status === 'launched'
-      ? ` Your coin: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
+      ? ` Your token: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
       : a.coin.status === 'pending'
-        ? ' Your coin is launching.'
+        ? ' Your token is launching.'
         : a.coin.status === 'other'
-          ? " Your coin isn't launched yet."
+          ? " Your token isn't launched yet."
           : '';
   if (!round) return `${entered}${coin}`;
   const join = a.bonus!.join;
   // M4: the bonus needs the coin, so a coin not launched yet joins it once it is.
   if (!join)
     return a.coin.status === 'other'
-      ? `${entered} Your coin isn't launched yet; it joins the builder bonus once it is (${round}).`
+      ? `${entered} Your token isn't launched yet; it joins the builder bonus once it is (${round}).`
       : `${entered}${coin}\nBuilder bonus: ${round}`;
   const line =
     join.kind === 'page'
@@ -201,7 +201,7 @@ export function enteredText(a: EnteredText) {
         : `Tell me once you've submitted on ${join.site}`;
   // Re-review Minor 2: with the coin still to launch, the step and the coin are two plain sentences.
   return a.coin.status === 'other'
-    ? `${entered}${coin}\n${line}. With your coin launched, that joins the builder bonus (${round}).`
+    ? `${entered}${coin}\n${line}. With your token launched, that joins the builder bonus (${round}).`
     : `${entered}${coin}\n${line} to join the builder bonus (${round}).`;
 }
 
@@ -209,7 +209,7 @@ export function enteredText(a: EnteredText) {
 export const boardLink = (roundKey: string) => `${siteUrl().replace(/^https?:\/\//, '')}/bonus/${boardSlug(roundKey)}`;
 
 /** The no-bonus line for an entry whose repo's coin is entered in another program (Ruling 25). Pure. */
-export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's coin is entered in ${programTitle}`;
+export const repoCoinNote = (programTitle: string) => `no builder bonus: this repo's token is entered in ${programTitle}`;
 
 /**
  * The line under the table: the earnings detail and both terms links (the v2.3 consent text),
