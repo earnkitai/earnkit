@@ -18,7 +18,7 @@ import { holdBonusDbLock } from './fixtures/bonus-db-lock';
  *   on the second one, as on Base) from contracts/test/mocks/BonusMocks.sol;
  * - one local HTTP server standing in for tokens.fun (ticker check, deploy), raw GitHub (each
  *   repo's earnkit.txt) and Base Blockscout (coin info, holders, transfers);
- * - the GitHub API, the live-link probe, the proof pages and the sanctions screen, injected.
+ * - the GitHub API, the proof pages and the sanctions screen, injected.
  *
  * The story, over simulated days (`now` follows anvil's block time; the cron runs through
  * cronPost, so the HTTP status is checked too):
@@ -270,7 +270,7 @@ async function scenario(mock: Mock) {
     const [row] = await sql()<{ id: number }[]>`
       INSERT INTO installations (token_hash, payout_wallet) VALUES (${`t10-e2e-${n}-${Date.now()}`}, ${b.wallet}) RETURNING id`;
     inst[n] = row.id;
-    if (b.symbol) mock.files.set(b.login, `payout_wallet: ${b.wallet}\n${tokenLineFor(row.id, repoOf(n), b.symbol)}\n`);
+    if (b.symbol) mock.files.set(b.login, `payout_wallet: ${b.wallet}\n${tokenLineFor(row.id, repoOf(n))}\n`);
     const r = (await tools.record_submission(
       {
         program_id: PROG,
@@ -285,7 +285,7 @@ async function scenario(mock: Mock) {
         installationId: row.id,
         entryDeps: { fetchProof },
         tokenDeps: {
-          gate: { repo: async () => ({ fork: false, hasCommits: true }), probe: async () => {}, screen: async () => {} },
+          gate: { repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }), screen: async () => {} },
           limit: async () => {},
         },
       },

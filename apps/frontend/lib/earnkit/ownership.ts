@@ -62,9 +62,16 @@ export type OwnershipFile = {
   /**
    * `token: <SYMBOL> <code>` lines (v2.3 Ruling 17): the symbol uppercased, the code as written
    * (null when the line has none). A launch needs the line for its ticker with the launching
-   * agent's code (token-gate.ts tokenLineFor). Campaign checks ignore them.
+   * agent's code. Since v2.6 only a launch of that ticker still accepts one (Ruling 1 (plan),
+   * token-gate.ts legacyTokenLineCode). Campaign checks ignore them.
    */
   tokens: { symbol: string; code: string | null }[];
+  /**
+   * v2.6 §3: ticker-free `token: <code>` lines, the code lowercase 16-hex (token-gate.ts
+   * tokenLineFor). Sixteen hex characters can never be a v2.5 symbol (at most 10). Campaign checks
+   * ignore them.
+   */
+  codes: string[];
   /** 1-based line numbers and what's wrong; the file's text is never echoed. */
   problems: string[];
 };
@@ -81,6 +88,7 @@ export function parseOwnershipFile(text: string): OwnershipFile {
   const wallets = new Set<string>();
   const creators = new Set<string>();
   const tokens: OwnershipFile['tokens'] = [];
+  const codes: string[] = [];
   const problems: string[] = [];
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.replace(/#.*$/, '').trim();
@@ -92,6 +100,10 @@ export function parseOwnershipFile(text: string): OwnershipFile {
     // Only payout_wallet lines can make the file wrong: creator_wallet and token lines are for
     // token launches, and a malformed one is ignored (it never fails a campaign entry).
     if (key === 'token') {
+      if (values.length === 1 && /^[0-9a-f]{16}$/i.test(values[0])) {
+        codes.push(values[0].toLowerCase());
+        return;
+      }
       const [symbol, code, ...rest] = values;
       if (
         symbol &&
@@ -112,6 +124,7 @@ export function parseOwnershipFile(text: string): OwnershipFile {
     payoutWallet: wallets.size === 1 ? [...wallets][0] : null,
     creatorWallets: [...creators],
     tokens,
+    codes,
     problems,
   };
 }
@@ -135,39 +148,88 @@ export const fetchOwnershipFile: OwnershipFetcher = async (url) => {
       signal,
       headers: { accept: 'text/plain', 'user-agent': 'EarnKit-verifier/1' },
     });
-    if (res.status === 404) return { status: 'missing' };
-    if (res.status >= 300 && res.status < 400)
-      return {
-        status: 'error',
-        message: `it redirects (${res.status}); use the repo's current GitHub link`,
-      };
-    if (res.status !== 200)
-      return { status: 'error', message: `it answered ${res.status}` };
-    const length = Number(res.headers.get('content-length'));
-    if (Number.isFinite(length) && length > FETCH_MAX_BYTES) return tooLarge();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    const reader = res.body?.getReader();
-    for (;;) {
-      const chunk = reader ? await reader.read() : { done: true as const };
-      if (chunk.done) break;
-      size += chunk.value.byteLength;
-      if (size > FETCH_MAX_BYTES) {
-        await reader?.cancel().catch(() => {});
-        return tooLarge();
-      }
-      chunks.push(chunk.value);
-    }
-    return { status: 'ok', text: Buffer.concat(chunks).toString('utf8') };
+    return await readSmallBody(res);
   } catch {
-    return {
-      status: 'error',
-      message: signal.aborted
-        ? `no answer within ${FETCH_TIMEOUT_MS / 1000} s`
-        : 'the fetch failed',
-    };
+    return fetchFailed(signal);
   }
 };
+
+const fetchFailed = (signal: AbortSignal): FetchResult => ({
+  status: 'error',
+  message: signal.aborted
+    ? `no answer within ${FETCH_TIMEOUT_MS / 1000} s`
+    : 'the fetch failed',
+});
+
+/**
+ * One small text file's answer: 404 is missing, a redirect or any other non-200 is an error, more
+ * than 4 KB is an error, else the body as UTF-8. Throws only when reading the body fails (callers
+ * turn that into an error).
+ */
+async function readSmallBody(res: Response): Promise<FetchResult> {
+  if (res.status === 404) return { status: 'missing' };
+  if (res.status >= 300 && res.status < 400)
+    return {
+      status: 'error',
+      message: `it redirects (${res.status}); use the repo's current GitHub link`,
+    };
+  if (res.status !== 200)
+    return { status: 'error', message: `it answered ${res.status}` };
+  const length = Number(res.headers.get('content-length'));
+  if (Number.isFinite(length) && length > FETCH_MAX_BYTES) return tooLarge();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = res.body?.getReader();
+  for (;;) {
+    const chunk = reader ? await reader.read() : { done: true as const };
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > FETCH_MAX_BYTES) {
+      await reader?.cancel().catch(() => {});
+      return tooLarge();
+    }
+    chunks.push(chunk.value);
+  }
+  return { status: 'ok', text: Buffer.concat(chunks).toString('utf8') };
+}
+
+/**
+ * v2.6 §3: earnkit.txt through GitHub's contents API with EarnKit's GITHUB_TOKEN (no raw-CDN cache
+ * delay after a push). Ruling 14 (plan): raw.githubusercontent.com is read only when the API is
+ * rate-limited (429, or 403 with x-ratelimit-remaining 0); a 404 is missing; a redirect, another
+ * status or a network failure is a retryable error. The token is sent, never logged.
+ */
+export async function fetchOwnershipViaApi(
+  r: { owner: string; repo: string },
+  deps: { fetch?: typeof fetch; raw?: OwnershipFetcher; token?: string } = {},
+): Promise<FetchResult> {
+  const token = deps.token ?? process.env.GITHUB_TOKEN;
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  try {
+    const res = await (deps.fetch ?? fetch)(
+      `https://api.github.com/repos/${r.owner}/${r.repo}/contents/${OWNERSHIP_FILE}`,
+      {
+        redirect: 'manual',
+        signal,
+        headers: {
+          Accept: 'application/vnd.github.raw',
+          'User-Agent': 'earnkit',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      },
+    );
+    if (
+      res.status === 429 ||
+      (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')
+    ) {
+      await res.body?.cancel().catch(() => {});
+      return (deps.raw ?? fetchOwnershipFile)(ownershipFileUrl(r));
+    }
+    return await readSmallBody(res);
+  } catch {
+    return fetchFailed(signal);
+  }
+}
 const tooLarge = (): FetchResult => ({
   status: 'error',
   message: `it is larger than ${FETCH_MAX_BYTES} bytes`,

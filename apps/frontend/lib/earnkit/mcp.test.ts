@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { createMcpServer } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, createMcpServer } from './mcp';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
 
@@ -226,4 +226,17 @@ test('Ruling 13 (plan): the local_repos item schema accepts a url', async () => 
     items: { properties: Record<string, unknown> };
   };
   assert.ok('url' in localRepos.items.properties, JSON.stringify(localRepos.items.properties));
+});
+
+test('v2.6: the coin needs one ticker-free line the agent pushes; no wallet line, no live link', async () => {
+  assert.ok(OWNERSHIP_FOR_TOKEN.includes('token: <code>'));
+  assert.ok(OWNERSHIP_FOR_TOKEN.includes('never ask the builder to edit files'));
+  for (const gone of ['payout_wallet', '<SYMBOL>', 'live link'])
+    assert.ok(!OWNERSHIP_FOR_TOKEN.includes(gone), gone);
+  const { tools } = await listed({});
+  const launch = tools.find((t) => t.name === 'launch_token')!.description!;
+  assert.ok(launch.includes('after you pushed earnkit.txt or the builder gave a wallet (creator_wallet)'));
+  assert.ok(!launch.includes('live link'));
+  for (const name of ['prepare_submission', 'record_submission', 'launch_token'])
+    assert.ok(tools.find((t) => t.name === name)!.description!.includes(OWNERSHIP_FOR_TOKEN), name);
 });

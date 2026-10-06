@@ -171,14 +171,13 @@ export function decideToken(a: {
   return { action: 'launch', name: name.name, symbol };
 }
 
-/** What the builder must have in the repo before a launch (v2.3 Ruling 12 and its fix round). */
-const ownershipLine = (wallet: string | null, tokenLine: string | null) =>
-  `The project's public GitHub repo needs a file named ${OWNERSHIP_FILE} at its root with the line ` +
-  `"payout_wallet: ${wallet ?? '<creator wallet>'}" (campaign entries already have it; if that line ` +
-  `names another wallet, add "creator_wallet: ${wallet ?? '<creator wallet>'}") and, for each launch, ` +
-  (tokenLine
-    ? `the line "${tokenLine}" (it is for this agent, this repo and this ticker only; a changed ticker gets a new line).`
-    : "a line \"token: <SYMBOL> <code>\" for this agent: pass the project's repo_url (and the ticker) to get it, or record_submission's token note gives it.");
+/** What the agent must push before a launch (v2.6 §3: one ticker-free line; the builder edits nothing). */
+const ownershipLine = (tokenLine: string | null) =>
+  tokenLine
+    ? `Write the line "${tokenLine}" to ${OWNERSHIP_FILE} at the repo root (default branch) and push it yourself ` +
+      'before record_submission; never ask the builder to edit files. It is for this agent and this repo only; ' +
+      'a new ticker needs no new line.'
+    : "Pass the project's repo_url to get its earnkit.txt token line.";
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
@@ -214,8 +213,7 @@ export async function tokenProposalBlock(
   else if (proposal.note) notes.push(proposal.note);
   if (!a.creatorWallet) notes.push('Ask the builder for the wallet that receives creator fees.');
   // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
-  const tokenLine =
-    a.repoUrl && proposal.symbol ? tokenLineFor(a.installationId, a.repoUrl, proposal.symbol) : null;
+  const tokenLine = a.repoUrl ? tokenLineFor(a.installationId, a.repoUrl) : null;
   const hasBonus = hasBuilderBonus(program);
   // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
   // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
@@ -230,7 +228,7 @@ export async function tokenProposalBlock(
   const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
   if (coinIn)
     notes.push(`This repo already has its coin, entered in ${coinIn}: don't pass token; this entry gets no new coin and no builder bonus`);
-  else notes.push(ownershipLine(a.creatorWallet, tokenLine));
+  else notes.push(ownershipLine(tokenLine));
   return {
     proposed:
       proposal.name === null
@@ -452,11 +450,9 @@ async function runTokenFlow(
     {
       policy: project.token_policy,
       repoUrl: project.repo_url,
-      liveUrl: project.live_url,
       wallet: wallet!,
       symbol,
       installationId: a.installationId,
-      provenWallet: project.payout_wallet,
     },
     deps.gate,
   );
@@ -485,7 +481,7 @@ async function runTokenFlow(
       imageUrl: choice?.image_url,
       builderX: choice?.builder_x,
       chain: a.chain,
-      // The links the gate just checked: the claim is bound to them.
+      // The repo the gate just checked (and the live link, a traction signal): the claim is bound to them.
       repoUrl: project.repo_url,
       liveUrl: project.live_url,
     });

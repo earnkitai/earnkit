@@ -5,7 +5,7 @@ import type { ProgramRow } from './programs';
 import { RateLimitError } from './rate-limit';
 import { EARNINGS_LINE, LaunchError, TOKEN_TERMS, type TokenOutcome } from './tokens';
 import { RecordSubmissionInput } from './projects';
-import { tokenLineFor } from './token-gate';
+import { legacyTokenLineCode, tokenLineFor } from './token-gate';
 import { TOKEN_FOOTNOTE, tokenFootnote, tokenRow } from './entry-text';
 import {
   NON_BASE_NO_BONUS,
@@ -99,9 +99,9 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   assert.ok(TOKEN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && TOKEN_FOOTNOTE.includes(TOKEN_TERMS.risks));
   // v2.5 Task 8 / v2.6 Ruling 7: this program fixture has no status ('active' required), so no builder bonus.
   assert.equal(b.has_bonus, false);
-  // The repo proof is spelled out for the agent; without a repo there is no token line yet.
-  assert.match(b.note, /earnkit\.txt at its root with the line "payout_wallet: 0xW"/);
-  assert.match(b.note, /pass the project's repo_url/);
+  // Without a repo there is no token line yet; v2.6: never a wallet line for a coin.
+  assert.match(b.note, /Pass the project's repo_url to get its earnkit\.txt token line\./);
+  assert.doesNotMatch(b.note, /payout_wallet:/);
 });
 
 test('hasBuilderBonus: active, not opted out, not a campaign (v2.6 Ruling 7)', () => {
@@ -157,13 +157,20 @@ test("tokenProposalBlock: with the repo known, this agent's own token line", asy
   const repoUrl = 'https://github.com/acme/kit';
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);
   assert.ok(b);
-  const line = tokenLineFor(1, repoUrl, 'CHAIN')!;
-  assert.match(line, /^token: CHAIN [0-9a-f]{10}$/);
+  const line = tokenLineFor(1, repoUrl)!;
+  assert.match(line, /^token: [0-9a-f]{16}$/);
   assert.ok(!b.say_to_builder.includes(line));
-  assert.ok(b.note.includes(`"${line}"`));
+  // v2.6 §3: the agent writes and pushes the one ticker-free line itself.
+  assert.ok(b.note.includes(`Write the line "${line}" to earnkit.txt at the repo root (default branch) and push it yourself`), b.note);
+  assert.ok(b.note.includes('never ask the builder to edit files'));
+  assert.ok(b.note.includes('a new ticker needs no new line'));
+  assert.doesNotMatch(b.note, /payout_wallet:|creator_wallet:/);
   // Another agent asking about the same repo is shown its own line, never this one.
   const other = await tokenProposalBlock({ program: program('encouraged'), installationId: 2, projectName: 'Chain Kits', creatorWallet: '0xW', repoUrl }, free);
-  assert.ok(other && !other.note.includes(line) && other.note.includes(tokenLineFor(2, repoUrl, 'CHAIN')!));
+  assert.ok(other && !other.note.includes(line) && other.note.includes(tokenLineFor(2, repoUrl)!));
+  // Another proposed ticker (another project name) gets the same line: it is bound to the repo, not the ticker.
+  const renamed = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Orbit Tools', creatorWallet: '0xW', repoUrl }, free);
+  assert.ok(renamed && renamed.proposed?.symbol !== b.proposed?.symbol && renamed.note.includes(`"${line}"`));
 });
 
 test('tokenProposalBlock: null when launches are not configured', async () => {
@@ -186,7 +193,7 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
   assert.equal(b.creator_wallet, null);
   assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
   assert.match(b.note, /^Ask the builder for the wallet that receives creator fees\. /);
-  assert.match(b.note, /"payout_wallet: <creator wallet>"/);
+  assert.doesNotMatch(b.note, /payout_wallet:/);
   assert.equal(b.say_to_builder, `${tokenRow('CHAIN')}\n\n${TOKEN_FOOTNOTE}`);
 });
 
@@ -200,9 +207,8 @@ test('tokenProposalBlock: no proposal asks the builder to pick one', async () =>
 
 // The flow, with the database replaced by an in-memory store.
 const WALLET = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-// The repo's earnkit.txt carries installation 1's token line for every ticker these tests launch.
-const tokenLines = (repoUrl = 'https://github.com/acme/kit') =>
-  ['CHAIN', 'CKIT', 'KITS', 'KONE', 'KTWO'].map((t) => tokenLineFor(1, repoUrl, t)).join('\n');
+// The repo's earnkit.txt carries installation 1's token line (v2.6: one line, any ticker).
+const tokenLines = (repoUrl = 'https://github.com/acme/kit') => tokenLineFor(1, repoUrl)!;
 function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {}) {
   const project: FlowProject = {
     id: 7, name: 'Chain Kits', repo_url: 'https://github.com/acme/kit', live_url: 'https://kit.acme.dev',
@@ -220,12 +226,11 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
     limit: async () => { calls.push('limit'); },
     check: async () => true,
     gate: {
-      repo: async () => { calls.push('repo'); return { fork: false, hasCommits: true }; },
+      repo: async () => { calls.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
       owner: async (r) => {
         calls.push('owner');
-        return { status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLines(`https://github.com/${r.owner}/${r.repo}`)}` };
+        return { status: 'ok', text: tokenLines(`https://github.com/${r.owner}/${r.repo}`) };
       },
-      probe: async (url) => { calls.push(`probe ${url}`); },
       screen: async () => {},
     },
     deploy: async (a) => {
@@ -346,10 +351,11 @@ test('submissionToken: any error becomes a failed token, logged, never a throw',
 });
 
 test('tokenAfterSubmission: a failed gate is stored with the launch name and ticker', async () => {
-  const h = harness({ live_url: null });
+  const h = harness();
+  h.deps.gate!.owner = async () => ({ status: 'missing' });
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { symbol: 'kits' }, confirmed: true }, h.deps);
   assert.equal(out.status, 'gate_failed');
-  assert.match(out.note ?? '', /live link/);
+  assert.match(out.note ?? '', /earnkit\.txt/);
   assert.deepEqual(h.writes, [{ id: 7, status: 'gate_failed', note: out.note, name: 'Chain Kits', symbol: 'KITS' }]);
   assert.equal(h.deploys.length, 0);
 });
@@ -374,26 +380,23 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
   await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(h.deploys[0].creatorWallet, other);
   assert.ok(h.calls.includes('owner'));
-  // Another creator wallet must be on a creator_wallet line.
+  // v2.6 §3: another creator wallet needs no creator_wallet line; the token line is the proof.
   const mine = '0x' + 'b'.repeat(40);
   const h2 = harness({ payout_wallet: other });
-  const refused = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true }, h2.deps);
-  assert.equal(refused.status, 'gate_failed');
-  assert.match(refused.note ?? '', new RegExp(`"creator_wallet: ${mine}"`));
-  const h3 = harness({ payout_wallet: other });
-  h3.deps.gate!.owner = async () => ({ status: 'ok', text: `payout_wallet: ${other}\ncreator_wallet: ${mine}\n${tokenLines()}` });
-  await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true }, h3.deps);
-  assert.equal(h3.deploys[0].creatorWallet, mine);
+  h2.deps.gate!.owner = async () => ({ status: 'ok', text: `payout_wallet: ${other}\n${tokenLines()}` });
+  const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { ...CONFIRMED, creator_wallet: mine }, confirmed: true }, h2.deps);
+  assert.equal(out.status, 'launched');
+  assert.equal(h2.deploys[0].creatorWallet, mine);
 });
 
-test('ownership: a repo whose earnkit.txt is missing or names another wallet gets no token', async () => {
+test('ownership: a repo whose earnkit.txt is missing or lacks this agent\'s line gets no token', async () => {
+  const LINE = tokenLines();
   for (const [got, re] of [
-    [{ status: 'missing' }, /proof the builder owns github\.com\/acme\/kit.*"payout_wallet: 0x1581/],
-    [{ status: 'ok', text: `payout_wallet: 0x${'d'.repeat(40)}\n${tokenLines()}` }, /doesn't name the creator wallet/],
-    // A wallet copied from someone else's file, without this launch's token line.
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, /Add the line "token: CHAIN [0-9a-f]{10}" to earnkit\.txt/],
-    // Another agent's line for the same repo and ticker (copied from the public file).
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit', 'CHAIN')}` }, /Add the line "token: CHAIN [0-9a-f]{10}"/],
+    [{ status: 'missing' }, new RegExp(`proof you can push to github\\.com/acme/kit.*"${LINE}"`)],
+    // A wallet line alone (copied or not) proves nothing.
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt`)],
+    // Another agent's line for the same repo (copied from the public file).
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit')}` }, new RegExp(`Add the line "${LINE}"`)],
     [{ status: 'error', message: 'it answered 500' }, /couldn't read earnkit\.txt/],
   ] as const) {
     const h = harness();
@@ -402,7 +405,7 @@ test('ownership: a repo whose earnkit.txt is missing or names another wallet get
     assert.equal(out.status, 'gate_failed');
     assert.match(out.note ?? '', re);
     assert.equal(h.deploys.length, 0);
-    // Checked after the repo, before the live link.
+    // Checked after the repo.
     assert.deepEqual(h.calls, ['repo', 'owner']);
   }
 });
@@ -431,7 +434,7 @@ test('launch limit: counted only right before a deploy; over it is a failed outc
   assert.match(out.note ?? '', /^This agent has launched 3 tokens today, the daily limit\. Try again in an hour\.$/);
   assert.equal(h.deploys.length, 0);
   // Not counted for skips or gate failures.
-  for (const [p, choice] of [[{}, 'skip'], [{ live_url: null }, CONFIRMED]] as const) {
+  for (const [p, choice] of [[{}, 'skip'], [{ repo_url: null }, CONFIRMED]] as const) {
     const h2 = harness(p);
     await tokenAfterSubmission({ projectId: 7, installationId: 1, choice, confirmed: true }, h2.deps);
     assert.ok(!h2.calls.includes('limit'));
@@ -477,12 +480,11 @@ test('the claim is bound to the links the gate checked', async () => {
   await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
   assert.equal(h.deploys[0].repoUrl, 'https://github.com/acme/kit');
   assert.equal(h.deploys[0].liveUrl, 'https://kit.acme.dev');
-  assert.ok(h.calls.includes('probe https://kit.acme.dev'));
+  assert.ok(h.calls.includes('owner'));
   // launch_token's overrides are what the gate checks and what deployToken binds the claim to.
   const h2 = harness();
   await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, live_url: 'https://kit2.acme.dev' }), 1, h2.deps);
   assert.equal(h2.deploys[0].liveUrl, 'https://kit2.acme.dev/');
-  assert.ok(h2.calls.includes('probe https://kit2.acme.dev/'));
   // deployToken finding the row changed (a concurrent launch_token) is reported as is; nothing is recorded.
   const h3 = harness({}, { deploy: async () => ({ status: 'failed', note: "The project's links changed during the launch; call launch_token again." }) });
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h3.deps);
@@ -599,7 +601,6 @@ test('launchToken: live_url and repo_url overrides are cleaned, saved, then gate
   const out = await launchToken(launchInput({ live_url: 'kit-fixed.acme.dev', repo_url: 'https://github.com/acme/kit2' }), 1, h.deps);
   assert.equal(out.status, 'launched');
   assert.deepEqual(h.links, [{ id: 7, inst: 1, repo_url: 'https://github.com/acme/kit2', live_url: 'https://kit-fixed.acme.dev/' }]);
-  assert.ok(h.calls.includes('probe https://kit-fixed.acme.dev/'));
   // A campaign entry's repo can't change; a bad link is named.
   const c = harness({ payout_wallet: WALLET });
   const refused = await launchToken(launchInput({ repo_url: 'https://github.com/acme/other' }), 1, c.deps);
@@ -683,4 +684,24 @@ test('residual m6: a non-Base coin on a program with a builder bonus never impli
   const gated = await launchToken(LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, chain: 'robinhood', ...CONFIRMED }), 1, g.deps);
   assert.equal(gated.status, 'gate_failed');
   assert.ok(!(gated.note ?? '').includes(NON_BASE_NO_BONUS), gated.note);
+});
+
+test('v2.6: a stored-proposal launch with an edited ticker uses the same line; no live link needed', async () => {
+  // earnkit.txt holds only the one line pushed for the proposal ($CHAIN); the builder renames to $NEWT.
+  const h = harness({ live_url: null, token_name: 'Chain Kits', token_symbol: 'CHAIN' });
+  h.deps.gate!.owner = async () => { h.calls.push('owner'); return { status: 'ok', text: tokenLines() }; };
+  const out = await launchToken(launchInput({ symbol: 'NEWT' }), 1, h.deps);
+  assert.equal(out.status, 'launched');
+  assert.equal(h.deploys[0].symbol, 'NEWT');
+  assert.equal(h.deploys[0].liveUrl, null);
+  // A v2.5 line for the old ticker proves only that ticker (Ruling 1 (plan)).
+  const legacy = `token: CHAIN ${legacyTokenLineCode(1, 'https://github.com/acme/kit', 'CHAIN')}`;
+  const h2 = harness();
+  h2.deps.gate!.owner = async () => ({ status: 'ok', text: legacy });
+  assert.equal((await launchToken(launchInput(), 1, h2.deps)).status, 'launched');
+  const h3 = harness();
+  h3.deps.gate!.owner = async () => ({ status: 'ok', text: legacy });
+  const renamed = await launchToken(launchInput({ symbol: 'NEWT' }), 1, h3.deps);
+  assert.equal(renamed.status, 'gate_failed');
+  assert.match(renamed.note ?? '', new RegExp(`Add the line "${tokenLines()}"`));
 });
