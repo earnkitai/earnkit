@@ -37,6 +37,19 @@ export const SubmissionRequirement = z
     /** Limits, format, or what the organizer is looking for. */
     description: z.string().optional(),
     options: z.array(z.string()).optional(),
+    /**
+     * v2.7 C5: the item as a short builder to-do for "Before you submit: …" ("a live link on Arc
+     * mainnet"): lowercase start, at most 40 characters, no trailing punctuation. Without it, the
+     * label is normalized (entry-text.ts todoOf).
+     */
+    todo: z
+      .string()
+      .min(1)
+      .max(40)
+      .refine((s) => !/https?:\/\/|www\./i.test(s), 'no links')
+      .refine((s) => !/[.?:!;,]$/.test(s), 'no trailing punctuation')
+      .refine((s) => s === s.trim() && !/^\p{Lu}(\p{Ll}|\s)/u.test(s), 'lowercase start, no outer spaces')
+      .optional(),
     /** Filled automatically from this project field when the agent knows it. */
     project_field: z.enum(PROJECT_FIELDS).optional(),
     /**

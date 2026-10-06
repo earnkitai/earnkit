@@ -22,29 +22,35 @@ export function keyTable(rows: [string, string][]) {
 }
 
 /**
+ * The proposed token as the builder sees it (fix round 1, Minor 3): "Tip Jar ($TIPJAR)", or just
+ * "$TIPJAR" when the name adds nothing (it is the ticker, or unknown). Pure.
+ */
+const tokenLabel = (symbol: string, name?: string | null) =>
+  name && name.replace(/\s+/g, '').toUpperCase() !== symbol ? `${name} ($${symbol})` : `$${symbol}`;
+
+/** Fix round 1 (Minor 4): the skip, as the words to say and what it costs. Pure. */
+const skipText = (hasBonus: boolean) => (hasBonus ? 'say skip for no token (and no builder bonus)' : 'say skip for no token');
+
+/**
  * The one token row in EarnKit campaigns (v2.4: a default at submission only, never advertised).
  * v2.7 §3: the token's chain is explicit (tokens.fun launches on Base). `hasBonus` (v2.5 §3)
- * swaps the generic "say no token to skip" for what skipping costs here: the builder bonus. Pure.
+ * adds what skipping costs here: the builder bonus. Pure.
  */
-export const tokenRow = (symbol: string, hasBonus = false, coinIn: string | null = null) => {
+export const tokenRow = (symbol: string, hasBonus = false, coinIn: string | null = null, name?: string | null) => {
   // Ruling 25: one token per repo; this repo's token is already entered in another program.
   if (hasBonus && coinIn) return repoCoinNote(coinIn);
-  return hasBonus
-    ? `a token on Base, $${symbol}: you earn 40% of its trading fees · skip: no builder bonus`
-    : `a token on Base, $${symbol}: you earn 40% of its trading fees (say "no token" to skip)`;
+  return `A token on Base, ${tokenLabel(symbol, name)}: you earn 40% of its trading fees · ${skipText(hasBonus)}`;
 };
 
 /**
  * v2.6 §3 + v2.7 Ruling 17 (plan): the Token row outside campaigns (one yes confirms the token and
  * the wallet under it); the chain is explicit. `hasBonus`: bonusOn; skipping then costs the
- * builder bonus. `coinIn`: Ruling 25. Pure.
+ * builder bonus. `coinIn`: Ruling 25. `name`: the proposed name, shown unless it is the ticker. Pure.
  */
-export function coinRow(a: { symbol: string; hasBonus: boolean; coinIn?: string | null }) {
+export function coinRow(a: { symbol: string; name?: string | null; hasBonus: boolean; coinIn?: string | null }) {
   if (a.hasBonus && a.coinIn) return repoCoinNote(a.coinIn);
-  const token = `Your entry gets a token on Base, $${a.symbol}: you earn 40% of its trading fees`;
-  return a.hasBonus
-    ? `${token}, and it joins the builder bonus · skip: no token, no builder bonus`
-    : `${token} · skip: no token`;
+  const token = `Your entry gets a token on Base, ${tokenLabel(a.symbol, a.name)}: you earn 40% of its trading fees`;
+  return a.hasBonus ? `${token}, and it joins the builder bonus · ${skipText(true)}` : `${token} · ${skipText(false)}`;
 }
 
 /**
@@ -217,10 +223,44 @@ export const tokenFootnote = (wallet: string | null | undefined) =>
 export const TOKEN_FOOTNOTE = tokenFootnote(null);
 
 /**
- * v2.7 §3, Ruling 15 (plan): the lead line while the entry can't be submitted yet, from the
- * required items prepareSubmission reports missing, by their label as written. Pure.
+ * v2.7 §3, Ruling 15 (plan) + C5: the lead line while the entry can't be submitted yet, from the
+ * required items prepareSubmission reports missing, as short to-dos (todoOf): at most 3, then
+ * "and N more". Pure.
  */
-export const notReadyLine = (missing: string[]) => `Before you submit: ${missing.join('; ')}.`;
+export function notReadyLine(missing: string[]) {
+  const shown = missing.slice(0, MAX_NOT_READY);
+  const more = missing.length - shown.length;
+  return `Before you submit: ${[...shown, ...(more > 0 ? [`and ${more} more`] : [])].join('; ')}.`;
+}
+
+/** C5: at most this many items in the not-ready line, then "and N more". */
+const MAX_NOT_READY = 3;
+
+const QUESTION_START = /^(what|which|who|whom|whose|how|why|when|where|do|does|did|is|are|can|could|will|would|have|has|tell|share|describe|list)\b/i;
+const DETERMINER_START = /^(a|an|the|your|my|our|their|its|any|all|some|each|every)\b/i;
+const PERSONAL = /\b(wallet|email|name|handle|username|profile)\b/i;
+const plural = (w: string) => /[^s]s$/i.test(w) && !/(us|ss|is)$/i.test(w);
+
+/**
+ * C5: a required item as a short to-do ("a live link on Arc mainnet"): the program's `todo` when
+ * set, else its label normalized: a trailing "(…)" and "?", ".", ":" dropped; the first letter
+ * lowercased unless the word is a name ("GitHub", "Telegram"); "your" before a short personal item
+ * ("your payout wallet"), "a"/"an" before a short singular one ("a public repo"); questions and
+ * long labels stay as they are. `problem`: the value given doesn't pass (fix round 1, Minor 7). Pure.
+ */
+export function todoOf(req: { label: string; todo?: string }, problem = false): string {
+  const check = problem ? ' (check it)' : '';
+  if (req.todo) return `${req.todo}${check}`;
+  let s = req.label.trim().replace(/\s*\([^()]*\)\s*$/, '').replace(/[\s?.:!]+$/, '');
+  const words = s.split(/\s+/);
+  const first = words[0] ?? '';
+  const name = /^[A-Z]\S*[A-Z]/.test(first) || /^(Telegram|Base|Arc|Circle|Monad|Solana|Loom|Farcaster|Discord|X)\b/.test(first);
+  if (!name) s = s.charAt(0).toLowerCase() + s.slice(1);
+  if (QUESTION_START.test(s) || DETERMINER_START.test(s) || words.length > 4) return `${s}${check}`;
+  if (PERSONAL.test(s)) return `your ${s}${check}`;
+  if (plural(first) || plural(words[words.length - 1])) return `${s}${check}`;
+  return `${/^[aeiou]/i.test(s) ? 'an' : 'a'} ${s}${check}`;
+}
 
 /**
  * prepare_submission's show_to_builder (v2.4 §2): the one block the builder confirms. The prize
@@ -236,7 +276,7 @@ export function confirmTable(a: {
   endsAt: Date | null;
   payoutWallet: string | null;
   /**
-   * v2.7 Ruling 15 (plan): the required items still missing (prepareSubmission's labels). When any
+   * v2.7 Ruling 15 (plan) + C5: the required items still missing, as short to-dos (todoOf). When any
    * are, the screen leads with them and shows only Entry and Prize (plus the campaign wallet ask):
    * no token row, wallet line or footnote.
    */
@@ -250,6 +290,8 @@ export function confirmTable(a: {
    */
   token: {
     symbol: string;
+    /** The proposed token name, shown next to the ticker (fix round 1, Minor 3). */
+    name?: string | null;
     wallet?: string | null;
     hasBonus?: boolean;
     coinIn?: string | null;
@@ -277,8 +319,8 @@ export function confirmTable(a: {
     rows.push([
       'Token',
       coin
-        ? coinRow({ symbol: a.token.symbol, hasBonus: a.token.hasBonus === true, coinIn })
-        : tokenRow(a.token.symbol, a.token.hasBonus, coinIn),
+        ? coinRow({ symbol: a.token.symbol, name: a.token.name, hasBonus: a.token.hasBonus === true, coinIn })
+        : tokenRow(a.token.symbol, a.token.hasBonus, coinIn, a.token.name),
     ]);
   const wallet =
     a.token && coin && !coinIn

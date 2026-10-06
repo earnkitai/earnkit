@@ -215,5 +215,25 @@ test('Ruling 16 (plan): the name falls back to the repo name before "<TICKER> To
   const p = await proposeToken('支付应用', free, 'https://github.com/a/zhifu-app');
   assert.deepEqual(p, { name: '支付应用', symbol: 'ZHIFU' });
   const brand = await proposeToken('Base Pay', free, 'https://github.com/a/tip-jar');
-  assert.equal(brand.name, 'tip jar');
+  assert.equal(brand.name, 'Tip Jar', 'the repo name, title-cased (fix round 1, Minor 3)');
+});
+
+test('C6: a ticker found taken is never proposed, even when every checked one is taken', async () => {
+  const checked = new Set<string>();
+  const taken: TickerCheck = async (sym) => { checked.add(sym); return false; };
+  for (const [name, repo] of [['支付应用', undefined], ['Go', undefined], ['TipJar', 'https://github.com/a/tipjar'], ['🚀🚀', undefined]] as const) {
+    checked.clear();
+    const p = await proposeToken(name, taken, repo);
+    assert.ok(!checked.has(p.symbol), `${name}: ${p.symbol} was checked and taken`);
+    assert.equal(tickerProblem(p.symbol), null);
+    assert.equal(p.note, 'ticker not checked for duplicates');
+  }
+});
+
+test('C6: every group\'s unnumbered ticker is checked before any numbered variant', async () => {
+  const seen: string[] = [];
+  await proposeToken('TipJar', async (sym) => { seen.push(sym); return false; }, 'https://github.com/a/tip-jar');
+  assert.deepEqual(seen.slice(0, 3), ['TIPJAR', 'TIP', 'ENTRY']);
+  const free = await proposeToken('Chain Kits Bridge', async (sym) => sym !== 'CKB');
+  assert.equal(free.symbol, 'CHAIN');
 });

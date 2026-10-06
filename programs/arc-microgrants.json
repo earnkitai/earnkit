@@ -50,6 +50,7 @@
     {
       "key": "live_deployment_url",
       "label": "Live deployment on Arc mainnet",
+      "todo": "a live link on Arc mainnet",
       "type": "url",
       "required": true,
       "description": "A link reviewers can open. Must be deployed and working on Arc mainnet; testnet-only builds are not eligible.",
@@ -59,6 +60,7 @@
     {
       "key": "repo_url",
       "label": "Public repo",
+      "todo": "a public repo link",
       "type": "url",
       "required": true,
       "description": "GitHub, GitLab, or Bitbucket link.",
@@ -68,6 +70,7 @@
     {
       "key": "description",
       "label": "Short description of what your project does and what it uses Arc for",
+      "todo": "a short description",
       "type": "text",
       "required": true,
       "from": "project"
@@ -75,6 +78,7 @@
     {
       "key": "builder_profile",
       "label": "Public builder profile",
+      "todo": "a public builder profile",
       "type": "url",
       "required": true,
       "description": "GitHub, X, or Farcaster.",
