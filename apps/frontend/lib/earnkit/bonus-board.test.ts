@@ -28,7 +28,7 @@ test('ethText: up to 4 decimals, rounded down, never scientific', () => {
 
 const entry = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
   id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
-  eligible: true, rank: null, score: null, submitted_at: new Date(Date.UTC(2026, 9, 1, id)), ...o,
+  eligible: true, test: false, rank: null, score: null, submitted_at: new Date(Date.UTC(2026, 9, 1, id)), ...o,
 });
 
 test('openRows: eligible ranked first (re-numbered), then eligible unscored, then not eligible with the plain reason', () => {
@@ -65,6 +65,16 @@ test('v2.6 §3: a program without a public entry page says the submission is not
     'No: submission not confirmed yet',
     'No: submission page not confirmed yet',
   ]);
+});
+
+test('v2.6 Ruling 6 (plan): an owner test installation is never ranked, listed with the ineligible rows', () => {
+  const rows = openRows([
+    entry(1, { test: true, rank: 1, score: 99 }), // even if it somehow had a rank/score, it never shows one
+    entry(2, { rank: 1, score: 50 }),
+  ]);
+  const t = rows.find((r) => r.name === 'P1')!;
+  assert.deepEqual([t.rank, t.eligible, t.note], [null, false, 'Test entry: not ranked']);
+  assert.equal(rows.find((r) => r.name === 'P2')!.rank, 1);
 });
 
 const frozen = (id: number, rank: number, o: Partial<BonusPayoutRow> = {}): BonusPayoutRow => ({

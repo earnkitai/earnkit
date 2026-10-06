@@ -1,6 +1,7 @@
 import { BASE_BONUS, indexedThrough } from './bonus-ledger';
 import { blockscout, isWalletAddress, normalizeRepoUrl, scoreEntry } from './campaigns';
 import { sql } from './db';
+import { testInstallationIds } from './installations';
 import { GitHubError, gh } from './match-projects';
 import { payoutAccount } from './payout';
 import { safeProbe } from './safe-fetch';
@@ -557,18 +558,25 @@ export async function signalsFor(
  * with it set and no basis counted on its page), both before the round's end (Ruling 16: frozen at the end), and no EARLIER entry of
  * the same normalized repo in the program that is eligible by the same rule (Rulings 13b, 15: an
  * ineligible earlier row, a squatter's or the builder's own failed attempt, never blocks).
+ * v2.6 Ruling 6 (plan): never true for an owner test installation (EARNKIT_TEST_INSTALLATIONS),
+ * for `p` or for the earlier entry `q` it would otherwise be blocked by.
  * Task 7 picks winners with this (finalRanking), never from a stored rank.
  */
-export const eligibleSql = (endsAt: Date) => sql()`
+export const eligibleSql = (endsAt: Date) => {
+  const testIds = testInstallationIds();
+  return sql()`
   p.coin_address IS NOT NULL AND p.coin_launched_at < ${endsAt}
   AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${endsAt}
   AND p.submitted_at < ${endsAt}
+  AND NOT COALESCE(p.installation_id = ANY(${testIds}::int[]), false)
   AND NOT EXISTS (
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
       AND q.coin_address IS NOT NULL AND q.coin_launched_at < ${endsAt}
       AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${endsAt}
+      AND NOT COALESCE(q.installation_id = ANY(${testIds}::int[]), false)
       AND (q.submitted_at, q.id) < (p.submitted_at, p.id))`;
+};
 
 /**
  * Ruling 15: a contract backs only one eligible entry per program, the earliest eligible one.

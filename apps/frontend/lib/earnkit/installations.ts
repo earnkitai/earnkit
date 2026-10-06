@@ -6,6 +6,34 @@ import { sql } from './db';
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
 
+const warnedTestIds = new Set<string>();
+
+/**
+ * v2.6 §5, Ruling 6 (plan): the owner's test installations, from EARNKIT_TEST_INSTALLATIONS
+ * (comma-separated ids). Excluded from /api/stats, never ranked, never paid. A malformed part is
+ * ignored; one warning per distinct value names its positions only, never its text.
+ */
+export function testInstallationIds(
+  env: Record<string, string | undefined> = process.env,
+  warn: (line: string) => void = console.warn,
+): number[] {
+  const raw = env.EARNKIT_TEST_INSTALLATIONS ?? '';
+  const ids = new Set<number>();
+  const bad: number[] = [];
+  raw.split(',').forEach((part, i) => {
+    const s = part.trim();
+    if (s === '') return;
+    const n = /^\d{1,10}$/.test(s) ? Number(s) : NaN;
+    if (Number.isSafeInteger(n) && n > 0 && n <= 2_147_483_647) ids.add(n);
+    else bad.push(i + 1);
+  });
+  if (bad.length > 0 && !warnedTestIds.has(raw)) {
+    warnedTestIds.add(raw);
+    warn(`[earnkit] EARNKIT_TEST_INSTALLATIONS: ignored ${bad.length} malformed id${bad.length === 1 ? '' : 's'} (position ${bad.join(', ')})`);
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
 /** True when this token, or (v2.4) this OAuth client, already has an installation. */
 export async function installationExists(token: string, clientKey?: string) {
   const [row] = await sql()`

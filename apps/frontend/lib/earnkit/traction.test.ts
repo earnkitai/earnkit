@@ -769,3 +769,46 @@ test('Ruling 4 (plan): an entry counted on an unverified page carries the review
     await cleanup();
   }
 });
+
+test('v2.6 Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS) is never eligible, and never blocks a later real entry on the same repo', db, async () => {
+  const PID3 = 't6-test-installations';
+  const r3 = { starts: d('2026-10-01T00:00:00Z'), ends: d('2026-11-01T00:00:00Z') };
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+      status, existing_work, starts_at, ends_at)
+    VALUES (${PID3}, 'X', 'T6c', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', ${r3.starts}, ${r3.ends})`;
+  await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${PID3}, ${PID3}, ${r3.starts}, ${r3.ends})`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${PID3}) RETURNING id`;
+  const add = async (name: string, installationId: number | null, repo: string, at: Date) => {
+    const [row] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at, installation_id,
+        submission_proof_ok_at, submitted_at, bonus_repo_key)
+      VALUES (${PID3}, ${name}, ${`https://github.com/acme/${name}`}, ${['0x' + name.padEnd(40, '0').slice(0, 40)]},
+        ${'0x' + name.padEnd(40, 'a').slice(0, 40)}, ${at}, ${installationId}, ${at}, ${at}, ${repo})
+      RETURNING id`;
+    return row.id;
+  };
+  try {
+    // Pair 1: different repos, one from the test installation.
+    const real1 = await add('real1', null, 'acme/real1', d('2026-10-02T00:00:00Z'));
+    const test1 = await add('test1', inst.id, 'acme/test1', d('2026-10-02T00:00:00Z'));
+    // Pair 2: same repo, the test installation's entry EARLIER (would otherwise block, Ruling 15).
+    const real2 = await add('real2', null, 'acme/shared', d('2026-10-05T00:00:00Z'));
+    const test2 = await add('test2', inst.id, 'acme/shared', d('2026-10-03T00:00:00Z'));
+    delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    const before = new Set((await finalRanking(PID3)).map((r) => r.id));
+    assert.deepEqual(before, new Set([real1, test1, test2])); // real2 is blocked by the earlier test2, as normal
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(inst.id);
+    const after = new Set((await finalRanking(PID3)).map((r) => r.id));
+    assert.deepEqual(after, new Set([real1, real2]), 'the test installation is excluded, and never blocks real2 either');
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    await sql()`DELETE FROM bonus_scores WHERE round_key = ${PID3}`;
+    await sql()`DELETE FROM projects WHERE program_id = ${PID3}`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id = ${PID3}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+    await sql()`DELETE FROM programs WHERE id = ${PID3}`;
+  }
+});

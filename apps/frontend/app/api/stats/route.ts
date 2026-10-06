@@ -8,6 +8,8 @@ import { readStats } from '@/lib/earnkit/stats';
  * itself is cached 10 minutes with unstable_cache. Either way it's at most one read per 10 minutes.
  * A failed read answers 503 and is never cached (Next treats a build-time 503 as dynamic).
  * `fees_to_safe_eth`: the Safe's fees from v2.5-split coins only, accrued (stats.ts statsFrom).
+ * `bonus_programs_open`: open programs with the builder bonus on (v2.6 Ruling 16 (plan)). Owner
+ * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs` or `coins_launched`.
  */
 export const revalidate = 600;
 
