@@ -1,6 +1,9 @@
 import { FETCH_MAX_BYTES, FETCH_TIMEOUT_MS } from './safe-fetch';
-import { EntryError, blockscout, normalizeRepoUrl } from './campaigns';
+import { EntryError, blockscout, githubRepo } from './campaigns';
 import { GitHubError, repoByName } from './match-projects';
+
+/** Re-exported for callers that already import it from here (ownership.test.ts, token-gate.ts). */
+export { githubRepo };
 
 /**
  * Proof that a campaign entry belongs to the person entering it (v2.2 §1 Builders; audits H2/F1).
@@ -41,27 +44,6 @@ export function ownershipBaseUrl(
       'EARNKIT_OWNERSHIP_BASE_URL is for development and tests only (NODE_ENV=development or test); unset it.',
     );
   return override.replace(/\/+$/, '');
-}
-
-/**
- * Owner and repo of a GitHub repo link (as spelled in the link; normalizeRepoUrl decides what a
- * repo link is), or null for anything else. Pure; exported for tests.
- */
-export function githubRepo(
-  url: string,
-): { owner: string; repo: string } | null {
-  const key = normalizeRepoUrl(url);
-  if (!/^github\.com\/[a-z0-9-]{1,39}\/[a-z0-9._-]{1,100}$/.test(key))
-    return null;
-  const [, owner, repo] = key.split('/');
-  // Wikis are world-editable by default; names of only dots aren't repos.
-  if (/^\.+$/.test(repo) || repo.endsWith('.wiki')) return null;
-  // The original spelling of the same path, so the raw link keeps its case.
-  const m = new RegExp(
-    `github\\.com/(${owner})/(${repo.replace(/\./g, '\\.')})`,
-    'i',
-  ).exec(url);
-  return m ? { owner: m[1], repo: m[2] } : { owner, repo };
 }
 
 export const ownershipFileUrl = (

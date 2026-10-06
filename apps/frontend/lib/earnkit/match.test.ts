@@ -7,6 +7,7 @@ import {
   type ProgramFacts,
   type RepoFacts,
 } from './match';
+import { ReportedRepoInput } from './match-projects';
 
 test('detects chains from ids, rpc hosts, and viem imports; ignores stray numbers', () => {
   const d = detectChains([
@@ -172,4 +173,26 @@ test('agent-reported repos match like public ones, without reading any code', ()
     )[0].status,
     'after_step',
   );
+});
+
+test('Ruling 13 (plan): reportedFacts keeps a GitHub repo link, drops anything else', () => {
+  assert.equal(
+    reportedFacts({ name: 'tipjar', chains: [], url: 'https://github.com/Acme/TipJar.git' }, [])
+      .url,
+    'https://github.com/Acme/TipJar',
+  );
+  assert.equal(
+    reportedFacts({ name: 'tipjar', chains: [], url: 'https://gitlab.com/a/b' }, []).url,
+    '',
+  );
+  assert.equal(reportedFacts({ name: 'tipjar', chains: [] }, []).url, '');
+});
+
+test('Ruling 13 (plan): ReportedRepoInput accepts an item with url and with no url', () => {
+  assert.equal(
+    ReportedRepoInput.safeParse({ name: 'tipjar', chains: [], url: 'https://github.com/acme/tipjar' })
+      .success,
+    true,
+  );
+  assert.equal(ReportedRepoInput.safeParse({ name: 'tipjar', chains: [] }).success, true);
 });

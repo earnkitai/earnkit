@@ -211,9 +211,19 @@ test('v2.4: the instructions say record_submission is the campaign entry, and a 
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
 
-test('v2.5 §1: list_programs says it leads with the open money and shows ideas when there is no repo', async () => {
+test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {
   const { tools } = await listed({});
   const d = tools.find((t) => t.name === 'list_programs')!.description!;
-  assert.match(d, /leads with "EarnKit matches you to \$X in open money"/);
-  assert.match(d, /With no repo, it shows the open money and curated build ideas/);
+  assert.match(d, /leads with "EarnKit matches you to \$X in open money you qualify for"/);
+  assert.match(d, /or "\$X is open right now" with ideas you can build when there is no repo/);
+  assert.match(d, /Every program shows its builder bonus\./);
+});
+
+test('Ruling 13 (plan): the local_repos item schema accepts a url', async () => {
+  const { tools } = await listed({});
+  const lp = tools.find((t) => t.name === 'list_programs')!;
+  const localRepos = (lp.inputSchema.properties as Record<string, unknown>).local_repos as {
+    items: { properties: Record<string, unknown> };
+  };
+  assert.ok('url' in localRepos.items.properties, JSON.stringify(localRepos.items.properties));
 });

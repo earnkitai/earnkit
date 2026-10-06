@@ -135,7 +135,9 @@ apps/frontend/
     ownership.ts(+test)        builder ownership proof: earnkit.txt at the repo root (raw GitHub,
                                5 s, 4 KB, no redirects; EARNKIT_OWNERSHIP_BASE_URL in dev/test only):
                                parseOwnershipFile (payout_wallet; plus creator_wallet and token lines
-                               for token launches, malformed ones ignored), githubRepo,
+                               for token launches, malformed ones ignored), githubRepo (moved to
+                               campaigns.ts v2.6, re-exported here: match.ts needs it too and
+                               importing it from here would cycle back through match-projects.ts),
                                ownershipProblem (pure),
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
                                GitHub repoFacts, fetcher and Blockscout DeployerLookup injectable;
@@ -208,20 +210,29 @@ apps/frontend/
                                fallback)
     mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas
-    present.ts(+test)          presentFirstMessage (v2.5): alerts, "EarnKit matches you to $X in
-                               open money" (openMoneyUsd: per-winner prizes of fitted programs) with
-                               a Builder bonus column (bonusCell; "not available" also when the
-                               round froze, bonus_closed; Ruling 25: a repo whose coin is entered
-                               in another program, repoCoins, shows "no builder bonus: …"), open EarnKit campaigns only, at
-                               most 5 others, BONUS_NOTE (not affiliated, earnkit.com/policy), ideas
+    present.ts(+test)          presentFirstMessage (v2.6 §1): alerts, "EarnKit matches you to $X in
+                               open money you qualify for" (openMoneyUsd: per-winner prizes of
+                               fitted programs; $0 keeps "Your repos fit these open programs:") with
+                               repos, else "$X is open right now" (youCould/githubGiven, Ruling 11;
+                               that table's "Prize" column becomes "You could win") with a Builder
+                               bonus column (bonusCell: "new pool", "<x> ETH so far", or "—" only
+                               when builder_bonus is false (Ruling 7) or bonus_closed; Ruling 25: a
+                               repo whose coin is entered in another program, repoCoins, shows "no
+                               builder bonus: …"), open EarnKit campaigns only, at most 5 others,
+                               BONUS_NOTE (not affiliated, earnkit.com/policy), ideas (one per line)
                                when the builder has no repo, sponsored last, one offer (keep going /
-                               campaign entry / fastest fit / build one / build something new);
+                               campaign entry / fastest fit / "Pick one and I'll start." / build
+                               something new);
                                markdown tables, no emojis; sponsor campaigns never offered
-    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts
+    match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
+                               reportedFacts(ReportedRepo) turns an agent's local_repos report into
+                               RepoFacts, keeping url only when campaigns.ts githubRepo parses it
+                               (Ruling 13), else ''
     match-projects.ts          repo matching for list_programs + get_program's eligibility check;
                                gh (the authenticated GitHub GET, also used by traction.ts)
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
-                               repo-cache.ts)
+                               repo-cache.ts); ReportedRepoInput.url (optional, max 300, validated
+                               by githubRepo not zod, Ruling 13)
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
@@ -230,7 +241,10 @@ apps/frontend/
                                route never sets it. ToolContext.roundPoolsWei overrides the builder
                                bonus pools read (default bonus-rounds.ts roundPoolsWei; null = the
                                round froze), ToolContext.repoCoins the repo-coin read (default
-                               tokens.ts repoCoinPrograms)
+                               tokens.ts repoCoinPrograms), ToolContext.matchProjects overrides the
+                               GitHub/local-repo matcher (default match-projects.ts matchProjects);
+                               list_programs passes githubGiven (a GitHub user or repo list given
+                               now or remembered) to presentFirstMessage for youCould (Ruling 11)
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
@@ -265,7 +279,10 @@ apps/frontend/
     campaigns.ts(+test)        CampaignConfig union ('earnkit' | 'sponsor'; earnkit: prize_usd_total,
                                amount_each, priced_at), prizeColumn/wonUsdText, entry checks
                                (entryFieldProblems: every problem at once; isWalletAddress),
-                               normalizeRepoUrl/sameRepoEntry, scoring v2 (scoreEntry: walletsUsing
+                               normalizeRepoUrl/sameRepoEntry, githubRepo (owner/repo from a GitHub
+                               link, case preserved; v2.6: lives here, not ownership.ts, so match.ts
+                               can use it without a circular import through match-projects.ts),
+                               scoring v2 (scoreEntry: walletsUsing
                                + internalCallers on Blockscout, walletHistory, UserOp sender +
                                EntryPoint getNonce for smart accounts, ENTRY_POINTS;
                                EARNKIT_BLOCKSCOUT_URL in dev/test only), FINAL_GRACE_MS, REVIEW_MS,

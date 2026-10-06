@@ -29,14 +29,20 @@
   installation, asking the agent to schedule a daily read-only `list_programs` that messages the
   builder only when that line is there ("a win, a new campaign, your rank"; token fees are never
   advertised there).
-- **First message (v2.5 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
-  to $X in open money" ($X = the per-winner `max_award_usd` of each program the builder's repos
-  fit, once each; unknown amounts count 0 and show their own words). Program tables carry a
-  "Builder bonus" column: the open round's pool (`roundPoolsWei`, one grouped read of the bonus
-  ledger, open rounds only), "opens with your entry", or "not available" without a `submission_proof`; a note under
-  them says EarnKit isn't affiliated with any organizer (earnkit.com/policy). With no repo it
-  shows "Open money right now:" plus curated `ideas` (one line per program, 2 each, 6 in all) and offers to build one. The EarnKit
-  campaigns table shows only while a campaign is open.
+- **First message (v2.6 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
+  to $X in open money you qualify for" when the builder's repos fit something ($X = the
+  per-winner `max_award_usd` of each program fit, once each; unknown amounts count 0 and show
+  their own words; $X = 0 keeps "Your repos fit these open programs:", no "qualify"). With no repo
+  known and no GitHub user given or remembered (`youCould`/`githubGiven`, Ruling 11), it instead
+  leads with "$X is open right now" (every open curated program's per-winner prize) and that
+  table's prize column reads "You could win" instead of "Prize". Program tables carry a "Builder
+  bonus" column (`bonusCell`): the open round's pool (`roundPoolsWei`, one grouped read of the
+  bonus ledger, open rounds only), "new pool", or "—" only when the program opted out
+  (`builder_bonus: false`, Ruling 7) or its round froze; a note under them says EarnKit isn't
+  affiliated with any organizer (earnkit.com/policy). With no repo it also lists curated `ideas`,
+  one per line (`- <program>: <idea>`, 2 per program, 6 in all), labeled "Ideas I can build:" (or
+  "Ideas for these programs:" when the agent can't build) and closes with "Pick one and I'll
+  start." The EarnKit campaigns table shows only while a campaign is open.
 - **setup / each_time**: what only the builder can do (one-time vs every entry); everything else
   is the agent's job. list_programs turns this into short "Me / You" lines on the server.
 - **Memory**: per installation (no account), EarnKit keeps the last GitHub user/repos and
@@ -111,7 +117,8 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
 - Which repos count as the builder's: their own public repos plus public repos owned by others
   (orgs) they committed to in the last year (GitHub commit search). Private or local repos are
   never read: the agent reports what it sees (`local_repos`: chains + mainnet, live link, last
-  commit) and EarnKit matches those facts the same way.
+  commit, and an optional GitHub `url` kept only when it parses as one, Ruling 13) and EarnKit
+  matches those facts the same way.
 - Repo matching (list_programs with github_user) reads only public GitHub data with one server-side token; nothing about the
   builder is stored. Verdicts are hints from code (chain IDs/RPC hosts, commit dates, repo
   homepage); anything unconfirmed is labeled "check".
@@ -691,7 +698,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
   no open round, a program without `submission_proof`, a program that isn't `active` (the same
   status rule as `roundPoolsWei`), or a round no longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
   rounds only; a program whose current round exists but froze maps to null, and its builder bonus
-  cell reads "not available".
+  cell reads "—".
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`
   (Ruling 7; an error about it names the key's length and shape only, never its value). Skipped without a usable key (missing, or malformed: `skipped` plus
