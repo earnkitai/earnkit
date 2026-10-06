@@ -123,10 +123,15 @@ test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in instal
     VALUES (${tag}, 'test entry', ${inst.id}, 'launched', 'https://tokens.fun/x', ${coin})`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   try {
-    delete process.env.EARNKIT_TEST_INSTALLATIONS;
-    const withoutFlag = await readStats();
-    process.env.EARNKIT_TEST_INSTALLATIONS = String(inst.id);
-    const withFlag = await readStats();
+    // Fix round 1, finding 2: one repeatable-read transaction so both reads see the same
+    // snapshot, however many rows other test files insert or delete between them in parallel.
+    const { withoutFlag, withFlag } = await sql().begin('isolation level repeatable read', async (tx) => {
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const withoutFlag = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(inst.id);
+      const withFlag = await readStats(new Date(), tx);
+      return { withoutFlag, withFlag };
+    });
     assert.equal(withoutFlag.installs - withFlag.installs, 1);
     assert.equal(withoutFlag.coins_launched - withFlag.coins_launched, 1);
   } finally {

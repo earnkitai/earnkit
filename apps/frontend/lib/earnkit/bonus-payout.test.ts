@@ -68,6 +68,7 @@ const prow = (id: number, extra: Partial<BonusPayoutRow> = {}): BonusPayoutRow =
   paid_at: null,
   vetoed: false,
   veto_reason: null,
+  test: false,
   ...extra,
 });
 
@@ -90,6 +91,21 @@ test('placesFor: a veto moves the next entry up into the same frozen amounts (no
   // No wallet, refused: never a place. A paid row keeps its stored place.
   const mixed = [prow(1, { wallet: null }), prow(2, { status: 'refused' }), prow(3, { slot: 0, tx_hash: '0xa', status: 'paid' }), prow(4)];
   assert.deepEqual(placesFor(mixed, amounts).map((p) => [p.id, p.slot]), [[3, 0], [4, 1]]);
+});
+
+test('v2.6 Ruling 6 (plan), fix round 1: a test installation never takes a place, even if it was frozen before its id was flagged', () => {
+  const amounts = [50n, 30n, 20n];
+  // #2 is a test installation, frozen as a normal row (test wasn't known at freeze time): its
+  // place passes down the ranking exactly as a veto's would.
+  const rows = [prow(1), prow(2, { test: true }), prow(3), prow(4), prow(5)];
+  assert.deepEqual(
+    placesFor(rows, amounts).map((p) => [p.id, p.slot, p.amount]),
+    [[1, 0, 50n], [3, 1, 30n], [4, 2, 20n]],
+  );
+  // Once sent, a transfer still can't be reversed (same as a veto): a test row with a stored,
+  // already-mined place keeps it.
+  const alreadyPaid = [prow(1, { test: true, slot: 0, tx_hash: '0xa', status: 'paid' }), prow(2)];
+  assert.deepEqual(placesFor(alreadyPaid, amounts).map((p) => [p.id, p.slot]), [[1, 0], [2, 1]]);
 });
 
 // ---- payRanked: per-place amounts, any ERC-20, every v2.4 rule ----
@@ -212,6 +228,7 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 holdBonusDbLock();
 const PID = 't7-bonus';
 const PID_EMPTY = 't7-bonus-empty';
+const PID_TEST = 't7-bonus-test-inst';
 const ENDS = new Date('2026-11-01T00:00:00Z');
 const STARTS = new Date('2026-10-01T00:00:00Z');
 const at = (h: number) => new Date(ENDS.getTime() + h * 3_600_000);
@@ -265,7 +282,7 @@ function chain(o: { balance?: bigint; available?: bigint; listed?: string[] } = 
 const W = (n: number) => `0x${'a'.repeat(38)}${String(n).padStart(2, '0')}`;
 
 async function cleanup() {
-  for (const id of [PID, PID_EMPTY]) {
+  for (const id of [PID, PID_EMPTY, PID_TEST]) {
     await sql()`DELETE FROM bonus_payouts WHERE round_key = ${id}`;
     await sql()`DELETE FROM bonus_vetoes WHERE round_key = ${id}`;
     await sql()`DELETE FROM bonus_scores WHERE round_key = ${id}`;
@@ -427,6 +444,43 @@ test('one payout per wallet and per installation per round; a sanctioned wallet 
     const [rest] = await sql()<{ amount_wei: string }[]>`SELECT amount_wei::text FROM bonus_ledger WHERE tx_hash = ${`round-rest:${PID}`}`;
     assert.equal(rest.amount_wei, amounts[2].toString());
   } finally {
+    await cleanup();
+  }
+});
+
+test('v2.6 Ruling 6 (plan), fix round 1: an entry frozen before its installation was flagged as a test installation is never paid; its place passes to the next entry', db, async () => {
+  await cleanup();
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  delete process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const pool = 6n * E18;
+    const { ids, installation } = await setup({ n: 3, pool, id: PID_TEST });
+    const f = chain();
+    // Freeze while the flag is unset: entry 1 (which has an installation) is ranked normally.
+    let out = (await advanceRounds(ACCOUNT, { ...f.deps(at(2)), only: [PID_TEST] })) as Out;
+    assert.equal(out.rounds[0].step, 'review');
+    const amounts = splitPool(pool, 3);
+    assert.deepEqual((await round(PID_TEST)).terms!.amounts, amounts.map(String));
+    const frozen = await payouts(PID_TEST);
+    assert.deepEqual(frozen.map((p) => p.project_id), ids, 'all three frozen, including the soon-to-be test installation');
+    // Now the owner flags entry 1's installation as a test installation, after the freeze.
+    process.env.EARNKIT_TEST_INSTALLATIONS = String(installation);
+    await sql()`UPDATE bonus_rounds SET review_until = now() - interval '1 minute' WHERE round_key = ${PID_TEST}`;
+    out = (await advanceRounds(ACCOUNT, { ...f.deps(at(51)), only: [PID_TEST] })) as Out;
+    assert.equal(out.rounds[0].step, 'pay');
+    assert.equal(out.rounds[0].done, true, JSON.stringify(out));
+    // Entry 1 is never paid; #2 moves into place 0, #3 into place 1; the last place goes to the Safe.
+    assert.equal(f.state.paidTo.get(W(1)), undefined, 'the test installation is never paid');
+    assert.deepEqual([W(2), W(3)].map((w) => f.state.paidTo.get(w)), [amounts[0], amounts[1]]);
+    const paid = await payouts(PID_TEST);
+    assert.deepEqual(paid.filter((p) => p.status === 'paid').map((p) => [p.project_id, p.slot]), [[ids[1], 0], [ids[2], 1]]);
+    assert.equal(paid.find((p) => p.project_id === ids[0])?.status, null, 'left as frozen: not paid, not vetoed');
+    const [rest] = await sql()<{ amount_wei: string; destination: string }[]>`
+      SELECT amount_wei::text, destination FROM bonus_ledger WHERE tx_hash = ${`round-rest:${PID_TEST}`}`;
+    assert.deepEqual(rest, { amount_wei: amounts[2].toString(), destination: 'safe' });
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
     await cleanup();
   }
 });

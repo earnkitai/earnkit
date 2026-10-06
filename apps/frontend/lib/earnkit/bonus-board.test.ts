@@ -80,7 +80,7 @@ test('v2.6 Ruling 6 (plan): an owner test installation is never ranked, listed w
 const frozen = (id: number, rank: number, o: Partial<BonusPayoutRow> = {}): BonusPayoutRow => ({
   id, project_id: id, rank, score: 100 - rank, wallet: `0x${String(id).padStart(40, '0')}`, installation_id: id,
   flags: [], slot: null, amount_wei: null, status: null, tx_hash: null, raw_tx: null, stale_at: null, reverts: 0,
-  paid_at: null, vetoed: false, veto_reason: null, ...o,
+  paid_at: null, vetoed: false, veto_reason: null, test: false, ...o,
 });
 
 test('frozenRows: the frozen order minus removed entries (top 10, renumbered), each place amount; only mined payouts link', () => {

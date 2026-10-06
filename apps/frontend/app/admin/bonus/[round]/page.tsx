@@ -145,6 +145,7 @@ export default async function BonusReviewPage({
                   <td className="py-2">
                     {f?.name ?? 'entry'} (#{x.project_id})
                     {x.vetoed ? `: removed, ${x.veto_reason}` : ''}
+                    {x.test ? ': Test entry: not paid' : ''}
                     {x.status === 'refused' ? ': refused (wallet screen or two reverts)' : ''}
                     {x.wallet ? null : ': no wallet, never paid'}
                     {x.tx_hash ? <div className="break-all text-xs">{x.status === 'paid' ? 'paid' : 'sending'} {x.tx_hash}</div> : null}

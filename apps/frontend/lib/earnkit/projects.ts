@@ -15,6 +15,7 @@ import {
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
 import { enteredTable, repoCoinNote, siteUrl } from './entry-text';
+import { testInstallationIds } from './installations';
 import {
   checkOwnership,
   type DeployerLookup,
@@ -689,11 +690,14 @@ export async function recordSubmission(
       if (!own) await deps.charge?.();
       if (bonusRepoKey && bonusOn(program)) {
         // Only an earlier ELIGIBLE entry (coin and proof) holds the repo (Ruling 15): a squatter's
-        // row or the builder's own failed attempt never blocks (traction.ts eligibleSql).
+        // row or the builder's own failed attempt never blocks (traction.ts eligibleSql). v2.6
+        // Ruling 6 (plan), fix round 1: an owner test installation's entry never blocks either,
+        // the same exclusion eligibleSql applies for its own `q`.
         const [earlier] = await tx<{ id: number }[]>`
           SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
             AND id <> ${existing?.id ?? 0}
             AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
+            AND NOT COALESCE(installation_id = ANY(${testInstallationIds()}::int[]), false)
           ORDER BY submitted_at, id LIMIT 1`;
         if (earlier)
           notes.push(
