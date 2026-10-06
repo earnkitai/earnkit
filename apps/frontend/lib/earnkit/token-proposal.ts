@@ -110,17 +110,26 @@ export function initialsCandidates(name: string): string[] {
   return [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => `${base.slice(0, 5)}${d}`)];
 }
 
+/** "Tip Jar" from "tip jar": each word's first letter capitalised (a repo name used as a token name). Pure. */
+export const titleCase = (s: string) => s.replace(/(^|\s)(\p{Ll})/gu, (_, sp: string, c: string) => sp + c.toUpperCase());
+
 /** The last-resort tickers: always pass tickerProblem, so a proposal always has one. */
 const LAST_RESORT = ['ENTRY', ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => `ENTRY${d}`)];
+/**
+ * C6: past the checked list, never-checked tickers (ENTR10…ENTR99), so a ticker found taken is
+ * never proposed.
+ */
+const OVERFLOW = Array.from({ length: 90 }, (_, i) => `ENTR${i + 10}`);
 /** At most this many tokens.fun ticker checks per proposal (Ruling 16). */
 const MAX_CHECKS = 12;
 const UNCHECKED = 'ticker not checked for duplicates';
 
 /**
  * EarnKit's proposed token (v2.3 §2 + v2.7 Ruling 16 (plan)); never null. The name: the project
- * name, "<name> Token", the repo name, then "<TICKER> Token". The ticker: v2.3's candidates from the
- * project name, then the repo name, then initials, then ENTRY…; at most 12 checks, then the next
- * candidate unchecked, with a note.
+ * name, "<name> Token", the repo name, then "<TICKER> Token". The ticker groups: v2.3's candidates
+ * from the project name, then the repo name, then initials, then ENTRY…; every group's unnumbered
+ * candidates are checked before any numbered variant (TIPJA2). At most 12 checks; then the next candidate,
+ * never checked, with a note. A ticker found taken is never proposed (C6).
  */
 export async function proposeToken(
   projectName: string,
@@ -129,45 +138,32 @@ export async function proposeToken(
 ): Promise<Proposal> {
   const trimmed = projectName.trim().slice(0, 50);
   const repo = repoNameOf(repoUrl);
-  const candidates = [
-    ...new Set([
-      ...tickerCandidates(trimmed),
-      ...(repo ? tickerCandidates(repo) : []),
-      ...initialsCandidates(trimmed),
-      ...(repo ? initialsCandidates(repo) : []),
-      ...LAST_RESORT,
-    ]),
-  ].filter((c) => !tickerProblem(c));
-  let symbol: string | null = null;
-  let note: string | undefined;
-  for (const [i, c] of candidates.entries()) {
-    if (i === MAX_CHECKS) {
-      symbol = c;
-      note = UNCHECKED;
-      break;
-    }
+  const groups = [
+    tickerCandidates(trimmed),
+    repo ? tickerCandidates(repo) : [],
+    initialsCandidates(trimmed),
+    repo ? initialsCandidates(repo) : [],
+    LAST_RESORT,
+  ].map((g) => g.filter((c) => !tickerProblem(c)));
+  // A numbered variant is an earlier candidate's first five letters plus a digit (TIPJA2 of TIPJAR).
+  const variant = (g: string[], c: string, i: number) =>
+    g.slice(0, i).some((b) => /^\d$/.test(c.slice(-1)) && c.slice(0, -1) === b.slice(0, 5));
+  const bases = groups.flatMap((g) => g.filter((c, i) => !variant(g, c, i)));
+  const candidates = [...new Set([...bases, ...groups.flat(), ...OVERFLOW])];
+  let symbol = candidates[MAX_CHECKS];
+  let note: string | undefined = UNCHECKED;
+  for (const c of candidates.slice(0, MAX_CHECKS)) {
     const free = await check(c);
-    if (free === null) {
-      symbol = c;
-      note = UNCHECKED;
-      break;
-    }
-    if (free) {
-      symbol = c;
-      break;
-    }
+    if (free === false) continue;
+    symbol = c;
+    note = free === null ? UNCHECKED : undefined;
+    break;
   }
-  // Every candidate was checked and taken (a list no longer than MAX_CHECKS): propose the last one.
-  if (symbol === null) {
-    symbol = candidates[candidates.length - 1];
-    note = UNCHECKED;
-  }
-  const sym = symbol;
   // "<TICKER> Token" always passes cleanTokenName (the ticker passed tickerProblem).
-  const named = [trimmed, trimmed ? `${trimmed.slice(0, 44)} Token` : '', repo ?? '', `${sym} Token`]
+  const named = [trimmed, trimmed ? `${trimmed.slice(0, 44)} Token` : '', repo ? titleCase(repo) : '', `${symbol} Token`]
     .map((n) => (n.trim() ? cleanTokenName(n) : { problem: 'empty' }))
     .find((r): r is { name: string } => 'name' in r);
-  return { name: named?.name ?? `${sym} Token`, symbol: sym, ...(note && { note }) };
+  return { name: named?.name ?? `${symbol} Token`, symbol, ...(note && { note }) };
 }
 
 /** 12 colours with enough contrast for white letters. */

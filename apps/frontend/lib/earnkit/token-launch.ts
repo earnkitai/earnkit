@@ -15,6 +15,8 @@ import {
   proposeToken,
   repoNameOf,
   tickerProblem,
+  titleCase,
+  tokensFunTickerCheck,
   type TickerCheck,
 } from './token-proposal';
 import {
@@ -106,6 +108,9 @@ const NO_WALLET_AGENT =
 const NEEDS_SYMBOL = "Not launched: the coin's name and ticker weren't confirmed yet.";
 const NEEDS_SYMBOL_AGENT =
   "Pass token: { name, symbol } exactly as shown to the builder (from prepare_submission's token.proposed), or call launch_token.";
+
+/** C6: the builder's note when the final ticker is already used on tokens.fun. Pure. */
+export const tickerTakenNote = (next: string) => `That ticker is taken. Pick another, or say go for $${next}.`;
 
 /**
  * Ruling 31: a name or ticker problem in builder words ("Token name: …", "Ticker: …"), with the
@@ -227,7 +232,7 @@ export async function tokenProposalBlock(
   if (program.token_policy === 'off') return null;
   if (!(deps.available ?? tokenLaunchesAvailable)()) return null;
   // Ruling 16 (plan): without a project name, the repo name is the name; with neither, nothing to name.
-  const projectName = a.projectName?.trim() || repoNameOf(a.repoUrl) || '';
+  const projectName = a.projectName?.trim() || titleCase(repoNameOf(a.repoUrl) ?? '');
   if (!projectName) return null;
   const proposal = await proposeToken(projectName, deps.check, a.repoUrl);
   const earnings = EARNINGS_LINE(a.creatorWallet ?? '<your wallet>');
@@ -272,8 +277,8 @@ export async function tokenProposalBlock(
     say_to_builder: coinIn
       ? tokenRow(proposal.symbol, hasBonus, coinIn)
       : program.campaign
-        ? `${tokenRow(proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`
-        : `${coinRow({ symbol: proposal.symbol, hasBonus })}\n\n` +
+        ? `${tokenRow(proposal.symbol, hasBonus, null, proposal.name)}\n\n${tokenFootnote(a.creatorWallet)}`
+        : `${coinRow({ symbol: proposal.symbol, name: proposal.name, hasBonus })}\n\n` +
           `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${COIN_FOOTNOTE}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
@@ -491,6 +496,25 @@ async function runTokenFlow(
 
   const { name, symbol } = decision;
   const repoNotNow = a.mode === 'launch' ? 'failed' : 'skipped';
+  // C6: one last check of the final ticker (proposed or the builder's own). tokens.fun doesn't
+  // refuse a duplicate from EarnKit, so a taken ticker is never launched; unreachable (null)
+  // launches as in v2.3. The suggestion is stored, so "go" launches it via launch_token.
+  const check = deps.check ?? tokensFunTickerCheck;
+  if ((await check(symbol)) === false) {
+    const next = await proposeToken(
+      project.name,
+      async (s) => (s === symbol ? false : check(s)),
+      project.repo_url ?? undefined,
+    );
+    return record(
+      repoNotNow,
+      tickerTakenNote(next.symbol),
+      name,
+      next.symbol,
+      `${symbol} is already used on tokens.fun (check-ticker), so nothing was deployed. ` +
+        `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`,
+    );
+  }
   // One token per repo across EarnKit: checked before the gate (deployToken's claim enforces it).
   const repoKey = project.repo_url ? normalizeRepoUrl(project.repo_url) : null;
   const other = repoKey && (await store.repoToken(project.id, repoKey));

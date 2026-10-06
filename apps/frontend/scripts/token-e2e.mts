@@ -15,7 +15,7 @@ import { join } from 'node:path';
  * Flows (all through the `tools` layer, with the real database store):
  *   a. default: proposal CHAIN (CKB is taken), confirmed ticker and shown wallet passed back → launched;
  *      no wallet passed back → no coin (Ruling 30)
- *   b. an edited ticker launches as given
+ *   b. an edited ticker launches as given; b2. a taken ticker (CKB) is never deployed (C6)
  *   c. token: 'skip' → skipped, no deploy
  *   d. gate failures: a fork with no new commits, no commits → gate_failed; no live link still launches
  *   e. a program with token_policy 'off' → skipped, and prepare_submission has no token block
@@ -289,9 +289,9 @@ let aRepo = '';
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
   // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
   check(
-    prep.token?.say_to_builder.startsWith('Your entry gets a token on Base, $CHAIN:') &&
-      prep.token.say_to_builder.includes('· skip: no token, no builder bonus'),
-    '(a) say_to_builder: a token on Base, and offers the skip (no token, no builder bonus)',
+    prep.token?.say_to_builder.startsWith('Your entry gets a token on Base, Chain Kit Builder ($CHAIN):') &&
+      prep.token.say_to_builder.includes('· say skip for no token (and no builder bonus)'),
+    '(a) say_to_builder: a token on Base, its name, and the skip (no token, no builder bonus)',
     prep.token,
   );
   // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
@@ -331,6 +331,14 @@ let aRepo = '';
   const r = await submit({ project: project('Kit Studio'), token: { name: 'Kit Studio', symbol: 'KITS' }, confirmed: true });
   check(r.token.status === 'launched' && r.token.symbol === 'KITS', '(b) edited ticker launches as KITS', r.token);
   check(lastDeploy().symbol === 'KITS', '(b) mock saw KITS');
+}
+
+// (b2) C6: a ticker tokens.fun already has (CKB) is never deployed; the builder gets a free suggestion.
+{
+  const before = deploys.length;
+  const r = await submit({ project: project('Kit Bench'), token: { name: 'Kit Bench', symbol: 'CKB' }, confirmed: true });
+  check(r.token.status === 'skipped' && /^That ticker is taken\. Pick another, or say go for \$[A-Z0-9]+\.$/.test(r.token.note ?? ''), '(b2) taken ticker: skipped, with a suggestion', r.token);
+  check(deploys.length === before, '(b2) no deploy sent');
 }
 
 // (c) the builder said no token.

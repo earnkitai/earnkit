@@ -41,6 +41,7 @@
     {
       "key": "full_name",
       "label": "Full name",
+      "todo": "your full name",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -48,6 +49,7 @@
     {
       "key": "email",
       "label": "Email",
+      "todo": "your email",
       "type": "email",
       "required": true,
       "from": "builder"
@@ -55,6 +57,7 @@
     {
       "key": "x_handle",
       "label": "X (Twitter) handle",
+      "todo": "your X handle",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -62,6 +65,7 @@
     {
       "key": "telegram",
       "label": "Telegram username",
+      "todo": "your Telegram username",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -69,6 +73,7 @@
     {
       "key": "project_name_description",
       "label": "Project name + one-line description of what it does",
+      "todo": "a one-line project description",
       "type": "text",
       "required": true,
       "from": "project"
@@ -76,6 +81,7 @@
     {
       "key": "founding_team",
       "label": "Tell us about the founding team",
+      "todo": "a note on the founding team",
       "type": "text",
       "required": true,
       "description": "Prior companies/exits, funding raised, and relevant domain expertise.",
@@ -84,6 +90,7 @@
     {
       "key": "live_product_url",
       "label": "Link to your live product",
+      "todo": "a link to your live product",
       "type": "url",
       "required": true,
       "project_field": "live_url",
@@ -92,6 +99,7 @@
     {
       "key": "demo_loom",
       "label": "Link to a Product Demo (Loom)",
+      "todo": "a Loom product demo",
       "type": "url",
       "required": true,
       "project_field": "demo_url",
@@ -100,6 +108,7 @@
     {
       "key": "contract_address",
       "label": "Contract address on Base",
+      "todo": "your contract address on Base",
       "type": "text",
       "required": true,
       "from": "project"
@@ -107,6 +116,7 @@
     {
       "key": "track",
       "label": "Which track best fits what you're building?",
+      "todo": "a track",
       "type": "choice",
       "required": true,
       "options": [
@@ -123,6 +133,7 @@
     {
       "key": "usage_numbers",
       "label": "Share your key usage numbers",
+      "todo": "your key usage numbers",
       "type": "text",
       "required": true,
       "description": "All-time users onboarded, current DAU, current WAU, all-time volume processed, and last-30-day volume processed.",
@@ -131,6 +142,7 @@
     {
       "key": "revenue",
       "label": "How does your product make money today?",
+      "todo": "how it makes money today",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -138,6 +150,7 @@
     {
       "key": "gtm_plan",
       "label": "What's your GTM plan for the next 3 months?",
+      "todo": "your GTM plan for the next 3 months",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -145,6 +158,7 @@
     {
       "key": "builder_code",
       "label": "What's your Base Builder Code?",
+      "todo": "your Base Builder Code",
       "type": "text",
       "required": true,
       "from": "project"
@@ -152,6 +166,7 @@
     {
       "key": "primary_challenge",
       "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?",
+      "todo": "your main challenge right now",
       "type": "text",
       "required": true,
       "description": "Pick one or more: User acquisition, Go-to-market strategy, Smart contract security/auditing, Liquidity bootstrapping, UI/UX improvements, Regulatory compliance guidance.",
@@ -160,6 +175,7 @@
     {
       "key": "credits",
       "label": "Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)",
+      "todo": "the credits you want",
       "type": "text",
       "required": true,
       "from": "builder"

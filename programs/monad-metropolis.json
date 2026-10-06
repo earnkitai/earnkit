@@ -43,6 +43,7 @@
     {
       "key": "track",
       "label": "Track",
+      "todo": "a track",
       "type": "choice",
       "required": true,
       "options": [
@@ -56,6 +57,7 @@
     {
       "key": "demo",
       "label": "Demo",
+      "todo": "a demo",
       "type": "url",
       "required": true,
       "description": "A demo of the working product.",
@@ -65,6 +67,7 @@
     {
       "key": "write_up",
       "label": "Short write-up",
+      "todo": "a short write-up",
       "type": "text",
       "required": true,
       "from": "project"
@@ -72,6 +75,7 @@
     {
       "key": "code_url",
       "label": "Link to the code",
+      "todo": "a link to the code",
       "type": "url",
       "required": true,
       "description": "Judges must be able to verify what was built during the six weeks.",

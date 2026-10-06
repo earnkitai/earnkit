@@ -504,3 +504,15 @@ test('logoFileProblem: catches each review-found bypass', () => {
     null,
   );
 });
+
+test('C5: a requirement todo is a short lowercase phrase: at most 40 characters, no trailing punctuation or links', async () => {
+  const { SubmissionRequirement } = await import('./program-file');
+  const req = { key: 'live', label: 'Live deployment on Arc mainnet', type: 'url', required: true, from: 'project' };
+  assert.equal(SubmissionRequirement.parse({ ...req, todo: 'a live link on Arc mainnet' }).todo, 'a live link on Arc mainnet');
+  assert.equal(SubmissionRequirement.parse(req).todo, undefined, 'optional');
+  for (const todo of ['a live link on Arc mainnet, deployed and working', 'a live link.', 'A live link', 'see https://x.y', ''])
+    assert.equal(SubmissionRequirement.safeParse({ ...req, todo }).success, false, todo);
+  // Arc's live item reads as the spec gives it.
+  const arc = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8')));
+  assert.equal(arc.submission_requirements.find((r) => r.key === 'live_deployment_url')?.todo, 'a live link on Arc mainnet');
+});

@@ -35,6 +35,7 @@
     {
       "key": "project_name",
       "label": "Project name",
+      "todo": "your project name",
       "type": "text",
       "required": true,
       "project_field": "name",
@@ -43,6 +44,7 @@
     {
       "key": "description",
       "label": "What it does and who uses it",
+      "todo": "a short description",
       "type": "text",
       "required": true,
       "project_field": "description",
@@ -51,6 +53,7 @@
     {
       "key": "repo_url",
       "label": "Public GitHub repo",
+      "todo": "a public GitHub repo",
       "type": "url",
       "required": true,
       "description": "Must hold earnkit.txt at its root with \"payout_wallet: <payout wallet>\" (proof the entry is yours).",
@@ -60,6 +63,7 @@
     {
       "key": "live_url",
       "label": "Live link",
+      "todo": "a live link",
       "type": "url",
       "required": true,
       "project_field": "live_url",
@@ -68,6 +72,7 @@
     {
       "key": "contracts",
       "label": "Base contract addresses to score",
+      "todo": "your Base contract addresses",
       "type": "text",
       "required": true,
       "description": "1 to 5 Base mainnet contracts, comma-separated, deployed during the campaign from the payout wallet, or from a wallet that signs the entry (deployer_signature).",
@@ -76,6 +81,7 @@
     {
       "key": "payout_wallet",
       "label": "Payout wallet",
+      "todo": "your payout wallet",
       "type": "text",
       "required": true,
       "description": "A Base wallet the builder controls (0x…) that receives MINI if they win. Ask the builder; never derive it from the code.",

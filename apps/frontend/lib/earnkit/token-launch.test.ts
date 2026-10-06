@@ -14,6 +14,7 @@ import {
   decideToken,
   hasBuilderBonus,
   plainProblem,
+  tickerTakenNote,
   launchToken,
   submissionToken,
   tokenAfterSubmission as tokenAfterSubmissionRaw,
@@ -101,7 +102,7 @@ test('tokenProposalBlock: the proposal, earnings, terms and the line to show', a
   // Ruling 14: the footnote names the fee wallet when it is known.
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
+    `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
   );
   assert.ok(COIN_FOOTNOTE.includes(TOKEN_TERMS.agreement) && COIN_FOOTNOTE.includes(TOKEN_TERMS.risks));
   // Ruling 22: the agent is told to pass the confirmed wallet on record_submission.
@@ -127,16 +128,16 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   assert.equal(b.has_bonus, true);
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: 'CHAIN', hasBonus: true })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: true })}\n\n${COIN_FOOTNOTE}`,
+    `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: true })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: true })}\n\n${COIN_FOOTNOTE}`,
   );
-  assert.match(b.say_to_builder, /skip: no token, no builder bonus/);
+  assert.match(b.say_to_builder, /say skip for no token \(and no builder bonus\)/);
   // Ruling 10: a remembered wallet says so on the wallet line.
   const r = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', remembered: true }, free);
   assert.match(r!.say_to_builder, /\(used last time\) — or tell me another\./);
   // Campaigns keep v2.4's token row.
   const camp = { ...bonusProgram, campaign: { kind: 'earnkit' } } as unknown as ProgramRow;
   const c = await tokenProposalBlock({ program: camp, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);
-  assert.equal(c!.say_to_builder, `${tokenRow('CHAIN', false)}\n\n${tokenFootnote('0xW')}`);
+  assert.equal(c!.say_to_builder, `${tokenRow('CHAIN', false, null, 'Chain Kits')}\n\n${tokenFootnote('0xW')}`);
 });
 
 test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is entered elsewhere gets the no-bonus row', async () => {
@@ -158,7 +159,7 @@ test('Ruling 25 (I8): on a program with a builder bonus, a repo whose coin is en
     { ...free, repoCoin },
   );
   assert.equal(fresh?.repo_coin_program, null);
-  assert.match(fresh!.say_to_builder, /skip: no token, no builder bonus/);
+  assert.match(fresh!.say_to_builder, /say skip for no token \(and no builder bonus\)/);
   const err = console.error;
   console.error = () => {};
   try {
@@ -213,16 +214,16 @@ test('tokenProposalBlock: no wallet yet asks for one', async () => {
   assert.equal(b.earnings, EARNINGS_LINE('<your wallet>'));
   assert.match(b.note, /^Ask the builder for the wallet that receives creator fees\. /);
   assert.doesNotMatch(b.note, /payout_wallet:/);
-  assert.equal(b.say_to_builder, `${coinRow({ symbol: 'CHAIN', hasBonus: false })}\n\nWhich wallet should get your token's fees?\n\n${COIN_FOOTNOTE}`);
+  assert.equal(b.say_to_builder, `${coinRow({ symbol: 'CHAIN', name: 'Chain Kits', hasBonus: false })}\n\nWhich wallet should get your token's fees?\n\n${COIN_FOOTNOTE}`);
 });
 
-test('v2.7 Ruling 16 (plan): every ticker taken still proposes one, unchecked, with a note', async () => {
+test('v2.7 Ruling 16 (plan), C6: every ticker taken still proposes one never checked, with a note', async () => {
   const b = await tokenProposalBlock({ program: program('encouraged'), installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, { check: async () => false, available: () => true });
   assert.ok(b);
   assert.ok(b.proposed.symbol);
   assert.equal(
     b.say_to_builder,
-    `${coinRow({ symbol: b.proposed.symbol, hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
+    `${coinRow({ symbol: b.proposed.symbol, name: b.proposed.name, hasBonus: false })}\n\n${walletLine({ wallet: '0xW', remembered: false, hasBonus: false })}\n\n${COIN_FOOTNOTE}`,
   );
   assert.match(b.note, /ticker not checked for duplicates/);
 });
@@ -232,7 +233,7 @@ test('v2.7 Ruling 16 (plan): no project name: the repo name is the name; with ne
     { program: program('encouraged'), installationId: 1, creatorWallet: '0xW', repoUrl: 'https://github.com/a/tip-jar' },
     free,
   );
-  assert.deepEqual(b?.proposed, { name: 'tip jar', symbol: 'TIP', image: 'monogram' });
+  assert.deepEqual(b?.proposed, { name: 'Tip Jar', symbol: 'TIP', image: 'monogram' });
   assert.equal(await tokenProposalBlock({ program: program('encouraged'), installationId: 1, creatorWallet: '0xW' }, free), null);
 });
 
@@ -582,11 +583,11 @@ test('a token that is neither "skip" nor an object is skipped with a note', asyn
   assert.equal(RecordSubmissionInput.parse({ program_id: 'p', project: { name: 'Kit' }, submission_data: {}, token: [] }).token instanceof Array, true);
 });
 
-test('submission with an explicit ticker looks up no proposal', async () => {
-  let checked = 0;
-  const h = harness({}, { check: async () => { checked++; return true; } });
+test('submission with an explicit ticker looks up no proposal (C6: only the final check of that ticker)', async () => {
+  const checked: string[] = [];
+  const h = harness({}, { check: async (sym) => { checked.push(sym); return true; } });
   await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: { symbol: 'KITS' }, confirmed: true }, h.deps);
-  assert.equal(checked, 0);
+  assert.deepEqual(checked, ['KITS']);
   assert.equal(h.deploys[0].name, 'Chain Kits');
 });
 
@@ -815,4 +816,30 @@ test('Rulings 28 and 30: no remembered wallet anywhere; a launch with no wallet 
   const skipped = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: null }, none.deps);
   assert.equal(skipped.no_wallet, true);
   assert.equal(none.deploys.length, 0);
+});
+
+test('C6: a final ticker found taken is never deployed; the builder gets the next suggestion, the agent the detail', async () => {
+  const taken = new Set(['CHAIN']);
+  const h = harness({}, { check: async (sym) => !taken.has(sym) });
+  const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
+  assert.equal(h.deploys.length, 0, 'nothing deployed');
+  assert.equal(out.status, 'skipped');
+  assert.equal(out.note, tickerTakenNote('KIT'));
+  assert.equal(out.note, 'That ticker is taken. Pick another, or say go for $KIT.');
+  assert.doesNotMatch(out.note ?? '', TECHNICAL_TERMS);
+  assert.match(out.agent_note ?? '', /CHAIN is already used on tokens\.fun.*call launch_token \(it uses the stored KIT\)/);
+  // The suggestion is stored, so "go" (launch_token with no changes) launches it.
+  assert.deepEqual(h.writes.at(-1), { id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'KIT' });
+  // On launch_token, the same check fails the launch.
+  const l = harness({}, { check: async (sym) => !taken.has(sym) });
+  const failed = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET, ...CONFIRMED }, 1, l.deps);
+  assert.equal(failed.status, 'failed');
+  assert.equal(l.deploys.length, 0);
+});
+
+test('C6: an unreachable ticker check (null) launches as in v2.3', async () => {
+  const h = harness({}, { check: async () => null });
+  const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
+  assert.equal(out.status, 'launched');
+  assert.equal(h.deploys[0].symbol, 'CHAIN');
 });

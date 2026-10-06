@@ -52,6 +52,7 @@
     {
       "key": "product_name_description",
       "label": "Product name and a brief description",
+      "todo": "a product name and short description",
       "type": "text",
       "required": true,
       "from": "project"
@@ -59,6 +60,7 @@
     {
       "key": "chains_and_tools",
       "label": "Which blockchains and tools are being integrated",
+      "todo": "the chains and tools you integrate",
       "type": "text",
       "required": true,
       "from": "project"
@@ -66,6 +68,7 @@
     {
       "key": "team",
       "label": "All teammates, with context on their backgrounds and previous experience",
+      "todo": "your teammates and their backgrounds",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -73,6 +76,7 @@
     {
       "key": "team_location",
       "label": "Where the team is located",
+      "todo": "where the team is located",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -80,6 +84,7 @@
     {
       "key": "logo",
       "label": "A product logo or graphic",
+      "todo": "a product logo or graphic",
       "type": "file",
       "required": true,
       "from": "project"
@@ -87,6 +92,7 @@
     {
       "key": "github_repo",
       "label": "A GitHub repository link",
+      "todo": "a GitHub repo link",
       "type": "url",
       "required": true,
       "description": "Open source is encouraged; private repos are allowed if access is granted to hackathon@colosseum.com.",
@@ -96,6 +102,7 @@
     {
       "key": "presentation_video",
       "label": "A two-to-three-minute presentation video",
+      "todo": "a 2-3 minute presentation video",
       "type": "url",
       "required": true,
       "description": "One of the first things judges review; clear, concise, high quality.",
@@ -104,6 +111,7 @@
     {
       "key": "demo_video",
       "label": "A product-demo video of no more than three minutes explaining how the product works",
+      "todo": "a product demo video (3 min max)",
       "type": "url",
       "required": true,
       "project_field": "demo_url",
@@ -112,6 +120,7 @@
     {
       "key": "gtm",
       "label": "Go-to-market strategy, demand validation, and plans for developing distribution",
+      "todo": "a go-to-market strategy",
       "type": "text",
       "required": true,
       "from": "builder"
@@ -119,6 +128,7 @@
     {
       "key": "past_development",
       "label": "Disclosure of all relevant past development work",
+      "todo": "a disclosure of past development work",
       "type": "text",
       "required": true,
       "description": "Required if any code predates the hackathon. Misrepresenting development history can mean disqualification.",

@@ -11,6 +11,7 @@ import {
   keyTable,
   noCoinYet,
   notReadyLine,
+  todoOf,
   REPO_HELD,
   roundEndLabel,
   summaryCloses,
@@ -44,7 +45,7 @@ test('confirmTable: the spec block, prize first, one token row, terms under the 
       '| Entry | Tip Jar for EarnKit Campaign #1 |',
       '|---|---|',
       '| Prize | $100 in MINI if top 5 with 10+ users, paid to 0xAbCdEf0123456789abcdef0123456789ABCDEf01 by Oct 21 |',
-      '| Token | a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip) |',
+      '| Token | A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token |',
       '',
       TOKEN_FOOTNOTE,
     ].join('\n'),
@@ -97,9 +98,9 @@ test('keyTable escapes "|" so a cell never breaks the table', () => {
 });
 
 test('v2.5 Task 8: the campaign token row on a program with a builder bonus says so, and never otherwise', () => {
-  assert.equal(tokenRow('TIP'), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
-  assert.equal(tokenRow('TIP', false), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
-  assert.equal(tokenRow('TIP', true), 'a token on Base, $TIP: you earn 40% of its trading fees · skip: no builder bonus');
+  assert.equal(tokenRow('TIP'), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token');
+  assert.equal(tokenRow('TIP', false), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token');
+  assert.equal(tokenRow('TIP', true), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token (and no builder bonus)');
   assert.doesNotMatch(tokenRow('TIP', true), /\p{Extended_Pictographic}/u);
 });
 
@@ -109,7 +110,7 @@ test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin r
     prize: '500 USDC × 20 grants', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIP', hasBonus: true },
   });
-  assert.match(text, /\| Token \| Your entry gets a token on Base, \$TIP: .*skip: no token, no builder bonus \|/);
+  assert.match(text, /\| Token \| Your entry gets a token on Base, \$TIP: .*say skip for no token \(and no builder bonus\) \|/);
   // No wallet known: the wallet line is the ask.
   assert.ok(text.endsWith(`\n\nWhich wallet should get your token's fees and any bonus?\n\n${COIN_FOOTNOTE}`), text);
 });
@@ -134,7 +135,7 @@ test('Ruling 14: the footnote names the fee wallet when it is known (v2.3 consen
 test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another program says no builder bonus', () => {
   assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's coin is entered in Arc Microgrants");
   // Only where a bonus could be won; v2.3 rows elsewhere are unchanged.
-  assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), 'a token on Base, $TIP: you earn 40% of its trading fees (say "no token" to skip)');
+  assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token');
   const text = confirmTable({
     project: 'Tip Jar', programTitle: "Crypto World's Fair Hackathon", campaign: null,
     prize: '$30,000', endsAt: null, payoutWallet: null,
@@ -167,7 +168,7 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
       '| Entry | TipJar for Arc Microgrants |',
       '|---|---|',
       '| Prize | 500 USDC |',
-      '| Token | Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · skip: no token, no builder bonus |',
+      '| Token | Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · say skip for no token (and no builder bonus) |',
       '',
       `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`,
       '',
@@ -317,9 +318,9 @@ test('final M4: a coin not launched yet joins the builder bonus once it is; neve
 
 test('v2.7 §3: a token on Base, no Clanker', () => {
   assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: true }),
-    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · skip: no token, no builder bonus');
+    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · say skip for no token (and no builder bonus)');
   assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }),
-    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees · skip: no token');
+    'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees · say skip for no token');
   assert.equal(COIN_FOOTNOTE, `Fees in WETH; tokens.fun pays gas. Terms: ${TOKEN_TERMS.agreement} · Risks: ${TOKEN_TERMS.risks}`);
   for (const s of [COIN_FOOTNOTE, tokenFootnote('0xabc'), tokenRow('TIP', false), EARNINGS_LINE('0xabc')])
     assert.doesNotMatch(s, /clanker|protocol cut/i);
@@ -349,4 +350,31 @@ test('Ruling 15 (plan): a campaign not ready still asks about the remembered pay
   assert.ok(t.startsWith('Before you submit: Payout wallet.\n\n| Entry |'), t);
   assert.ok(t.endsWith(`Pay prizes to ${W2}? It is the wallet from your last entry.`), t);
   assert.doesNotMatch(t, /\| Token \||Fees in WETH|Token:/);
+});
+
+test('C5: the not-ready line uses short to-dos: the program\'s todo, else the label normalized; at most 3, then "and N more"', () => {
+  assert.equal(todoOf({ label: 'Live deployment on Arc mainnet', todo: 'a live link on Arc mainnet' }), 'a live link on Arc mainnet');
+  assert.equal(notReadyLine([todoOf({ label: 'Live deployment on Arc mainnet', todo: 'a live link on Arc mainnet' })]), 'Before you submit: a live link on Arc mainnet.');
+  // Fallbacks: articles where obvious; questions keep their words, never "?."; names keep capitals.
+  assert.equal(todoOf({ label: 'Public repo' }), 'a public repo');
+  assert.equal(todoOf({ label: 'Live link' }), 'a live link');
+  assert.equal(todoOf({ label: 'Payout wallet' }), 'your payout wallet');
+  assert.equal(todoOf({ label: 'Email' }), 'your email');
+  assert.equal(todoOf({ label: 'Product roadmap' }), 'a product roadmap');
+  assert.equal(todoOf({ label: 'Proposed grant milestones' }), 'proposed grant milestones');
+  assert.equal(todoOf({ label: "What's your Base Builder Code?" }), "what's your Base Builder Code");
+  assert.equal(todoOf({ label: 'Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)' }), 'which credits would be most useful for you as you build');
+  assert.equal(todoOf({ label: 'GitHub repo' }), 'a GitHub repo');
+  assert.equal(todoOf({ label: 'Telegram username' }), 'your Telegram username');
+  assert.equal(todoOf({ label: 'Your Circle and Arc integrations' }), 'your Circle and Arc integrations');
+  // Given but invalid (fix round 1, Minor 7).
+  assert.equal(todoOf({ label: 'Live link' }, true), 'a live link (check it)');
+  assert.equal(notReadyLine(['a', 'b', 'c']), 'Before you submit: a; b; c.');
+  assert.equal(notReadyLine(['a', 'b', 'c', 'd', 'e']), 'Before you submit: a; b; c; and 2 more.');
+});
+
+test('fix round 1 (Minor 3): the row shows the proposed name unless it is the ticker', () => {
+  assert.equal(coinRow({ symbol: 'TIP', name: 'Tip Jar', hasBonus: false }), 'Your entry gets a token on Base, Tip Jar ($TIP): you earn 40% of its trading fees · say skip for no token');
+  assert.equal(coinRow({ symbol: 'TIPJAR', name: 'Tip Jar', hasBonus: false }), 'Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees · say skip for no token');
+  assert.equal(tokenRow('TIP', false, null, 'Tip Jar'), 'A token on Base, Tip Jar ($TIP): you earn 40% of its trading fees · say skip for no token');
 });

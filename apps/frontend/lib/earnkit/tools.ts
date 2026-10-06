@@ -7,7 +7,8 @@ import {
 } from './projects';
 import { givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
-import { boardLink, confirmTable, enteredText, noCoinYet, type EnteredText } from './entry-text';
+import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
+import { repoNameOf, titleCase } from './token-proposal';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -346,7 +347,14 @@ export const tools = {
     // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
     // leads with them and there is no token block, wallet or ticker check yet.
     const prep = prepareSubmission(program.submission_requirements, known);
-    const missing = prep.ready ? [] : prep.missing.filter((m) => m.required).map((m) => m.label);
+    // C5: as short to-dos (the program's `todo`, else the label normalized); an item given but
+    // invalid says "(check it)", its problem is in missing[].problem for the agent.
+    const reqs = new Map(program.submission_requirements.map((r) => [r.key, r]));
+    const missing = prep.ready
+      ? []
+      : prep.missing
+          .filter((m) => m.required)
+          .map((m) => todoOf(reqs.get(m.key) ?? { label: m.label }, Boolean(m.problem)));
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
     const token = open && prep.ready
@@ -374,7 +382,8 @@ export const tools = {
       known.answers?.contracts,
     );
     const show_to_builder = confirmTable({
-      project: known.project?.name?.trim() || 'Your project',
+      // Fix round 1 (Minor 6): the repo name, as the token is named, before "Your project".
+      project: known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? '') || 'Your project',
       programTitle:
         program.campaign?.kind === 'sponsor'
           ? quoted(program.title)
@@ -388,6 +397,7 @@ export const tools = {
       token: token
         ? {
             symbol: token.proposed.symbol,
+            name: token.proposed.name,
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
             coinIn: token.repo_coin_program,

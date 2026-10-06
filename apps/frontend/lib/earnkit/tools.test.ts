@@ -226,7 +226,7 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
     const none = await call(camp.id);
     assert.equal(none.ready, false);
     assert.equal(none.token, undefined, 'the remembered wallet is never the fee wallet in a campaign');
-    assert.ok(none.show_to_builder.startsWith('Before you submit: Payout wallet.'), none.show_to_builder);
+    assert.ok(none.show_to_builder.startsWith('Before you submit: your payout wallet.'), none.show_to_builder);
     assert.ok(!none.show_to_builder.includes(GIVEN));
     const given = await prep(camp.id, { payout_wallet: GIVEN });
     assert.equal(given.creator_wallet, GIVEN);
@@ -268,7 +268,7 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     // Arc without the live mainnet link: not ready, the screen says so first; no token, no wallet.
     const notReady = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}` }, answers);
     assert.equal(notReady.ready, false);
-    assert.ok(notReady.show_to_builder.startsWith('Before you submit: Live deployment on Arc mainnet.\n\n'), notReady.show_to_builder);
+    assert.ok(notReady.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet.\n\n'), notReady.show_to_builder);
     assert.ok(!('token' in notReady));
     assert.ok(!('shown_wallet' in notReady));
     assert.doesNotMatch(notReady.show_to_builder, /Token|Wallet|Fees in WETH|0x1581/);
@@ -282,6 +282,12 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     // No project name, but a GitHub repo: the repo name is the name.
     const noName = await prep({ repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.example' }, answers);
     assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
+    // Fix round 1 (Minor 6): the Entry row names the repo, as the token does.
+    assert.match(noName.show_to_builder, /^\| Entry \| Tipjar for /);
+    assert.match(noName.show_to_builder, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+    // C5: an item given but invalid says "(check it)"; at most 3 items, then "and N more".
+    const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link' });
+    assert.ok(bad.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet (check it); a public repo link; a short description; and 1 more.\n\n'), bad.show_to_builder);
   } finally {
     globalThis.fetch = realFetch;
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
@@ -444,7 +450,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       token: { creator_wallet: string | null };
     };
     assert.equal(prep.token.creator_wallet, W);
-    assert.match(prep.show_to_builder, /\| Token \| Your entry gets a token on Base, \$/);
+    assert.match(prep.show_to_builder, /\| Token \| Your entry gets a token on Base, Tip Jar \(\$TIP\): /);
     assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`), prep.show_to_builder);
     assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
     // A wallet given in this call is not "from last time".
