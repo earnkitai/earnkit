@@ -49,8 +49,13 @@
   agent-reported local_repos given, and
   `working_on` (programs passed to prepare_submission, cleared by record_submission), so
   list_programs needs no arguments later and leads with "You're working on". It also keeps the
-  payout wallet of the last campaign entry (`installations.payout_wallet`), which
-  prepare_submission asks the builder to confirm, in full; it is never prefilled (final review I8).
+  installation's last wallet (`installations.payout_wallet`). v2.6 Ruling 10 (plan): every
+  `record_submission` that names a valid wallet writes it, and so does the token flow whenever it
+  keeps a creator wallet (`installations.ts` `rememberWallet`/`rememberedWallet`). Outside campaigns
+  it is prefilled on the coin's wallet line (one yes confirms the coin and the wallet). Campaign
+  entries still ask about it in full and never prefill it (final review I8). Ruling 22: a wallet
+  the builder gives that isn't valid fails the call ("a 0x wallet address (check it for typos)");
+  it never falls back to the remembered one.
 - **verified_at**: the day a program's facts were last checked against its source. Within 7 days
   agents are told not to re-read the source.
 - **Track**: a category inside a program with its own requirements.
@@ -126,8 +131,8 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   `tokens.ts`). Flow: `prepare_submission` returns a `token` block (EarnKit's proposed name and
   ticker — the project name, ticker candidates checked against brands and tokens.fun's
   `check-ticker` —, creator wallet, the verbatim earnings line, terms links, a `note` with what the
-  repo needs, `has_bonus` (v2.5 §3, Task 8: `hasBuilderBonus` — the program is `active` and has a
-  `submission_proof` pattern), and `say_to_builder`, which alone is the complete consent text: the
+  repo needs, `has_bonus` (`hasBuilderBonus`, which is `bonusOn` since v2.6: active, not opted
+  out, not a campaign), and `say_to_builder`, which alone is the complete consent text: the
   one token row (`entry-text.ts` `tokenRow`; on a bonus program it reads "$TIP on tokens.fun, you
   keep 40% of fees · skip: no builder bonus" instead of the generic "say no token to skip" — never
   shown or mentioned past this one row), the footnote naming the builder's own 40%-of-fees split
@@ -146,20 +151,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   (not campaign entries) to the project row. Both go through one flow (`runTokenFlow`): launches
   configured; `decideToken` (policy, "skip", an existing token, confirmation, explicit ticker at
   submission, edits, name/ticker rules, creator wallet); one token per repo (another project with
-  the same `token_repo_key` and a token or claim); the gate (`tokenGate`: policy not off; the
-  public GitHub repo exists, isn't a fork, has commits; **ownership** — its `earnkit.txt` is read
-  for every launch, campaign entries included, and must (1) name the creator wallet on
-  `payout_wallet:`, or on `creator_wallet:` when payout_wallet names another wallet (a campaign
-  entry's proven payout wallet also counts), and (2) carry `token: <SYMBOL> <code>` (Ruling 17)
-  for the exact ticker being launched, where `code` is the first 10 hex characters of
-  `HMAC-SHA256(EARNKIT_AUTH_SECRET, "token-line:<installation>:<normalized repo>:<SYMBOL>")`
-  (`token-gate.ts` `tokenLineCode`/`tokenLineFor`, compared timing-safely; no secret → the gate
-  refuses, "Token launches aren't configured right now."). The line is shown only to the launching
-  agent (prepare_submission's token note when the repo is known, `say_to_builder`, the gate_failed
-  reason), never on public pages or to sponsors; only someone who can push to the repo can add it,
-  and a line copied from the public file is useless to any other agent (malformed `creator_wallet:`/`token:` lines are
-  ignored and never affect campaign checks); a `live_url` that answers 2xx via `safeProbe` (User-Agent `EarnKit-linkcheck/1`);
-  the creator wallet passes the sanctions screen; never cached); the per-installation limit
+  the same `token_repo_key` and a token or claim); the gate (`tokenGate`, v2.6 §3: see "Coin gate
+  (v2.6)" below: policy not off; a public GitHub repo with real code; **ownership** — its
+  `earnkit.txt` carries this agent's ticker-free `token: <code>` line for the repo; the creator
+  wallet passes the sanctions screen; no live-link check; never cached); the per-installation limit
   (`LIMITS.tokenLaunch`, 3 a day, counted only right before a deploy); then `deployToken`.
   **Policy:** `encouraged | allowed | off` on programs (program files, sponsor campaigns via
   `sponsor_campaign create`, default `encouraged`); encouraged and allowed both launch by default,
@@ -193,6 +188,37 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   40% / MINI buyback 10%). **Treasury lock:** `contracts/script/Deploy.s.sol` reverts on chain 8453
   unless `TREASURY` is `0xc8A889577446153e28D42254B75238Ae31EC7D57`. `pnpm token:e2e` runs every
   flow against a local Postgres and a mock tokens.fun (which also serves `earnkit.txt`).
+- **Coin gate (v2.6 §3; `token-gate.ts`, `ownership.ts`, `match-projects.ts`).** A launched coin is
+  never re-gated (`runTokenFlow` stops at the existing token first), so no v2.5 coin is affected.
+  - *The line* (Ruling 1 (plan)). `token: <code>`, where `code` is the first 16 hex characters of
+    `HMAC-SHA256(EARNKIT_AUTH_SECRET, "token-line:v2:<installation>:<normalized repo>")`
+    (`tokenCode`/`tokenLineFor(installationId, repoUrl)`, compared timing-safely). It is
+    ticker-free: a new ticker needs no new line. The v2.3–v2.5 line `token: <SYMBOL> <code10>`
+    (`legacyTokenLineCode`) is still accepted for the ticker being launched, so a builder who pushed
+    it before the deploy can still launch; 16 hex characters never parse as a v2.5 symbol (at most
+    10), so the two forms can't collide. No secret: the gate refuses ("Token launches aren't
+    configured right now."). The line is shown only to the launching agent (prepare_submission's
+    token note, the gate_failed reason), and the agent writes and pushes it itself; the builder
+    never edits files. `earnkit.txt` no longer needs a wallet line for a coin (wallet lines stay
+    campaign business, `checkOwnership`).
+  - *Reading the file* (Ruling 14 (plan), Ruling 20). Through GitHub's contents API with
+    `GITHUB_TOKEN` (`ownership.ts` `fetchOwnershipViaApi`, `Accept: application/vnd.github.raw`,
+    5 s, 4 KB, no redirects), so a fresh push is seen at once (no raw-CDN cache). The raw URL is
+    read only when the API is rate-limited: 429, a 403 with `x-ratelimit-remaining: 0`, or a
+    secondary limit (403 with `retry-after`, or a "secondary rate limit"/"abuse" body). An API 404
+    is "missing" (no raw read); a redirect, another status or a network failure is a retryable
+    error. The token and the `Authorization` header are never logged. With
+    `EARNKIT_OWNERSHIP_BASE_URL` set (dev/test only), the override is read instead.
+  - *Repo with code* (Ruling 3 (plan); `match-projects.ts` `repoCodeFacts`, `codeProblem`). A coin
+    needs a public GitHub repo (a private one EarnKit's token can see is refused as "not public")
+    that has at least one commit (`/commits?per_page=1`; 409 = empty) and is either not a fork or
+    a fork whose default branch is ahead of its parent (`/repos/<parent>/compare/<base>...<owner>:
+    <branch>`, `ahead_by > 0`; a failed compare is `ForkCheckError`, "try again"). Commits are not
+    checked by author (org-owned repos have no owner author): push access is what the line proves.
+  - *No live-link gate.* The live link is a traction signal only; it never blocks a coin.
+  - *Cost* (Ruling P2). The spec's "at most one call per launch" is the ownership-file fetch: one
+    contents-API read (the raw read only under a rate limit). The repo and commits reads existed
+    before v2.6; the compare is new and runs for forks only. All on the one existing `GITHUB_TOKEN`.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
   deploy and never learned the outcome (no answer, a 5xx, or an unparsed body); EarnKit never
   retries it on its own, and `launch_token` refuses it (as does any other entry of the same repo).
@@ -689,14 +715,23 @@ during the build); plan: `v2.4-money-first-plan.md`.
 - **Rounds** (`bonus-rounds.ts`): a windowed program is one round per window (`starts_at`
   inclusive, `ends_at` exclusive), keyed `<id>:YYYY-MM-DD` (the window's UTC start day, Ruling 21:
   a re-run cohort with a new start is a new round); a rolling program has UTC-month rounds
-  `<id>:YYYY-MM`. A windowed program needs `starts_at` for a round (M4; `program-file.ts` refuses
-  `submission_proof` on a windowed program without it). An `open` round's stored window follows
+  `<id>:YYYY-MM`. A windowed program needs `starts_at` for a round (M4; v2.6 Ruling 8 (plan):
+  `program-file.ts` refuses a windowed program without `starts_at` unless it opted out with
+  `builder_bonus: false` or is a campaign). An `open` round's stored window follows
   the program file until it freezes: `programs:sync` (`upsertProgram`) and every booking
   (`bookDeposit`) move it to the file's dates, so an extended `ends_at` keeps scoring, eligibility
-  and deposits in the round; a frozen round never moves. A deposit goes to
-  the round open at its block time (`bookingFor`), else to the Safe: no coin, not an EarnKit coin,
-  no open round, a program without `submission_proof`, a program that isn't `active` (the same
-  status rule as `roundPoolsWei`), or a round no longer `'open'` in `bonus_rounds`. `roundPoolsWei` (list_programs) is one grouped query, open
+  and deposits in the round; a frozen round never moves. **Booking rule (v2.6 §4):** a deposit goes
+  to the round open at its block time unless the program opted out (`builder_bonus: false`), is a
+  campaign, or isn't active (`bonusOn`, Ruling 7 (plan)); deposits booked to the Safe under v2.5's
+  no-pattern rule stay there (Ruling 2 (plan)). Otherwise it goes to the Safe: no coin, not an
+  EarnKit coin, no open round, or a round no longer `'open'` in `bonus_rounds` (`bookingFor`; the
+  Safe reason is logged). `bonusOn(p)` = `status === 'active' && builder_bonus !== false &&
+  campaign == null`; its SQL twin is `g.status = 'active' AND g.builder_bonus AND g.campaign IS
+  NULL`. It is the one rule for booking, list_programs, the coin row, the board, stats and the
+  cron; `submission_proof` now decides only *how* a submission is checked, never *whether* a
+  program has a bonus. `programs.builder_bonus` (default true) comes from the program file. With
+  no retroactive rebooking, a program that had no pattern gets its current round row from its
+  first deposit after the v2.6 deploy, and its pool counts from there. `roundPoolsWei` (list_programs) is one grouped query, open
   rounds only; a program whose current round exists but froze maps to null, and its builder bonus
   cell reads "—".
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
@@ -783,9 +818,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
   claim, nothing new signed). `needs_owner` entries are `bonus:<round key>` (also, once per
   round, an ended round whose final scoring throws: `bonus_rounds.score_error_notified_at`,
   Ruling 23); when the ledger is skipped (payout key missing or malformed, or off Base mainnet)
-  while the bonus can earn (`bonusLive`: an active program with `submission_proof`, an EarnKit coin,
-  or an ended unpaid round; a failed check counts as yes), the cron adds `bonus-rounds: payout
-  wallet not configured` (Rulings 19, 20).
+  while the bonus can earn (`bonusLive`: an active non-campaign program with the bonus on (v2.6
+  Ruling 17 (plan): so any active curated program), an EarnKit coin, or an ended unpaid round; a
+  failed check counts as yes), the cron adds `bonus-rounds: payout wallet not configured`
+  (Rulings 19, 20). Since v2.6 a missing or malformed payout key is a 503 whenever a program is
+  active.
 - **Runbook: a stuck bonus payout (`MANUAL_CHECK` on a round).** As a stuck campaign payout, on
   `bonus_payouts` (`tx_hash`, `raw_tx`, `stale_at`, `slot`, `amount_wei`). Not paid: `UPDATE
   bonus_payouts SET status = NULL, tx_hash = NULL, raw_tx = NULL, stale_at = NULL, slot = NULL,
@@ -810,9 +847,20 @@ during the build); plan: `v2.4-money-first-plan.md`.
   entry without a coin; one proof passes on the daily re-check; fees over two days (tokens.fun's
   batch collect, then EarnKit's own near-end collect); scoring with no onchain users; freeze; a
   veto; the payout split; a post-end deposit swept to the Safe; the winner alert; a re-run that
-  signs nothing. It skips without `BONUS_ANVIL_URL` and `DATABASE_URL`. Note: a round's row is
-  made by its first booking (the index step, which runs after scoring), so a new round is first
-  scored on the run after its first deposit.
+  signs nothing. v2.6 (Task 8) adds to the same story: one Arc entry whose proof page answers 405
+  with the builder's confirmation (`unverified_page`: eligible, flagged `unverified_page` in
+  `bonus_payouts.flags`, never in `terms.flagged`, no 503); then, on the same chain and cron
+  helper, `e2e-confirm` (rolling, `submission_proof: null`, bonus defaulted on): a confirmed entry
+  (`builder_submitted: true`, a ticker-free `earnkit.txt`) whose deposit books to
+  `e2e-confirm:<YYYY-MM>` and is paid the whole pool in one WETH transfer after the month ends,
+  the review and the payout (`needs_owner` empty); an unconfirmed entry never ranked; a test
+  installation (`EARNKIT_TEST_INSTALLATIONS`) shown as "Test entry: not ranked", never scored or
+  paid, and out of `/api/stats`; a late confirmation that updates the same entry (Ruling 23, no
+  second coin); the winner's `list_programs` opening with the paid line and its leaderboard link;
+  a re-run that signs nothing. Its round is keyed by the deposit's block time, so it holds on any
+  day of the month. It skips without `BONUS_ANVIL_URL` and `DATABASE_URL`, or when either isn't
+  local. Note: a round's row is made by its first booking (the index step, which runs after
+  scoring), so a new round is first scored on the run after its first deposit.
 - **Fork check (Task 10):** `pnpm bonus:fork-check` reads a real Clanker v4 collect receipt on Base
   and checks `bonusDeposits` against it: each deposit's coin is cross-checked with the locker's
   `tokenRewards` and the `ClaimedRewards` rewards, and `storeLogs`' indexed-topic filter returns the
@@ -849,6 +897,38 @@ during the build); plan: `v2.4-money-first-plan.md`.
   entries a run, oldest attempt first; a row the guard still skips is stamped. A malformed `liveUrl` (bad stored data) never makes
   `proofProblem` throw (`URL.canParse` guards it); `program-file.ts`'s `submission_proof.path_pattern`
   must be anchored (`^...$`) so it can only match one specific entry path.
+- **Submission basis (v2.6 §3, Rulings 4, 5, 9, 15, 23 (plan); `projects.ts` `submissionBasis`,
+  `submission-proof.ts` `proofCheck`/`recheckUpdate`).** Every bonus program (`bonusOn`) checks an
+  entry's submission; the result is stored in `projects.submission_basis`, and
+  `submission_proof_ok_at` stays "counts since" (eligibility is unchanged: coin and
+  `submission_proof_ok_at` before the round's end). The three values:
+  - `page`: the program has a public entry page (`submission_proof`) and the page links the entry.
+    A v2.5 row with `submission_proof_ok_at` set and no basis counted this way.
+  - `unverified_page`: the page couldn't be fetched (any fetch failure: network, timeout, any
+    non-2xx such as DoraHacks' 405, or an oversize page; Ruling 15) and the builder confirmed the
+    submission. It counts and is eligible. At the freeze, `finalRanking` adds the review flag
+    `unverified_page` (`traction.ts` `UNVERIFIED_PAGE_FLAG`) to `bonus_payouts.flags` only, never
+    to `terms.flagged`, so it never puts a round in `needs_owner` and never makes the cron answer
+    503. The review page shows it ("unverified page: the program site blocked EarnKit; the builder
+    confirmed it") and links the entry page to check by hand.
+  - `confirmed`: the program has no public entry page; the builder's confirmation counts.
+
+  The confirmation is `record_submission`'s optional `builder_submitted` (only `true` counts;
+  stored as `projects.submission_confirmed_at`; never derived from `builder_confirmed`, which is
+  consent to the coin). Not eligible: a wrong host or path, no repo or live link to match, a page
+  that loaded without the entry's link (that also clears the confirmation), or no confirmation on
+  a program without a page. A pattern program still needs `external_submission_url`. Pre-v2.6
+  entries on programs without a pattern are not back-filled (Ruling 9): the agent calls
+  `record_submission` again with `builder_submitted: true`. **Re-recording** (Ruling 23): the same
+  installation recording the same project again in the same non-campaign program (same
+  normalized repo, or the same name without a repo; `ownEntry`) updates that row instead of
+  inserting one, so a late confirmation lands on the entry with the coin (no second coin, no daily
+  charge). **Daily re-check** (Ruling 4 (plan), `recheckUpdate`): while the round is open, an
+  entry with a page and no count, or an `unverified_page` entry, is re-read at most once a day:
+  the page links it → `page` (counting since its first count); the page loads without the link →
+  not eligible and the confirmation cleared; still unreachable → no change (a confirmed entry
+  that didn't count yet becomes `unverified_page`). An entry counted on `confirmed` alone has no
+  page and is never re-read. `/policy` states the rule.
 - **Traction score (Task 6, spec §3, Rulings 12-16; `traction.ts`).** Eligible in a round =
   `eligibleSql(ends_at)`: coin launched (`projects.coin_launched_at`, set by tokens.ts) and
   submission proof ok, both before the round's end (Ruling 16: frozen at the end), and no earlier
@@ -894,8 +974,8 @@ during the build); plan: `v2.4-money-first-plan.md`.
   cron wiring, freeze, review and payout are Task 7's.
 - **Submission text and alerts (Task 8).** The coin row (`entry-text.ts` `tokenRow(symbol,
   hasBonus)`) adds `· skip: no builder bonus` instead of the generic `(say "no token" to skip)`
-  when the program has a builder bonus (`token-launch.ts` `hasBuilderBonus`: `status === 'active'
-  && submission_proof != null`, the same rule `bookingFor` uses); without a bonus the row is
+  when the program has a builder bonus (`token-launch.ts` `hasBuilderBonus`; v2.5: `status ===
+  'active' && submission_proof != null`, v2.6: `bonusOn`, the same rule `bookingFor` uses); without a bonus the row is
   unchanged from v2.3. `tokenFootnote` now reads "you keep 40% of trading fees (after Clanker's
   20% protocol cut)" — the builder's own share only, never the other v2.5 slots. The coin is never
   advertised past this one row. Ruling 25 (one coin per repo): on a program with a builder bonus,
@@ -906,7 +986,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
   row for that repo (never when the coin is entered in the same program). launch_token on another
   chain, on a program with a builder bonus, adds `NON_BASE_NO_BONUS` to its note (the bonus counts
   Base coins only). **Alerts (`alerts.ts`):** builder bonus wins
-  (`you won 0.12 ETH builder bonus (<program>)`) join EarnKit prizes and sponsor wins in the
+  (v2.5 `you won 0.12 ETH builder bonus (<program>)`; v2.6 wording below) join EarnKit prizes and sponsor wins in the
   wins-first block (Ruling 26), same 3-per-check cap and seen-ids memory (`AlertState.bonusWins`,
   by `bonus_payouts.id` (M2): a second round's win of the same entry is news too);
   the builder bonus's own top 10, from `bonus_scores.rank` (`BONUS_TOP_N = 10`, the payout split's
@@ -924,8 +1004,46 @@ during the build); plan: `v2.4-money-first-plan.md`.
   pays `creator_wallet`, Ruling 14 — not `payout_wallet`, which Ruling 13a never sets for external
   entries). Tested with rows injected into a temporary table built to this same contract
   (`alerts.test.ts`), so the query is proven correct ahead of Task 7.
+- **Submission text and alerts (v2.6 §3; `entry-text.ts`, `token-launch.ts`, `tools.ts`,
+  `alerts.ts`).** Builder text never names a tool (Ruling 22); the agent-facing `note` fields do.
+  - *Bonus everywhere.* `hasBuilderBonus` is `bonusOn`, so every curated program's coin row and
+    first-message cell show the bonus unless it opted out.
+  - *One yes at submission.* Outside campaigns, prepare_submission's block has one coin row
+    (`coinRow`: "Your entry gets a coin, $TICKER: you earn 40% of its trading fees, and it enters
+    the builder bonus · skip: no coin, no builder bonus"), the wallet line under it (`walletLine`:
+    the remembered wallet, in full, once; without one it is the ask) and a one-line footnote
+    (`COIN_FOOTNOTE`: WETH after Clanker's cut, gas paid, Terms and Risks). One yes confirms the
+    coin and the wallet; the agent passes that wallet as `record_submission`'s `payout_wallet`.
+    Campaign entries keep v2.4's `confirmTable`/`tokenRow`/`tokenFootnote`.
+  - *No wallet* (Ruling 18, Ruling 21, Ruling 22). The entry is recorded and the coin skipped
+    (`token.no_wallet`); the builder sees one line, "Reply with a wallet to get your coin and join
+    the builder bonus (<pool> · ends <Mon D> · <leaderboard>)"; the agent's note (`noCoinYet`)
+    keeps `launch_token` with the round's last day.
+  - *The after-submission reply* (`enteredText`, `record_submission`'s `show_to_builder`):
+    "Entered in <program>. Your coin: tokens.fun/coin/<address> · you earn 40% of its fees." then
+    "Builder bonus: <pool> · ends <Mon D> · earnkit.com/bonus/<slug>" (`bonusCell`, the round's
+    last day, `boardLink`). An entry that doesn't count yet gets the one plain step that joins
+    instead (Rulings 23, 24): "Tell me once you've submitted on <site>", "Send me your <site> entry
+    link" (a public-page program with no link) or "Add your repo link to your <site> entry page".
+    No bonus line when the coin was skipped, the program has no open round or bonus, the round
+    froze, or the repo's coin is entered elsewhere (Ruling 25).
+  - *Leaderboard links* (Ruling 12 (plan)): `boardSlug` turns a round key's `:` into `-`
+    (`earnkit.com/bonus/arc-microgrants-2026-09-16`, `.../base-builder-grants-2026-10`);
+    `/bonus/[round]` accepts the slug and the v2.5 `:` form (`roundKeyFromSlug`,
+    `resolveRoundParam`), and the sitemap lists slugs.
+  - *Alerts* (Rulings 25, 26, superseding P1's literal wording). Each line is a natural clause, so
+    "Since you last checked: a; b." has exactly one colon: "you were paid a 0.12 ETH builder bonus
+    (as WETH) for <program>, sent to 0xAB12…ef01 (basescan.org/tx/<hash>) · earnkit.com/bonus/<slug>"
+    (the wallet checksummed and shortened; the tx link is the builder's proof of payment), "you
+    have $X in coin fees to claim on tokens.fun", and the top-10 in/out lines end with their
+    leaderboard link. `copy-v26.test.ts` reviews the joined sentences and every builder string
+    (no emojis, no "vault", no implied affiliation, no tool names, no file-edit asks).
+  - *Server instructions* (`mcp.ts`): `OWNERSHIP_FOR_TOKEN` (the agent writes and pushes the
+    `token: <code>` line itself), `builder_submitted` in `record_submission`'s description (ask
+    "Did you submit on <program site>?" first), and `local_repos[].url` (optional; kept only when
+    `githubRepo` parses it, Ruling 13).
 
-## Ride programs: money flow, owner steps and runbooks (v2.5)
+## Ride programs: money flow, owner steps and runbooks (v2.5, v2.6)
 
 EarnKit rides programs that already pay builders. It matches a builder to their open money, gives
 each entry a coin, and funds a builder bonus per program from the coins' fees. EarnKit runs no
@@ -982,6 +1100,72 @@ Also:
   past it (about an hour). Deposits are booked only to an active program's round. Closing it
   early sends in-round deposits that are indexed later to the Safe.
 
+**Owner steps for the v2.6 deploy** (zero friction; spec `v2.6-zero-friction.md`):
+
+1. Confirm `CAMPAIGN_PAYOUT_PRIVATE_KEY` is set on Railway (look at the variable's presence, never
+   print its value). With the builder bonus on every program, `bonusLive` is true whenever a
+   curated program is active, so a missing or malformed key makes every hourly cron answer 503
+   (`bonus-rounds: payout wallet not configured`; Ruling 17 (plan)). Production has had it since
+   v2.5.
+2. Optional: set `EARNKIT_TEST_INSTALLATIONS` to your own test agent's installation id (see
+   "Test the journey (v2.6)" below for how to find it). Comma-separated ids; a malformed part is
+   ignored with one warning.
+3. `GITHUB_TOKEN` is already set: the coin gate's contents-API read of `earnkit.txt` uses it (one
+   read per launch, the raw URL only under a rate limit). Nothing to add.
+4. Merge and deploy. `predeploy` (`db:migrate` then `programs:sync`) runs the migration, which is
+   additive only: `programs.builder_bonus` (default true), `projects.submission_basis` (NULL, with
+   its CHECK) and `projects.submission_confirmed_at` (NULL). Nothing is renamed, dropped or
+   rewritten; v2.5 rows keep working (a v2.5 entry with `submission_proof_ok_at` counts as
+   `page`). Deposits already booked to the Safe stay there (Ruling 2 (plan)); a program that had
+   no pattern (Base, Circle, Monad) gets its round row from its first deposit after the deploy.
+   A `token: <SYMBOL> <code>` line pushed before the deploy still launches that ticker.
+
+**Runbook: Test the journey (v2.6).** The whole builder journey on production, with a coin that is
+real and permanent, from an agent EarnKit never ranks or pays. Use a **throwaway public repo** and
+a wallet you control.
+
+- [ ] **Install.** Open earnkit.com, pick the Claude Code tab on the install page and add EarnKit
+  to a coding agent you use only for testing (one agent = one installation; a reused agent's
+  memory changes what the first message shows).
+- [ ] **Find the installation id and mark it as a test.** The installation row is created when the
+  agent connects (OAuth token). In the production database:
+  `SELECT id, created_at, github_user, local_repos FROM installations ORDER BY id DESC LIMIT 5;`
+  Yours is the newest one created when you connected (`SELECT id FROM installations ORDER BY id
+  DESC LIMIT 1` if nobody else installed at the same moment). Confirm it after the first message:
+  its `local_repos` (or `github_user`) is what your agent just reported. Set
+  `EARNKIT_TEST_INSTALLATIONS=<id>` on Railway (append with a comma if it holds other ids) and
+  redeploy. The list is read on every call, so an entry recorded before the redeploy is still
+  excluded once it is set; a frozen round re-checks it before paying.
+- [ ] **First message without GitHub.** In an empty folder (no git remote), ask "anything worth
+  building?". Expect "$X is open right now. I can build an entry for you.", a table whose prize
+  column reads "You could win", a Builder bonus column, "Ideas I can build:" (one per line) and
+  "Pick one and I'll start." Do this first: a GitHub user or repo list, once given, is remembered
+  and turns "You could" off for this installation.
+- [ ] **First message with GitHub.** Give your GitHub username (or run it in a folder with your
+  repos). Expect "EarnKit matches you to $X in open money you qualify for" when a repo fits, or
+  "$X is open right now." with a "Prize" column (no "could") when none does.
+- [ ] **Build.** Pick an idea; the agent builds it in the throwaway public repo and pushes real
+  commits (an empty repo, or a fork with no new commits, gets no coin).
+- [ ] **Submit.** The agent shows one block: the entry, one coin row ("Your entry gets a coin,
+  $TICKER: … and it enters the builder bonus · skip: no coin, no builder bonus"), the wallet line
+  (your wallet in full, or the question) and a one-line footnote. Answer one yes. Don't send a
+  throwaway to a real program's form: say yes when asked "Did you submit on <site>?" only for
+  this test entry (it is never ranked or paid).
+- [ ] **Coin.** The coin launches on tokens.fun. In the repo, `earnkit.txt` holds only
+  `token: <16 hex>`, pushed by the agent (you edited nothing).
+- [ ] **After-submission reply.** "Entered in <program>. Your coin: tokens.fun/coin/<address> · you
+  earn 40% of its fees." then "Builder bonus: <pool> · ends <Mon D> · earnkit.com/bonus/<slug>".
+- [ ] **Leaderboard.** Open that link: your entry is listed as "Test entry: not ranked" (never a
+  rank, score or amount).
+- [ ] **Stats.** `curl -s https://earnkit.com/api/stats`: `installs` and `coins_launched` don't
+  count your installation or coin (cached 10 minutes; compare with a read from before the test).
+- [ ] **Cleanup.** Keep the id in `EARNKIT_TEST_INSTALLATIONS` for as long as the entry exists
+  (removing it makes the entry an ordinary, rankable one). The coin can't be undone; its 40% of
+  fees is yours to claim on tokens.fun, and its bonus slot books to the round like any coin's.
+  Archive or delete the throwaway repo once the coin is launched (traction never reads a test
+  entry). Don't delete database rows. Remove EarnKit from the test agent if you don't keep it for
+  the next test.
+
 **Runbook: a 503 from `/api/cron`.** The GitHub Actions run fails and GitHub emails the owner. The
 body's `needs_owner` says what waits:
 
@@ -1031,9 +1215,21 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from
   `lib/earnkit/policy.ts`, which reads the constants the code applies (traction `WEIGHTS`,
   `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and from
-  `BONUS_NOTE` (earnkit.com/policy).
-- **/bonus/<round>** (`bonus-board.ts`) shows public data only. While a round is open it shows the
-  live ranking from `bonus_scores` (ranked rows first, at most 500), eligibility in plain words, the pool so far, and the days left.
+  `BONUS_NOTE` (earnkit.com/policy). v2.6: every program except EarnKit campaigns has a builder
+  bonus unless it opts out; programs with public entry pages need the entry page to link the
+  repo or live product, programs without them count the builder's confirmation (the owner reviews
+  the top 10 before paying), and an entry page EarnKit can't load counts on the confirmation,
+  reviewed too; the coin needs push access (the agent's `earnkit.txt` token line), not a wallet
+  line; Safe money is the share of programs that opted out.
+- **/bonus/<round>** (`bonus-board.ts`) shows public data only. The URL segment is the slug
+  `<program id>-<YYYY-MM-DD | YYYY-MM>` (v2.6 Ruling 12 (plan), `boardSlug`); the v2.5 `:` form
+  (also `%3A`) still resolves (`resolveRoundParam`), and a malformed escape is a 404. While a round
+  is open it shows the live ranking from `bonus_scores` (ranked rows first, at most 500),
+  eligibility in plain words ("No: no coin", "No: submission page not confirmed yet" on a
+  pattern program, "No: submission not confirmed yet" otherwise, "No: an earlier entry of this
+  repo counts", "Test entry: not ranked"), the pool so far, and the days left. An open round with
+  no deposit yet (no `bonus_rounds` row) still shows, pool 0, while it is the open round of a
+  program with `bonusOn`.
   From the review on, it shows the frozen `bonus_payouts` ranking minus vetoes, renumbered, with
   each place's amount and the mined transaction. Wallets, flags and veto reasons never show.
   Stored links render only through `shownUrl`.
