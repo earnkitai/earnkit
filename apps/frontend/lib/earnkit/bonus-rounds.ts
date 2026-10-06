@@ -31,17 +31,26 @@ export function roundFor(program: Window, at: Date): Round | null {
 }
 
 /**
- * Where a deposit at `at` from a coin entered in `program` goes: its open round, or the Safe (v2.5
- * §3: no rollover). The Safe also gets it when the program's submissions aren't public (no
- * `submission_proof`: no entry can be eligible, so the pool could never be paid) and whenever the
- * program isn't 'active' (one status rule, the same as `roundPoolsWei`). Pure.
+ * v2.6 §4, Ruling 7 (plan): whether a program's entries can earn the builder bonus. One rule for
+ * booking, list_programs, the coin row, the board and the cron. SQL twin:
+ * `g.status = 'active' AND g.builder_bonus AND g.campaign IS NULL`. Pure.
+ */
+export function bonusOn(p: { status: string; builder_bonus?: boolean | null; campaign?: unknown }) {
+  return p.status === 'active' && p.builder_bonus !== false && (p.campaign === null || p.campaign === undefined);
+}
+
+/**
+ * Where a deposit at `at` from a coin entered in `program` goes: its open round, or the Safe (no
+ * rollover). The Safe when the program opted out (builder_bonus: false) or is a campaign, and
+ * whenever it isn't 'active'. v2.6 drops v2.5's "no submission_proof → Safe" (Ruling 9); deposits
+ * booked under it stay with the Safe (Ruling 2 (plan)). Pure.
  */
 export function bookingFor(
-  program: Window & { status: string; submission_proof: unknown },
+  program: Window & { status: string; builder_bonus?: boolean | null; campaign?: unknown },
   at: Date,
 ): { destination: 'round'; round: Round } | { destination: 'safe'; reason: string } {
-  if (program.submission_proof === null || program.submission_proof === undefined)
-    return { destination: 'safe', reason: 'builder bonus not available' };
+  if (program.builder_bonus === false || (program.campaign !== null && program.campaign !== undefined))
+    return { destination: 'safe', reason: 'builder bonus off' };
   const round = program.status !== 'active' ? null : roundFor(program, at);
   return round ? { destination: 'round', round } : { destination: 'safe', reason: 'no open round' };
 }

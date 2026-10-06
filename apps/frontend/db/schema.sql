@@ -522,3 +522,15 @@ ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS freeze_failures integer NOT NU
 -- (production has no v2.5 rows yet).
 -- Ruling 23: when an ended round's final scoring failure was reported to the owner (503, once).
 ALTER TABLE bonus_rounds ADD COLUMN IF NOT EXISTS score_error_notified_at timestamptz;
+
+-- v2.6 §4: every program has a builder bonus unless its file says builder_bonus: false. Additive
+-- and idempotent: safe on a database holding v2.5 rows (every existing row defaults to true).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS builder_bonus boolean NOT NULL DEFAULT true;
+-- v2.6 §3: how an entry's submission counts for the builder bonus. submission_proof_ok_at stays
+-- "counts since"; NULL basis with submission_proof_ok_at set is a v2.5 checked page ('page').
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_basis text;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_submission_basis_check;
+ALTER TABLE projects ADD CONSTRAINT projects_submission_basis_check
+  CHECK (submission_basis IN ('page', 'unverified_page', 'confirmed'));
+-- v2.6 Ruling 5 (plan): when the builder confirmed the submission at record_submission.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS submission_confirmed_at timestamptz;

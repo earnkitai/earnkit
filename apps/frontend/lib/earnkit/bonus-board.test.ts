@@ -136,12 +136,11 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
     assert.ok(!JSON.stringify(paid).includes('00aa'), 'no wallet');
     assert.equal(await bonusBoard(`${tag}-missing`, realNow), null);
     // The open round of a program with no deposit yet still shows, with nothing in the pool; a
-    // program whose submissions aren't public (no submission_proof) has no bonus page.
-    for (const [id, proof] of [[`${tag}-new`, true], [`${tag}-private`, false]] as const)
+    // program that opted out of the builder bonus (builder_bonus: false) has no bonus page.
+    for (const [id, builderBonus] of [[`${tag}-new`, true], [`${tag}-private`, false]] as const)
       await sql()`
-        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, submission_proof)
-        VALUES (${id}, 'Org', 'Rolling', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown',
-          ${proof ? sql().json({ host: 'x.org', path_pattern: '^/b/' }) : null})`;
+        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, builder_bonus)
+        VALUES (${id}, 'Org', 'Rolling', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown', ${builderBonus})`;
     const month = realNow.toISOString().slice(0, 7);
     const fresh = await bonusBoard(`${tag}-new:${month}`, realNow);
     assert.deepEqual([fresh?.state, fresh?.pool, fresh?.rows.length], ['open', '0', 0]);

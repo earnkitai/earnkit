@@ -1,6 +1,6 @@
 import { sql } from './db';
 import { placesFor, roundRows, type BonusPayoutRow, type BonusTerms } from './bonus-payout';
-import { roundFor } from './bonus-rounds';
+import { bonusOn, roundFor } from './bonus-rounds';
 import { eligibleSql } from './traction';
 import { shownUrl } from './untrusted-text';
 
@@ -156,16 +156,16 @@ type RoundRow = {
 /**
  * The board of `roundKey`, or null when it isn't a round. A round with no deposit yet has no
  * bonus_rounds row: it still shows (pool 0) while it is the open round of an active program whose
- * entries can be eligible (a submission_proof pattern).
+ * entries can earn the builder bonus (bonusOn's SQL twin).
  */
 export async function bonusBoard(roundKey: string, now = new Date()): Promise<Board | null> {
   let [r] = await sql()<RoundRow[]>`
     SELECT b.round_key, b.program_id, p.title, b.starts_at, b.ends_at, b.state, b.review_until, b.terms
     FROM bonus_rounds b JOIN programs p ON p.id = b.program_id WHERE b.round_key = ${roundKey}`;
   if (!r) {
-    const [p] = await sql()<{ id: string; title: string; status: string; starts_at: Date | null; ends_at: Date | null; submission_proof: unknown }[]>`
-      SELECT id, title, status, starts_at, ends_at, submission_proof FROM programs WHERE id = ${roundKey.split(':')[0]}`;
-    const round = p && p.status === 'active' && p.submission_proof ? roundFor(p, now) : null;
+    const [p] = await sql()<{ id: string; title: string; status: string; starts_at: Date | null; ends_at: Date | null; builder_bonus: boolean | null; campaign: unknown }[]>`
+      SELECT id, title, status, starts_at, ends_at, builder_bonus, campaign FROM programs WHERE id = ${roundKey.split(':')[0]}`;
+    const round = p && bonusOn(p) ? roundFor(p, now) : null;
     if (!p || round?.key !== roundKey) return null;
     r = { round_key: roundKey, program_id: p.id, title: p.title, starts_at: round.starts, ends_at: round.ends, state: 'open', review_until: null, terms: null };
   }

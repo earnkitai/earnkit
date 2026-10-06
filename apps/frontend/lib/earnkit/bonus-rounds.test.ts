@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bookingFor, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
+import { bonusOn, bookingFor, roundFor, roundPoolsWei, windowKey } from './bonus-rounds';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -49,25 +49,36 @@ test('roundFor: a rolling program has UTC calendar-month rounds', () => {
 });
 
 test('bookingFor: the round when one is open at the deposit; otherwise the Safe, with the reason', () => {
-  const proof = { host: 'dorahacks.io' };
-  const open = { ...windowed, status: 'active', submission_proof: proof };
+  const open = { ...windowed, status: 'active', builder_bonus: true, campaign: null };
   assert.deepEqual(bookingFor(open, d('2026-10-01T00:00:00Z')), {
     destination: 'round',
     round: roundFor(windowed, d('2026-10-01T00:00:00Z')),
   });
   assert.deepEqual(bookingFor(open, d('2026-10-16T00:00:00Z')), { destination: 'safe', reason: 'no open round' });
-  // No public submissions: no entry can ever be eligible, so its pool would never be paid.
-  assert.deepEqual(bookingFor({ ...open, submission_proof: null }, d('2026-10-01T00:00:00Z')), {
-    destination: 'safe',
-    reason: 'builder bonus not available',
-  });
   // A program that isn't active (windowed or rolling) has no open round: the same rule as roundPoolsWei.
   assert.deepEqual(bookingFor({ ...open, status: 'closed' }, d('2026-10-01T00:00:00Z')), { destination: 'safe', reason: 'no open round' });
-  assert.deepEqual(bookingFor({ ...rolling, status: 'closed', submission_proof: proof }, d('2026-10-01T00:00:00Z')), {
+  assert.deepEqual(bookingFor({ ...rolling, status: 'closed', builder_bonus: true, campaign: null }, d('2026-10-01T00:00:00Z')), {
     destination: 'safe',
     reason: 'no open round',
   });
-  assert.equal(bookingFor({ ...rolling, status: 'active', submission_proof: proof }, d('2026-10-01T00:00:00Z')).destination, 'round');
+  assert.equal(bookingFor({ ...rolling, status: 'active', builder_bonus: true, campaign: null }, d('2026-10-01T00:00:00Z')).destination, 'round');
+});
+
+test('v2.6 §4: every program books to its round unless it opted out or is a campaign', () => {
+  const open = { ...windowed, status: 'active', builder_bonus: true, campaign: null };
+  const at = d('2026-10-01T00:00:00Z');
+  assert.equal(bookingFor({ ...open }, at).destination, 'round', 'no proof pattern still has a bonus');
+  assert.deepEqual(bookingFor({ ...open, builder_bonus: false }, at), { destination: 'safe', reason: 'builder bonus off' });
+  assert.deepEqual(bookingFor({ ...open, campaign: { kind: 'earnkit' } }, at), { destination: 'safe', reason: 'builder bonus off' });
+  assert.deepEqual(bookingFor({ ...open, status: 'closed' }, at), { destination: 'safe', reason: 'no open round' });
+  assert.equal(bookingFor({ ...open, builder_bonus: undefined }, at).destination, 'round', 'a v2.5 row without the field is on');
+});
+
+test('bonusOn: active, not opted out, not a campaign', () => {
+  assert.equal(bonusOn({ status: 'active' }), true);
+  assert.equal(bonusOn({ status: 'active', builder_bonus: false }), false);
+  assert.equal(bonusOn({ status: 'closed' }), false);
+  assert.equal(bonusOn({ status: 'active', campaign: { kind: 'sponsor' } }), false);
 });
 
 // ---- DB-gated ----

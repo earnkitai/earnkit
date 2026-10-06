@@ -34,6 +34,8 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
    - `starts_at`: for new-work-only programs, the start of the build window (matching
      checks commit dates against it). Otherwise `null` unless stated.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
+   - `builder_bonus` (optional): leave it out for the default (`true`, on). Set `false` only when
+     EarnKit should never book entries of this program's coins to a builder bonus round.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and
      skip re-reading the source, so update it whenever you re-check a program against its source.
    - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use.

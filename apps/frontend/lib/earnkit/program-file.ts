@@ -145,6 +145,11 @@ export const ProgramFile = z
      * null otherwise (a Google Form, a private review dashboard, EarnKit's own MCP flow).
      */
     submission_proof: SubmissionProof.nullable().default(null),
+    /**
+     * v2.6 §4: whether this program's entries can earn the builder bonus. On by default; set
+     * `false` to opt out (EarnKit and sponsor campaigns are excluded regardless, by `bonusOn`).
+     */
+    builder_bonus: z.boolean().default(true),
     /** Program-wide rules and requirements every project must meet. */
     rules: z.array(z.string().min(1)),
     /** Present only for EarnKit's own campaigns: builders submit to EarnKit and we pay winners. */
@@ -229,10 +234,12 @@ export const ProgramFile = z
         );
     }
 
-    // v2.5 M4: a builder bonus round is the program's window, so a windowed program with a
-    // builder bonus needs its start (never a round counting activity from 1970).
-    if (p.submission_proof && p.ends_at && !p.starts_at)
-      issue('submission_proof on a program with ends_at needs starts_at (the builder bonus round is the window)');
+    // v2.5 M4 / v2.6 Ruling 8 (plan): a builder bonus round is the program's window, so a windowed
+    // program with a builder bonus needs its start (never a round counting activity from 1970).
+    // Every program has the bonus by default now, so this applies unless the file opted out or is
+    // a campaign (campaigns already require starts_at/ends_at together, above).
+    if (p.builder_bonus !== false && !p.campaign && p.ends_at && !p.starts_at)
+      issue('builder bonus on a program with ends_at needs starts_at (the round is the window)');
 
     if (
       p.starts_at &&

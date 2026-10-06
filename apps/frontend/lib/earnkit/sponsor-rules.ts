@@ -381,6 +381,8 @@ export function sponsorProgramFile(a: {
     // A sponsor campaign has no program source to draw ideas or submission proof from.
     ideas: [],
     submission_proof: null,
+    // Irrelevant here: its campaign (below) already keeps bonusOn false for sponsor campaigns.
+    builder_bonus: true,
     rules: sponsorRules({
       prizeTotal,
       symbol: token.symbol,

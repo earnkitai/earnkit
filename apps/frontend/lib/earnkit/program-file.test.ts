@@ -143,14 +143,23 @@ test('ProgramFile: every committed program file validates', () => {
   }
 });
 
-test('M4: a windowed program with a builder bonus needs starts_at (its round is the window)', () => {
+test('v2.6 Ruling 8: a windowed program with a builder bonus needs starts_at (its round is the window)', () => {
   const base = baseProgram();
-  const proof = { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' };
   assert.throws(
-    () => ProgramFile.parse({ ...base, submission_proof: proof, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }),
-    /needs starts_at/,
+    () => ProgramFile.parse({ ...base, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }),
+    /builder bonus on a program with ends_at needs starts_at/,
   );
-  // Rolling (no end) or no builder bonus: unchanged.
-  assert.doesNotThrow(() => ProgramFile.parse({ ...base, submission_proof: proof, starts_at: null, ends_at: null }));
-  assert.doesNotThrow(() => ProgramFile.parse({ ...base, submission_proof: null, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }));
+  // Rolling (no end): unchanged.
+  assert.doesNotThrow(() => ProgramFile.parse({ ...base, starts_at: null, ends_at: null }));
+  // Opted out of the builder bonus: unchanged.
+  assert.doesNotThrow(() =>
+    ProgramFile.parse({ ...base, builder_bonus: false, starts_at: null, ends_at: '2026-10-15T03:59:00Z' }),
+  );
+});
+
+test('ProgramFile: builder_bonus defaults to true and accepts false', () => {
+  const base = baseProgram();
+  delete base.builder_bonus;
+  assert.equal(ProgramFile.parse(base).builder_bonus, true);
+  assert.equal(ProgramFile.parse({ ...base, builder_bonus: false }).builder_bonus, false);
 });
