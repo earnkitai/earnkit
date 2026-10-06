@@ -26,13 +26,17 @@ export default function ProgramCards({
   limit,
   seeAll = false,
   mobileLimit,
+  heading = 'h2',
 }: {
   tiles: Tile[];
   limit?: number;
   seeAll?: boolean;
   /** Cards shown below `sm`; the rest are hidden there and "See all programs" follows. */
   mobileLimit?: number;
+  /** v2.7 /programs: the cards are the page, so their heading is its h1. */
+  heading?: 'h1' | 'h2';
 }) {
+  const Heading = heading;
   const [asking, setAsking] = useState<string | null>(null);
   const close = useCallback(() => setAsking(null), []);
   const shown = limit === undefined ? tiles : tiles.slice(0, limit);
@@ -44,7 +48,7 @@ export default function ProgramCards({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Eyebrow>Open now</Eyebrow>
-          <h2 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</h2>
+          <Heading className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</Heading>
         </div>
         {more && (
           <Link

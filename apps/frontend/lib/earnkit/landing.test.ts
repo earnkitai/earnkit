@@ -1,6 +1,11 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readLanding } from './landing';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuidePage, readLanding } from './landing';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
+import { sql } from './db';
 import type { Card } from './present';
 import type { PublicStats } from './stats';
 
@@ -144,4 +149,77 @@ test('Review Focus 1: an unreachable database rejects; never empty data that wou
     if (prevPool) g.earnkitSql = prevPool;
     else delete g.earnkitSql;
   }
+});
+
+// ---- v2.7 §2, Ruling 22 (plan): readGuidePage.
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+const programFile = (name: string) =>
+  JSON.parse(readFileSync(join(import.meta.dirname, `../../../../programs/${name}.json`), 'utf8'));
+
+test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async () => {
+  await upsertProgram(ProgramFile.parse(programFile('arc-microgrants')));
+  const page = await readGuidePage('arc-microgrants', now);
+  assert.ok(page);
+  assert.deepEqual(JSON.parse(JSON.stringify(page)), page);
+  assert.equal(page.title, 'Arc Microgrants');
+  assert.equal(page.open, true);
+  assert.equal(page.source_url, 'https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq');
+  assert.match(page.guide.header, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14$/);
+  assert.equal(page.board_path, '/bonus/arc-microgrants-2026-09-16');
+  assert.equal(page.guide.bonus?.board.endsWith(page.board_path!), true);
+  assert.equal(page.ecosystem, page.guide.wants?.ecosystem ?? 'Arc');
+});
+
+test('readGuidePage: a closed curated program still has a page, not open', dbTest, async () => {
+  const f = { ...programFile('arc-microgrants'), id: `t7-closed-${process.pid}`, status: 'closed' };
+  try {
+    await upsertProgram(ProgramFile.parse(f));
+    const page = await readGuidePage(f.id, now);
+    assert.ok(page);
+    assert.equal(page.open, false);
+    assert.match(page.guide.header, /· closed$/);
+    assert.equal(page.board_path, null);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = ${f.id}`;
+  }
+});
+
+test('readGuidePage: an EarnKit campaign, a sponsor campaign and an unknown id are null (a 404)', dbTest, async () => {
+  const camp = programFile('earnkit-campaign-1-base');
+  await upsertProgram(ProgramFile.parse(camp));
+  assert.equal(await readGuidePage(camp.id, now), null);
+  const sponsor = `t7-sponsor-${process.pid}`;
+  try {
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, builder_bonus, campaign, source)
+      VALUES (${sponsor}, 'X', 'a', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', true,
+        ${sql().json({ kind: 'sponsor' })}, 'sponsor')`;
+    assert.equal(await readGuidePage(sponsor, now), null);
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = ${sponsor}`;
+  }
+  assert.equal(await readGuidePage('nope', now), null);
+});
+
+test('Review Focus 1: an unreachable database makes readGuidePage reject (the unavailable panel), never null (a 404)', async () => {
+  const g = globalThis as { earnkitSql?: { end: (o?: object) => Promise<void> } };
+  const prevUrl = process.env.DATABASE_URL;
+  const prevPool = g.earnkitSql;
+  process.env.DATABASE_URL = 'postgres://nobody@127.0.0.1:1/none?connect_timeout=2';
+  delete g.earnkitSql;
+  try {
+    await assert.rejects(readGuidePage('arc-microgrants', now));
+  } finally {
+    const opened = Reflect.get(g, 'earnkitSql') as typeof prevPool;
+    await opened?.end({ timeout: 0 });
+    if (prevUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevUrl;
+    if (prevPool) g.earnkitSql = prevPool;
+    else delete g.earnkitSql;
+  }
+});
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
 });

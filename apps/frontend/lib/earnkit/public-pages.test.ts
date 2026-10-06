@@ -15,6 +15,12 @@ import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
 import { homeFixture } from './fixtures/landing';
+import GuideView, { askPrompt, Unavailable } from '../../app/programs/[id]/GuideView';
+import AskAgent from '../../app/programs/[id]/AskAgent';
+import ProgramCards from '../../app/components/sections/ProgramCards';
+import type { GuidePage } from './landing';
+import { closedGuide, emptyGuide, fullGuide, partialGuide } from './fixtures/guide';
+import { shownUrl } from './untrusted-text';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
@@ -296,4 +302,125 @@ test('v2.7: the site description and llms.txt use the starting phrase and name t
   assert.doesNotMatch(llms, /Do not state any/);
   assert.match(llms, /earnkit\.com\/api\/stats/);
   assert.match(llms, /open money/);
+});
+
+// ---- v2.7 §2, Ruling 22 (plan): the program guide page (GuideView is the pure render;
+// app/programs/[id]/page.tsx does the cached read) and the /programs index.
+const guideHtml = (page: GuidePage) => html(React.createElement(GuideView, { page }));
+/** Every element GuideView returns, walked through children (finds the client AskAgent's props). */
+function elements(node: unknown, out: React.ReactElement[] = []): React.ReactElement[] {
+  if (Array.isArray(node)) for (const n of node) elements(n, out);
+  else if (React.isValidElement(node)) {
+    out.push(node);
+    elements((node.props as { children?: unknown }).children, out);
+  }
+  return out;
+}
+const asks = (page: GuidePage) =>
+  elements(GuideView({ page })).filter((e) => e.type === AskAgent).map((e) => (e.props as { prompt: string }).prompt);
+
+test('v2.7 §2: the full guide page', () => {
+  const h = guideHtml(fullGuide);
+  const t = text(h);
+  assert.match(h, /<h1[^>]*>Arc Microgrants<\/h1>/);
+  assert.match(h, /<img[^>]*src="\/programs\/arc-microgrants.svg"[^>]*alt="Arc Microgrants"/);
+  assert.ok(t.includes('500 USDC × 20 grants · ends Oct 14'));
+  assert.ok(t.includes('Difficulty: Medium — 20 of ~160 entries won last round'));
+  for (const heading of ['What won last time', 'What Arc wants now', 'Your best bet'])
+    assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>\\s*<ul`), heading);
+  const items = [...h.matchAll(/<li(?:\s[^>]*)?>([\s\S]*?)<\/li>/g)].map((m) => text(m[1]).trim());
+  for (const line of [
+    'USDC payroll and payouts (3 of 20 winners)',
+    'Agent wallets paying for APIs (2 of 20)',
+    'Example: PayStream — streamed salaries in USDC; cited for live mainnet demo',
+    'Stablecoin payments', 'FX', 'Agentic commerce',
+    'A USDC payout tool with a live mainnet demo',
+  ])
+    assert.ok(items.includes(line), line);
+  assert.ok(t.includes('Builder bonus: 0.18 ETH so far · leaderboard'));
+  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>leaderboard<\/a>/);
+  // Sources: the program's own page, then every fact's source_url, through shownUrl.
+  assert.ok(t.includes('Sources: community.arc.io · community.arc.io (2) · x.com · arc.io'));
+  for (const u of [fullGuide.source_url, ...fullGuide.sources])
+    assert.match(h, new RegExp(`<a[^>]*href="${shownUrl(u)!.replace(/[.?]/g, '\\$&')}"[^>]*rel="noopener noreferrer"`), u);
+  // Every visible link is https or a local path.
+  for (const [, href] of h.matchAll(/href="([^"]+)"/g)) assert.match(href, /^(https:\/\/|\/)/, href);
+  // One primary action, with the program's own question; "All programs" goes to the index.
+  assert.ok(t.includes('Ask your agent'));
+  assert.deepEqual(asks(fullGuide), ['What can I earn on Arc Microgrants?']);
+  assert.equal(askPrompt('Arc Microgrants'), 'What can I earn on Arc Microgrants?');
+  assert.match(h, /<a[^>]*href="\/programs"[^>]*>All programs<\/a>/);
+  // No paragraphs of prose.
+  for (const [, p] of h.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g))
+    if (!p.includes('Where agents earn.') && !p.includes('All rights reserved'))
+      assert.ok(text(p).trim().length <= 140, text(p));
+  assert.ok(t.includes('Where agents earn.'), 'the footer');
+});
+
+test('v2.7 §2: a partial guide leaves out the parts it has no data for', () => {
+  const h = guideHtml(partialGuide);
+  assert.doesNotMatch(h, /What won/);
+  assert.match(h, /<h2[^>]*>What Arc wants now<\/h2>/);
+  assert.match(h, /<h2[^>]*>Your best bet<\/h2>/);
+});
+
+test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent"', () => {
+  const h = guideHtml(emptyGuide);
+  const t = text(h);
+  assert.match(h, /<h1[^>]*>Circle Developer Grants<\/h1>/);
+  assert.ok(t.includes('milestone-based USDC grants · rolling'));
+  assert.ok(t.includes('Difficulty: Medium (estimate) — no past results yet'));
+  assert.doesNotMatch(h, /<h2/);
+  assert.doesNotMatch(t, /Builder bonus/);
+  assert.deepEqual(asks(emptyGuide), ['What can I earn on Circle Developer Grants?']);
+  assert.match(h, /<span[^>]*aria-hidden="true"[^>]*>CD<\/span>/, 'the monogram (Ruling 1)');
+  assert.ok(t.includes('Sources: circle.com'));
+});
+
+test('Ruling 22 (plan): a closed program still renders, "· closed", with no "Ask your agent"', () => {
+  const h = guideHtml(closedGuide);
+  const t = text(h);
+  assert.ok(t.includes('500 USDC × 20 grants · closed'));
+  assert.doesNotMatch(t, /Ask your agent/);
+  assert.deepEqual(asks(closedGuide), []);
+  assert.match(h, /href="\/programs"/);
+});
+
+test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP', () => {
+  const read = (f: string) => readFileSync(join(import.meta.dirname, '../../', f), 'utf8');
+  const page = read('app/programs/[id]/page.tsx');
+  assert.match(page, /export const revalidate = 600;/);
+  assert.match(page, /if \(page === null\) notFound\(\);/);
+  // A runtime connection() in an ISR route is a 500 (DYNAMIC_SERVER_USAGE), not the panel.
+  assert.doesNotMatch(page, /generateStaticParams/);
+  assert.ok(page.includes('This guide is unavailable right now. Try again in a few minutes.'));
+  assert.ok(page.includes('What can I earn on ${page.title}? Difficulty, what won before, and what ${page.ecosystem} wants now.'));
+  assert.ok(page.includes('`${page.title} guide · EarnKit`'));
+  const index = read('app/programs/page.tsx');
+  assert.match(index, /export const revalidate = 600;/);
+  assert.ok(index.includes('Programs are unavailable right now.'));
+  assert.doesNotMatch(index, /limit=/);
+  const cache = read('app/lib/landing-cache.ts');
+  assert.match(cache, /\['guide-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /console\.error\('\[guide\]'/);
+  const sitemap = read('app/sitemap.ts');
+  assert.ok(sitemap.includes('`${SITE}/programs`'));
+  assert.ok(sitemap.includes('`${SITE}/programs/${p.id}`'));
+  assert.match(sitemap, /status = 'active' AND source = 'file' AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
+  // The logo files' sandbox CSP never matches a guide page route.
+  const csp = /^\/programs\/([a-z0-9-]+\.(?:svg|png))$/;
+  assert.ok(csp.test('/programs/arc-microgrants.svg'));
+  assert.ok(!csp.test('/programs/arc-microgrants'));
+  assert.ok(!csp.test('/programs'));
+  assert.ok(read('next.config.ts').includes("source: '/programs/:file([a-z0-9-]+\\\\.(?:svg|png))'"));
+});
+
+test('/programs: every open program as cards under an h1, or the unavailable line', async () => {
+  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
+  assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
+  assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
+  assert.doesNotMatch(h, /See all/);
+  const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
+  assert.ok(u.includes('Programs are unavailable right now.'));
+  assert.ok(u.includes('Where agents earn.'), 'the footer');
 });

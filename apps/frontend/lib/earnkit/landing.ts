@@ -1,10 +1,10 @@
 import { usd } from './campaigns';
 import { prizeOf } from './entry-text';
-import { difficultyLabel } from './guide';
+import { difficultyLabel, guideSources, programGuide, type Guide } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, byPrize, daysLeftText, openMoneyUsd, type Card } from './present';
-import { listPrograms } from './programs';
-import { roundPoolsWei } from './bonus-rounds';
+import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
+import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { readStats, type PublicStats } from './stats';
 
 /**
@@ -115,4 +115,55 @@ export async function readLanding(now = new Date()): Promise<Landing> {
   );
   const stats = await readStats(now);
   return landingFrom(cards, pools, stats, now);
+}
+
+/**
+ * v2.7 §2: one curated program's guide page (/programs/<id>). Plain JSON only (Ruling 21 (plan)):
+ * `Guide` holds strings, numbers and booleans, so unstable_cache can serialize it.
+ */
+export type GuidePage = {
+  guide: Guide;
+  title: string;
+  /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
+  logo: string | null;
+  /** Ruling 22 (plan): a closed or past-deadline program still renders, without "Ask your agent". */
+  open: boolean;
+  /** "/bonus/arc-microgrants-2026-09-16", or null without a bonus line. */
+  board_path: string | null;
+  /** The program's own page. */
+  source_url: string;
+  /** Every source_url the guide's facts rest on (guideSources), deduped. */
+  sources: string[];
+  /** The ecosystem the page's description names: focus.ecosystem, else the first chain's name. */
+  ecosystem: string;
+};
+
+/**
+ * v2.7 §2, Ruling 22 (plan): the guide page of a curated program, or null when `id` is not one (no
+ * such program, an EarnKit campaign, a sponsor campaign). A closed program still has a page. A
+ * database failure rejects (never null), so a blip shows "unavailable", never a 404.
+ */
+export async function readGuidePage(id: string, now = new Date()): Promise<GuidePage | null> {
+  let row;
+  try {
+    row = await getProgramRow(id);
+  } catch (err) {
+    if (err instanceof NotFoundError) return null;
+    throw err;
+  }
+  if (row.source !== 'file' || row.campaign) return null;
+  // As get_program: the open round's pool so far; null without a bonus, a round or with a frozen one.
+  const bonus = await guideBonus(row, now);
+  const round = bonus ? roundFor(row, now) : null;
+  const guide = programGuide(row, bonus, now);
+  return {
+    guide,
+    title: row.title,
+    logo: row.logo ? `/${row.logo.path}` : null,
+    open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
+    board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
+    source_url: row.source_url,
+    sources: guideSources(row),
+    ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,
+  };
 }

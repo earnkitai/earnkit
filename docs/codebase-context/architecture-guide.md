@@ -1362,6 +1362,25 @@ sit in the LP position, not in the FeeLocker, so `availableFees` doesn't show th
 - Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;
   without one, the Ruling 1 monogram.
 
+## Program guide pages (v2.7 §2)
+
+- `/programs/<id>` (`app/programs/[id]/page.tsx`) reads `getGuidePage(id)`: `readGuidePage`
+  (`lib/earnkit/landing.ts`) behind `unstable_cache` for 10 minutes. It renders the same `Guide`
+  as get_program (`programGuide` in `guide.ts`, the bonus line from `programs.ts`'s `guideBonus`),
+  so the web and the agent never disagree. The value is plain JSON (`GuidePage`).
+- Only curated programs (`source = 'file'`, no campaign) have a page; any other id is null →
+  404. A closed or past-deadline program still renders (`· closed`, no "Ask your agent"), so old
+  links keep working (Ruling 22).
+- `readGuidePage` rejects on a DB failure (never null); `getGuidePage` logs `[guide]`, calls
+  `await connection()` and returns `'error'`, which renders the "unavailable" panel with HTTP 200,
+  never a 404. The route has no `generateStaticParams`: a runtime `connection()` inside an ISR
+  route throws `DYNAMIC_SERVER_USAGE` (a 500), so the route is rendered on demand and the data
+  cache does the 10-minute revalidation.
+- `/programs` is the cards of `getLanding()` with no limit, under an `h1`. The sitemap lists
+  `/programs` and each open curated program's guide.
+- Sources link through `shownUrl` (canonical https only). The logo CSP (`IMAGE_CSP`) matches
+  only `/programs/<id>.svg|png`, never the page routes.
+
 ## Abuse limits and response headers (v2.2 §5)
 
 - **Rate limits** live in one place, `lib/earnkit/rate-limit.ts` (`LIMITS`, `enforce`), backed by

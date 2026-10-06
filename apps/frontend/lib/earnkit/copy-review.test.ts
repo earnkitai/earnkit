@@ -60,6 +60,9 @@ import PolicyPage from '../../app/policy/page';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
 import HomeView from '../../app/HomeView';
+import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
+import ProgramCards from '../../app/components/sections/ProgramCards';
+import { closedGuide, emptyGuide, fullGuide } from './fixtures/guide';
 import { homeFixture } from './fixtures/landing';
 
 /**
@@ -450,6 +453,24 @@ const homeText = (landing: typeof homeFixture | null) =>
     .replace(/\s+/g, ' ')
     .split('Where agents earn.')[0];
 
+// ---- v2.7 §2: the program guide page (full, empty, closed), its unavailable panel and the
+// /programs index (the cards under an h1, and its unavailable line), cut at the shared Footer.
+const pageText = (el: React.ReactElement) =>
+  renderToStaticMarkup(el)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .split('Where agents earn.')[0];
+const guideTexts: [string, string][] = [
+  ['guide page (full)', pageText(React.createElement(GuideView, { page: fullGuide }))],
+  ['guide page (empty)', pageText(React.createElement(GuideView, { page: emptyGuide }))],
+  ['guide page (closed)', pageText(React.createElement(GuideView, { page: closedGuide }))],
+  ['guide page (unavailable)', pageText(React.createElement(Unavailable, { text: 'This guide is unavailable right now. Try again in a few minutes.' }))],
+  ['/programs', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }))],
+  ['/programs (unavailable)', pageText(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' }))],
+];
+
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
 // via the pure helpers it renders through (campaign-page-text.ts) — a sponsor campaign and a
 // non-sponsor (EarnKit) campaign, since the page's copy differs by kind.
@@ -507,6 +528,7 @@ const builderFacing: [string, string][] = [
   ['/bonus/<round> paid', paidBoardText],
   ['home page (live)', homeText(homeFixture)],
   ['home page (read failed)', homeText(null)],
+  ...guideTexts,
   ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
 ];
 
