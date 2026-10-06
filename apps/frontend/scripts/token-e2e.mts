@@ -269,7 +269,9 @@ let aRepo = '';
   };
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
   // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
-  check(prep.token?.say_to_builder.includes('· skip: no builder bonus'), '(a) say_to_builder offers the skip (no builder bonus)', prep.token);
+  check(prep.token?.say_to_builder.includes('· skip: no coin, no builder bonus'), '(a) say_to_builder offers the skip (no coin, no builder bonus)', prep.token);
+  // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
+  check(prep.token?.say_to_builder.includes('(yours from last time) — or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });

@@ -23,6 +23,8 @@ import { setSanctionsOracle } from './sanctions';
 import { entryMessage } from './entry-proof';
 import { upsertProgram } from './programs';
 import { sql } from './db';
+import { rememberedWallet } from './installations';
+import { roundFor } from './bonus-rounds';
 import type { ProgramRow } from './programs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -674,4 +676,59 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
 
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
+});
+
+test('v2.6 Ruling 10: a non-campaign entry naming a wallet remembers it for the installation; the reply names the round', dbTest, async () => {
+  const program = proofProgramFile(`t4-wallet-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(41);
+  const MIXED = '0xAB12000000000000000000000000000000Ef0123';
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+      payout_wallet: MIXED,
+    } as never,
+    installationId,
+  );
+  assert.equal(result.recorded, true);
+  const [inst] = await sql()<{ payout_wallet: string | null }[]>`SELECT payout_wallet FROM installations WHERE id = ${installationId}`;
+  assert.equal(inst.payout_wallet, MIXED.toLowerCase());
+  assert.equal(await rememberedWallet(installationId), MIXED.toLowerCase());
+  const wallets = await sql()<{ wallet: string }[]>`SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}`;
+  assert.deepEqual(wallets.map((w) => w.wallet), [MIXED.toLowerCase()]);
+  assert.equal(result.program_title, program.title);
+  // The open round of this program now (bonusOn: active, bonus on, not a campaign), for the reply.
+  const round = roundFor({ id: program.id, starts_at: program.starts_at ? new Date(program.starts_at) : null, ends_at: program.ends_at ? new Date(program.ends_at) : null }, new Date());
+  assert.deepEqual(result.bonus_round, round ? { key: round.key, ends_at: round.ends.toISOString() } : null);
+  // An invalid wallet is never remembered; the earlier one stays.
+  await recordSubmission(
+    {
+      program_id: program.id,
+      project: proofProject(42),
+      submission_data: { live_deployment_url: 'https://proof-42.example', repo_url: 'https://github.com/alice/proof-42', description: 'x', builder_profile: 'https://github.com/alice' },
+      payout_wallet: 'not-a-wallet',
+    } as never,
+    installationId,
+  );
+  assert.equal(await rememberedWallet(installationId), MIXED.toLowerCase());
+});
+
+test('v2.6 §3: an opted-out program (builder_bonus: false) returns no bonus round', dbTest, async () => {
+  const program = proofProgramFile(`t4-off-${process.pid}-${Date.now()}`, { submission_proof: null, builder_bonus: false });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(43);
+  const result = await recordSubmission(
+    {
+      program_id: program.id,
+      project,
+      submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+    } as never,
+    installationId,
+  );
+  assert.equal(result.bonus_round, null);
+  assert.equal(await rememberedWallet(installationId), null);
 });

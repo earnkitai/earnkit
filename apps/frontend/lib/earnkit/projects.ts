@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { z } from 'zod';
-import { roundFor } from './bonus-rounds';
+import { bonusOn, roundFor } from './bonus-rounds';
 import { sql } from './db';
 import {
   EntryError,
@@ -491,14 +491,27 @@ export async function recordSubmission(
   const bonusRepoKey = (!program.campaign && repo_url && normalizeRepoUrl(repo_url)) || null;
   // Ruling 25: one coin per repo (v2.3). A repo whose coin is already entered in a program gets no
   // new coin here, so no builder bonus: said now, not discovered at launch.
-  if (bonusRepoKey && program.submission_proof) {
+  let coinElsewhere = false;
+  if (bonusRepoKey && (program.submission_proof || bonusOn(program))) {
     const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
     // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
     if (coin && coin.program_id !== program.id) {
-      const line = repoCoinNote(coin.title);
-      notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
+      coinElsewhere = true;
+      if (program.submission_proof) {
+        const line = repoCoinNote(coin.title);
+        notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
+      }
     }
   }
+  // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
+  // no bonus, no open round, or Ruling 25).
+  const openRound = bonusOn(program) && !coinElsewhere ? roundFor(program, new Date()) : null;
+  // Ruling 10 (plan): outside campaigns, a valid wallet named here is this installation's last
+  // wallet, prefilled next time (campaign entries remember their proven payout wallet below).
+  const lastWallet =
+    !program.campaign && input.payout_wallet && isWalletAddress(input.payout_wallet)
+      ? input.payout_wallet.toLowerCase()
+      : null;
   // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
   // (traction.ts eligibleSql: coin and proof before the round's end), like scoring does.
   const roundEnd = roundFor(program, new Date())?.ends ?? null;
@@ -612,6 +625,10 @@ export async function recordSubmission(
       // v2.4 §5: the installation's wallets (its wins show for them from any connection).
       if (entry)
         await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${installationId}, ${entry.payoutWallet.toLowerCase()}) ON CONFLICT DO NOTHING`;
+      if (lastWallet) {
+        await tx`UPDATE installations SET payout_wallet = ${lastWallet} WHERE id = ${installationId}`;
+        await tx`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${installationId}, ${lastWallet}) ON CONFLICT DO NOTHING`;
+      }
       await tx`INSERT INTO submissions ${tx({
         project_id: project.id,
         submission_data: tx.json(input.submission_data as never),
@@ -621,6 +638,8 @@ export async function recordSubmission(
         recorded: true,
         project_id: project.id,
         submitted_at: project.submitted_at.toISOString(),
+        program_title: program.title,
+        bonus_round: openRound ? { key: openRound.key, ends_at: openRound.ends.toISOString() } : null,
         ...(notes.length && { bonus_note: notes.join(' ') }),
         ...(entry &&
           program.campaign && {

@@ -211,7 +211,7 @@ export function createMcpServer(ctx: ToolContext) {
         'Pass the final answers that were submitted. ' +
         `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
         'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note }. Tell the builder the result. ' +
-        'Campaign entries also return show_to_builder (rank, leaderboard, payout date): show it exactly as written. ' +
+        'Also returns show_to_builder (other programs: the coin and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show it exactly as written. ' +
         `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
         `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
         SAFETY_TEXT,
@@ -269,7 +269,9 @@ export function createMcpServer(ctx: ToolContext) {
         payout_wallet: z
           .string()
           .optional()
-          .describe("Other programs, with contracts: the builder's Base wallet that deployed them (also used as the coin's creator wallet)."),
+          .describe(
+            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line (the coin's fees and any bonus; remembered for next time). With contracts, the Base wallet that deployed them. Without any wallet the entry is recorded with no coin yet.",
+          ),
       },
     },
     (input) => run(ctx, 'record_submission', input),

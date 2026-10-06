@@ -126,9 +126,23 @@ export async function touchInstallation(token: string) {
   return row?.id ?? null;
 }
 
-/** The payout wallet of this installation's last campaign entry (lowercase), or null. */
-export async function rememberedPayoutWallet(installationId: number) {
+/**
+ * This installation's last wallet (lowercase), or null. v2.6 Ruling 10 (plan): written by every
+ * entry that names a valid wallet and whenever the token flow keeps a creator wallet.
+ */
+export async function rememberedWallet(installationId: number) {
   const [row] = await sql()<{ payout_wallet: string | null }[]>`
     SELECT payout_wallet FROM installations WHERE id = ${installationId}`;
   return row?.payout_wallet ?? null;
+}
+
+/** The v2.4 name of rememberedWallet. */
+export const rememberedPayoutWallet = rememberedWallet;
+
+/** Remembers `wallet` as this installation's last wallet (Ruling 10); an invalid one is ignored. */
+export async function rememberWallet(installationId: number, wallet: string) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
+  const w = wallet.toLowerCase();
+  await sql()`UPDATE installations SET payout_wallet = ${w} WHERE id = ${installationId}`;
+  await rememberWallets(installationId, [w]);
 }

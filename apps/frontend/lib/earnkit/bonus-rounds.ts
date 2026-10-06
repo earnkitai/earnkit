@@ -16,6 +16,37 @@ type Window = { id: string; starts_at: Date | null; ends_at: Date | null };
 /** A windowed program's round key: its id and its window's UTC start day (Ruling 21). Pure. */
 export const windowKey = (id: string, startsAt: Date) => `${id}:${startsAt.toISOString().slice(0, 10)}`;
 
+/**
+ * Ruling 12 (plan): a round's URL slug, its key with the `:` as `-`
+ * ("arc-microgrants-2026-09-16", "base-builder-grants-2026-10"). Pure.
+ */
+export const boardSlug = (roundKey: string) => roundKey.replace(':', '-');
+
+/**
+ * The round key of a board URL segment: a slug (boardSlug) or the v2.5 `:` form, returned as is.
+ * Anything without a trailing date is returned unchanged (and finds no round). Pure.
+ */
+export function roundKeyFromSlug(slug: string) {
+  if (slug.includes(':')) return slug;
+  const m = /^(.+)-(\d{4}-\d{2}(?:-\d{2})?)$/.exec(slug);
+  return m ? `${m[1]}:${m[2]}` : slug;
+}
+
+/**
+ * The round key of a /bonus/[round] URL segment (the public board page uses it): the slug
+ * "arc-microgrants-2026-09-16" or the v2.5 "arc-microgrants:2026-09-16" (also as %3A). Null for a
+ * malformed escape (M1: the page answers a 404, never a 500). Pure.
+ */
+export function resolveRoundParam(raw: string): string | null {
+  let round: string;
+  try {
+    round = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  return roundKeyFromSlug(round);
+}
+
 /** The round of `program` open at `at`, or null. Pure. */
 export function roundFor(program: Window, at: Date): Round | null {
   const t = at.getTime();

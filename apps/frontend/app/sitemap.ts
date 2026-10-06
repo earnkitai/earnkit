@@ -1,4 +1,5 @@
 import { MetadataRoute } from 'next';
+import { boardSlug } from '@/lib/earnkit/bonus-rounds';
 import { sql } from '@/lib/earnkit/db';
 
 const SITE = 'https://earnkit.com';
@@ -16,7 +17,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const rounds = await sql()<{ round_key: string }[]>`
       SELECT round_key FROM bonus_rounds WHERE state <> 'empty' ORDER BY ends_at DESC LIMIT 500`;
     for (const r of rounds)
-      pages.push({ url: `${SITE}/bonus/${encodeURIComponent(r.round_key)}`, changeFrequency: 'daily', priority: 0.6 });
+      pages.push({ url: `${SITE}/bonus/${boardSlug(r.round_key)}`, changeFrequency: 'daily', priority: 0.6 });
   } catch (err) {
     console.error('[sitemap] bonus rounds', err);
   }

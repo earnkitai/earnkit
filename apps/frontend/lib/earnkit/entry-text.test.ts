@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOKEN_FOOTNOTE, confirmTable, enteredTable, keyTable, tokenFootnote, tokenRow } from './entry-text';
+import {
+  TOKEN_FOOTNOTE,
+  boardLink,
+  coinRow,
+  confirmTable,
+  enteredTable,
+  enteredText,
+  keyTable,
+  noCoinYet,
+  tokenFootnote,
+  tokenRow,
+  walletLine,
+} from './entry-text';
 import { TOKEN_TERMS } from './tokens';
 import type { CampaignConfig } from './campaigns';
 
@@ -95,13 +107,15 @@ test('v2.5 Task 8: the coin row on a program with a builder bonus says so, and n
     assert.doesNotMatch(row, /\p{Extended_Pictographic}/u);
 });
 
-test('v2.5 Task 8: confirmTable passes hasBonus through to the token row', () => {
+test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin row', () => {
   const text = confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null,
     prize: '500 USDC × 20 grants', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIP', hasBonus: true },
   });
-  assert.match(text, /\| Token \| \$TIP on tokens\.fun, you keep 40% of fees · skip: no builder bonus \|/);
+  assert.match(text, /\| Coin \| Your entry gets a coin, \$TIP: .*skip: no coin, no builder bonus \|/);
+  // No wallet known: the wallet line is the ask.
+  assert.match(text, /\n\nWhich wallet should get your coin's fees and any bonus\?\n\nToken: /);
 });
 
 test('v2.5 Task 8: the footnote names the fee split for the builder only', () => {
@@ -132,8 +146,64 @@ test('Ruling 25 (I8): the coin row of a repo whose coin is entered in another pr
   });
   assert.equal(
     text,
-    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's coin is entered in Arc Microgrants |",
-    'no new coin, so no fee footnote',
+    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Coin | no builder bonus: this repo's coin is entered in Arc Microgrants |",
+    'no new coin, so no wallet line and no fee footnote',
   );
   assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
+});
+
+const W = '0xAB12000000000000000000000000000000ef01';
+test('v2.6 §3: the coin row and the wallet line', () => {
+  assert.equal(
+    coinRow({ symbol: 'TIPJAR', hasBonus: true }),
+    'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus',
+  );
+  assert.equal(coinRow({ symbol: 'TIPJAR', hasBonus: false }), 'Your entry gets a coin, $TIPJAR: you earn 40% of its trading fees · skip: no coin');
+  assert.equal(coinRow({ symbol: null, hasBonus: true }), 'Your entry gets a coin (pick a name and ticker): you earn 40% of its trading fees, and it enters the builder bonus · skip: no coin, no builder bonus');
+  assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's coin is entered in Arc Microgrants");
+  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), 'Wallet for fees and any bonus: 0xAB12…ef01 (yours from last time) — or tell me another.');
+  assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), 'Wallet for fees: 0xAB12…ef01 — or tell me another.');
+  assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your coin's fees and any bonus?");
+  for (const line of [coinRow({ symbol: 'TIPJAR', hasBonus: true }), walletLine({ wallet: W, remembered: true, hasBonus: true })])
+    assert.doesNotMatch(line, /vault|\p{Extended_Pictographic}/u);
+});
+
+test('v2.6 §3: confirmTable outside campaigns: Coin row, the wallet line, the full wallet in the footnote', () => {
+  const t = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC', endsAt: null, payoutWallet: null,
+    token: { symbol: 'TIPJAR', wallet: W, hasBonus: true, remembered: true } });
+  assert.match(t, /\| Coin \| Your entry gets a coin, \$TIPJAR: .* skip: no coin, no builder bonus \|/);
+  assert.match(t, /\n\nWallet for fees and any bonus: 0xAB12…ef01 \(yours from last time\) — or tell me another\.\n\nToken: you keep 40%.* to 0xAB12000000000000000000000000000000ef01;/);
+  // Campaign tables keep v2.4's Token row and no wallet line.
+  const c = confirmTable({ project: 'TipJar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS, payoutWallet: null,
+    token: { symbol: 'TIPJAR', wallet: W, remembered: true } });
+  assert.match(c, /\| Token \| /);
+  assert.doesNotMatch(c, /\| Coin \||Wallet for fees/);
+});
+
+test('v2.6 §3: the after-submission reply', () => {
+  const ends = new Date('2026-10-15T03:59:00Z');
+  assert.equal(
+    enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' },
+      bonus: { cell: '0.18 ETH so far', lastDay: ends, board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' } }),
+    'Entered in Arc Microgrants. Your coin: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+      'Builder bonus: 0.18 ETH so far · ends Oct 15 · earnkit.com/bonus/arc-microgrants-2026-09-16',
+  );
+  assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'skipped' }, bonus: null }), 'Entered in Base Builder Grant Program.');
+  assert.match(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet', lastDay: ends }, bonus: null }),
+    /^Entered in Arc Microgrants\. No coin yet: send a wallet with launch_token to add it before Oct 15\.$/);
+  assert.equal(noCoinYet(null), 'No coin yet: send a wallet with launch_token to add it.');
+  // A month ending Nov 1 00:00 UTC (exclusive) shows its last day.
+  assert.equal(noCoinYet(new Date('2026-11-01T00:00:00Z')), 'No coin yet: send a wallet with launch_token to add it before Oct 31.');
+  assert.equal(enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'other' }, bonus: null }), 'Entered in Arc Microgrants. No coin yet.');
+});
+
+test('Ruling 12 (plan): boardLink is the slug link, no scheme', () => {
+  const prev = process.env.EARNKIT_URL;
+  delete process.env.EARNKIT_URL;
+  try {
+    assert.equal(boardLink('arc-microgrants:2026-09-16'), 'earnkit.com/bonus/arc-microgrants-2026-09-16');
+    assert.equal(boardLink('base-builder-grants:2026-10'), 'earnkit.com/bonus/base-builder-grants-2026-10');
+  } finally {
+    if (prev !== undefined) process.env.EARNKIT_URL = prev;
+  }
 });

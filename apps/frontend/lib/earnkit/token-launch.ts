@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
-import { rememberWallets, rememberedPayoutWallet } from './installations';
+import { rememberWallet, rememberedWallet } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
 import type { TokenPolicy } from './program-file';
@@ -9,7 +9,7 @@ import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
-import { tokenFootnote, tokenRow } from './entry-text';
+import { coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
   cleanTokenName,
   proposeToken,
@@ -91,7 +91,7 @@ export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'builder_bo
 export type Decision =
   | { action: 'skip'; note: string }
   | { action: 'launch'; name: string; symbol: string }
-  | { action: 'refuse'; note: string };
+  | { action: 'refuse'; note: string; code?: 'no_wallet' };
 
 const NO_WALLET =
   'Not launched: no creator wallet. Ask the builder for the wallet that receives creator fees and call launch_token with creator_wallet.';
@@ -167,7 +167,7 @@ export function decideToken(a: {
   if ('problem' in name) return { action: 'refuse', note: name.problem };
   const tickerIssue = tickerProblem(symbol);
   if (tickerIssue) return { action: 'refuse', note: tickerIssue };
-  if (!a.wallet) return { action: 'refuse', note: NO_WALLET };
+  if (!a.wallet) return { action: 'refuse', note: NO_WALLET, code: 'no_wallet' };
   return { action: 'launch', name: name.name, symbol };
 }
 
@@ -190,6 +190,8 @@ export async function tokenProposalBlock(
     program: ProgramRow;
     projectName?: string;
     creatorWallet: string | null;
+    /** v2.6 Ruling 10: `creatorWallet` is the installation's remembered one (the wallet line says so). */
+    remembered?: boolean;
     /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
     installationId: number;
     repoUrl?: string;
@@ -246,9 +248,13 @@ export async function tokenProposalBlock(
     // the earnings and terms under the table, naming the fee wallet when known (Ruling 14). What
     // the repo needs is the agent's job (note). v2.5: on a program with a builder bonus, skipping
     // the coin costs the bonus (tokenRow's hasBonus), never advertised past this one row.
+    // v2.6 §3: outside campaigns, the coin row and the wallet line (one yes confirms both).
     say_to_builder: coinIn
       ? tokenRow(null, hasBonus, coinIn)
-      : `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`,
+      : program.campaign
+        ? `${tokenRow(proposal.name === null ? null : proposal.symbol, hasBonus)}\n\n${tokenFootnote(a.creatorWallet)}`
+        : `${coinRow({ symbol: proposal.name === null ? null : proposal.symbol, hasBonus })}\n\n` +
+          `${walletLine({ wallet: a.creatorWallet, remembered: a.remembered === true, hasBonus })}\n\n${tokenFootnote(a.creatorWallet)}`,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
@@ -314,7 +320,7 @@ const dbStore: FlowStore = {
     return row ?? null;
   },
   setStatus: setTokenStatus,
-  rememberedWallet: rememberedPayoutWallet,
+  rememberedWallet,
   repoToken: repoTokenUrl,
   updateLinks: async (projectId, installationId, links) => {
     const live = links.live_url ?? null;
@@ -342,7 +348,8 @@ const dbStore: FlowStore = {
     await sql()`
       UPDATE projects SET creator_wallet = ${w}
       WHERE id = ${projectId} AND installation_id = ${installationId} AND token_url IS NULL`;
-    await rememberWallets(installationId, [w]);
+    // Ruling 10 (plan): also this installation's last wallet, prefilled next time.
+    await rememberWallet(installationId, w);
   },
 };
 
@@ -431,12 +438,16 @@ async function runTokenFlow(
     if (project.token_url) return { status: notNow, note: decision.note };
     // Kept for a later launch_token: the builder's valid edits, else the proposal.
     const edits = choice ? editsOf(choice) : {};
-    return record(
+    const out = await record(
       notNow,
       decision.note,
       edits.name ?? fallback?.name ?? undefined,
       edits.symbol ?? proposal?.symbol,
     );
+    // Ruling 18 (plan): at submission, no wallet means the entry has no coin yet.
+    return decision.action === 'refuse' && decision.code === 'no_wallet' && a.mode === 'submission'
+      ? { ...out, no_wallet: true }
+      : out;
   }
 
   const { name, symbol } = decision;

@@ -8,6 +8,7 @@ import PolicyPage from '../../app/policy/page';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import Footer from '../../app/components/common/Footer';
 import type { Board } from './bonus-board';
+import { resolveRoundParam } from './bonus-rounds';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
@@ -149,8 +150,18 @@ test('/bonus/<round>: links defend themselves: a javascript: or http: URL render
 
 test('M1: the public round page answers a malformed round escape with a 404 (notFound), never a 500', () => {
   const page = readFileSync(join(import.meta.dirname, '../../app/bonus/[round]/page.tsx'), 'utf8');
-  assert.match(page, /try \{\s*round = decodeURIComponent\(raw\);\s*\} catch \{\s*notFound\(\);/);
+  // The page resolves the segment with resolveRoundParam, which answers null for a malformed escape.
+  assert.match(page, /const round = resolveRoundParam\(\(await params\)\.round\);\s*if \(round === null\) notFound\(\);/);
   assert.doesNotMatch(page, /bonusBoard\(decodeURIComponent/);
   // The escape that made it throw.
   assert.throws(() => decodeURIComponent('%E0%A4%A'), URIError);
+  assert.equal(resolveRoundParam('%E0%A4%A'), null);
+});
+
+test('Ruling 12 (plan): the board page resolves the slug and the v2.5 ":" form to the same round', () => {
+  assert.equal(resolveRoundParam('arc-microgrants-2026-09-16'), 'arc-microgrants:2026-09-16');
+  assert.equal(resolveRoundParam('arc-microgrants%3A2026-09-16'), 'arc-microgrants:2026-09-16');
+  assert.equal(resolveRoundParam('arc-microgrants:2026-09-16'), 'arc-microgrants:2026-09-16');
+  const sitemap = readFileSync(join(import.meta.dirname, '../../app/sitemap.ts'), 'utf8');
+  assert.match(sitemap, /\/bonus\/\$\{boardSlug\(r\.round_key\)\}/);
 });
