@@ -17,11 +17,41 @@ import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './m
 import { presentFirstMessage, type Card, type FirstMessage } from './present';
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
-import { launchToken, TECHNICAL_TERMS, type FlowProject, type TokenFlowDeps } from './token-launch';
+import {
+  decideToken,
+  launchToken,
+  NEEDS_SYMBOL_AGENT,
+  NO_WALLET_AGENT,
+  TECHNICAL_TERMS,
+  type FlowProject,
+  type TokenFlowDeps,
+} from './token-launch';
 import { LINKS_CHANGED, STATE_CHANGED, LaunchError, repoHasTokenNote, TOKENS_UNAVAILABLE, type TokenOutcome } from './tokens';
 import { RateLimitError } from './rate-limit';
 import { openRows, type OpenEntry } from './bonus-board';
 import { STATS_LABELS } from './stats';
+import {
+  CAPPED_READ_SUFFIX,
+  ENTRIES_HEADING,
+  LEADERBOARD_HEADING,
+  NO_ENTRIES_TEXT,
+  NO_MINIMUM_TEXT,
+  OFF_PLAN_HEADING,
+  PRIZE_WALLET_PREFIX,
+  PRIZE_WALLET_UNSET,
+  REVIEW_FOOTNOTE,
+  REVIEW_HEADING_PAID,
+  REVIEW_HEADING_PAYING,
+  REVIEW_HEADING_REVIEW,
+  campaignEyebrow,
+  closesText,
+  earnkitCampaignBlurb,
+  fundsHoldsSuffix,
+  offPlanLine,
+  removedLine,
+  reviewUntilText,
+  sponsorDisclosureParts,
+} from './campaign-page-text';
 import type { FetchResult } from './ownership';
 import type { Verdict } from './match';
 import PolicyPage from '../../app/policy/page';
@@ -309,6 +339,67 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   return out;
 }
 
+// ---- v2.7 §4 fix round 1 (Important #1): every agent_note string, scanned separately from the
+// builder-facing reasons above — agent_note legitimately names tools and files (it's for the
+// coding agent, never shown to the builder as written), so it must never enter the "never names a
+// tool" / "never asks to edit a file" checks, only the coin/Clanker/emoji/vault/affiliation ones.
+async function gatherGateAgentNotes(): Promise<[string, string][]> {
+  const REPO = 'https://github.com/acme/kit';
+  const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
+  const okDeps: Required<GateDeps> = {
+    repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+    owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
+    screen: async () => {},
+  };
+  const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
+    ['earnkit.txt missing', {}, { owner: async () => ({ status: 'missing' }) }],
+    ['earnkit.txt lacks the line', {}, { owner: async () => ({ status: 'ok', text: 'payout_wallet: 0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' }) }],
+    ['GitHub down (earnkit.txt read)', {}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }],
+  ];
+  const out: [string, string][] = [];
+  for (const [label, i, d] of cases) {
+    const r = await tokenGate({ ...input, ...i }, { ...okDeps, ...d });
+    if (!r.ok && r.agent_note) out.push([`gate agent_note: ${label}`, r.agent_note]);
+  }
+  const mismatched = ownerProblem(
+    'github.com/acme/kit',
+    { status: 'ok', text: 'token: 1111111111111111' } as FetchResult,
+    '0000000000000000',
+    null,
+  );
+  if (mismatched?.agent_note) out.push(['gate agent_note: earnkit.txt has a different code', mismatched.agent_note]);
+  return out;
+}
+
+// ---- v2.7 §4 fix round 1 (Important #1): decideToken's agent_note branches, plus the two named
+// constants (NO_WALLET_AGENT, NEEDS_SYMBOL_AGENT) directly, since those are also exported for reuse.
+function gatherDecideTokenAgentNotes(): [string, string][] {
+  const base = {
+    policy: 'encouraged' as const,
+    choice: undefined as 'skip' | { name?: string; symbol?: string } | undefined,
+    confirmed: true,
+    existingTokenUrl: null as string | null,
+    proposal: { name: 'Chain Kits', symbol: 'CKIT' } as { name?: string | null; symbol?: string | null } | null,
+    wallet: '0xW' as string | null,
+  };
+  const cases: [string, Partial<typeof base> & { needsSymbol?: boolean }][] = [
+    ['skip', { choice: 'skip' }],
+    ['not confirmed', { confirmed: false }],
+    ['needs symbol', { needsSymbol: true, choice: {} }],
+    ['bad ticker edit', { choice: { symbol: 'USDC' } }],
+    ['CLANKER ticker edit', { choice: { symbol: 'CLANKER' } }],
+    ['bad name edit', { choice: { name: 'Coinbase Kit' } }],
+    ['no proposal, no edits', { proposal: null, choice: undefined }],
+    ['no wallet', { wallet: null }],
+  ];
+  const out: [string, string][] = [];
+  for (const [label, overrides] of cases) {
+    const d = decideToken({ ...base, ...overrides });
+    if ('agent_note' in d && d.agent_note) out.push([`decideToken agent_note: ${label}`, d.agent_note]);
+  }
+  return out;
+}
+
 // ---- v2.7 T6/T7 carry: bonus-board rows (with a no-token entry) and the two /bonus/<round> board
 // renders (open and paid), the same fixtures public-pages.test.ts verifies.
 const openEntryBase = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
@@ -345,7 +436,41 @@ const boardText = (b: Board) =>
 const openBoardText = boardText(boardFixture());
 const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null }));
 
+// ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
+// via the pure helpers it renders through (campaign-page-text.ts) — a sponsor campaign and a
+// non-sponsor (EarnKit) campaign, since the page's copy differs by kind.
+const sponsorDisclosureVerified = sponsorDisclosureParts('Acme Co', { verified: true, host: 'acme.com' }, 'most real users');
+const sponsorDisclosureUnverified = sponsorDisclosureParts('Acme Co', { verified: false, host: null }, 'most real users');
+const campaignPageTexts: [string, string][] = [
+  ['campaign page: eyebrow (sponsor)', campaignEyebrow(true, 'Acme Co · builder campaign')],
+  ['campaign page: eyebrow (earnkit)', campaignEyebrow(false, '')],
+  ['campaign page: closes', closesText(false, 'Oct 21')],
+  ['campaign page: closed', closesText(true, 'Oct 21')],
+  ['campaign page: sponsor disclosure prefix (verified)', sponsorDisclosureVerified.prefix],
+  ['campaign page: sponsor disclosure suffix (verified)', sponsorDisclosureVerified.suffix],
+  ['campaign page: sponsor disclosure prefix (unverified)', sponsorDisclosureUnverified.prefix],
+  ['campaign page: sponsor disclosure suffix (unverified)', sponsorDisclosureUnverified.suffix],
+  ['campaign page: earnkit blurb', earnkitCampaignBlurb('$100', 5, 'Oct 21', 10)],
+  ['campaign page: prize wallet prefix', PRIZE_WALLET_PREFIX],
+  ['campaign page: prize wallet unset', PRIZE_WALLET_UNSET],
+  ['campaign page: funds holds suffix', fundsHoldsSuffix('1234.5', 'MINI')],
+  ['campaign page: leaderboard heading', LEADERBOARD_HEADING],
+  ['campaign page: entries heading', ENTRIES_HEADING],
+  ['campaign page: no entries', NO_ENTRIES_TEXT],
+  ['campaign page: off-plan heading', OFF_PLAN_HEADING],
+  ['campaign page: off-plan line', offPlanLine('0xabc', '10', 'MINI')],
+  ['campaign page: review heading (review)', REVIEW_HEADING_REVIEW],
+  ['campaign page: review heading (paid)', REVIEW_HEADING_PAID],
+  ['campaign page: review heading (paying)', REVIEW_HEADING_PAYING],
+  ['campaign page: review until', reviewUntilText('Oct 20')],
+  ['campaign page: no minimum', NO_MINIMUM_TEXT],
+  ['campaign page: review footnote', REVIEW_FOOTNOTE],
+  ['campaign page: capped read suffix', CAPPED_READ_SUFFIX],
+  ['campaign page: removed line', removedLine('Tipjar', 'wash trading')],
+];
+
 const builderFacing: [string, string][] = [
+  ...campaignPageTexts,
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
   ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
   ...enteredTexts.map((s, i): [string, string] => [`enteredText[${i}]`, s]),
@@ -376,6 +501,10 @@ const agentFacing: [string, string][] = [
   ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
   ...noCoinYets.map((s, i): [string, string] => [`noCoinYet[${i}]`, s]),
+  // v2.7 §4 fix round 1 (Important #1): every agent_note string, directly and harvested.
+  ['NO_WALLET_AGENT', NO_WALLET_AGENT],
+  ['NEEDS_SYMBOL_AGENT', NEEDS_SYMBOL_AGENT],
+  ...gatherDecideTokenAgentNotes(),
 ];
 
 // Tool names, derived from the registered tools themselves (I2), not a hard-coded list.
@@ -384,12 +513,12 @@ const toolNameRe = new RegExp(`\\b(${TOOL_NAMES.join('|')})\\b`);
 const editFileRe = /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i;
 
 test('v2.6 §3 copy review: no emojis anywhere', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   for (const [label, text] of all) assert.doesNotMatch(text, /\p{Extended_Pictographic}/u, label);
 });
 
 test('v2.6 §3 copy review: never "vault"', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   for (const [label, text] of all) assert.doesNotMatch(text, /vault/i, label);
 });
 
@@ -399,7 +528,7 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
   // one"); it never claims an affiliation itself, so it is out of this specific check.
   // SERVER_INSTRUCTIONS is agent-only too, and says EarnKit's listed facts are "checked against
   // official sources" — EarnKit's own verification, not a claim that EarnKit is official to anyone.
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())].filter(
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())].filter(
     ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign' && label !== 'SERVER_INSTRUCTIONS',
   );
   // Only the negated disclaimer ("isn't affiliated with or endorsed by", Ruling 14 (plan)) is
@@ -414,12 +543,12 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
 });
 
 test('v2.7 §4: "coin" never appears in human-facing text', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   for (const [label, text] of all) assert.deepEqual(coinWords(text), [], label);
 });
 
 test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   for (const [label, text] of all) assert.doesNotMatch(text, /clanker/i, label);
 });
 
@@ -444,7 +573,7 @@ test('v2.6 §3 copy review (I2): the builder-facing gate reasons never ask the b
 });
 
 test('v2.6 §3 copy review (I2): every scanned string is non-empty (never a vacuous pass)', async () => {
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())];
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   assert.ok(all.length > 30, `expected a wide scan, got ${all.length} strings`);
   for (const [label, text] of all) assert.ok(text.trim().length > 0, label);
 });

@@ -31,6 +31,13 @@ test('tickers: brand symbols and brand names are refused', () => {
   assert.ok(tickerProblem('TOOLONG7'));
 });
 
+test('v2.7 §4 fix round 1 (Minor): CLANKER is refused with a generic reason, never echoing the word', () => {
+  const problem = tickerProblem('CLANKER');
+  assert.ok(problem);
+  assert.doesNotMatch(problem!, /clanker/i);
+  assert.equal(problem, 'symbol: that ticker is reserved; pick another.');
+});
+
 test('names: single-line text rules and brands', () => {
   assert.equal(tokenNameProblem('Chain Kits'), null);
   assert.ok(tokenNameProblem('Coinbase Pay'));

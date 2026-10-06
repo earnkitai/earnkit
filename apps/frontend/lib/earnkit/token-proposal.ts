@@ -52,6 +52,11 @@ export function tokenNameProblem(name: string): string | null {
 
 /** Why `symbol` can't be a ticker, or null. Pure; exported for tests. */
 export function tickerProblem(symbol: string): string | null {
+  // v2.7 §4 fix round 1 (Minor): CLANKER is reserved like any other brand ticker, but never echoed
+  // back (Ruling 18 (plan): no builder- or agent-facing text names Clanker) — checked before the
+  // shape rule below, since at 7 letters it would otherwise always fail that generic check first,
+  // leaving this reservation unreachable (as EARNKIT, COINBASE and ROBINHOOD still are below).
+  if (symbol === 'CLANKER') return 'symbol: that ticker is reserved; pick another.';
   if (!/^[A-Z0-9]{3,6}$/.test(symbol)) return 'symbol: 3 to 6 capital letters or digits.';
   if ((TICKER_RESERVED as readonly string[]).includes(symbol) || reservedBrands(symbol).length > 0)
     return `symbol: ${symbol} reads as a brand's or a major asset's ticker; pick another.`;

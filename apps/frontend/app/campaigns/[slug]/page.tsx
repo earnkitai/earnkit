@@ -5,6 +5,28 @@ import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnk
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
 import {
+  CAPPED_READ_SUFFIX,
+  ENTRIES_HEADING,
+  LEADERBOARD_HEADING,
+  NO_ENTRIES_TEXT,
+  NO_MINIMUM_TEXT,
+  OFF_PLAN_HEADING,
+  PRIZE_WALLET_PREFIX,
+  PRIZE_WALLET_UNSET,
+  REVIEW_FOOTNOTE,
+  REVIEW_HEADING_PAID,
+  REVIEW_HEADING_PAYING,
+  REVIEW_HEADING_REVIEW,
+  campaignEyebrow,
+  closesText,
+  earnkitCampaignBlurb,
+  fundsHoldsSuffix,
+  offPlanLine,
+  removedLine,
+  reviewUntilText,
+  sponsorDisclosureParts,
+} from '@/lib/earnkit/campaign-page-text';
+import {
   UNVERIFIED,
   sponsorLabel,
   trackRecordText,
@@ -38,14 +60,13 @@ export default async function CampaignPage({
   const ended = program.ends_at < new Date();
   // Sponsor campaigns are picked by the sponsor: no rank or wallet count until something is scored.
   const ranked = c.kind === 'earnkit' || rows.some((r) => r.score != null);
+  const disclosure = c.kind === 'sponsor' ? sponsorDisclosureParts(c.sponsor.name, identity, c.criteria) : null;
 
   return (
     <div className="w-full pt-4">
       <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
         <p className="font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-blue-soft">
-          {c.kind === 'sponsor'
-            ? `${sponsorLabel(identity)} · agents only`
-            : 'EarnKit campaign · agents only'}
+          {campaignEyebrow(c.kind === 'sponsor', sponsorLabel(identity))}
         </p>
         <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
           {program.title}
@@ -57,15 +78,11 @@ export default async function CampaignPage({
         </p>
         <p className="mt-6 font-funnel-sans text-base text-ek-white">
           {prizeText(c)} ·{' '}
-          {ended ? 'closed' : `closes ${formatDeadline(program.ends_at)}`}
+          {closesText(ended, formatDeadline(program.ends_at))}
         </p>
         {c.kind === 'sponsor' ? (
           <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-            By &ldquo;{c.sponsor.name}&rdquo;
-            {identity.verified
-              ? ` (verified ${identity.host})`
-              : ', not verified by EarnKit'}
-            . Pool held in escrow:{' '}
+            {disclosure!.prefix}
             <a
               href={escrowLink(c.prize.chain_id, c.escrow)}
               target="_blank"
@@ -74,7 +91,7 @@ export default async function CampaignPage({
             >
               view onchain
             </a>
-            . The sponsor picks winners: {c.criteria}
+            {disclosure!.suffix}
           </p>
         ) : null}
         {c.kind === 'sponsor' && sponsor ? (
@@ -85,15 +102,12 @@ export default async function CampaignPage({
         {c.kind === 'sponsor' ? null : (
           <>
             <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-              {usd(prizeUsdEach(c))} each to the top {c.winners}, paid automatically on Base by{' '}
-              {formatDeadline(payoutBy(program.ends_at))} after a 48-hour public review. Ranked by unique
-              users of each project&apos;s contracts; at least {c.min_score} to be eligible. Enter through
-              your agent: ask it &ldquo;What can I earn?&rdquo; with EarnKit connected (earnkit.com/mcp).
+              {earnkitCampaignBlurb(usd(prizeUsdEach(c)), c.winners, formatDeadline(payoutBy(program.ends_at)), c.min_score)}
             </p>
             <p className="mt-2 break-all font-funnel-sans text-sm font-light text-ek-blue-soft">
               {funds ? (
                 <>
-                  Prize wallet{' '}
+                  {PRIZE_WALLET_PREFIX}
                   <a
                     href={`https://basescan.org/address/${funds.wallet}`}
                     target="_blank"
@@ -101,11 +115,11 @@ export default async function CampaignPage({
                     className="underline underline-offset-4"
                   >
                     {funds.wallet}
-                  </a>{' '}
-                  holds {Number(funds.balance).toLocaleString('en-US')} {funds.symbol}.
+                  </a>
+                  {fundsHoldsSuffix(funds.balance, funds.symbol)}
                 </>
               ) : (
-                'Prize wallet: not set up yet.'
+                PRIZE_WALLET_UNSET
               )}
               {run?.note ? ` ${run.note}` : ''}
             </p>
@@ -115,11 +129,11 @@ export default async function CampaignPage({
 
       <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
         <h2 className="font-funnel-display text-2xl font-medium text-ek-white">
-          {ranked ? 'Leaderboard' : 'Entries'}
+          {ranked ? LEADERBOARD_HEADING : ENTRIES_HEADING}
         </h2>
         {rows.length === 0 ? (
           <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-soft">
-            No entries yet.
+            {NO_ENTRIES_TEXT}
           </p>
         ) : (
           <table className="mt-6 w-full table-fixed font-funnel-sans text-sm md:text-base">
@@ -187,14 +201,14 @@ export default async function CampaignPage({
         {offPlan?.some((o) => o.entry_id === null) ? (
           <div className="mt-6 rounded-2xl border border-ek-blue-strong p-4 font-funnel-sans text-sm text-ek-blue-light">
             <p className="text-ek-white">
-              Paid to wallets that aren&apos;t entries:
+              {OFF_PLAN_HEADING}
             </p>
             <ul className="mt-2 space-y-1">
               {offPlan
                 .filter((o) => o.entry_id === null)
                 .map((o) => (
                   <li key={o.wallet}>
-                    {o.wallet}: {o.amount} {c.prize.symbol}
+                    {offPlanLine(o.wallet, o.amount, c.prize.symbol)}
                   </li>
                 ))}
             </ul>
@@ -205,17 +219,16 @@ export default async function CampaignPage({
       {review && run ? (
         <section className="mt-4 rounded-[40px] bg-ek-navy-deep px-6 py-10 md:rounded-[56px] md:px-16 md:py-14">
           <h2 className="font-funnel-display text-2xl font-medium text-ek-white">
-            {run.state === 'review' ? 'In review' : run.state === 'paid' ? 'Winners' : 'Paying winners'}
+            {run.state === 'review' ? REVIEW_HEADING_REVIEW : run.state === 'paid' ? REVIEW_HEADING_PAID : REVIEW_HEADING_PAYING}
           </h2>
           {run.state === 'review' && run.review_until ? (
             <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-              Public until {formatDeadline(run.review_until)}; then the prizes are paid automatically.
-              Farmed or wash activity removes an entry, and the next one moves up.
+              {reviewUntilText(formatDeadline(run.review_until))}
             </p>
           ) : null}
           {review.picks.length === 0 ? (
             <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-soft">
-              No entry reached the minimum.
+              {NO_MINIMUM_TEXT}
             </p>
           ) : (
             <table className="mt-6 w-full table-fixed font-funnel-sans text-sm">
@@ -261,10 +274,8 @@ export default async function CampaignPage({
             </table>
           )}
           <p className="mt-4 font-funnel-sans text-xs font-light text-ek-blue-soft">
-            Users: wallets counted for the entry. Shared: those also counted for another entry.
-            {review.picks.some((r) => r.score_partial)
-              ? ' Capped read: a data read hit its limit, so the count may be low; it still pays.'
-              : ''}
+            {REVIEW_FOOTNOTE}
+            {review.picks.some((r) => r.score_partial) ? CAPPED_READ_SUFFIX : ''}
           </p>
           {review.ranked.some((r) => r.vetoed_at) ? (
             <ul className="mt-4 space-y-1 font-funnel-sans text-sm text-ek-blue-soft">
@@ -272,7 +283,7 @@ export default async function CampaignPage({
                 .filter((r) => r.vetoed_at)
                 .map((r) => (
                   <li key={r.id}>
-                    Removed: {r.name} ({r.veto_reason})
+                    {removedLine(r.name, r.veto_reason)}
                   </li>
                 ))}
             </ul>
