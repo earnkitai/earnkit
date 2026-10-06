@@ -444,11 +444,11 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
 test('ownership: a repo whose earnkit.txt is missing or lacks this agent\'s line gets no token', async () => {
   const LINE = tokenLines();
   for (const [got, re] of [
-    [{ status: 'missing' }, new RegExp(`proof you can push to github\\.com/acme/kit.*"${LINE}"`)],
+    [{ status: 'missing' }, new RegExp(`I'll add a short line to github\\.com/acme/kit to prove it's yours.*"${LINE}"`)],
     // A wallet line alone (copied or not) proves nothing.
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`Add the line "${LINE}" to earnkit\\.txt`)],
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`I'll add a short line to your repo to prove it's yours \\(earnkit\\.txt: "${LINE}"\\)`)],
     // Another agent's line for the same repo (copied from the public file).
-    [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit')}` }, new RegExp(`Add the line "${LINE}"`)],
+    [{ status: 'ok', text: `payout_wallet: ${WALLET}\n${tokenLineFor(2, 'https://github.com/acme/kit')}` }, new RegExp(`"${LINE}"`)],
     [{ status: 'error', message: 'it answered 500' }, /couldn't read earnkit\.txt/],
   ] as const) {
     const h = harness();
@@ -456,6 +456,8 @@ test('ownership: a repo whose earnkit.txt is missing or lacks this agent\'s line
     const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true }, h.deps);
     assert.equal(out.status, 'gate_failed');
     assert.match(out.note ?? '', re);
+    // v2.6 §3 fix round 1 (I2): never tells the builder to add/edit a file or push it themselves.
+    assert.doesNotMatch(out.note ?? '', /\b(add|edit|create) (a |the )?file\b|\bpush it\b/i);
     assert.equal(h.deploys.length, 0);
     // Checked after the repo.
     assert.deepEqual(h.calls, ['repo', 'owner']);
@@ -755,5 +757,5 @@ test('v2.6: a stored-proposal launch with an edited ticker uses the same line; n
   h3.deps.gate!.owner = async () => ({ status: 'ok', text: legacy });
   const renamed = await launchToken(launchInput({ symbol: 'NEWT' }), 1, h3.deps);
   assert.equal(renamed.status, 'gate_failed');
-  assert.match(renamed.note ?? '', new RegExp(`Add the line "${tokenLines()}"`));
+  assert.match(renamed.note ?? '', new RegExp(`"${tokenLines()}"`));
 });

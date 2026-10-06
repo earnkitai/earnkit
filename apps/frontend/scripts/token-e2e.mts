@@ -465,10 +465,11 @@ let retryRepo = '';
   const r = await submit({ project: p, token: { name: 'Not Mine', symbol: 'NOTMN' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note?.includes('proof you can push to') === true &&
-      r.token.note.includes(`with the line "${lineFor(inst.id, p.repo_url)}"`) &&
-      !/payout_wallet/.test(r.token.note),
-    '(n) no earnkit.txt → gate_failed with the one line to add',
+      r.token.note?.includes("I'll add a short line") === true &&
+      r.token.note.includes(`"${lineFor(inst.id, p.repo_url)}"`) &&
+      !/payout_wallet/.test(r.token.note) &&
+      !/\b(add|edit|create) (a |the )?file\b|\bpush it\b/i.test(r.token.note),
+    '(n) no earnkit.txt → gate_failed with the one line to add, never asking the builder to edit a file',
     r.token,
   );
   check(deploys.length === before, '(n) no deploy sent');
@@ -557,7 +558,7 @@ let retryRepo = '';
   const r = await submit({ project: p, token: { name: 'No Token Line', symbol: 'NOTOK' }, confirmed: true });
   check(
     r.token.status === 'gate_failed' &&
-      r.token.note === `Add the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the repo root (default branch), push it, then say 'launch the token'.`,
+      r.token.note === `I'll add a short line to your repo to prove it's yours (earnkit.txt: "${lineFor(inst.id, p.repo_url)}"), then say 'launch the token'.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -619,7 +620,7 @@ let retryRepo = '';
   );
   const thiefLine = lineFor(thief.id, shared.repo_url)!;
   check(
-    stolen.token.status === 'gate_failed' && stolen.token.note === `Add the line "${thiefLine}" to earnkit.txt at the repo root (default branch), push it, then say 'launch the token'.`,
+    stolen.token.status === 'gate_failed' && stolen.token.note === `I'll add a short line to your repo to prove it's yours (earnkit.txt: "${thiefLine}"), then say 'launch the token'.`,
     "(v) the owner's line is refused for a third party's agent",
     stolen.token,
   );

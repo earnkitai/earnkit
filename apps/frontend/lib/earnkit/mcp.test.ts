@@ -231,6 +231,16 @@ test('v2.6 §3: the instructions say every entry gets a coin by default and one 
   assert.doesNotMatch(instructions, /A token is optional: entering never needs one\./);
 });
 
+test('v2.6 §3 fix round 1 (I3): the instructions cover the entry-link ask, wallet memory, and never naming tools to the builder', async () => {
+  const { instructions } = await listed({});
+  assert.match(
+    instructions,
+    /ask the builder 'Did you submit on <program site>\?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url\./,
+  );
+  assert.match(instructions, /EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch\./);
+  assert.match(instructions, /Never name EarnKit tools, fields or files to the builder; say what happens in plain words\./);
+});
+
 test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {
   const { tools } = await listed({});
   const d = tools.find((t) => t.name === 'list_programs')!.description!;

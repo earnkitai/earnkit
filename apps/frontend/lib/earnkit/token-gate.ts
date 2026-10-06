@@ -115,11 +115,12 @@ export function ownerProblem(
   if (got.status === 'error')
     return `EarnKit couldn't read ${OWNERSHIP_FILE} in ${repo} (${got.message}). ${AGAIN}`;
   const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
+  // v2.6 §3 fix round 1 (I2): this is relayed to the builder as "the result" (record_submission's
+  // description), so it reads as the agent's own action, never a file-edit instruction to the
+  // builder (who never touches earnkit.txt). The technical detail (file name, exact line) stays,
+  // for the agent that does the writing and pushing.
   if (!file)
-    return (
-      `A coin needs proof you can push to ${repo}: add a file named ${OWNERSHIP_FILE} at its root ` +
-      `(default branch) with the line "${line}", push it, then ${SAY}.`
-    );
+    return `I'll add a short line to ${repo} to prove it's yours (${OWNERSHIP_FILE}: "${line}"), then ${SAY}.`;
   const sym = legacy?.symbol.toUpperCase();
   const ok =
     file.codes.some((c) => sameCode(c, code)) ||
@@ -127,7 +128,7 @@ export function ownerProblem(
       file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code)));
   return ok
     ? null
-    : `Add the line "${line}" to ${OWNERSHIP_FILE} at the repo root (default branch), push it, then ${SAY}.`;
+    : `I'll add a short line to your repo to prove it's yours (${OWNERSHIP_FILE}: "${line}"), then ${SAY}.`;
 }
 
 /** Ruling 3 (plan): a public repo with real code, or why not. Pure. */
