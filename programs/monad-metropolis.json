@@ -17,7 +17,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-01T00:00:00Z",
   "ends_at": "2026-10-14T03:59:00Z",
-  "verified_at": "2026-10-06",
+  "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [
@@ -151,7 +151,7 @@
   "focus": {
     "areas": [
       "Onchain finance and trading",
-      "Consumer products and payments",
+      "Consumer products and payments; social, attention and culture",
       "Trust, identity and AI infrastructure"
     ],
     "source_url": "https://monad.xyz/developers/hackathons/metropolis",

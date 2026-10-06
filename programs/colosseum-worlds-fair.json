@@ -20,7 +20,7 @@
   "tag": "long shot",
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
-  "verified_at": "2026-10-06",
+  "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "new_work_only",
   "chains": [
@@ -171,7 +171,7 @@
       "label": "Colosseum's 2026 Solana Frontier Hackathon",
       "source_url": "https://blog.colosseum.com/announcing-the-winners-of-the-solana-frontier-hackathon/",
       "submissions": 2857,
-      "winners": 26,
+      "winners": 28,
       "themes": [
         {
           "theme": "Prediction markets",
@@ -203,8 +203,7 @@
   "focus": {
     "areas": [
       "Startups bringing the world's markets onchain",
-      "Base ecosystem track",
-      "Tempo and Robinhood Chain tracks"
+      "Products integrating Base, Tempo or Robinhood Chain"
     ],
     "source_url": "https://colosseum.com/worldsfair",
     "ecosystem": "Colosseum"
