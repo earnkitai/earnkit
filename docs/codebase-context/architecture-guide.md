@@ -1113,7 +1113,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
     (as WETH) for <program>, sent to 0xAB12…ef01 (basescan.org/tx/<hash>) · earnkit.com/bonus/<slug>"
     (the wallet checksummed and shortened; the tx link is the builder's proof of payment), "you
     have $X in coin fees to claim on tokens.fun", and the top-10 in/out lines end with their
-    leaderboard link. `copy-v26.test.ts` reviews the joined sentences and every builder string
+    leaderboard link. `copy-review.test.ts` (v2.6's `copy-v26.test.ts`, renamed in v2.7) reviews the joined sentences and every builder string
     (no emojis, no "vault", no implied affiliation, no tool names, no file-edit asks).
   - *Server instructions* (`mcp.ts`): `OWNERSHIP_FOR_TOKEN` (the agent writes and pushes the
     `token: <code>` line itself), `builder_submitted` in `record_submission`'s description (ask
@@ -1286,7 +1286,8 @@ Ruling C1: after the final review, the controller pushes and merges both repos w
    merge to `main`; Vercel deploys docs.earnkit.com (Ruling 24). Deploy EarnKit first: the docs
    link `earnkit.com/programs`, which 404s until v2.7 is live. Old docs pages
    (`/buyback-and-burn`, `/monetization-sdk`, `/quick-start-guide`, `/sdk-reference`,
-   `/engineering-and-design`) redirect (307) to `/`.
+   `/engineering-and-design`) redirect (307) to `/`. The docs repo pins pnpm 9.15.9 (`packageManager`); `pnpm build` runs
+   pagefind itself and `public/_pagefind` is gitignored, so check search on the preview.
 4. Follow "Test the journey (v2.7)" below with a throwaway public repo.
 
 **Runbook: Test the journey (v2.7).** On production, with a throwaway public repo: tokens are real

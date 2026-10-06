@@ -19,7 +19,20 @@ import { tools } from './tools';
  * which would change what "What can I earn?" shows and how it closes (Ruling 10).
  */
 
-const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+/**
+ * It creates and drops a database, so it needs CREATEDB and runs only against a local server
+ * (localhost, 127.0.0.1 or ::1); anything else skips.
+ */
+const localDb = (() => {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(process.env.DATABASE_URL ?? '').hostname);
+  } catch {
+    return false;
+  }
+})();
+const dbTest = {
+  skip: !process.env.DATABASE_URL ? 'no DATABASE_URL' : !localDb && 'DATABASE_URL is not a local Postgres',
+};
 
 /** Copied from copy-review.test.ts (it lives in a test file): human-facing "coin"/"coins". */
 function coinWords(text: string): string[] {
@@ -38,7 +51,7 @@ const sharedUrl = process.env.DATABASE_URL;
 const journeyDb = `earnkit_v27_journey_${process.pid}`;
 
 before(async () => {
-  if (!sharedUrl) return;
+  if (!sharedUrl || !localDb) return;
   const admin = postgres(sharedUrl, { max: 1, onnotice: () => {} });
   try {
     await admin.unsafe(`DROP DATABASE IF EXISTS ${journeyDb}`);
@@ -59,7 +72,7 @@ before(async () => {
 });
 
 after(async () => {
-  if (!sharedUrl) return;
+  if (!sharedUrl || !localDb) return;
   await sql().end();
   process.env.DATABASE_URL = sharedUrl;
   const admin = postgres(sharedUrl, { max: 1, onnotice: () => {} });
@@ -71,13 +84,14 @@ after(async () => {
 });
 
 test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, async () => {
-  // 1. Every real program file, as programs:sync would load it. A deadline that has passed moves
-  //    to 2099 so the journey keeps running after the real programs close.
+  // 1. Every real program file, as programs:sync would load it. Curated programs (no campaign) are
+  //    made active with a 2099 deadline, so the journey never depends on real dates or closures
+  //    (C17 fix round); campaign files keep their own status (Campaign #1 stays closed).
   const files = readdirSync(PROGRAMS_DIR).filter((f) => f.endsWith('.json'));
   assert.ok(files.length >= 5);
   for (const f of files) {
     const raw = JSON.parse(readFileSync(join(PROGRAMS_DIR, f), 'utf8'));
-    if (raw.ends_at && new Date(raw.ends_at) <= new Date()) raw.ends_at = FAR;
+    if (!raw.campaign) Object.assign(raw, { status: 'active', ends_at: raw.ends_at ? FAR : raw.ends_at });
     await upsertProgram(ProgramFile.parse(raw));
   }
 
