@@ -157,10 +157,6 @@ ok(prog.builder_bonus === true, 'an existing program gets builder_bonus = true')
 const [proj] = await db<{ submission_proof_ok_at: Date | null; submission_basis: string | null }[]>`
   SELECT submission_proof_ok_at, submission_basis FROM projects WHERE program_id = 'old-active' LIMIT 1`;
 ok(proj.submission_basis === null, 'an existing project has no submission_basis yet');
-await db`UPDATE projects SET submission_proof_ok_at = now() WHERE program_id = 'old-active'`;
-const [keptProof] = await db<{ submission_proof_ok_at: Date | null }[]>`
-  SELECT submission_proof_ok_at FROM projects WHERE program_id = 'old-active' LIMIT 1`;
-ok(keptProof.submission_proof_ok_at !== null, 'an existing project keeps submission_proof_ok_at');
 let badBasis = false;
 try {
   await db`UPDATE projects SET submission_basis = 'other' WHERE program_id = 'old-active'`;
@@ -168,6 +164,35 @@ try {
   badBasis = true;
 }
 ok(badBasis, "submission_basis rejects anything but 'page', 'unverified_page' or 'confirmed'");
+
+// v2.6 §4 (fix round 1): a real migration check for submission_proof_ok_at, not a round-trip. The
+// checks above run after `now` has already added builder_bonus/submission_basis (lines 49-50), so
+// a value set there would always just be reading back what was written moments earlier on columns
+// that already existed. Here the row is seeded under the actual v2.5 schema (main's last v2.5
+// commit, 1823018, before this branch's columns exist), and only then is the current schema.sql
+// (the v2.6 delta) applied over it.
+const v25 = execFileSync('git', ['-C', root, 'show', '1823018:apps/frontend/db/schema.sql'], {
+  encoding: 'utf8',
+});
+await db.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+await db.unsafe(v25);
+const PROOF_AT = new Date('2026-09-20T00:00:00Z');
+await db`
+  INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+    status, existing_work, submission_proof)
+  VALUES ('v25-migrate', 'X', 'V25', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+    ${db.json({ host: 'x.example', path_pattern: '^/b/$' })})`;
+await db`INSERT INTO projects (program_id, name, submission_proof_ok_at) VALUES ('v25-migrate', 'P25', ${PROOF_AT})`;
+await db.unsafe(now); // the v2.6 migration, over real v2.5 rows
+const [migrated] = await db<{ submission_proof_ok_at: Date; submission_basis: string | null }[]>`
+  SELECT submission_proof_ok_at, submission_basis FROM projects WHERE program_id = 'v25-migrate'`;
+ok(
+  migrated.submission_proof_ok_at.toISOString() === PROOF_AT.toISOString(),
+  "a v2.5 project's submission_proof_ok_at survives the v2.6 migration unchanged",
+);
+ok(migrated.submission_basis === null, 'a v2.5 project gets no submission_basis from the v2.6 migration');
+const [migratedProg] = await db<{ builder_bonus: boolean }[]>`SELECT builder_bonus FROM programs WHERE id = 'v25-migrate'`;
+ok(migratedProg.builder_bonus === true, 'a v2.5 program gets builder_bonus = true from the v2.6 migration');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

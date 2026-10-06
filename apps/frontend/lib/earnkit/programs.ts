@@ -289,7 +289,7 @@ export function programCard(
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
-    // v2.5 §1: curated build ideas for builders with no repo; the builder bonus needs a proof pattern.
+    // v2.5 §1: curated build ideas for builders with no repo.
     ideas: p.ideas ?? [],
     submission_proof: p.submission_proof ?? null,
     // v2.6 §4, Ruling 7 (plan): every card here is an active program (listPrograms' WHERE), so
