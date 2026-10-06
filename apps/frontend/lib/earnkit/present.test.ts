@@ -91,6 +91,9 @@ const pool = (c: Card, eth: number) => ({ ...c, bonus_pool_wei: BigInt(Math.roun
 const WEI = (eth: string) => BigInt(Math.round(Number(eth) * 1e6)) * 10n ** 12n;
 /** The empty-pool tail of the bonus close sentence (v2.7 §3). */
 const NO_POOL_YET = "the builder bonus, paid to the top 10 on each program from its entries' token fees.";
+/** Fix round 1, Minor 3: escape once for reuse inside `new RegExp(...)`, instead of inline each time. */
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const NO_POOL_RE = esc(NO_POOL_YET);
 
 test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficulty column, one offer closed by the bonus', () => {
   const text = presentFirstMessage(msg({
@@ -130,7 +133,7 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
   // A GitHub user with no repos counts as no repo.
   const none = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] } }));
   assert.match(none, /^\$500 is open right now\. I can build an entry for you\.\n\n/);
-  assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_RE}$`));
   assert.doesNotMatch(none, /None of your/);
   // Honest offer rules still win: keep going, and chat-only agents.
   assert.match(
@@ -259,7 +262,7 @@ test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sente
 test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
   const many = Array.from({ length: 5 }, (_, i) => ({ ...tiny, id: `p${i}`, title: `P${i}`, ideas: ['a', 'b', 'c'] }));
   const text = presentFirstMessage(msg({ cards: many }));
-  assert.match(text, new RegExp(`Ideas I can build:\\n- P0: a\\n- P0: b\\n- P1: a\\n- P1: b\\n- P2: a\\n- P2: b\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(text, new RegExp(`Ideas I can build:\\n- P0: a\\n- P0: b\\n- P1: a\\n- P1: b\\n- P2: a\\n- P2: b\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_RE}$`));
 });
 
 test('bonusProgramIds lists every shown program with a builder bonus, opted-out ones excluded', () => {
@@ -323,19 +326,19 @@ test('Fastest: prize per hour of effort; programs needing videos or forms never 
     cards: [base, arc],
     repos: repos(v('base-builder-grants', 'likely', 'looks eligible', 'none'), v('arc-microgrants', 'after_step', 'needs a live link', 'minutes')),
   }));
-  assert.match(text, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(text, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? Every entry also competes for ${NO_POOL_RE}$`));
   // Only forms programs fit: offered, saying up front what only the builder can give.
   const only = presentFirstMessage(msg({ cards: [base], repos: repos(v('base-builder-grants', 'likely', 'looks eligible')) }));
-  assert.match(only, new RegExp(`Want me to start on Base Builder Grant Program with tipjar\\? It needs a short Loom from you\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(only, new RegExp(`Want me to start on Base Builder Grant Program with tipjar\\? It needs a short Loom from you\\. Every entry also competes for ${NO_POOL_RE}$`));
   const answers = presentFirstMessage(msg({
     cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'likely', 'looks eligible')),
   }));
-  assert.match(answers, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? It needs 3 answers only you can give\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(answers, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? It needs 3 answers only you can give\\. Every entry also competes for ${NO_POOL_RE}$`));
 });
 
 test('one offer: keep going beats the campaign; a sponsor campaign is never offered or in the repo table', () => {
   const resume = presentFirstMessage(msg({ campaigns: [campaign], cards: [arc], workingOn: ['arc-microgrants'] }));
-  assert.match(resume, new RegExp(`Want me to keep going on Arc Microgrants\\? Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(resume, new RegExp(`Want me to keep going on Arc Microgrants\\? Every entry also competes for ${NO_POOL_RE}$`));
   const sponsorOnly = presentFirstMessage(msg({ cards: [sponsored], repos: repos(v('sponsor-abc', 'likely', 'looks eligible')) }));
   assert.doesNotMatch(sponsorOnly, /Your repos/);
   assert.match(sponsorOnly, /None of your 1 repo fits an open program yet\./);
@@ -415,11 +418,11 @@ test('I3 offers: no repos known closes on the build offer; repos known with no f
   assert.doesNotMatch(noRepos, /qualify/);
   // A GitHub user with no repos found yet (not the no-repo state) is still asked to check them.
   const githubOnly = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny], githubGiven: true }));
-  assert.match(githubOnly, new RegExp(`\\n\\nWant me to check which of your repos already qualify\\? Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(githubOnly, new RegExp(`\\n\\nWant me to check which of your repos already qualify\\? Every entry also competes for ${NO_POOL_RE}$`));
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // Base pays more but needs a Loom and 10 personal answers: Arc is the top program without forms.
   // Ruling 28: the repo was ruled out, so the offer is to build something new, never "start on".
-  assert.match(noFit, new RegExp(`\\n\\nWant me to build something new for Arc Microgrants \\(500 USDC × 20 grants\\)\\? Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(noFit, new RegExp(`\\n\\nWant me to build something new for Arc Microgrants \\(500 USDC × 20 grants\\)\\? Every entry also competes for ${NO_POOL_RE}$`));
   assert.doesNotMatch(noFit, /start on/);
   // Ruling 19: a repo error is the no-repo state, so even with no ideas it closes on the build offer.
   const errNoIdeas = presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' }, githubGiven: true }));
@@ -442,12 +445,12 @@ test('Ruling 28: repos known, nothing fits, only forms programs open: build some
     cards: [circle, base], repos: repos(v('base-builder-grants', 'no', 'not on Base')),
   }));
   assert.match(text, /None of your 1 repo fits an open program yet\./);
-  assert.match(text, new RegExp(`\\n\\nWant me to build something new for Base Builder Grant Program \\(up to \\$5,000\\)\\? It needs a short Loom from you\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(text, new RegExp(`\\n\\nWant me to build something new for Base Builder Grant Program \\(up to \\$5,000\\)\\? It needs a short Loom from you\\. Every entry also competes for ${NO_POOL_RE}$`));
   assert.doesNotMatch(text, /Pick one/);
   const answers = presentFirstMessage(msg({
     cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'no', 'not on Arc')),
   }));
-  assert.match(answers, new RegExp(`Want me to build something new for Arc Microgrants \\(500 USDC × 20 grants\\)\\? It needs 3 answers only you can give\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(answers, new RegExp(`Want me to build something new for Arc Microgrants \\(500 USDC × 20 grants\\)\\? It needs 3 answers only you can give\\. Every entry also competes for ${NO_POOL_RE}$`));
 });
 
 test('I7: closing-soon and new non-campaign programs stay in the body; they never start the reply as an alert', () => {
@@ -459,7 +462,7 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
   // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
   // above whatever the offer is.
-  assert.match(quiet, new RegExp(`\\n\\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_YET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+  assert.match(quiet, new RegExp(`\\n\\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\. Every entry also competes for ${NO_POOL_RE}$`));
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);
@@ -538,5 +541,14 @@ test('Review Focus 4: no bonus on screen, no sentence; a campaign offer stays la
   assert.deepEqual(tail, [
     'Entries in the other open programs also compete for the builder bonus: 0.60 ETH so far, paid to the top 10 on each program.',
     'Want me to build your entry for the $100?',
+  ]);
+});
+
+test('fix round 1, Minor 4: "keep going" on an open campaign also moves the bonus sentence above it', () => {
+  const text = presentFirstMessage(msg({ campaigns: [openCampaign], cards: [pool(arc, 0.6)], workingOn: [openCampaign.id] }));
+  const tail = text.split('\n\n').slice(-2);
+  assert.deepEqual(tail, [
+    'Entries in the other open programs also compete for the builder bonus: 0.60 ETH so far, paid to the top 10 on each program.',
+    'Want me to keep going on EarnKit Campaign #1: Base apps with real users?',
   ]);
 });

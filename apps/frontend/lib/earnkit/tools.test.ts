@@ -254,9 +254,6 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
   const stray = await sql()<{ id: string }[]>`
     SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
   if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
-  // Only rows starting a table line can carry a per-row cell; this keeps the check from tripping
-  // over the closing bonus sentence itself, which legitimately says "ETH so far".
-  const tableLines = (s: string) => s.split('\n').filter((l) => l.startsWith('| '));
   try {
     await upsertProgram(ProgramFile.parse(proof));
     await upsertProgram(ProgramFile.parse(noProof));
@@ -277,20 +274,20 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.match(text, /\| Program \| (Prize|You could win) \| Difficulty \| Ends \|/);
     assert.match(text, new RegExp(`\\| Proof ${run} \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\|`));
-    assert.ok(!tableLines(text).some((l) => /ETH so far|new pool/.test(l)), text);
     assert.match(text, /Every entry also competes for the builder bonus: 0\.42 ETH so far, paid to the top 10 on each program\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.ok(!tableLines(plain.show_to_builder).some((l) => /ETH so far|new pool/.test(l)), plain.show_to_builder);
     assert.match(plain.show_to_builder, /Every entry also competes for the builder bonus, paid to the top 10 on each program from its entries' token fees\.$/);
-    // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win.
-    // (Other test files share this DB and may run concurrently, so other active programs can be
-    // on screen too; this only asserts what these two programs show.)
+    // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
+    // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
+    // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
+    // reliable here; present.test.ts's bonusCell/bonusClose unit tests cover the frozen rule
+    // directly. Fix round 1, Minor 2.)
     const frozen = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
-    assert.ok(!tableLines(frozen.show_to_builder).some((l) => /ETH so far|new pool/.test(l)), frozen.show_to_builder);
+    assert.doesNotMatch(frozen.show_to_builder, /0\.42 ETH/);
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
     if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;

@@ -140,7 +140,11 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
   return c.difficulty ? difficultyLabel(c.difficulty) : '—';
 }
 
-/** Places paid per builder bonus round (bonus-payout.ts BONUS_SPLIT_BPS.length; pinned by a test). */
+/**
+ * Places paid per builder bonus round: mirrors bonus-payout.ts BONUS_PLACES (= BONUS_SPLIT_BPS
+ * .length), kept local so present.ts stays pure (bonus-payout.ts pulls in db and viem); pinned to
+ * it by a test.
+ */
 export const BONUS_TOP = 10;
 
 /**
