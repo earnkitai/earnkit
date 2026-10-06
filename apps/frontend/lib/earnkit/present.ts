@@ -2,7 +2,7 @@ import { normalizeRepoUrl, usd } from './campaigns';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Effort, type Verdict } from './match';
-import type { Difficulty } from './guide';
+import { difficultyLabel, type Difficulty } from './guide';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -12,8 +12,9 @@ export { endsOf } from './entry-text';
  * Built on the server because many MCP clients never show the model the server instructions; a
  * ready-made result gets shown as written. Order, always: "Since you last checked", "EarnKit
  * matches you to $X in open money" with what the builder's repos fit, open EarnKit campaigns (none
- * while Campaign #1 is closed), other open programs (at most 5), the builder bonus note, ideas when
- * the builder has no repo, sponsor campaigns (never first), program updates, then one offer.
+ * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
+ * repo, sponsor campaigns (never first), program updates, then one offer closed by the builder
+ * bonus (v2.7 §3).
  */
 export type Card = {
   id: string;
@@ -107,10 +108,6 @@ const MAX_OTHERS = 5;
 /** Ideas under "Ideas I can build"/"Ideas for these programs" in all (v2.6 §1). */
 const MAX_IDEAS = 6;
 
-/** Under any table that shows a builder bonus (v2.5 naming rule). */
-export const BONUS_NOTE =
-  "Builder bonus: paid by EarnKit from coin fees. EarnKit isn't affiliated with or endorsed by any program's organizer. Details: earnkit.com/policy";
-
 /**
  * $X in "EarnKit matches you to $X in open money": each matched program's top per-winner prize,
  * once per program; programs without a stated per-winner amount count 0. Never whole pools. Pure.
@@ -138,10 +135,32 @@ export function bonusCell(c: Pick<Card, 'builder_bonus' | 'bonus_pool_wei' | 'bo
   return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
 }
 
+/** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or "—" with none. Pure. */
+export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
+  return c.difficulty ? difficultyLabel(c.difficulty) : '—';
+}
+
+/** Places paid per builder bonus round (bonus-payout.ts BONUS_SPLIT_BPS.length; pinned by a test). */
+export const BONUS_TOP = 10;
+
+/**
+ * v2.7 §3, Ruling 11 (plan): what the builder bonus sentence says after "compete for ", or null
+ * when no program on screen has a bonus. The total is the pools already read for those programs.
+ * Pure.
+ */
+export function bonusClose(onScreen: Card[]): string | null {
+  const live = onScreen.filter((c) => bonusCell(c) !== '—');
+  if (live.length === 0) return null;
+  const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
+  if (wei <= 0n) return `the builder bonus, paid to the top ${BONUS_TOP} on each program from its entries' token fees.`;
+  const so = wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
+  return `the builder bonus: ${so}, paid to the top ${BONUS_TOP} on each program.`;
+}
+
 /**
  * Ruling 25: a matched row whose repo already has its coin entered in another program can't earn
- * this program's builder bonus (one coin per repo): its bonus cell says so instead of the pool.
- * Null otherwise. Pure.
+ * this program's builder bonus (one coin per repo); Ruling 13 (plan): the note now shows in the
+ * row's repo cell instead of a bonus column. Null otherwise. Pure.
  */
 function repoCoinElsewhere(m: Pick<FirstMessage, 'repoCoins'>, card: Card, repoUrl: string | null) {
   if (card.builder_bonus === false || !repoUrl || !m.repoCoins) return null;
@@ -325,18 +344,6 @@ export function presentFirstMessage(m: FirstMessage): string {
   }
 
   const { byId, rows, shown, more } = layout(m);
-  // The note goes right under the last program table that shows a bonus, never the campaign table.
-  let noteAfter = -1;
-  const bonusTable = (render: (bonus: (c: Card) => string) => string) => {
-    let any = false;
-    const text = render((c) => {
-      const cell = bonusCell(c);
-      if (cell !== '—') any = true;
-      return cell;
-    });
-    sections.push(text);
-    if (any) noteAfter = sections.length;
-  };
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)
     sections.push(
@@ -344,18 +351,21 @@ export function presentFirstMessage(m: FirstMessage): string {
     );
   else if (rows.length > 0) {
     const total = openMoneyUsd(rows.map((r) => r.card));
-    bonusTable(
-      (bonus) =>
-        `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
+    sections.push(
+      `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
-          ['Program', 'Prize', 'Builder bonus', 'Ends', 'Your repo'],
-          rows.map(({ card, repo, repo_url, v }) => [
-            card.title,
-            prizeOf(card),
-            repoCoinElsewhere(m, card, repo_url) ?? bonus(card),
-            endsOf(card),
-            v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
-          ]),
+          ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
+          rows.map(({ card, repo, repo_url, v }) => {
+            const base = v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`;
+            const elsewhere = repoCoinElsewhere(m, card, repo_url);
+            return [
+              card.title,
+              prizeOf(card),
+              difficultyCell(card),
+              endsOf(card),
+              elsewhere ? `${base} (${elsewhere})` : base,
+            ];
+          }),
         ),
     );
   }
@@ -379,23 +389,21 @@ export function presentFirstMessage(m: FirstMessage): string {
     const zeroState = noMatch(m.repos) && rows.length === 0 && campaigns.length === 0;
     const above = campaigns.length > 0 || rows.length > 0;
     const couldWin = zeroState && youCould(m.repos, m.githubGiven ?? false);
-    bonusTable(
-      (bonus) =>
-        `${
-          zeroState
-            ? openHeadline(openMoneyUsd(m.cards.filter((c) => !c.sponsored)), m.agentCanBuild)
-            : above
-              ? 'Also open:'
-              : 'Open money right now:'
-        }\n\n` +
+    sections.push(
+      `${
+        zeroState
+          ? openHeadline(openMoneyUsd(m.cards.filter((c) => !c.sponsored)), m.agentCanBuild)
+          : above
+            ? 'Also open:'
+            : 'Open money right now:'
+      }\n\n` +
         table(
-          ['Program', couldWin ? 'You could win' : 'Prize', 'Builder bonus', 'Ends'],
-          shown.map((c) => [c.title, prizeOf(c), bonus(c), endsOf(c)]),
+          ['Program', couldWin ? 'You could win' : 'Prize', 'Difficulty', 'Ends'],
+          shown.map((c) => [c.title, prizeOf(c), difficultyCell(c), endsOf(c)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );
   }
-  if (noteAfter >= 0) sections.splice(noteAfter, 0, BONUS_NOTE);
 
   // No repo to match: curated ideas for the programs shown (never generated at request time).
   const ideas = noMatch(m.repos) ? ideaLines(shown) : [];
@@ -411,9 +419,19 @@ export function presentFirstMessage(m: FirstMessage): string {
   // After the tables, so the reply never starts with it: news, not an alert (I7).
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
-  sections.push(offer(m, byId, rows, ideas.length > 0));
+  // v2.7 §3, Ruling 10 (plan): the builder bonus closes the message, joined to the offer; a
+  // campaign offer (which never earns the bonus itself) gets the sentence as its own paragraph
+  // first instead, so the campaign offer stays the last line.
+  const close = offer(m, byId, rows, ideas.length > 0);
+  const bonus = bonusClose([...rows.map((r) => r.card), ...shown]);
+  if (!bonus) sections.push(close.text);
+  else if (close.campaign) sections.push(`Entries in the other open programs also compete for ${bonus}`, close.text);
+  else sections.push(`${close.text} Every entry also competes for ${bonus}`);
   return sections.join('\n\n');
 }
+
+/** One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)). */
+type Offer = { text: string; campaign: boolean };
 
 /**
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
@@ -429,25 +447,30 @@ function offer(
   byId: Map<string, Card>,
   rows: Fit[],
   ideasShown: boolean,
-) {
-  if (!m.agentCanBuild) return CHAT_ONLY;
-  const titleOf = (id: string) => {
+): Offer {
+  if (!m.agentCanBuild) return { text: CHAT_ONLY, campaign: false };
+  const titleOf = (id: string): Offer | undefined => {
     const c = byId.get(id);
-    if (c) return c.sponsored ? undefined : c.title;
-    return m.campaigns.find((r) => r.id === id && r.open)?.title;
+    if (c) return c.sponsored ? undefined : { text: c.title, campaign: false };
+    const camp = m.campaigns.find((r) => r.id === id && r.open);
+    return camp ? { text: camp.title, campaign: true } : undefined;
   };
   const resume = m.workingOn.map(titleOf).find(Boolean);
-  if (resume) return `Want me to keep going on ${resume}?`;
+  if (resume) return { text: `Want me to keep going on ${resume.text}?`, campaign: resume.campaign };
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
-  if (campaign) return `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`;
+  if (campaign) return { text: `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`, campaign: true };
   const byHour = [...rows].sort(
     (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
   );
   const fastest = byHour.find((r) => !needsForms(r.card));
-  if (fastest) return `Want me to start on ${fastest.card.title} with ${fastest.repo}?`;
+  if (fastest) return { text: `Want me to start on ${fastest.card.title} with ${fastest.repo}?`, campaign: false };
   const forms = byHour[0];
-  if (forms) return `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`;
-  if (ideasShown) return "Pick one and I'll start.";
+  if (forms)
+    return {
+      text: `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`,
+      campaign: false,
+    };
+  if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no
   // ideas doesn't mean no choice); never fall back to "check your repos" when there's nothing to
@@ -456,17 +479,20 @@ function offer(
   const buildOffer = youCould(m.repos, m.githubGiven ?? false) || (m.repos !== null && 'error' in m.repos);
   // Final review M9: the no-repo close never says "qualify", even with an open campaign (one the
   // builder hasn't entered took the campaign offer above).
-  if (buildOffer && curated.length > 0) return "Pick one and I'll start.";
+  if (buildOffer && curated.length > 0) return { text: "Pick one and I'll start.", campaign: false };
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && !buildOffer && (!m.repos || 'error' in m.repos))
-    return 'Want me to check which of your repos already qualify?';
+    return { text: 'Want me to check which of your repos already qualify?', campaign: false };
   // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.
   const top = [...curated].sort((a, b) => Number(needsForms(a)) - Number(needsForms(b)) || byPrize(a, b))[0];
   if (top)
-    return `Want me to build something new for ${top.title} (${prizeOf(top)})?${needsForms(top) ? needsText(top) : ''}`;
+    return {
+      text: `Want me to build something new for ${top.title} (${prizeOf(top)})?${needsForms(top) ? needsText(top) : ''}`,
+      campaign: false,
+    };
   // Only sponsor campaigns open: never offered by name.
-  if (m.cards.length > 0) return "Pick one and I'll start.";
+  if (m.cards.length > 0) return { text: "Pick one and I'll start.", campaign: false };
   if (m.campaigns.some((r) => r.you === 'in review'))
-    return 'Nothing else is open right now. Want me to tell you when the results are in?';
-  return `Nothing else is open right now. ${TELL_WHEN_OPENS}`;
+    return { text: 'Nothing else is open right now. Want me to tell you when the results are in?', campaign: false };
+  return { text: `Nothing else is open right now. ${TELL_WHEN_OPENS}`, campaign: false };
 }

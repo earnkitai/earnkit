@@ -258,22 +258,27 @@ apps/frontend/
                                itself), record_submission's builder_submitted (ask "Did you submit on
                                <site>?" first), local_repos[].url (Ruling 13), builder text never
                                names a tool
-    present.ts(+test)          presentFirstMessage (v2.6 §1): alerts, "EarnKit matches you to $X in
+    present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
                                open money you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
                                repos, else "$X is open right now" (youCould/githubGiven, Ruling 11;
-                               that table's "Prize" column becomes "You could win") with a Builder
-                               bonus column (bonusCell: "new pool", "<x> ETH so far", or "—" only
-                               when builder_bonus is false (Ruling 7) or bonus_closed; Ruling 25: a
-                               repo whose coin is entered in another program, repoCoins, shows "no
-                               builder bonus: …"), open EarnKit campaigns only, at most 5 others,
-                               BONUS_NOTE (not affiliated, earnkit.com/policy), ideas (one per line)
-                               when the builder has no repo, sponsored last, one offer (keep going /
-                               campaign entry / fastest fit / "Pick one and I'll start." / build
-                               something new; final review M9: the no-repo close is never
-                               "qualify", even with an open campaign); endsOf uses
-                               entry-text.ts summaryCloses/deadlineDay (Ruling 29);
-                               markdown tables, no emojis; sponsor campaigns never offered
+                               that table's "Prize" column becomes "You could win") with a Difficulty
+                               column (difficultyCell: guide.ts difficultyLabel, or "—" with none;
+                               Ruling 25: a repo whose coin is entered in another program, repoCoins,
+                               shows "no builder bonus: …" in its own repo cell instead of a bonus
+                               column, Ruling 13 (plan)), open EarnKit campaigns only, at most 5
+                               others, ideas (one per line) when the builder has no repo, sponsored
+                               last, one offer (keep going / campaign entry / fastest fit / "Pick one
+                               and I'll start." / build something new; final review M9: the no-repo
+                               close is never "qualify", even with an open campaign) closed by the
+                               builder bonus sentence (bonusClose: sum of the pools already read for
+                               the programs on screen with a bonus; a campaign offer never earns the
+                               bonus, so the sentence becomes its own paragraph above it instead,
+                               Ruling 10 (plan)); endsOf uses entry-text.ts
+                               summaryCloses/deadlineDay (Ruling 29); markdown tables, no emojis;
+                               sponsor campaigns never offered; no per-row bonus column or
+                               affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
+                               policy page keeps that text, linked from the footer and the guide page)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it

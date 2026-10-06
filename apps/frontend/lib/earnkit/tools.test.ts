@@ -246,6 +246,17 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     builder_bonus: false,
   });
   assert.ok(proof.submission_proof && noProof.submission_proof === null);
+  // Other dbTests leave stray active EarnKit campaigns behind (never closed); an open one changes
+  // which offer closes the message (Ruling 10 (plan): a campaign offer moves the bonus sentence to
+  // its own paragraph above it), which would make the end-anchored assertions below meaningless.
+  // Close them for the duration of this test, then reopen (best effort; same pattern as the
+  // neighboring "Ruling 11 (plan) fix round 1" test).
+  const stray = await sql()<{ id: string }[]>`
+    SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
+  if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  // Only rows starting a table line can carry a per-row cell; this keeps the check from tripping
+  // over the closing bonus sentence itself, which legitimately says "ETH so far".
+  const tableLines = (s: string) => s.split('\n').filter((l) => l.startsWith('| '));
   try {
     await upsertProgram(ProgramFile.parse(proof));
     await upsertProgram(ProgramFile.parse(noProof));
@@ -262,20 +273,27 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     const text = r.show_to_builder;
     assert.equal(calls.length, 1);
     assert.ok(calls[0].includes(proof.id) && !calls[0].includes(noProof.id), calls[0].join());
-    assert.match(text, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| 0\\.42 ETH so far \\|`));
-    assert.match(text, new RegExp(`\\| No proof ${run} \\| [^|]+ \\| — \\|`));
-    assert.match(text, /\n\nBuilder bonus: paid by EarnKit from coin fees\. EarnKit isn't affiliated with or endorsed by any program's organizer\. Details: earnkit\.com\/policy\n\n/);
+    // v2.7 §3: no per-row bonus column or note; the bonus closes the message instead.
+    assert.match(text, /\| Program \| (Prize|You could win) \| Difficulty \| Ends \|/);
+    assert.match(text, new RegExp(`\\| Proof ${run} \\|`));
+    assert.match(text, new RegExp(`\\| No proof ${run} \\|`));
+    assert.ok(!tableLines(text).some((l) => /ETH so far|new pool/.test(l)), text);
+    assert.match(text, /Every entry also competes for the builder bonus: 0\.42 ETH so far, paid to the top 10 on each program\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
-    // Without injection: no pools yet, so the provable program opens with a new pool.
+    // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| new pool \\|`));
+    assert.ok(!tableLines(plain.show_to_builder).some((l) => /ETH so far|new pool/.test(l)), plain.show_to_builder);
+    assert.match(plain.show_to_builder, /Every entry also competes for the builder bonus, paid to the top 10 on each program from its entries' token fees\.$/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win.
+    // (Other test files share this DB and may run concurrently, so other active programs can be
+    // on screen too; this only asserts what these two programs show.)
     const frozen = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map([[proof.id, null]]) })) as { show_to_builder: string };
-    assert.match(frozen.show_to_builder, new RegExp(`\\| Proof ${run} \\| [^|]+ \\| — \\|`));
+    assert.ok(!tableLines(frozen.show_to_builder).some((l) => /ETH so far|new pool/.test(l)), frozen.show_to_builder);
   } finally {
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()([proof.id, noProof.id])}`;
+    if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
   }
 });
 
@@ -311,12 +329,12 @@ test('Ruling 11 (plan) fix round 1: a remembered GitHub user whose matching fail
         throw new Error('boom');
       },
     })) as { show_to_builder: string };
-    assert.match(r.show_to_builder, /\| Program \| Prize \| Builder bonus \| Ends \|/);
+    assert.match(r.show_to_builder, /\| Program \| Prize \| Difficulty \| Ends \|/);
     assert.doesNotMatch(r.show_to_builder, /You could/);
     // Control: no remembered github_user or repos, so matching is never attempted (yourRepos stays
     // null the ordinary way) and githubGiven is false: the same program gets "You could win".
     const c = (await tools.list_programs({}, { installationId: control })) as { show_to_builder: string };
-    assert.match(c.show_to_builder, /\| Program \| You could win \| Builder bonus \| Ends \|/);
+    assert.match(c.show_to_builder, /\| Program \| You could win \| Difficulty \| Ends \|/);
   } finally {
     console.error = errLog;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${prog.id}`;

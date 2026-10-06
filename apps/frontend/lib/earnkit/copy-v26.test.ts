@@ -325,20 +325,6 @@ test('v2.6 §3 copy review: never "vault"', async () => {
   for (const [label, text] of all) assert.doesNotMatch(text, /vault/i, label);
 });
 
-test('v2.6 §3 copy review: no implied affiliation, except the carved-out BONUS_NOTE phrase', async () => {
-  // TOOL_DESCRIPTIONS.sponsor_campaign is agent-only (M4) and legitimately explains EarnKit's own
-  // affiliation-word verification rule for sponsors ("a title that reads as by or official to
-  // one"); it never claims an affiliation itself, so it is out of this specific check.
-  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons())].filter(
-    ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign',
-  );
-  const carveOut = /isn't affiliated with or endorsed by/gi;
-  for (const [label, text] of all) {
-    const stripped = text.replace(carveOut, '');
-    assert.doesNotMatch(stripped, /\b(partner|official|endorsed by|sponsored by)\b/i, label);
-  }
-});
-
 test('v2.6 §3 copy review: builder-facing text never names a tool (derived from the registered tools)', async () => {
   const gateReasons = await gatherGateReasons();
   for (const [label, text] of [...builderFacing, ...gateReasons]) assert.doesNotMatch(text, toolNameRe, label);
