@@ -30,6 +30,18 @@ test("the token image keeps its sandbox CSP (config headers replace a route's ow
   assert.match(IMAGE_CSP, /frame-ancestors 'none'/);
 });
 
+test('v2.7 fix round 1 (Finding 4): a program logo file keeps the sandbox CSP too', async () => {
+  const rules = await nextConfig.headers!();
+  const i = rules.findIndex((r) => r.source === '/programs/:file*');
+  assert.ok(
+    i > rules.findIndex((r) => r.source === '/:path*'),
+    'after the global rule',
+  );
+  assert.deepEqual(rules[i].headers, [
+    { key: 'Content-Security-Policy', value: IMAGE_CSP },
+  ]);
+});
+
 test('HSTS in production only (local http is never pinned)', () => {
   const hsts = (production: boolean) =>
     securityHeaders(production).find(

@@ -238,7 +238,7 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
         }),
       ],
     },
-    /<=3/,
+    /past_rounds\.0\.themes:.*<=3/,
   );
   refused(
     {
@@ -253,11 +253,11 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
         }),
       ],
     },
-    /<=2/,
+    /past_rounds\.0\.examples:.*<=2/,
   );
   refused(
     { ...valid, past_rounds: [round({ examples: [] })] },
-    />=1/,
+    /past_rounds\.0\.examples:.*>=1/,
   );
   refused(
     {
@@ -267,7 +267,7 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
         source_url: 'https://example.org/focus',
       },
     },
-    /<=3/,
+    /focus\.areas:.*<=3/,
   );
   refused(
     {
@@ -338,7 +338,113 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
     },
     /Trivial|invalid/i,
   );
-  refused({ ...valid, winners_per_round: 0 }, />0/);
+  refused({ ...valid, winners_per_round: 0 }, /winners_per_round:.*>0/);
+
+  // Fix round 1, Finding 3: best_bet and difficulty_override.basis are ShortText (short, no links).
+  refused(
+    {
+      ...valid,
+      focus: { areas: ['Payments'], source_url: 'https://example.org/focus' },
+      best_bet:
+        'This best bet sentence has way too many words for a short guide string here',
+    },
+    /best_bet:.*1 to 12 words/,
+  );
+  refused(
+    {
+      ...valid,
+      focus: { areas: ['Payments'], source_url: 'https://example.org/focus' },
+      best_bet: 'See https://example.com for the bet',
+    },
+    /best_bet:.*no links/,
+  );
+  refused(
+    {
+      ...valid,
+      difficulty_override: {
+        level: 'Hard',
+        basis: 'This basis sentence has way too many words for a short guide string',
+        source_url: 'https://example.org',
+      },
+    },
+    /difficulty_override\.basis:.*1 to 12 words/,
+  );
+  refused(
+    {
+      ...valid,
+      difficulty_override: {
+        level: 'Hard',
+        basis: 'See https://example.com for the odds',
+        source_url: 'https://example.org',
+      },
+    },
+    /difficulty_override\.basis:.*no links/,
+  );
+
+  // Fix round 1, Finding 7: a round's label and an example's name refuse links too.
+  refused(
+    { ...valid, past_rounds: [round({ label: 'See https://example.com for details' })] },
+    /past_rounds\.0\.label:.*no links/,
+  );
+  refused(
+    {
+      ...valid,
+      past_rounds: [
+        round({
+          examples: [
+            { name: 'See https://x.example', what: 'did a thing', source_url: 'https://e.org/a' },
+          ],
+        }),
+      ],
+    },
+    /past_rounds\.0\.examples\.0\.name:.*no links/,
+  );
+});
+
+// Fix round 1, Finding 1 (Ruling C2): submissions/winners are null (written, not omitted) when
+// the count isn't sourced, borrowed from a different kind of program, or a different metric.
+test('ProgramFile: null submissions/winners/winners_per_round parse', () => {
+  const valid = baseProgram();
+  const parsed = ProgramFile.parse({
+    ...valid,
+    past_rounds: [
+      {
+        label: 'Base Batches 003',
+        source_url: 'https://example.org/winners',
+        submissions: null,
+        winners: null,
+        themes: [{ theme: 'Agentic commerce', count: 2 }],
+      },
+    ],
+    winners_per_round: null,
+  });
+  assert.equal(parsed.past_rounds[0].submissions, null);
+  assert.equal(parsed.past_rounds[0].winners, null);
+  assert.equal(parsed.winners_per_round, null);
+});
+
+// Fix round 1, Finding 2 (Ruling C2): an example with no stated reason omits `why` (never invents one).
+test('ProgramFile: an example with no why parses', () => {
+  const valid = baseProgram();
+  const parsed = ProgramFile.parse({
+    ...valid,
+    past_rounds: [
+      {
+        label: 'Round 1',
+        source_url: 'https://example.org/winners',
+        submissions: 160,
+        winners: 20,
+        examples: [
+          {
+            name: 'PayStream',
+            what: 'streamed salaries in USDC',
+            source_url: 'https://example.org/paystream',
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(parsed.past_rounds[0].examples![0].why, undefined);
 });
 
 test('logoFileProblem: file presence, size, PNG signature, and SVG script/link checks', () => {
@@ -357,6 +463,40 @@ test('logoFileProblem: file presence, size, PNG signature, and SVG script/link c
     assert.match(logoFileProblem('programs/a.svg', Buffer.from(bad))!, /scripts, event handlers or external links/, bad);
   assert.equal(
     logoFileProblem('programs/a.svg', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>')),
+    null,
+  );
+});
+
+// Fix round 1, Finding 6: only the first 4 of 8 PNG signature bytes were checked.
+test('logoFileProblem: a PNG must match all 8 signature bytes, not just the first 4', () => {
+  const fakePng = Buffer.concat([Buffer.from([0x89]), Buffer.from('PNG'), Buffer.from('<svg onload="x()"/>')]);
+  assert.match(logoFileProblem('programs/a.png', fakePng)!, /not a PNG/);
+});
+
+// Fix round 1, Finding 4: every bypass the review found, now caught.
+test('logoFileProblem: catches each review-found bypass', () => {
+  const bypasses: [string, string | Buffer][] = [
+    ['namespace-prefixed <s:script>', '<svg xmlns:s="urn:x"><s:script>alert(1)</s:script></svg>'],
+    [
+      'DOCTYPE internal entity',
+      '<!DOCTYPE svg [<!ENTITY x "<script>alert(1)</script>">]><svg>&x;</svg>',
+    ],
+    ['encoded javascript: href', '<svg><a href="&#106;avascript:alert(1)"/></svg>'],
+    ['<set> targeting href', '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>'],
+    ['protocol-relative href', '<svg><use href="//evil.example/x.svg#a"/></svg>'],
+    ['CSS @import url() in <style>', '<svg><style>@import url(https://evil.example/x.css);</style></svg>'],
+    ['CSS url() in a style attribute', '<svg><rect style="fill:url(https://evil.example/x.png)"/></svg>'],
+    ['namespace-prefixed <s:foreignObject>', '<svg xmlns:s="urn:x"><s:foreignObject/></svg>'],
+    ['XHTML <iframe src=javascript:>', '<svg><iframe src="javascript:alert(1)"></iframe></svg>'],
+    ['UTF-16LE with a BOM', Buffer.from('﻿<svg onload="x()"/>', 'utf16le')],
+  ];
+  for (const [label, src] of bypasses) {
+    const bytes = Buffer.isBuffer(src) ? src : Buffer.from(src);
+    assert.match(logoFileProblem('programs/a.svg', bytes)!, /scripts, event handlers or external links/, label);
+  }
+  // A same-document fragment href is still allowed.
+  assert.equal(
+    logoFileProblem('programs/a.svg', Buffer.from('<svg><use href="#a"/><symbol id="a"/></svg>')),
     null,
   );
 });

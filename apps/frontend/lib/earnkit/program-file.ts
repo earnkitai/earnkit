@@ -81,6 +81,11 @@ export const ShortText = z
 
 const HttpsUrl = z.string().url().startsWith('https://');
 
+/** v2.7 fix round 1 (Finding 7): the same "no links" rule as ShortText, for fields that aren't
+ * word-capped (a round's label, an example's name). */
+const noLinks = <T extends z.ZodString>(schema: T) =>
+  schema.refine((s) => !/https?:\/\/|www\./i.test(s), 'no links');
+
 /** v2.7 §2: a program's own logo, shown on its card and guide page via <img> only. */
 const GuideLogo = z
   .object({ path: z.string().min(1), source_url: HttpsUrl })
@@ -93,20 +98,25 @@ const PastRoundTheme = z
 
 const PastRoundExample = z
   .object({
-    name: z.string().min(1).max(60),
+    name: noLinks(z.string().min(1).max(60)),
     what: ShortText,
-    why: ShortText,
+    /** v2.7 fix round 1 (Finding 2 / Ruling C2): omitted when no judge or organizer stated why. */
+    why: ShortText.optional(),
     source_url: HttpsUrl,
   })
   .strict();
 
-/** v2.7 §2: a published round of winners, newest first (Ruling 2 (plan)). */
+/**
+ * v2.7 §2: a published round of winners, newest first (Ruling 2 (plan)).
+ * v2.7 fix round 1 (Finding 1 / Ruling C2): `submissions`/`winners` are `null` (or left out) when
+ * the count isn't published, or comes from a different kind of program or a different metric.
+ */
 const PastRound = z
   .object({
-    label: z.string().min(1).max(80),
+    label: noLinks(z.string().min(1).max(80)),
     source_url: HttpsUrl,
-    submissions: z.number().int().positive().optional(),
-    winners: z.number().int().positive().optional(),
+    submissions: z.number().int().positive().nullable().optional(),
+    winners: z.number().int().positive().nullable().optional(),
     themes: z.array(PastRoundTheme).min(1).max(3).optional(),
     examples: z.array(PastRoundExample).min(1).max(2).optional(),
   })
@@ -123,15 +133,51 @@ const Focus = z
   .strict();
 export type Focus = z.infer<typeof Focus>;
 
-/** v2.7 Ruling 5 (plan): when set, wins over the computed difficulty and shows as not an estimate. */
+/**
+ * v2.7 Ruling 5 (plan): when set, wins over the computed difficulty and shows as not an estimate.
+ * v2.7 fix round 1 (Finding 3): `basis` is spec §2 "short text" (ShortText), like `best_bet`.
+ */
 const DifficultyOverride = z
   .object({
     level: z.enum(['Easy', 'Medium', 'Hard']),
-    basis: z.string().min(1),
+    basis: ShortText,
     source_url: HttpsUrl,
   })
   .strict();
 export type DifficultyOverride = z.infer<typeof DifficultyOverride>;
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Decode/re-encode round-trip: any byte sequence that isn't valid UTF-8 fails to survive it
+ * (an invalid byte becomes U+FFFD on decode, which re-encodes to different bytes). Catches, e.g.,
+ * a UTF-16 file (its BOM and null bytes aren't valid UTF-8 on their own). */
+function isValidUtf8(bytes: Buffer): boolean {
+  return Buffer.from(bytes.toString('utf8'), 'utf8').equals(bytes);
+}
+
+/**
+ * v2.7 fix round 1 (Finding 4): element names and attributes are matched with an optional
+ * namespace prefix, so a namespace can't smuggle a banned tag or attribute past a plain regex.
+ */
+const SVG_BAD_PATTERNS: RegExp[] = [
+  /<!DOCTYPE|<!ENTITY/i,
+  // Any namespace-prefixed element (e.g. <s:script>, <s:foreignObject>) is refused outright.
+  /<\/?[a-zA-Z][\w-]*:[\w-]+/,
+  // script, foreignObject, iframe, embed, object, set and animate: prefixed or not.
+  /<\/?(?:[\w-]+:)?(?:script|foreignObject|iframe|embed|object|set|animate)\b/i,
+  // Any on* event-handler attribute, prefixed or not (xlink:onerror=, onload=, ...).
+  /\bon[a-zA-Z]+\s*=/i,
+  // CSS that can load or run anything: url(...) or @import, in <style> or a style= attribute.
+  /url\(|@import/i,
+];
+
+/** Every href/xlink:href value in the file; unquoted, single- or double-quoted. */
+function hrefValues(svg: string): string[] {
+  const re = /(?:xlink:)?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  const values: string[] = [];
+  for (const m of svg.matchAll(re)) values.push(m[1] ?? m[2] ?? m[3] ?? '');
+  return values;
+}
 
 /**
  * v2.7 Ruling 23 (plan): why a program logo file can't be served, or null. Logos render only via
@@ -141,11 +187,15 @@ export function logoFileProblem(path: string, bytes: Buffer | null): string | nu
   if (bytes === null) return `logo.path: ${path} not found under apps/frontend/public`;
   if (bytes.length > 200_000) return `logo.path: ${path} is over 200 KB`;
   if (path.endsWith('.png'))
-    return bytes[0] === 0x89 && bytes.toString('latin1', 1, 4) === 'PNG' ? null : `logo.path: ${path} is not a PNG`;
+    return bytes.subarray(0, 8).equals(PNG_SIGNATURE) ? null : `logo.path: ${path} is not a PNG`;
+  const unsafe = `logo.path: ${path} has scripts, event handlers or external links`;
+  if (!isValidUtf8(bytes)) return unsafe;
   const svg = bytes.toString('utf8');
-  return /<script|<foreignObject|\son[a-z]+\s*=|href\s*=\s*["']\s*(?:https?:|javascript:|data:)/i.test(svg)
-    ? `logo.path: ${path} has scripts, event handlers or external links`
-    : null;
+  if (SVG_BAD_PATTERNS.some((p) => p.test(svg))) return unsafe;
+  // Any href/xlink:href must be a same-document fragment (#...); anything else (a relative path,
+  // a protocol-relative //host, a scheme, or a raw/encoded javascript:/data:) is refused.
+  if (hrefValues(svg).some((v) => !v.startsWith('#'))) return unsafe;
+  return null;
 }
 
 /**
@@ -267,12 +317,18 @@ export const ProgramFile = z
     past_rounds: z.array(PastRound).max(5).default([]),
     /** v2.7 §2: up to 3 current focus areas, from the program's tracks or the ecosystem's priorities. */
     focus: Focus.optional(),
-    /** v2.7 Ruling 8 (plan): EarnKit's curated advice, never generated; must follow from past_rounds/focus. */
-    best_bet: z.string().min(1).optional(),
+    /**
+     * v2.7 Ruling 8 (plan): EarnKit's curated advice, never generated; must follow from
+     * past_rounds/focus. v2.7 fix round 1 (Finding 3): spec §2 "short text" (ShortText).
+     */
+    best_bet: ShortText.optional(),
     /** v2.7 Ruling 5 (plan): set only when the organizer publishes odds another way. */
     difficulty_override: DifficultyOverride.nullable().default(null),
-    /** v2.7 Ruling 6 (plan): set only when source_url states how many winners a round has. */
-    winners_per_round: z.number().int().positive().optional(),
+    /**
+     * v2.7 Ruling 6 (plan): set only when source_url states how many winners a round has.
+     * Nullable (fix round 1, Finding 1): the DB column already returns null.
+     */
+    winners_per_round: z.number().int().positive().nullable().optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -341,18 +397,16 @@ export const ProgramFile = z
       issue('starts_at must be before ends_at');
     }
 
-    // v2.7 §2: program guide facts (logo, past_rounds, focus, best_bet).
+    // v2.7 §2: program guide facts (logo, past_rounds, focus, best_bet). Fix round 1 (Finding 1):
+    // submissions/winners are nullable, so every guard here checks `!= null`, not `!== undefined`.
     for (const r of p.past_rounds) {
-      if (
-        r.submissions !== undefined &&
-        r.winners !== undefined &&
-        r.submissions < r.winners
-      )
+      if (r.submissions != null && r.winners != null && r.submissions < r.winners)
         issue('submissions must be at least winners');
-      if (r.themes && r.winners !== undefined) {
+      if (r.themes && r.winners != null) {
+        const winners = r.winners;
         const over =
-          r.themes.some((t) => t.count > r.winners!) ||
-          r.themes.reduce((sum, t) => sum + t.count, 0) > r.winners;
+          r.themes.some((t) => t.count > winners) ||
+          r.themes.reduce((sum, t) => sum + t.count, 0) > winners;
         if (over) issue("theme counts can't exceed the round's winners");
       }
     }

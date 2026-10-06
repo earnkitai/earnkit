@@ -62,19 +62,28 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
         ecosystem's prior hackathon, season, or cohort, if this program has no past round of
         its own yet) — never attribute it to this program.
       - Never use counts from a different kind of program (for example, an accelerator's counts
-        for a grants program) for the odds. Leave those counts null instead.
-      - Omit anything you can't source. Never invent a count, a theme, or a "why".
-   2. Record only what a source states: `past_rounds` (newest first, at most 5), `submissions`
-      and `winners` as published. Themes: at most 3, counted only from winners you can list by
-      name on the source. Examples: 1–2, with what they did and why they won as judges or
-      organizers said, each with its own `source_url`.
+        for a grants program) for the odds: write `submissions`/`winners` as `null` instead of
+        borrowing them.
+      - `submissions` counts entries submitted to that round only — never registrations,
+        projects deployed, or applicants to a different stage (e.g. Monad's "101 projects
+        deployed" is not a submissions count). Write `null` when the only published number is a
+        different metric.
+      - One rule for unknown counts: when `submissions` or `winners` isn't sourced (unpublished,
+        borrowed from elsewhere, or a different metric), write it as `null`. Don't omit the key —
+        a `null` says "checked, not stated"; a missing key just looks unfinished.
+      - Omit anything else you can't source (`why`, `themes`, `examples`, `focus`, `logo`,
+        `winners_per_round`, the whole round). Never invent a count, a theme, or a "why".
+   2. Record only what a source states: `past_rounds` (newest first, at most 5); `submissions`
+      and `winners` as published, or `null` per the rule above. Themes: at most 3, counted only
+      from winners you can list by name on the source. Examples: 1–2, with `what` they did; `why`
+      only when a judge or organizer stated a reason — omit it otherwise, never invent one. Every
+      example carries its own `source_url`.
    3. `focus`: up to 3 areas from the program's current tracks or the ecosystem's published
       priorities, plus `source_url` and optionally `ecosystem`.
    4. `best_bet`: one line combining themes and focus, never a new fact. It needs at least one of
       `past_rounds` or `focus` to draw from (`pnpm programs:check` enforces this).
    5. `difficulty_override` only when the organizer publishes odds another way than a past
       round's winners ÷ submissions.
-   6. Never invent a count. Leave a field out when you can't source it.
 5. Do not add starters. The owner decides those.
 6. Run `pnpm programs:check`, then push.
 
