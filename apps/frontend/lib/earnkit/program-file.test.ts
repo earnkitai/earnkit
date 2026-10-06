@@ -182,6 +182,7 @@ test('ProgramFile: a full guide parses', () => {
       {
         label: 'Arc Microgrants 2026 Q2',
         source_url: 'https://example.org/winners',
+        own: true,
         submissions: 160,
         winners: 20,
         themes: [{ theme: 'USDC payroll and payouts', count: 3 }],
@@ -224,6 +225,9 @@ test('ProgramFile: refuses invalid guide facts, with a message naming the rule',
     { ...valid, past_rounds: [round({ winners: 30, submissions: 20 })] },
     /submissions must be at least winners/,
   );
+  // Ruling C4: `own` is a boolean when stated; left out, the round is a predecessor event.
+  refused({ ...valid, past_rounds: [round({ own: 'yes' })] }, /past_rounds\.0\.own/);
+  assert.equal(ProgramFile.parse({ ...valid, past_rounds: [round()] }).past_rounds[0].own, undefined);
   refused(
     {
       ...valid,

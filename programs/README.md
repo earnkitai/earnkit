@@ -61,6 +61,9 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
       - Predecessor rounds are allowed when the label names the real event (e.g. the
         ecosystem's prior hackathon, season, or cohort, if this program has no past round of
         its own yet) — never attribute it to this program.
+      - Set `"own": true` only on a round of this program itself. Leave it out for a predecessor
+        event (the default): the guide then names the event ("in <label>", "What won before")
+        instead of saying "last round", so write the label to read well after "in ".
       - Never use counts from a different kind of program (for example, an accelerator's counts
         for a grants program) for the odds: write `submissions`/`winners` as `null` instead of
         borrowing them.
@@ -132,6 +135,7 @@ track, and each names its `track` slug. Without tracks: at most 2.
     {
       "label": "Example Builder Program 2026 Q2",
       "source_url": "https://example.com/winners",
+      "own": true,
       "submissions": 80,
       "winners": 10,
       "themes": [{ "theme": "Onchain payments tooling", "count": 3 }],

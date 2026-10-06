@@ -115,6 +115,11 @@ const PastRound = z
   .object({
     label: noLinks(z.string().min(1).max(80)),
     source_url: HttpsUrl,
+    /**
+     * v2.7 Ruling C4: true only when this round is the program's own past round. Left out (or
+     * false) means a predecessor event (Ruling C2): the guide names it and never says "last round".
+     */
+    own: z.boolean().optional(),
     submissions: z.number().int().positive().nullable().optional(),
     winners: z.number().int().positive().nullable().optional(),
     themes: z.array(PastRoundTheme).min(1).max(3).optional(),
