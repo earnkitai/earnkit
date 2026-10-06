@@ -606,7 +606,12 @@ async function scenario(mock: Mock) {
 
   // ---- v2.6 4. Delta's coin earns fees: booked to the program's month round, not the Safe ----
   const safe2Before = await bal(SAFE);
-  await setTime((Number((await pc.getBlock()).timestamp) - t0) / 3600 + 1);
+  // Fix round 1 (review M3): never deposit in the month's last 2 h, so the scoring run and the
+  // board below always fit inside the round (else start an hour into the next month).
+  let at = new Date((Number((await pc.getBlock()).timestamp) + 3600) * 1000);
+  const monthEnd = roundFor({ id: PROG2, starts_at: null, ends_at: null }, at)!.ends;
+  if (monthEnd.getTime() - at.getTime() < 2 * 3_600_000) at = new Date(monthEnd.getTime() + 3_600_000);
+  await setTime((at.getTime() / 1000 - t0) / 3600);
   await call(locker, 'accrue', [BUILDERS2.delta.coin, 1n * E18]);
   await call(locker, 'collectRewards', [BUILDERS2.delta.coin]);
   const depositAt = await chainNow();
@@ -624,21 +629,19 @@ async function scenario(mock: Mock) {
   const [booked] = await sql()<{ round_key: string; destination: string; amount_wei: string }[]>`
     SELECT round_key, destination, amount_wei::text FROM bonus_ledger WHERE coin = ${BUILDERS2.delta.coin}`;
   assert.deepEqual(booked, { round_key: ROUND2, destination: 'round', amount_wei: POOL2.toString() });
-  // Scoring, once the round has its row (unless the deposit came in the month's last hour).
-  const scoreAt = Math.min(depositAt.getTime() + 3_600_000, r2.ends.getTime() - 60_000);
-  if (scoreAt > (await chainNow()).getTime()) {
-    await setTime((scoreAt / 1000 - t0) / 3600);
-    await mineDeep();
-    const c2 = await cron(await chainNow(), scope2);
-    assert.equal(c2.status, 200, JSON.stringify(c2.body));
-    assert.deepEqual(c2.body.bonus_scoring, [{ round: ROUND2, ranked: 1 }], 'only Delta: Echo unconfirmed, Foxtrot a test entry');
-    const board = (await bonusBoard(ROUND2, await chainNow()))!;
-    assert.equal(board.state, 'open');
-    const byName = new Map(board.rows.map((r) => [r.name, r]));
-    assert.deepEqual([byName.get('delta app')!.rank, byName.get('delta app')!.note], [1, 'Yes']);
-    assert.deepEqual([byName.get('echo app')!.rank, byName.get('echo app')!.note], [null, 'No: submission not confirmed yet']);
-    assert.deepEqual([byName.get('foxtrot app')!.rank, byName.get('foxtrot app')!.note], [null, 'Test entry: not ranked']);
-  }
+  assert.ok(r2.ends.getTime() - depositAt.getTime() > 3_600_000, 'the deposit leaves room to score before the end');
+  // Scoring, once the round has its row: an hour after the deposit, still inside the round.
+  await setTime((depositAt.getTime() / 1000 + 3600 - t0) / 3600);
+  await mineDeep();
+  const c2 = await cron(await chainNow(), scope2);
+  assert.equal(c2.status, 200, JSON.stringify(c2.body));
+  assert.deepEqual(c2.body.bonus_scoring, [{ round: ROUND2, ranked: 1 }], 'only Delta: Echo unconfirmed, Foxtrot a test entry');
+  const board = (await bonusBoard(ROUND2, await chainNow()))!;
+  assert.equal(board.state, 'open');
+  const byName = new Map(board.rows.map((r) => [r.name, r]));
+  assert.deepEqual([byName.get('delta app')!.rank, byName.get('delta app')!.note], [1, 'Yes']);
+  assert.deepEqual([byName.get('echo app')!.rank, byName.get('echo app')!.note], [null, 'No: submission not confirmed yet']);
+  assert.deepEqual([byName.get('foxtrot app')!.rank, byName.get('foxtrot app')!.note], [null, 'Test entry: not ranked']);
 
   // ---- v2.6 5. The month ends: final reads, the freeze, the review, the payout ----
   await setTime((r2.ends.getTime() / 1000 - t0) / 3600 + 1);
@@ -671,6 +674,9 @@ async function scenario(mock: Mock) {
   assert.equal((await bal(SAFE)) - safe2Before, (3n * E18) / 10n, "the Safe gets its 30% of the fees only: no bonus money");
 
   // ---- v2.6 6. Echo confirms late: the same entry is updated (Ruling 23) ----
+  // "Late" in chain time only: the database's now() (submission_proof_ok_at) follows the wall clock,
+  // which is behind the advanced anvil clock, so this says nothing about eligibility for ROUND2;
+  // the frozen round's payouts are what must not change.
   const projectsBefore = (await rows(PROG2)).size;
   const deploysNow = mock.deploys.length;
   const late = await submit2('echo', true);
@@ -681,6 +687,7 @@ async function scenario(mock: Mock) {
   p2 = await rows(PROG2);
   assert.equal(p2.size, projectsBefore, 'no second entry');
   assert.equal(p2.get(ids2.echo)!.submission_basis, 'confirmed');
+  assert.ok(p2.get(ids2.echo)!.submission_proof_ok_at, 'counts from now on');
   assert.deepEqual(
     (await sql()<{ project_id: number }[]>`SELECT project_id FROM bonus_payouts WHERE round_key = ${ROUND2}`).map((r) => r.project_id),
     [ids2.delta],
