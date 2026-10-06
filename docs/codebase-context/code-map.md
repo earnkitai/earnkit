@@ -24,8 +24,16 @@ programs/                      program files (+ README: how Claude Code adds pro
 .github/workflows/earnkit-cron.yml  v2.4: hourly (:15) POST https://earnkit.com/api/cron with the
                                CRON_SECRET repo secret (also workflow_dispatch)
 apps/frontend/
-  app/page.tsx                 home: hero, investors, footer
-  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (opened from the hero)
+  app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
+  app/HomeView.tsx             v2.7 §1: the pure home render (hero with "$X open right now", ProgramCards
+                               (6, "See all" → /programs), StatsStrip, HowItWorks, BackedBy, Footer);
+                               landing null (failed read) → hero only, no cards/strip (Ruling 21)
+  app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
+                               [landing], await connection() (never prerendered), null
+  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, and each card's
+                               "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT
+  app/components/sections/{ProgramCards,ProgramLogo,StatsStrip,HowItWorks}.tsx  v2.7 §1 landing sections;
+                               ProgramLogo: local <img> or the Ruling 1 monogram
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -464,6 +472,10 @@ apps/frontend/
                                BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
+    landing.ts(+test)          v2.7 §1: landingFrom (pure: curated cards by prize → Tile JSON, open_usd =
+                               openMoneyUsd, statItems: Open money / Agents earning ≥100 / Builder
+                               bonus paid > pools > programs) and readLanding (listPrograms,
+                               roundPoolsWei, readStats; rejects when the DB is unreachable)
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with

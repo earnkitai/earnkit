@@ -15,6 +15,7 @@ export const STATS_KEYS = [
   'coins_launched',
   'fees_to_safe_eth',
   'bonus_paid_eth',
+  'bonus_pools_eth',
   'installs',
 ] as const;
 
@@ -31,6 +32,7 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   coins_launched: 'tokens launched',
   fees_to_safe_eth: 'fees to the Safe (v2.5 tokens)',
   bonus_paid_eth: 'builder bonus paid (ETH)',
+  bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',
 };
 
@@ -45,6 +47,7 @@ type Row = {
   bonus_deposits_wei: string | null;
   bonus_to_safe_wei: string | null;
   bonus_paid_wei: string | null;
+  bonus_pools_wei: string | null;
   installs: number;
 };
 
@@ -69,6 +72,7 @@ export function statsFrom(r: Row): PublicStats {
     coins_launched: Number(r.coins_launched),
     fees_to_safe_eth: weiToEth(safeWei),
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),
+    bonus_pools_eth: weiToEth(big(r.bonus_pools_wei)),
     installs: Number(r.installs),
   };
 }
@@ -78,7 +82,8 @@ export function statsFrom(r: Row): PublicStats {
  * program, never whole pools, the same $X rule as list_programs. Open: active, started, not ended.
  * `bonus_programs_open` (Ruling 16 (plan)): of those, the ones with the builder bonus on
  * (bonusOn's SQL twin: `builder_bonus AND campaign IS NULL`, status already 'active' here).
- * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. v2.6 Ruling 6/16
+ * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. Bonus pools (v2.7
+ * Ruling 20 (plan)): every open round's bookings (`destination = 'round'`); a frozen round's don't count. v2.6 Ruling 6/16
  * (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS) counts in none of `installs`,
  * `coins_launched` or the bonus deposits behind `fees_to_safe_eth` — its coin and fees are real,
  * but it never shows in public stats. `db` defaults to the pool; a test that needs two reads to
@@ -111,6 +116,9 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects
           WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_to_safe_wei,
       (SELECT sum(amount_wei) FROM bonus_payouts WHERE status = 'paid')::text AS bonus_paid_wei,
+      (SELECT sum(l.amount_wei) FROM bonus_ledger l
+        WHERE l.destination = 'round'
+          AND l.round_key IN (SELECT round_key FROM bonus_rounds WHERE state = 'open'))::text AS bonus_pools_wei,
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs`;
   return statsFrom(r);
 }

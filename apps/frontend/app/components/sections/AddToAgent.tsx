@@ -78,8 +78,14 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** The install path: the EarnKit link plus short steps for each agent. */
-export default function AddToAgent({ onClose }: { onClose: () => void }) {
+/** v2.7: the starting phrase, everywhere (spec Decisions). */
+export const START_PROMPT = 'What can I earn?';
+
+/**
+ * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
+ * starting phrase, or a program's own ("What can I earn on Arc Microgrants?") from its card.
+ */
+export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
   const [active, setActive] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
@@ -202,7 +208,7 @@ export default function AddToAgent({ onClose }: { onClose: () => void }) {
         <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">
           Then ask your agent:{' '}
           <span className="text-ek-blue-bright">
-            &ldquo;Anything worth building?&rdquo;
+            &ldquo;{prompt}&rdquo;
           </span>
         </p>
       </div>

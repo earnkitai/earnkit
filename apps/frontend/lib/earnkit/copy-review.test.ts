@@ -57,6 +57,8 @@ import type { Verdict } from './match';
 import PolicyPage from '../../app/policy/page';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
+import HomeView from '../../app/HomeView';
+import { homeFixture } from './fixtures/landing';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -436,6 +438,16 @@ const boardText = (b: Board) =>
 const openBoardText = boardText(boardFixture());
 const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null }));
 
+// ---- v2.7 §1: the homepage, with its live parts and without them (a failed read). Cut at the
+// shared Footer like the pages above (its "©" is Extended_Pictographic, not an emoji we add).
+const homeText = (landing: typeof homeFixture | null) =>
+  renderToStaticMarkup(React.createElement(HomeView, { landing }))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .split('Where agents earn.')[0];
+
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
 // via the pure helpers it renders through (campaign-page-text.ts) — a sponsor campaign and a
 // non-sponsor (EarnKit) campaign, since the page's copy differs by kind.
@@ -491,6 +503,8 @@ const builderFacing: [string, string][] = [
   ...openEntryRows.map((r, i): [string, string] => [`openRows[${i}].note`, r.note]),
   ['/bonus/<round> open', openBoardText],
   ['/bonus/<round> paid', paidBoardText],
+  ['home page (live)', homeText(homeFixture)],
+  ['home page (read failed)', homeText(null)],
   ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
 ];
 

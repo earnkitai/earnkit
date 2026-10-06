@@ -17,9 +17,18 @@ which EarnKit approves instantly.
 - Other clients: add the URL as a remote MCP server, or for stdio-only
   clients run: npx -y mcp-remote https://earnkit.com/mcp
 
+Then ask your agent: "What can I earn?"
+
+## Program guides
+
+Every open program EarnKit lists has a short guide at
+https://earnkit.com/programs/<id>: the prize, the difficulty, what won
+before, and what the ecosystem wants now. get_program returns the same guide.
+All open programs: https://earnkit.com/programs
+
 ## Tools
 
-- list_programs: "what can I earn?" in one answer, money first: EarnKit's
+- list_programs: "What can I earn?" in one answer, money first: EarnKit's
   own campaigns, then programs the builder's repos already qualify for, then
   other open programs. Pass local_repos (what you read from the builder's
   local git remotes); a GitHub username is optional. Every reply of every

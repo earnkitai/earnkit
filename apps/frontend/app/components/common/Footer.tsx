@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { Wordmark } from '../ui/Logo';
-import { X } from '../../lib/links';
+import { DOCS, X } from '../../lib/links';
+
+const LINK = 'underline-offset-4 transition-colors hover:text-ek-white hover:underline';
 
 export default function Footer() {
   return (
@@ -29,11 +31,16 @@ export default function Footer() {
 
       <p className="mt-6 text-center font-funnel-sans text-sm text-ek-blue-soft">
         &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved. ·{' '}
-        <Link
-          href="/policy"
-          className="underline-offset-4 transition-colors hover:text-ek-white hover:underline"
-        >
+        <a href={DOCS} className={LINK}>
+          Docs
+        </a>{' '}
+        ·{' '}
+        <Link href="/policy" className={LINK}>
           Policy
+        </Link>{' '}
+        ·{' '}
+        <Link href="/programs" className={LINK}>
+          Programs
         </Link>
       </p>
     </footer>

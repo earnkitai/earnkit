@@ -1,0 +1,125 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readLanding } from './landing';
+import type { Card } from './present';
+import type { PublicStats } from './stats';
+
+const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
+  open_money_usd: 0,
+  programs_open: 5,
+  bonus_programs_open: 4,
+  coins_launched: 0,
+  fees_to_safe_eth: 0,
+  bonus_paid_eth: 0,
+  bonus_pools_eth: 0,
+  installs: 12,
+  ...o,
+});
+const now = new Date('2026-10-06T12:00:00Z');
+const medium = { level: 'Medium' as const, estimate: true, basis: 'no past results yet' };
+
+const arc: Card = {
+  id: 'arc-microgrants',
+  title: 'Arc Microgrants',
+  summary: '500 USDC × 20 grants · closes Oct 14, 11:59 PM ET',
+  tag: null,
+  each_time: [],
+  ends_at: new Date('2026-10-15T03:59:00Z'),
+  max_award_usd: 500,
+  builder_bonus: true,
+  difficulty: medium,
+  logo: 'programs/arc-microgrants.svg',
+  chains: ['arc'],
+};
+const base: Card = {
+  id: 'base-builder-grants',
+  title: 'Base Builder Grant Program',
+  summary: 'up to $5,000 · rolling',
+  tag: 'needs a live product',
+  each_time: [],
+  ends_at: null,
+  max_award_usd: 5000,
+  builder_bonus: true,
+  difficulty: { level: 'Hard', estimate: false, basis: '20 of ~160 entries won last round' },
+  logo: null,
+  chains: ['base'],
+};
+const monad: Card = {
+  id: 'monad-metropolis',
+  title: 'Monad Metropolis',
+  summary: '$25,000 top prize · closes Oct 20',
+  tag: null,
+  each_time: [],
+  ends_at: new Date('2026-10-20T23:59:00Z'),
+  max_award_usd: 25000,
+  builder_bonus: false,
+  difficulty: null,
+  logo: null,
+  chains: ['monad', 'base', 'robinhood'],
+};
+const sponsored: Card = { ...arc, id: 'acme-campaign', title: 'Acme', max_award_usd: 90000, sponsored: true, builder_bonus: false };
+const campaign: Card = { ...arc, id: 'earnkit-campaign-1-base', title: 'EarnKit Campaign #1', max_award_usd: 80000, earnkit_campaign: true, builder_bonus: false };
+
+test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review Focus 2)', () => {
+  const l = landingFrom([monad, arc, sponsored, campaign, base], new Map([['arc-microgrants', 42n * 10n ** 16n]]), stats(), now);
+  assert.deepEqual(l.tiles.map((t) => t.id), ['monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
+  assert.equal(l.open_usd, 30500);
+  const arcTile = l.tiles.find((t) => t.id === 'arc-microgrants')!;
+  assert.equal(arcTile.bonus, '0.42 ETH so far');
+  assert.equal(arcTile.ends, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
+  assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
+});
+
+test('v2.7 §1: each tile field', () => {
+  const l = landingFrom([monad, arc, base], new Map([['base-builder-grants', null]]), stats(), now);
+  const [m, b, a] = l.tiles;
+  assert.deepEqual(m, {
+    id: 'monad-metropolis',
+    title: 'Monad Metropolis',
+    chain: 'Monad · Base · Robinhood Chain',
+    prize: '$25,000 top prize',
+    difficulty: '—',
+    ends: '14 days left',
+    bonus: null, // opted out
+    logo: null,
+  });
+  assert.equal(b.ends, 'rolling');
+  assert.equal(b.difficulty, 'Hard');
+  assert.equal(b.bonus, null); // its round froze (I2)
+  assert.equal(a.difficulty, 'Medium (estimate)');
+  assert.equal(a.bonus, 'new pool'); // no pool read yet
+  assert.equal(a.logo, '/programs/arc-microgrants.svg');
+  assert.equal(a.prize, '500 USDC × 20 grants');
+  assert.equal(HOME_CARDS, 6);
+});
+
+test('Ruling 20 (plan): installs hidden under 100; bonus paid > pools > programs', () => {
+  const label = (s: PublicStats) => landingFrom([arc], new Map(), s, now).stats.map((i) => `${i.label}: ${i.value}`);
+  assert.equal(INSTALLS_SHOWN_FROM, 100);
+  assert.deepEqual(label(stats({ installs: 99 })).filter((s) => s.startsWith('Agents earning')), []);
+  assert.ok(label(stats({ installs: 100 })).includes('Agents earning: 100'));
+  assert.ok(label(stats({ installs: 1234 })).includes('Agents earning: 1,234'));
+  assert.ok(label(stats({ bonus_paid_eth: 0.5, bonus_pools_eth: 2 })).includes('Builder bonus: 0.50 ETH paid'));
+  assert.ok(label(stats({ bonus_pools_eth: 0.6 })).includes('Builder bonus: 0.60 ETH so far'));
+  assert.ok(label(stats({ bonus_pools_eth: 0.004 })).includes('Builder bonus: under 0.01 ETH so far'));
+  assert.ok(label(stats()).includes('Builder bonus: on 4 programs'));
+  assert.equal(label(stats())[0], 'Open money: $500');
+});
+
+test('Review Focus 1: an unreachable database rejects; never empty data that would read "$0 open"', async () => {
+  const g = globalThis as { earnkitSql?: { end: (o?: object) => Promise<void> } };
+  const prevUrl = process.env.DATABASE_URL;
+  const prevPool = g.earnkitSql;
+  process.env.DATABASE_URL = 'postgres://nobody@127.0.0.1:1/none?connect_timeout=2';
+  delete g.earnkitSql;
+  try {
+    await assert.rejects(readLanding(now));
+  } finally {
+    const opened = Reflect.get(g, 'earnkitSql') as typeof prevPool; // the pool readLanding opened
+    await opened?.end({ timeout: 0 });
+    if (prevUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevUrl;
+    if (prevPool) g.earnkitSql = prevPool;
+    else delete g.earnkitSql;
+  }
+});
