@@ -176,9 +176,10 @@ const [guide] = await db<{
   best_bet: string | null;
   difficulty_override: unknown;
   winners_per_round: number | null;
+  pool_usd: string | null;
   builder_bonus: boolean;
 }[]>`
-  SELECT past_rounds, logo, focus, best_bet, difficulty_override, winners_per_round, builder_bonus
+  SELECT past_rounds, logo, focus, best_bet, difficulty_override, winners_per_round, pool_usd, builder_bonus
   FROM programs WHERE id = 'old-active'`;
 ok(JSON.stringify(guide.past_rounds) === '[]', "an existing program's past_rounds defaults to []");
 ok(
@@ -190,6 +191,8 @@ ok(
   'an existing program gets NULL logo, focus, best_bet, difficulty_override and winners_per_round',
 );
 ok(guide.builder_bonus === true, 'builder_bonus is still true after the v2.7 migration');
+// v2.7.1: pool_usd is additive; an existing program has none until programs:sync writes its file's.
+ok(guide.pool_usd === null, "an existing program's pool_usd is NULL");
 
 // v2.6 §4 (fix round 1): a real migration check for submission_proof_ok_at, not a round-trip. The
 // checks above run after `now` has already added builder_bonus/submission_basis (lines 49-50), so

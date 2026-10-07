@@ -70,8 +70,8 @@ function Sources({ sources }: { sources: GuideSource[] }) {
 /**
  * v2.7 §2, Ruling 22 (plan): one curated program's guide (/programs/<id>). Pure: the header (logo,
  * title, prize and end, difficulty with its basis), then one panel per guide part that has data
- * (what won, what the ecosystem wants, the best bet), then the builder bonus, "Ask your agent"
- * (not on a closed program), the sources and the footer. Same text as get_program (guide.ts).
+ * (what won, what the ecosystem wants, the best bet), then "Ask your agent" (not on a closed
+ * program), the sources and the footer. v2.7.1: the builder bonus is a pill beside Difficulty. Same text as get_program (guide.ts).
  */
 export default function GuideView({ page }: { page: GuidePage }) {
   const g = page.guide;
@@ -88,12 +88,23 @@ export default function GuideView({ page }: { page: GuidePage }) {
             </h1>
           </div>
           <p className="mt-6 font-funnel-display text-xl font-medium text-ek-blue-light md:text-3xl">{facts}</p>
-          <dl className="mt-3 font-funnel-sans text-base text-ek-blue-soft md:text-lg">
-            <dt className="inline">Difficulty:</dt>{' '}
-            <dd className="inline">
-              <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}</span> — {g.difficulty.basis}
-            </dd>
-          </dl>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+            <dl className="font-funnel-sans text-base text-ek-blue-soft md:text-lg">
+              <dt className="inline">Difficulty:</dt>{' '}
+              <dd className="inline">
+                <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}</span> — {g.difficulty.basis}
+              </dd>
+            </dl>
+            {/* v2.7.1: the builder bonus as a pill beside Difficulty, linking to the leaderboard. */}
+            {page.bonus_pill && page.board_path && (
+              <Link
+                href={page.board_path}
+                className="inline-flex min-h-11 items-center rounded-full border border-ek-blue-bright/60 px-4 font-funnel-sans text-sm font-medium text-ek-blue-bright transition-colors hover:border-ek-blue-light hover:text-white md:text-base"
+              >
+                {page.bonus_pill}
+              </Link>
+            )}
+          </div>
           {/* Fix round 1: the next step above the fold on mobile; the action row below repeats it. */}
           {page.open && (
             <div className="mt-8">
@@ -144,17 +155,6 @@ export default function GuideView({ page }: { page: GuidePage }) {
         )}
 
         <Panel className="py-8 md:py-10">
-          {g.bonus && page.board_path && (
-            <p className="mb-6 font-funnel-sans text-base text-ek-blue-light md:text-lg">
-              <Link href="/policy#the-builder-bonus" className={LINK}>
-                Builder bonus
-              </Link>
-              : <span className="font-medium text-ek-white">{g.bonus.cell}</span> ·{' '}
-              <Link href={page.board_path} className={LINK}>
-                leaderboard
-              </Link>
-            </p>
-          )}
           <div className="flex flex-col gap-3 sm:flex-row">
             {page.open && <AskAgent prompt={askPrompt(page.title)} />}
             <Link href="/programs" className={SECONDARY}>

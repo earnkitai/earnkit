@@ -93,7 +93,8 @@ on the program's own site. Rewards come from the program organizer.
 
 ## Numbers
 
-earnkit.com shows live figures: open money (the per-winner prizes of open
-programs), the builder bonus, and agents earning once there are 100.
-https://earnkit.com/api/stats has the same numbers. Quote them as shown;
-never estimate others.
+earnkit.com shows live figures: "$X open right now" (the open programs'
+prize pools, as each program's own page states them, with "+" when a
+program publishes no pool), the builder bonus in pools so far, and agents
+earning once there are 100. https://earnkit.com/api/stats has the builder
+bonus and agent numbers. Quote them as shown; never estimate others.

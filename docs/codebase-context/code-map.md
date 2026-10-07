@@ -30,29 +30,39 @@ apps/frontend/
   public/llms.txt              agent-readable summary: install, "What can I earn?", program guides
                                (earnkit.com/programs/<id>), the tools, live numbers (C9)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v2.7 §1: the pure home render (hero with "$X open right now", ProgramCards
-                               (6, "See all" → /programs), StatsStrip, HowItWorks, BackedBy, Footer);
-                               landing null (failed read) → hero only, no cards/strip (Ruling 21)
+  app/HomeView.tsx             v2.7 §1, v2.7.1: the pure home render (hero with "$1.3M+ open right now"
+                               (landing.open_text) and stats_line, ProgramCards (6, "See all" → /programs),
+                               BuilderBonus, HowItWorks, BackedBy, Footer); landing null (failed read) →
+                               hero without figure, no cards, bonus section without amount (Ruling 21)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'], else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
   app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards
-                               (no limit, heading h1); getLanding() null → "Programs are unavailable…"
+                               (no limit, heading h1, v2.7.1 figure = landing.open_text, the landing's pool
+                               total); getLanding() null → "Programs are unavailable…"
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
-  app/programs/[id]/GuideView.tsx  pure guide render (header, Difficulty, one Panel per part, builder
-                               bonus + leaderboard, AskAgent (open programs only), All programs,
+  app/programs/[id]/GuideView.tsx  pure guide render (header, Difficulty with the v2.7.1 builder bonus
+                               pill (page.bonus_pill → the leaderboard), one Panel per part, AskAgent (open programs only), All programs,
                                Sources via shownUrl, Footer); exports askPrompt and Unavailable
   app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, and each card's
-                               "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT
-  app/components/sections/{ProgramCards,ProgramLogo,StatsStrip,HowItWorks}.tsx  v2.7 §1 landing sections;
+                               "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT;
+                               v2.7.1 BONUS_ENTRY_PILL "+ Builder bonus on every entry" under the steps
+  app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
-                               ProgramCards shows 3 cards below sm, then "See all programs"
+                               ProgramCards shows 3 cards below sm, then "See all programs"; v2.7.1: no
+                               eyebrow on the home, BONUS_LINE under the title, big line + "up to $X per
+                               winner", chips (ends, difficulty, bonus pill), optional `figure` (/programs);
+                               HowItWorks exports STEPS. StatsStrip.tsx is gone (v2.7.1)
+  app/components/sections/BuilderBonus.tsx  v2.7.1: #builder-bonus "Win twice.": BONUS_PILLS (Top 10 /
+                               Paid in ETH / Ranked on real users), landing.bonus_pools or BONUS_EMPTY
+                               "Starts with the first entry", "Leaderboards" → /programs
   app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
-                               Header keeps "Follow on X" on desktop only
+                               v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
+                               "Follow on X" is in the Footer only
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -128,6 +138,7 @@ apps/frontend/
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
     program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
+                               v2.7.1 optional pool_usd (must be stated in reward, never on a campaign),
                                token_policy encouraged|allowed|off, default encouraged; tokenPolicyLine);
                                v2.6 §4: builder_bonus (default true; false opts out); Ruling 8 (plan):
                                a windowed program with the bonus on (not opted out, not a campaign)
@@ -137,7 +148,8 @@ apps/frontend/
                                best_bet (ShortText, only with past_rounds or focus, Ruling 8), difficulty_override
                                (DifficultyOverride, Ruling 5), winners_per_round (Ruling 6); requirements' `todo` (C5) and
                                requiredWithoutTodo (programs:check refuses a required item without one)
-    programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); build_help
+    programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
+                               poolFacts (card pool_usd/pool_plus/pool_line); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
                                escrow note, no verified_at), perWinnerUsd (tie-break amount); programCard/
@@ -303,9 +315,9 @@ apps/frontend/
                                builder bonus), guideText (the agent's text), guideSources/guideSourceList, wonHeading;
                                final review M3: wonLines drops "of N" when a round's themes_of is below its winners
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
-                               open money you qualify for" (openMoneyUsd: per-winner prizes of
+                               top prizes you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
-                               repos, else "$X is open right now" (youCould/githubGiven, Ruling 11;
+                               repos, else "$X in top prizes is open right now" (youCould/githubGiven, Ruling 11;
                                that table's "Prize" column becomes "You could win") with a Difficulty
                                column (difficultyCell: guide.ts difficultyLabel, or "—" with none;
                                Ruling 25: a repo whose coin is entered in another program, repoCoins,
@@ -473,7 +485,9 @@ apps/frontend/
                                joined alert sentence (no emojis, "vault", implied affiliation, tool names or file-edit
                                asks; one colon); v2.7: coinWords (Ruling 19: "coin" banned in human-facing text,
                                identifiers/URLs/stablecoin exempt) over builder, agent (SERVER_INSTRUCTIONS, descriptions,
-                               notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18)
+                               notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18);
+                               v2.7.1: v271Texts (header, install modal, /programs figure, pills, steps,
+                               statsLine, poolLine, bonusClose forms)
     v27-journey.test.ts        v2.7 DB-gated journey in its own throwaway database (schema.sql, dropped
                                after): real programs/*.json, "What can I earn?" (Difficulty, the bonus close with stubbed
                                pools), get_program's guide, prepare_submission not ready ("Before you submit:", no token)
@@ -539,14 +553,18 @@ apps/frontend/
                                BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
-    landing.ts(+test)          v2.7 §1: landingFrom (pure: curated cards by prize → Tile JSON; Ruling C8:
-                               prize = "up to $X per winner" from max_award_usd, the curated text as
-                               prize_note, so the cards add up to open_usd =
-                               openMoneyUsd, statItems: Open money / Agents earning ≥100 / Builder
-                               bonus paid > pools > programs) and readLanding (listPrograms,
-                               roundPoolsWei, readStats; rejects when the DB is unreachable);
+    landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
+                               prize = pool_line, else "up to $X per winner", else the curated text;
+                               prize_note "up to $X per winner" when different; bonus = bonusPill;
+                               open_text = pool.ts poolTotalText ("$1.3M+"); bonus_pools =
+                               bonusPoolsText; stats_line = statsLine (installs ≥100, bonus paid >0))
+                               and readLanding (listPrograms, roundPoolsWei, readStats; rejects when
+                               the DB is unreachable); GuidePage.bonus_pill;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
+    pool.ts(+test)             v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
+                               pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
+                               poolLine (a card's big line), poolTotalText (the hero figure)
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
                                open_money_usd (max_award_usd of open programs), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with

@@ -11,6 +11,8 @@ import type { Board } from './bonus-board';
 import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
+import { BONUS_PILLS } from '../../app/components/sections/BuilderBonus';
+import { BONUS_TOP } from './present';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
@@ -199,8 +201,12 @@ const home = (landing: Landing | null) => html(React.createElement(HomeView, { l
 test('v2.7 §1: the full home view', () => {
   const h = home(homeFixture);
   const t = text(h);
-  for (const s of ['Your agent finds money you already qualify for.', '$60,500 open right now', 'Add to your agent', 'Then ask: What can I earn?', 'Watch the demo', 'Agents only'])
+  for (const s of ['Agents only', 'Find things worth building for.', 'Find live builder programs and start building with your agent.', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Watch the demo', 'Then ask: What can I earn?', '120 agents earning'])
     assert.ok(t.includes(s), s);
+  // v2.7.1: the order down the hero, the bonus pill right under the figure, linking to its section.
+  const order = ['Find things worth building for.', 'Find live builder programs', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Then ask:', '120 agents earning'].map((s) => t.indexOf(s));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.match(h, /<a[^>]*href="#builder-bonus"[^>]*>\+ Builder bonus on every program<\/a>/);
   // 6 cards, then "See all" to /programs; below `sm`, 3 cards, then "See all programs" (fix round 1).
   const cards = h.split(/<li class="[^"]*rounded-\[32px\] bg-ek-navy p-6/).slice(1);
   assert.equal(cards.length, 6);
@@ -215,21 +221,39 @@ test('v2.7 §1: the full home view', () => {
   // 44px tap targets: both "See all" links and the footer links.
   assert.match(h, /min-h-11[^"]*"[^>]*>See all<\/a>/);
   for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
-  // Ruling C8: the per-winner line first; the curated pool text as a small line under it.
-  assert.ok(t.includes('Prize up to $30,000 per winner $840K+ in prizes'));
-  assert.ok(t.includes('Prize up to $5,000 per winner Ends'));
-  assert.ok(t.includes('Prize milestone-based USDC grants Ends'));
+  // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
+  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard (estimate) + 0.42 ETH bonus'));
+  assert.ok(t.includes('10,000 USDC pool up to $500 per winner'));
+  assert.ok(t.includes('up to $5,000 per winner rolling'));
+  assert.ok(t.includes('$200K in grants rolling'));
+  assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
+  // The section: no "Open now" eyebrow, one line under the title.
+  assert.ok(t.includes('Open programs Every entry also competes for the builder bonus.'));
+  assert.doesNotMatch(t, /Open now/i);
   for (const [i, c] of cards.entries()) {
     const ct = text(c);
     const tl = homeFixture.tiles[i];
     assert.ok(ct.includes('Ask your agent'), tl.id);
     assert.match(c, new RegExp(`href="/programs/${tl.id}"[^>]*>Guide</a>`), tl.id);
-    for (const v of [tl.title, tl.chain, tl.prize, tl.difficulty, tl.ends, tl.bonus!]) assert.ok(ct.includes(v), `${tl.id}: ${v}`);
+    for (const v of [tl.title, tl.chain, tl.prize, tl.ends]) assert.ok(ct.includes(v), `${tl.id}: ${v}`);
+    // Chips: the deadline and the difficulty (none for "—"); the bonus pill whenever the program has one.
+    const chips = [...c.slice(0, c.indexOf('Ask your agent')).matchAll(/<li class="rounded-full[^"]*"[^>]*>([^<]*)<\/li>/g)].map((m) => m[1]);
+    assert.deepEqual(chips, [tl.ends, ...(tl.difficulty === '—' ? [] : [tl.difficulty]), ...(tl.bonus ? [tl.bonus] : [])], tl.id);
   }
-  // The strip.
-  for (const s of ['Open money $60,500', 'Agents earning 120', 'Builder bonus 0.60 ETH so far']) assert.ok(t.includes(s), s);
+  assert.ok(t.includes('+ 0.42 ETH bonus') && t.includes('+ Builder bonus'));
+  // No stats strip, no duplicate open-money figure.
+  assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
+  assert.equal(t.split('open right now').length, 2);
+  // v2.7.1: the builder bonus section, between the programs and how it works.
+  const bb = h.slice(h.indexOf('id="builder-bonus"'));
+  assert.ok(h.includes('id="builder-bonus"'));
+  const bt = text(bb.slice(0, bb.indexOf('</section>')));
+  for (const s of ['Win twice.', 'Top 10 on every program', 'Paid in ETH', 'Ranked on real users', '0.60 ETH in pools so far', 'Leaderboards']) assert.ok(bt.includes(s), s);
+  assert.match(bb, /<a[^>]*href="\/programs"[^>]*>Leaderboards<\/a>/);
+  assert.equal(BONUS_PILLS[0], `Top ${BONUS_TOP} on every program`); // the payout split's length
+  assert.ok(t.indexOf('Open programs') < t.indexOf('Win twice.') && t.indexOf('Win twice.') < t.indexOf('Add EarnKit'));
   // The 3 steps.
-  for (const s of ['Add EarnKit', 'One link, any agent. Free, no account.', 'Ask “What can I earn?”', 'Your agent shows open money you qualify for.', 'Your agent builds and submits', 'Your entry gets a token and joins the builder bonus.'])
+  for (const s of ['Add EarnKit', 'One link, free.', 'Ask “What can I earn?”', 'Your agent finds programs you qualify for.', 'Your agent builds and submits', 'With a token that joins the builder bonus.'])
     assert.ok(t.includes(s), s);
   // Footer: Docs, Policy, Programs.
   for (const href of ['https://docs.earnkit.com', '/policy', '/programs']) assert.match(h, new RegExp(`href="${href}"`), href);
@@ -243,13 +267,16 @@ test('v2.7 §1: the full home view', () => {
 test('Review Focus 1: a failed read renders the headline and the button, without the live parts', () => {
   const h = home(null);
   const t = text(h);
-  assert.ok(t.includes('Your agent finds money you already qualify for.'));
+  assert.ok(t.includes('Find things worth building for.'));
   assert.ok(t.includes('Add to your agent'));
   assert.ok(t.includes('Then ask: What can I earn?'));
   assert.ok(!t.includes('open right now'));
   assert.ok(!t.includes('Ask your agent'));
   assert.ok(!t.includes('Open programs'));
-  assert.ok(!t.includes('Open money'));
+  assert.ok(!t.includes('agents earning'));
+  // The bonus section keeps its copy without an amount: never "0 ETH".
+  assert.ok(t.includes('Win twice.') && t.includes('Starts with the first entry'));
+  assert.doesNotMatch(t, /\b0 ETH/);
   assert.ok(t.includes('Your agent builds and submits')); // how it works stays
 });
 
@@ -265,12 +292,12 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
-test('fix round 1: the header\'s call to action is the install; Follow on X stays on desktop', () => {
+test('v2.7.1: the header is Docs and the install, desktop and mobile; Follow on X is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
-  const mobile = h.slice(h.indexOf('md:hidden'));
-  assert.doesNotMatch(mobile, /Follow on X/);
-  assert.match(h.slice(0, h.indexOf('md:hidden')), /Follow on X/);
+  assert.equal((h.match(/<a[^>]*href="https:\/\/docs\.earnkit\.com"[^>]*>Docs<\/a>/g) ?? []).length, 2);
+  assert.doesNotMatch(h, /Follow on X/);
+  assert.match(html(React.createElement(Footer)), /Follow on X/);
 });
 
 test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
@@ -290,6 +317,8 @@ test('v2.7 §1: the install modal asks the starting phrase, or the program\'s ow
   const t = text(html(React.createElement(AddToAgent, { onClose: () => {}, prompt: 'What can I earn on Arc Microgrants?' })));
   assert.ok(t.includes('Then ask your agent: “What can I earn on Arc Microgrants?”'));
   assert.ok(text(html(React.createElement(AddToAgent, { onClose: () => {} }))).includes('Then ask your agent: “What can I earn?”'));
+  // v2.7.1: one pill under the steps.
+  assert.ok(t.includes('+ Builder bonus on every entry Then ask your agent'));
 });
 
 test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {
@@ -302,7 +331,9 @@ test('v2.7: the site description and llms.txt use the starting phrase and name t
   // Ruling C9: the homepage publishes live figures, so llms.txt no longer forbids stating them.
   assert.doesNotMatch(llms, /Do not state any/);
   assert.match(llms, /earnkit\.com\/api\/stats/);
-  assert.match(llms, /open money/);
+  // v2.7.1: the figure is the open programs' pools.
+  assert.match(llms, /prize pools/);
+  assert.doesNotMatch(llms, /open money/);
 });
 
 // ---- v2.7 §2, Ruling 22 (plan): the program guide page (GuideView is the pure render;
@@ -339,9 +370,10 @@ test('v2.7 §2: the full guide page', () => {
     'A USDC payout tool with a live mainnet demo',
   ])
     assert.ok(items.includes(line), line);
-  assert.ok(t.includes('Builder bonus : 0.18 ETH so far · leaderboard'));
-  assert.match(h, /<a[^>]*href="\/policy#the-builder-bonus"[^>]*>Builder bonus<\/a>/);
-  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>leaderboard<\/a>/);
+  // v2.7.1: the builder bonus is a pill beside Difficulty, linking to the leaderboard.
+  assert.ok(t.includes('Difficulty: Medium — 20 of ~160 entries won last round + 0.18 ETH bonus'));
+  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>\+ 0\.18 ETH bonus<\/a>/);
+  assert.doesNotMatch(t, /leaderboard/);
   // Sources: labelled by what each backs (fix round 1), each link through shownUrl, host as title.
   assert.ok(t.includes('Sources: program page · past winners 1 · past winners 2 · priorities'));
   assert.doesNotMatch(t, /community\.arc\.io|\(2\)/);
@@ -432,6 +464,10 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.doesNotMatch(text(h), /Open now/);
   assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
+  // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
+  const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
+  assert.ok(fig.includes('Open programs $1.3M+ open right now Every entry also competes for the builder bonus.'));
+  assert.match(readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8'), /figure=\{landing\.open_text\}/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
   assert.ok(u.includes('Where agents earn.'), 'the footer');

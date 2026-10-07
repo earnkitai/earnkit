@@ -80,6 +80,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 /** v2.7: the starting phrase, everywhere (spec Decisions). */
 export const START_PROMPT = 'What can I earn?';
+/** v2.7.1: the install modal's builder bonus pill. */
+export const BONUS_ENTRY_PILL = '+ Builder bonus on every entry';
 
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
@@ -203,6 +205,10 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               />
             </div>
           )}
+          {/* v2.7.1: the builder bonus, one pill under the steps. */}
+          <p className="mt-4 inline-flex rounded-full border border-ek-blue-bright/60 px-3 py-[5px] text-sm font-medium text-ek-blue-bright">
+            {BONUS_ENTRY_PILL}
+          </p>
         </div>
 
         <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">

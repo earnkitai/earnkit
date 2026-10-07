@@ -2,19 +2,21 @@ import { usd } from './campaigns';
 import { prizeOf } from './entry-text';
 import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { bonusCell, byPrize, daysLeftText, openMoneyUsd, type Card } from './present';
+import { bonusCell, byPrize, daysLeftText, eth, type Card } from './present';
+import { poolTotalText } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { readStats, type PublicStats } from './stats';
 import { sql } from './db';
 
 /**
- * The landing page's live data (v2.7 §1): the open curated programs as cards, the "open right now"
- * figure and the stats strip. `landingFrom` is pure; `readLanding` is the one DB read behind it
+ * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
+ * "$X open right now" (the sum of their source-stated pools), the builder bonus pools so far and
+ * one short stats line. `landingFrom` is pure; `readLanding` is the one DB read behind it
  * (app/lib/landing-cache.ts caches it for 10 minutes).
  */
 
-/** Spec §1, Ruling 20 (plan): "Agents earning" shows from 100 installs. */
+/** Spec §1, Ruling 20 (plan): "agents earning" shows from 100 installs. */
 export const INSTALLS_SHOWN_FROM = 100;
 /** Spec §1: the first 6 cards, then "See all". */
 export const HOME_CARDS = 6;
@@ -27,26 +29,36 @@ export type Tile = {
   /** "Base · Tempo · Robinhood Chain". */
   chain: string;
   /**
-   * Ruling C8: the per-winner amount that feeds the hero total ("up to $25,000 per winner"); the
-   * curated prize text ("milestone-based USDC grants") when no per-winner amount is known.
+   * v2.7.1: the big line. The pool when the source states one ("$840K in prizes", "10,000 USDC
+   * pool"), else the per-winner amount ("up to $5,000 per winner"), else the curated prize text
+   * ("milestone-based USDC grants").
    */
   prize: string;
-  /** Ruling C8: the curated prize text ("$250K+ prize pool") as a small line, when it differs. */
+  /** v2.7.1: "up to $30,000 per winner" under the big line, when it differs from it. */
   prize_note: string | null;
-  /** The per-winner USD amount behind `prize` (0 when unknown): the tiles sum to `open_usd`. */
+  /** The per-winner USD amount (0 when unknown). */
   prize_usd: number;
-  /** "Medium (estimate)", or "—" without one. */
+  /** v2.7.1: the source-stated pool in USD (programs.ts poolFacts), or null. */
+  pool_usd: number | null;
+  /** "Medium (estimate)", or "—" without one (then no chip). */
   difficulty: string;
   /** "8 days left", "ends today" or "rolling". */
   ends: string;
-  /** bonusCell ("0.42 ETH so far", "new pool"), or null when the program has none. */
+  /** v2.7.1 pill: "+ 0.42 ETH bonus" once the open round has a pool, else "+ Builder bonus"; null without a bonus. */
   bonus: string | null;
   /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
   logo: string | null;
 };
-export type StatItem = { label: string; value: string };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
-export type Landing = { open_usd: number; tiles: Tile[]; stats: StatItem[] };
+export type Landing = {
+  /** v2.7.1: "$1.3M+" (pool.ts poolTotalText of the tiles), or null when no tile has a pool. */
+  open_text: string | null;
+  tiles: Tile[];
+  /** v2.7.1: "0.60 ETH in pools so far" (the open rounds of the tiles), or null while all are empty. */
+  bonus_pools: string | null;
+  /** v2.7.1: "312 agents earning · 0.42 ETH builder bonus paid", or null below both thresholds. */
+  stats_line: string | null;
+};
 
 /**
  * Two decimals, rounded down. `eth` has 6 decimals (weiToEth); rounding to whole micro-ETH first
@@ -55,52 +67,69 @@ export type Landing = { open_usd: number; tiles: Tile[]; stats: StatItem[] };
 const ethText = (eth: number) =>
   eth < 0.01 ? 'under 0.01' : (Math.floor(Math.round(eth * 1e6) / 1e4) / 100).toFixed(2);
 
-/** v2.7 §1, Ruling 20 (plan): the stats strip. Pure. */
-export function statItems(openUsd: number, s: PublicStats): StatItem[] {
-  const items: StatItem[] = [{ label: 'Open money', value: usd(openUsd) }];
-  if (s.installs >= INSTALLS_SHOWN_FROM) items.push({ label: 'Agents earning', value: s.installs.toLocaleString('en-US') });
-  items.push({
-    label: 'Builder bonus',
-    value:
-      s.bonus_paid_eth > 0
-        ? `${ethText(s.bonus_paid_eth)} ETH paid`
-        : s.bonus_pools_eth > 0
-          ? `${ethText(s.bonus_pools_eth)} ETH so far`
-          : `on ${s.bonus_programs_open} programs`,
-  });
-  return items;
+/**
+ * v2.7.1: the one short line under the hero, only once there is something to show: installs from
+ * 100, builder bonus paid above 0. Null otherwise. Pure.
+ */
+export function statsLine(s: PublicStats): string | null {
+  const parts: string[] = [];
+  if (s.installs >= INSTALLS_SHOWN_FROM) parts.push(`${s.installs.toLocaleString('en-US')} agents earning`);
+  if (s.bonus_paid_eth > 0) parts.push(`${ethText(s.bonus_paid_eth)} ETH builder bonus paid`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
+/**
+ * v2.7.1: the builder bonus pill from bonusCell's words: "+ 0.42 ETH bonus" once the round has a
+ * pool, else "+ Builder bonus" (with `newPool`, "+ Builder bonus · new pool", the guide page's).
+ * Pure.
+ */
+export function bonusPill(cell: string, newPool = false): string {
+  const so = cell.match(/^(.*) ETH so far$/);
+  if (so) return `+ ${so[1]} ETH bonus`;
+  return newPool ? '+ Builder bonus · new pool' : '+ Builder bonus';
+}
+
+/** v2.7.1: the builder bonus section's figure: "0.60 ETH in pools so far", or null while every pool is empty. Pure. */
+export function bonusPoolsText(wei: bigint): string | null {
+  if (wei <= 0n) return null;
+  return `${wei < 10n ** 16n ? 'under 0.01' : eth(wei)} ETH in pools so far`;
 }
 
 /**
  * The landing data from open program cards (Ruling 21 (plan): curated programs only, never an
- * EarnKit or sponsor campaign), their open rounds' pools and the public stats. The figure is
- * `openMoneyUsd` of the same cards, so the page and the first message's "$X is open right now"
- * never disagree (Ruling 20). Pure.
+ * EarnKit or sponsor campaign), their open rounds' pools and the public stats. v2.7.1: the hero
+ * figure is the sum of the cards' source-stated pools (the /programs page shows the same). Pure.
  */
 export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, stats: PublicStats, now: Date): Landing {
   const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPrize);
-  const open_usd = openMoneyUsd(kept);
+  let bonusWei = 0n;
   const tiles = kept.map((c): Tile => {
     const pool = pools.get(c.id);
-    const bonus = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
-    const curated = prizeOf(c);
+    const cell = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
+    if (cell !== '—' && pool) bonusWei += pool;
     const perWinner = c.max_award_usd ?? 0;
-    const prize = perWinner > 0 ? `up to ${usd(perWinner)} per winner` : curated;
+    const each = perWinner > 0 ? `up to ${usd(perWinner)} per winner` : null;
+    const prize = c.pool_line ?? each ?? prizeOf(c);
     return {
       id: c.id,
       title: c.title,
       chain: (c.chains ?? []).map((ch) => CHAIN_NAMES[ch]).join(' · '),
       prize,
-      // No note when the curated text only restates the amount ("up to $5,000").
-      prize_note: perWinner > 0 && ![usd(perWinner), `up to ${usd(perWinner)}`].includes(curated) ? curated : null,
+      prize_note: each && each !== prize ? each : null,
       prize_usd: perWinner,
+      pool_usd: c.pool_usd ?? null,
       difficulty: c.difficulty ? difficultyLabel(c.difficulty) : '—',
       ends: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
-      bonus: bonus === '—' ? null : bonus,
+      bonus: cell === '—' ? null : bonusPill(cell),
       logo: c.logo ? `/${c.logo}` : null,
     };
   });
-  return { open_usd, tiles, stats: statItems(open_usd, stats) };
+  return {
+    open_text: poolTotalText(kept.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false }))),
+    tiles,
+    bonus_pools: bonusPoolsText(bonusWei),
+    stats_line: statsLine(stats),
+  };
 }
 
 /**
@@ -131,6 +160,8 @@ export type GuidePage = {
   open: boolean;
   /** "/bonus/arc-microgrants-2026-09-16", or null without a bonus line. */
   board_path: string | null;
+  /** v2.7.1: "+ 0.42 ETH bonus" or "+ Builder bonus · new pool" beside Difficulty, or null without a bonus. */
+  bonus_pill: string | null;
   /** The program's own page. */
   source_url: string;
   /** The program's own page, then every source the guide's facts rest on, labelled by role. */
@@ -163,6 +194,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     logo: row.logo ? `/${row.logo.path}` : null,
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
     board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
+    bonus_pill: bonus ? bonusPill(bonus.cell, true) : null,
     source_url: row.source_url,
     sources: guideSourceList(row, [{ label: 'program page', url: row.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,

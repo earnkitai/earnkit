@@ -4,14 +4,14 @@ import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
 import HowItWorks from './components/sections/HowItWorks';
 import ProgramCards from './components/sections/ProgramCards';
-import StatsStrip from './components/sections/StatsStrip';
+import BuilderBonus from './components/sections/BuilderBonus';
 import { HOME_CARDS, HOME_CARDS_MOBILE, type Landing } from '../lib/earnkit/landing';
-import { usd } from '../lib/earnkit/campaigns';
 
 /**
- * The homepage (v2.7 §1), pure: hero with the live figure, the open programs (6, then "See all"),
- * the stats strip, how it works, backed by, the footer. `landing` is null when the read failed
- * (Ruling 21 (plan)): the hero renders without its figure, and the cards and the strip are skipped.
+ * The homepage (v2.7 §1, v2.7.1), pure: hero with the live pool figure and the one-line stats, the
+ * open programs (6, then "See all"), the builder bonus (#builder-bonus), how it works, backed by,
+ * the footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without
+ * its figure or stats line, the cards are skipped and the bonus section shows no amount.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
@@ -66,14 +66,14 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero openText={landing && landing.open_usd > 0 ? usd(landing.open_usd) : null} />
+          <Hero openText={landing?.open_text ?? null} statsLine={landing?.stats_line ?? null} />
         </div>
       </section>
 
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
       <div className="flex flex-col gap-4 pt-4">
         {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} limit={HOME_CARDS} mobileLimit={HOME_CARDS_MOBILE} seeAll />}
-        {landing && <StatsStrip items={landing.stats} />}
+        <BuilderBonus pools={landing?.bonus_pools ?? null} />
         <HowItWorks />
         <BackedBy />
       </div>

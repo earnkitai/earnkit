@@ -29,12 +29,12 @@
   installation, asking the agent to schedule a daily read-only `list_programs` that messages the
   builder only when that line is there ("a win, a new campaign, your rank"; token fees are never
   advertised there).
-- **First message (v2.6 §1)**: after any alerts, `list_programs` leads with "EarnKit matches you
-  to $X in open money you qualify for" when the builder's repos fit something ($X = the
+- **First message (v2.6 §1; v2.7.1 wording)**: after any alerts, `list_programs` leads with "EarnKit matches you
+  to $X in top prizes you qualify for" when the builder's repos fit something ($X = the
   per-winner `max_award_usd` of each program fit, once each; unknown amounts count 0 and show
   their own words; $X = 0 keeps "Your repos fit these open programs:", no "qualify"). With no repo
   known and no GitHub user given or remembered (`youCould`/`githubGiven`, Ruling 11), it instead
-  leads with "$X is open right now" (every open curated program's per-winner prize) and that
+  leads with "$X in top prizes is open right now" (every open curated program's per-winner prize) and that
   table's prize column reads "You could win" instead of "Prize". Program tables carry a "Builder
   bonus" column (`bonusCell`): the open round's pool (`roundPoolsWei`, one grouped read of the
   bonus ledger, open rounds only), "new pool", or "—" only when the program opted out
@@ -1225,8 +1225,8 @@ a wallet you control.
   to a coding agent you use only for testing (one agent = one installation; a reused agent's
   memory changes what the first message shows).
 - [ ] **First message without GitHub.** In an empty folder (no git remote), ask "anything worth
-  building?" and **note the UTC time you sent it**. Expect "$X is open right now. I can build an
-  entry for you.", a table whose prize column reads "You could win", a Difficulty column,
+  building?" and **note the UTC time you sent it**. Expect "$X in top prizes is open right now. I
+  can build an entry for you.", a table whose prize column reads "You could win", a Difficulty column,
   "Ideas I can build:" (one per line) and "Pick one and I'll start." closed by the builder bonus
   sentence (v2.7 §3) when a shown program has one. Do this before giving GitHub: a GitHub user or
   repo list, once given, is remembered and turns "You could" off for this installation.
@@ -1251,8 +1251,8 @@ a wallet you control.
   an entry recorded before the redeploy is still excluded once it is set; a frozen round
   re-checks it before paying.
 - [ ] **First message with GitHub.** Give your GitHub username (or run it in a folder with your
-  repos). Expect "EarnKit matches you to $X in open money you qualify for" when a repo fits, or
-  "$X is open right now." with a "Prize" column (no "could") when none does.
+  repos). Expect "EarnKit matches you to $X in top prizes you qualify for" when a repo fits, or
+  "$X in top prizes is open right now." with a "Prize" column (no "could") when none does.
 - [ ] **Build.** Pick an idea for **Base Builder Grants or Circle Developer Grants** (rolling, no
   public entry page, so your yes is what counts; Monad Metropolis Hackathon works too while it is open).
   The agent builds it in the throwaway public repo and pushes real commits (an empty repo, or a
@@ -1311,10 +1311,10 @@ Ruling C1: after the final review, the controller pushes and merges both repos w
 and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v27-journey.test.ts` (its own
 throwaway database, real program files, no network).
 
-1. Open `/` at phone width (390): the open money in the hero, 3 cards then "See all programs"
+1. Open `/` at phone width (390): "$1.3M+ open right now" in the hero, 3 cards then "See all programs"
    (6 at desktop width), and a guide (`/programs/<id>`) opens from a card.
 2. Ask "What can I earn?": the tables have a Difficulty column, and the message closes on the
-   builder bonus ("Every entry also competes for the builder bonus: …").
+   builder bonus ("Plus the builder bonus: the top 10 on each program also get paid in ETH. …").
 3. Submit before going live (no live link): the reply leads with "Before you submit: …" and has
    no Token row.
 4. Submit when ready: the Token row reads "Your entry gets a token on Base, $…".
@@ -1409,12 +1409,13 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
 
 ### The first message (v2.7 §3, Rulings 10–14)
 
-- Tables carry a Difficulty column; the message closes on the builder bonus (`bonusClose`):
-  "<offer> Every entry also competes for the builder bonus: 0.60 ETH so far, paid to the top 10 on
-  each program." (the sum of pools already read for bonus programs on screen, Ruling 11; "under
-  0.01 ETH so far"; empty pools use the no-amount wording). When the offer is an EarnKit campaign
-  entry, the sentence comes first as its own paragraph ("Entries in the other open programs also
-  compete for …") and the offer stays last (Ruling 10). The same paragraph form is used when the
+- Tables carry a Difficulty column; the message closes on the builder bonus (`bonusClose`;
+  v2.7.1 wording): "<offer> Plus the builder bonus: the top 10 on each program also get paid in
+  ETH. 0.60 ETH so far." (the sum of pools already read for bonus programs on screen, Ruling 11;
+  "Under 0.01 ETH so far."; while every pool is empty the last sentence is dropped). When the offer
+  is an EarnKit campaign entry, the sentence comes first as its own paragraph ("Plus the builder
+  bonus on the other open programs: the top 10 on each also get paid in ETH. …") and the offer
+  stays last (Ruling 10). The same paragraph form is used when the
   offered row carries Ruling 25's "no builder bonus" note, and that program's pool is left out of
   the sum (final review M4, `Offer.noBonusId`). "Top 10" is `BONUS_SPLIT_BPS.length`.
 - The affiliation line and `BONUS_NOTE` are gone (Ruling 14); a repo whose token is entered in
@@ -1426,15 +1427,36 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   `readLanding` behind `unstable_cache` for 10 minutes, so at most one DB read per 10 minutes and
   no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
 - Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
-  (`byPrize`); the hero's "$X open right now" is `openMoneyUsd` of the same cards, so it always
-  matches the first message (Ruling 20). Each card's main prize line is that card's share of it
-  ("up to $X per winner", Ruling C8), with the program's own pool text as a small line. The stats
-  strip hides installs under 100.
-- The figure is formatted on the server (`HomeView`) and passed to the client `Hero` as a string:
+  (`byPrize`). **v2.7.1:** the hero's "$1.3M+ open right now" is the sum of the cards'
+  source-stated pools (`pool.ts` `poolTotalText`, compact and rounded down, "+" when any card has
+  no pool or its reward says "+"); `/programs` shows the same figure under its h1. The first
+  message keeps the per-winner sum, now called "top prizes". Each card's big line is the pool
+  (`poolLine`: "$840K in prizes", "$250K+ in prizes", "10,000 USDC pool", "$200K in grants"), else
+  "up to $X per winner", else the curated text; "up to $X per winner" sits under it when
+  different. Chips: the deadline, the difficulty (none for "—") and the builder bonus pill
+  (`bonusPill`: "+ Builder bonus", "+ 0.42 ETH bonus" once the open round has a pool; none when
+  the program opted out or its round froze).
+- **v2.7.1 page order:** hero (AGENTS ONLY, title, subtitle, figure, "+ Builder bonus on every
+  program" pill → `#builder-bonus`, the two buttons, "Then ask", and `statsLine` only when
+  installs ≥ 100 or bonus paid > 0), Open programs ("Every entry also competes for the builder
+  bonus."), the builder bonus section (`BuilderBonus.tsx`: "Win twice.", three pills, `bonusPoolsText`
+  "0.60 ETH in pools so far" or "Starts with the first entry", never "0 ETH"; "Leaderboards" →
+  /programs), How it works (3 short steps), Backed by, the footer. The stats strip is gone. The
+  header is "Docs" (docs.earnkit.com) and "Add to your agent" on every page, desktop and mobile;
+  "Follow on X" is in the footer only. The install modal carries "+ Builder bonus on every entry"
+  under the steps; guide pages carry the bonus as a pill beside Difficulty ("+ Builder bonus ·
+  new pool" or "+ 0.42 ETH bonus"), linking to the leaderboard.
+- **`pool_usd`** (program file, optional; `programs.pool_usd numeric`, additive): set only where
+  the program's own source states a pool; `programs:check` refuses one its `reward` doesn't state
+  (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it
+  into `pool_usd`/`pool_plus`/`pool_line` (`programs.ts` `poolFacts`). Verified 2026-10-07:
+  Colosseum 840000, Monad 250000 (+), Arc 10000 USDC, Circle 200000 (Cohort 2 on
+  circle.questbook.app); Base publishes none. Spec: `v2.7.1-landing-simplify.md`.
+- The figure is formatted on the server (`landing.ts`) and passed to the client `Hero` as a string:
   client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
 - A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls
-  `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure,
-  no cards, no strip. Because of `connection()`, a build without the DB makes `/` dynamic instead
+  `await connection()` and renders `HomeView` with `landing = null`: the hero without its figure
+  or stats line, no cards, the bonus section without an amount. Because of `connection()`, a build without the DB makes `/` dynamic instead
   of prerendering the fallback (Ruling 21). Note: a local rebuild reuses `.next/cache`, so test
   this with a clean `.next`.
 - Logos are local files only (`/programs/<id>.svg|png`, Ruling 23), rendered through `<img>`;

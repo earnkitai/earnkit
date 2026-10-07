@@ -71,8 +71,8 @@ const LIST_PROGRAMS_DESCRIPTION =
   'them as local_repos with what you see (chains, mainnet, live link, last commit); never ask for ' +
   'a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
-  'It leads with "EarnKit matches you to $X in open money you qualify for" when their repos fit, ' +
-  'or "$X is open right now" with ideas you can build when there is no repo. Every program shows ' +
+  'It leads with "EarnKit matches you to $X in top prizes you qualify for" when their repos fit, ' +
+  'or "$X in top prizes is open right now" with ideas you can build when there is no repo. Every program shows ' +
   'its difficulty; the builder bonus closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +

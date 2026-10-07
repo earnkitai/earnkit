@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import { Wordmark, Mark } from '../ui/Logo';
-import { FOLLOW_X } from '../../lib/links';
+import { DOCS } from '../../lib/links';
 import InstallButton from './InstallButton';
 
 /**
  * The site header. v2.7 fix round 1: the persistent call to action is the install ("Add to your
- * agent", the same modal as the hero); "Follow on X" stays on desktop, beside the wordmark, and in
- * the footer.
+ * agent", the same modal as the hero). v2.7.1: "Docs" (docs.earnkit.com) beside it on every page,
+ * desktop and mobile; "Follow on X" lives in the footer only.
  */
 export default function Header() {
   return (
@@ -20,14 +20,14 @@ export default function Header() {
           >
             <Wordmark />
           </Link>
-          <Link
-            href={FOLLOW_X}
+          <a
+            href={DOCS}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center px-2 font-funnel-sans text-lg font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
           >
-            Follow on X
-          </Link>
+            Docs
+          </a>
         </div>
 
         <InstallButton className="flex min-h-full min-w-[20%] items-center justify-center rounded-[56px] bg-ek-blue-bright px-8 font-funnel-sans text-xl font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft 2xl:text-[1.2rem]" />
@@ -75,6 +75,14 @@ export default function Header() {
           >
             <Mark />
           </Link>
+          <a
+            href={DOCS}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto inline-flex min-h-11 items-center px-2 font-funnel-sans text-base font-medium text-ek-blue-soft transition-colors hover:text-ek-white"
+          >
+            Docs
+          </a>
           <InstallButton className="min-h-11 flex-shrink-0 rounded-full bg-ek-blue-bright px-5 py-2.5 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft" />
         </div>
       </header>

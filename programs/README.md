@@ -27,6 +27,12 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      "up to $5,000"); otherwise leave it out. When two of a builder's fits are equally quick,
      list_programs puts the larger known per-winner award first (unknown counts as 0). Sponsor
      campaigns don't need it: their per-winner amount is the prize divided by the winners.
+   - `pool_usd` (optional): the program's total prize pool in USD, as a number. Set it only when
+     the source states a pool (e.g. `840000` for "$840,000 in prizes", `10000` for "10,000 USDC
+     pool"); leave it out when none is published. `reward` must state the same amount
+     (`$840,000`, `$840K` or `10,000 USDC`; `programs:check` refuses it otherwise), and a `+`
+     right after it there ("$250,000+") shows on the page. The landing page's "$X open right now"
+     is the sum of the open programs' pools, with "+" when any lacks one.
    - `tag` (optional): `"long shot"` when few prizes go to many judged entries;
      `"needs a live product"` when it only suits builders who already shipped.
    - `ends_at`: ISO 8601 with timezone, converted from the organizer's timezone.

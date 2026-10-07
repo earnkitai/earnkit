@@ -9,7 +9,7 @@ export const revalidate = 600;
 
 export const metadata = {
   title: 'Open programs · EarnKit',
-  description: 'Every open program EarnKit tracks, by prize: the deadline, the difficulty and the builder bonus.',
+  description: 'Every open program EarnKit tracks, by prize: the pool, the deadline, the difficulty and the builder bonus.',
   alternates: { canonical: 'https://earnkit.com/programs' },
 };
 
@@ -20,7 +20,7 @@ export default async function ProgramsPage() {
   return (
     <div className="w-full pt-4">
       {landing.tiles.length > 0 ? (
-        <ProgramCards tiles={landing.tiles} heading="h1" />
+        <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} />
       ) : (
         <Panel className="py-12 md:py-16">
           <h1 className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</h1>

@@ -1,8 +1,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding } from './landing';
+import { bonusPill, bonusPoolsText, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
 import type { Card } from './present';
 import type { PublicStats } from './stats';
@@ -67,14 +67,14 @@ const campaign: Card = { ...arc, id: 'earnkit-campaign-1-base', title: 'EarnKit 
 test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review Focus 2)', () => {
   const l = landingFrom([monad, arc, sponsored, campaign, base], new Map([['arc-microgrants', 42n * 10n ** 16n]]), stats(), now);
   assert.deepEqual(l.tiles.map((t) => t.id), ['monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
-  assert.equal(l.open_usd, 30500);
   const arcTile = l.tiles.find((t) => t.id === 'arc-microgrants')!;
-  assert.equal(arcTile.bonus, '0.42 ETH so far');
+  assert.equal(arcTile.bonus, '+ 0.42 ETH bonus');
   assert.equal(arcTile.ends, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
+  assert.equal(l.bonus_pools, '0.42 ETH in pools so far');
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
 });
 
-test('v2.7 §1: each tile field', () => {
+test('v2.7.1: each tile field; no pool means the per-winner amount is the big line', () => {
   const l = landingFrom([monad, arc, base], new Map([['base-builder-grants', null]]), stats(), now);
   const [m, b, a] = l.tiles;
   assert.deepEqual(m, {
@@ -82,8 +82,9 @@ test('v2.7 §1: each tile field', () => {
     title: 'Monad Metropolis',
     chain: 'Monad · Base · Robinhood Chain',
     prize: 'up to $25,000 per winner',
-    prize_note: '$25,000 top prize',
+    prize_note: null, // the big line already says it
     prize_usd: 25000,
+    pool_usd: null,
     difficulty: '—',
     ends: '14 days left',
     bonus: null, // opted out
@@ -93,43 +94,76 @@ test('v2.7 §1: each tile field', () => {
   assert.equal(b.difficulty, 'Hard');
   assert.equal(b.bonus, null); // its round froze (I2)
   assert.equal(a.difficulty, 'Medium (estimate)');
-  assert.equal(a.bonus, 'new pool'); // no pool read yet
+  assert.equal(a.bonus, '+ Builder bonus'); // no pool read yet: the pill still shows
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
-  assert.equal(a.prize, 'up to $500 per winner');
-  assert.equal(a.prize_note, '500 USDC × 20 grants');
   assert.equal(b.prize, 'up to $5,000 per winner');
-  assert.equal(b.prize_note, null); // "up to $5,000" only restates the amount
+  assert.equal(l.open_text, null); // no tile states a pool
+  assert.equal(l.bonus_pools, null); // every pool empty: never "0 ETH"
   assert.equal(HOME_CARDS, 6);
 });
 
-test('Ruling C8: the cards\' per-winner amounts add up to the hero figure; unknown amounts keep the curated text', () => {
+test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown amounts keep the curated text', () => {
+  const pooled = (c: Card, pool_usd: number, pool_line: string, pool_plus = false): Card => ({ ...c, pool_usd, pool_line, pool_plus });
   const circle: Card = { ...base, id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling', max_award_usd: null };
-  const l = landingFrom([monad, arc, base, circle, sponsored, campaign], new Map(), stats(), now);
-  assert.equal(l.tiles.reduce((sum, t) => sum + t.prize_usd, 0), l.open_usd);
-  assert.equal(l.open_usd, 30500);
-  const c = l.tiles.find((t) => t.id === 'circle-developer-grants')!;
-  assert.equal(c.prize, 'milestone-based USDC grants');
-  assert.equal(c.prize_note, null);
-  assert.equal(c.prize_usd, 0);
-  for (const t of l.tiles.filter((x) => x.prize_usd > 0)) assert.match(t.prize, /^up to \$[\d,]+ per winner$/);
+  const l = landingFrom(
+    [pooled(monad, 250000, '$250K+ in prizes', true), pooled(arc, 10000, '10,000 USDC pool'), base, circle, sponsored, campaign],
+    new Map(),
+    stats(),
+    now,
+  );
+  const t = (id: string) => l.tiles.find((x) => x.id === id)!;
+  assert.deepEqual([t('monad-metropolis').prize, t('monad-metropolis').prize_note], ['$250K+ in prizes', 'up to $25,000 per winner']);
+  assert.deepEqual([t('arc-microgrants').prize, t('arc-microgrants').prize_note], ['10,000 USDC pool', 'up to $500 per winner']);
+  assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per winner', null]);
+  assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
+  // The sponsor and EarnKit campaigns never count; "+" for Monad's "+" and for the programs without a pool.
+  assert.equal(l.open_text, '$260K+');
+  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], new Map(), stats(), now).open_text, '$10K');
 });
 
-test('Ruling 20 (plan): installs hidden under 100; bonus paid > pools > programs', () => {
-  const label = (s: PublicStats) => landingFrom([arc], new Map(), s, now).stats.map((i) => `${i.label}: ${i.value}`);
+test('v2.7.1: the real program files add up to "$1.3M+ open right now"', () => {
+  const ids = ['colosseum-worlds-fair', 'monad-metropolis', 'arc-microgrants', 'circle-developer-grants', 'base-builder-grants'];
+  const cards = ids.map((id): Card => {
+    const f = ProgramFile.parse(committedProgram(id));
+    return { ...arc, id, title: f.title, max_award_usd: f.max_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
+  });
+  const l = landingFrom(cards, new Map(), stats(), now);
+  assert.equal(l.open_text, '$1.3M+');
+  const t = (id: string) => l.tiles.find((x) => x.id === id)!;
+  assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
+  assert.equal(t('colosseum-worlds-fair').prize_note, 'up to $30,000 per winner');
+  assert.equal(t('monad-metropolis').prize, '$250K+ in prizes');
+  assert.equal(t('arc-microgrants').prize, '10,000 USDC pool');
+  assert.equal(t('circle-developer-grants').prize, '$200K in grants');
+  assert.equal(t('base-builder-grants').prize, 'up to $5,000 per winner');
+  assert.equal(t('base-builder-grants').pool_usd, null);
+});
+
+test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid', () => {
   assert.equal(INSTALLS_SHOWN_FROM, 100);
-  assert.deepEqual(label(stats({ installs: 99 })).filter((s) => s.startsWith('Agents earning')), []);
-  assert.ok(label(stats({ installs: 100 })).includes('Agents earning: 100'));
-  assert.ok(label(stats({ installs: 1234 })).includes('Agents earning: 1,234'));
-  assert.ok(label(stats({ bonus_paid_eth: 0.5, bonus_pools_eth: 2 })).includes('Builder bonus: 0.50 ETH paid'));
-  assert.ok(label(stats({ bonus_pools_eth: 0.6 })).includes('Builder bonus: 0.60 ETH so far'));
+  assert.equal(statsLine(stats({ installs: 99, bonus_pools_eth: 2 })), null);
+  assert.equal(statsLine(stats({ installs: 100 })), '100 agents earning');
+  assert.equal(statsLine(stats({ installs: 312, bonus_paid_eth: 0.42 })), '312 agents earning · 0.42 ETH builder bonus paid');
+  assert.equal(statsLine(stats({ bonus_paid_eth: 1.13 })), '1.13 ETH builder bonus paid');
   // Fix round 1, Important 3: float flooring never shows a cent less than the 6-decimal amount.
-  assert.ok(label(stats({ bonus_pools_eth: 0.29 })).includes('Builder bonus: 0.29 ETH so far'));
-  assert.ok(label(stats({ bonus_paid_eth: 1.13 })).includes('Builder bonus: 1.13 ETH paid'));
-  assert.ok(label(stats({ bonus_pools_eth: 0.57 })).includes('Builder bonus: 0.57 ETH so far'));
-  assert.ok(label(stats({ bonus_pools_eth: 0.299999 })).includes('Builder bonus: 0.29 ETH so far')); // still rounds down
-  assert.ok(label(stats({ bonus_pools_eth: 0.004 })).includes('Builder bonus: under 0.01 ETH so far'));
-  assert.ok(label(stats()).includes('Builder bonus: on 4 programs'));
-  assert.equal(label(stats())[0], 'Open money: $500');
+  assert.equal(statsLine(stats({ bonus_paid_eth: 0.29 })), '0.29 ETH builder bonus paid');
+  assert.equal(statsLine(stats({ bonus_paid_eth: 0.299999 })), '0.29 ETH builder bonus paid');
+  assert.equal(statsLine(stats({ bonus_paid_eth: 0.004 })), 'under 0.01 ETH builder bonus paid');
+  assert.equal(statsLine(stats({ installs: 1234 })), '1,234 agents earning');
+});
+
+test('v2.7.1: builder bonus pills and the pools figure', () => {
+  assert.equal(bonusPill('new pool'), '+ Builder bonus');
+  assert.equal(bonusPill('new pool', true), '+ Builder bonus · new pool');
+  assert.equal(bonusPill('0.42 ETH so far'), '+ 0.42 ETH bonus');
+  assert.equal(bonusPill('0.42 ETH so far', true), '+ 0.42 ETH bonus');
+  assert.equal(bonusPill('under 0.01 ETH so far'), '+ under 0.01 ETH bonus');
+  assert.equal(bonusPoolsText(0n), null);
+  assert.equal(bonusPoolsText(10n ** 15n), 'under 0.01 ETH in pools so far');
+  assert.equal(bonusPoolsText(6n * 10n ** 17n), '0.60 ETH in pools so far');
+  // Pools of programs without a bonus (opted out, frozen) never count.
+  const l = landingFrom([monad, arc], new Map([['monad-metropolis', 10n ** 18n], ['arc-microgrants', 2n * 10n ** 17n]]), stats(), now);
+  assert.equal(l.bonus_pools, '0.20 ETH in pools so far');
 });
 
 test('Review Focus 1: an unreachable database rejects; never empty data that would read "$0 open"', async () => {
@@ -154,6 +188,15 @@ test('Review Focus 1: an unreachable database rejects; never empty data that wou
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const programFile = (name: string) =>
   committedProgram(name);
+
+test('v2.7.1: programs:sync writes pool_usd and the row reads back as the card\'s pool facts', dbTest, async () => {
+  await upsertProgram(ProgramFile.parse(programFile('arc-microgrants')));
+  const row = await getProgramRow('arc-microgrants');
+  assert.equal(Number(row.pool_usd), 10000);
+  assert.deepEqual(poolFacts(row), { pool_usd: 10000, pool_plus: false, pool_line: '10,000 USDC pool' });
+  await upsertProgram(ProgramFile.parse(programFile('base-builder-grants')));
+  assert.equal((await getProgramRow('base-builder-grants')).pool_usd, null);
+});
 
 test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async () => {
   await upsertProgram(ProgramFile.parse(programFile('arc-microgrants')));

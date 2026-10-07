@@ -35,6 +35,7 @@ import {
   trackRecord,
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
+import { poolLine, poolStated } from './pool';
 
 export class NotFoundError extends Error {}
 
@@ -124,6 +125,19 @@ export function perWinnerUsd(p: {
   return p.max_award_usd == null ? null : Number(p.max_award_usd);
 }
 
+/**
+ * v2.7.1: a curated program's pool (program file `pool_usd`), whether its reward text says "+",
+ * and the card's big line ("$840K in prizes", "10,000 USDC pool"). All null/false for a campaign
+ * or a program without a stated pool. Pure; exported for tests.
+ */
+export function poolFacts(p: Pick<ProgramRow, 'pool_usd' | 'reward' | 'title' | 'campaign'>) {
+  const usd = p.pool_usd == null || p.campaign ? null : Number(p.pool_usd);
+  const stated = usd ? poolStated(usd, p.reward) : null;
+  // programs:check refuses a pool its reward doesn't state; a row that slipped past counts as none.
+  if (!usd || !stated) return { pool_usd: null, pool_plus: false, pool_line: null };
+  return { pool_usd: usd, pool_plus: stated.plus, pool_line: poolLine(usd, stated, p.title) };
+}
+
 /** A sponsor's title is shown quoted, so it reads as their words, not EarnKit's. */
 const shownTitle = (p: { title: string; source: 'file' | 'sponsor' }) =>
   p.source === 'sponsor' ? quoted(p.title) : p.title;
@@ -161,6 +175,8 @@ export type ProgramRow = {
   source: 'file' | 'sponsor';
   /** numeric comes back from postgres.js as a string. */
   max_award_usd: string | null;
+  /** v2.7.1: the source-stated total prize pool in USD (numeric, so a string), or null. */
+  pool_usd: string | null;
   submission_requirements: SubmissionRequirement[];
   /** Up to 3 short ideas drawn from the program's stated focus or its published winners. */
   ideas: string[];
@@ -198,6 +214,7 @@ export async function listPrograms() {
       | 'source'
       | 'campaign'
       | 'max_award_usd'
+      | 'pool_usd'
       | 'opened_at'
       | 'submission_requirements'
       | 'ideas'
@@ -218,7 +235,7 @@ export async function listPrograms() {
     })[]
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
-      p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd,
+      p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.rules,
@@ -268,6 +285,7 @@ export function programCard(
     | 'source'
     | 'campaign'
     | 'max_award_usd'
+    | 'pool_usd'
     | 'opened_at'
     | 'submission_requirements'
     | 'ideas'
@@ -313,6 +331,8 @@ export function programCard(
     // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
     verified_at: p.source === 'sponsor' ? null : p.verified_at,
     max_award_usd: perWinnerUsd(p),
+    // v2.7.1: a curated program's source-stated pool, how its reward text states it, its big line.
+    ...poolFacts(p),
     // Its own "Sponsored" section; never the "Fastest" headline or the closing offer (present.ts).
     sponsored,
     tracks,
@@ -588,6 +608,7 @@ export async function upsertProgram(
       summary: p.summary,
       tag: p.tag ?? null,
       max_award_usd: p.max_award_usd ?? null,
+      pool_usd: p.pool_usd ?? null,
       chains: p.chains,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
