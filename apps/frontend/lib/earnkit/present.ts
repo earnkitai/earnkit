@@ -65,6 +65,8 @@ export type Card = {
   logo?: string | null;
   /** The program's chains (program file `chains`). */
   chains?: Chain[];
+  /** Whether entries get a token (program file `token_policy`); 'off' means none. */
+  token_policy?: 'encouraged' | 'allowed' | 'off';
 };
 
 /** One EarnKit campaign row (leaderboard.ts campaignRow). */
@@ -178,13 +180,15 @@ export const TOKEN_LINE_NO_BONUS = 'Every entry gets a token: you earn 40% of it
  * v2.7 §3, Ruling 11 (plan); v2.8 Ruling 25 (plan): the token and builder bonus sentence that
  * closes the message: TOKEN_LINE, plus " 0.60 ETH so far." from the pools already read for the
  * programs on screen (dropped while every pool is empty); TOKEN_LINE_NO_BONUS when no program on
- * screen has a bonus. `others` is the paragraph form before a campaign offer (or an offer that
- * can't earn the bonus), which keeps its v2.7 wording ("on the other open programs"), or null
- * without a bonus. Pure.
+ * screen has a bonus, or null when no program on screen gives its entries a token
+ * (`token_policy: 'off'`, or nothing on screen). `others` is the paragraph form before a campaign
+ * offer (or an offer that can't earn the bonus), which keeps its v2.7 wording ("on the other open
+ * programs"), or null without a bonus. Pure.
  */
 export function bonusClose(onScreen: Card[], others = false): string | null {
   const live = onScreen.filter((c) => bonusCell(c) !== NO_CELL);
-  if (live.length === 0) return others ? null : TOKEN_LINE_NO_BONUS;
+  if (live.length === 0)
+    return others || !onScreen.some((c) => c.token_policy !== 'off') ? null : TOKEN_LINE_NO_BONUS;
   const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
   const head = others
     ? `Plus the builder bonus on the other open programs: the top ${BONUS_TOP} on each also get paid in ETH.`

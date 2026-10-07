@@ -16,7 +16,7 @@ import {
   notReadyTokenNote,
   walletLine,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, toolDescriptions } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
@@ -578,6 +578,7 @@ const builderFacing: [string, string][] = [
 // may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
+  ['serverInstructions(false)', serverInstructions(false)],
   ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
   // v2.8 Ruling 23 (plan): the descriptions while no EarnKit campaign is open.
@@ -614,7 +615,7 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
   // SERVER_INSTRUCTIONS is agent-only too, and says EarnKit's listed facts are "checked against
   // official sources" — EarnKit's own verification, not a claim that EarnKit is official to anyone.
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())].filter(
-    ([label]) => !label.endsWith('.sponsor_campaign') && label !== 'SERVER_INSTRUCTIONS',
+    ([label]) => !label.endsWith('.sponsor_campaign') && label !== 'SERVER_INSTRUCTIONS' && label !== 'serverInstructions(false)',
   );
   // Only the negated disclaimer ("isn't affiliated with or endorsed by", Ruling 14 (plan)) is
   // allowed, on the policy page and the /bonus board pages that carry the same sentence; the

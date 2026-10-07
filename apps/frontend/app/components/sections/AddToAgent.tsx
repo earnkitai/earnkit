@@ -17,6 +17,8 @@ export type Agent = {
   code?: string;
   /** One line after the command (the approve step). */
   after?: string;
+  /** A command inside `after` the builder runs too, shown with its own Copy button. */
+  afterCode?: string;
 };
 
 /**
@@ -61,7 +63,7 @@ export const AGENTS: Agent[] = [
     name: 'Cursor',
     icon: '/images/agents/cursor.svg',
     install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${btoa(JSON.stringify({ url: MCP_URL }))}`,
-    steps: ['Or open Settings, then MCP, and add this to your config:'],
+    steps: ['Or add this to ~/.cursor/mcp.json:'],
     code: JSON.stringify(
       { mcpServers: { earnkit: { url: MCP_URL } } },
       null,
@@ -74,6 +76,7 @@ export const AGENTS: Agent[] = [
     steps: ['Run this in your terminal:'],
     code: `codex mcp add earnkit --url ${MCP_URL}`,
     after: 'Then run codex mcp login earnkit and approve.',
+    afterCode: 'codex mcp login earnkit',
   },
   {
     name: 'Muse',
@@ -229,7 +232,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           </ol>
           {agent.code && (
             <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white [overflow-wrap:anywhere]">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
                 {agent.code}
               </pre>
               <CopyButton
@@ -239,6 +242,14 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
             </div>
           )}
           {agent.after && <p className="mt-3 font-light">{agent.after}</p>}
+          {agent.afterCode && (
+            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
+                {agent.afterCode}
+              </pre>
+              <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
+            </div>
+          )}
           {/* v2.8 Ruling 19 (plan): the builder bonus pill under the steps. */}
           <div className="mt-4">
             <BonusPill size="sm" />

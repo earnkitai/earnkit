@@ -346,9 +346,9 @@ test('one offer: keep going beats the campaign; a sponsor campaign is never offe
   const sponsorOnly = presentFirstMessage(msg({ cards: [sponsored], repos: repos(v('sponsor-abc', 'likely', 'looks eligible')) }));
   assert.doesNotMatch(sponsorOnly, /Your repos/);
   assert.match(sponsorOnly, /None of your 1 repo fits an open program yet\./);
-  // Sponsored cards never earn the bonus and never show on screen: v2.8 Ruling 25 (plan)'s token
-  // line without the bonus.
-  assert.ok(sponsorOnly.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees."), sponsorOnly);
+  // Sponsored cards never earn the bonus and never show on screen, so there's nothing to close with
+  // (fix round 1: no program on screen, no token line either).
+  assert.ok(sponsorOnly.endsWith("Pick one and I'll start."), sponsorOnly);
 });
 
 test('chat-only agents are told honestly; repo errors in one line; nothing open', () => {
@@ -563,9 +563,10 @@ test('v2.7 §3: the bonus closes the message, joined to the offer', () => {
   assert.ok(tiny.endsWith("fund the builder bonus. Under 0.01 ETH so far."), tiny);
 });
 
-test('Review Focus 4: no bonus on screen, no sentence; a campaign offer stays last', () => {
+test('Review Focus 4: no bonus on screen, only the token line; a campaign offer stays last', () => {
   const off = presentFirstMessage(msg({ cards: [{ ...arc, builder_bonus: false }, { ...base, bonus_closed: true }] }));
   assert.doesNotMatch(off, /builder bonus/);
+  assert.ok(off.endsWith(' Every entry gets a token: you earn 40% of its trading fees.'), off);
   const camp = presentFirstMessage(msg({ cards: [pool(arc, 0.6)], campaigns: [openCampaign] }));
   const tail = camp.split('\n\n').slice(-2);
   assert.deepEqual(tail, [
@@ -616,4 +617,12 @@ test('v2.8 Ruling 25 (plan): the close is the token line, plus the ETH so far', 
   const empty = presentFirstMessage(msg({ cards: [big, small] }));
   assert.ok(empty.endsWith(`Pick one and I'll start. ${TOKEN_LINE}`), empty);
   assert.equal(bonusClose([{ ...small, builder_bonus: false }]), 'Every entry gets a token: you earn 40% of its trading fees.');
+});
+
+test('v2.8 Task 5 fix round 1: no token sentence when no program on screen gives its entries a token', () => {
+  const off = presentFirstMessage(msg({ cards: [{ ...small, builder_bonus: false, token_policy: 'off' }] }));
+  assert.ok(off.endsWith("Pick one and I'll start."), off);
+  assert.doesNotMatch(off, /token/);
+  assert.equal(bonusClose([]), null);
+  assert.equal(bonusClose([{ ...small, builder_bonus: false, token_policy: 'off' }, { ...big, builder_bonus: false }]), 'Every entry gets a token: you earn 40% of its trading fees.');
 });
