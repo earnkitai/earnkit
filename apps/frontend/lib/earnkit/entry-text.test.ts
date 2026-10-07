@@ -105,15 +105,13 @@ test('v2.5 Task 8: the campaign token row on a program with a builder bonus says
   assert.doesNotMatch(tokenRow('TIP', true), /\p{Extended_Pictographic}/u);
 });
 
-test('v2.5 Task 8 (v2.6 §3): confirmTable passes hasBonus through to the coin row', () => {
+test('v2.8 Part C: outside campaigns confirmTable has no token row, wallet line or footnote (the offer replaces them)', () => {
   const text = confirmTable({
     project: 'Tip Jar', programTitle: 'Arc Microgrants', campaign: null,
     prize: '500 USDC × 20 grants', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIP', hasBonus: true },
   });
-  assert.match(text, /\| Token \| Your entry gets a token on Base, \$TIP: .*say skip for no token \(and no builder bonus\) \|/);
-  // No wallet known: the wallet line is the ask.
-  assert.ok(text.endsWith(`\n\nWhich wallet should get your token's fees and any bonus?\n\n${COIN_FOOTNOTE}`), text);
+  assert.equal(text, '| Entry | Tip Jar for Arc Microgrants |\n|---|---|\n| Prize | 500 USDC × 20 grants |');
 });
 
 test('v2.5 Task 8: the footnote names the fee split for the builder only', () => {
@@ -137,16 +135,13 @@ test('Ruling 25 (I8): the token row of a repo whose token is entered in another 
   assert.equal(tokenRow('TIP', true, 'Arc Microgrants'), "no builder bonus: this repo's token is entered in Arc Microgrants");
   // Only where a bonus could be won; v2.3 rows elsewhere are unchanged.
   assert.equal(tokenRow('TIP', false, 'Arc Microgrants'), 'A token on Base, $TIP: you earn 40% of its trading fees · say skip for no token');
+  // v2.8 Part C: outside campaigns the offer says it ("Builder bonus counts in …"), not the table.
   const text = confirmTable({
     project: 'Tip Jar', programTitle: "Crypto World's Fair Hackathon", campaign: null,
     prize: '$30,000', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIP', wallet: '0x1111111111111111111111111111111111111111', hasBonus: true, coinIn: 'Arc Microgrants' },
   });
-  assert.equal(
-    text,
-    "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |\n| Token | no builder bonus: this repo's token is entered in Arc Microgrants |",
-    'no new token, so no wallet line and no fee footnote',
-  );
+  assert.equal(text, "| Entry | Tip Jar for Crypto World's Fair Hackathon |\n|---|---|\n| Prize | $30,000 |");
   assert.doesNotMatch(text, /vault|\p{Extended_Pictographic}/u);
 });
 
@@ -160,24 +155,11 @@ test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full,
     assert.doesNotMatch(line, /vault|\p{Extended_Pictographic}/u);
 });
 
-test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wallet once, the short footnote', () => {
+test('v2.8 Part C: confirmTable outside campaigns is the entry and prize only; campaigns keep the Token row', () => {
   const t = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC', endsAt: null, payoutWallet: null,
     token: { symbol: 'TIPJAR', wallet: W, hasBonus: true, remembered: true } });
-  assert.equal(
-    t,
-    [
-      '| Entry | TipJar for Arc Microgrants |',
-      '|---|---|',
-      '| Prize | 500 USDC |',
-      '| Token | Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · say skip for no token (and no builder bonus) |',
-      '',
-      `Wallet for fees and any bonus: ${W} (used last time), or tell me another.`,
-      '',
-      COIN_FOOTNOTE,
-    ].join('\n'),
-  );
-  assert.equal(t.split(W).length, 2, 'the wallet appears once');
-  assert.equal(t.split('40%').length, 2, '40% appears once');
+  assert.equal(t, ['| Entry | TipJar for Arc Microgrants |', '|---|---|', '| Prize | 500 USDC |'].join('\n'));
+  assert.doesNotMatch(t, /Token|Wallet|Fees in WETH/);
   // Campaign tables keep v2.4's Token row and footnote, and no wallet line.
   const c = confirmTable({ project: 'TipJar', programTitle: 'EarnKit Campaign #1', campaign, prize: '', endsAt: ENDS, payoutWallet: null,
     token: { symbol: 'TIPJAR', wallet: W, remembered: true } });
@@ -349,13 +331,12 @@ test('v2.7 §3: not ready leads with what is missing; no token, wallet or footno
   assert.doesNotMatch(t, /Token|Wallet|Fees in WETH|0x1581/);
   assert.match(t, /\| Prize \| 500 USDC × 20 grants \|/);
   assert.equal(notReadyLine(['A']), 'Before you submit: A.');
-  // Ready (missing: []) keeps the v2.6 shape with the Token row.
+  // Ready (missing: []): the entry and prize; v2.8 Part C, the confirmation offer follows (tools.ts).
   const ready = confirmTable({ project: 'TipJar', programTitle: 'Arc Microgrants', campaign: null, prize: '500 USDC × 20 grants',
     endsAt: null, payoutWallet: null, missing: [],
     token: { symbol: 'TIPJAR', wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', hasBonus: true } });
   assert.match(ready, /^\| Entry \| TipJar for Arc Microgrants \|/);
-  assert.match(ready, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
-  assert.ok(ready.endsWith(COIN_FOOTNOTE));
+  assert.ok(ready.endsWith('| Prize | 500 USDC × 20 grants |'), ready);
 });
 
 test('Ruling 15 (plan): a campaign not ready still asks about the remembered payout wallet', () => {

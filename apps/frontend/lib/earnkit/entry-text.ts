@@ -282,7 +282,8 @@ export function todoOf(req: { label: string; todo?: string }, problem = false): 
 
 /**
  * prepare_submission's show_to_builder (v2.4 §2): the one block the builder confirms. The prize
- * row is always first after the entry, naming the payout wallet in full; the token row is one line;
+ * row is always first after the entry, naming the payout wallet in full; in EarnKit campaigns the
+ * token row is one line (elsewhere the confirmation offer follows the table, v2.8 Part C);
  * a remembered wallet is asked about under the table; terms go under it.
  * `prize` is the program's own prize text (programs that aren't EarnKit campaigns). Pure.
  */
@@ -329,23 +330,14 @@ export function confirmTable(a: {
   else rows.push(['Prize', a.prize]);
   const ask = a.askWallet ? `\n\nPay prizes to ${a.askWallet}? It is the wallet from your last entry.` : '';
   if (a.missing?.length) return `${notReadyLine(a.missing)}\n\n${keyTable(rows)}${ask}`;
-  const coinIn = a.token?.hasBonus ? (a.token.coinIn ?? null) : null;
-  // v2.6 §3: outside campaigns, the token row and the wallet line under the table (one yes
-  // confirms both); campaigns keep v2.4's row. The key is Token everywhere (Ruling 17 (plan)).
-  const coin = !c && a.token;
-  if (a.token)
-    rows.push([
-      'Token',
-      coin
-        ? coinRow({ symbol: a.token.symbol, name: a.token.name, hasBonus: a.token.hasBonus === true, coinIn })
-        : tokenRow(a.token.symbol, a.token.hasBonus, coinIn, a.token.name),
-    ]);
-  const wallet =
-    a.token && coin && !coinIn
-      ? `\n\n${walletLine({ wallet: a.token.wallet ?? null, remembered: a.token.remembered === true, hasBonus: a.token.hasBonus === true })}`
-      : '';
-  const foot = a.token && !coinIn ? `\n\n${coin ? COIN_FOOTNOTE : tokenFootnote(a.token.wallet)}` : '';
-  return keyTable(rows) + ask + wallet + foot;
+  // v2.8 Part C: outside campaigns the confirmation offer (confirm.ts confirmOffer) replaces the
+  // token row and the wallet line; campaigns keep v2.4's Token row (EarnKit campaigns are entered in
+  // one step).
+  if (!c || !a.token) return keyTable(rows) + ask;
+  const coinIn = a.token.hasBonus ? (a.token.coinIn ?? null) : null;
+  rows.push(['Token', tokenRow(a.token.symbol, a.token.hasBonus, coinIn, a.token.name)]);
+  const foot = coinIn ? '' : `\n\n${tokenFootnote(a.token.wallet)}`;
+  return keyTable(rows) + ask + foot;
 }
 
 /** record_submission's show_to_builder for a campaign entry (v2.4 §2): rank, leaderboard, payout date. Pure. */

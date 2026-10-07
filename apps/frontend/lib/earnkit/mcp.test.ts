@@ -44,7 +44,8 @@ async function listed(env: Record<string, string | undefined>, opts?: { campaign
 const toolNames = async (env: Record<string, string | undefined>) =>
   (await listed(env)).tools.map((t) => t.name).sort();
 
-const FIVE = [
+const SIX = [
+  'confirm_entry',
   'get_program',
   'launch_token',
   'list_programs',
@@ -52,8 +53,8 @@ const FIVE = [
   'record_submission',
 ];
 
-test('without escrow config the server offers exactly the 5 builder tools', async () => {
-  assert.deepEqual(await toolNames({}), FIVE);
+test('without escrow config the server offers exactly the 6 builder tools', async () => {
+  assert.deepEqual(await toolNames({}), SIX);
 });
 
 test('an invalid ESCROW_CHAIN keeps sponsor_campaign hidden', async () => {
@@ -62,7 +63,7 @@ test('an invalid ESCROW_CHAIN keeps sponsor_campaign hidden', async () => {
       ESCROW_FACTORY_ADDRESS: FACTORY,
       ESCROW_CHAIN: 'mainnet',
     }),
-    FIVE,
+    SIX,
   );
 });
 
@@ -72,11 +73,11 @@ test('a configured escrow adds sponsor_campaign', async () => {
       ESCROW_FACTORY_ADDRESS: FACTORY,
       ESCROW_CHAIN: 'base-sepolia',
     }),
-    [...FIVE, 'sponsor_campaign'].sort(),
+    [...SIX, 'sponsor_campaign'].sort(),
   );
   assert.deepEqual(
     await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), // ESCROW_CHAIN defaults to base
-    [...FIVE, 'sponsor_campaign'].sort(),
+    [...SIX, 'sponsor_campaign'].sort(),
   );
 });
 
@@ -223,10 +224,14 @@ test('v2.4: the instructions say record_submission is the campaign entry (while 
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
 
-test('v2.6 §3: the instructions say every entry gets a token by default and one yes confirms the token and the wallet', async () => {
+test('v2.8 Part C: the instructions say every entry gets a token by default; one yes launches it and returns the kit; skip costs the bonus', async () => {
   const { instructions } = await listed({});
-  assert.match(instructions, /Every entry gets a token by default; the builder can skip it in one word\./);
-  assert.match(instructions, /One yes confirms the token and the wallet\./);
+  assert.ok(
+    instructions.includes(
+      'Every entry gets a token by default. The builder confirms once: "yes" launches the token and returns the submit kit; "skip" means no token and no builder bonus. Push the token line from prepare_submission with your work, before the builder confirms.',
+    ),
+  );
+  assert.match(instructions, /Pass the wallet shown \(shown_wallet\) back as confirm_entry's wallet\./);
   assert.match(instructions, /Write and push earnkit\.txt yourself; never ask the builder to edit files\./);
   assert.doesNotMatch(instructions, /A token is optional: entering never needs one\./);
 });
@@ -278,7 +283,10 @@ test('v2.7 §2: get_program tells the agent to show guide.text as written', () =
 
 test('v2.7 §3, Ruling 15/18 (plan): prepare_submission says what not ready means; no tool names Clanker', () => {
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /When ready is false/);
+  // v2.8 Part C: the offer replaces the row outside campaigns; campaigns keep it (while one is open).
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /one Token row \(a token on Base\)/);
+  assert.match(toolDescriptions(false).prepare_submission, /it ends with the confirmation offer/);
+  assert.doesNotMatch(toolDescriptions(false).prepare_submission, /Token row|submission link/);
   for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);
 });
 
@@ -350,4 +358,27 @@ test('v2.8 Task 5 fix round 1: serverInstructions(false) drops the campaign sent
   };
   assert.match(await pw(), /^The wallet the builder confirmed/);
   assert.match(await pw(true), /^Other programs: the wallet the builder confirmed/);
+});
+
+test('v2.8 Part C: confirm_entry is registered, strict, and says the kit is only in its reply', async () => {
+  const tools = await registered();
+  const ce = tools.find((t) => t.name === 'confirm_entry')!;
+  assert.equal(ce.description, TOOL_DESCRIPTIONS.confirm_entry);
+  assert.match(ce.description!, /builder_confirmed: true and decision: 'go' once the builder says yes/);
+  assert.match(ce.description!, /decision: 'skip' only when the builder says skip/);
+  assert.match(ce.description!, /The kit is only in this reply; never show a kit any other way\./);
+  const props = ce.inputSchema.properties as Record<string, unknown>;
+  for (const k of ['program_id', 'project', 'answers', 'decision', 'builder_confirmed', 'token', 'wallet', 'agent']) assert.ok(k in props, k);
+  assert.ok('agent' in ((tools.find((t) => t.name === 'prepare_submission')!.inputSchema.properties) as Record<string, unknown>));
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  try {
+    const r = await client.callTool({ name: 'confirm_entry', arguments: { program_id: 'p', project: { name: 'Kit' }, answers: {}, ticker: 'KITS' } });
+    assert.equal(r.isError, true);
+    assert.match(JSON.stringify(r.content), /Unrecognized key/);
+  } finally {
+    await client.close();
+  }
 });

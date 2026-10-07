@@ -457,7 +457,7 @@ function storedProposal(p: FlowProject) {
 
 /** Ruling 31: tool, field or file names a builder-facing note must never carry. */
 export const TECHNICAL_TERMS =
-  /\b(launch_token|record_submission|prepare_submission|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
+  /\b(launch_token|record_submission|prepare_submission|confirm_entry|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
 
 /**
  * A LaunchError or RateLimitError as an outcome. Ruling 31: a message naming a field (an image or
@@ -475,11 +475,17 @@ const notLaunched = (err: unknown): TokenOutcome | null => {
 /** Where a flow got to: once `deploying`, a launch claim may be pending. */
 type Progress = { deploying: boolean };
 
-/** The one token flow behind record_submission ('submission') and launch_token ('launch'). */
+/**
+ * The one token flow behind record_submission ('submission'), launch_token ('launch') and, v2.8,
+ * confirm_entry ('confirm'). In confirm mode a problem the agent can fix now and retry (no wallet, a
+ * name or ticker problem, a taken ticker, the gate's proof line or a transient read) is marked
+ * `fixable`; a lasting one (no public repo, the repo's token elsewhere, the daily limit, launches
+ * unavailable, a tokens.fun refusal) is not.
+ */
 async function runTokenFlow(
   project: FlowProject,
   a: {
-    mode: 'submission' | 'launch';
+    mode: 'submission' | 'launch' | 'confirm';
     installationId: number;
     choice: 'skip' | Choice | undefined;
     confirmed: boolean;
@@ -505,11 +511,14 @@ async function runTokenFlow(
       ? { status: 'skipped', note: TOKENS_UNAVAILABLE }
       : record('skipped', TOKENS_UNAVAILABLE);
 
+  // A confirm-mode problem the agent fixes and retries (v2.8 Ruling 4 (plan)).
+  const fix = (o: TokenOutcome): TokenOutcome => (a.mode === 'confirm' ? { ...o, fixable: true } : o);
   // At submission an explicit ticker is the builder's; no proposal (and no ticker lookups) needed.
   const explicit = a.mode === 'submission' && Boolean(choice?.symbol?.trim());
+  // A retry (launch_token, or confirm_entry after a taken ticker) uses the stored suggestion.
   const proposed = explicit
     ? null
-    : (a.mode === 'launch' && storedProposal(project)) ||
+    : (a.mode !== 'submission' && storedProposal(project)) ||
       (await proposeToken(project.name, deps.check, project.repo_url ?? undefined));
   const proposal = proposed ? { name: proposed.name, symbol: proposed.symbol } : null;
   // At submission a ticker without a name takes the (cleaned) project name.
@@ -556,9 +565,12 @@ async function runTokenFlow(
       decision.agent_note,
     );
     // Ruling 18 (plan): at submission, no wallet means the entry has no coin yet.
-    return decision.action === 'refuse' && decision.code === 'no_wallet' && a.mode === 'submission'
-      ? { ...out, no_wallet: true }
-      : out;
+    if (decision.action === 'refuse' && decision.code === 'no_wallet' && a.mode !== 'launch')
+      return a.mode === 'confirm'
+        ? fix({ ...out, no_wallet: true, agent_note: 'Ask the builder for their wallet and call confirm_entry again with it as wallet.' })
+        : { ...out, no_wallet: true };
+    // v2.8 Ruling 4 (plan): a name or ticker the builder can change now; a token in progress is not.
+    return decision.action === 'refuse' && !project.token_url ? fix(out) : out;
   }
 
   const { name, symbol } = decision;
@@ -579,13 +591,17 @@ async function runTokenFlow(
       async (s) => (s === symbol ? false : check(s)),
       project.repo_url ?? undefined,
     );
-    return record(
-      repoNotNow,
-      tickerTakenNote(next.symbol),
-      name,
-      next.symbol,
-      `${symbol} is already used on tokens.fun (check-ticker), so nothing was deployed. ` +
-        `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`,
+    return fix(
+      await record(
+        repoNotNow,
+        tickerTakenNote(next.symbol),
+        name,
+        next.symbol,
+        `${symbol} is already used on tokens.fun (check-ticker), so nothing was deployed. ` +
+          (a.mode === 'confirm'
+            ? `If the builder says go, call confirm_entry again (it uses the stored ${next.symbol}); for their own ticker, pass token.symbol.`
+            : `If the builder says go, call launch_token (it uses the stored ${next.symbol}); for their own ticker, pass symbol.`),
+      ),
     );
   }
 
@@ -601,7 +617,8 @@ async function runTokenFlow(
   );
   if (!gate.ok) {
     const out = await record('gate_failed', gate.reason, name, symbol);
-    return gate.agent_note ? { ...out, agent_note: gate.agent_note } : out;
+    const withNote = gate.agent_note ? { ...out, agent_note: gate.agent_note } : out;
+    return gate.fixable ? fix(withNote) : withNote;
   }
 
   let image: ReturnType<typeof decodeImage> | null;
@@ -723,6 +740,53 @@ export async function submissionToken(
     return { status: 'failed', note: progress.deploying ? TOKEN_ERROR_DEPLOYING : TOKEN_ERROR };
   }
 }
+
+/**
+ * v2.8 Part C, Ruling 4 (plan): the token on the builder's "yes" at the confirmation step
+ * (confirm_entry). Only `wallet`, the one shown in this exchange (never a remembered one), or the
+ * entry's own. A `fixable` outcome means: no kit yet, the agent fixes it and confirms again; its
+ * builder note says "say go" (the confirmation), and its agent note names confirm_entry. Any other
+ * non-launch is lasting (the entry is recorded with no token and the kit is returned). Never throws
+ * for a token problem.
+ */
+export async function confirmToken(
+  a: { projectId: number; installationId: number; token?: { name?: string; symbol?: string }; wallet: string | null },
+  deps: TokenFlowDeps = {},
+): Promise<TokenOutcome> {
+  const store = deps.store ?? dbStore;
+  const progress: Progress = { deploying: false };
+  try {
+    const project = await ownProject(store, a.projectId, a.installationId);
+    const parsed = TokenChoice.safeParse({
+      ...(a.token?.name !== undefined && { name: a.token.name }),
+      ...(a.token?.symbol !== undefined && { symbol: a.token.symbol }),
+      ...(a.wallet && { creator_wallet: a.wallet }),
+    });
+    if (!parsed.success) {
+      return { status: 'skipped', ...plainProblem(issuesText(parsed.error.issues)), fixable: true };
+    }
+    const out = await runTokenFlow(
+      project,
+      { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base' },
+      deps,
+      progress,
+    );
+    if (!out.fixable) return out;
+    return {
+      ...out,
+      ...(out.note && { note: out.note.replace(/say 'launch the token'/g, 'say go') }),
+      ...(out.agent_note && { agent_note: out.agent_note.replace(/call launch_token/g, 'call confirm_entry again') }),
+    };
+  } catch (err) {
+    if (err instanceof LaunchError) throw err;
+    console.error('[token] confirm', err instanceof Error ? err.name : 'error');
+    return progress.deploying
+      ? { status: 'failed', note: TOKEN_ERROR_DEPLOYING }
+      : { status: 'failed', note: TOKEN_ERROR_CONFIRM, fixable: true };
+  }
+}
+
+const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
 /**
  * v2.8 Ruling C7: the deploy window. A token launched by v2.7 code between the migration (which

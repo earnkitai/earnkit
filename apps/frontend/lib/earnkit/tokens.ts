@@ -98,6 +98,11 @@ export type TokenOutcome = {
    * to the builder; `note` stays in plain builder words.
    */
   agent_note?: string;
+  /**
+   * v2.8 Ruling 4 (plan), confirm_entry only: the agent can fix this now (a wallet, a ticker, the
+   * proof line, a transient read) and confirm again; no submit kit until then.
+   */
+  fixable?: boolean;
 };
 
 /** What the builder is told about fee splits once a token is live. */

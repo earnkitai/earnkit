@@ -3,9 +3,10 @@ import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import {
   RecordSubmissionInput,
   recordSubmission,
+  startEntry,
   type EntryDeps,
 } from './projects';
-import { givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
+import { EntryError, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { repoNameOf, titleCase } from './token-proposal';
@@ -43,15 +44,22 @@ import {
 import { OWNERSHIP_FILE } from './ownership';
 import {
   LaunchTokenInput,
+  SKIPPED_ENTRY,
+  confirmToken,
+  hasBuilderBonus,
   launchToken,
   submissionToken,
   tokenProposalBlock,
   type TokenFlowDeps,
 } from './token-launch';
-import { cleanProject, quoted } from './untrusted-text';
+import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
+import { tokenLineFor } from './token-gate';
+import { READY_TO_SUBMIT, confirmDecision, confirmOffer, offerWalletLine, NO_WALLET_HINT } from './confirm';
+import { submitKit, type SubmitKit } from './submit-kit';
+import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
-import { REPO_HAS_TOKEN, repoCoinPrograms, type TokenOutcome } from './tokens';
+import { REPO_HAS_TOKEN, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -110,10 +118,67 @@ const GetProgramInput = ProgramId.extend({
   repo: z.string().optional(),
 }).strict();
 
+/**
+ * v2.8 Ruling 7 (plan): what the agent can do. `browser` (default false): it drives the builder's
+ * own logged-in browser. `can_push` (default true): it can push to the repo; false means no token
+ * launch is attempted.
+ */
+const AgentInput = z.object({ browser: z.boolean().optional(), can_push: z.boolean().optional() }).strict();
+
 const PrepareSubmissionInput = ProgramId.extend({
   project: ProjectInfo.optional(),
   answers: z.record(z.string(), z.string()).optional(),
+  agent: AgentInput.optional(),
 }).strict();
+
+/** v2.8 Ruling 1 (plan): the confirmation step's input. */
+const ConfirmEntryInput = z
+  .object({
+    program_id: z.string(),
+    project: ProjectInfo.extend({ name: z.string().max(RAW_CAP).trim().min(1) }),
+    answers: z.record(z.string(), z.string()),
+    decision: z.enum(['go', 'skip']).optional(),
+    builder_confirmed: z.literal(true).optional(),
+    token: z.object({ name: z.string().max(200).optional(), symbol: z.string().max(20).optional() }).strict().optional(),
+    wallet: z.string().optional(),
+    agent: AgentInput.optional(),
+  })
+  .strict();
+
+/**
+ * v2.8 Part C: what the confirmation offer and decision read about a program and repo. `coinIn`
+ * (Ruling 5 (plan)): the other program this repo's one token is entered in; a failed read never
+ * fails the tool (no offer change).
+ */
+async function offerFacts(program: ProgramRow, repoUrl: string | null | undefined, ctx: ToolContext) {
+  const key = repoUrl ? normalizeRepoUrl(repoUrl) : null;
+  let coinIn: string | null = null;
+  if (key) {
+    const coins = await (ctx.repoCoins ?? repoCoinPrograms)([key]).catch((err: unknown) => {
+      console.error('[confirm] repo token lookup', err instanceof Error ? err.name : 'error');
+      return new Map<string, { program_id: string; title: string }>();
+    });
+    const coin = coins.get(key);
+    if (coin && coin.program_id !== program.id) coinIn = coin.title;
+  }
+  return {
+    hasBonus: hasBuilderBonus(program),
+    coinIn,
+    policyOff: program.token_policy === 'off',
+    available: (ctx.tokenDeps?.available ?? tokenLaunchesAvailable)(),
+  };
+}
+
+/** The agent's note with the token line: commit it with the next push, before the builder confirms. */
+const TOKEN_LINE_NOTE = 'Commit this line to earnkit.txt at the repo root with your next push, before the builder confirms.';
+
+/** The first line of confirm_entry's reply once the entry is confirmed, before the kit. Pure. */
+function tokenLine(token: TokenOutcome | null, fallback: string) {
+  if (token?.status === 'launched' && token.tokens_fun)
+    return `Your token: ${token.tokens_fun.replace(/^https?:\/\//, '')}. You earn 40% of its fees.`;
+  if (token?.status === 'pending') return 'Your token is launching.';
+  return token?.note ?? fallback;
+}
 
 const ListProgramsInput = z
   .object({
@@ -321,7 +386,7 @@ export const tools = {
   },
 
   prepare_submission: async (input: unknown, ctx: ToolContext) => {
-    const { program_id, ...known } = PrepareSubmissionInput.parse(input);
+    const { program_id, agent, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -331,7 +396,7 @@ export const tools = {
     if (open) await setWorkingOn(ctx.installationId, program_id, true);
     // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
     // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
-    // programs: prefilled as the coin's fee wallet, shown short on the wallet line.
+    // programs: shown short on the confirmation offer's wallet line.
     const remembered = await rememberedWallet(ctx.installationId);
     // Ruling 22: outside campaigns a wallet the builder gave is valid or the call fails.
     const given = program.campaign
@@ -345,7 +410,7 @@ export const tools = {
         )
       : { wallet: null, note: null };
     // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
-    // leads with them and there is no token block, wallet or ticker check yet.
+    // leads with them and there is no token offer, wallet or ticker check yet.
     const prep = prepareSubmission(program.submission_requirements, known);
     // C5: as short to-dos (the program's `todo`, else the label normalized); an item given but
     // invalid says "(check it)", its problem is in missing[].problem for the agent.
@@ -355,6 +420,7 @@ export const tools = {
       : prep.missing
           .filter((m) => m.required)
           .map((m) => todoOf(reqs.get(m.key) ?? { label: m.label }, Boolean(m.problem)));
+    const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     // The proposed token; its creator wallet is the entry's payout wallet when there is one.
     // No token block on a closed program (v2.4 §6, audit C22).
     const token = open && prep.ready
@@ -363,17 +429,14 @@ export const tools = {
           projectName: known.project?.name,
           // Campaigns: only a payout wallet given in this call (never the remembered one, which
           // is asked about, not assumed); without one the block asks the builder for the fee
-          // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one,
-          // named in full in the footnote.
+          // wallet. Other programs (v2.6 §3): the wallet given now, else the remembered one.
           creatorWallet: program.campaign ? given : (given ?? remembered),
           remembered: !program.campaign && !given && remembered !== null,
           // The earnkit.txt token line is bound to this agent and the repo; shown only in this reply.
           installationId: ctx.installationId,
-          repoUrl: known.project?.repo_url ?? known.answers?.repo_url,
+          repoUrl,
         })
       : null;
-    // v2.4 §2: the one confirmation the builder sees, prize first; the token is one row.
-    const repoUrl = known.project?.repo_url ?? known.answers?.repo_url;
     const payoutWallet = given;
     const sign_to_enter = signToEnter(
       program_id,
@@ -381,7 +444,8 @@ export const tools = {
       payoutWallet,
       known.answers?.contracts,
     );
-    const show_to_builder = confirmTable({
+    // v2.4 §2: the one confirmation the builder sees, prize first. Campaigns: the token is one row.
+    const table = confirmTable({
       // Fix round 1 (Minor 6): the repo name, as the token is named, before "Your project".
       project: known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? '') || 'Your project',
       programTitle:
@@ -401,32 +465,172 @@ export const tools = {
             wallet: token.creator_wallet,
             hasBonus: token.has_bonus,
             coinIn: token.repo_coin_program,
-            remembered: !program.campaign && !given && remembered !== null,
           }
         : null,
     });
+    if (program.campaign)
+      return withAlerts(ctx.installationId, {
+        program_id,
+        ...(!open && { warning: 'This program is closed or past its deadline.' }),
+        show_to_builder: table,
+        ...prep,
+        ...(ask.note && { payout_wallet_note: ask.note }),
+        // v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only while the campaign is open.
+        ...(open && {
+          how_to_submit:
+            'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
+            `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
+            "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
+          ...(sign_to_enter && { sign_to_enter }),
+        }),
+        ...(token && { token }),
+      });
+
+    // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the confirmation offer (the builder
+    // bonus comes with a token) closes the screen; the kit comes only from confirm_entry, so no
+    // submission link, prefilled link or paste list here.
+    const canPush = agent?.can_push !== false;
+    const facts = open && prep.ready ? await offerFacts(program, repoUrl, ctx) : null;
+    const offerWallet = given ?? remembered;
+    const offer = facts
+      ? confirmOffer({
+          hasBonus: facts.hasBonus,
+          coinIn: facts.coinIn,
+          canPush,
+          wallet: offerWallet,
+          remembered: !given && remembered !== null,
+          tokensOff: facts.policyOff || !facts.available,
+        })
+      : null;
+    const offersToken = facts !== null && !facts.coinIn && canPush && !facts.policyOff && facts.available;
+    // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
+    // its work before the builder confirms (an agent that can't push gets none).
+    const line = repoUrl && canPush && program.token_policy !== 'off' ? tokenLineFor(ctx.installationId, repoUrl) : null;
+    const show_to_builder = offer
+      ? `${table}\n\n${offer.endsWith(READY_TO_SUBMIT) ? offer : `Ready. ${offer}`}`
+      : table;
     return withAlerts(ctx.installationId, {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
       ...prep,
-      ...(ask.note && { payout_wallet_note: ask.note }),
-      // v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for a campaign, and only while
-      // it is open (so never while no EarnKit campaign is open); other programs get their link.
-      ...(program.campaign
-        ? open && {
-            how_to_submit:
-              'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
-              `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
-              "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
-            ...(sign_to_enter && { sign_to_enter }),
-          }
-        : { submission_url: program.submission_url }),
-      ...(token && { token }),
-      // Ruling 30: the wallet the builder sees on the wallet line, to echo as record_submission's
-      // payout_wallet once they say yes. record_submission never reads the remembered wallet.
-      ...(!program.campaign && token?.creator_wallet && !token.repo_coin_program && { shown_wallet: token.creator_wallet }),
+      ...(token && {
+        token: {
+          proposed: token.proposed,
+          chain: token.chain,
+          creator_wallet: token.creator_wallet,
+          has_bonus: token.has_bonus,
+          repo_coin_program: facts?.coinIn ?? null,
+        },
+      }),
+      // Ruling 30: the wallet the builder sees on the offer's wallet line, to echo as confirm_entry's
+      // wallet once they say yes. confirm_entry never reads the remembered wallet itself.
+      ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
+      ...(line && { token_line: line, agent_note: TOKEN_LINE_NOTE }),
     });
+  },
+
+  // v2.8 Part C, Rulings 1, 4, 5 and 7 (plan): the confirmation step. Without the builder's yes it
+  // returns the offer; on "go" the token launches; the submit kit comes only from here.
+  confirm_entry: async (input: unknown, ctx: ToolContext) => {
+    const i = ConfirmEntryInput.parse(input);
+    const program = await getProgramRow(i.program_id);
+    if (program.campaign) throw new EntryError('EarnKit campaigns are entered in one step.');
+    if (!isOpen(program)) throw new EntryError('This program is closed or past its deadline.');
+    // Ruling 22: a wallet given is valid or the call fails (a typo never falls back to another).
+    const given = givenWallet(i.wallet);
+    const repoUrl = i.project.repo_url ?? i.answers.repo_url ?? null;
+    const canPush = i.agent?.can_push !== false;
+    const facts = await offerFacts(program, repoUrl, ctx);
+    const decision = confirmDecision({
+      confirmed: i.builder_confirmed === true,
+      decision: i.decision,
+      coinIn: facts.coinIn,
+      canPush,
+      hasRepo: Boolean(repoUrl),
+      policyOff: facts.policyOff,
+      available: facts.available,
+    });
+    const tokensOff = facts.policyOff || !facts.available;
+    const offersToken = !facts.coinIn && canPush && !tokensOff;
+    if (decision.kind === 'offer') {
+      const remembered = given ? null : await rememberedWallet(ctx.installationId);
+      const wallet = given ?? remembered;
+      return {
+        show_to_builder: confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && remembered !== null, tokensOff }),
+        ...(offersToken && wallet && { shown_wallet: wallet }),
+        agent_note:
+          "Show show_to_builder as written. When the builder says yes, call confirm_entry again with builder_confirmed: true, decision: 'go'" +
+          (offersToken ? ' and wallet: shown_wallet (or the wallet they name instead)' : '') +
+          "; when they say skip, decision: 'skip'.",
+      };
+    }
+
+    // Each confirmation may read GitHub and tokens.fun: bounded per hour, like record_submission.
+    await enforce('entryChecks', ctx.installationId, 'This agent has checked 60 entries in the last hour.');
+    const entry = await startEntry({
+      program,
+      installationId: ctx.installationId,
+      project: i.project,
+      answers: i.answers,
+      choice: decision.kind === 'skip' ? 'skip' : 'go',
+      now: new Date(),
+      // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
+      charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
+    });
+
+    let token: TokenOutcome | null = null;
+    if (entry.token_url)
+      token = entry.token_url === 'pending'
+        ? { status: 'pending', note: "This entry's token is launching." }
+        : { status: 'launched', tokens_fun: entry.token_url, note: 'This entry already has its token.' };
+    else if (decision.kind === 'launch' && entry.confirm_choice === 'go') {
+      token = await confirmToken(
+        { projectId: entry.id, installationId: ctx.installationId, token: i.token, wallet: given },
+        ctx.tokenDeps,
+      );
+      // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
+      if (token.fixable) {
+        const remembered = token.no_wallet ? await rememberedWallet(ctx.installationId) : null;
+        return {
+          project_id: entry.id,
+          token,
+          show_to_builder: token.no_wallet
+            ? remembered
+              ? offerWalletLine({ wallet: remembered, remembered: true, hasBonus: facts.hasBonus })
+              : NO_WALLET_HINT
+            : (token.note ?? ''),
+          ...(token.no_wallet && remembered && { shown_wallet: remembered }),
+          agent_note: `${token.agent_note ? `${token.agent_note} ` : ''}The submit kit comes only in confirm_entry's reply, once this is fixed.`,
+        };
+      }
+    } else if (decision.kind === 'launch' && entry.confirm_choice === 'skip')
+      token = { status: 'skipped', note: SKIPPED_ENTRY };
+
+    const skipLine = facts.hasBonus ? 'No token, no builder bonus.' : 'No token.';
+    const first =
+      decision.kind === 'skip' && !entry.token_url
+        ? skipLine
+        : tokenLine(token, decision.kind === 'record_only' ? decision.note : skipLine);
+    // The kit: every answer (the agent's, plus what the project info fills), in the form's order.
+    const filled = prepareSubmission(program.submission_requirements, {
+      project: { ...i.project, ...(repoUrl && { repo_url: repoUrl }) },
+      answers: i.answers,
+    });
+    const kit: SubmitKit = submitKit(
+      program,
+      Object.fromEntries(filled.complete.map((c) => [c.key, c.value])),
+      { browser: i.agent?.browser === true },
+    );
+    return {
+      project_id: entry.id,
+      ...(token && { token }),
+      kit,
+      show_to_builder: `${first}\n\n${kit.show_to_builder}`,
+      agent_note:
+        'Show show_to_builder as written. Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
+        (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.'),
+    };
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
@@ -451,11 +655,16 @@ export const tools = {
     await setWorkingOn(ctx.installationId, parsed.program_id, false);
     // The token never fails the submission: it is recorded either way. Fix round 1 (I1): an
     // updated entry that already has its coin keeps it (no second launch, no refusal shown).
+    // v2.8 Ruling 1 (plan): an entry that passed the confirmation step had its token decided there;
+    // no token flow runs here, the row's token is reported.
+    const confirmed = 'confirm_choice' in result ? result.confirm_choice : null;
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
         ? { status: 'pending', note: 'This entry\'s token is launching.' }
         : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its token.' }
-      : await submissionToken(
+      : confirmed
+        ? { status: 'skipped', note: confirmed === 'skip' ? SKIPPED_ENTRY : "This entry's token isn't launched." }
+        : await submissionToken(
       {
         projectId: result.project_id,
         installationId: ctx.installationId,
@@ -484,7 +693,7 @@ export const tools = {
         : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =
-      parsed.token === 'skip' || result.token_policy === 'off' || Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
+      parsed.token === 'skip' || confirmed === 'skip' || result.token_policy === 'off' || Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
     const coin: EnteredText['coin'] =
       token.status === 'launched' && token.tokens_fun
         ? { status: 'launched', url: token.tokens_fun }

@@ -21,6 +21,19 @@ import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from '.
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
+  CANT_PUSH,
+  NEEDS_REPO,
+  NO_TOKEN_HERE,
+  NO_WALLET_HINT,
+  READY_TO_SUBMIT,
+  SKIP_LINE,
+  bonusCountsIn,
+  confirmOffer,
+  offerWalletLine,
+} from './confirm';
+import { submitKit } from './submit-kit';
+import {
+  confirmToken,
   decideToken,
   launchToken,
   NEEDS_SYMBOL_AGENT,
@@ -545,8 +558,54 @@ const campaignPageTexts: [string, string][] = [
   ['campaign page: removed line', removedLine('Tipjar', 'wash trading')],
 ];
 
+// v2.8 Task 8: every confirmation offer variant, and the kit's builder text.
+const OFFER_WALLET = '0xAb12000000000000000000000000000000000123';
+const offerBase = { hasBonus: true, coinIn: null, canPush: true, wallet: OFFER_WALLET, remembered: true };
+const confirmTexts: [string, string][] = [
+  ['confirmOffer: remembered wallet', confirmOffer(offerBase)],
+  ['confirmOffer: given wallet', confirmOffer({ ...offerBase, remembered: false })],
+  ['confirmOffer: no wallet', confirmOffer({ ...offerBase, wallet: null, remembered: false })],
+  ['confirmOffer: no bonus', confirmOffer({ ...offerBase, hasBonus: false })],
+  ['confirmOffer: no bonus, no wallet', confirmOffer({ ...offerBase, hasBonus: false, wallet: null, remembered: false })],
+  ['confirmOffer: token elsewhere', confirmOffer({ ...offerBase, coinIn: 'Arc Microgrants' })],
+  ["confirmOffer: can't push", confirmOffer({ ...offerBase, canPush: false })],
+  ['confirmOffer: tokens off', confirmOffer({ ...offerBase, tokensOff: true })],
+  ['offerWalletLine: remembered', offerWalletLine({ wallet: OFFER_WALLET, remembered: true, hasBonus: true })],
+  ['NO_WALLET_HINT', NO_WALLET_HINT],
+  ['CANT_PUSH', CANT_PUSH],
+  ['SKIP_LINE', SKIP_LINE],
+  ['READY_TO_SUBMIT', READY_TO_SUBMIT],
+  ['NEEDS_REPO', NEEDS_REPO],
+  ['NO_TOKEN_HERE', NO_TOKEN_HERE],
+  ['bonusCountsIn', bonusCountsIn('Arc Microgrants')],
+  [
+    'submitKit: copy_paste (entry link)',
+    submitKit(
+      {
+        title: 'Arc Microgrants',
+        submission_url: 'https://dorahacks.io/hackathon/arc-microgrants',
+        submission_requirements: [
+          { key: 'repo_url', label: 'Public repo', type: 'url', required: true, from: 'project' },
+          { key: 'description', label: 'Short description', type: 'text', required: true, from: 'project' },
+        ],
+      },
+      { repo_url: 'https://github.com/alice/tipjar', description: 'Tips for creators' },
+      { browser: false },
+    ).show_to_builder,
+  ],
+  [
+    'submitKit: copy_paste (confirmation)',
+    submitKit(
+      { title: 'Base Builder Grants', submission_url: 'https://forms.gle/abc', submission_requirements: [{ key: 'email', label: 'Email', type: 'email', required: true, from: 'builder' }] },
+      { email: 'a@b.co' },
+      { browser: false },
+    ).show_to_builder,
+  ],
+];
+
 const builderFacing: [string, string][] = [
   ...campaignPageTexts,
+  ...confirmTexts,
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
   ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
   ...enteredTexts.map((s, i): [string, string] => [`enteredText[${i}]`, s]),
@@ -779,4 +838,90 @@ test('Ruling 31: every launch_token note is plain builder text; technical detail
   assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /launch_token with creator_wallet/);
   assert.match(byLabel.get('launch note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt/);
   assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
+});
+
+// ---- v2.8 Task 8: confirm_entry's token notes. A fixable note is what the builder sees with no
+// kit, so it must be plain words and say "go" (the confirmation), never "launch the token"; the agent
+// note names confirm_entry, never launch_token.
+async function gatherConfirmNotes(): Promise<[string, TokenOutcome][]> {
+  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+  const REPO = 'https://github.com/acme/kit';
+  const run = async (
+    label: string,
+    o: { wallet?: string | null; token?: { name?: string; symbol?: string } } = {},
+    extra: Partial<TokenFlowDeps> = {},
+    gate: Partial<GateDeps> = {},
+    repoToken: string | null = null,
+  ): Promise<[string, TokenOutcome]> => {
+    const project: FlowProject = {
+      id: 8, name: 'Chain Kits', repo_url: REPO, live_url: null, payout_wallet: null, creator_wallet: null, token_url: null,
+      token_name: null, token_symbol: null, installation_id: 1, token_policy: 'encouraged', confirm_choice: 'go',
+    };
+    const deps: TokenFlowDeps = {
+      available: () => true,
+      limit: async () => {},
+      check: async () => true,
+      gate: {
+        repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+        owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
+        screen: async () => {},
+        ...gate,
+      },
+      deploy: async (a) => ({ status: 'launched', name: a.name, symbol: a.symbol, tokens_fun: 'https://tokens.fun/coin/0xT' }),
+      store: {
+        load: async () => project,
+        setStatus: async () => {},
+        repoToken: async () => repoToken,
+        updateLinks: async () => {},
+        saveCreatorWallet: async () => {},
+        markComplete: async () => {},
+      },
+      ...extra,
+    };
+    const out = await confirmToken({ projectId: 8, installationId: 1, wallet: o.wallet === undefined ? W : o.wallet, token: o.token }, deps);
+    return [`confirm note: ${label}`, out];
+  };
+  return Promise.all([
+    run('launched'),
+    run('no wallet', { wallet: null }),
+    run('taken ticker', { token: { symbol: 'TAKEN' } }, { check: async (s: string) => s !== 'TAKEN' }),
+    run('refused ticker', { token: { symbol: 'USDC' } }),
+    run('bad ticker shape', { token: { symbol: 'K-1' } }),
+    run('brand name', { token: { name: 'Coinbase Kit' } }),
+    run('gate: proof line missing', {}, {}, { owner: async () => ({ status: 'missing' }) }),
+    run('gate: proof line unreadable', {}, {}, { owner: async () => ({ status: 'error', message: 'GitHub said 502' }) }),
+    run('gate: repo read failed', {}, {}, { repo: async () => { throw new Error('GitHub said 502'); } }),
+    run('gate: private repo', {}, {}, { repo: async () => { throw new Error('not found'); } }),
+    run('gate: no commits', {}, {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
+    run('gate: wallet screen', {}, {}, { screen: async () => { throw new Error("This wallet can't receive token fees on EarnKit."); } }),
+    run('repo has a token', {}, {}, {}, 'https://tokens.fun/coin/0x2'),
+    run('daily limit', {}, { limit: async () => { throw new RateLimitError('This agent has launched 3 tokens today, the daily limit.', 60); } }),
+    run('deploy refused', {}, { deploy: async () => ({ status: 'failed', note: 'tokens.fun refused the launch.' }) }),
+  ]);
+}
+
+test('v2.8 Task 8: confirm notes are plain builder words; fixable ones say "go" and point the agent at confirm_entry', async () => {
+  const notes = await gatherConfirmNotes();
+  const byLabel = new Map(notes);
+  for (const [label, out] of notes) {
+    const note = out.note ?? '';
+    if (out.status !== 'launched') assert.ok(note.trim().length > 0, `${label}: has a note`);
+    assert.doesNotMatch(note, TECHNICAL_TERMS, label);
+    assert.doesNotMatch(note, toolNameRe, label);
+    assert.doesNotMatch(note, editFileRe, label);
+    assert.doesNotMatch(note, /\p{Extended_Pictographic}|vault|clanker|—/iu, label);
+    assert.deepEqual(coinWords(note), [], label);
+    assert.deepEqual(coinWords(out.agent_note ?? ''), [], label);
+    if (out.fixable) {
+      assert.doesNotMatch(note, /launch the token/, label);
+      assert.doesNotMatch(out.agent_note ?? '', /launch_token/, label);
+    }
+  }
+  const fixable = (l: string) => byLabel.get(`confirm note: ${l}`)!.fixable === true;
+  for (const l of ['no wallet', 'taken ticker', 'refused ticker', 'bad ticker shape', 'brand name', 'gate: proof line missing', 'gate: proof line unreadable', 'gate: repo read failed', 'gate: wallet screen'])
+    assert.ok(fixable(l), l);
+  for (const l of ['launched', 'gate: private repo', 'gate: no commits', 'repo has a token', 'daily limit', 'deploy refused'])
+    assert.ok(!fixable(l), l);
+  assert.equal(byLabel.get('confirm note: gate: proof line missing')!.note, 'I need to add a short proof line to your repo first, then say go.');
+  assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm_entry again\./);
 });
