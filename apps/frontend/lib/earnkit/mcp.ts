@@ -28,6 +28,15 @@ const project = z
   })
   .describe('What you know about the project so far.');
 
+/** v2.8 Ruling 7 (plan): what the agent can do. */
+const AGENT = z
+  .object({
+    browser: z.boolean().optional().describe("true when you can drive the builder's own logged-in browser"),
+    can_push: z.boolean().optional().describe("false when you can't push to the builder's repo (default true)"),
+  })
+  .strict()
+  .describe('What you can do in this session');
+
 async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
   try {
     const result = await tools[tool](input, ctx);
@@ -61,7 +70,7 @@ const TO_LAUNCH =
 /** v2.6 §3: what a coin needs in the repo; exported for tests. */
 export const OWNERSHIP_FOR_TOKEN =
   'A token needs earnkit.txt at the repo root with the line "token: <code>": the exact line EarnKit gives you ' +
-  "(prepare_submission's token note once it knows the repo_url, or token.agent_note on gate_failed). Write and push it " +
+  "(prepare_submission's token_line once it knows the repo_url, or token.agent_note on gate_failed). Write and push it " +
   'yourself; never ask the builder to edit files. It is bound to you and the repo; never reuse a line from ' +
   'someone else. One token per repo.';
 
@@ -89,7 +98,7 @@ const recordSubmissionDescription = (campaignOpen: boolean) =>
       "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). "
     : 'Record the project on EarnKit. Call it only after the project was submitted on the ' +
       "program's own site. ") +
-  'Pass the final answers that were submitted (all of them: the token launches only once every required item is there). ' +
+  'Pass the final answers that were submitted. An entry the builder confirmed with confirm_entry is updated here; its token was decided there, so none launches here. ' +
   `${campaignOpen ? 'Other programs: f' : 'F'}irst ask the builder plainly, e.g. "Did you submit on <program site>?" ` +
   'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
@@ -110,7 +119,7 @@ const LAUNCH_TOKEN_DESCRIPTION =
   'the gas; the builder earns 40% of trading fees, paid in WETH. Only ' +
   'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
   'Needs a wallet: creator_wallet, or the one the entry was recorded with; never a wallet from another entry. ' +
-  "Launches only when the entry has every item the program requires (its recorded answers and links). " +
+  'An entry confirmed with "skip" never gets a token. ' +
   'Returns { status, note, agent_note? }: note is in plain words you can pass on; agent_note is for you. ' +
   OWNERSHIP_FOR_TOKEN;
 
@@ -128,18 +137,34 @@ const GET_PROGRAM_DESCRIPTION =
 /** v2.8 Ruling 23 (plan): prepare_submission's description, its campaign words only while one is open. */
 const prepareSubmissionDescription = (campaignOpen: boolean) =>
   'Call when the builder wants to submit. Pass everything you know about the project and any ' +
-  'answers to program questions (keyed by submission requirement key). Returns what is complete, ' +
-  'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
+  'answers to program questions (keyed by submission requirement key), and agent: { browser, can_push } ' +
+  "(browser: true when you can drive the builder's own logged-in browser; can_push: false when you can't push to the repo). " +
+  'Returns what is complete and what is missing. Draft project-based answers yourself and confirm ' +
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
-  "Call again with the new answers until ready is true, then submit on the program's site. " +
-  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. ' +
+  'Call again with the new answers until ready is true. ' +
+  'Show show_to_builder to the builder exactly as written. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. ' +
+  'When ready, it ends with the confirmation offer: the builder bonus comes with a token, and a wallet line. The builder says yes or skip in one word; then call confirm_entry, ' +
+  'which launches the token on yes and returns the submit kit (the form link and every answer). shown_wallet is the wallet on that line; ' +
+  "once the builder says yes, pass it back as confirm_entry's wallet (EarnKit never assumes it). " +
+  'token_line: commit it with your work before the builder confirms. ' +
   (campaignOpen
-    ? 'When ready, it has one Token row (a token on Base) and a wallet line (EarnKit campaigns: no wallet line): one yes confirms them, and the builder can skip the token in one word. Other programs: shown_wallet is the wallet on that line; '
-    : 'When ready, it has one Token row (a token on Base) and a wallet line: one yes confirms them, and the builder can skip the token in one word. shown_wallet is the wallet on that line; ') +
-  'once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
-  `${OWNERSHIP_FOR_TOKEN} ` +
-  `In record_submission: ${TO_LAUNCH} ` +
-  'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';
+    ? 'EarnKit campaigns are entered in one step: one Token row (a token on Base) instead of the offer, then record_submission is the entry. '
+    : '') +
+  `${OWNERSHIP_FOR_TOKEN}`;
+
+/** v2.8 Part C, Rulings 1, 4 and 7 (plan): confirm_entry's description, agent-facing. */
+const CONFIRM_ENTRY_DESCRIPTION =
+  'The confirmation step, once prepare_submission says ready (not for EarnKit campaigns). Pass the same program_id, project and answers. ' +
+  "Call it with builder_confirmed: true and decision: 'go' once the builder says yes: the token launches now. " +
+  "decision: 'skip' only when the builder says skip: no token and no builder bonus for this entry. " +
+  "Also pass wallet (the shown_wallet the builder confirmed, or the wallet they named instead; never one they didn't see), " +
+  'token: { name, symbol } only when the builder changed the proposed token, and agent: { browser, can_push }. ' +
+  'Without builder_confirmed and a decision it returns the offer to show. ' +
+  'A problem you can fix now (no wallet, a taken ticker, the token line not pushed yet, a failed read) returns token.fixable: true and no kit: ' +
+  'show show_to_builder, fix it, and call confirm_entry again. ' +
+  'Otherwise the reply has kit: the submit kit (form link, every answer in form order, how to prove the entry). The kit is only in this reply; never show a kit any other way. ' +
+  'Show show_to_builder exactly as written; token.note and agent_note are for you. ' +
+  'Once the builder has submitted, call record_submission (it updates this entry).';
 
 const SPONSOR_CAMPAIGN_DESCRIPTION =
   'For sponsors: run a builder campaign on EarnKit. action=create needs five answers: sponsor_name, ' +
@@ -171,7 +196,7 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
   SAFETY_TEXT;
 
 /**
- * v2.6 §3 fix round 1 (M4): all six tool descriptions, agent-facing. v2.8 Ruling 23 (plan): the
+ * v2.6 §3 fix round 1 (M4): all seven tool descriptions, agent-facing. v2.8 Ruling 23 (plan): the
  * campaign sentences in record_submission and prepare_submission only while an EarnKit campaign is
  * open. Pure.
  */
@@ -181,6 +206,7 @@ export function toolDescriptions(campaignOpen: boolean) {
     get_program: GET_PROGRAM_DESCRIPTION,
     prepare_submission: prepareSubmissionDescription(campaignOpen),
     record_submission: recordSubmissionDescription(campaignOpen),
+    confirm_entry: CONFIRM_ENTRY_DESCRIPTION,
     launch_token: LAUNCH_TOKEN_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
@@ -212,7 +238,8 @@ export function serverInstructions(campaignOpen: boolean) {
     campaignOpen
       ? "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site."
       : "Before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url.",
-    'Every entry gets a token by default; the builder can skip it in one word. One yes confirms the token and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no token. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+    'Every entry gets a token by default. The builder confirms once: "yes" launches the token and returns the submit kit; "skip" means no token and no builder bonus. Push the token line from prepare_submission with your work, before the builder confirms.',
+    "EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (shown_wallet) back as confirm_entry's wallet. Write and push earnkit.txt yourself; never ask the builder to edit files.",
     'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
     'Never invent personal details.',
     ...SAFETY_LINES,
@@ -320,10 +347,41 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .record(z.string(), z.string())
           .optional()
           .describe('Answers by submission requirement key.'),
+        agent: AGENT.optional(),
       },
       annotations: { readOnlyHint: true },
     },
     (input) => run(ctx, 'prepare_submission', input),
+  );
+
+  server.registerTool(
+    'confirm_entry',
+    {
+      description: CONFIRM_ENTRY_DESCRIPTION,
+      inputSchema: z
+        .object({
+          program_id: z.string(),
+          project: project.extend({ name: z.string() }),
+          answers: z.record(z.string(), z.string()).describe('The final answers, by submission requirement key.'),
+          decision: z
+            .enum(['go', 'skip'])
+            .optional()
+            .describe("'go' when the builder said yes; 'skip' only when they said skip"),
+          builder_confirmed: z.literal(true).optional().describe('The builder answered the confirmation offer'),
+          token: z
+            .object({ name: z.string().optional(), symbol: z.string().optional() })
+            .strict()
+            .optional()
+            .describe('Only when the builder changed the proposed token'),
+          wallet: z
+            .string()
+            .optional()
+            .describe("The wallet the builder confirmed: shown_wallet, or the one they named instead"),
+          agent: AGENT.optional(),
+        })
+        .strict(),
+    },
+    (input) => run(ctx, 'confirm_entry', input),
   );
 
   server.registerTool(

@@ -31,8 +31,13 @@ export type GateDeps = {
   owner?: (r: { owner: string; repo: string }) => Promise<FetchResult>;
   screen?: (wallet: string) => Promise<void>;
 };
-/** `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only. */
-export type GateResult = { ok: true } | { ok: false; reason: string; agent_note?: string };
+/**
+ * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
+ * `fixable` (v2.8 Ruling 4 (plan)): the agent can fix it now and try again (the proof line not
+ * pushed or not readable yet, a transient GitHub read, a wallet the screen refused); absent for a
+ * lasting problem (no public repo, no real code, launches not configured, tokens off).
+ */
+export type GateResult = { ok: true } | { ok: false; reason: string; agent_note?: string; fixable?: true };
 
 const defaults: Required<GateDeps> = {
   repo: (o, r) => repoCodeFacts(`${o}/${r}`),
@@ -161,10 +166,10 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
     facts = await d.repo(gh.owner, gh.repo);
   } catch (err) {
     if (err instanceof ForkCheckError)
-      return { ok: false, reason: `EarnKit couldn't check the fork's commits on GitHub right now. ${AGAIN}` };
+      return { ok: false, reason: `EarnKit couldn't check the fork's commits on GitHub right now. ${AGAIN}`, fixable: true };
     return /not found/.test(msg(err))
       ? { ok: false, reason: `The repo ${gh.owner}/${gh.repo} isn't public on GitHub. Make it public, then ${SAY}.` }
-      : { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}` };
+      : { ok: false, reason: `EarnKit couldn't check the repo on GitHub right now. ${AGAIN}`, fixable: true };
   }
   const noCode = codeProblem(facts);
   if (noCode) return { ok: false, reason: noCode };
@@ -177,11 +182,11 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
     code,
     legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null,
   );
-  if (problem) return { ok: false, ...problem };
+  if (problem) return { ok: false, ...problem, fixable: true };
   try {
     await d.screen(input.wallet);
   } catch (err) {
-    return { ok: false, reason: `creator wallet: ${msg(err)}` };
+    return { ok: false, reason: `creator wallet: ${msg(err)}`, fixable: true };
   }
   return { ok: true };
 }

@@ -158,10 +158,11 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     assert.ok(!('token' in notReady));
     assert.doesNotMatch(notReady.show_to_builder, /\| Token \|/);
 
-    // 6. Every answer: the Token row says a token on Base, and no Clanker anywhere in the reply.
+    // 6. Every answer: v2.8 Part C, the confirmation offer (a token on Base, with the builder bonus),
+    // and no Clanker anywhere in the reply.
     const ready = await prep({ name: 'TipJar', repo_url, live_url: 'https://tipjar.example' });
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+    assert.match(ready.show_to_builder, /\nYes: your entry gets a token on Base\. /);
     assert.doesNotMatch(JSON.stringify(ready), /clanker/i);
     assert.deepEqual(coinWords(ready.show_to_builder), []);
   } finally {

@@ -462,6 +462,8 @@ type OwnEntry = {
   submission_proof_ok_at: Date | null;
   submission_basis: string | null;
   submission_confirmed_at: Date | null;
+  /** v2.8 Ruling 1 (plan): set once the builder passed the confirmation step (confirm_entry). */
+  confirm_choice: 'go' | 'skip' | null;
 };
 
 /**
@@ -477,7 +479,7 @@ async function ownEntry(
   const [row] = await q<OwnEntry[]>`
     SELECT id, token_url,
       (coin_address IS NOT NULL OR token_status IN ('launched', 'pending')) AS earnkit_coin,
-      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at
+      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at, confirm_choice
     FROM projects
     WHERE program_id = ${k.programId} AND installation_id = ${k.installationId} AND payout_wallet IS NULL
       AND ${key ? q`bonus_repo_key = ${key}` : q`repo_url IS NULL AND lower(name) = lower(${k.name})`}
@@ -827,6 +829,8 @@ export async function recordSubmission(
         // I1: an earlier entry of this project was updated (same id), with its coin if it has one.
         // N1: only an EarnKit coin (or a launch in flight); a token_url the builder typed is theirs.
         ...(own && { updated: true as const, coin_url: own.earnkit_coin ? own.token_url : null }),
+        // v2.8 Ruling 1 (plan): the entry passed the confirmation step; its token was decided there.
+        ...(own?.confirm_choice && { confirm_choice: own.confirm_choice }),
         bonus_join: bonusJoin,
         submitted_at: project.submitted_at.toISOString(),
         program_title: program.title,
@@ -881,4 +885,66 @@ export async function recordSubmission(
       }
       throw err;
     });
+}
+
+/**
+ * v2.8 Ruling 1 (plan): the entry at the confirmation step (confirm_entry). Finds this
+ * installation's entry of the project in the program through the same rule as recordSubmission
+ * (ownEntry: same normalized repo, or the same name without a repo), or inserts it (charged against
+ * recordSubmission's 20 a day through `charge`, only then). The latest answers are stored, so a later
+ * launch_token reads them. `complete_at` is set once (completeAt's rule, COALESCE in SQL).
+ *
+ * The choice (Ruling 3 (plan), Task 7's carry): "skip" never lands on a row that has a token (it
+ * stays "go"), so an eligible entry can never drop out of a round; once the entry is submitted
+ * (`submission_confirmed_at`) the choice is locked, except that a row from before v2.8 gets one.
+ */
+export async function startEntry(a: {
+  program: ProgramRow;
+  installationId: number;
+  project: z.infer<typeof ProjectInfo> & { name: string };
+  answers: Record<string, string>;
+  choice: 'go' | 'skip';
+  now: Date;
+  charge?: () => Promise<unknown>;
+}): Promise<{ id: number; created: boolean; token_url: string | null; confirm_choice: 'go' | 'skip' }> {
+  const { program, installationId, project, answers, choice, now } = a;
+  const tooLarge = submissionDataProblem(answers, OTHER_VALUE_MAX);
+  if (tooLarge) throw new EntryError(tooLarge);
+  const repoUrl = entryRepoUrl(project.repo_url, answers) ?? null;
+  const completeNow = completeAt(program.submission_requirements, { project: { ...project, repo_url: repoUrl ?? undefined }, answers }, null, now);
+  const key = { programId: program.id, installationId, repoUrl, name: project.name };
+  return sql().begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
+    const own = await ownEntry(tx, key);
+    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip' };
+    if (own) {
+      [row] = await tx<typeof row[]>`
+        UPDATE projects SET
+          confirmed_at = COALESCE(confirmed_at, ${now}),
+          confirm_choice = CASE
+            WHEN ${choice} = 'skip' AND (token_url IS NOT NULL OR coin_address IS NOT NULL) THEN 'go'
+            WHEN confirm_choice IS NULL OR submission_confirmed_at IS NULL THEN ${choice}
+            ELSE confirm_choice END,
+          complete_at = COALESCE(complete_at, ${completeNow})
+        WHERE id = ${own.id} RETURNING id, token_url, confirm_choice`;
+    } else {
+      await a.charge?.();
+      [row] = await tx<typeof row[]>`
+        INSERT INTO projects ${tx({
+          program_id: program.id,
+          name: project.name,
+          description: project.description ?? null,
+          repo_url: repoUrl,
+          live_url: project.live_url ?? null,
+          demo_url: project.demo_url ?? null,
+          installation_id: installationId,
+          bonus_repo_key: repoUrl ? normalizeRepoUrl(repoUrl) : null,
+          confirmed_at: now,
+          confirm_choice: choice,
+          complete_at: completeNow,
+        })} RETURNING id, token_url, confirm_choice`;
+    }
+    await tx`INSERT INTO submissions ${tx({ project_id: row.id, submission_data: tx.json(answers as never), external_submission_url: null })}`;
+    return { id: row.id, created: !own, token_url: row.token_url, confirm_choice: row.confirm_choice };
+  });
 }

@@ -39,14 +39,20 @@ All open programs: https://earnkit.com/programs
   build help for the program's chains (with a one-line start command). Pass a
   repo to check whether it is eligible and what it is missing
 - prepare_submission: compares what the agent knows with what the program
-  requires; returns what is complete, what is missing, where to submit, and
-  show_to_builder: the one confirmation, prize first
+  requires; returns what is complete, what is missing, and show_to_builder:
+  the one confirmation, prize first, ending with the offer (the builder bonus
+  comes with a token). With a repo it gives the token line to push
+- confirm_entry: the builder's one-word answer to that offer. "Yes" launches
+  the entry's token and returns the submit kit (the form link and every
+  answer, ready to paste); "skip" means no token and no builder bonus. The
+  kit comes only from this tool
 - record_submission: records the project after it was submitted on the
-  program's own site. Every problem with an entry comes back at once
+  program's own site (it updates the confirmed entry). Every problem with an
+  entry comes back at once
 - launch_token: launches or retries the entry's token on tokens.fun for a
   recorded project, only after the builder said yes
 - sponsor_campaign (opens once EarnKit's escrow is live; until then the
-  server lists only the five tools above): for sponsors. Create a builder
+  server lists only the six tools above): for sponsors. Create a builder
   campaign (returns a funding link; the pool sits in an escrow on Base), check
   entries, and award winners. 90% goes to winners the sponsor picks; EarnKit
   takes 10% only when prizes are paid, and refunds everything if nobody
@@ -56,8 +62,8 @@ All open programs: https://earnkit.com/programs
 ## The token and the builder bonus
 
 Every entry gets a token on Base: the builder earns 40% of its trading
-fees, paid in WETH, and the builder can skip it in one word. Its fees fund
-the builder bonus.
+fees, paid in WETH. One "yes" at the confirmation launches it; "skip" means
+no token and no builder bonus. Its fees fund the builder bonus.
 
 ## The builder bonus
 

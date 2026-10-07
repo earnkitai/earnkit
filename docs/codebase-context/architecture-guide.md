@@ -1642,6 +1642,49 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (v2.7 code never sets one) and a stored entry that passes `entryMissing`. Set-once, so re-running
   is harmless. It logs counts only. Run it before any open round ends.
 
+### The confirmation step: the token launches on "yes" (v2.8 Task 8)
+
+Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
+`prepare_submission` → `confirm_entry` → (builder submits) → `record_submission`.
+
+- **prepare_submission** never returns a kit, a submission link, a prefilled link, a paste list or
+  agent fill steps (Ruling 4 (plan)). Once ready, `show_to_builder` is the Entry/Prize table, then
+  `Ready. ` + `confirm.ts confirmOffer` (the spec's four lines and `COIN_FOOTNOTE`; the wallet short,
+  Ruling 17's form). `confirmTable` no longer renders a Token row outside campaigns. With a repo it
+  returns `token_line` (`tokenLineFor`) and an `agent_note` to push it before the builder confirms
+  (none with `agent.can_push: false`). `shown_wallet` is the wallet on the offer's line.
+- **confirm_entry** (`tools.ts`): refuses campaigns and closed programs. Without
+  `builder_confirmed: true` and a `decision` it returns only the offer (+ `shown_wallet`,
+  `agent_note`); nothing is written. Otherwise `confirmDecision` (pure) picks:
+  - `skip` → the kit, no token, `confirm_choice = 'skip'` (never bonus-eligible, Ruling 3);
+  - `record_only` (lasting: the repo's token is entered in another program, Ruling 5; the agent
+    can't push, Ruling 7; no repo; tokens off or unavailable) → the kit with one plain line;
+  - `launch` → `token-launch.ts confirmToken` (`runTokenFlow` in `confirm` mode). A **fixable**
+    outcome (`TokenOutcome.fixable`: no wallet, a name or ticker problem, a taken ticker, the
+    proof line missing or unreadable, a transient GitHub read, a wallet the screen refused;
+    `GateResult.fixable` marks the gate's) returns no kit; its builder note says "say go" and the
+    agent note names confirm_entry. Anything else (a private repo, no real code, one token per
+    repo, the daily limit, a tokens.fun refusal) is lasting: the kit comes back with the reason.
+- **The entry row** is created at confirmation (`projects.ts startEntry`, Ruling 1): found or
+  inserted through `ownEntry` under the same advisory lock as `recordSubmission`, charged against
+  the 20 a day only when inserted, `confirmed_at` set once, `complete_at` set once (completeAt's
+  rule), the answers stored as a `submissions` row (launch_token's `entryMissing` reads them).
+  `confirm_choice`: "skip" never lands on a row that has a token (it stays `go`), and once the
+  entry is submitted (`submission_confirmed_at`) the choice is locked; so an eligible entry can
+  never drop out of a round.
+- **Money safety:** the token's wallet is only `wallet` from this call (the agent echoes
+  `shown_wallet`) or the entry's own; a remembered wallet is never used unseen (no wallet passed
+  but one remembered: the reply re-shows it on the wallet line, no launch). A typo'd wallet
+  errors before anything is written. The ticker is re-checked right before deploy, one token per
+  repo holds (the claim), and a second "go" on an entry with a token launches nothing.
+- **The kit** (`submit-kit.ts submitKit`): Task 8 builds `copy_paste` only (every answer that
+  `prepareSubmission` fills, in form order, with the form's labels); `proof` is `entry_link` for
+  DoraHacks, ETHGlobal, Devfolio, Colosseum, Akindo, TAIKAI and Karma, else `confirmation`
+  (Ruling 28). Task 10 adds the other modes.
+- **record_submission** on a confirmed row updates it (answers, proof, `builder_submitted`) and
+  reports the row's token; it never runs a token flow. An older agent's entry that never passed
+  confirm_entry keeps the v2.7 token path.
+
 ## Public trust pages (v2.5 §4, Task 9)
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from

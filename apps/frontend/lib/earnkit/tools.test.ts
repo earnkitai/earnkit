@@ -11,8 +11,10 @@ import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
-import { endsOf } from './present';
-import { SKIPPED_ENTRY, type TokenFlowDeps } from './token-launch';
+import { TOKEN_LINE, endsOf } from './present';
+import { SKIPPED_ENTRY, tickerTakenNote, type TokenFlowDeps } from './token-launch';
+import { CANT_PUSH, NO_WALLET_HINT, confirmOffer } from './confirm';
+import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
 
 const REF = `0x${'a'.repeat(64)}`;
@@ -265,10 +267,11 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     assert.ok(!('shown_wallet' in notReady));
     assert.doesNotMatch(notReady.show_to_builder, /Token|Wallet|Fees in WETH|0x1581/);
     assert.equal(tickerChecks, 0, 'no ticker check while not ready');
-    // Every required answer: the Token row (a token on Base) and the wallet line.
+    // Every required answer: v2.8 Part C, the confirmation offer (the builder bonus comes with a token).
     const ready = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}`, live_url: 'https://tipjar.example' }, answers);
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+    assert.match(ready.show_to_builder, /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
+    assert.match(ready.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3 \(used last time\), or tell me another\.\n/);
     assert.equal(ready.shown_wallet, W);
     assert.ok(tickerChecks > 0);
     // No project name, but a GitHub repo: the repo name is the name.
@@ -276,7 +279,7 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
     // Fix round 1 (Minor 6): the Entry row names the repo, as the token does.
     assert.match(noName.show_to_builder, /^\| Entry \| Tipjar for /);
-    assert.match(noName.show_to_builder, /\| Token \| Your entry gets a token on Base, \$TIPJAR: /);
+    assert.match(noName.show_to_builder, /Want the builder bonus\? It comes with a token\./);
     // C5: an item given but invalid says "(check it)"; at most 3 items, then "and N more".
     const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link' });
     assert.ok(bad.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet (check it); a public repo link; a short description; and 1 more.\n\n'), bad.show_to_builder);
@@ -443,15 +446,16 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       token: { creator_wallet: string | null };
     };
     assert.equal(prep.token.creator_wallet, W);
-    assert.match(prep.show_to_builder, /\| Token \| Your entry gets a token on Base, Tip Jar \(\$TIP\): /);
-    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time), or tell me another.`), prep.show_to_builder);
-    assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
+    // v2.8 Part C: the offer's wallet line shows it short (Ruling 17's form); shown_wallet carries it in full.
+    assert.match(prep.show_to_builder, /Want the builder bonus\? It comes with a token\./);
+    assert.ok(prep.show_to_builder.includes('Wallet for fees and any bonus: 0xeeee…eee3 (used last time), or tell me another.'), prep.show_to_builder);
+    assert.equal((prep as { shown_wallet?: string }).shown_wallet, W);
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
     const given = (await tools.prepare_submission({ program_id: b.id, ...ready(), answers: { ...ready().answers, payout_wallet: OTHER } }, { installationId: id })) as {
       show_to_builder: string;
     };
-    assert.ok(given.show_to_builder.includes(`Wallet for fees and any bonus: ${OTHER}, or tell me another.`));
+    assert.ok(given.show_to_builder.includes('Wallet for fees and any bonus: 0xffff…fff4, or tell me another.'), given.show_to_builder);
     // Ruling 22: a typo'd wallet (bad EIP-55 checksum) is refused with a clear error, never shown or dropped.
     const TYPO = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
     await assert.rejects(
@@ -592,7 +596,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       shown_wallet?: string;
     };
     assert.equal(shownPrep.shown_wallet, SHOWN);
-    assert.ok(shownPrep.show_to_builder.includes(`${SHOWN} (used last time)`));
+    assert.ok(shownPrep.show_to_builder.includes('0xcccc…ccc1 (used last time)'));
     await sql()`UPDATE installations SET payout_wallet = ${LATER} WHERE id = ${five}`;
     const fiveDeploys: { creatorWallet: string }[] = [];
     const fiveDeps = {
@@ -777,7 +781,7 @@ test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is
   }
 });
 
-test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open campaign; other programs get their link', dbTest, async () => {
+test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open campaign; v2.8 Ruling 4: no submission link before the confirmation', dbTest, async () => {
   const stamp = `${process.pid}-${Date.now()}`;
   const plain = committedProgram('arc-microgrants');
   Object.assign(plain, { id: `r23-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
@@ -796,8 +800,291 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
     (await tools.prepare_submission({ program_id, project: { name: 'Tip Jar' } }, { installationId: id })) as Record<string, unknown>;
   const p = await prep(plain.id);
   assert.ok(!('how_to_submit' in p) && !('sign_to_enter' in p));
-  assert.equal(p.submission_url, plain.submission_url);
+  assert.ok(!('submission_url' in p));
   const c = await prep(closed.id);
   assert.ok(!('how_to_submit' in c) && !('sign_to_enter' in c));
   assert.match(String((await prep(open.id)).how_to_submit), /This is an EarnKit campaign/);
+});
+
+// ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only
+// from confirm_entry, after the builder's yes or skip; the token launches on yes.
+async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean } = {}) {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, payout_wallet) VALUES (${`t8-${tag}-${stamp}`}, ${o.remembered ?? null}) RETURNING id`;
+  const repo = `https://github.com/alice/t8-${tag}-${stamp}`;
+  const calls = { gate: 0, deploy: 0, wallets: [] as string[] };
+  const tokenDeps = {
+    available: () => true,
+    limit: async () => {},
+    check: async (s: string) => (o.check ? o.check(s) : true),
+    gate: {
+      repo: async () => { calls.gate++; return { fork: false, hasCommits: true, aheadOfParent: null }; },
+      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(inst, repo)! }),
+      screen: async () => {},
+    },
+    // What the real deploy records (tokens.ts deployToken), so later calls see the row's token.
+    deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
+      calls.deploy++;
+      calls.wallets.push(d.creatorWallet);
+      const url = `https://tokens.fun/coin/0x${randomBytes(20).toString('hex')}`;
+      await sql()`UPDATE projects SET token_url = ${url}, token_status = 'launched', coin_address = ${'0x' + randomBytes(20).toString('hex')},
+        coin_launched_at = now(), token_name = ${d.name}, token_symbol = ${d.symbol} WHERE id = ${d.projectId}`;
+      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: url };
+    },
+  } as unknown as TokenFlowDeps;
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
+  const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' };
+  const answers = { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' };
+  const input = { program_id: p.id, project, answers };
+  const rows = async () =>
+    sql()<{ id: number; confirm_choice: string | null; confirmed_at: Date | null; complete_at: Date | null; submission_confirmed_at: Date | null; token_url: string | null }[]>`
+      SELECT id, confirm_choice, confirmed_at, complete_at, submission_confirmed_at, token_url FROM projects WHERE installation_id = ${inst} ORDER BY id`;
+  return { p, inst, repo, calls, ctx, input, project, answers, rows };
+}
+
+/** Every key of a reply, at any depth. */
+const keysOf = (v: unknown): string[] =>
+  v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => [k, ...keysOf(x)]) : [];
+
+async function withTokenEnv<T>(fn: () => Promise<T>) {
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_AUTH_SECRET ||= 'tools-test-secret';
+  try {
+    return await fn();
+  } finally {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+}
+
+const W8 = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+type Confirmed = { show_to_builder: string; project_id?: number; token?: { status: string; note?: string; fixable?: boolean; tokens_fun?: string; symbol?: string }; kit?: { show_to_builder: string; mode: string }; agent_note?: string; shown_wallet?: string };
+const go = { builder_confirmed: true, decision: 'go' } as const;
+
+test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit, submission link, prefilled link or paste list at any depth', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('prep', { remembered: W8 });
+    const r = (await tools.prepare_submission(t.input, t.ctx)) as Record<string, unknown>;
+    assert.equal(r.ready, true);
+    assert.match(String(r.show_to_builder), /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
+    for (const k of ['kit', 'submission_url', 'prefilled_url', 'paste', 'agent_steps', 'api'])
+      assert.ok(!keysOf(r).includes(k), k);
+    assert.doesNotMatch(JSON.stringify(r), /"(kit|submission_url|prefilled_url|paste)":/);
+    // The token line for the agent to push with its work, before the builder confirms.
+    assert.equal(r.token_line, tokenLineFor(t.inst, t.repo));
+    assert.match(String(r.agent_note), /^Commit this line to earnkit\.txt at the repo root with your next push, before the builder confirms\.$/);
+    assert.equal(r.shown_wallet, W8);
+    // An agent that can't push: no token line, and the one-line offer.
+    const noPush = (await tools.prepare_submission({ ...t.input, agent: { can_push: false } }, t.ctx)) as Record<string, unknown>;
+    assert.ok(!('token_line' in noPush) && !('shown_wallet' in noPush));
+    assert.ok(String(noPush.show_to_builder).endsWith('\n\nTo launch your token, open this in Claude Code or Cursor.\nReady to submit?'), String(noPush.show_to_builder));
+  }));
+
+test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offer only, nothing recorded; record_submission never returns a kit', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('offer', { remembered: W8 });
+    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true });
+    for (const extra of [{}, { builder_confirmed: true }, { decision: 'go' }]) {
+      const r = (await tools.confirm_entry({ ...t.input, ...extra }, t.ctx)) as Confirmed;
+      assert.equal(r.show_to_builder, expected, JSON.stringify(extra));
+      assert.ok(!('kit' in r) && !('token' in r) && !('project_id' in r));
+      assert.equal(r.shown_wallet, W8);
+    }
+    assert.equal((await t.rows()).length, 0, 'no entry before the yes');
+    assert.equal(t.calls.gate + t.calls.deploy, 0);
+    // 8.3: an entry never confirmed (an older agent): recorded, no kit anywhere.
+    const rec = (await tools.record_submission(
+      { program_id: t.p.id, project: t.project, submission_data: t.answers, token: 'skip' },
+      t.ctx,
+    )) as Record<string, unknown>;
+    assert.equal(rec.recorded, true);
+    assert.ok(!keysOf(rec).includes('kit'));
+    // A campaign is entered in one step.
+    const camp = committedProgram('earnkit-campaign-1-base');
+    Object.assign(camp, { id: `t8-camp-${process.pid}-${Date.now()}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+    Object.assign(camp, earnkitTexts(camp));
+    await upsertProgram(ProgramFile.parse(camp));
+    await assert.rejects(tools.confirm_entry({ ...t.input, program_id: camp.id, ...go }, t.ctx), /EarnKit campaigns are entered in one step\./);
+  }));
+
+test('8.4/8.7/8.11: "go" launches the token and returns the kit; a second "go" launches nothing; record_submission updates the same entry', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('go');
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(r.token?.status, 'launched');
+    assert.ok(r.kit, 'the kit');
+    assert.equal(r.kit!.mode, 'copy_paste');
+    const link = r.token!.tokens_fun!.replace('https://', '');
+    assert.equal(r.show_to_builder, `Your token: ${link}. You earn 40% of its fees.\n\n${r.kit!.show_to_builder}`);
+    assert.ok(r.kit!.show_to_builder.endsWith('After you submit, paste your entry link here.'));
+    assert.deepEqual(t.calls.wallets, [W8], 'only the wallet given in this exchange');
+    const [row] = await t.rows();
+    assert.equal(row.id, r.project_id);
+    assert.equal(row.confirm_choice, 'go');
+    assert.ok(row.confirmed_at instanceof Date);
+    assert.ok(row.complete_at instanceof Date, 'complete: every required item was given');
+    // 8.7: a second "go": the same entry, nothing deployed again, the kit again.
+    const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(again.project_id, r.project_id);
+    assert.equal(t.calls.deploy, 1);
+    assert.ok(again.kit);
+    assert.equal(again.token?.status, 'launched');
+    // A later "skip" never takes the token's entry out of the bonus (Ruling 3, Task 7's carry).
+    const skipLater = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
+    assert.ok(skipLater.show_to_builder.startsWith('Your token: '));
+    assert.equal((await t.rows())[0].confirm_choice, 'go');
+    // 8.11: the builder submitted: record_submission updates the same row, no token flow.
+    const rec = (await tools.record_submission(
+      { program_id: t.p.id, project: t.project, submission_data: t.answers, payout_wallet: W8, builder_submitted: true },
+      t.ctx,
+    )) as { project_id: number; token: { status: string; tokens_fun?: string } };
+    assert.equal(rec.project_id, r.project_id);
+    assert.equal(rec.token.status, 'launched');
+    assert.equal(rec.token.tokens_fun, (await t.rows())[0].token_url);
+    assert.equal(t.calls.deploy, 1);
+    const rows = await t.rows();
+    assert.equal(rows.length, 1, 'one entry');
+    assert.ok(rows[0].submission_confirmed_at instanceof Date);
+  }));
+
+test('8.5: "go" with no wallet: no launch and no kit, the no-wallet hint; again with a wallet launches and returns the kit; a typo errors', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('nowallet');
+    const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
+    assert.equal(r.show_to_builder, NO_WALLET_HINT);
+    assert.equal(r.token?.fixable, true);
+    assert.ok(!('kit' in r));
+    assert.match(r.agent_note ?? '', /confirm_entry/);
+    assert.equal(t.calls.deploy, 0);
+    await assert.rejects(
+      tools.confirm_entry({ ...t.input, ...go, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4' }, t.ctx),
+      (err: unknown) => err instanceof EntryError && err.message.includes("That wallet address isn't valid."),
+    );
+    assert.equal(t.calls.deploy, 0);
+    const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(ok.token?.status, 'launched');
+    assert.ok(ok.kit);
+    assert.equal(ok.project_id, r.project_id);
+    assert.deepEqual(t.calls.wallets, [W8]);
+  }));
+
+test('8.5b Ruling 30: a remembered wallet is never used unless the agent passes it back', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('remembered', { remembered: W8 });
+    const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
+    assert.equal(t.calls.deploy, 0);
+    assert.ok(!('kit' in r));
+    assert.equal(r.show_to_builder, 'Wallet for fees and any bonus: 0x1581…b9a3 (used last time), or tell me another.');
+    assert.equal(r.shown_wallet, W8);
+    const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: r.shown_wallet }, t.ctx)) as Confirmed;
+    assert.equal(ok.token?.status, 'launched');
+    assert.deepEqual(t.calls.wallets, [W8]);
+  }));
+
+test('8.6: "skip": the kit, no token, never bonus-eligible even with a token, proof and a complete entry', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('skip');
+    const r = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
+    assert.ok(r.kit);
+    assert.ok(!('token' in r));
+    assert.ok(r.show_to_builder.startsWith('No token, no builder bonus.\n\nReady for '), r.show_to_builder);
+    assert.equal(t.calls.gate + t.calls.deploy, 0);
+    const [row] = await t.rows();
+    assert.equal(row.confirm_choice, 'skip');
+    // The same row with a token, a counting proof and complete_at: still never eligible. A "go"
+    // control row with the same facts is (so the check is not vacuous).
+    const control = (await confirmSetup('skipctl'));
+    const c = (await tools.confirm_entry({ ...control.input, ...go, wallet: W8 }, control.ctx)) as Confirmed;
+    for (const id of [row.id, c.project_id!])
+      await sql()`UPDATE projects SET coin_address = COALESCE(coin_address, ${'0x' + randomBytes(20).toString('hex')}), coin_launched_at = now() - interval '1 hour',
+        submission_proof_ok_at = now() - interval '1 hour', complete_at = now() - interval '1 hour', submitted_at = now() - interval '1 hour' WHERE id = ${id}`;
+    const ends = new Date('2099-01-01T00:00:00Z');
+    const eligible = new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.id IN ${sql()([row.id, c.project_id!])} AND ${eligibleSql(ends)}`).map((x) => x.id));
+    assert.ok(!eligible.has(row.id), 'skip is final for the bonus');
+    assert.ok(eligible.has(c.project_id!), 'the go control is eligible');
+    // launch_token on the skipped entry is refused (Ruling 3).
+    const lt = (await tools.launch_token({ project_id: row.id, builder_confirmed: true, creator_wallet: W8 }, t.ctx)) as { note: string };
+    assert.equal(lt.note, SKIPPED_ENTRY);
+  }));
+
+test("8.8 Ruling 7: an agent that can't push: no gate read or deploy, the entry records, the kit with the one line", dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('nopush');
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent: { can_push: false } }, t.ctx)) as Confirmed;
+    assert.equal(t.calls.gate + t.calls.deploy, 0);
+    assert.ok(r.kit);
+    assert.ok(r.show_to_builder.startsWith(`${CANT_PUSH}\n\nReady for `), r.show_to_builder);
+    assert.equal((await t.rows())[0].confirm_choice, 'go');
+  }));
+
+test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records with no launch and returns the kit', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('elsewhere');
+    const ctx = { ...t.ctx, repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)) };
+    const offer = (await tools.confirm_entry(t.input, ctx)) as Confirmed;
+    assert.equal(offer.show_to_builder, 'Builder bonus counts in Arc Microgrants.\nReady to submit?');
+    assert.ok(!('shown_wallet' in offer));
+    const prep = (await tools.prepare_submission(t.input, ctx)) as { show_to_builder: string };
+    assert.ok(prep.show_to_builder.endsWith('\n\nBuilder bonus counts in Arc Microgrants.\nReady to submit?'), prep.show_to_builder);
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.equal(t.calls.gate + t.calls.deploy, 0);
+    assert.ok(r.kit);
+    assert.ok(r.show_to_builder.startsWith('Builder bonus counts in Arc Microgrants.\n\nReady for '), r.show_to_builder);
+  }));
+
+test('8.10 C6: a taken ticker: no kit, fixable, the builder hears the suggestion; "go" again launches the stored one', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('taken', { check: (s) => s !== 'TAKEN' });
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, token: { symbol: 'TAKEN' } }, t.ctx)) as Confirmed;
+    assert.ok(!('kit' in r));
+    assert.equal(r.token?.fixable, true);
+    assert.equal(t.calls.deploy, 0);
+    const next = r.token!.symbol!;
+    assert.notEqual(next, 'TAKEN');
+    assert.equal(r.show_to_builder, tickerTakenNote(next));
+    assert.match(r.agent_note ?? '', /call confirm_entry again \(it uses the stored /);
+    const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(again.token?.status, 'launched');
+    assert.equal(again.token?.symbol, next);
+    assert.ok(again.kit);
+  }));
+
+test('8.10b: the proof line not pushed yet is fixable (no kit, "say go"); a private repo is lasting (the kit, no token)', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('gate');
+    const noLine = { ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps };
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, noLine)) as Confirmed;
+    assert.ok(!('kit' in r));
+    assert.equal(r.token?.fixable, true);
+    assert.equal(r.show_to_builder, 'I need to add a short proof line to your repo first, then say go.');
+    assert.match(r.agent_note ?? '', /Then call confirm_entry again\./);
+    const priv = { ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, repo: async () => { throw new Error('GitHub: Not Found (not found)'); } } } as TokenFlowDeps };
+    const p = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, priv)) as Confirmed;
+    assert.ok(p.kit);
+    assert.ok(!p.token?.fixable);
+    assert.match(p.show_to_builder, /isn't public on GitHub\./);
+    assert.equal(t.calls.deploy, 0);
+  }));
+
+test('8.12: list_programs closes with the token line and never says "optional"', dbTest, async () => {
+  const stray = await sql()<{ id: string }[]>`
+    SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
+  if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  try {
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO installations (token_hash) VALUES (${`t8-list-${process.pid}-${Date.now()}`}) RETURNING id`;
+    const r = (await tools.list_programs({}, { installationId: id, roundPoolsWei: async () => new Map() })) as { show_to_builder: string };
+    assert.ok(r.show_to_builder.endsWith(TOKEN_LINE), r.show_to_builder.slice(-200));
+    assert.doesNotMatch(JSON.stringify(r), /optional/i);
+  } finally {
+    if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  }
 });

@@ -41,6 +41,9 @@ import { join } from 'node:path';
  * "notoken" (a payout_wallet line only) and "victim" (another builder's file, for their own agent).
  *   v. a third party copies the owner's full token line: refused for the third party's agent; the
  *      owner's own launch with that line then succeeds
+ *   w. v2.8 confirm_entry: the offer; yes launches and returns the kit; a second yes deploys nothing;
+ *      record_submission updates that entry; skip; no wallet, a taken ticker and a missing proof line
+ *      are fixable (no kit); an agent that can't push gets the kit with no launch
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -270,8 +273,9 @@ let aRepo = '';
 {
   const p = project('Chain Kit Builder');
   const prep = (await tools.prepare_submission({ program_id: ON, project: { name: p.name } }, ctx())) as {
-    token?: { proposed: { name: string; symbol: string } | null; say_to_builder: string; creator_wallet: string | null };
+    token?: { proposed: { name: string; symbol: string } | null; creator_wallet: string | null };
     shown_wallet?: string;
+    show_to_builder: string;
   };
   // Ruling 30: the wallet on the line comes back as a field to echo.
   check(prep.shown_wallet === WALLET, '(a) shown_wallet is the wallet on the wallet line', prep);
@@ -287,15 +291,15 @@ let aRepo = '';
     );
   }
   check(prep.token?.proposed?.symbol === 'CHAIN', '(a) proposed ticker is CHAIN (CKB is taken)', prep.token);
-  // v2.6 Ruling 7: an active non-campaign program has the builder bonus, so the skip names it.
+  // v2.8 Part C: an active non-campaign program has the builder bonus: the offer bundles it with the token.
   check(
-    prep.token?.say_to_builder.startsWith('Your entry gets a token on Base, Chain Kit Builder ($CHAIN):') &&
-      prep.token.say_to_builder.includes('· say skip for no token (and no builder bonus)'),
-    '(a) say_to_builder: a token on Base, its name, and the skip (no token, no builder bonus)',
-    prep.token,
+    prep.show_to_builder.includes('\n\nReady. Want the builder bonus? It comes with a token.\n') &&
+      prep.show_to_builder.includes('\nSkip: no token, no builder bonus.\n'),
+    '(a) the confirmation offer: the builder bonus comes with a token; skip costs both',
+    prep.show_to_builder,
   );
-  // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
-  check(prep.token?.say_to_builder.includes('(used last time), or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
+  // The remembered wallet is on the offer's wallet line, short (one yes confirms both).
+  check(prep.show_to_builder.includes('Wallet for fees and any bonus: 0x1212…1212 (used last time), or tell me another.'), '(a) the offer prefills the remembered wallet', prep.show_to_builder);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });
@@ -312,15 +316,14 @@ let aRepo = '';
   const saved = await row(r.project_id);
   check(saved.token_url === `https://tokens.fun/coin/${TOKEN_ADDRESS}` && saved.token_status === 'launched', '(a) project row has the token', saved);
   check(saved.token_repo_key === p.repo_url.replace('https://', ''), '(a) token_repo_key is the normalized repo', saved);
-  // Ruling 22: the full fee wallet once, on the wallet line; the short fee line and both terms links.
+  // The fee line and both terms links close the offer; the kit is not in this reply (ordering rule).
   check(
-    prep.token?.say_to_builder.includes(`Wallet for fees and any bonus: ${WALLET} (used last time)`) &&
-      prep.token.say_to_builder.split(WALLET).length === 2 &&
-      prep.token.say_to_builder.includes('Fees in WETH; tokens.fun pays gas.') &&
-      !/clanker/i.test(prep.token.say_to_builder) &&
-      prep.token.say_to_builder.includes('risk-disclosure'),
-    '(a) say_to_builder names the fee wallet once and carries the fee line and terms',
-    prep.token,
+    prep.show_to_builder.includes('Fees in WETH; tokens.fun pays gas.') &&
+      !/clanker/i.test(prep.show_to_builder) &&
+      prep.show_to_builder.includes('risk-disclosure') &&
+      !/"(kit|submission_url)":/.test(JSON.stringify(prep)),
+    '(a) the offer carries the fee line and terms; no kit or submission link before the confirmation',
+    prep,
   );
   aProjectId = r.project_id;
   aRepo = p.repo_url;
@@ -671,14 +674,84 @@ let retryRepo = '';
   const prep = (await tools.prepare_submission(
     { program_id: ON, project: { name: 'Owner Repo', repo_url: shared.repo_url } },
     ownerCtx,
-  )) as { token?: { note: string } };
-  check(prep.token?.note.includes(`Write the line "${ownerLine}"`) === true, '(v) prepare_submission gives the agent its own line', prep.token);
+  )) as { token_line?: string };
+  check(prep.token_line === ownerLine, '(v) prepare_submission gives the agent its own line', prep);
   const mine = await submit(
     { project: { ...shared, name: 'Shared Repo' }, token: { name: 'Shared Repo', symbol: 'OWNR' }, confirmed: true },
     undefined,
     ownerCtx,
   );
   check(mine.token.status === 'launched' && mine.token.symbol === 'OWNR', "(v) the owner's own launch with that line succeeds", mine.token);
+}
+
+// (w) v2.8 Part C: the confirmation step. The token launches on "yes" and the submit kit comes only
+// from confirm_entry; "skip" is no token, no builder bonus.
+{
+  const agent = await newInstallation();
+  OWNERS.add(agent.id);
+  const c: Ctx = { installationId: agent.id, tokenDeps: { gate: passGate, limit: async () => {} } };
+  type Confirmed = { show_to_builder: string; project_id?: number; token?: TokenOutcome; kit?: { mode: string; show_to_builder: string }; shown_wallet?: string };
+  const confirm = (a: Record<string, unknown>, cc: Ctx = c) =>
+    tools.confirm_entry({ program_id: ON, answers: { notes: 'e2e' }, ...a }, cc) as Promise<Confirmed>;
+  const yes = { builder_confirmed: true, decision: 'go' };
+
+  // The offer: no entry, no kit; the remembered wallet is shown, and comes back as shown_wallet.
+  const p = project('Confirm Kit');
+  const before = deploys.length;
+  const offer = await confirm({ project: p });
+  check(offer.show_to_builder.startsWith('Want the builder bonus? It comes with a token.\n') && !('kit' in offer) && offer.shown_wallet === WALLET, '(w) offer only before the yes', offer);
+  // Yes, echoing the shown wallet: launched through the mock, the kit returned.
+  const r = await confirm({ project: p, ...yes, wallet: offer.shown_wallet });
+  check(r.token?.status === 'launched' && deploys.length === before + 1 && lastDeploy().creatorWallet === WALLET, '(w) yes launches the token to the shown wallet', r);
+  check(
+    r.kit?.mode === 'copy_paste' &&
+      r.show_to_builder.startsWith(`Your token: tokens.fun/coin/${TOKEN_ADDRESS}. You earn 40% of its fees.\n\nReady for Token e2e (encouraged).`) &&
+      r.show_to_builder.endsWith('After you submit, send me the confirmation screenshot or email.'),
+    '(w) the kit comes with the token line',
+    r,
+  );
+  const saved = await db<{ confirm_choice: string; confirmed_at: Date | null; token_url: string }[]>`
+    SELECT confirm_choice, confirmed_at, token_url FROM projects WHERE id = ${r.project_id!}`;
+  check(saved[0].confirm_choice === 'go' && saved[0].confirmed_at !== null && saved[0].token_url === `https://tokens.fun/coin/${TOKEN_ADDRESS}`, '(w) the entry row: go, confirmed, its token', saved);
+  // Yes again: same entry, no second deploy, the kit again.
+  const again = await confirm({ project: p, ...yes, wallet: WALLET });
+  check(again.project_id === r.project_id && deploys.length === before + 1 && again.kit !== undefined, '(w) a second yes launches nothing', again);
+  // The builder submitted: record_submission updates that entry, no token flow.
+  const rec = (await tools.record_submission(
+    { program_id: ON, project: p, submission_data: { notes: 'e2e' }, payout_wallet: WALLET, builder_submitted: true },
+    c,
+  )) as Recorded;
+  check(rec.project_id === r.project_id && rec.token.status === 'launched' && deploys.length === before + 1, '(w) record_submission updates the confirmed entry', rec);
+
+  // Skip: the kit, no token, nothing checked or sent.
+  const reads = ownershipReads.length;
+  const sk = await confirm({ project: project('Confirm Skip'), builder_confirmed: true, decision: 'skip' });
+  check(sk.kit !== undefined && !sk.token && sk.show_to_builder.startsWith('No token, no builder bonus.\n\n') && deploys.length === before + 1 && ownershipReads.length === reads, '(w) skip: the kit, no token', sk);
+
+  // No wallet passed back: no deploy, no kit (the remembered wallet is never used unseen).
+  const nw = await confirm({ project: project('Confirm No Wallet'), ...yes });
+  check(nw.token?.fixable === true && !nw.kit && nw.shown_wallet === WALLET && deploys.length === before + 1, '(w) no wallet passed: fixable, no kit, no deploy', nw);
+
+  // A taken ticker (CKB): fixable, no kit; yes again launches the stored suggestion.
+  const tk = project('Confirm Taken');
+  const taken = await confirm({ project: tk, ...yes, wallet: WALLET, token: { symbol: 'CKB' } });
+  check(taken.token?.fixable === true && !taken.kit && /^That ticker is taken\. Pick another, or say go for \$[A-Z0-9]+\.$/.test(taken.show_to_builder) && deploys.length === before + 1, '(w) taken ticker: fixable, no kit, no deploy', taken);
+  const takenAgain = await confirm({ project: tk, ...yes, wallet: WALLET });
+  check(takenAgain.token?.status === 'launched' && takenAgain.token.symbol === taken.token?.symbol && takenAgain.kit !== undefined, '(w) yes again launches the suggestion', takenAgain);
+
+  // The proof line not pushed yet: fixable (say go); pushed, yes again launches.
+  const late = project('Confirm Late', {}, 'late-');
+  const nl = await confirm({ project: late, ...yes, wallet: WALLET });
+  check(nl.token?.fixable === true && !nl.kit && nl.show_to_builder === 'I need to add a short proof line to your repo first, then say go.', '(w) proof line missing: fixable, no kit', nl);
+  pushed.add(late.repo_url.split('/').pop()!);
+  const pushedOk = await confirm({ project: late, ...yes, wallet: WALLET });
+  check(pushedOk.token?.status === 'launched' && pushedOk.kit !== undefined, '(w) after the push, yes launches', pushedOk);
+
+  // An agent that can't push: nothing checked or sent, the kit with the one line.
+  const reads2 = ownershipReads.length;
+  const deploys2 = deploys.length;
+  const np = await confirm({ project: project('Confirm No Push'), ...yes, wallet: WALLET, agent: { can_push: false } });
+  check(np.kit !== undefined && np.show_to_builder.startsWith('To launch your token, open this in Claude Code or Cursor.\n\n') && deploys.length === deploys2 && ownershipReads.length === reads2, "(w) can't push: the kit, no launch", np);
 }
 
 check(authFailures === 0, 'every mock call carried the deploy key');

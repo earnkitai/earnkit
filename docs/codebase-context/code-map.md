@@ -186,7 +186,9 @@ apps/frontend/
                                investment (card "up to $1M investment", pool.ts eachLine, Ruling C5);
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
-    projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
+    projects.ts(+test)         v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
+                               confirmed_at/complete_at set once, "skip" never on a row with a token);
+                               recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
                                stores repo_key (unique index projects_campaign_repo_key) and
@@ -378,6 +380,10 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.8 Task 8: confirm_entry (the confirmation step: offer, or startEntry +
+                               confirmToken + submitKit); prepare_submission ends with the offer, returns
+                               token_line, never a kit or submission_url; record_submission reports a
+                               confirmed row's token (no token flow);
                                v2.7: prepare_submission checks readiness first (Ruling 15): not ready → "Before you
                                submit: …" (notReadyLine/todoOf), no token block, shown_wallet or ticker check; ready → the
                                token block (tokenProposalBlock) and the Token row; list_programs closes on bonusClose;
@@ -425,7 +431,9 @@ apps/frontend/
                                file or the line) plus agent_note with the technical detail (final
                                review M7: the exact line to write and push); repo/owner/screen
                                injectable (GateDeps)
-    token-launch.ts(+test)     the token flow: tokenProposalBlock (prepare_submission's token;
+    token-launch.ts(+test)     v2.8 Task 8: confirmToken (runTokenFlow mode 'confirm'; fixable outcomes:
+                               no kit, "say go", the agent note names confirm_entry);
+                               the token flow: tokenProposalBlock (prepare_submission's token;
                                TokenBlock.has_bonus, .repo_coin_program: Ruling 25; v2.6: outside
                                campaigns coinRow + walletLine (the remembered wallet prefilled,
                                Ruling 10) + COIN_FOOTNOTE, the agent's note with the token line to
@@ -476,6 +484,13 @@ apps/frontend/
                                signToEnter, entrySigner (EIP-191)
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
                                vetoes, refusals), standingText, RunState
+    confirm.ts(+test)          v2.8 Task 8: the confirmation offer (confirmOffer: the builder bonus
+                               comes with a token; no-bonus, no-wallet (NO_WALLET_HINT), token
+                               elsewhere (Ruling 5) and can't-push (CANT_PUSH) variants) and
+                               confirmDecision (offer | skip | record_only | launch). Pure
+    submit-kit.ts(+test)       v2.8 Task 8: submitKit (the submit kit, returned only by
+                               confirm_entry; copy_paste now, Task 10 adds the other modes),
+                               proofFor (Ruling 28), submitHost. Pure
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and
