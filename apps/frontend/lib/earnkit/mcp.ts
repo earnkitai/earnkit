@@ -143,7 +143,7 @@ const prepareSubmissionDescription = (campaignOpen: boolean) =>
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
   'Call again with the new answers until ready is true. ' +
   'Other programs (the application coach): draft every field you can from the repo and onchain data before the first call. ' +
-  "When the reply has questions, show_to_builder asks them (at most 3, and 1 for this project's later programs): pass the builder's answers with coach_asked: true and call again (one round per program; send coach_asked only after showing the questions). Never answer a builder_only field yourself. " +
+  "When the reply has questions, show_to_builder asks them (at most 3 numbered plus one folded bullet; one round of at most 4 short bullets for this project's later programs): pass the builder's answers with coach_asked: true and call again (one round per program; send coach_asked only after showing the questions). Never answer a builder_only field yourself. " +
   "coach.fields gives each field's judges, pattern and limit; coach.from_bank holds this project's answers from earlier programs, re-angle them to this program's judges. " +
   'Once ready, show_to_builder is the draft table, then at most 3 fixes (never blocking), then the offer; make agent_fixes yourself first. ' +
   'Show show_to_builder to the builder exactly as written. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. ' +

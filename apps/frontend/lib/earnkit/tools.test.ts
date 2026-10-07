@@ -1260,7 +1260,7 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
     assert.equal(go1.token?.status, 'launched');
   }));
 
-test('9 coach: confirm_entry "go" stores the application and banks the answers; the next program asks at most 1 question', dbTest, () =>
+test('9 coach: confirm_entry "go" stores the application and banks the answers; the next program asks one round of short bullets', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('bank', { extra: COACH_EXTRA });
     // The offer renders with fixes open (never blocking) and writes nothing.
@@ -1291,15 +1291,20 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     ];
     await upsertProgram(ProgramFile.parse(second));
     const r2 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, t.ctx)) as Coached;
-    // C15: one question holds everything only the builder knows; C16: the saved profile is a yes/no.
-    assert.equal(r2.questions?.length, 1);
+    // C15/C17: one round of short bullets for what only the builder knows; C16: the saved profile is a yes/no.
+    assert.equal(r2.questions?.length, 3);
     assert.equal(
       r2.show_to_builder,
-      "Second Grants: 1 quick question, then I'll write your application.\n1. What will you ship in the next 3 months; who is building Tip Jar with you; use https://github.com/alice again?",
+      [
+        "Second Grants: a few things only you know, then I'll write it.",
+        '- What will you ship in the next 3 months?',
+        '- Who is building Tip Jar with you?',
+        '- Use https://github.com/alice again?',
+      ].join('\n'),
     );
     assert.equal(r2.coach?.from_bank.usage, COACH_ANSWERS.traction);
     assert.ok(!('builder_profile' in (r2.coach?.from_bank ?? {})), 'contact details are never filled silently');
-    assert.deepEqual((r2.questions?.[0] as { suggested?: unknown }).suggested, { builder_profile: COACH_ANSWERS.builder_profile });
+    assert.deepEqual((r2.questions?.[2] as { suggested?: unknown }).suggested, { builder_profile: COACH_ANSWERS.builder_profile });
     assert.deepEqual(r2.coach && (r2.coach as unknown as { judging: string[] }).judging, [
       'Relevance to Arc',
       'Technical credibility',
@@ -1320,11 +1325,11 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     // Another installation with the same repo gets nothing from this bank.
     const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t9-other-${t.p.id}`}) RETURNING id`;
     const r3 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, { ...t.ctx, installationId: other })) as Coached;
-    assert.equal(r3.questions?.length, 3);
+    assert.equal(r3.questions?.length, 4, "a first program: 3 questions and the contact bullet");
     assert.deepEqual(r3.coach?.from_bank, {});
   }));
 
-test('C15: Base Builder Grants, first program: 3 questions cover every builder-only field; the answers make it ready (no second round)', dbTest, () =>
+test('C15/C17: Base Builder Grants, first program: 3 questions and one bullet cover every builder-only field; the answers make it ready (no second round)', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('base15', { remembered: W8 });
     const base = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
@@ -1338,7 +1343,10 @@ test('C15: Base Builder Grants, first program: 3 questions cover every builder-o
       builder_code: 'abc',
     };
     const r = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers: draft }, t.ctx)) as Coached;
-    assert.equal(r.questions?.length, 3);
+    // 3 numbered questions and the leftovers as one short bullet (C17).
+    assert.equal(r.questions?.length, 4);
+    assert.equal(r.show_to_builder.split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
+    assert.equal(r.show_to_builder.split('\n').filter((l) => l.startsWith('- ')).length, 1);
     const asked = new Set(r.questions!.flatMap((q) => q.keys));
     const builderOnly = (base.submission_requirements as SubmissionRequirement[]).filter((x) => x.required && x.from === 'builder').map((x) => x.key);
     for (const k of builderOnly) assert.ok(asked.has(k), k);

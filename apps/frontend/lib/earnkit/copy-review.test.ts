@@ -1002,9 +1002,13 @@ test('v2.8 Task 8: confirm notes are plain builder words; fixable ones say "go" 
   assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm_entry again\./);
 });
 
-test('v2.8 Task 9: the coach screens are short: at most 3 questions, at most 3 fixes, one table', () => {
+test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and one bullet, 25 words each, at most 3 fixes', () => {
   const intro = coachTexts.find(([l]) => l === 'coachIntro: 3 questions')![1];
-  assert.equal(intro.split('\n').length, 4);
+  // 3 numbered questions, then at most one folded bullet (C17).
+  assert.ok(intro.split('\n').length <= 5);
+  assert.equal(intro.split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
+  for (const [label, text] of coachTexts.filter(([l]) => l.startsWith('coachIntro')))
+    for (const line of text.split('\n').slice(1)) assert.ok(line.split(/\s+/).length - 1 <= 25, `${label}: ${line}`);
   assert.equal(intro.split('\n')[1], '1. Who has used TipJar so far?');
   const fixes = coachTexts.find(([l]) => l === 'fixesLine')![1];
   assert.equal(fixes.split('\n').length, 4);

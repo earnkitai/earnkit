@@ -1,9 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FIELD_KINDS, type FieldKind, type SubmissionRequirement } from './program-file';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { FIELD_KINDS, ProgramFile, type FieldKind, type SubmissionRequirement } from './program-file';
 import {
   DEFAULT_GUIDANCE,
+  MAX_BULLETS,
+  MAX_FIRST_QUESTIONS,
   MAX_FIXES,
+  MAX_QUESTION_WORDS,
   QUESTION_ORDER,
   bankEntries,
   bankFill,
@@ -78,10 +83,23 @@ test('9.3 first program: three questions in QUESTION_ORDER; how_it_works is neve
   assert.deepEqual(questionsFor({ reqs: [req('traction', 'traction', { required: false })], answers: {}, first: true }), []);
 });
 
-test('9.4 later program: one question', () => {
-  const q = questionsFor({ reqs: arcLike, answers: {}, first: false });
-  assert.equal(q.length, 1);
-  assert.equal(q[0].kind, 'traction');
+test('9.4 C17 later program: one round as short bullets (at most 4); a single question stays numbered', () => {
+  const q = questionsFor({ reqs: arcLike, answers: {}, first: false, project: 'TipJar' });
+  assert.equal(q.length, 3);
+  assert.ok(q.every((x) => x.bullet));
+  assert.equal(
+    coachIntro('Arc Microgrants', q),
+    [
+      "Arc Microgrants: a few things only you know, then I'll write it.",
+      '- Who has used TipJar so far?',
+      '- Why are you the one to build this?',
+      '- What would you build next with the grant?',
+    ].join('\n'),
+  );
+  const one = questionsFor({ reqs: arcLike.slice(0, 3), answers: {}, first: false });
+  assert.equal(one.length, 1);
+  assert.ok(!one[0].bullet);
+  assert.equal(coachIntro('Arc Microgrants', one), "Arc Microgrants: 1 quick question, then I'll write your application.\n1. What would you build next with the grant?");
 });
 
 test('9.5 contact folds into one question with every key; at most 3 still holds', () => {
@@ -95,8 +113,9 @@ test('9.5 contact folds into one question with every key; at most 3 still holds'
   assert.deepEqual(q.map((x) => x.kind), ['traction', 'contact']);
   assert.equal(q[1].text, 'Your full name, email and X (Twitter) handle?');
   assert.deepEqual(q[1].keys, ['full_name', 'email', 'x_handle']);
+  // More than 3 groups on a first program: 3 numbered questions and one short folded bullet.
   const many = questionsFor({ reqs: [...arcLike, ...reqs.slice(0, 3), req('team', 'team'), req('m', 'milestones')], answers: {}, first: true });
-  assert.equal(many.length, 3);
+  assert.deepEqual(many.map((x) => Boolean(x.bullet)), [false, false, false, true]);
   // One contact field: the label reads naturally.
   assert.equal(
     questionsFor({ reqs: [req('builder_profile', 'contact', { label: 'Public builder profile' })], answers: {}, first: true })[0].text,
@@ -172,7 +191,7 @@ test('Reuse: the live link only from a field that says live, website or product;
   assert.equal(bankEntries(circle, { roadmap: 'A', milestones: 'B' }).get('milestones'), 'A');
 });
 
-test('C15: every required builder-only field is askable; leftovers fold into the last question (Base in 3, a later one in 1)', () => {
+test('C15/C17: every builder-only field is asked; first program 3 numbered plus one folded bullet, a later one short bullets', () => {
   const b = (key: string, kind: FieldKind, label: string, todo: string) => req(key, kind, { label, todo });
   const baseForm = [
     b('full_name', 'contact', 'Full name', 'your full name'),
@@ -185,38 +204,79 @@ test('C15: every required builder-only field is askable; leftovers fold into the
     b('revenue', 'other', 'How does your product make money today?', 'how it makes money today'),
     b('gtm_plan', 'milestones', "What's your GTM plan for the next 3 months?", 'your GTM plan for the next 3 months'),
     b('primary_challenge', 'other', 'What is the primary challenge?', 'your main challenge right now'),
+    b('credits', 'other', 'Which credits?', 'the credits you want'),
     req('builder_code', 'other', { from: 'project' }),
   ];
   const draft = { project_name_description: 'TipJar: tips in USDC.', builder_code: 'abc' };
+  const builderKeys = baseForm.filter((r) => r.from === 'builder').map((r) => r.key);
+  // First program: 3 numbered questions, then the leftovers as one short bullet.
   const q = questionsFor({ reqs: baseForm, answers: draft, first: true, project: 'TipJar' });
-  assert.equal(q.length, 3);
-  assert.equal(q[0].text, 'Who has used TipJar so far?');
-  assert.equal(q[1].text, 'What will you ship in the next 3 months?');
   assert.equal(
-    q[2].text,
-    'Who is building TipJar with you; your full name, email, X (Twitter) handle and Telegram username; how it makes money today and your main challenge right now?',
+    coachIntro('Base Builder Grants', q),
+    [
+      "Base Builder Grants: 3 quick questions, then I'll write your application.",
+      '1. Who has used TipJar so far?',
+      '2. What will you ship in the next 3 months?',
+      '3. Who is building TipJar with you?',
+      '- Your contact details, and how it makes money today, your main challenge right now and the credits you want?',
+    ].join('\n'),
   );
-  // Nothing only the builder knows is left out: every builder field is under some question.
-  const asked = new Set(q.flatMap((x) => x.keys));
-  for (const r of baseForm) if (r.from === 'builder') assert.ok(asked.has(r.key), r.key);
-  assert.ok(!asked.has('builder_code'), 'the agent drafts project fields');
-  // A later program: one question holding everything.
-  const later = questionsFor({ reqs: baseForm, answers: draft, first: false, project: 'TipJar' });
-  assert.equal(later.length, 1);
-  assert.deepEqual(new Set(later[0].keys), new Set(baseForm.filter((r) => r.from === 'builder').map((r) => r.key)));
+  assert.deepEqual(new Set(q.flatMap((x) => x.keys)), new Set(builderKeys));
+  assert.ok(!q.flatMap((x) => x.keys).includes('builder_code'), 'the agent drafts project fields');
+  // A later program (usage numbers banked), with saved contact details: the C17 example.
+  const later = questionsFor({
+    reqs: baseForm,
+    answers: { ...draft, usage_numbers: '120 users' },
+    first: false,
+    project: 'TipJar',
+    suggested: { full_name: 'Alice Doe', email: 'alice@example.com', x_handle: '@alice', telegram: '@alice_tg' },
+  });
+  assert.equal(
+    coachIntro('Base Builder Grants', later),
+    [
+      "Base Builder Grants: a few things only you know, then I'll write it.",
+      '- What will you ship in the next 3 months?',
+      '- Who is building TipJar with you?',
+      '- Use Alice Doe, alice@example.com, @alice and @alice_tg again?',
+      '- How it makes money today, your main challenge right now and the credits you want?',
+    ].join('\n'),
+  );
+  assert.deepEqual(new Set(later.flatMap((x) => x.keys)), new Set(builderKeys.filter((k) => k !== 'usage_numbers')));
+  // More than 4 groups on a later program: still 4 bullets, the rest folded into the 4th.
+  const five = questionsFor({ reqs: baseForm, answers: draft, first: false, project: 'TipJar' });
+  assert.equal(five.length, MAX_BULLETS);
+  assert.deepEqual(new Set(five.flatMap((x) => x.keys)), new Set(builderKeys));
   // Avalanche: consent and the amount are asked, never drafted.
   const avalanche = [
     b('consent_team1', 'other', 'I consent to the sharing of my data with Team1.', 'your consent to share data with Team1'),
     b('requested_amount_usd', 'other', 'Requested Amount (USD)', 'the amount you request in USD'),
     b('x_profile', 'contact', 'X Profile', 'your X profile'),
   ];
-  assert.equal(
-    questionsFor({ reqs: avalanche, answers: {}, first: false })[0].text,
-    'Your X profile; your consent to share data with Team1 and the amount you request in USD?',
+  assert.deepEqual(
+    questionsFor({ reqs: avalanche, answers: {}, first: false }).map((x) => x.text),
+    ['Your X profile?', 'Your consent to share data with Team1 and the amount you request in USD?'],
   );
   // A program's own question never gets the project's name.
   const own = req('os', 'team', { guidance: { questions: ['Is it open source?'], source_url: SRC } });
   assert.equal(questionsFor({ reqs: [own], answers: {}, first: true, project: 'TipJar' })[0].text, 'Is it open source?');
+});
+
+test('C17: no question over 25 words and never more than 4 bullets, on every committed program, first and later', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const contact = { full_name: 'Alice Doe', email: 'alice@example.com', x_handle: '@alice', telegram: '@alice_tg', x_profile: '@alice', builder_profile: 'https://github.com/alice' };
+  let screens = 0;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    for (const first of [true, false])
+      for (const suggested of [{}, contact]) {
+        const q = questionsFor({ reqs: p.submission_requirements, answers: {}, first, project: 'A Long Project Name', suggested });
+        screens++;
+        assert.ok(q.filter((x) => x.bullet).length <= MAX_BULLETS, f);
+        assert.ok(q.length <= MAX_FIRST_QUESTIONS + 1, f);
+        for (const x of q) assert.ok(x.text.split(/\s+/).length <= MAX_QUESTION_WORDS, `${f}: ${x.text}`);
+      }
+  }
+  assert.ok(screens >= 16);
 });
 
 /** C14: every builder fix reads "<Field>: <the exact thing to add>." and names its field. */
