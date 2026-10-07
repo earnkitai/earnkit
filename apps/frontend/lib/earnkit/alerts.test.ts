@@ -2,7 +2,12 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress } from 'viem';
 import {
+  MAX_NEW_PROGRAM_LINES,
+  MAX_OUTCOME_WIN_LINES,
   SCHEDULE_NOTE,
+  newProgramLines,
+  type NewProgram,
+  type OutcomeWin,
   alertFacts,
   alertLines,
   paidBonusWins,
@@ -16,7 +21,9 @@ import { boardLink, shortWallet } from './entry-text';
 import { rememberWallets } from './installations';
 import { tools } from './tools';
 
-const empty: AlertFacts = { newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [] };
+const empty: AlertFacts = {
+  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitChains: [], outcomeWins: [],
+};
 const t = (h: number) => new Date(Date.UTC(2026, 9, 10, h));
 
 test('a prize paid shows once, with its amount and transaction link (seen ids, not time)', () => {
@@ -124,6 +131,9 @@ test('v2.6 §3 fix round 1 (Ruling 25 supersedes P1): alert wording, money first
       },
     ],
     bonusStandings: [{ project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' }],
+    newPrograms: [],
+    fitChains: [],
+    outcomeWins: [],
   });
   assert.deepEqual(lines, [
     `you were paid a 0.12 ETH builder bonus (as WETH) for Arc Microgrants, sent to ${BONUS_WALLET_SHORT} (basescan.org/tx/${txHash}) · earnkit.com/bonus/arc-microgrants-2026-09-16`,
@@ -250,7 +260,8 @@ test('token fees from $100, once per crossing; money lines first', () => {
 
 test('the daily-check offer never mentions tokens', () => {
   assert.doesNotMatch(SCHEDULE_NOTE, /token fee/i);
-  assert.match(SCHEDULE_NOTE, /\(a win, a payout, your rank\)/);
+  // v2.8 Ruling 10 (plan): new programs that fit are news too.
+  assert.match(SCHEDULE_NOTE, /\(a win, a payout, your rank, a new program you fit\)/);
   assert.doesNotMatch(SCHEDULE_NOTE, /campaign/);
 });
 
@@ -555,4 +566,126 @@ test('M15: the bonus_payouts table check runs until it first finds the table, th
   await paidBonusWins(-1, counting);
   await paidBonusWins(-1, counting);
   assert.equal(checks, first, 'memoized once the migrated table is seen');
+});
+
+// ---- v2.8 Task 12, Ruling 10 (plan): new program alerts; Part G: win alerts from announced outcomes.
+const prog = (id: string, h: number, over: Partial<NewProgram> = {}): NewProgram => ({
+  id, title: id, prize: 'up to $5,000', easy: false, chains: ['base'], any_chain: false, opened_at: t(h), ...over,
+});
+
+test('newProgramLines: five new fitting programs show 3, newest first; the other two show on the next check', () => {
+  assert.equal(MAX_NEW_PROGRAM_LINES, 3);
+  const programs = [
+    prog('p1', 5), prog('p2', 6), prog('p3', 7),
+    prog('avalanche', 9, { title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', easy: true, chains: ['avalanche'] }),
+    prog('p5', 8, { chains: ['arc', 'base'] }),
+  ];
+  const first = newProgramLines({ checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null }, programs, ['base']);
+  assert.deepEqual(first.lines, ['new: Avalanche Team1 Mini Grants (up to $10,000, Easy)', 'new: p5 (up to $5,000)', 'new: p3 (up to $5,000)']);
+  assert.ok(!first.seen.includes('p1') && !first.seen.includes('p2'), 'over the cap: not seen');
+  const next = newProgramLines({ checkedAt: t(10), state: { top: {}, newPrograms: first.seen }, feeAlertedUsd: null }, programs, ['base']);
+  assert.deepEqual(next.lines, ['new: p2 (up to $5,000)', 'new: p1 (up to $5,000)']);
+  assert.deepEqual(newProgramLines({ checkedAt: t(11), state: { top: {}, newPrograms: next.seen }, feeAlertedUsd: null }, programs, ['base']).lines, []);
+});
+
+test('newProgramLines: Easy is announced without a chain fit; a non-Easy program without one is not; any_chain fits any non-empty fit', () => {
+  const memory = { checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null };
+  const easy = prog('easy', 5, { easy: true, chains: ['monad'] });
+  const hard = prog('hard', 6, { chains: ['monad'] });
+  const any = prog('any', 7, { chains: [], any_chain: true });
+  assert.deepEqual(newProgramLines(memory, [easy, hard, any], ['base']).lines, ['new: any (up to $5,000)', 'new: easy (up to $5,000, Easy)']);
+  // No repos matched yet: only Easy programs, any_chain doesn't fit an empty list.
+  assert.deepEqual(newProgramLines(memory, [easy, hard, any], []).lines, ['new: easy (up to $5,000, Easy)']);
+  // A program that didn't fit when it was new is marked seen: a later repo never makes it "new".
+  const r = newProgramLines(memory, [hard], ['base']);
+  assert.ok(r.seen.includes('hard'));
+  assert.deepEqual(newProgramLines({ checkedAt: t(8), state: { top: {}, newPrograms: r.seen }, feeAlertedUsd: null }, [hard], ['monad']).lines, []);
+});
+
+test('newProgramLines: the first-ever check is quiet and marks every open program seen; rows from before v2.8 use opened_at', () => {
+  const programs = [prog('a', 5), prog('b', 6, { easy: true })];
+  const first = newProgramLines({ checkedAt: null, state: null, feeAlertedUsd: null }, programs, ['base']);
+  assert.deepEqual(first.lines, []);
+  assert.deepEqual(first.seen, ['a', 'b']);
+  assert.deepEqual(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, newPrograms: programs, fitChains: ['base'] }).lines, []);
+  // A pre-v2.8 memory (no newPrograms list): opened by the last check counts as seen.
+  const legacy = newProgramLines({ checkedAt: t(5), state: { top: {} }, feeAlertedUsd: null }, programs, ['base']);
+  assert.deepEqual(legacy.lines, ['new: b (up to $5,000, Easy)']);
+  assert.deepEqual(legacy.seen.sort(), ['a', 'b']);
+});
+
+test('alertLines: new program lines go where campaign lines go, and are remembered', () => {
+  const f: AlertFacts = {
+    ...empty,
+    newCampaigns: [{ id: 'c1', title: 'EarnKit Campaign', prize: '$100 each', opened_at: t(5) }],
+    newPrograms: [prog('p1', 5)],
+    fitChains: ['base'],
+  };
+  const r = alertLines({ checkedAt: t(4), state: { top: {}, campaigns: [], newPrograms: [] }, feeAlertedUsd: null }, f);
+  assert.deepEqual(r.lines, ['new: EarnKit Campaign ($100 each)', 'new: p1 (up to $5,000)']);
+  assert.deepEqual(r.state.newPrograms, ['p1']);
+  assert.deepEqual(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, f).lines, []);
+});
+
+const win = (id: number, h: number, over: Partial<OutcomeWin> = {}): OutcomeWin => ({
+  id, project_id: id, name: `P${id}`, program_title: 'Arc Microgrants', prize_usd: 500, captured_at: t(h), ...over,
+});
+
+test('alertLines: announced wins come first among wins, at most 3 per check, each once', () => {
+  assert.equal(MAX_OUTCOME_WIN_LINES, 3);
+  const f: AlertFacts = {
+    ...empty,
+    prizes: [{ project_id: 9, name: 'Tip Jar', won: '$100 in MINI', prize_tx: '0xabc', paid_at: t(5) }],
+    outcomeWins: [win(1, 1), win(2, 2, { prize_usd: null }), win(3, 3), win(4, 4)],
+  };
+  const r = alertLines({ checkedAt: t(0), state: { top: {} }, feeAlertedUsd: null }, f);
+  assert.deepEqual(r.lines, [
+    'you won $500 in Arc Microgrants with P4',
+    'you won $500 in Arc Microgrants with P3',
+    'P2 won in Arc Microgrants',
+    'you won $100 in MINI with Tip Jar (basescan.org/tx/0xabc)',
+  ]);
+  const again = alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, f);
+  assert.deepEqual(again.lines, ['you won $500 in Arc Microgrants with P1']);
+  assert.deepEqual(alertLines({ checkedAt: t(7), state: again.state, feeAlertedUsd: null }, f).lines, []);
+  // The first-ever check still shows wins.
+  assert.equal(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, outcomeWins: [win(1, 1)] }).lines.length, 1);
+});
+
+test('SCHEDULE_NOTE names no campaign', () => {
+  assert.doesNotMatch(SCHEDULE_NOTE, /campaign/i);
+});
+
+test('alertFacts: announced wins only; a self-reported win never alerts; new programs read as open curated programs', db, async () => {
+  const tag = `alerts-outcome-${process.pid}-${Date.now()}`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, chains, opened_at)
+    VALUES (${tag}, 'o', 'Outcome Program', 'd', 'https://x', 'https://x', 'r', 'up to $7,000 · rolling', 'active', 'allowed', '{base}', now())`;
+  try {
+    const entry = async (name: string) =>
+      (await sql()<{ id: number }[]>`
+        INSERT INTO projects (program_id, name, installation_id) VALUES (${tag}, ${name}, ${inst.id}) RETURNING id`)[0].id;
+    const a = await entry('Announced');
+    const s = await entry('SelfReported');
+    const n = await entry('NotSelected');
+    await sql()`
+      INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis) VALUES
+        (${a}, ${tag}, 'R1', 'won', 700, 'announcement'),
+        (${s}, ${tag}, 'R1', 'won', 900, 'self_reported'),
+        (${n}, ${tag}, 'R1', 'not_selected', NULL, 'announcement')`;
+    await sql()`UPDATE installations SET fit_chains = '{base}' WHERE id = ${inst.id}`;
+    const f = await alertFacts(inst.id);
+    assert.deepEqual(f.outcomeWins.map((o) => [o.name, o.prize_usd, o.program_title]), [['Announced', 700, 'Outcome Program']]);
+    assert.deepEqual(f.fitChains, ['base']);
+    const mine = f.newPrograms.find((p) => p.id === tag);
+    assert.ok(mine);
+    assert.equal(mine.prize, 'up to $7,000');
+    assert.equal(mine.easy, false);
+    assert.deepEqual(mine.chains, ['base']);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
+    await sql()`DELETE FROM programs WHERE id = ${tag}`;
+  }
 });

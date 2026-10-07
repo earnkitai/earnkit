@@ -246,7 +246,8 @@ export type YourRepos =
   | {
       checked: number;
       /** repo_url is null for private/local repos the agent reported. */
-      fits: { repo: string; repo_url: string | null; verdicts: Verdict[] }[];
+      /** `chains` (v2.8 Ruling 10 (plan)): the repo's detected chains; absent in older fixtures. */
+      fits: { repo: string; repo_url: string | null; chains?: Chain[]; verdicts: Verdict[] }[];
     }
   | { error: string };
 

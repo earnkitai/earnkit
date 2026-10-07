@@ -21,6 +21,9 @@ contracts/                     Foundry project (v2.1 sponsor escrow; not part of
   script/export-abi.sh         writes apps/frontend/lib/earnkit/escrow-abi.ts
   README.md                    how to test, analyze (Slither/Halmos/Aderyn), deploy
 programs/                      program files (+ README: how Claude Code adds programs/starters)
+  programs/outcomes/           v2.8 Part G, Ruling 30: announced results, <program-id>.json (OutcomeFile;
+                               README has the format); written by the weekly routine, validated by
+                               programs:check, matched to entries by programs:sync (counts only)
 .github/workflows/earnkit-cron.yml  v2.4: hourly (:15) POST https://earnkit.com/api/cron with the
                                CRON_SECRET repo secret (also workflow_dispatch)
 apps/frontend/
@@ -165,7 +168,8 @@ apps/frontend/
                                v2.8 Task 6: DifficultyOverride is a stated level (optional estimate: true) or
                                the EarnKit rating { level: Easy, rated_by: earnkit, source_url } (Ruling 12);
                                any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
-                               refuses optimism.io hosts (Ruling 15)
+                               refuses optimism.io hosts (Ruling 15); v2.8 Task 12: results { url (https),
+                               expected (date) } (optional; programs.results; Arc 2026-10-21)
     programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
@@ -314,6 +318,8 @@ apps/frontend/
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
+                               v2.8 Ruling 10: setFitChains (installations.fit_chains, the matched repos'
+                               chains, written by list_programs, read by new program alerts);
                                v2.6 Ruling 10 (plan): rememberWallet/rememberedWallet (the
                                installation's last wallet, payout_wallet; rememberedPayoutWallet is
                                its v2.4 alias);
@@ -381,6 +387,9 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
+                               v2.8 Task 12: list_programs takes report_outcome (saveSelfReport first),
+                               writes fit_chains (setFitChains) after matching, and returns
+                               ask_outcome (outcomeToAsk, ASK_OUTCOME_NOTE) at most once per entry;
                                v2.8 Task 8: confirm_entry (the confirmation step: offer, or startEntry +
                                confirmToken + submitKit); prepare_submission ends with the offer, returns
                                token_line, never a kit or submission_url; record_submission reports a
@@ -506,8 +515,8 @@ apps/frontend/
                                (projects.application)
     also-qualifies.ts(+test)  v2.8 Task 11, Ruling 29: alsoQualifies (at most MAX_ALSO=3 other
                                open, curated, non-campaign programs the project qualifies for;
-                               reuses coach.ts bankFill), alsoText (the table + "Builder bonus
-                               counts in <program>" with coinIn). Pure. Wired into tools.ts
+                               reuses coach.ts bankFill), alsoText (the table + "Your builder
+                               bonus is in <program>; these entries don't add to it." with coinIn). Pure. Wired into tools.ts
                                record_submission (non-campaign only) with programs.ts
                                alsoProgramFacts, projects.ts enteredProgramIds, and
                                match-projects.ts cachedRepoChains
@@ -542,7 +551,17 @@ apps/frontend/
                                · <leaderboard>", "you have $X in coin fees to claim on tokens.fun",
                                top-10 lines with their leaderboard link): one colon in the joined
                                sentence; final review M3: the top-10 standings read only entries
-                               eligibleSql(r.ends_at) counts (never a test installation's)
+                               eligibleSql(r.ends_at) counts (never a test installation's);
+                               v2.8 Task 12: outcome win lines first among wins (announcement rows
+                               only, MAX_OUTCOME_WIN_LINES = 3, AlertState.outcomes), newProgramLines
+                               (Ruling 10: open curated programs that fit fit_chains or are Easy,
+                               MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms)
+    outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile, matchOutcome (repo,
+                               then live link, then a unique name), winLine, ReportOutcome,
+                               outcomeQuestion, syncOutcomeFile (announcement upserts, counts only),
+                               saveSelfReport (own entry only, NotFoundError otherwise), outcomeToAsk
+                               (one submitted entry per call after results.expected; sets
+                               outcome_asked_at). Self-reports never alert or count
     copy-review.test.ts        renamed from copy-v26.test.ts in v2.7: every builder-facing string and
                                joined alert sentence (no emojis, "vault", implied affiliation, tool names or file-edit
                                asks; one colon); v2.7: coinWords (Ruling 19: "coin" banned in human-facing text,
@@ -550,6 +569,12 @@ apps/frontend/
                                notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18);
                                v2.7.1: v271Texts (header, install modal, /programs figure, pills, steps,
                                statsLine, poolLine, bonusClose forms)
+    v28-journey.test.ts        v2.8 Task 12 DB-gated journey in its own throwaway database: no repo,
+                               Arc's coach question, the draft and offer, confirm_entry "go" (fake
+                               deploy) and the copy-paste kit, record_submission with Also qualifies
+                               (Base), Base's prefilled link with no second token, then an announced
+                               outcome (syncOutcomeFile) and the win line; every reply scanned for em
+                               dashes, Clanker, "coin" and tool or field names
     v27-journey.test.ts        v2.7 DB-gated journey in its own throwaway database (schema.sql, dropped
                                after): real programs/*.json, "What can I earn?" (Difficulty, the bonus close with stubbed
                                pools), get_program's guide, prepare_submission not ready ("Before you submit:", no token)
@@ -647,7 +672,10 @@ apps/frontend/
                                testInstallationIds, EARNKIT_TEST_INSTALLATIONS); v2.7 Ruling 20:
                                bonus_pools_eth (open rounds' `destination = 'round'` bookings, test installations' coins
                                excluded, final review M7), STATS_LABELS.coins_launched
-                               = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats
+                               = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats;
+                               v2.8 Ruling 30: labelled_entries and entries_won (announcement rows of
+                               entry_outcomes only, test installations excluded), WIN_RATE_MIN_LABELLED = 30
+                               (documentation only, no win-rate claim)
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts
                                minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
@@ -737,17 +765,27 @@ apps/frontend/
                                programs.builder_bonus (default true), projects.submission_basis
                                (CHECK page | unverified_page | confirmed, drop-then-add) and
                                projects.submission_confirmed_at; v2.7, additive: programs.logo,
-                               past_rounds (default []), focus, best_bet, difficulty_override, winners_per_round)
+                               past_rounds (default []), focus, best_bet, difficulty_override, winners_per_round;
+                               v2.8, additive: programs.any_chain, investment, judging, submit_host,
+                               submit_api, form, results; projects.confirmed_at, confirm_choice,
+                               complete_at (one backfill, DO block), own_token_url, application,
+                               outcome_asked_at; installations.fit_chains; answer_bank; entry_outcomes
+                               (UNIQUE project_id, round_label, basis; basis announcement | self_reported))
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
-                               (logo-check.ts) and the required items' todo
+                               (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
+                               programs/outcomes/*.json and sync matches them (syncOutcomeFile);
+                               v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
     db-check.mts                v2.4: applies main's schema + rows, then db/schema.sql twice, on a
                                 local Postgres only; checks backfills, defaults, opened_at via sync,
                                 the v2.5 bonus tables' constraints, and (v2.6) the migration over real
                                 v2.5 rows (main's 1823018 schema): builder_bonus true, no
                                 submission_basis, submission_proof_ok_at kept; the basis CHECK
                                 v2.7: the migration over a v2.6 program row: empty past_rounds, NULL logo
-                                and guide facts, builder_bonus unchanged
+                                and guide facts, builder_bonus unchanged; v2.8: the complete_at backfill
+                                over f4923fb rows (eligible set unchanged, runs once), the kit and bank
+                                columns, and (Task 12) results/outcome_asked_at/fit_chains defaults and
+                                entry_outcomes' unique key, CHECKs, re-run survival and cascade
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate

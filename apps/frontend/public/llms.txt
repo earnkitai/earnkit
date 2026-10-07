@@ -21,6 +21,23 @@ which EarnKit approves instantly.
 
 Then ask your agent: "What can I earn?"
 
+## How an entry goes
+
+1. What can I earn: list_programs matches the builder's repos to open
+   programs, money first.
+2. The coach: prepare_submission asks at most 3 short questions only the
+   builder can answer (one round per program), the agent drafts every other
+   answer from the repo, and the pre-submit check lists at most 3 fixes.
+3. The confirmation: the draft ends with one offer, the builder bonus with a
+   token. "Yes" launches the token; "skip" means no token, no builder bonus.
+4. The kit: confirm_entry returns the ready-to-submit kit for the form's
+   platform. The builder checks it and clicks submit on the program's site.
+5. Also qualifies: record_submission records the entry and lists up to 3
+   other open programs the same project fits, reusing its answers.
+6. Results: once a program's results are due, list_programs asks once
+   whether the entry won (ask_outcome); pass the answer as report_outcome.
+   Only published results count and alert ("you won $500 in ...").
+
 ## Program guides
 
 Every open program EarnKit lists has a short guide at
@@ -34,7 +51,8 @@ All open programs: https://earnkit.com/programs
   the builder's repos already qualify for, then other open programs. Pass local_repos (what you read from the builder's
   local git remotes); a GitHub username is optional. Every reply of every
   tool opens with "Since you last checked" when there is news: a win, a
-  payout, a rank change, or token fees to claim
+  payout, a rank change, token fees to claim, or a newly listed program the
+  builder's repos fit (or an Easy one)
 - get_program: full details, rules, submission requirements, links, and tested
   build help for the program's chains (with a one-line start command). Pass a
   repo to check whether it is eligible and what it is missing
@@ -98,5 +116,7 @@ earnkit.com shows live figures: "$X open right now" (the open programs'
 prize pools, as each program's own page states them, with "+" when a
 program publishes no pool), the builder bonus in pools so far, and agents
 earning once there are 100. https://earnkit.com/api/stats has the same
-numbers (open_pools_usd and open_pools_plus are the "$X open right now").
-Quote them as shown; never estimate others.
+numbers (open_pools_usd and open_pools_plus are the "$X open right now"),
+plus labelled_entries (entries with a published result) and entries_won.
+EarnKit makes no win-rate claim until at least 30 entries have a published
+result. Quote them as shown; never estimate others.

@@ -1791,8 +1791,112 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   `[also_qualifies]` (class only) and the section is left out. The reply carries `also_qualifies`
   (the rows) and the text is appended to `show_to_builder` after a blank line.
 
+### Win engine (v2.8): the whole flow, outcomes and alerts (Task 12)
+
+The v2.8 spec (`docs/design-docs-and-implementation-plans/v2.8-win-engine.md`) in one pass. The
+sections above have the details per task; this is how they fit together.
+
+| Step | Tool | Rule |
+|---|---|---|
+| What can I earn | `list_programs` | `openFigure` money line, Easy first (C4), `TOKEN_LINE` close |
+| Coach | `prepare_submission` | at most 3 questions, 1 round per program (Ruling 26, C15, C17); draft table, at most 3 fixes (C13, C14) |
+| Confirmation | `prepare_submission` then `confirm_entry` | the offer closes the draft; "yes, go" launches the token; "skip" is final for the bonus (Rulings 3, 31) |
+| Kit | `confirm_entry` only | by host (Ruling 27): prefilled link, agent fills, copy paste (DoraHacks, Questbook), api; proof (Ruling 28) |
+| Record | `record_submission` | updates the confirmed row, no second token flow (Ruling 1) |
+| Also qualifies | `record_submission` | at most 3 rows, the bank fills the rest (Ruling 29) |
+| Outcomes | `programs:sync`, `list_programs` | announcements count; self-reports never (Ruling 30) |
+
+- **The ordering rule (owner, binding).** The ready-to-submit kit (any mode) comes only from
+  `confirm_entry` after the builder's "go" or "skip" (Ruling 4). `prepare_submission` never
+  returns a kit, a link, a paste list or form data at any depth (tested in `tools.test.ts` 8.1 and
+  10.9). Bonus eligibility needs a launched token in SQL (`traction.ts eligibleSql`: a coin,
+  `complete_at` before the round's end, `confirm_choice` not `'skip'`; Rulings 2, 3), not in copy.
+- **The coach and the answer bank (Ruling 6).** `answer_bank` and `projects.application` are read
+  only for the same installation; never by a public page, `/api/stats`, an admin page, the bonus
+  board or a log line (errors log ids and error classes only).
+- **Submit kit registry (Rulings 27, 28).** `submit-hosts.ts` maps hosts to modes and proof kinds;
+  a program file may set `submit_host`, `submit_api` and `form` (Ruling 8).
+- **Outcomes (Part G, Ruling 30; `outcomes.ts`).**
+  - `entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url,
+    captured_at, basis)`, unique per entry, round and basis. `basis` is `announcement` or
+    `self_reported`.
+  - Announcements: the weekly routine commits `programs/outcomes/<program-id>.json` (`OutcomeFile`,
+    format in `programs/outcomes/README.md`). `programs:check` validates them (and that the program
+    file exists); `programs:sync` calls `syncOutcomeFile`, which matches each result to the
+    program's entries (`matchOutcome`: repo normalized and decisive; else the live link by host
+    and path; else a name only when exactly one entry has it) and upserts announcement rows. It
+    prints counts only (`Outcomes arc-microgrants.json: 3 matched, 1 unmatched`).
+  - Self-report: a program file's `results: { url, expected }` (stored in `programs.results`).
+    Once `expected` has passed, `list_programs` picks at most one submitted entry of this
+    installation with no outcome and `outcome_asked_at` NULL (`outcomeToAsk`, which sets it in the
+    same statement), and returns `ask_outcome` (`project_id`, the question `Did TipJar win anything
+    in Arc Microgrants?`, `ASK_OUTCOME_NOTE`). The agent passes the answer as
+    `list_programs.report_outcome`; `saveSelfReport` stores it as `self_reported` (round label
+    `builder report`) for the installation's own entry only (another's is `NotFoundError`).
+    Self-reports never alert, never count in stats and never show on a public page.
+  - Stats: `labelled_entries` (distinct entries with an announcement row) and `entries_won`
+    (announced `won` or `placed`), both excluding test installations. `WIN_RATE_MIN_LABELLED = 30`
+    is documentation only: no code path makes a win-rate claim.
+- **Alerts (Ruling 10; `alerts.ts`).** No new cron: alerts are pulled on the builder's calls.
+  - Win lines first among wins: announced `won`/`placed` rows of this installation's entries
+    (`winLine`: `you won $500 in Arc Microgrants with TipJar`, or `TipJar won in Arc Microgrants`
+    without a stated prize), newest first, at most `MAX_OUTCOME_WIN_LINES` (3), each once
+    (`AlertState.outcomes`).
+  - New program lines where campaign lines go: `newProgramLines` over every open curated program.
+    A program is news when it opened since tracking began and it fits: its chains overlap
+    `installations.fit_chains` (written by `list_programs` from the matched repos' chains,
+    `setFitChains`; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`). At
+    most `MAX_NEW_PROGRAM_LINES` (3), newest first: `new: Avalanche Team1 Mini Grants (up to
+    $10,000, Easy)`. A fitting program over the cap stays unseen and shows next time; one that
+    didn't fit when new is marked seen, so a later repo never makes an old program "new". The
+    first-ever check is quiet and marks every open program seen; a pre-v2.8 memory (no
+    `newPrograms` list) counts programs opened by its last check as seen.
+
+**Owner steps for the v2.8 deploy.**
+
+1. Merge and deploy `v2.8-win-engine`. `predeploy` runs the additive migration (new columns and
+   tables: `confirmed_at`, `confirm_choice`, `complete_at`, `own_token_url`, `application`,
+   `outcome_asked_at`; `answer_bank`, `entry_outcomes`; `programs.any_chain`, `investment`,
+   `judging`, `submit_host`, `submit_api`, `form`, `results`; `installations.fit_chains`) and the
+   one backfill of `complete_at` (Ruling 2), then `programs:sync` loads program and outcome files.
+2. Right after the deploy, the ship step: `scripts/v28-complete-at-window.mts` (see "Builder bonus
+   eligibility and its ship step (v2.8 Task 7)": dry run, then `--apply` if the count is above 0).
+3. Point the weekly re-verification routine at `programs/README.md` "Weekly re-verification". It
+   now also reads results when `results.expected` passes, writes outcome files, re-reads forms
+   and skips Optimism.
+4. docs.earnkit.com (other repo): use the builder bonus pill.
+5. Follow "Test the journey (v2.8)" below with a throwaway public repo.
+
+**Runbook: Test the journey (v2.8).** On production, with a throwaway public repo: tokens are real
+and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v28-journey.test.ts` (its own
+throwaway database, real program files, fakes for tokens.fun and GitHub, no network).
+
+1. With no repo, ask "What can I earn?": it opens with "$1.3M+ in prizes open right now." and
+   closes with "Every entry gets a token: …".
+2. Pick Arc with a throwaway repo deployed on Arc: the coach asks its questions (Arc: the public
+   profile), then the draft table, at most 3 fixes, and "Ready. Want the builder bonus? It comes
+   with a token."
+3. Say yes with your wallet: "Your token: tokens.fun/coin/…", then the DoraHacks paste list.
+4. Submit on DoraHacks and paste the entry link: "Entered in Arc Microgrants", then "You also
+   qualify for:" with Base Builder Grant Program.
+5. Enter Base too: no second token ("Your builder bonus is in Arc Microgrants"), and the kit is a
+   prefilled Google form link.
+6. Owner screenshot checks (Task 10, Ruling C19), on Base's prefilled link:
+   (a) the prefilled answers survive the Google sign-in redirect (if not, set `form.sign_in: true`
+   in `programs/base-builder-grants.json`, which makes Base `agent_fills` or `copy_paste`);
+   (b) the `primary_challenge` checkbox options, which stay in the paste list;
+   (c) Monad's entry-link host for the proof (`ENTRY_LINK_HOSTS`).
+7. After Arc's results are due (`results.expected`, 2026-10-21): "What can I earn?" asks "Did
+   \<name\> win anything in Arc Microgrants?" once. Once the weekly routine commits the outcome
+   file and it deploys, a sourced win leads the next reply: "Since you last checked: you won $500
+   in Arc Microgrants with \<name\>."
+
 ## Public trust pages (v2.5 §4, Task 9)
 
+- **Footer (v2.8 Ruling 22):** every public page ends with the footer card (Product: Programs;
+  Resources: Docs, For sponsors; Legal: Policy; Contact: email and X), from
+  `lib/earnkit/footer-links.ts`; `footer-links.test.ts` checks each link (network only with
+  `LINK_CHECK=1`). See "v2.8 Part A footer" above.
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from
   `lib/earnkit/policy.ts`, which reads the constants the code applies (traction `WEIGHTS`,
   `BONUS_SPLIT_BPS`), so the page can't drift. It is linked from the footer and the guide page
@@ -1837,6 +1941,11 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   - `bonus_programs_open` (v2.6 Ruling 16 (plan)): open programs with the builder bonus on
     (`bonusOn`'s SQL twin, `builder_bonus AND campaign IS NULL`). Label: "programs with a builder
     bonus".
+  - `labelled_entries` and `entries_won` (v2.8 Part G, Ruling 30 (plan)): entries with an
+    announced result, and of those the ones that won or placed. Announcement rows only (a
+    self-report never counts), never a test installation's entry. Labels: "entries with a
+    published result", "entries that won". No win-rate claim until 30 labelled entries
+    (`WIN_RATE_MIN_LABELLED`, documentation only). Cache key `public-stats-v28`.
   - Caching: with `DATABASE_URL` at build time, the route prerenders and revalidates every 600 s.
     Without it (turbo doesn't pass it), the route renders per request. Either way the read is
     cached for 600 s with `unstable_cache`.

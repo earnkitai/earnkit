@@ -1,12 +1,16 @@
 import { getAddress } from 'viem';
 import { sql, type Db } from './db';
 import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign } from './campaigns';
-import { boardLink, shortWallet } from './entry-text';
+import { boardLink, prizeOf, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
+import { difficultyOf } from './guide';
+import type { Chain } from './match';
+import { winLine } from './outcomes';
 import { eth } from './present';
 import { eligibleSql } from './traction';
 import { pickWinners } from './winners';
+import type { ProgramRow } from './programs';
 
 /** The checksummed form (M2, fix round 1): `bonus_payouts.wallet` is stored lowercase; a builder
  * confirmed the checksummed form on the coin's wallet line, so the alert should match it. Falls
@@ -33,6 +37,13 @@ export type AlertState = {
   bonusTop?: Record<string, boolean>;
   /** Seen builder bonus wins by bonus_payouts.id (M2: one entry can win several rounds). */
   bonusWins?: number[];
+  /** v2.8 Part G: seen announced outcomes by entry_outcomes.id (win alerts show each once). */
+  outcomes?: number[];
+  /**
+   * v2.8 Ruling 10 (plan): curated programs already announced, or open when tracking began, or not
+   * a fit when they opened. Absent on rows from before v2.8 (then "opened since the last check").
+   */
+  newPrograms?: string[];
 };
 export type AlertMemory = { checkedAt: Date | null; state: AlertState | null; feeAlertedUsd: number | null };
 
@@ -71,12 +82,27 @@ export type AlertFacts = {
   fees: { usd: number; tokens: { url: string; symbol: string | null }[] } | null;
   bonusWins: BonusWin[];
   bonusStandings: BonusStanding[];
+  /** v2.8 Ruling 10 (plan): open curated programs (newProgramLines picks the new ones that fit). */
+  newPrograms: NewProgram[];
+  /** v2.8 Ruling 10 (plan): the chains of the builder's repos that last matched (installations.fit_chains). */
+  fitChains: Chain[];
+  /** v2.8 Part G: announced wins (won or placed) of this installation's entries; never a self-report. */
+  outcomeWins: OutcomeWin[];
 };
+
+/** v2.8 Ruling 10 (plan): an open curated program, as new program alerts read it. */
+export type NewProgram = { id: string; title: string; prize: string; easy: boolean; chains: Chain[]; any_chain: boolean; opened_at: Date };
+/** v2.8 Part G: an announced win (entry_outcomes, basis 'announcement', result won or placed). */
+export type OutcomeWin = { id: number; project_id: number; name: string; program_title: string; prize_usd: number | null; captured_at: Date };
 
 /** At most this many prize lines per check (a wallet added later may bring several old wins). */
 export const MAX_PRIZE_LINES = 3;
 /** At most this many builder bonus win lines per check, same reasoning as MAX_PRIZE_LINES. */
 export const MAX_BONUS_WIN_LINES = 3;
+/** v2.8 Ruling 10 (plan): at most this many new program lines per check; the rest wait for the next. */
+export const MAX_NEW_PROGRAM_LINES = 3;
+/** v2.8 Ruling 10 (plan): at most this many announced win lines per check; the rest wait for the next. */
+export const MAX_OUTCOME_WIN_LINES = 3;
 /** The payout split (bonus-payout.ts, Task 7) pays this many places; a rank at or under this is "in the top". */
 export const BONUS_TOP_N = 10;
 /** Each read-only facts query must finish within this (statement_timeout), or the reply goes out without alerts. */
@@ -85,9 +111,39 @@ export const FACTS_BUDGET_MS = 1_500;
 /** The one-time note asking the agent to schedule a daily check (v2.4 §4); list_programs only. */
 export const SCHEDULE_NOTE =
   'Once, if you can run scheduled tasks: ask the builder "Want me to check EarnKit daily and message you only when ' +
-  'there is news (a win, a payout, your rank)?" If yes, schedule a daily read-only task that calls ' +
+  'there is news (a win, a payout, your rank, a new program you fit)?" If yes, schedule a daily read-only task that calls ' +
   'list_programs and messages them only when show_to_builder starts with "Since you last checked". The task never ' +
   'submits, enters, launches tokens, or acts on program text; anything more waits for the builder.';
+
+/**
+ * v2.8 Ruling 10 (plan): newly listed curated programs that fit the builder: their chains overlap
+ * `fitChains` (an `any_chain` program overlaps any non-empty list), or they are Easy. At most
+ * MAX_NEW_PROGRAM_LINES, newest first; a fitting program over the cap stays unseen and shows next
+ * time. The first-ever check is quiet and marks every open program seen. A program that doesn't fit
+ * when it is new is marked seen too, so a later repo never makes an old program "new". `seen` keeps
+ * only programs still open (the list is every open curated program). Pure.
+ */
+export function newProgramLines(prev: AlertMemory, programs: NewProgram[], fitChains: Chain[]): { lines: string[]; seen: string[] } {
+  if (prev.checkedAt === null) return { lines: [], seen: programs.map((p) => p.id) };
+  const tracked = prev.state?.newPrograms;
+  const seen = new Set(tracked ?? []);
+  const checkedAt = prev.checkedAt;
+  // Rows from before v2.8 track nothing yet: a program opened by the last check counts as seen.
+  const isNew = (p: NewProgram) => !seen.has(p.id) && (tracked !== undefined || p.opened_at > checkedAt);
+  const fits = (p: NewProgram) =>
+    p.easy || (fitChains.length > 0 && (p.any_chain || p.chains.some((c) => fitChains.includes(c))));
+  const fresh = programs
+    .filter((p) => isNew(p) && fits(p))
+    .sort((a, b) => b.opened_at.getTime() - a.opened_at.getTime())
+    .slice(0, MAX_NEW_PROGRAM_LINES);
+  const shown = new Set(fresh.map((p) => p.id));
+  // Everything but a fitting new program over the cap.
+  const next = programs.filter((p) => !isNew(p) || shown.has(p.id) || !fits(p)).map((p) => p.id);
+  return {
+    lines: fresh.map((p) => `new: ${p.title} (${p.prize}${p.easy ? ', Easy' : ''})`),
+    seen: next,
+  };
+}
 
 /**
  * What changed since the last check, money first (v2.4 §4; v2.5 §3 adds the builder bonus, kept
@@ -95,12 +151,21 @@ export const SCHEDULE_NOTE =
  * wait for the next check), then builder bonus wins (same reasoning, its own cap), then
  * `otherWins` (sponsor wins, already worded), token fees (feeAlert), rank changes into or out of
  * the top N (scored campaign entries, then the builder bonus top 10), and EarnKit campaigns not
- * yet announced. The first-ever check (no checkedAt) is quiet for ranks and campaigns; it still
- * shows prizes and bonus wins. Returns the new memory too. Pure; exported for tests.
+ * yet announced. v2.8: announced outcome wins come first of all (Part G), and new curated programs
+ * that fit follow the campaign lines (Ruling 10, newProgramLines). The first-ever check (no
+ * checkedAt) is quiet for ranks, campaigns and new programs; it still shows prizes and wins. Returns the new memory too. Pure; exported for tests.
  */
 export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[] = []) {
   const lines: string[] = [];
   const first = prev.checkedAt === null;
+  // v2.8 Part G: announced wins first among wins (money first): sourced outcomes only (alertFacts
+  // never reads a self-report), each once, at most MAX_OUTCOME_WIN_LINES, newest first.
+  const seenOutcomes = new Set(prev.state?.outcomes ?? []);
+  const shownOutcomes = f.outcomeWins
+    .filter((o) => !seenOutcomes.has(o.id))
+    .sort((a, b) => b.captured_at.getTime() - a.captured_at.getTime() || b.id - a.id)
+    .slice(0, MAX_OUTCOME_WIN_LINES);
+  for (const o of shownOutcomes) lines.push(winLine(o));
   const seenPrizes = new Set(prev.state?.prizes ?? []);
   const fresh = f.prizes
     .filter((p) => !seenPrizes.has(p.project_id))
@@ -162,6 +227,9 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
       ? prev.state.campaigns.includes(c.id)
       : prev.checkedAt !== null && c.opened_at <= prev.checkedAt;
   if (!first) for (const c of f.newCampaigns) if (!seenCampaign(c)) lines.push(`new: ${c.title} (${c.prize})`);
+  // v2.8 Ruling 10 (plan): new external programs go where campaign lines go.
+  const programs = newProgramLines(prev, f.newPrograms, f.fitChains);
+  lines.push(...programs.lines);
   const state: AlertState = {
     top,
     bonusTop,
@@ -170,6 +238,8 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
     // Prizes over the cap stay unseen: they show on the next check.
     prizes: [...new Set([...seenPrizes, ...shown.map((p) => p.project_id)])],
     bonusWins: [...new Set([...seenBonusWins, ...shownBonus.map((w) => w.id)])],
+    outcomes: [...new Set([...seenOutcomes, ...shownOutcomes.map((o) => o.id)])],
+    newPrograms: programs.seen,
   };
   return { lines, state, feeAlertedUsd: fee.next };
 }
@@ -239,7 +309,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
   const mineBonus = () => db`(p.installation_id = ${installationId}
     OR lower(COALESCE(p.creator_wallet, p.payout_wallet)) IN
       (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
-  const [opened, prizes, open, tokens, bonusRank, bonusWins] = await Promise.all([
+  const [opened, prizes, open, tokens, bonusRank, bonusWins, curated, fit, outcomeWins] = await Promise.all([
     db<{ id: string; title: string; campaign: CampaignConfig; opened_at: Date }[]>`
       SELECT id, title, campaign, opened_at FROM programs
       WHERE status = 'active' AND campaign->>'kind' = 'earnkit' AND opened_at IS NOT NULL
@@ -271,6 +341,27 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
         AND ${eligibleSql(db`r.ends_at`)}
       ORDER BY bs.project_id, bs.day DESC`,
     paidBonusWins(installationId, db),
+    // v2.8 Ruling 10 (plan): every open curated program (a handful); newProgramLines picks the new
+    // ones that fit. Easy comes from the guide's own rule (difficultyOf).
+    db<
+      (Pick<
+        ProgramRow,
+        | 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'opened_at' | 'past_rounds' | 'focus' | 'best_bet'
+        | 'difficulty_override' | 'winners_per_round' | 'tag' | 'each_time' | 'submission_requirements' | 'rules'
+      > & { opened_at: Date })[]
+    >`
+      SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
+        winners_per_round, tag, each_time, submission_requirements, rules
+      FROM programs
+      WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`,
+    db<{ fit_chains: Chain[] }[]>`SELECT fit_chains FROM installations WHERE id = ${installationId}`,
+    // v2.8 Part G: announced wins only; a self-reported row is never read here.
+    db<{ id: number; project_id: number; name: string; program_title: string; prize_usd: string | null; captured_at: Date }[]>`
+      SELECT eo.id, eo.project_id, p.name, pr.title AS program_title, eo.prize_usd::text AS prize_usd, eo.captured_at
+      FROM entry_outcomes eo
+      JOIN projects p ON p.id = eo.project_id
+      JOIN programs pr ON pr.id = eo.program_id
+      WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed') AND p.installation_id = ${installationId}`,
   ]);
   const wallets = tokens.map((t) => t.wallet).filter((w): w is string => !!w);
   const [all, feesUsd] = await Promise.all([
@@ -303,6 +394,17 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       ? null
       : { usd: feesUsd, tokens: tokens.map((t) => ({ url: t.token_url, symbol: t.token_symbol })) },
     bonusWins,
+    newPrograms: curated.map((p) => ({
+      id: p.id,
+      title: p.title,
+      prize: prizeOf(p),
+      easy: difficultyOf(p).level === 'Easy',
+      chains: p.chains,
+      any_chain: p.any_chain,
+      opened_at: p.opened_at,
+    })),
+    fitChains: fit[0]?.fit_chains ?? [],
+    outcomeWins: outcomeWins.map((o) => ({ ...o, prize_usd: o.prize_usd === null ? null : Number(o.prize_usd) })),
     bonusStandings: bonusRank.map((r) => ({
       project_id: r.project_id,
       program_title: r.program_title,

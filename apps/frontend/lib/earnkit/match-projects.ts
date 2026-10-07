@@ -398,6 +398,8 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
     .map((r) => ({
       repo: r.repo.name,
       repo_url: r.repo.url || null,
+      // v2.8 Ruling 10 (plan): the repo's detected chains, for new program alerts (fit_chains).
+      chains: Object.keys(r.repo.chains) as Chain[],
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
     }))
     .filter((r) => r.verdicts.length > 0)

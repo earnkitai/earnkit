@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATS_KEYS, STATS_LABELS, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
+import { STATS_KEYS, STATS_LABELS, WIN_RATE_MIN_LABELLED, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -11,6 +11,7 @@ const E18 = 10n ** 18n;
 const emptyRow = {
   open_money_usd: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
+  labelled_entries: 0, entries_won: 0,
 };
 
 test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
@@ -37,6 +38,8 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     bonus_paid_wei: (E18 / 4n).toString(),
     bonus_pools_wei: ((6n * E18) / 10n).toString(),
     installs: 12,
+    labelled_entries: 5,
+    entries_won: 2,
   });
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
   assert.deepEqual(s, {
@@ -54,6 +57,8 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     // v2.7 Ruling 20 (plan): open rounds' bookings, wei to ETH.
     bonus_pools_eth: 0.6,
     installs: 12,
+    labelled_entries: 5,
+    entries_won: 2,
   });
   for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : 'number', k);
   const exact = statsFrom({ ...emptyRow, pool_rows: [{ pool_usd: '10000', reward: '10,000 USDC pool' }] });
@@ -63,7 +68,7 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -223,4 +228,61 @@ test('v2.7 Ruling 20 (plan): bonus_pools_eth sums open rounds\' round bookings; 
 test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
   assert.ok((STATS_KEYS as readonly string[]).includes('bonus_programs_open'));
   assert.equal(STATS_LABELS.bonus_programs_open, 'programs with a builder bonus');
+});
+
+// ---- v2.8 Task 12, Part G, Ruling 30 (plan): outcomes in public stats.
+test('v2.8 Ruling 30 (plan): labelled_entries and entries_won keys and labels; the win-rate floor is documented', () => {
+  assert.deepEqual(STATS_KEYS.slice(-2), ['labelled_entries', 'entries_won']);
+  assert.equal(STATS_LABELS.labelled_entries, 'entries with a published result');
+  assert.equal(STATS_LABELS.entries_won, 'entries that won');
+  assert.equal(WIN_RATE_MIN_LABELLED, 30);
+  // No stat is a rate: the public win-rate claim has no code path.
+  for (const k of STATS_KEYS) assert.doesNotMatch(k, /rate|percent/);
+});
+
+test('v2.8 Ruling 30 (plan): announcements count, self-reports and test installations never do', db, async () => {
+  const tag = `stats-outcomes-${process.pid}-${Date.now()}`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  const Rollback = new Error('rollback');
+  try {
+    // One repeatable-read transaction, rolled back: exact deltas whatever other files write meanwhile.
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [inst] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+      const [testInst] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-t`}) RETURNING id`;
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(testInst.id);
+      const before = await readStats(new Date(), tx);
+      await tx`
+        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+        VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown')`;
+      const entry = async (name: string, installation: number) =>
+        (await tx<{ id: number }[]>`
+          INSERT INTO projects (program_id, name, installation_id) VALUES (${tag}, ${name}, ${installation}) RETURNING id`)[0].id;
+      const outcome = (project: number, result: string, basis: string) => tx`
+        INSERT INTO entry_outcomes (project_id, program_id, round_label, result, basis)
+        VALUES (${project}, ${tag}, 'Round 1', ${result}, ${basis})`;
+      const won = await entry('won', inst.id);
+      const lost = await entry('lost', inst.id);
+      const selfWon = await entry('self', inst.id);
+      const testWon = await entry('test', testInst.id);
+      await outcome(won, 'won', 'announcement');
+      await outcome(lost, 'not_selected', 'announcement');
+      await outcome(selfWon, 'won', 'self_reported');
+      await outcome(testWon, 'won', 'announcement');
+      const mid = await readStats(new Date(), tx);
+      assert.equal(mid.labelled_entries - before.labelled_entries, 2);
+      assert.equal(mid.entries_won - before.entries_won, 1);
+      // A self-report on an announced entry changes neither count.
+      await outcome(won, 'not_selected', 'self_reported');
+      await outcome(lost, 'won', 'self_reported');
+      const after = await readStats(new Date(), tx);
+      assert.equal(after.labelled_entries, mid.labelled_entries);
+      assert.equal(after.entries_won, mid.entries_won);
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+  }
 });

@@ -1522,3 +1522,57 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
       if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
     }
   }));
+
+// ---- v2.8 Task 12, Part G, Ruling 30 (plan): the outcome question, asked once; the builder's answer.
+test('12 list_programs: ask_outcome once after results are due; report_outcome stores a self-report for the own entry only', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const due = { ...arc, id: `t12-due-${stamp}`, title: `Arc Due ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', results: { url: arc.source_url, expected: '2026-01-01' } };
+  const later = { ...arc, id: `t12-later-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', results: { url: arc.source_url, expected: '2099-01-01' } };
+  await upsertProgram(ProgramFile.parse(due));
+  await upsertProgram(ProgramFile.parse(later));
+  const inst = async (tag: string) =>
+    (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t12-${tag}-${stamp}`}) RETURNING id`)[0].id;
+  const mine = await inst('a');
+  const other = await inst('b');
+  const entry = async (program: string, installation: number, name: string, confirmed = false) =>
+    (await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, confirmed_at, confirm_choice)
+      VALUES (${program}, ${name}, ${installation}, ${confirmed ? new Date() : null}, ${confirmed ? 'go' : null}) RETURNING id`)[0].id;
+  const tipjar = await entry(due.id, mine, 'TipJar');
+  await entry(due.id, mine, 'Unsent', true); // confirmed, never submitted: never asked
+  await entry(later.id, mine, 'TooEarly'); // results not due yet
+  const theirs = await entry(due.id, other, 'Theirs');
+  const ctx = { installationId: mine, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  type Listed = { ask_outcome?: { project_id: number; question: string; agent_note: string }; outcome_saved?: boolean };
+  try {
+    const first = (await tools.list_programs({}, ctx)) as Listed;
+    assert.deepEqual(first.ask_outcome && { ...first.ask_outcome, agent_note: undefined }, {
+      project_id: tipjar,
+      question: `Did TipJar win anything in Arc Due ${stamp}?`,
+      agent_note: undefined,
+    });
+    assert.match(first.ask_outcome!.agent_note, /report_outcome/);
+    // Asked once: not on the next call.
+    const second = (await tools.list_programs({}, ctx)) as Listed;
+    assert.ok(!('ask_outcome' in second));
+    // The answer: stored as the builder's own report.
+    const saved = (await tools.list_programs({ report_outcome: { project_id: tipjar, result: 'won', prize_usd: 500 } }, ctx)) as Listed;
+    assert.equal(saved.outcome_saved, true);
+    const rows = await sql()<{ basis: string; result: string; prize_usd: string }[]>`
+      SELECT basis, result, prize_usd::text FROM entry_outcomes WHERE project_id = ${tipjar}`;
+    assert.deepEqual([...rows], [{ basis: 'self_reported', result: 'won', prize_usd: '500' }]);
+    // Another installation's entry: refused, nothing stored.
+    await assert.rejects(
+      tools.list_programs({ report_outcome: { project_id: theirs, result: 'won' } }, ctx),
+      (err: Error) => err.constructor.name === 'NotFoundError',
+    );
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${theirs}`)[0].n, 0);
+    // A self-report never alerts: the wins in this reply's alerts come from announcements only.
+    assert.doesNotMatch(JSON.stringify(saved), /you won \$500/);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id IN (${due.id}, ${later.id})`;
+    await sql()`DELETE FROM installations WHERE id IN (${mine}, ${other})`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${due.id}, ${later.id})`;
+  }
+});

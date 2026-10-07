@@ -18,7 +18,8 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { COACH_NOTES, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, tools } from './tools';
+import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
@@ -200,6 +201,9 @@ const alertFacts: AlertFacts = {
   bonusStandings: [
     { project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' },
   ],
+  newPrograms: [],
+  fitChains: [],
+  outcomeWins: [],
 };
 const movedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': false } }, feeAlertedUsd: 0 };
 const droppedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': true } }, feeAlertedUsd: 0 };
@@ -516,7 +520,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, labelled_entries: 0, entries_won: 0 })!],
   ['bonusPillLabel', bonusPillLabel()],
   ['bonusPillLabel amount', bonusPillLabel('0.42 ETH')],
   ['bonusPillLabel tiny', bonusPillLabel('<0.01 ETH')],
@@ -748,8 +752,41 @@ const alsoQualifiesTexts: [string, string][] = [
   ],
 ];
 
+// v2.8 Task 12, Part G and Ruling 10 (plan): the outcome question and the new alert lines.
+const outcomeAlertFacts: AlertFacts = {
+  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [],
+  newPrograms: [
+    { id: 'a', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', easy: true, chains: ['avalanche'], any_chain: false, opened_at: new Date('2026-10-09T00:00:00Z') },
+    { id: 'b', title: 'Base Builder Grant Program', prize: 'up to $5,000', easy: false, chains: ['base'], any_chain: false, opened_at: new Date('2026-10-09T01:00:00Z') },
+  ],
+  fitChains: ['base'],
+  outcomeWins: [
+    { id: 1, project_id: 1, name: 'TipJar', program_title: 'Arc Microgrants', prize_usd: 500, captured_at: new Date('2026-10-23T00:00:00Z') },
+    { id: 2, project_id: 2, name: 'NanoCrawl', program_title: 'Arc Microgrants', prize_usd: null, captured_at: new Date('2026-10-22T00:00:00Z') },
+  ],
+};
+const outcomeAlertLines = alertLines(
+  { checkedAt: new Date('2026-10-08T00:00:00Z'), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null },
+  outcomeAlertFacts,
+).lines;
+const outcomeTexts: [string, string][] = [
+  ['outcomeQuestion', outcomeQuestion('TipJar', 'Arc Microgrants')],
+  ['sinceLine(outcome and new program lines)', sinceLine(outcomeAlertLines)!],
+  ...outcomeAlertLines.map((l, i): [string, string] => [`outcome alert line[${i}]`, l]),
+];
+
+test('v2.8 Task 12: the outcome and new program alert lines render as expected', () => {
+  assert.deepEqual(outcomeAlertLines, [
+    'you won $500 in Arc Microgrants with TipJar',
+    'NanoCrawl won in Arc Microgrants',
+    'new: Base Builder Grant Program (up to $5,000)',
+    'new: Avalanche Team1 Mini Grants (up to $10,000, Easy)',
+  ]);
+});
+
 const builderFacing: [string, string][] = [
   ...coachTexts,
+  ...outcomeTexts,
   ...alsoQualifiesTexts,
   ...campaignPageTexts,
   ...confirmTexts,
@@ -808,6 +845,7 @@ const agentFacing: [string, string][] = [
   ...Object.entries(COACH_NOTES).map(([k, v]): [string, string] => [`COACH_NOTES.${k}`, v]),
   ...gatherDecideTokenAgentNotes(),
   ...kitAgentTexts,
+  ['ASK_OUTCOME_NOTE', ASK_OUTCOME_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];

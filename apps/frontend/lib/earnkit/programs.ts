@@ -210,6 +210,8 @@ export type ProgramRow = {
   submit_api: boolean;
   /** v2.8 Ruling 8 (plan): a Google, Airtable or Tally form's field ids, or null. */
   form: SubmitForm | null;
+  /** v2.8 Part G, Ruling 30 (plan): where and when results are announced, or null. */
+  results: { url: string; expected: string } | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -720,6 +722,7 @@ export async function upsertProgram(
       submit_host: p.submit_host ?? null,
       submit_api: p.submit_api ?? false,
       form: p.form ? tx.json(p.form) : null,
+      results: p.results ? tx.json(p.results) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

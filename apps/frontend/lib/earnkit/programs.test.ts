@@ -21,7 +21,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   source: 'file', max_award_usd: null, pool_usd: null, min_award_usd: null, pool_source_url: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
   logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null, judging: null,
-  submit_host: null, submit_api: false, form: null,
+  submit_host: null, submit_api: false, form: null, results: null,
 });
 const earnkitCampaign = {
   kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },

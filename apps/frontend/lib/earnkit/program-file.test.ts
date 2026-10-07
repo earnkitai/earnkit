@@ -707,3 +707,23 @@ test('C19: sign_in "email_only" is for Google forms only; booleans still parse',
     issues({ ...arc, submission_url: 'https://tally.so/r/abc', form: { url: 'https://tally.so/r/abc', fields: {}, sign_in: 'email_only', read_at: '2026-10-07' } }).includes('form.sign_in "email_only" is for Google forms'),
   );
 });
+
+// ---- v2.8 Task 12, Part G, Ruling 30 (plan): where and when results are announced.
+test('12 results: { url, expected } parses; a non-https url or a bad date fails', () => {
+  const arc = programJson('arc-microgrants');
+  const parsed = ProgramFile.parse({ ...arc, results: { url: 'https://dorahacks.io/hackathon/arc-microgrants', expected: '2026-10-21' } });
+  assert.deepEqual(parsed.results, { url: 'https://dorahacks.io/hackathon/arc-microgrants', expected: '2026-10-21' });
+  assert.ok(issues({ ...arc, results: { url: 'http://dorahacks.io/x', expected: '2026-10-21' } }).length > 0, 'https only');
+  assert.ok(issues({ ...arc, results: { url: 'https://dorahacks.io/x', expected: 'Oct 21' } }).length > 0, 'a date');
+  assert.ok(issues({ ...arc, results: { url: 'https://dorahacks.io/x', expected: '2026-10-21', extra: 1 } }).length > 0, 'strict');
+  // Optional: a file without it still parses.
+  const noResults = { ...arc };
+  delete noResults.results;
+  assert.deepEqual(issues(noResults), []);
+});
+
+test('12 the committed Arc file states when its decisions are due', () => {
+  const arc = ProgramFile.parse(programJson('arc-microgrants'));
+  assert.equal(arc.results?.expected, '2026-10-21');
+  assert.match(arc.description, /all decisions by October 21, 2026/);
+});
