@@ -2,21 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import AddToAgent, { START_PROMPT } from './AddToAgent';
+import AddToAgent from './AddToAgent';
 
 /**
- * v2.7.1: the promise, the live "$1.3M+ open right now" figure (landing.ts: the open programs'
- * source-stated pools, formatted on the server so this client component never pulls in the server
- * money modules; null when the read failed or no pool is stated, and then it doesn't show), the
- * builder bonus pill (to #builder-bonus), the install button, what to ask, and one short stats
- * line once there is something to show. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
+ * v2.7.2: the promise, the orange builder bonus pill (to #builder-bonus), the install and demo
+ * buttons, and one short stats line once there is something to show. The pool figure lives in the
+ * Open programs heading, next to the cards it adds up. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
  */
 export default function Hero({
-  openText = null,
   statsLine = null,
   bonusEvery = false,
 }: {
-  openText?: string | null;
   statsLine?: string | null;
   /** Review #6: every open program has the builder bonus (false when unknown: the read failed). */
   bonusEvery?: boolean;
@@ -58,15 +54,9 @@ export default function Hero({
           Find live builder programs and start building with your agent.
         </p>
 
-        {openText && (
-          <p className="mt-6 font-funnel-display text-2xl font-medium tracking-[-0.01em] text-ek-blue-bright [text-shadow:0_0_24px_rgba(2,5,44,0.95),0_0_8px_rgba(2,5,44,0.9)] md:text-4xl">
-            {openText} open right now
-          </p>
-        )}
-
         <a
           href="#builder-bonus"
-          className="mt-4 inline-flex min-h-11 items-center rounded-full border-2 border-ek-blue-soft/60 bg-[#02052c]/60 px-5 py-2 font-funnel-sans text-sm font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white"
+          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-ek-orange px-5 py-2 font-funnel-sans text-sm font-semibold text-ek-navy-deep transition-opacity hover:opacity-90"
         >
           {bonusEvery ? '+ Builder bonus on every program' : '+ Builder bonus'}
         </a>
@@ -95,10 +85,6 @@ export default function Hero({
             Watch the demo
           </button>
         </div>
-
-        <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
-          Then ask: <em className="text-ek-white">{START_PROMPT}</em>
-        </p>
 
         {statsLine && (
           <p className="mt-8 font-funnel-sans text-sm text-ek-blue-soft md:text-base">{statsLine}</p>

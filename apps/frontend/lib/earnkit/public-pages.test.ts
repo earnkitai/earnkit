@@ -201,12 +201,15 @@ const home = (landing: Landing | null) => html(React.createElement(HomeView, { l
 test('v2.7 §1: the full home view', () => {
   const h = home(homeFixture);
   const t = text(h);
-  for (const s of ['Agents only', 'Find things worth building for.', 'Find live builder programs and start building with your agent.', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Watch the demo', 'Then ask: What can I earn?', '120 agents earning'])
+  for (const s of ['Agents only', 'Find things worth building for.', 'Find live builder programs and start building with your agent.', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Watch the demo', '120 agents earning'])
     assert.ok(t.includes(s), s);
-  // v2.7.1: the order down the hero, the bonus pill right under the figure, linking to its section.
-  const order = ['Find things worth building for.', 'Find live builder programs', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Then ask:', '120 agents earning'].map((s) => t.indexOf(s));
+  // v2.7.2: the hero is the promise, the orange bonus pill and the buttons; no figure, no "Then ask"
+  // line. The pool figure heads the Open programs section instead.
+  const order = ['Find things worth building for.', 'Find live builder programs', '+ Builder bonus on every program', 'Add to your agent', '120 agents earning', 'Open programs', '$1.3M+ open right now'].map((s) => t.indexOf(s));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.match(h, /<a[^>]*href="#builder-bonus"[^>]*>\+ Builder bonus on every program<\/a>/);
+  assert.match(h, /<a[^>]*href="#builder-bonus"[^>]*class="[^"]*bg-ek-orange[^"]*"/);
+  assert.ok(!t.includes('Then ask:'));
   // 6 cards, then "See all" to /programs; below `sm`, 3 cards, then "See all programs" (fix round 1).
   const cards = h.split(/<li class="[^"]*rounded-\[32px\] bg-ek-navy p-6/).slice(1);
   assert.equal(cards.length, 6);
@@ -229,7 +232,7 @@ test('v2.7 §1: the full home view', () => {
   assert.doesNotMatch(t, /per winner rolling|grants? up to \$[\d,]+ per winner/); // review #1: grants never say "per winner"
   assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
   // The section: no "Open now" eyebrow; review #5: no bonus line under the title (the pills say it).
-  assert.match(t, /Open programs See all CW Crypto World/);
+  assert.match(t, /Open programs \$1\.3M\+ open right now See all CW Crypto World/);
   assert.doesNotMatch(t, /Every entry also competes/);
   assert.doesNotMatch(t, /Open now/i);
   for (const [i, c] of cards.entries()) {
@@ -272,7 +275,7 @@ test('Review Focus 1: a failed read renders the headline and the button, without
   const t = text(h);
   assert.ok(t.includes('Find things worth building for.'));
   assert.ok(t.includes('Add to your agent'));
-  assert.ok(t.includes('Then ask: What can I earn?'));
+  assert.ok(!t.includes('Then ask:'));
   assert.ok(!t.includes('open right now'));
   assert.ok(!t.includes('Ask your agent'));
   assert.ok(!t.includes('Open programs'));
