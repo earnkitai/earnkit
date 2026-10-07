@@ -1603,7 +1603,15 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   `programs.any_chain boolean NOT NULL DEFAULT false` (additive).
 - `avalanche` is a chain (C-Chain 43114, Fuji 43113, Ruling 14). Builder bonus tokens stay on Base.
 - `programs:check` refuses any file whose `source_url` or `submission_url` host is `optimism.io`
-  or a subdomain (Ruling 15); the weekly re-check closes such programs.
+  or a subdomain (Ruling 15); the weekly re-check closes such programs. The README defines an
+  Optimism program (only chain OP Mainnet, or run by Optimism or the Optimism Collective); Base and
+  multi-chain programs are never closed under it.
+- Fix round 1: the agent's tables (`present.ts layout`) sort Easy programs first, then by prize
+  (`byEaseThenPrize`, Ruling C4); the landing carousel keeps `byPool`. `investment: true` (file and
+  column `programs.investment`, additive) makes the card read "up to $1M investment", never
+  "per winner" (`pool.ts eachLine`, Ruling C5). Chain detection cuts a chain's testnet hosts out
+  before matching its mainnet hosts, so `testnet.snowtrace.io` or `sepolia.basescan.org` alone is
+  not a mainnet signal; viem `avalanche` / `avalancheFuji` imports count.
 
 ## Public trust pages (v2.5 §4, Task 9)
 

@@ -626,3 +626,49 @@ test('v2.8 Task 5 fix round 1: no token sentence when no program on screen gives
   assert.equal(bonusClose([]), null);
   assert.equal(bonusClose([{ ...small, builder_bonus: false, token_policy: 'off' }, { ...big, builder_bonus: false }]), 'Every entry gets a token: you earn 40% of its trading fees.');
 });
+
+// ---- v2.8 Task 6 fix round 1: Ruling C4 ----
+
+test('v2.8 Ruling C4: with the committed curated programs, Easy ones sort first and Arc stays in the no-repo table', async () => {
+  const { readdirSync } = await import('node:fs');
+  const { ProgramFile } = await import('./program-file');
+  const { programCard } = await import('./programs');
+  const { layout } = await import('./present');
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const cards = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8'))))
+    .filter((p) => !p.campaign)
+    .map((p) =>
+      programCard(
+        {
+          ...p,
+          logo: p.logo ?? null,
+          focus: p.focus ?? null,
+          best_bet: p.best_bet ?? null,
+          winners_per_round: p.winners_per_round ?? null,
+          tag: p.tag ?? null,
+          campaign: null,
+          ends_at: new Date('2099-01-01T00:00:00Z'),
+          verified_at: new Date(p.verified_at),
+          created_at: new Date(),
+          opened_at: null,
+          source: 'file',
+          max_award_usd: p.max_award_usd == null ? null : String(p.max_award_usd),
+          pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
+          min_award_usd: p.min_award_usd == null ? null : String(p.min_award_usd),
+        },
+        [],
+      ),
+    );
+  assert.ok(cards.length >= 7, `${cards.length} curated files`);
+  const { shown } = layout({ cards, repos: null });
+  const ids = shown.map((c) => c.id);
+  assert.ok(ids.includes('arc-microgrants'), ids.join(', '));
+  const easy = cards.filter((c) => c.difficulty?.level === 'Easy').map((c) => c.id);
+  assert.ok(easy.length >= 3);
+  // Every Easy program comes before every other one, then by prize.
+  assert.deepEqual(ids.slice(0, easy.length).sort(), [...easy].sort());
+  const easyShown = shown.slice(0, easy.length).map((c) => c.max_award_usd ?? 0);
+  assert.deepEqual(easyShown, [...easyShown].sort((a, b) => b - a));
+});

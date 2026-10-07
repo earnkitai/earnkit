@@ -595,3 +595,22 @@ test('v2.8 Ruling 15: Optimism programs are refused by source_url or submission_
 test('v2.8 Ruling 14: avalanche is a chain', () => {
   assert.deepEqual(ProgramFile.parse({ ...baseProgram(), chains: ['avalanche'] }).chains, ['avalanche']);
 });
+
+test('v2.8 fix round 1: the Optimism rule never touches Base or a committed program', async () => {
+  const { isOptimismUrl } = await import('./program-file');
+  for (const u of ['https://docs.base.org', 'https://www.base.org/build', 'https://paragraph.com/@grants.base.eth/x'])
+    assert.equal(isOptimismUrl(u), false, u);
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const p = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    assert.equal(isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url), false, f);
+  }
+  assert.equal(isOptimismUrl('https://OPTIMISM.IO/x'), true);
+  assert.equal(isOptimismUrl('https://retrofunding.optimism.io'), true);
+});
+
+test('v2.8 Ruling C5: investment defaults to false; the speedrun file sets it', () => {
+  assert.equal(ProgramFile.parse(baseProgram()).investment, false);
+  const sr = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/a16z-speedrun.json'), 'utf8')));
+  assert.equal(sr.investment, true);
+});

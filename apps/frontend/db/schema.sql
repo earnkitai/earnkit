@@ -554,3 +554,5 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_source_url text;
 
 -- v2.8 Ruling 13 (plan): a program not tied to one chain fits any repo. Additive.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS any_chain boolean NOT NULL DEFAULT false;
+-- v2.8 Ruling C5: the award is an investment ("up to $1M investment"), not a prize. Additive.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS investment boolean NOT NULL DEFAULT false;

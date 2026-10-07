@@ -92,6 +92,8 @@ const VIEM_NAMES: Record<string, [Chain, 'mainnet' | 'testnet']> = {
   tempo: ['tempo', 'mainnet'],
   tempoModerato: ['tempo', 'testnet'],
   arcTestnet: ['arc', 'testnet'],
+  avalanche: ['avalanche', 'mainnet'],
+  avalancheFuji: ['avalanche', 'testnet'],
 };
 
 export type Detection = Partial<
@@ -115,7 +117,12 @@ export function detectChains(
     const lower = text.toLowerCase();
     for (const chain of CHAINS) {
       for (const net of ['mainnet', 'testnet'] as const) {
-        const host = SIGNALS[chain][net].hosts.find((h) => lower.includes(h));
+        // v2.8 Task 6 fix round 1: a mainnet host inside a testnet host ("snowtrace.io" in
+        // "testnet.snowtrace.io") is not a mainnet signal, so testnet hosts are cut out first.
+        const text = net === 'mainnet'
+          ? SIGNALS[chain].testnet.hosts.reduce((t, h) => t.split(h).join(' '), lower)
+          : lower;
+        const host = SIGNALS[chain][net].hosts.find((h) => text.includes(h));
         if (host) mark(chain, net, `${path}: ${host}`);
       }
     }

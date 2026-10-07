@@ -182,7 +182,9 @@ apps/frontend/
                                guideBonus (the open round's pool so far); v2.8 Task 6: ProgramRow/Card/
                                openProgramFacts carry any_chain (landing tile "Any chain", guide page
                                "· Any chain"); match.ts CHAINS gains avalanche (43114 / Fuji 43113) and
-                               matchRepo skips chain and mainnet checks for any_chain programs
+                               matchRepo skips chain and mainnet checks for any_chain programs; fix round 1:
+                               investment (card "up to $1M investment", pool.ts eachLine, Ruling C5);
+                               present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per

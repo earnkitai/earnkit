@@ -5,12 +5,12 @@ import { Eyebrow, Panel } from '../../components/common/Panel';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
 import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
-
-/** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
-export const ANY_CHAIN = 'Any chain';
 import BonusPill from '../../components/ui/BonusPill';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
+
+/** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
+export const ANY_CHAIN = 'Any chain';
 
 /** The guide's question for the agent (spec Decisions: "What can I earn?", on this program). */
 export const askPrompt = (title: string) => `What can I earn on ${title}?`;

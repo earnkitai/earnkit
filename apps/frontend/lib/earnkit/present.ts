@@ -49,6 +49,8 @@ export type Card = {
   builder_fields?: number;
   /** v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain"). */
   any_chain?: boolean;
+  /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"). */
+  investment?: boolean;
   /** Up to 3 curated build ideas (program file `ideas`), shown when the builder has no repo. */
   ideas?: string[];
   /** Set when entries are public pages EarnKit can check: how the submission is checked, never whether it has a bonus (Ruling 7 (plan)). */
@@ -319,6 +321,17 @@ export const byPrize = (a: Pick<Card, 'max_award_usd' | 'ends_at'>, b: Pick<Card
   (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) ||
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
+/**
+ * v2.8 Ruling C4: Easy programs first (the lazy builder wants the easiest money), for the agent's
+ * tables only; the landing carousel keeps byPool. Pure.
+ */
+export const byEase = (a: Pick<Card, 'difficulty'>, b: Pick<Card, 'difficulty'>) =>
+  Number(b.difficulty?.level === 'Easy') - Number(a.difficulty?.level === 'Easy');
+
+/** v2.8 Ruling C4: Easy first, then byPrize. Pure. */
+export const byEaseThenPrize = (a: Pick<Card, 'difficulty' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'difficulty' | 'max_award_usd' | 'ends_at'>) =>
+  byEase(a, b) || byPrize(a, b);
+
 /** EarnKit campaigns: the larger prize per winner first, then the earlier end (controller ruling 12). */
 const byCampaignPrize = (a: CampaignRow, b: CampaignRow) =>
   b.prize_usd_each - a.prize_usd_each || a.ends_at.getTime() - b.ends_at.getTime();
@@ -360,8 +373,9 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
     for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
       if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
         matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v });
-  const rows = [...matched.values()].sort((a, b) => byPrize(a.card, b.card));
-  const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byPrize);
+  // v2.8 Ruling C4: Easy programs first, then by prize.
+  const rows = [...matched.values()].sort((a, b) => byEaseThenPrize(a.card, b.card));
+  const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byEaseThenPrize);
   const shown = rest.slice(0, MAX_OTHERS);
   return { byId, rows, shown, more: rest.length - shown.length };
 }

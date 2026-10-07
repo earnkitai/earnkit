@@ -327,3 +327,29 @@ test('v2.8 Ruling 24 (plan): the landing figure is openFigure of the same tiles,
   });
   assert.ok(first.startsWith(`${l.open_text} in prizes open right now.`), first);
 });
+
+test('v2.8 Ruling C5: an investment program reads "up to $1M investment", never "per winner"', () => {
+  const speedrun: Card = {
+    id: 'a16z-speedrun',
+    title: 'a16z speedrun SR008',
+    summary: 'up to $1M · priority window Oct 12 to Nov 1',
+    tag: 'long shot',
+    each_time: [],
+    ends_at: null,
+    max_award_usd: 1_000_000,
+    reward: 'Up to $1M in funding and $10M+ in credits',
+    investment: true,
+    builder_bonus: true,
+    difficulty: { level: 'Hard', estimate: false, rated: false, basis: 'x' },
+    logo: null,
+    chains: [],
+    any_chain: true,
+  };
+  const [tile] = landingFrom([speedrun], new Map(), stats(), now).tiles;
+  assert.equal(tile.prize, 'up to $1M investment');
+  assert.equal(tile.prize_note, null);
+  assert.doesNotMatch(JSON.stringify(tile), /per winner/);
+  // Without the flag, the same card is a prize.
+  const [prize] = landingFrom([{ ...speedrun, investment: false }], new Map(), stats(), now).tiles;
+  assert.equal(prize.prize, 'up to $1,000,000 per winner');
+});
