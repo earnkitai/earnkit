@@ -417,10 +417,30 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
   const rows = await sql()<
     Pick<
       ProgramRow,
-      'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'existing_work' | 'ends_at' | 'status' | 'campaign' | 'source' | 'pool_usd' | 'submission_requirements'
+      | 'id'
+      | 'title'
+      | 'summary'
+      | 'chains'
+      | 'any_chain'
+      | 'existing_work'
+      | 'tag'
+      | 'ends_at'
+      | 'status'
+      | 'campaign'
+      | 'source'
+      | 'max_award_usd'
+      | 'submission_requirements'
+      | 'past_rounds'
+      | 'focus'
+      | 'best_bet'
+      | 'difficulty_override'
+      | 'winners_per_round'
+      | 'each_time'
+      | 'rules'
     >[]
   >`
-    SELECT id, title, summary, chains, any_chain, existing_work, ends_at, status, campaign, source, pool_usd, submission_requirements
+    SELECT id, title, summary, chains, any_chain, existing_work, tag, ends_at, status, campaign, source, max_award_usd,
+      submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules
     FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
   return rows.map((p) => ({
     id: p.id,
@@ -429,11 +449,16 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
     chains: p.chains,
     any_chain: p.any_chain,
     existing_work: p.existing_work,
+    tag: p.tag,
     ends_at: p.ends_at,
     status: p.status,
     campaign: p.campaign !== null,
     source: p.source,
-    pool_usd: p.pool_usd === null ? null : Number(p.pool_usd),
+    // Review fix round 1, item 1 (C4): these candidates are never campaigns (just filtered above
+    // isn't true here — alsoQualifies itself filters !campaign — so perWinnerUsd's campaign branch
+    // is dead for this list, but kept for the one shared helper).
+    max_award_usd: perWinnerUsd(p),
+    difficulty: p.campaign ? null : difficultyOf(p),
     requirements: p.submission_requirements,
   }));
 }

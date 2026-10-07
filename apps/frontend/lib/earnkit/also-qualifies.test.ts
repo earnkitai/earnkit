@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FieldKind, SubmissionRequirement } from './program-file';
 import type { Chain } from './match';
+import type { Difficulty } from './guide';
 import { MAX_ALSO, alsoQualifies, alsoText, type AlsoProgram, type AlsoRow } from './also-qualifies';
 
 const req = (key: string, kind: FieldKind, o: Partial<SubmissionRequirement> = {}): SubmissionRequirement => ({
@@ -17,6 +18,9 @@ const req = (key: string, kind: FieldKind, o: Partial<SubmissionRequirement> = {
 const NOW = new Date('2026-10-07T00:00:00Z');
 const DAY = 86_400_000;
 
+const EASY: Difficulty = { level: 'Easy', estimate: false, rated: true, basis: 'x' };
+const HARD: Difficulty = { level: 'Hard', estimate: false, rated: false, basis: 'x' };
+
 const prog = (id: string, o: Partial<AlsoProgram> = {}): AlsoProgram => ({
   id,
   title: id,
@@ -24,11 +28,13 @@ const prog = (id: string, o: Partial<AlsoProgram> = {}): AlsoProgram => ({
   chains: ['base'],
   any_chain: false,
   existing_work: 'allowed',
+  tag: null,
   ends_at: null,
   status: 'active',
   campaign: false,
   source: 'file',
-  pool_usd: null,
+  max_award_usd: null,
+  difficulty: null,
   requirements: [req(`${id}_field`, 'other', { required: false })],
   ...o,
 });
@@ -39,6 +45,7 @@ const base = {
   enteredIds: new Set<string>(),
   bank: new Map<FieldKind, string>(),
   answers: {},
+  hasLiveProduct: true,
   now: NOW,
 };
 
@@ -93,21 +100,38 @@ test('alsoQualifies: ends within 2 days is out; 3 days out is in; rolling (null)
   assert.deepEqual(new Set(rows.map((r) => r.id)), new Set(['ends-exactly-2', 'ends-3-days', 'rolling']));
 });
 
-test('alsoQualifies: order is fewest left, then larger pool_usd, then sooner deadline; capped at MAX_ALSO', () => {
+// Review fix round 1, item 1 (C4): Easy first, then the larger top prize per winner, then fewest
+// answers still needed. Capped at MAX_ALSO.
+test('alsoQualifies: order is Easy first, then larger max_award_usd, then fewest left; capped at MAX_ALSO', () => {
   const filled: SubmissionRequirement[] = [req('a', 'other', { required: false })];
   const oneLeft: SubmissionRequirement[] = [req('a', 'other', { required: false }), req('b', 'traction')];
   const rows = alsoQualifies({
     ...base,
     programs: [
-      prog('p-more-left', { requirements: oneLeft, pool_usd: 999999 }),
-      prog('p-small-pool', { requirements: filled, pool_usd: 100 }),
-      prog('p-big-pool', { requirements: filled, pool_usd: 100000 }),
-      prog('p-soon', { requirements: filled, pool_usd: 100000, ends_at: new Date(NOW.getTime() + 10 * DAY) }),
-      prog('p-later', { requirements: filled, pool_usd: 100000, ends_at: new Date(NOW.getTime() + 20 * DAY) }),
+      prog('p-hard-big-prize', { requirements: filled, difficulty: HARD, max_award_usd: 999999 }),
+      prog('p-easy-small-prize', { requirements: filled, difficulty: EASY, max_award_usd: 100 }),
+      prog('p-easy-big-prize-more-left', { requirements: oneLeft, difficulty: EASY, max_award_usd: 100000 }),
+      prog('p-easy-big-prize-filled', { requirements: filled, difficulty: EASY, max_award_usd: 100000 }),
+      prog('p-no-difficulty', { requirements: filled, difficulty: null, max_award_usd: 5000000 }),
     ],
   });
   assert.equal(rows.length, MAX_ALSO);
-  assert.deepEqual(rows.map((r) => r.id), ['p-soon', 'p-later', 'p-big-pool']);
+  // Easy-rated programs sort above the Hard one and the undifferentiated one, regardless of prize;
+  // among the Easy ones the larger prize wins; among equal prizes, fewer answers left wins.
+  assert.deepEqual(rows.map((r) => r.id), ['p-easy-big-prize-filled', 'p-easy-big-prize-more-left', 'p-easy-small-prize']);
+});
+
+// Review fix round 1, item 1: the brief's own worked example, fixed. Both are rated Easy; the
+// bigger prize per winner (Avalanche, $10,000) now sorts above the smaller one (Base, $5,000).
+test('alsoQualifies: the brief\'s example order, fixed (C4) — Avalanche $10K above Base $5K, both Easy', () => {
+  const rows = alsoQualifies({
+    ...base,
+    programs: [
+      prog('base-builder-grants', { title: 'Base Builder Grant Program', difficulty: EASY, max_award_usd: 5000 }),
+      prog('avalanche-team1-mini-grants', { title: 'Avalanche Team1 Mini Grants', difficulty: EASY, max_award_usd: 10000 }),
+    ],
+  });
+  assert.deepEqual(rows.map((r) => r.id), ['avalanche-team1-mini-grants', 'base-builder-grants']);
 });
 
 test('alsoQualifies: left counts only required fields the bank cannot fill; contact fields count once in total', () => {
@@ -123,6 +147,40 @@ test('alsoQualifies: left counts only required fields the bank cannot fill; cont
   assert.equal(withBank[0].left, 1, 'only the contact group is left (contact is never bank-filled)');
 });
 
+// Review fix round 1, item 3: matchRepo's "needs a live product" gate, applied to Also-qualifies.
+const liveField = req('live_product_url', 'links', { project_field: 'live_url' });
+const otherField = req('traction', 'traction');
+
+test('alsoQualifies: a "needs a live product" program is excluded without a live product when other answers are also missing', () => {
+  const rows = alsoQualifies({
+    ...base,
+    hasLiveProduct: false,
+    programs: [prog('base-mini', { tag: 'needs a live product', requirements: [liveField, otherField] })],
+  });
+  assert.deepEqual(rows, []);
+});
+
+test('alsoQualifies: a "needs a live product" program shows when the live link is the only thing left; "Still needed" names it', () => {
+  const rows = alsoQualifies({
+    ...base,
+    hasLiveProduct: false,
+    answers: { traction: '120 users' },
+    programs: [prog('base-mini', { title: 'Base Builder Grant Program', tag: 'needs a live product', requirements: [liveField, otherField] })],
+  });
+  assert.deepEqual(rows, [{ id: 'base-mini', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1, needsLive: true }]);
+  assert.match(alsoText(rows, null)!, /\| Base Builder Grant Program \| up to \$5,000 \| rolling \| a live link \|/);
+});
+
+test('alsoQualifies: a "needs a live product" program shows normally once the project has a live product', () => {
+  const rows = alsoQualifies({
+    ...base,
+    hasLiveProduct: true,
+    programs: [prog('base-mini', { tag: 'needs a live product', requirements: [liveField, otherField] })],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].needsLive, undefined);
+});
+
 test('alsoText: the table, "Still needed", and the builder bonus sentence with coinIn; without coinIn the sentence is dropped; no rows is null', () => {
   const rows: AlsoRow[] = [
     { id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 },
@@ -136,7 +194,7 @@ test('alsoText: the table, "Still needed", and the builder bonus sentence with c
       '|---|---|---|---|',
       '| Base Builder Grant Program | up to $5,000 | rolling | 1 answer |',
       '| Avalanche Team1 Mini Grants | up to $10,000 | rolling | nothing |',
-      'Say "enter it here too" for any of them. Builder bonus counts in Arc Microgrants.',
+      "Say \"enter it here too\" for any of them. Your builder bonus is in Arc Microgrants; these entries don't add to it.",
     ].join('\n'),
   );
   assert.equal(

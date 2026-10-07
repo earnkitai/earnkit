@@ -217,13 +217,18 @@ export const repoChains = async (repo: Repo): Promise<Detection> =>
  * v2.8 Ruling 29 (plan): a repo's cached chains, read from github_repo_facts only (no GitHub
  * call), for "Also qualifies" right after an entry. The latest cached row for this full name
  * (any version: a GitHub call to find the current pushed_at is exactly what this avoids), or null
- * when nothing is cached yet.
+ * when nothing is cached yet. Review fix round 1, item 2: mainnet evidence only, the same
+ * convention matchRepo uses (match.ts: `repo.chains[chain]!.mainnet`) — a chain seen only via a
+ * testnet host or id never counts as a fit.
  */
 export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | null> {
   const [row] = await sql()<{ chains: Detection }[]>`
     SELECT chains FROM github_repo_facts WHERE full_name = ${repoFullName.toLowerCase()}
     ORDER BY fetched_at DESC LIMIT 1`;
-  return row ? (Object.keys(row.chains) as Chain[]) : null;
+  if (!row) return null;
+  return Object.entries(row.chains)
+    .filter(([, v]) => v?.mainnet)
+    .map(([k]) => k as Chain);
 }
 
 /** Whether the repo has a commit at or after `since`; null when GitHub couldn't say. */

@@ -1770,19 +1770,26 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   non-campaign, non-sponsor programs the project already qualifies for: not the program just
   entered, not one this installation already entered for the same project (`enteredIds`; a
   confirmed-but-unsubmitted entry counts, Task 8 carry), not `new_work_only`, not closed, not
-  ending within 2 days, and a chain fit or `any_chain`. Sorted by fewest required fields the answer
-  bank can't fill (`coach.ts bankFill`, reused so a later program shows how little is left), then
-  larger `pool_usd`, then sooner deadline. `alsoText` renders the table (`Program`, `Prize`, `Ends`,
-  `Still needed`) plus "Say \"enter it here too\"..." and, with `coinIn` (Ruling 5), "Builder bonus
-  counts in \<program\>."; null with no rows.
+  ending within 2 days, and a chain fit or `any_chain`. A program tagged `needs a live product`
+  (matchRepo's gate, `tag`) shows only once the project has a live product, or when the live link
+  (the requirement with `project_field: 'live_url'`) is the only thing left to answer — then
+  `AlsoRow.needsLive` makes `alsoText` say "a live link" instead of a count. Sorted Easy first
+  (`difficulty.level`, review fix round 1, item 1/C4), then the larger top prize per winner
+  (`max_award_usd`), then fewest required fields the answer bank can't fill (`coach.ts bankFill`,
+  reused so a later program shows how little is left). `alsoText` renders the table (`Program`,
+  `Prize`, `Ends`, `Still needed`) plus "Say \"enter it here too\"..." and, with `coinIn`
+  (Ruling 5), "Your builder bonus is in \<program\>; these entries don't add to it."; null with no
+  rows.
 - **Wiring (`tools.ts record_submission`, non-campaign only)**: chains come from the repo-facts
-  cache (`match-projects.ts cachedRepoChains`, `github_repo_facts` only, no GitHub call) when
-  present, else the entered program's own chains. Candidate programs: `programs.ts
-  alsoProgramFacts`. Already-entered programs for this project: `projects.ts enteredProgramIds`
-  (same repo/name match as `ownEntry`, across every program). `coinIn`: `repoCoinPrograms` on the
-  project's repo key. Never fails the reply: on error it logs `[also_qualifies]` (class only) and
-  the section is left out. The reply carries `also_qualifies` (the rows) and the text is appended
-  to `show_to_builder` after a blank line.
+  cache (`match-projects.ts cachedRepoChains`, `github_repo_facts` only, no GitHub call, mainnet
+  evidence only — the same convention `matchRepo` uses, review fix round 1, item 2) when present,
+  else the entered program's own chains. Candidate programs, with `difficulty` and `max_award_usd`
+  for the sort: `programs.ts alsoProgramFacts`. Already-entered programs for this project:
+  `projects.ts enteredProgramIds` (same repo/name match as `ownEntry`, across every program).
+  `hasLiveProduct`: whether `record_submission`'s own project has a live link. `coinIn`:
+  `repoCoinPrograms` on the project's repo key. Never fails the reply: on error it logs
+  `[also_qualifies]` (class only) and the section is left out. The reply carries `also_qualifies`
+  (the rows) and the text is appended to `show_to_builder` after a blank line.
 
 ## Public trust pages (v2.5 §4, Task 9)
 
