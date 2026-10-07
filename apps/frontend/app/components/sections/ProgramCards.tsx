@@ -75,7 +75,7 @@ export default function ProgramCards({
   };
 
   return (
-    <Panel label="Open programs" className="py-12 md:py-16">
+    <Panel id="open-programs" className="py-12 md:py-16">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-6">
         <div>
           <Heading className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</Heading>
