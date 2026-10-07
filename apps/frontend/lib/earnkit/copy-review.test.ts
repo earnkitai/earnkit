@@ -25,6 +25,7 @@ import {
   launchToken,
   NEEDS_SYMBOL_AGENT,
   NO_WALLET_AGENT,
+  SKIPPED_ENTRY,
   TECHNICAL_TERMS,
   notReadyAgentNote,
   type FlowProject,
@@ -424,9 +425,15 @@ function gatherDecideTokenAgentNotes(): [string, string][] {
 // renders (open and paid), the same fixtures public-pages.test.ts verifies.
 const openEntryBase = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
   id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
-  eligible: true, test: false, rank: null, score: null, submitted_at: new Date('2026-10-01T00:00:00Z'), ...o,
+  complete: true, skipped: false, eligible: true, test: false, rank: null, score: null, submitted_at: new Date('2026-10-01T00:00:00Z'), ...o,
 });
-const openEntryRows = openRows([openEntryBase(1), openEntryBase(2, { coin: false, eligible: false })]);
+const openEntryRows = openRows([
+  openEntryBase(1),
+  openEntryBase(2, { coin: false, eligible: false }),
+  // v2.8 Rulings 2-3 (plan): an incomplete entry, and one entered with "skip".
+  openEntryBase(3, { complete: false, eligible: false }),
+  openEntryBase(4, { skipped: true, eligible: false }),
+]);
 
 const boardFixture = (o: Partial<Board> = {}): Board => ({
   round: 'base-builder-grants:2026-10',
@@ -547,6 +554,7 @@ const builderFacing: [string, string][] = [
   ...enteredTables.map((s, i): [string, string] => [`enteredTable[${i}]`, s]),
   ['COIN_FOOTNOTE', COIN_FOOTNOTE],
   ['C7 notReadyTokenNote', notReadyTokenNote(['a live link on Arc mainnet', 'a short description'])],
+  ['v2.8 Ruling 3 SKIPPED_ENTRY', SKIPPED_ENTRY],
   ['presentFirstMessage: no repo, no GitHub', noRepoNoGithub],
   ['presentFirstMessage: GitHub user, 0 repos', githubZeroRepos],
   ['presentFirstMessage: with repos', withRepos],

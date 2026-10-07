@@ -556,3 +556,23 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_source_url text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS any_chain boolean NOT NULL DEFAULT false;
 -- v2.8 Ruling C5: the award is an investment ("up to $1M investment"), not a prize. Additive.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS investment boolean NOT NULL DEFAULT false;
+
+-- v2.8 Rulings 1-3 (plan): the confirmation step and bonus eligibility. Additive.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS confirmed_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS confirm_choice text;
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_confirm_choice_check;
+ALTER TABLE projects ADD CONSTRAINT projects_confirm_choice_check CHECK (confirm_choice IN ('go', 'skip'));
+-- The first time the entry's answers and links were complete (the v2.7 C7 gate, now on eligibility).
+-- The one backfill: every token launched before v2.8 passed C7 or predates it. This file runs
+-- before EVERY deploy, so the backfill runs only in the run that creates the column: run again, it
+-- would mark v2.8 entries whose token launched while incomplete as complete (Ruling 2's gate).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'projects' AND column_name = 'complete_at'
+  ) THEN
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS complete_at timestamptz;
+    UPDATE projects SET complete_at = coin_launched_at WHERE complete_at IS NULL AND coin_launched_at IS NOT NULL;
+  END IF;
+END $$;

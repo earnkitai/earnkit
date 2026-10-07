@@ -322,10 +322,10 @@ async function setup(o: { n: number; pool: bigint; indexed?: boolean; id?: strin
     const wallet = o.sameWallet && i === o.sameWallet[1] ? W(o.sameWallet[0]) : W(i);
     const [p] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, coin_address, coin_launched_at, creator_wallet,
-        submission_proof_ok_at, submitted_at, bonus_repo_key, installation_id)
+        submission_proof_ok_at, submitted_at, bonus_repo_key, installation_id, complete_at)
       VALUES (${id}, ${'entry ' + i}, ${`https://github.com/t7/${id}-${i}`}, ${`0x${'c'.repeat(36)}${String(i).padStart(2, '0')}${id === PID ? '01' : '02'}`},
         ${new Date('2026-10-05T00:00:00Z')}, ${wallet}, ${new Date('2026-10-06T00:00:00Z')}, ${new Date(Date.UTC(2026, 9, 2, i))},
-        ${`github.com/t7/${id}-${i}`}, ${i === 1 ? inst.id : null})
+        ${`github.com/t7/${id}-${i}`}, ${i === 1 ? inst.id : null}, ${new Date('2026-10-05T00:00:00Z')})
       RETURNING id`;
     ids.push(p.id);
     const signals = { users: 100 - i, liveRatio: 0, commitDays: 0, contributors: 0, interest: 0, holders: 0, marketCapUsd: 0 };

@@ -108,9 +108,9 @@ async function scenario() {
   for (const [i, coin, wallet] of [[1, COIN_A, WIN_A], [2, COIN_B, WIN_B]] as const) {
     const [p] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, coin_address, coin_launched_at, creator_wallet, submission_proof_ok_at,
-        submitted_at, bonus_repo_key)
+        submitted_at, bonus_repo_key, complete_at)
       VALUES (${PROG}, ${'t7 ' + i}, ${'https://github.com/t7/anvil' + i}, ${coin}, ${h(-0.5)}, ${wallet}, ${h(-0.5)}, ${h(-0.5)},
-        ${'github.com/t7/anvil' + i})
+        ${'github.com/t7/anvil' + i}, ${h(-0.5)})
       RETURNING id`;
     ids.push(p.id);
   }

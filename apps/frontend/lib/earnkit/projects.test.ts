@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   answersOf,
   bonusEligible,
+  completeAt,
   campaignEntryProblems,
   recordSubmission,
   submissionDataProblem,
@@ -294,11 +295,58 @@ test('fix minor: a missing repo is reported with the other missing answers', asy
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 
+/** v2.8 Ruling 2 (plan): a complete entry, confirmed "go" (or never asked, an older agent). */
+const COMPLETE_GO = { complete_at: new Date('2026-10-09T00:00:00Z'), confirm_choice: null };
+
 test('bonusEligible: a coin and a checked-out proof, both required', () => {
-  assert.equal(bonusEligible({ coin_address: null, submission_proof_ok_at: null }), false);
-  assert.equal(bonusEligible({ coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: null }), false);
-  assert.equal(bonusEligible({ coin_address: null, submission_proof_ok_at: new Date() }), false);
-  assert.equal(bonusEligible({ coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date() }), true);
+  assert.equal(bonusEligible({ ...COMPLETE_GO, coin_address: null, submission_proof_ok_at: null }), false);
+  assert.equal(bonusEligible({ ...COMPLETE_GO, coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: null }), false);
+  assert.equal(bonusEligible({ ...COMPLETE_GO, coin_address: null, submission_proof_ok_at: new Date() }), false);
+  assert.equal(bonusEligible({ ...COMPLETE_GO, coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date() }), true);
+});
+
+test('v2.8 Rulings 2-3 (plan): bonusEligible needs a launched token, a complete entry and never a skip', () => {
+  const ends_at = new Date('2026-10-15T00:00:00Z');
+  const all = {
+    coin_address: '0x' + 'a'.repeat(40),
+    coin_launched_at: new Date('2026-10-08T00:00:00Z'),
+    submission_proof_ok_at: new Date('2026-10-10T00:00:00Z'),
+    complete_at: new Date('2026-10-09T00:00:00Z'),
+    confirm_choice: 'go' as const,
+    ends_at,
+  };
+  assert.equal(bonusEligible(all), true);
+  assert.equal(bonusEligible({ ...all, confirm_choice: null }), true, 'an older agent never confirmed: still eligible');
+  assert.equal(bonusEligible({ ...all, complete_at: null }), false, 'entry incomplete');
+  assert.equal(bonusEligible({ ...all, complete_at: '2026-10-16T00:00:00Z' }), false, 'complete only after the end');
+  assert.equal(bonusEligible({ ...all, complete_at: ends_at }), false, 'complete at the end');
+  assert.equal(bonusEligible({ ...all, confirm_choice: 'skip' }), false, 'skipped is final');
+  assert.equal(bonusEligible({ ...all, coin_address: null }), false, 'no launched token');
+  // Without a round, the same three conditions.
+  const noRound = { ...all, ends_at: undefined };
+  assert.equal(bonusEligible(noRound), true);
+  assert.equal(bonusEligible({ ...noRound, complete_at: null }), false);
+  assert.equal(bonusEligible({ ...noRound, confirm_choice: 'skip' }), false);
+  assert.equal(bonusEligible({ ...noRound, coin_address: null }), false);
+});
+
+test('v2.8 Ruling 2 (plan): completeAt is set once, the first time the entry is ready, never cleared', () => {
+  const reqs: SubmissionRequirement[] = [
+    { key: 'live_deployment_url', label: 'Live', type: 'url', required: true, project_field: 'live_url', from: 'project' },
+    { key: 'description', label: 'Description', type: 'text', required: true, from: 'project' },
+    { key: 'profile', label: 'Profile', type: 'url', required: false, from: 'builder' },
+  ];
+  const now = new Date('2026-10-09T12:00:00Z');
+  const ready = { project: { live_url: 'https://kit.example' }, answers: { description: 'A kit.' } };
+  const notReady = { project: { live_url: 'https://kit.example' }, answers: {} };
+  assert.equal(completeAt(reqs, ready, null, now), now);
+  assert.equal(completeAt(reqs, notReady, null, now), null);
+  const previous = new Date('2026-10-01T00:00:00Z');
+  assert.equal(completeAt(reqs, notReady, previous, now), previous, 'never cleared');
+  assert.equal(completeAt(reqs, ready, previous, now), previous, 'never moved');
+  // An invalid value is not complete; no requirements is complete.
+  assert.equal(completeAt(reqs, { project: { live_url: 'http://kit' }, answers: { description: 'A kit.' } }, null, now), null);
+  assert.equal(completeAt([], {}, null, now), now);
 });
 
 /** arc-microgrants.json (real submission_proof: dorahacks.io, /buidl/<id>) under a fresh id. */
@@ -338,8 +386,8 @@ test('record_submission (v2.5 §3): a checked-out proof stores ok_at and no bonu
   );
   assert.equal(result.recorded, true);
   assert.equal((result as { bonus_note?: string }).bonus_note, undefined);
-  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null; coin_address: string | null }[]>`
-    SELECT submission_proof_url, submission_proof_ok_at, coin_address FROM projects WHERE id = ${result.project_id}`;
+  const [row] = await sql()<{ submission_proof_url: string | null; submission_proof_ok_at: Date | null; coin_address: string | null; complete_at: Date | null; confirm_choice: 'go' | 'skip' | null }[]>`
+    SELECT submission_proof_url, submission_proof_ok_at, coin_address, complete_at, confirm_choice FROM projects WHERE id = ${result.project_id}`;
   assert.equal(row.submission_proof_url, 'https://dorahacks.io/buidl/555');
   assert.ok(row.submission_proof_ok_at instanceof Date);
   // No coin launched in this call: not yet bonus-eligible even though the proof checked out.
@@ -602,9 +650,9 @@ test('v2.6 Ruling 6 (plan), fix round 1: an owner test installation never holds 
   // An otherwise-eligible-looking earlier entry of the same repo, but from an owner test
   // installation: it must never be named as holding the repo (traction.ts eligibleSql agrees).
   await sql()`
-    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, coin_address, coin_launched_at, submission_proof_ok_at)
+    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, coin_address, coin_launched_at, submission_proof_ok_at, complete_at)
     VALUES (${program.id}, 'Earlier (test)', ${project.repo_url}, ${testInstallationId}, ${`github.com/alice/${tag}`},
-      ${`0x${'f'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`}, now(), now())`;
+      ${`0x${'f'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`}, now(), now(), now())`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   process.env.EARNKIT_TEST_INSTALLATIONS = String(testInstallationId);
   try {
@@ -629,7 +677,7 @@ test('v2.6 Ruling 6 (plan), fix round 1: an owner test installation never holds 
 // ---- v2.5 Ruling 13: external entries' contracts and one eligible entry per repo ----------------
 
 test('bonusEligible: a later entry of the same repo is never eligible (Ruling 13b); frozen at the round end (Ruling 16)', () => {
-  const ok = { coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date('2026-10-10T00:00:00Z') };
+  const ok = { ...COMPLETE_GO, coin_address: '0x' + 'a'.repeat(40), submission_proof_ok_at: new Date('2026-10-10T00:00:00Z') };
   assert.equal(bonusEligible({ ...ok, earlier_same_repo: false }), true);
   assert.equal(bonusEligible({ ...ok, earlier_same_repo: true }), false);
   const ends_at = new Date('2026-10-15T00:00:00Z');
@@ -809,6 +857,31 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
   const eligible = await sql()<{ id: number }[]>`
     SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends)}`;
   assert.deepEqual(eligible.map((r) => r.id), [a.project_id]);
+});
+
+test('v2.8 Ruling 2 (plan): record_submission sets complete_at once the entry is ready, and never clears it', dbTest, async () => {
+  const program = proofProgramFile(`t7-complete-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  const project = proofProject(71);
+  const full = { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' };
+  const completeOf = async (id: number) =>
+    (await sql()<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${id}`)[0].complete_at;
+  // Missing the required builder profile: recorded, not complete.
+  const partial = { live_deployment_url: full.live_deployment_url, repo_url: full.repo_url, description: full.description };
+  const first = await recordSubmission({ program_id: program.id, project, submission_data: partial } as never, installationId);
+  assert.equal(await completeOf(first.project_id), null);
+  // The same entry again with every answer: the same row, now complete.
+  const second = await recordSubmission({ program_id: program.id, project, submission_data: full } as never, installationId);
+  assert.equal(second.project_id, first.project_id);
+  const at = await completeOf(first.project_id);
+  assert.ok(at instanceof Date);
+  // Recorded again with an answer missing: complete_at is kept, never cleared or moved.
+  await recordSubmission({ program_id: program.id, project, submission_data: partial } as never, installationId);
+  assert.equal((await completeOf(first.project_id))?.getTime(), at.getTime());
+  // A new entry recorded complete in one call is complete from the start.
+  const other = await recordSubmission({ program_id: program.id, project: proofProject(72), submission_data: { ...full, repo_url: proofProject(72).repo_url, live_deployment_url: proofProject(72).live_url } } as never, installationId);
+  assert.ok((await completeOf(other.project_id)) instanceof Date);
 });
 
 after(async () => {

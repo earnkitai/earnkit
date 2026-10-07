@@ -73,6 +73,10 @@ export type OpenEntry = {
   proof: boolean;
   /** The program has a public entry page pattern (else the builder's confirmation counts). */
   pattern: boolean;
+  /** v2.8 Ruling 2 (plan): the entry was complete before the round's end (complete_at). */
+  complete: boolean;
+  /** v2.8 Ruling 3 (plan): the builder confirmed the entry with "skip" (no token, no bonus). */
+  skipped: boolean;
   eligible: boolean;
   /** v2.6 §5, Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS). */
   test: boolean;
@@ -81,15 +85,19 @@ export type OpenEntry = {
   submitted_at: Date;
 };
 
-/** Why an entry isn't eligible, in plain words. Pure. */
+/** Why an entry isn't eligible, in plain words (v2.8 Rulings 2-3 (plan): a skip, then an incomplete entry). Pure. */
 const notEligible = (e: OpenEntry) =>
-  !e.coin
-    ? 'No: no token'
-    : !e.proof
-      ? e.pattern
-        ? 'No: submission page not confirmed yet'
-        : 'No: submission not confirmed yet'
-      : 'No: an earlier entry of this repo counts';
+  e.skipped
+    ? 'No: entered without a token'
+    : !e.coin
+      ? 'No: no token'
+      : !e.complete
+        ? 'No: entry incomplete'
+        : !e.proof
+          ? e.pattern
+            ? 'No: submission page not confirmed yet'
+            : 'No: submission not confirmed yet'
+          : 'No: an earlier entry of this repo counts';
 
 /**
  * An open round's rows: eligible entries with a score first, by their stored rank renumbered 1..n
@@ -201,6 +209,8 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
       SELECT p.id, p.name, p.repo_url, p.live_url, p.submitted_at,
         (p.coin_address IS NOT NULL) AS coin, (p.submission_proof_ok_at IS NOT NULL) AS proof,
         (g.submission_proof IS NOT NULL) AS pattern,
+        (p.complete_at IS NOT NULL AND p.complete_at < ${r.ends_at}) AS complete,
+        (p.confirm_choice IS NOT DISTINCT FROM 'skip') AS skipped,
         (${eligibleSql(r.ends_at)}) AS eligible,
         COALESCE(p.installation_id = ANY(${testIds}::int[]), false) AS test, s.rank, s.score
       FROM projects p

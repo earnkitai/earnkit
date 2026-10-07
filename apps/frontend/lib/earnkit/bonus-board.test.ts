@@ -28,7 +28,7 @@ test('ethText: up to 4 decimals, rounded down, never scientific', () => {
 
 const entry = (id: number, o: Partial<OpenEntry> = {}): OpenEntry => ({
   id, name: `P${id}`, repo_url: `https://github.com/a/p${id}`, live_url: null, coin: true, proof: true, pattern: true,
-  eligible: true, test: false, rank: null, score: null, submitted_at: new Date(Date.UTC(2026, 9, 1, id)), ...o,
+  complete: true, skipped: false, eligible: true, test: false, rank: null, score: null, submitted_at: new Date(Date.UTC(2026, 9, 1, id)), ...o,
 });
 
 test('openRows: eligible ranked first (re-numbered), then eligible unscored, then not eligible with the plain reason', () => {
@@ -64,6 +64,23 @@ test('v2.6 §3: a program without a public entry page says the submission is not
     'No: no token',
     'No: submission not confirmed yet',
     'No: submission page not confirmed yet',
+  ]);
+});
+
+test('v2.8 Rulings 2-3 (plan): an incomplete entry says so; a skipped entry says it was entered without a token', () => {
+  const rows = openRows([
+    entry(1, { complete: false, eligible: false }),
+    entry(2, { complete: false, proof: false, eligible: false }),
+    entry(3, { coin: false, complete: false, eligible: false }),
+    entry(4, { skipped: true, eligible: false }),
+    entry(5, { skipped: true, coin: false, complete: false, eligible: false }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.note), [
+    'No: entry incomplete',
+    'No: entry incomplete',
+    'No: no token',
+    'No: entered without a token',
+    'No: entered without a token',
   ]);
 });
 
@@ -117,13 +134,16 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at, submission_proof)
     VALUES (${tag}, 'Org', 'Some Grants', 'd', 'https://x', 'https://x', 'r', 's', 'active', 'unknown',
       ${new Date(realNow.getTime() + 3 * 86_400_000)}, ${sql().json({ host: 'x.org', path_pattern: '^/b/' })})`;
-  const mk = (name: string, coin: string | null, proof: boolean) => sql()<{ id: number }[]>`
-    INSERT INTO projects (program_id, name, repo_url, coin_address, coin_launched_at, submission_proof_ok_at, bonus_repo_key, creator_wallet, submitted_at)
+  const mk = (name: string, coin: string | null, proof: boolean, complete = true) => sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, repo_url, coin_address, coin_launched_at, submission_proof_ok_at, bonus_repo_key, creator_wallet, submitted_at, complete_at)
     VALUES (${tag}, ${name}, ${`https://github.com/a/${name}`}, ${coin}, ${coin ? realNow : null},
-      ${proof ? realNow : null}, ${`github.com/a/${name}`}, '0x00000000000000000000000000000000000000aa', now() - interval '1 hour')
+      ${proof ? realNow : null}, ${`github.com/a/${name}`}, '0x00000000000000000000000000000000000000aa', now() - interval '1 hour',
+      ${complete ? realNow : null})
     RETURNING id`;
   const [a] = await mk('alpha', `0x${(process.pid.toString(16) + Date.now().toString(16)).padStart(40, '0')}`, true);
   const [b] = await mk('beta', null, true);
+  // v2.8 Ruling 2 (plan): a token and a counted submission, but the entry is incomplete.
+  await mk('gamma', `0x${(process.pid.toString(16) + Date.now().toString(16) + 'f').padStart(40, '0')}`, true, false);
   await sql()`
     INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
     VALUES (${tag}, ${tag}, now() - interval '1 day', ${new Date(realNow.getTime() + 3 * 86_400_000)}, 'open')`;
@@ -151,6 +171,7 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
     assert.deepEqual(open.rows.map((r) => [r.name, r.rank, r.score, r.note]), [
       ['alpha', 1, '61.5', 'Yes'],
       ['beta', null, null, 'No: no token'],
+      ['gamma', null, null, 'No: entry incomplete'],
     ]);
     const paid = await bonusBoard(paidKey, realNow);
     assert.ok(paid);

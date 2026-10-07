@@ -561,6 +561,11 @@ export async function signalsFor(
  * ineligible earlier row, a squatter's or the builder's own failed attempt, never blocks).
  * v2.6 Ruling 6 (plan): never true for an owner test installation (EARNKIT_TEST_INSTALLATIONS),
  * for `p` or for the earlier entry `q` it would otherwise be blocked by.
+ * v2.8 Rulings 2-3 (plan): the owner's rule, a launched token, is required here, in SQL; so are a
+ * complete entry (`complete_at`, the v2.7 C7 gate moved from the launch, before the round's end)
+ * and a confirmation never skipped (`confirm_choice` 'skip' is final, even if a token launches
+ * later; NULL is an older agent's entry that never saw the step). Both for `p` and for the earlier
+ * same-repo entry `q`.
  * Task 7 picks winners with this (finalRanking), never from a stored rank. `endsAt` may be a SQL
  * fragment (a joined round's `r.ends_at`, alerts.ts).
  */
@@ -568,6 +573,8 @@ export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
   const testIds = testInstallationIds();
   return sql()`
   p.coin_address IS NOT NULL AND p.coin_launched_at < ${endsAt}
+  AND p.complete_at IS NOT NULL AND p.complete_at < ${endsAt}
+  AND p.confirm_choice IS DISTINCT FROM 'skip'
   AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${endsAt}
   AND p.submitted_at < ${endsAt}
   AND NOT COALESCE(p.installation_id = ANY(${testIds}::int[]), false)
@@ -575,6 +582,8 @@ export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
       AND q.coin_address IS NOT NULL AND q.coin_launched_at < ${endsAt}
+      AND q.complete_at IS NOT NULL AND q.complete_at < ${endsAt}
+      AND q.confirm_choice IS DISTINCT FROM 'skip'
       AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${endsAt}
       AND NOT COALESCE(q.installation_id = ANY(${testIds}::int[]), false)
       AND (q.submitted_at, q.id) < (p.submitted_at, p.id))`;

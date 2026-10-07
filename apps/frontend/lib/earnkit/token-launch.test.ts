@@ -9,6 +9,7 @@ import { legacyTokenLineCode, tokenLineFor } from './token-gate';
 import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
   NON_BASE_NO_BONUS,
+  SKIPPED_ENTRY,
   LaunchTokenInput,
   TECHNICAL_TERMS,
   decideToken,
@@ -263,6 +264,7 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
   const deploys: Parameters<NonNullable<TokenFlowDeps['deploy']>>[0][] = [];
   const calls: string[] = [];
   const links: unknown[] = [];
+  const completed: number[] = [];
   const repoTokens = new Map<string, string>();
   const deps: TokenFlowDeps = {
     available: () => true,
@@ -286,10 +288,11 @@ function harness(p: Partial<FlowProject> = {}, extra: Partial<TokenFlowDeps> = {
       repoToken: async (_id, key) => repoTokens.get(key) ?? null,
       updateLinks: async (id, inst, l) => { links.push({ id, inst, ...l }); },
       saveCreatorWallet: async (id, inst, w) => { saved.push({ id, inst, w }); },
+      markComplete: async (id) => { completed.push(id); },
     },
     ...extra,
   };
-  return { deps, writes, deploys, calls, links, repoTokens, project, saved };
+  return { deps, writes, deploys, calls, links, repoTokens, project, saved, completed };
 }
 
 const CONFIRMED = { name: 'Chain Kits', symbol: 'CHAIN' };
@@ -854,49 +857,61 @@ const ARC_REQS: FlowProject['requirements'] = [
 ];
 const COMPLETE = { description: 'A tip jar for builders.' };
 
-test('C7: record_submission with required items missing launches nothing; the builder note is plain, the agent gets the keys', async () => {
-  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: {} }, { check: async () => { h.calls.push('check'); return true; } });
-  const out = await submissionToken(
-    {
-      projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET,
-      known: { project: { name: 'Chain Kits', repo_url: 'https://github.com/acme/kit' }, answers: {} },
-    },
-    h.deps,
-  );
-  assert.equal(out.status, 'skipped');
-  assert.equal(out.note, 'Not launched: the entry still needs a live link on Arc mainnet; a short description.');
-  assert.equal(out.needs, 'a live link on Arc mainnet; a short description');
-  assert.doesNotMatch(out.note ?? '', TECHNICAL_TERMS);
-  assert.doesNotMatch(out.note ?? '', /\bcoins?\b|clanker/i);
-  assert.match(out.agent_note ?? '', /live_deployment_url, description/);
-  assert.equal(h.deploys.length, 0, 'no deploy');
-  assert.deepEqual(h.calls, [], 'no ticker check, no gate read, no launch counted');
-  // The confirmed name and ticker are kept, and the wallet given now, for the launch once ready.
-  assert.deepEqual(h.writes.at(-1), { id: 7, status: 'skipped', note: out.note, name: 'Chain Kits', symbol: 'CHAIN' });
-  assert.deepEqual(h.saved, [{ id: 7, inst: 1, w: WALLET }]);
+test('v2.8 Ruling 2 (plan): record_submission with required items missing still launches; eligibility waits on the entry instead', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: {} });
+  const out = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, h.deps);
+  assert.equal(out.status, 'launched');
+  assert.equal(out.needs, undefined);
+  assert.equal(h.deploys.length, 1);
+  assert.doesNotMatch(out.note ?? '', /still needs/);
 });
 
-test('C7: launch_token on an entry that is not ready fails without a deploy; ready entries launch as before', async () => {
-  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: COMPLETE });
+test('v2.8 Ruling 2 (plan): launch_token on an entry missing required items launches (no C7 gate), with no needs', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: {} });
   const out = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, h.deps);
-  assert.equal(out.status, 'failed');
-  assert.equal(out.note, 'Not launched: the entry still needs a live link on Arc mainnet.');
-  assert.equal(h.deploys.length, 0);
-  // The missing link given to launch_token makes it ready: it launches.
-  const fixed = await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET, live_url: 'https://kit.acme.dev' }, 1, h.deps);
-  assert.equal(fixed.status, 'launched');
+  assert.equal(out.status, 'launched');
+  assert.equal(out.needs, undefined);
   assert.equal(h.deploys.length, 1);
-  // Ready at submission (from what record_submission was given): unchanged.
-  const r = harness({ requirements: ARC_REQS });
-  const ok = await submissionToken(
-    {
-      projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET,
-      known: { project: { name: 'Chain Kits', repo_url: 'https://github.com/acme/kit', live_url: 'https://kit.acme.dev' }, answers: COMPLETE },
-    },
-    r.deps,
+  assert.deepEqual(h.completed, [], 'not complete: complete_at is not set');
+});
+
+test('v2.8 Ruling 2 (plan): launch_token marks a complete stored entry complete (an entry from before v2.8, or a link fixed here)', async () => {
+  const h = harness({ requirements: ARC_REQS, live_url: null, submission_data: COMPLETE });
+  await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, h.deps);
+  assert.deepEqual(h.completed, [], 'the live link is still missing');
+  // The missing link given to launch_token completes the entry.
+  const t = harness({ requirements: ARC_REQS, live_url: null, submission_data: COMPLETE });
+  await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET, live_url: 'https://kit.acme.dev' }, 1, t.deps);
+  assert.deepEqual(t.completed, [7]);
+  // Launches off: the entry is still marked complete (it is about the entry, not the token).
+  const off = harness({ requirements: ARC_REQS, submission_data: COMPLETE }, { available: () => false });
+  await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, off.deps);
+  assert.deepEqual(off.completed, [7]);
+});
+
+test('v2.8 Ruling 3 (plan): launch_token on a skipped entry is refused; nothing deploys, nothing is written', async () => {
+  const h = harness({ confirm_choice: 'skip', requirements: ARC_REQS, submission_data: COMPLETE });
+  const out = await launchToken(
+    { project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET, live_url: 'https://other.acme.dev' },
+    1,
+    h.deps,
   );
-  assert.equal(ok.status, 'launched');
-  assert.equal(r.deploys.length, 1);
+  assert.deepEqual(out, { status: 'failed', note: SKIPPED_ENTRY });
+  assert.equal(SKIPPED_ENTRY, 'This entry was entered without a token.');
+  assert.equal(h.deploys.length, 0);
+  assert.deepEqual(h.calls, [], 'no gate read, no ticker check, no launch counted');
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.links, []);
+  assert.deepEqual(h.saved, []);
+  assert.deepEqual(h.completed, []);
+  // record_submission's token step on a skipped entry launches nothing either.
+  const r = harness({ confirm_choice: 'skip' });
+  const sub = await submissionToken({ projectId: 7, installationId: 1, choice: CONFIRMED, confirmed: true, givenWallet: WALLET }, r.deps);
+  assert.equal(sub.note, SKIPPED_ENTRY);
+  assert.equal(r.deploys.length, 0);
+  // A "go" entry launches as before.
+  const g = harness({ confirm_choice: 'go' });
+  assert.equal((await launchToken({ project_id: 7, builder_confirmed: true, chain: 'base', creator_wallet: WALLET }, 1, g.deps)).status, 'launched');
 });
 
 test('C7: entryMissing: no gate for campaign entries or without requirements; invalid values count as missing', () => {

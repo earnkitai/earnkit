@@ -10,6 +10,7 @@ import {
   INTEREST_CAP,
   SIGNAL_KEYS,
   canFreeze,
+  eligibleSql,
   rankNormalize,
   rankRound,
   SINGLE_COMMIT_FLAG,
@@ -435,9 +436,9 @@ async function setup() {
   ) => {
     const [r] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, live_url, contracts, coin_address, coin_launched_at, creator_wallet,
-        submission_proof_ok_at, submitted_at, bonus_repo_key)
+        submission_proof_ok_at, submitted_at, bonus_repo_key, complete_at)
       VALUES (${PID}, ${name}, 'https://github.com/acme/app', 'https://app.example', ${contracts}, ${coin}, ${coin ? at : null},
-        ${E.creator_wallet}, ${eligible ? NOW : null}, ${at}, ${repo.replace('https://', '')})
+        ${E.creator_wallet}, ${eligible ? NOW : null}, ${at}, ${repo.replace('https://', '')}, ${at})
       RETURNING id`;
     return r.id;
   };
@@ -674,8 +675,8 @@ test('scoreOpenRounds: one entry allowance for the whole run, across rounds', db
       VALUES (${P2}, 'X', 'T6b', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
         ${ROUND.starts}, ${ROUND.ends}, ${sql().json({ host: 'x.example' })})`;
     await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at) VALUES (${P2}, ${P2}, ${ROUND.starts}, ${ROUND.ends})`;
-    await sql()`INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at)
-      VALUES (${P2}, 'z', 'https://github.com/acme/app', ${['0x' + '7'.repeat(40)]}, ${'0x' + 'c9'.repeat(20)}, ${NOW}, ${NOW}, ${E.submitted_at})`;
+    await sql()`INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at, complete_at)
+      VALUES (${P2}, 'z', 'https://github.com/acme/app', ${['0x' + '7'.repeat(40)]}, ${'0x' + 'c9'.repeat(20)}, ${NOW}, ${NOW}, ${E.submitted_at}, ${E.submitted_at})`;
     const { deps, calls } = dbFakes({ maxEntries: 2 });
     const only = [PID, P2];
     const out = await scoreOpenRounds({ ...deps, only });
@@ -783,9 +784,9 @@ test('v2.6 Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIO
   const add = async (name: string, installationId: number | null, repo: string, at: Date) => {
     const [row] = await sql()<{ id: number }[]>`
       INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at, installation_id,
-        submission_proof_ok_at, submitted_at, bonus_repo_key)
+        submission_proof_ok_at, submitted_at, bonus_repo_key, complete_at)
       VALUES (${PID3}, ${name}, ${`https://github.com/acme/${name}`}, ${['0x' + name.padEnd(40, '0').slice(0, 40)]},
-        ${'0x' + name.padEnd(40, 'a').slice(0, 40)}, ${at}, ${installationId}, ${at}, ${at}, ${repo})
+        ${'0x' + name.padEnd(40, 'a').slice(0, 40)}, ${at}, ${installationId}, ${at}, ${at}, ${repo}, ${at})
       RETURNING id`;
     return row.id;
   };
@@ -810,5 +811,53 @@ test('v2.6 Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIO
     await sql()`DELETE FROM bonus_rounds WHERE program_id = ${PID3}`;
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
     await sql()`DELETE FROM programs WHERE id = ${PID3}`;
+  }
+});
+
+test('v2.8 Rulings 2-3 (plan): eligibleSql needs a launched token, a complete entry and never a skip', db, async () => {
+  const PID4 = 't7-eligible-complete';
+  const r4 = { starts: d('2026-10-01T00:00:00Z'), ends: d('2026-11-01T00:00:00Z') };
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+      status, existing_work, starts_at, ends_at)
+    VALUES (${PID4}, 'X', 'T7', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed', ${r4.starts}, ${r4.ends})`;
+  const add = async (
+    name: string,
+    o: { coin?: boolean; complete_at?: Date | null; confirm_choice?: 'go' | 'skip' | null; repo?: string; at?: Date },
+  ) => {
+    const at = o.at ?? d('2026-10-05T00:00:00Z');
+    const coin = o.coin === false ? null : '0x' + name.padEnd(40, 'a').slice(0, 40);
+    const [row] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, contracts, coin_address, coin_launched_at,
+        submission_proof_ok_at, submitted_at, bonus_repo_key, complete_at, confirm_choice)
+      VALUES (${PID4}, ${name}, ${`https://github.com/acme/${name}`}, ${[]}, ${coin}, ${coin ? at : null},
+        ${at}, ${at}, ${o.repo ?? `acme/${name}`}, ${o.complete_at === undefined ? at : o.complete_at}, ${o.confirm_choice ?? null})
+      RETURNING id`;
+    return row.id;
+  };
+  const eligible = async (ends = r4.ends) =>
+    new Set((await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${PID4} AND ${eligibleSql(ends)}`).map((r) => r.id));
+  try {
+    // Three rows in one round, all with a token and proof: only the complete, not-skipped one counts.
+    await add('incomplete', { complete_at: null });
+    await add('skipped', { confirm_choice: 'skip' });
+    const complete = await add('complete', { confirm_choice: 'go' });
+    // The owner's rule, pinned: complete and submitted, but no launched token, is never selected.
+    await add('no-token', { coin: false });
+    // An older agent's entry (never confirmed) that is complete counts.
+    const older = await add('older', { confirm_choice: null });
+    // Complete only after the round's end: frozen out (Ruling 16).
+    await add('late', { complete_at: d('2026-11-02T00:00:00Z') });
+    assert.deepEqual(await eligible(), new Set([complete, older]));
+    // An earlier entry of the same repo blocks a later one only when it is itself eligible: an
+    // incomplete or skipped earlier row never does (Ruling 15).
+    await add('early-incomplete', { complete_at: null, repo: 'acme/shared', at: d('2026-10-02T00:00:00Z') });
+    await add('early-skipped', { confirm_choice: 'skip', repo: 'acme/shared', at: d('2026-10-03T00:00:00Z') });
+    const shared = await add('shared', { repo: 'acme/shared', at: d('2026-10-06T00:00:00Z') });
+    await add('shared-later', { repo: 'acme/shared', at: d('2026-10-07T00:00:00Z') });
+    assert.deepEqual(await eligible(), new Set([complete, older, shared]));
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${PID4}`;
+    await sql()`DELETE FROM programs WHERE id = ${PID4}`;
   }
 });
