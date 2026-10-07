@@ -488,9 +488,13 @@ apps/frontend/
                                comes with a token; no-bonus, no-wallet (NO_WALLET_HINT), token
                                elsewhere (Ruling 5) and can't-push (CANT_PUSH) variants) and
                                confirmDecision (offer | skip | record_only | launch). Pure
-    submit-kit.ts(+test)       v2.8 Task 8: submitKit (the submit kit, returned only by
-                               confirm_entry; copy_paste now, Task 10 adds the other modes),
-                               proofFor (Ruling 28), submitHost. Pure
+    submit-kit.ts(+test)       v2.8 Tasks 8, 10: submitKit (the submit kit, returned only by
+                               confirm_entry, in four modes), submitModeFor, hostOf, proofFor
+                               (Ruling 28), googlePrefill/airtablePrefill/tallyPrefill
+                               (MAX_PREFILL_URL), AGENT_FILL_STEPS, kitAgentNote. Pure
+    submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
+                               the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
+                               platforms by host. Pure, no imports
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,

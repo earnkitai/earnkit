@@ -56,7 +56,7 @@ import {
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
-import { submitKit, type SubmitKit } from './submit-kit';
+import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   applicationOf,
   bankFill,
@@ -819,8 +819,10 @@ export const tools = {
       ...(token && { token }),
       kit,
       show_to_builder: `${first}\n\n${kit.show_to_builder}`,
+      // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
       agent_note:
-        'Show show_to_builder as written. Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
+        `Show show_to_builder as written. ${kitAgentNote(kit, program)} ` +
+        'Once the builder has submitted, call record_submission with the final answers and builder_submitted: true' +
         (kit.proof.kind === 'entry_link' ? ', and their entry link as external_submission_url.' : '.'),
     };
   },

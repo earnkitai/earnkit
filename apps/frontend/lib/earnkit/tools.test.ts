@@ -1358,3 +1358,53 @@ test('C15/C17: Base Builder Grants, first program: 3 questions and one bullet co
     assert.match(done.show_to_builder, /Ready\. Want the builder bonus\?/);
     assert.doesNotMatch(done.show_to_builder, /^Before you submit: /);
   }));
+
+test('10.9 Ruling 4, Part E: Base (its Google form in the file): prepare_submission never has the link; confirm_entry go and skip return the prefilled_link kit', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('base10', { remembered: W8 });
+    const base = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
+    await upsertProgram(ProgramFile.parse(base));
+    const reqs = base.submission_requirements as SubmissionRequirement[];
+    const answers: Record<string, string> = {
+      ...Object.fromEntries(reqs.map((r) => [r.key, `${r.label.slice(0, 20)} answer`])),
+      email: 'alice@example.com',
+      live_product_url: 'https://tipjar.example',
+      demo_loom: 'https://loom.com/share/abc',
+      contract_address: '0x' + '1'.repeat(40),
+      track: 'Trading',
+    };
+    const input = { program_id: base.id, project: t.project, answers, coach_asked: true };
+    const prep = (await tools.prepare_submission(input, t.ctx)) as Record<string, unknown>;
+    assert.equal(prep.ready, true, JSON.stringify(prep.missing));
+    for (const k of ['kit', 'prefilled_url', 'paste', 'agent_steps', 'api', 'submission_url']) assert.ok(!keysOf(prep).includes(k), k);
+    assert.doesNotMatch(JSON.stringify(prep), /docs\.google\.com\/forms|usp=pp_url|entry\.\d+/);
+
+    const { coach_asked: _c, ...confirmInput } = input;
+    void _c;
+    type KitReply = Confirmed & { kit?: { mode: string; prefilled_url?: string; paste: { key: string }[]; show_to_builder: string } };
+    const r = (await tools.confirm_entry({ ...confirmInput, ...go, wallet: W8 }, t.ctx)) as KitReply;
+    assert.equal(r.token?.status, 'launched');
+    assert.equal(r.kit?.mode, 'prefilled_link');
+    const url = r.kit!.prefilled_url!;
+    assert.ok(url.startsWith(`${base.form.url}?usp=pp_url&entry.100652540=`), url);
+    assert.match(url, /&entry\.1495021877=Trading(&|$)/);
+    assert.ok(url.length <= 8000);
+    // The checkbox question has no entry id in the file: it is pasted (ticked) by the builder.
+    assert.deepEqual(r.kit!.paste.map((f) => f.key), ['primary_challenge']);
+    assert.ok(r.kit!.show_to_builder.startsWith(`Ready for ${base.title}. Open this, check it, and click submit:\n${url}\n\nThen paste these:\n`), r.kit!.show_to_builder);
+    assert.ok(r.kit!.show_to_builder.endsWith('After you submit, send me the confirmation screenshot or email.'));
+    assert.match(r.agent_note ?? '', /Never submit the form for them/);
+    // Skip: the same kit.
+    const s = (await tools.confirm_entry({ ...confirmInput, builder_confirmed: true, decision: 'skip' }, t.ctx)) as KitReply;
+    assert.equal(s.kit?.mode, 'prefilled_link');
+    assert.equal(s.kit?.prefilled_url, url);
+  }));
+
+test('10 Part E: confirm_entry on DoraHacks with a browser is still the paste list; the agent is told never to fill it', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('dora10');
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent: { browser: true } }, t.ctx)) as Confirmed & { kit?: { mode: string; agent_steps?: string[] } };
+    assert.equal(r.kit?.mode, 'copy_paste');
+    assert.ok(!r.kit?.agent_steps);
+    assert.match(r.agent_note ?? '', /terms ban automated use/);
+  }));
