@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -632,6 +632,7 @@ const kitAnswers = { project_name: 'Tip Jar', repo_url: 'https://github.com/alic
 const kitProgram = (title: string, submission_url: string, extra: Partial<KitProgram> = {}): KitProgram => ({ title, submission_url, submission_requirements: kitReqs, ...extra });
 const kitPrograms: [string, KitProgram, boolean][] = [
   ['prefilled_link', kitProgram('Base Builder Grants', 'https://forms.gle/abc', { form: { url: 'https://docs.google.com/forms/d/e/1FAIpQ/viewform', fields: { project_name: 'entry.1', repo_url: 'entry.2' }, sign_in: false, read_at: '2026-10-07' } }), false],
+  ['prefilled_link (verified email, C19)', kitProgram('Base Builder Grants', 'https://forms.gle/abc', { form: { url: 'https://docs.google.com/forms/d/e/1FAIpQ/viewform', fields: { project_name: 'entry.1', repo_url: 'entry.2' }, sign_in: 'email_only', read_at: '2026-10-07' } }), false],
   ['agent_fills', kitProgram('Colosseum', 'https://colosseum.com/arena'), true],
   ['copy_paste (DoraHacks)', kitProgram('Arc Microgrants', 'https://dorahacks.io/hackathon/arc-microgrants'), true],
   ['copy_paste (no browser)', kitProgram('Monad Metropolis', 'https://hackathon.monad.xyz/'), false],
@@ -648,8 +649,30 @@ const kitAgentTexts: [string, string][] = [
 
 test('Task 10: every kit mode has its own builder text, ending with the proof ask', () => {
   const modes = kitPrograms.map(([, p, browser]) => submitKit(p, kitAnswers, { browser }).mode);
-  assert.deepEqual(modes, ['prefilled_link', 'agent_fills', 'copy_paste', 'copy_paste', 'api']);
+  assert.deepEqual(modes, ['prefilled_link', 'prefilled_link', 'agent_fills', 'copy_paste', 'copy_paste', 'api']);
   for (const [label, text] of kitTexts) assert.match(text, /After you submit, (paste your entry link here|send me the confirmation screenshot or email)\.$/, label);
+});
+
+/**
+ * Review Minor 4 (Task 10): the one documented exception to the "coin" rule. A program form's own
+ * choice option, quoted verbatim in a kit (Base's track "Payments / Stable coins"), is the form's
+ * words, not EarnKit's. Only exact options from the committed program files are exempt.
+ */
+const FORM_OPTIONS: string[] = readdirSync(join(import.meta.dirname, '../../../../programs'))
+  .filter((f) => f.endsWith('.json'))
+  .flatMap((f) => (JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')).submission_requirements as SubmissionRequirement[]))
+  .flatMap((r) => r.options ?? []);
+const withoutFormOptions = (text: string) => FORM_OPTIONS.reduce((t, o) => (o ? t.split(o).join(' ') : t), text);
+const baseFile = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/base-builder-grants.json'), 'utf8'));
+const baseNoForm: KitProgram = { title: baseFile.title, submission_url: baseFile.submission_url, submission_requirements: baseFile.submission_requirements };
+const baseTrackKit = submitKit(baseNoForm, { track: 'Payments / Stable coins' }, { browser: false }).show_to_builder;
+kitTexts.push(['submitKit copy_paste, Base track option (form words)', baseTrackKit]);
+
+test('Minor 4: a form option is exempt from the "coin" rule only verbatim', () => {
+  assert.ok(FORM_OPTIONS.includes('Payments / Stable coins'));
+  assert.deepEqual(coinWords(baseTrackKit), ['coins'], 'the option does reach the builder verbatim');
+  assert.deepEqual(coinWords(withoutFormOptions(baseTrackKit)), []);
+  assert.deepEqual(coinWords(withoutFormOptions('Your coins are ready')), ['coins'], 'EarnKit text is never exempt');
 });
 
 // v2.8 Task 9: the coach's builder text (questions, the draft table, the fixes) from real inputs.
@@ -806,7 +829,8 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
 
 test('v2.7 §4: "coin" never appears in human-facing text', async () => {
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
-  for (const [label, text] of all) assert.deepEqual(coinWords(text), [], label);
+  // Minor 4 (Task 10): a program form's own option, quoted verbatim in a kit, is exempt.
+  for (const [label, text] of all) assert.deepEqual(coinWords(label.startsWith('submitKit') ? withoutFormOptions(text) : text), [], label);
 });
 
 test('v2.7 §3: never "Clanker" in builder or agent text, or on /policy', async () => {

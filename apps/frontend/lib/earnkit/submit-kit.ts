@@ -35,6 +35,11 @@ export type SubmitKit = {
   fields: KitField[];
   /** The fields the builder enters by hand (or, agent_fills, adds or uploads themselves), in form order. */
   paste: KitField[];
+  /**
+   * Ruling C19: what the builder does on the form before the answers, first in their own list
+   * (a Google form with verified email collection: GOOGLE_EMAIL_SIGN_IN).
+   */
+  builder_steps?: string[];
   /** agent_fills: AGENT_FILL_STEPS. */
   agent_steps?: string[];
   /** api: the answers by requirement key, sent with the builder's own agent key (never in the kit). */
@@ -52,10 +57,13 @@ export const STILL_NEEDED = '(still needed)';
  * Ruling 8 (plan): a public form's field ids, read once at listing from the public form and stored
  * in the program file (never fetched at request time). `fields` maps requirement keys to the form's
  * own parameter: `entry.<n>` (Google), the field name (Airtable), the URL parameter (Tally).
- * `sign_in`: the form needs a Google sign-in (or has a file question), so it is filled in the
- * builder's browser instead. `read_at`: the day the ids were read (YYYY-MM-DD).
+ * `sign_in` (Ruling C19): `false` (no sign-in), `'email_only'` (Google sign-in only to collect a
+ * verified email, no file question: the prefilled link stays, and the builder signs in and ticks
+ * the email box first) or `true` (a file question or another sign-in cause: filled in the
+ * builder's browser instead). `read_at`: the day the ids were read (YYYY-MM-DD).
  */
-export type ProgramForm = { url: string; fields: Record<string, string>; sign_in: boolean; read_at: string };
+export type FormSignIn = boolean | 'email_only';
+export type ProgramForm = { url: string; fields: Record<string, string>; sign_in: FormSignIn; read_at: string };
 /** The brief's name for ProgramForm (module scope; the DOM FormData is never used here). */
 export type FormData = ProgramForm;
 
@@ -67,6 +75,11 @@ export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_require
 
 /** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */
 export const MAX_PREFILL_URL = 8000;
+
+/** Ruling C19: the builder's first item on a Google form that collects a verified email. */
+export const GOOGLE_EMAIL_SIGN_IN = 'Sign in to Google and tick Record my email address.';
+/** One heading for the builder's own list, whatever is in it (answers to paste, boxes to tick, files). */
+export const OWN_LIST_HEADING = 'You add these yourself:';
 
 export const ENTRY_LINK_ASK = 'After you submit, paste your entry link here.';
 export const CONFIRMATION_ASK = 'After you submit, send me the confirmation screenshot or email.';
@@ -107,7 +120,8 @@ export function submitModeFor(p: KitProgram, agent: { browser: boolean }): Submi
   const host = hostOf(p);
   let mode = baseModeOf(host);
   if (mode === 'prefilled_link' && !p.form) mode = 'copy_paste';
-  if (mode === 'prefilled_link' && p.form?.sign_in) mode = 'agent_fills';
+  // Ruling C19: a sign-in only to collect a verified email keeps the link; any other needs the browser.
+  if (mode === 'prefilled_link' && p.form?.sign_in === true) mode = 'agent_fills';
   if (mode === 'api' && !p.submit_api) mode = 'agent_fills';
   if (mode === 'agent_fills' && !agent.browser) mode = 'copy_paste';
   if (isNoAgentHost(host)) mode = 'copy_paste';
@@ -217,17 +231,21 @@ export function submitKit(
   if (mode === 'prefilled_link' && program.form && kind) {
     const { url, left } = PREFILL[kind](program.form, reqs, given);
     const paste = fields.filter((f) => f.missing || left.includes(f.key));
+    // Ruling C19: driven by the form data, never the program id.
+    const builder_steps = kind === 'google' && program.form.sign_in === 'email_only' ? [GOOGLE_EMAIL_SIGN_IN] : [];
+    const own = [...builder_steps, ...(paste.length ? [listOf(paste)] : [])];
     return {
       mode,
       ...base,
       prefilled_url: url,
       paste,
+      ...(builder_steps.length > 0 && { builder_steps }),
       show_to_builder: done([
         missing.length
           ? `For ${title}, open this, check it, and click submit once the blanks are in:`
           : `Ready for ${title}. Open this, check it, and click submit:`,
         url,
-        ...(paste.length ? ['\nThen paste these:', listOf(paste)] : []),
+        ...(own.length ? [`\n${OWN_LIST_HEADING}`, own.join('\n\n')] : []),
       ]),
     };
   }
@@ -246,7 +264,7 @@ export function submitKit(
         missing.length
           ? `For ${title}, I'll fill the form in your browser. You log in, add the blanks, check it and click submit.`
           : `Ready for ${title}. I'll fill the form in your browser. You log in, check it and click submit.`,
-        ...(paste.length ? ['\nYou add these yourself:', listOf(paste)] : []),
+        ...(paste.length ? [`\n${OWN_LIST_HEADING}`, listOf(paste)] : []),
       ]),
     };
   }
@@ -261,8 +279,8 @@ export function submitKit(
       api: { platform: platform.platform, payload: given },
       show_to_builder: done([
         missing.length
-          ? `For ${title}, once the blanks are in, I'll send it through ${platform.name}'s agent API with your key, then you confirm there.`
-          : `Ready for ${title}. I'll send it through ${platform.name}'s agent API with your key, then you confirm there.`,
+          ? `For ${title}, once the blanks are in, I'll send it to ${platform.name} for you, then you confirm it there.`
+          : `Ready for ${title}. I'll send it to ${platform.name} for you, then you confirm it there.`,
         ...(paste.length ? ['\nStill needed:', listOf(paste)] : []),
       ]),
     };
@@ -288,12 +306,16 @@ export function kitAgentNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
   const host = hostOf(program);
   switch (kit.mode) {
     case 'prefilled_link':
-      return 'The builder opens kit.prefilled_url, checks it, pastes kit.paste and clicks submit. Never submit the form for them.';
+      return (
+        'The builder opens kit.prefilled_url, does kit.builder_steps if any (a Google sign-in is theirs alone), adds kit.paste and clicks submit. ' +
+        'Never submit the form for them.'
+      );
     case 'agent_fills':
       return `Follow kit.agent_steps in order: ${AGENT_FILL_STEPS.join(' ')}`;
     case 'api':
       return (
-        "Send kit.api.payload through the platform's own agent API with the builder's own agent key, only on a listing that allows agents. " +
+        "Send the answers through the platform's own agent API with the builder's own agent key, only on a listing that allows agents. " +
+        "kit.api.payload is keyed by EarnKit's requirement keys: map each answer to the platform's own submission fields first. " +
         'Never ask for the key here or put it in any EarnKit call. The builder confirms the entry on the platform.'
       );
     default:

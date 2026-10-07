@@ -353,13 +353,15 @@ export type Judging = z.infer<typeof Judging>;
  * v2.8 Ruling 8 (plan): a public form's field ids, read once at listing from the public form
  * (read-only; nothing is submitted) and re-read by the weekly routine. Never fetched at request time.
  * `fields` maps requirement keys to `entry.<n>` (Google), the field name (Airtable) or the URL
- * parameter (Tally). `sign_in`: true when the form needs a Google sign-in or has a file question.
+ * parameter (Tally). `sign_in` (Ruling C19): `"email_only"` when the form's only sign-in cause is
+ * Google's verified email collection (Google only, no file question); `true` for a file question
+ * or any other sign-in cause; `false` for none.
  */
 const SubmitForm = z
   .object({
     url: HttpsSource,
     fields: z.record(z.string().regex(/^[a-z0-9_]+$/), z.string().min(1).max(200)),
-    sign_in: z.boolean(),
+    sign_in: z.union([z.boolean(), z.literal('email_only')]),
     read_at: z.string().date(),
   })
   .strict();
@@ -548,6 +550,7 @@ export const ProgramFile = z
       else if (formHost === 'docs.google.com' && !/^\/forms\/d\/e\/[\w-]+\/viewform$/.test(new URL(p.form.url).pathname))
         issue('form.url must be the full viewform link');
       else if (new URL(p.form.url).search) issue('form.url has no query string');
+      if (p.form.sign_in === 'email_only' && formHost !== 'docs.google.com') issue('form.sign_in "email_only" is for Google forms');
       for (const k of Object.keys(p.form.fields)) if (!keys.includes(k)) issue(`form.fields key "${k}" is not a submission requirement key`);
       if (formHost === 'docs.google.com')
         for (const [k, v] of Object.entries(p.form.fields)) if (!/^entry\.\d+$/.test(v)) issue(`form.fields.${k} must be "entry.<number>"`);
