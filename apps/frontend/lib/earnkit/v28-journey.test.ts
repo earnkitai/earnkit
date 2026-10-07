@@ -278,7 +278,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       // Today: an announcement only labels entries made by its day (never a date the clock passes).
       captured_at: new Date().toISOString().slice(0, 10),
       complete: true,
-      // The round's deadline (final review I4): today, so today's entry is in it.
+      // The round's window (final review I4, re-review I-A): from Arc's start to today, so today's entry is in it.
+      entries_from: '2026-01-01',
       entries_until: new Date().toISOString().slice(0, 10),
       results: [
         { repo: repo.replace('https://', ''), result: 'won', prize_usd: 500 },

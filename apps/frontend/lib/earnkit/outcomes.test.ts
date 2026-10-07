@@ -67,6 +67,7 @@ const file = {
   source_url: 'https://community.arc.io/x',
   captured_at: '2026-10-22',
   complete: true,
+  entries_from: '2026-09-15',
   entries_until: '2026-10-14',
   results: [{ repo: 'github.com/a/tipjar', result: 'won', prize_usd: 500 }],
 };
@@ -92,7 +93,13 @@ test('OutcomeFile: parses a valid file; refuses a result naming nothing, a non-h
   assert.ok(!refused.success);
   assert.ok(refused.error.issues.some((i) => i.path.join('.') === 'entries_until'));
   assert.ok(OutcomeFile.safeParse({ ...noUntil, complete: false }).success);
-  assert.ok(OutcomeFile.safeParse({ ...file, entries_from: '2026-09-15' }).success);
+  // Re-review I-A: a complete file needs entries_from too; a partial one may leave it out.
+  const { entries_from: _f, ...noFrom } = file;
+  void _f;
+  const noFromResult = OutcomeFile.safeParse(noFrom);
+  assert.ok(!noFromResult.success);
+  assert.ok(noFromResult.error.issues.some((i) => i.path.join('.') === 'entries_from'));
+  assert.ok(OutcomeFile.safeParse({ ...noFrom, complete: false }).success);
   assert.ok(!OutcomeFile.safeParse({ ...file, entries_from: '2026-10-15' }).success, 'from after until');
   assert.ok(!OutcomeFile.safeParse({ ...file, entries_until: 'Oct 14' }).success);
 });
@@ -138,6 +145,7 @@ test('Ruling C22: a complete list labels every other submitted entry not_selecte
       const before = await readStats(new Date(), tx);
       const f = (complete: boolean, round: string) => ({
         program_id: tag, round_label: round, source_url: 'https://x.example/results', captured_at: '2026-10-22', complete,
+        entries_from: '2026-10-01',
         entries_until: '2026-10-22',
         results: [{ repo: 'github.com/a/win', result: 'won' as const, prize_usd: 500 }, { name: 'Nobody', result: 'won' as const }],
       });
@@ -191,7 +199,7 @@ test('final review I4: two rounds, one complete file each; a round-1 entry never
       const base = { program_id: tag, source_url: 'https://x.example/results', complete: true };
       // Round 1's file, captured after round 2's first entry.
       assert.deepEqual(
-        await syncOutcomeFile({ ...base, round_label: 'R1', captured_at: '2026-10-22', entries_until: '2026-10-14', results: [{ repo: 'github.com/a/onewin', result: 'won' }] }, tx),
+        await syncOutcomeFile({ ...base, round_label: 'R1', captured_at: '2026-10-22', entries_from: '2026-09-01', entries_until: '2026-10-14', results: [{ repo: 'github.com/a/onewin', result: 'won' }] }, tx),
         { matched: 1, unmatched: 0, others: 1 },
       );
       const one = await labels('R1');
@@ -200,7 +208,7 @@ test('final review I4: two rounds, one complete file each; a round-1 entry never
       assert.ok(!one.has(r2early), 'an entry made after round 1 closed is not labelled in round 1');
       // Round 2's file replaces round 1's (one file per program); its window starts after round 1.
       assert.deepEqual(
-        await syncOutcomeFile({ ...base, round_label: 'R2', captured_at: '2026-11-30', entries_until: '2026-11-15', results: [{ repo: 'github.com/a/twowin', result: 'won' }] }, tx),
+        await syncOutcomeFile({ ...base, round_label: 'R2', captured_at: '2026-11-30', entries_from: '2026-10-15', entries_until: '2026-11-15', results: [{ repo: 'github.com/a/twowin', result: 'won' }] }, tx),
         { matched: 1, unmatched: 0, others: 2 },
       );
       const two = await labels('R2');
@@ -211,6 +219,62 @@ test('final review I4: two rounds, one complete file each; a round-1 entry never
       // entries_from bounds the start explicitly too.
       await syncOutcomeFile({ ...base, round_label: 'R2b', captured_at: '2026-11-30', entries_from: '2026-11-01', entries_until: '2026-11-15', results: [{ repo: 'github.com/a/twowin', result: 'won' }] }, tx);
       assert.ok(!(await labels('R2b')).has(r2early), 'before entries_from');
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  }
+});
+
+test('re-review I-A: round 1 partial or missing, round 2 complete: round-1 entries stay unknown or unlabelled, never not_selected', dbTest, async () => {
+  const tag = `outcomes-ia-${process.pid}-${Date.now()}`;
+  const Rollback = new Error('rollback');
+  try {
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [{ id: inst }] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+      for (const id of [`${tag}-p`, `${tag}-m`])
+        await tx`
+          INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+          VALUES (${id}, 'o', ${id}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
+      const entry = async (program: string, name: string, at: string) =>
+        (await tx<{ id: number }[]>`
+          INSERT INTO projects (program_id, name, installation_id, repo_url, submitted_at)
+          VALUES (${program}, ${name}, ${inst}, ${`https://github.com/a/${program}-${name.toLowerCase()}`}, ${at}) RETURNING id`)[0].id;
+      const labels = async (program: string) =>
+        new Map((await tx<{ project_id: number; round_label: string; result: string }[]>`
+          SELECT project_id, round_label, result FROM entry_outcomes WHERE program_id = ${program} AND basis = 'announcement'`)
+          .map((r) => [`${r.project_id}:${r.round_label}`, r.result]));
+      const round2 = (program: string) => ({
+        program_id: program, round_label: 'R2', source_url: 'https://x.example/results', captured_at: '2026-11-30',
+        complete: true, entries_from: '2026-10-15', entries_until: '2026-11-15',
+        results: [{ repo: `github.com/a/${program}-twowin`, result: 'won' as const }],
+      });
+      // (a) Round 1's file was partial: its entries are unknown under R1, and round 2 leaves them alone.
+      const p = `${tag}-p`;
+      const p1 = await entry(p, 'OneA', '2026-10-01T00:00:00Z');
+      const p1b = await entry(p, 'OneB', '2026-10-14T23:59:00Z');
+      const p2win = await entry(p, 'TwoWin', '2026-11-05T00:00:00Z');
+      const p2lost = await entry(p, 'TwoLost', '2026-10-15T00:00:00Z');
+      await syncOutcomeFile({ program_id: p, round_label: 'R1', source_url: 'https://x.example/results', captured_at: '2026-10-22', complete: false, results: [{ name: 'Nobody', result: 'won' }] }, tx);
+      assert.deepEqual(await syncOutcomeFile(round2(p), tx), { matched: 1, unmatched: 0, others: 1 });
+      const pl = await labels(p);
+      assert.equal(pl.get(`${p1}:R1`), 'unknown');
+      assert.equal(pl.get(`${p1b}:R1`), 'unknown');
+      assert.ok(!pl.has(`${p1}:R2`) && !pl.has(`${p1b}:R2`), 'round-1 entries never labelled in round 2');
+      assert.equal(pl.get(`${p2win}:R2`), 'won');
+      assert.equal(pl.get(`${p2lost}:R2`), 'not_selected', 'the window is inclusive of entries_from');
+      // (b) Round 1 had no file at all: its entries stay unlabelled.
+      const m = `${tag}-m`;
+      const m1 = await entry(m, 'OneA', '2026-10-01T00:00:00Z');
+      const m2win = await entry(m, 'TwoWin', '2026-11-15T23:00:00Z');
+      assert.deepEqual(await syncOutcomeFile(round2(m), tx), { matched: 1, unmatched: 0, others: 0 });
+      const ml = await labels(m);
+      assert.ok(![...ml.keys()].some((k) => k.startsWith(`${m1}:`)), 'a round-1 entry with no file stays unlabelled');
+      assert.equal(ml.get(`${m2win}:R2`), 'won', 'the window is inclusive of entries_until');
+      // A complete file without entries_from never syncs (the loader parses first; this guards a direct call).
+      const { entries_from: _f, ...noFrom } = round2(m);
+      void _f;
+      await assert.rejects(syncOutcomeFile(noFrom as Parameters<typeof syncOutcomeFile>[0], tx), /entries_from/);
       throw Rollback;
     });
   } catch (err) {

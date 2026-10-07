@@ -1846,8 +1846,9 @@ sections above have the details per task; this is how they fit together.
     format in `programs/outcomes/README.md`). `programs:check` validates them (and that the program
     file exists); `programs:sync` calls `syncOutcomeFile`. Candidates are the program's submitted
     entries (the C10 rule) made by the announcement day and inside the round's window (final
-    review I4: `entries_until`, the round's deadline, required with `complete: true`; optional
-    `entries_from`; UTC days, inclusive). An unnamed entry that another round's file already
+    review I4 and re-review I-A: `entries_from` and `entries_until`, both required with
+    `complete: true`, checked by `programs:check` and the loader through `OutcomeFile`; UTC days,
+    inclusive), so only that round's entries can become `not_selected`. An unnamed entry that another round's file already
     labelled (anything but `unknown`) is left alone. Each named result labels every entry it
     matches (`matchOutcomeAll`: repo normalized and decisive; else the live link by host and path;
     else a name only when exactly one entry has it). Ruling C22: every other candidate is labelled
@@ -1930,7 +1931,7 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
    `ENTRY_LINK_HOSTS` (`submit-hosts.ts`), so the kit asks for the entry link as proof.
 8. After Arc's results are due (`results.expected`, 2026-10-21): "What can I earn?" asks "Did
    \<name\> win anything in Arc Microgrants?" once. Once the weekly routine commits the outcome
-   file (with `entries_until`, the round's deadline, when it is `complete`) and it deploys, a
+   file (with `entries_from` and `entries_until`, the round's window, when it is `complete`) and it deploys, a
    sourced win leads the next reply: "Since you last checked: you won $500
    in Arc Microgrants with \<name\>."
 

@@ -572,7 +572,7 @@ apps/frontend/
                                MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms),
                                newProgramOf (C23: "up to $1M investment")
     outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile (complete, Ruling C22;
-                               entries_until required when complete, optional entries_from: the round window, final review I4),
+                               entries_from and entries_until both required when complete: the round window, final review I4, re-review I-A),
                                matchOutcomeAll/matchOutcome (repo, then live link, then a unique
                                name), winLine, ReportOutcome, outcomeQuestion, syncOutcomeFile
                                (labels every submitted entry by the announcement day and inside the round window, never one
