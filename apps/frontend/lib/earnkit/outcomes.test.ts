@@ -1,6 +1,21 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OutcomeFile, ReportOutcome, matchOutcome, outcomeQuestion, winLine, type EntryRef } from './outcomes';
+import { sql } from './db';
+import { readStats } from './stats';
+import {
+  OutcomeFile,
+  ReportOutcome,
+  matchOutcome,
+  matchOutcomeAll,
+  outcomeQuestion,
+  syncOutcomeFile,
+  winLine,
+  type EntryRef,
+} from './outcomes';
+
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
 
 const entries: EntryRef[] = [
   { id: 1, repo_url: 'https://github.com/a/tipjar.git', name: 'TipJar', live_url: 'https://www.tipjar.example/app/' },
@@ -51,6 +66,7 @@ const file = {
   round_label: 'Arc Microgrants 2026',
   source_url: 'https://community.arc.io/x',
   captured_at: '2026-10-22',
+  complete: true,
   results: [{ repo: 'github.com/a/tipjar', result: 'won', prize_usd: 500 }],
 };
 
@@ -64,6 +80,10 @@ test('OutcomeFile: parses a valid file; refuses a result naming nothing, a non-h
   assert.ok(!OutcomeFile.safeParse({ ...file, results: [] }).success);
   assert.ok(!OutcomeFile.safeParse({ ...file, captured_at: 'Oct 22' }).success);
   assert.ok(!OutcomeFile.safeParse({ ...file, results: [{ name: 'X', result: 'won', prize_usd: -1 }] }).success);
+  // Ruling C22: complete is required (the routine says whether every winner is named).
+  const { complete: _c, ...noComplete } = file;
+  void _c;
+  assert.ok(!OutcomeFile.safeParse(noComplete).success);
 });
 
 test('ReportOutcome: the builder reports won, placed, finalist or not_selected; never unknown', () => {
@@ -71,4 +91,65 @@ test('ReportOutcome: the builder reports won, placed, finalist or not_selected; 
   assert.ok(!ReportOutcome.safeParse({ project_id: 1, result: 'unknown' }).success);
   assert.ok(!ReportOutcome.safeParse({ project_id: 0, result: 'won' }).success);
   assert.ok(!ReportOutcome.safeParse({ project_id: 1, result: 'won', basis: 'announcement' }).success);
+});
+
+test('matchOutcomeAll: every entry of a named repo or live link (two entries of one repo both match)', () => {
+  const twins: EntryRef[] = [...entries, { id: 5, repo_url: 'github.com/a/TipJar', name: 'TipJar test', live_url: null }];
+  assert.deepEqual(matchOutcomeAll({ repo: 'github.com/a/tipjar' }, twins), [1, 5]);
+  assert.equal(matchOutcome({ repo: 'github.com/a/tipjar' }, twins), 1);
+  assert.deepEqual(matchOutcomeAll({ name: 'Twin' }, twins), []);
+});
+
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+test('Ruling C22: a complete list labels every other submitted entry not_selected; a partial one, unknown (never counted)', dbTest, async () => {
+  const tag = `outcomes-c22-${process.pid}-${Date.now()}`;
+  const Rollback = new Error('rollback');
+  try {
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [{ id: inst }] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+      await tx`
+        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+        VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
+      const entry = async (name: string, repo: string | null, o: { confirmed?: boolean; at?: string } = {}) =>
+        (await tx<{ id: number }[]>`
+          INSERT INTO projects (program_id, name, installation_id, repo_url, confirmed_at, confirm_choice, submitted_at)
+          VALUES (${tag}, ${name}, ${inst}, ${repo}, ${o.confirmed ? new Date() : null}, ${o.confirmed ? 'go' : null},
+            ${o.at ?? '2026-10-10T00:00:00Z'}) RETURNING id`)[0].id;
+      const winner = await entry('Winner', 'https://github.com/a/win');
+      const winnerTwin = await entry('Winner again', 'https://github.com/a/win.git');
+      const other = await entry('Other', 'https://github.com/a/other');
+      const unsent = await entry('Unsent', 'https://github.com/a/unsent', { confirmed: true });
+      const later = await entry('Later', 'https://github.com/a/later', { at: '2026-11-01T00:00:00Z' });
+      const rows = async () =>
+        new Map((await tx<{ project_id: number; result: string }[]>`
+          SELECT project_id, result FROM entry_outcomes WHERE program_id = ${tag} AND basis = 'announcement'`).map((r) => [r.project_id, r.result]));
+      const before = await readStats(new Date(), tx);
+      const f = (complete: boolean, round: string) => ({
+        program_id: tag, round_label: round, source_url: 'https://x.example/results', captured_at: '2026-10-22', complete,
+        results: [{ repo: 'github.com/a/win', result: 'won' as const, prize_usd: 500 }, { name: 'Nobody', result: 'won' as const }],
+      });
+      // Partial: the named winner (both entries of its repo) won; the other submitted entry is unknown.
+      assert.deepEqual(await syncOutcomeFile(f(false, 'R1'), tx), { matched: 1, unmatched: 1, others: 1 });
+      let r = await rows();
+      assert.equal(r.get(winner), 'won');
+      assert.equal(r.get(winnerTwin), 'won');
+      assert.equal(r.get(other), 'unknown');
+      assert.ok(!r.has(unsent), 'a confirmed entry never sent is not labelled');
+      assert.ok(!r.has(later), 'an entry made after the announcement is not in this round');
+      const mid = await readStats(new Date(), tx);
+      assert.equal(mid.labelled_entries - before.labelled_entries, 2, 'unknown never counts');
+      assert.equal(mid.entries_won - before.entries_won, 2);
+      // Complete: the same round re-synced; the other entry is now not_selected and counts.
+      assert.deepEqual(await syncOutcomeFile(f(true, 'R1'), tx), { matched: 1, unmatched: 1, others: 1 });
+      r = await rows();
+      assert.equal(r.get(other), 'not_selected');
+      const end = await readStats(new Date(), tx);
+      assert.equal(end.labelled_entries - before.labelled_entries, 3);
+      assert.equal(end.entries_won - before.entries_won, 2);
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  }
 });

@@ -162,9 +162,10 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
-      -- result. Won: distinct entries announced as won or placed.
+      -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:
+      -- distinct entries announced as won or placed.
       (SELECT count(DISTINCT eo.project_id) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
-        WHERE eo.basis = 'announcement'
+        WHERE eo.basis = 'announcement' AND eo.result <> 'unknown'
           AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS labelled_entries,
       (SELECT count(DISTINCT eo.project_id) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
         WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed')

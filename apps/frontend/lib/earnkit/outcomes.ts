@@ -25,6 +25,12 @@ export const OutcomeFile = z
     round_label: z.string().min(1).max(80),
     source_url: z.string().url().startsWith('https://'),
     captured_at: z.string().date(),
+    /**
+     * Ruling C22: true when the announcement names every winner of this round. Then every other
+     * submitted EarnKit entry of the program is labelled `not_selected`; when false, `unknown`
+     * (which never counts as a published result).
+     */
+    complete: z.boolean(),
     results: z
       .array(
         z
@@ -57,27 +63,32 @@ const site = (u: string) => {
 };
 
 /**
- * The entry an announced result names, or null. A repo decides alone (normalized; a repo that
- * matches no entry is no match, even if a name would). Then the live link (host and path). A name
- * matches case-insensitively only when exactly one entry has it. Pure.
+ * Every entry an announced result names (review minor 5: two entries of the same repo, say an
+ * owner test entry and a real one, are both labelled). A repo decides alone (normalized; a repo
+ * that matches no entry is no match, even if a name would). Then the live link (host and path). A
+ * name matches case-insensitively only when exactly one entry has it. Pure.
  */
-export function matchOutcome(r: { repo?: string; name?: string; live_url?: string }, entries: EntryRef[]): number | null {
+export function matchOutcomeAll(r: { repo?: string; name?: string; live_url?: string }, entries: EntryRef[]): number[] {
   if (r.repo) {
     const key = normalizeRepoUrl(r.repo.startsWith('http') ? r.repo : `https://${r.repo}`);
-    const hit = entries.find((e) => e.repo_url && normalizeRepoUrl(e.repo_url) === key);
-    return hit ? hit.id : null;
+    return entries.filter((e) => e.repo_url && normalizeRepoUrl(e.repo_url) === key).map((e) => e.id);
   }
   if (r.live_url) {
     const want = site(r.live_url);
-    const hit = want ? entries.find((e) => e.live_url && site(e.live_url) === want) : undefined;
-    if (hit) return hit.id;
+    const hits = want ? entries.filter((e) => e.live_url && site(e.live_url) === want) : [];
+    if (hits.length > 0) return hits.map((e) => e.id);
   }
   if (r.name) {
     const name = r.name.trim().toLowerCase();
     const same = entries.filter((e) => e.name.trim().toLowerCase() === name);
-    return same.length === 1 ? same[0].id : null;
+    return same.length === 1 ? [same[0].id] : [];
   }
-  return null;
+  return [];
+}
+
+/** The first entry an announced result names, or null (matchOutcomeAll's rules). Pure. */
+export function matchOutcome(r: { repo?: string; name?: string; live_url?: string }, entries: EntryRef[]): number | null {
+  return matchOutcomeAll(r, entries)[0] ?? null;
 }
 
 /** The win alert's line: "you won $500 in Arc Microgrants with TipJar", or without a stated prize "TipJar won in Arc Microgrants". Pure. */
@@ -104,31 +115,50 @@ export const outcomeQuestion = (name: string, program: string) => `Did ${name} w
 export const SELF_REPORT_ROUND = 'builder report';
 
 /**
- * Upserts one announcement file's matched results as `entry_outcomes` rows (basis 'announcement').
- * Every entry in the program is a candidate (test installations are excluded later, in stats).
- * Returns counts only: callers print counts, never names.
+ * Upserts one announcement file as `entry_outcomes` rows (basis 'announcement'). Candidates are
+ * the program's submitted entries (the Ruling C10 rule) made by the announcement day, in id order;
+ * test installations are included here and excluded later, in stats. Each named result labels
+ * every entry it matches. Ruling C22: every other candidate is labelled too, `not_selected` when
+ * the file is `complete`, else `unknown`. The file is the truth for its round: a re-sync
+ * overwrites. Returns counts only: callers print counts, never names.
  */
-export async function syncOutcomeFile(f: OutcomeFile, db: Db = sql()): Promise<{ matched: number; unmatched: number }> {
+export async function syncOutcomeFile(
+  f: OutcomeFile,
+  db: Db = sql(),
+): Promise<{ matched: number; unmatched: number; others: number }> {
   const entries = await db<EntryRef[]>`
-    SELECT id, repo_url, name, live_url FROM projects WHERE program_id = ${f.program_id}`;
+    SELECT p.id, p.repo_url, p.name, p.live_url FROM projects p
+    WHERE p.program_id = ${f.program_id}
+      -- By the end of the announcement day, in UTC (never the server's time zone).
+      AND p.submitted_at < ((${f.captured_at}::date + 1)::timestamp AT TIME ZONE 'UTC')
+      AND (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
+    ORDER BY p.id`;
+  const upsert = (projectId: number, result: (typeof OUTCOME_RESULTS)[number], prize: number | null) => db`
+    INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
+    VALUES (${projectId}, ${f.program_id}, ${f.round_label}, ${result}, ${prize}, ${f.source_url},
+      (${f.captured_at}::date::timestamp AT TIME ZONE 'UTC'), 'announcement')
+    ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
+      result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, source_url = EXCLUDED.source_url,
+      captured_at = EXCLUDED.captured_at`;
+  const named = new Set<number>();
   let matched = 0;
   let unmatched = 0;
   for (const r of f.results) {
-    const projectId = matchOutcome(r, entries);
-    if (projectId === null) {
+    const ids = matchOutcomeAll(r, entries);
+    if (ids.length === 0) {
       unmatched++;
       continue;
     }
     matched++;
-    await db`
-      INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
-      VALUES (${projectId}, ${f.program_id}, ${f.round_label}, ${r.result}, ${r.prize_usd ?? null}, ${f.source_url},
-        ${f.captured_at}::date, 'announcement')
-      ON CONFLICT (project_id, round_label, basis) DO UPDATE SET
-        result = EXCLUDED.result, prize_usd = EXCLUDED.prize_usd, source_url = EXCLUDED.source_url,
-        captured_at = EXCLUDED.captured_at`;
+    for (const id of ids) {
+      named.add(id);
+      await upsert(id, r.result, r.prize_usd ?? null);
+    }
   }
-  return { matched, unmatched };
+  const others = entries.filter((e) => !named.has(e.id));
+  for (const e of others) await upsert(e.id, f.complete ? 'not_selected' : 'unknown', null);
+  return { matched, unmatched, others: others.length };
 }
 
 /**

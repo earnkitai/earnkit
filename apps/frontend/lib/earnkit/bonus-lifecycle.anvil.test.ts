@@ -583,10 +583,15 @@ async function scenario(mock: Mock) {
     ids2[n] = r.project_id;
   }
   assert.equal(mock.deploys.length - deploysBefore, 3, 'three coins on tokens.fun');
+  // alsoText's exact shape (review minor 9): heading, table head, 1 to 3 rows, the closing line.
+  const ALSO_TAIL =
+    '\\n\\nYou also qualify for:\\n\\| Program \\| Prize \\| Ends \\| Still needed \\|\\n\\|---\\|---\\|---\\|---\\|' +
+    '(?:\\n\\| [^\\n]+ \\|){1,3}\\nSay "enter it here too" for any of them\\.' +
+    "(?: Your builder bonus is in [^\\n;]+; these entries don't add to it\\.)?";
   // The after-submission reply: the coin, then the builder bonus with its leaderboard link. v2.8
   // Ruling 29 (plan): "Also qualifies" may follow after a blank line (the shared test database
   // holds other open programs this repo fits), anchored on that join.
-  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your token: tokens\\.fun/coin/${BUILDERS2.delta.coin} · you earn 40% of its fees\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}(?:\\n\\nYou also qualify for:\\n[\\s\\S]*)?$`), delta.show_to_builder);
+  assert.match(delta.show_to_builder, new RegExp(`^Entered in E2E Confirm Grants\\. Your token: tokens\\.fun/coin/${BUILDERS2.delta.coin} · you earn 40% of its fees\\.\\nBuilder bonus: .+ · ends .+ · earnkit\\.com/bonus/${PROG2}-\\d{4}-\\d{2}(?:${ALSO_TAIL})?$`), delta.show_to_builder);
   // Echo's reply says the one step that joins the bonus; the note tells the agent the field.
   assert.equal(echo.bonus_join?.kind, 'confirm');
   assert.match(echo.show_to_builder, /\nTell me once you've submitted on forms\.gle to join the builder bonus \(/, echo.show_to_builder);

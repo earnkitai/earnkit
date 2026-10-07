@@ -18,7 +18,7 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, OUTCOME_SAVED_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor } from './coach';
 import { alsoText } from './also-qualifies';
@@ -846,6 +846,7 @@ const agentFacing: [string, string][] = [
   ...gatherDecideTokenAgentNotes(),
   ...kitAgentTexts,
   ['ASK_OUTCOME_NOTE', ASK_OUTCOME_NOTE],
+  ['OUTCOME_SAVED_NOTE', OUTCOME_SAVED_NOTE],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];
