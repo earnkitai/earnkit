@@ -243,5 +243,103 @@ await db.unsafe(now); // re-applying the schema keeps it (idempotent)
 const [v28Again] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
 ok(v28Again.any_chain === false, 'any_chain stays false when the schema is applied again');
 
+// v2.8 Rulings 1-3 (plan): complete_at and its one backfill, applied over real pre-v2.8 rows (the
+// schema of 021eba2, the base before these columns). Proves no entry eligible before the migration
+// loses it: the pre-v2.8 rule (inlined as it was) and eligibleSql after select the same rows.
+const v28pre = execFileSync('git', ['-C', root, 'show', '021eba2:apps/frontend/db/schema.sql'], {
+  encoding: 'utf8',
+});
+await db.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+await db.unsafe(v28pre);
+const ENDS = new Date('2026-11-01T00:00:00Z');
+const at = (day: number) => new Date(Date.UTC(2026, 9, day));
+await db`
+  INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+  VALUES ('v28-elig', 'X', 'V28', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')`;
+const seed = async (name: string, o: { coin?: Date | null; coinAddress?: boolean; proof?: Date | null; at: Date; repo?: string }) =>
+  (
+    await db<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at, bonus_repo_key)
+      VALUES ('v28-elig', ${name}, ${o.coinAddress === false ? null : '0x' + name.padEnd(40, '0').slice(0, 40)},
+        ${o.coin ?? null}, ${o.proof ?? null}, ${o.at}, ${o.repo ?? `acme/${name}`})
+      RETURNING id`
+  )[0].id;
+const seeded = {
+  eligible: await seed('eligible', { coin: at(2), proof: at(3), at: at(3) }),
+  first: await seed('first', { coin: at(4), proof: at(4), at: at(4), repo: 'acme/shared' }),
+  later: await seed('later', { coin: at(5), proof: at(5), at: at(5), repo: 'acme/shared' }),
+  noProof: await seed('noproof', { coin: at(2), at: at(2) }),
+  noCoin: await seed('nocoin', { coin: null, coinAddress: false, proof: at(2), at: at(2) }),
+  lateCoin: await seed('latecoin', { coin: new Date('2026-11-02T00:00:00Z'), proof: at(2), at: at(2) }),
+  // A coin address with no launch time: the v2.5 backfill (every deploy, before the v2.8 one)
+  // gives it coin_launched_at = submitted_at, so the v2.8 backfill makes it complete too.
+  noTime: await seed('notime', { coin: null, proof: at(2), at: at(2) }),
+};
+const oldRule = async () =>
+  new Set(
+    (
+      await db<{ id: number }[]>`
+        SELECT p.id FROM projects p WHERE p.program_id = 'v28-elig'
+          AND p.coin_address IS NOT NULL AND p.coin_launched_at < ${ENDS}
+          AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${ENDS}
+          AND p.submitted_at < ${ENDS}
+          AND NOT EXISTS (
+            SELECT 1 FROM projects q
+            WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
+              AND q.coin_address IS NOT NULL AND q.coin_launched_at < ${ENDS}
+              AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${ENDS}
+              AND (q.submitted_at, q.id) < (p.submitted_at, p.id))`
+    ).map((r) => r.id),
+  );
+const eligibleBefore = await oldRule();
+ok(
+  eligibleBefore.size === 2 && eligibleBefore.has(seeded.eligible) && eligibleBefore.has(seeded.first),
+  'pre-v2.8 rows: two entries eligible under the pre-v2.8 rule',
+);
+await db.unsafe(now);
+await db.unsafe(now); // every deploy runs it again
+const completes = new Map(
+  (await db<{ id: number; complete_at: Date | null; coin_launched_at: Date | null; confirm_choice: string | null; confirmed_at: Date | null }[]>`
+    SELECT id, complete_at, coin_launched_at, confirm_choice, confirmed_at FROM projects WHERE program_id = 'v28-elig'`).map((r) => [r.id, r]),
+);
+ok(
+  [seeded.eligible, seeded.first, seeded.later, seeded.noProof, seeded.lateCoin, seeded.noTime].every(
+    (id) => completes.get(id)!.complete_at?.getTime() === completes.get(id)!.coin_launched_at!.getTime(),
+  ),
+  'a row with coin_launched_at gets complete_at = coin_launched_at',
+);
+ok(completes.get(seeded.noCoin)!.complete_at === null, 'a row without coin_launched_at keeps complete_at NULL');
+ok(
+  [...completes.values()].every((r) => r.confirm_choice === null && r.confirmed_at === null),
+  'existing rows get no confirm_choice and no confirmed_at',
+);
+const { eligibleSql } = await import('../lib/earnkit/traction');
+const eligibleAfter = new Set(
+  (await db<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = 'v28-elig' AND ${eligibleSql(ENDS)}`).map((r) => r.id),
+);
+const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((id) => b.has(id));
+// On the same migrated rows (the v2.5 backfill above can only add launch times), the pre-v2.8 rule
+// and eligibleSql agree: the v2.8 conditions remove no entry from the eligible set.
+const eligibleOldRuleNow = await oldRule();
+ok(
+  [...eligibleBefore].every((id) => eligibleOldRuleNow.has(id)) && sameSet(eligibleAfter, eligibleOldRuleNow),
+  'every entry eligible before the v2.8 migration is eligible after it, and eligibleSql equals the pre-v2.8 rule on existing rows',
+);
+let badChoice = false;
+try {
+  await db`UPDATE projects SET confirm_choice = 'maybe' WHERE id = ${seeded.eligible}`;
+} catch {
+  badChoice = true;
+}
+ok(badChoice, "confirm_choice rejects anything but 'go' or 'skip'");
+// The backfill runs once: a v2.8 entry whose token launched while it was incomplete (complete_at
+// NULL) stays incomplete when the schema runs again at the next deploy.
+const launchedIncomplete = await seed('v28-launch', { coin: at(6), proof: at(6), at: at(6) });
+await db.unsafe(now);
+const [again] = await db<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${launchedIncomplete}`;
+ok(again.complete_at === null, 'the complete_at backfill never runs again (a later deploy marks nothing complete)');
+const [kept] = await db<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${seeded.eligible}`;
+ok(kept.complete_at?.getTime() === at(2).getTime(), 'a backfilled complete_at is kept by later deploys');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

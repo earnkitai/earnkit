@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -629,7 +630,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   }
 });
 
-test('C7: record_submission and launch_token launch no token until the entry has every required item', dbTest, async () => {
+test('v2.8 Ruling 2 (plan): record_submission launches the token on an incomplete entry; complete_at waits for every required item', dbTest, async () => {
   const W = '0x' + 'c'.repeat(39) + '7';
   const stamp = `${process.pid}-${Date.now()}`;
   const arc = committedProgram('arc-microgrants');
@@ -659,7 +660,8 @@ test('C7: record_submission and launch_token launch no token until the entry has
   } as unknown as TokenFlowDeps;
   const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), tokenDeps };
   try {
-    // No live link and no builder profile: entered, but no token, and the builder reads why.
+    // v2.8 Ruling 2 (plan): no live link and no builder profile: entered, and the token launches
+    // (no C7 gate on the launch), but the entry is not complete, so not bonus-eligible yet.
     const r = (await tools.record_submission(
       {
         program_id: p.id,
@@ -670,30 +672,19 @@ test('C7: record_submission and launch_token launch no token until the entry has
         builder_confirmed: true,
       },
       ctx,
-    )) as { recorded: boolean; project_id: number; token: { status: string; note: string; agent_note: string }; show_to_builder: string };
+    )) as { recorded: boolean; project_id: number; token: { status: string; needs?: string } };
     assert.equal(r.recorded, true);
-    assert.equal(r.token.status, 'skipped');
-    assert.equal(r.token.note, 'Not launched: the entry still needs a live link on Arc mainnet; a public builder profile.');
-    assert.match(r.token.agent_note, /live_deployment_url, builder_profile/);
-    assert.match(r.show_to_builder, /Your token isn't launched yet: the entry still needs a live link on Arc mainnet; a public builder profile/);
-    assert.doesNotMatch(r.show_to_builder, /launch_token|record_submission|live_url|\bcoin\b|Clanker/);
-    assert.equal(deploys.length, 0);
-    assert.deepEqual(checks, [], 'no tokens.fun ticker check while not ready');
-    // The confirmed name and ticker are kept for later.
-    const [row] = await sql()<{ token_name: string; token_symbol: string; token_status: string }[]>`
-      SELECT token_name, token_symbol, token_status FROM projects WHERE id = ${r.project_id}`;
-    assert.deepEqual({ ...row }, { token_name: 'Tip Jar', token_symbol: 'TIPJAR', token_status: 'skipped' });
+    assert.equal(r.token.status, 'launched');
+    assert.equal(r.token.needs, undefined);
+    assert.deepEqual(deploys.map((d) => d.symbol), ['TIPJAR']);
+    const completeAt = async () =>
+      (await sql()<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${r.project_id}`)[0].complete_at;
+    assert.equal(await completeAt(), null);
+    // What the real deploy records (tokens.ts deployToken; the fake above records nothing).
+    await sql()`UPDATE projects SET coin_address = ${'0x' + randomBytes(20).toString('hex')}, coin_launched_at = now(),
+      token_url = 'https://tokens.fun/coin/0xC7', token_status = 'launched' WHERE id = ${r.project_id}`;
 
-    // launch_token with the live link: the stored answers still lack the profile, so it fails.
-    const l = (await tools.launch_token(
-      { project_id: r.project_id, builder_confirmed: true, live_url: 'https://tipjar.example' },
-      ctx,
-    )) as { status: string; note: string };
-    assert.equal(l.status, 'failed');
-    assert.equal(l.note, 'Not launched: the entry still needs a public builder profile.');
-    assert.equal(deploys.length, 0);
-
-    // Recorded again with every answer: ready, so the token launches with the kept ticker.
+    // Recorded again with every answer: the same entry, now complete; its token is kept (no second launch).
     const again = (await tools.record_submission(
       {
         program_id: p.id,
@@ -707,7 +698,8 @@ test('C7: record_submission and launch_token launch no token until the entry has
     )) as { project_id: number; token: { status: string } };
     assert.equal(again.project_id, r.project_id, 'the same entry, updated');
     assert.equal(again.token.status, 'launched');
-    assert.deepEqual(deploys.map((d) => d.symbol), ['TIPJAR']);
+    assert.deepEqual(deploys.map((d) => d.symbol), ['TIPJAR'], 'one launch only');
+    assert.ok((await completeAt()) instanceof Date);
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;

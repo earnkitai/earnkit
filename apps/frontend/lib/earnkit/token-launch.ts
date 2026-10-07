@@ -14,8 +14,6 @@ import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
 import {
   COIN_FOOTNOTE,
   coinRow,
-  notReadyTokenNote,
-  todoList,
   todoOf,
   tokenFootnote,
   tokenRow,
@@ -317,10 +315,13 @@ export type FlowProject = {
   token_policy: TokenPolicy;
   /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
   has_bonus?: boolean;
+  /** v2.8 Ruling 3 (plan): the builder's answer at the confirmation step; 'skip' launches nothing. */
+  confirm_choice?: 'go' | 'skip' | null;
   /**
-   * C7: what the readiness gate reads. The program's submission requirements (absent: no gate),
-   * whether it is an EarnKit campaign (its entries were checked complete at entry, so no gate),
-   * the stored project fields a requirement can be filled from, and the latest recorded answers.
+   * What entryMissing reads (the v2.7 C7 gate, on bonus eligibility since v2.8 Ruling 2 (plan)).
+   * The program's submission requirements (absent: none), whether it is an EarnKit campaign (its
+   * entries were checked complete at entry), the stored project fields a requirement can be filled
+   * from, and the latest recorded answers.
    */
   requirements?: SubmissionRequirement[];
   campaign?: boolean;
@@ -376,6 +377,8 @@ type FlowStore = {
   ) => Promise<void>;
   /** Keeps the creator wallet on a project with no token yet, and remembers it for the installation. */
   saveCreatorWallet: (projectId: number, installationId: number, wallet: string) => Promise<void>;
+  /** v2.8 Ruling 2 (plan): sets complete_at once (never moved); absent in fakes that don't track it. */
+  markComplete?: (projectId: number) => Promise<void>;
 };
 
 export type TokenFlowDeps = {
@@ -393,7 +396,7 @@ const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
-        p.token_symbol, p.installation_id, pr.token_policy,
+        p.token_symbol, p.installation_id, pr.token_policy, p.confirm_choice,
         (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
@@ -436,6 +439,9 @@ const dbStore: FlowStore = {
       WHERE id = ${projectId} AND installation_id = ${installationId} AND token_url IS NULL`;
     // Ruling 10 (plan): also this installation's last wallet, prefilled next time.
     await rememberWallet(installationId, w);
+  },
+  markComplete: async (projectId) => {
+    await sql()`UPDATE projects SET complete_at = COALESCE(complete_at, now()) WHERE id = ${projectId}`;
   },
 };
 
@@ -480,14 +486,14 @@ async function runTokenFlow(
     chain: 'base' | 'robinhood' | 'arbitrum';
     /** Ruling 22: the wallet given with this entry (validated), before the entry's own (never a remembered one, Ruling 30). */
     givenWallet?: string | null;
-    /** C7: at submission, the project and answers record_submission was given (the gate reads them). */
-    known?: KnownInfo;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
 ): Promise<TokenOutcome> {
   const store = deps.store ?? dbStore;
   const choice = a.choice === 'skip' ? undefined : a.choice;
+  // v2.8 Ruling 3 (plan): a skipped entry was entered without a token, and stays so (nothing written).
+  if (project.confirm_choice === 'skip') return { status: a.mode === 'launch' ? 'failed' : 'skipped', note: SKIPPED_ENTRY };
 
   const record = async (status: TokenStatus, note: string, name?: string, symbol?: string, agent_note?: string) => {
     await store.setStatus(project.id, { status, note, name, symbol });
@@ -498,29 +504,6 @@ async function runTokenFlow(
     return project.token_url
       ? { status: 'skipped', note: TOKENS_UNAVAILABLE }
       : record('skipped', TOKENS_UNAVAILABLE);
-
-  // C7: a token launches only when the entry is ready. While required items are missing, nothing
-  // is proposed, checked or deployed; the builder's valid name and ticker (and a wallet given now)
-  // are kept, so the token launches once the entry is complete. Not for a "no token", a program
-  // without tokens, or an entry that already has one (decideToken says so).
-  if (a.choice !== 'skip' && project.token_policy !== 'off' && !project.token_url) {
-    const missing = entryMissing(project, a.known);
-    if (missing.length) {
-      const given = choice?.creator_wallet ?? a.givenWallet;
-      if (given && given.toLowerCase() !== project.creator_wallet)
-        await store.saveCreatorWallet(project.id, a.installationId, given);
-      const edits = choice ? editsOf(choice) : {};
-      const todos = missing.map((m) => m.todo);
-      const out = await record(
-        a.mode === 'launch' ? 'failed' : 'skipped',
-        notReadyTokenNote(todos),
-        edits.name,
-        edits.symbol,
-        notReadyAgentNote(missing.map((m) => m.key)),
-      );
-      return { ...out, needs: todoList(todos) };
-    }
-  }
 
   // At submission an explicit ticker is the builder's; no proposal (and no ticker lookups) needed.
   const explicit = a.mode === 'submission' && Boolean(choice?.symbol?.trim());
@@ -686,8 +669,6 @@ export async function tokenAfterSubmission(
     confirmed: boolean;
     /** Ruling 22: the entry's validated wallet (record_submission's payout_wallet, not campaigns). */
     givenWallet?: string | null;
-    /** C7: the project and answers record_submission was given; the readiness gate reads them. */
-    known?: KnownInfo;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -719,7 +700,6 @@ export async function tokenAfterSubmission(
       confirmed: a.confirmed,
       chain: 'base',
       givenWallet: a.givenWallet,
-      known: a.known,
     },
     deps,
     progress,
@@ -744,6 +724,9 @@ export async function submissionToken(
   }
 }
 
+/** v2.8 Ruling 3 (plan): launch_token's refusal on an entry the builder confirmed with "skip". */
+export const SKIPPED_ENTRY = 'This entry was entered without a token.';
+
 export const LaunchTokenInput = TokenChoice.extend({
   project_id: z.number().int().positive(),
   builder_confirmed: z.literal(true),
@@ -767,6 +750,8 @@ export async function launchToken(
   const { project_id, builder_confirmed: _c, chain, live_url, repo_url, ...choice } = input;
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, project_id, installationId);
+  // v2.8 Ruling 3 (plan): refused before anything is checked, changed or launched.
+  if (project.confirm_choice === 'skip') return { status: 'failed', note: SKIPPED_ENTRY };
   if ((live_url || repo_url) && !project.token_url) {
     if (repo_url && project.payout_wallet)
       return {
@@ -798,6 +783,9 @@ export async function launchToken(
     await store.updateLinks(project.id, installationId, links);
     Object.assign(project, links);
   }
+  // v2.8 Ruling 2 (plan): an entry whose stored answers and links are complete (one from before
+  // v2.8 that never re-recorded, or a link fixed just now) is marked complete, once.
+  if (entryMissing(project).length === 0) await store.markComplete?.(project.id);
   const out = await runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
   // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
   if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };

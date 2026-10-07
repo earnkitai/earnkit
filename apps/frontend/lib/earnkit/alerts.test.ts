@@ -365,8 +365,8 @@ test('v2.5 Task 8: the builder bonus top 10 tracks bonus_scores, through the sam
     try {
       // Final review M3: an eligible entry (coin and a counting submission before the round's end).
       const [{ id: pid }] = await sql()<{ id: number }[]>`
-        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at)
-        VALUES (${tag + '-ek'}, 'Ranked', ${me}, ${wallet}, ${coinFor(tag, 1)}, now(), now(), now() - interval '1 hour') RETURNING id`;
+        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submission_proof_ok_at, submitted_at, complete_at)
+        VALUES (${tag + '-ek'}, 'Ranked', ${me}, ${wallet}, ${coinFor(tag, 1)}, now(), now(), now() - interval '1 hour', now()) RETURNING id`;
       await sql()`
         INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
         VALUES (${roundKey}, ${tag + '-ek'}, now() - interval '1 day', now() + interval '10 days')`;
@@ -401,8 +401,8 @@ test('final M3: a stale rank never alerts: test installations and entries no lon
     try {
       // Ranked 3 (inside the top 10), but with no counting submission: not eligible.
       const [{ id: pid }] = await sql()<{ id: number }[]>`
-        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submitted_at)
-        VALUES (${tag + '-ek'}, 'Stale', ${me}, ${wallet}, ${coinFor(tag, 2)}, now(), now() - interval '1 hour') RETURNING id`;
+        INSERT INTO projects (program_id, name, installation_id, creator_wallet, coin_address, coin_launched_at, submitted_at, complete_at)
+        VALUES (${tag + '-ek'}, 'Stale', ${me}, ${wallet}, ${coinFor(tag, 2)}, now(), now() - interval '1 hour', now()) RETURNING id`;
       await sql()`
         INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at)
         VALUES (${roundKey}, ${tag + '-ek'}, now() - interval '1 day', now() + interval '10 days')`;

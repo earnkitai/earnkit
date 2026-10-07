@@ -31,7 +31,8 @@ import {
 } from './sanctions';
 import { proofCheck, type ProofOutcome } from './submission-proof';
 import { repoCoinPrograms } from './tokens';
-import { ProjectInfo, prepareSubmission } from './submission';
+import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
+import type { SubmissionRequirement } from './program-file';
 import { CLANKER_ADDRESSES } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
@@ -309,24 +310,47 @@ export async function campaignEntryProblems(
  * entry (ownership was already proven by the token gate to launch it) and a submission that counts
  * (`submission_proof_ok_at`: since when, on any v2.6 basis; a v2.5 row with it set and no basis
  * counted on its page). Derived, never stored separately, so it can never go stale against either
- * field; Tasks 6 and 7 use this to rank and pay rounds. Pure; exported for tests.
+ * field; Tasks 6 and 7 use this to rank and pay rounds. v2.8 Rulings 2-3 (plan): also a complete
+ * entry (`complete_at`) and a confirmation never skipped (traction.ts eligibleSql, its SQL twin).
+ * Pure; exported for tests.
  */
 export function bonusEligible(project: {
   coin_address: string | null;
   submission_proof_ok_at: Date | string | null;
+  /** v2.8 Ruling 2 (plan): the first time the entry's answers and links were complete. */
+  complete_at: Date | string | null;
+  /** v2.8 Ruling 3 (plan): 'skip' is final for the bonus; null is an older agent's entry. */
+  confirm_choice: 'go' | 'skip' | null;
   /** Ruling 13b: an earlier eligible entry of the same normalized repo exists in this program. */
   earlier_same_repo?: boolean;
-  /** Ruling 16, for a round: when the coin launched, and the round's end (both must precede it). */
+  /** Ruling 16, for a round: when the coin launched, and the round's end (all must precede it). */
   coin_launched_at?: Date | null;
   ends_at?: Date;
 }): boolean {
   if (project.coin_address === null || project.submission_proof_ok_at === null || project.earlier_same_repo) return false;
+  if (project.complete_at == null || project.confirm_choice === 'skip') return false;
   if (!project.ends_at) return true;
   const end = project.ends_at.getTime();
   return (
     !!project.coin_launched_at && project.coin_launched_at.getTime() < end &&
-    new Date(project.submission_proof_ok_at).getTime() < end
+    new Date(project.submission_proof_ok_at).getTime() < end &&
+    new Date(project.complete_at).getTime() < end
   );
+}
+
+/**
+ * v2.8 Ruling 2 (plan): when the entry became complete. Set once, the first time its answers and
+ * links pass prepareSubmission(...).ready, and never cleared or moved (`previous` is kept even when
+ * the entry is no longer ready). Pure.
+ */
+export function completeAt(
+  requirements: SubmissionRequirement[],
+  known: KnownInfo,
+  previous: Date | null,
+  now: Date,
+): Date | null {
+  if (previous) return previous;
+  return prepareSubmission(requirements, known).ready ? now : null;
 }
 
 /**
@@ -628,11 +652,12 @@ export async function recordSubmission(
   // wallet, prefilled next time (campaign entries remember their proven payout wallet below).
   const lastWallet = entryWallet?.toLowerCase() ?? null;
   // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
-  // (traction.ts eligibleSql: coin and proof before the round's end), like scoring does.
+  // (traction.ts eligibleSql: coin, proof and, v2.8 Ruling 2 (plan), a complete entry before the
+  // round's end, never skipped), like scoring does.
   const roundEnd = roundFor(program, new Date())?.ends ?? null;
   const beforeEnd = (tx: postgres.TransactionSql) =>
     roundEnd
-      ? tx`AND coin_launched_at < ${roundEnd} AND submission_proof_ok_at < ${roundEnd} AND submitted_at < ${roundEnd}`
+      ? tx`AND coin_launched_at < ${roundEnd} AND submission_proof_ok_at < ${roundEnd} AND submitted_at < ${roundEnd} AND complete_at < ${roundEnd}`
       : tx``;
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
@@ -646,6 +671,16 @@ export async function recordSubmission(
     new EntryError(
       `repo_url: this repo is already entered in this campaign (entry #${same.id}).`,
     );
+
+  // v2.8 Ruling 2 (plan): the entry is complete when what this call was given (what
+  // prepare_submission saw, as v2.7's C7 gate read it) passes the program's requirements. Written
+  // with COALESCE, so it is set once and never cleared (completeAt's rule, in SQL).
+  const completeNow = completeAt(
+    program.submission_requirements,
+    { project: { ...cleaned, repo_url }, answers: answersOf(input.submission_data) },
+    null,
+    new Date(),
+  );
 
   // M1: set in the transaction when another entry of this repo holds its coin or bonus here.
   let repoHeld = false;
@@ -701,6 +736,7 @@ export async function recordSubmission(
           SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
             AND id <> ${existing?.id ?? 0}
             AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
+            AND complete_at IS NOT NULL AND confirm_choice IS DISTINCT FROM 'skip'
             AND NOT COALESCE(installation_id = ANY(${testInstallationIds()}::int[]), false)
           ORDER BY submitted_at, id LIMIT 1`;
         if (earlier)
@@ -721,6 +757,7 @@ export async function recordSubmission(
           WHERE program_id = ${program.id} AND contracts && ${bonusContracts}::text[]
             AND id <> ${existing?.id ?? 0}
             AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
+            AND complete_at IS NOT NULL AND confirm_choice IS DISTINCT FROM 'skip'
           ORDER BY submitted_at, id`;
         const taken = bonusContracts
           .map((c) => ({ c, by: held.find((h) => h.contracts.map((x) => x.toLowerCase()).includes(c)) }))
@@ -740,7 +777,8 @@ export async function recordSubmission(
             submission_proof_checked_at = COALESCE(${submissionProofCheckedAt}, submission_proof_checked_at),
             contracts = COALESCE(${bonusContracts}::text[], contracts),
             deployers = COALESCE(${bonusDeployers}::text[], deployers),
-            creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END
+            creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END,
+            complete_at = COALESCE(complete_at, ${completeNow})
           WHERE id = ${own.id} RETURNING id, submitted_at`
         : await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
@@ -766,6 +804,7 @@ export async function recordSubmission(
         submission_proof_checked_at: submissionProofCheckedAt,
         submission_basis: submissionBasisValue,
         submission_confirmed_at: submissionConfirmedAt,
+        complete_at: completeNow,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
