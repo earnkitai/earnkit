@@ -1,11 +1,24 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { CONTACT_EMAIL, DOCS, FOR_SPONSORS, JENIL_X } from '../../app/lib/links';
 
 export type FooterColumn = {
   title: string;
   links: { label: string; href: string; icon?: 'x' }[];
 };
+
+/**
+ * These four link constants live here (lib/earnkit), not in app/lib/links.ts, because
+ * EXTERNAL_ALLOW and FOOTER_COLUMNS need them and lib/earnkit never imports from app/ (fix round
+ * 1, Important #1; every other app/ constant stays in app/lib/links.ts, which re-exports these).
+ */
+/** docs.earnkit.com: for builders and sponsors (v2.7 §5). */
+export const DOCS = 'https://docs.earnkit.com';
+/** The sponsor-facing docs, linked from the footer's Resources column (Ruling 22, plan). */
+export const FOR_SPONSORS = 'https://docs.earnkit.com/for-sponsors';
+/** The owner's personal account, used only for the footer's contact column (Ruling 22, plan). */
+export const JENIL_X = 'https://x.com/jenilt';
+/** The footer's contact email (Ruling 22, plan). */
+export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
 
 /** Ruling 22 (plan): the tagline under the wordmark, on the left of the footer card. */
 export const FOOTER_TAGLINE = 'Earn rewards for building';

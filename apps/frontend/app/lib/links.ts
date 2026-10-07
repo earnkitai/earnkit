@@ -9,12 +9,10 @@ export const RUN_CAMPAIGN =
 export const FOR_ECOSYSTEMS = '/for-ecosystems';
 export const FOR_AGENTS = '/';
 
-/** docs.earnkit.com: for builders and sponsors (v2.7 §5). */
-export const DOCS = 'https://docs.earnkit.com';
-/** The sponsor-facing docs, linked from the footer's Resources column (Ruling 22, plan). */
-export const FOR_SPONSORS = 'https://docs.earnkit.com/for-sponsors';
-
-/** The owner's personal account, used only for the footer's contact column (Ruling 22, plan). */
-export const JENIL_X = 'https://x.com/jenilt';
-/** The footer's contact email (Ruling 22, plan). */
-export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
+/**
+ * DOCS, FOR_SPONSORS, JENIL_X and CONTACT_EMAIL are defined in lib/earnkit/footer-links.ts (the
+ * footer's link allowlist needs them too) and re-exported here so every existing `app/lib/links`
+ * import keeps working. lib/earnkit never imports from app/ (fix round 1, Important #1): the
+ * dependency runs the other way, same as every other lib/earnkit module.
+ */
+export { DOCS, FOR_SPONSORS, JENIL_X, CONTACT_EMAIL } from '../../lib/earnkit/footer-links';

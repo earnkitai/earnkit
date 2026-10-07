@@ -614,9 +614,11 @@ apps/frontend/
                                FOOTER_TAGLINE, EXTERNAL_ALLOW, footerLinkProblems (internal hrefs
                                against appRoutes, external hrefs against EXTERNAL_ALLOW, labels
                                non-empty), appRoutes (every page.tsx folder under app/, dynamic
-                               segments kept as "[id]"); imports FOR_SPONSORS/JENIL_X/CONTACT_EMAIL
-                               from app/lib/links.ts. The LINK_CHECK=1 test (fetch, status < 400,
-                               10 s per external link) is skipped unless that env var is set
+                               segments kept as "[id]"). Defines DOCS/FOR_SPONSORS/JENIL_X/
+                               CONTACT_EMAIL itself (fix round 1: lib/earnkit never imports from
+                               app/); app/lib/links.ts re-exports all four. The LINK_CHECK=1 test
+                               (fetch, status < 400, 10 s per external link) is skipped unless that
+                               env var is set
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
                                liveRatio (live_checks), dbStore (bonus_commits, github_users),
