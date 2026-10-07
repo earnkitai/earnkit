@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { logoFileProblem, ProgramFile, requiredWithoutTodo } from './program-file';
+import { logoFileProblem, ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from './program-file';
 
 /**
  * A committed program file that predates token_policy and lists one chain. v2.8 Task 6: named, not
@@ -613,4 +613,38 @@ test('v2.8 Ruling C5: investment defaults to false; the speedrun file sets it', 
   assert.equal(ProgramFile.parse(baseProgram()).investment, false);
   const sr = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/a16z-speedrun.json'), 'utf8')));
   assert.equal(sr.investment, true);
+});
+
+// ---- v2.8 Task 9: field kinds, guidance overrides, judging (Part D, Ruling 9 (plan)) ----
+
+test('v2.8 Part D: kind, guidance, max_chars and judging parse; bad values fail', () => {
+  const base = baseProgram();
+  const withReq = (patch: Record<string, unknown>) => ({
+    ...base,
+    submission_requirements: [{ ...base.submission_requirements[0], ...patch }, ...base.submission_requirements.slice(1)],
+  });
+  const source_url = 'https://e/program';
+  assert.equal(ProgramFile.parse(withReq({ kind: 'traction' })).submission_requirements[0].kind, 'traction');
+  assert.equal(ProgramFile.safeParse(withReq({ kind: 'bogus' })).success, false);
+  assert.equal(ProgramFile.safeParse(withReq({ guidance: { questions: ['a?', 'b?'], source_url } })).success, true);
+  assert.equal(ProgramFile.safeParse(withReq({ guidance: { questions: ['a?', 'b?', 'c?'], source_url } })).success, false);
+  assert.equal(ProgramFile.safeParse(withReq({ guidance: { judges: 'x' } })).success, false, 'source_url is required');
+  assert.equal(ProgramFile.safeParse(withReq({ guidance: { judges: 'x'.repeat(141), source_url } })).success, false);
+  assert.equal(ProgramFile.safeParse(withReq({ max_chars: 280 })).success, true);
+  assert.equal(ProgramFile.safeParse(withReq({ max_chars: 0 })).success, false);
+  const criterion = { text: 'Technical credibility', words: ['contract'] };
+  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [criterion], source_url } }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: Array(6).fill(criterion), source_url } }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [{ ...criterion, words: ['Contract'] }], source_url } }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [{ ...criterion, words: ['ux'] }], source_url } }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [], source_url } }).success, false);
+});
+
+test('v2.8 Ruling 9: requirementsWithoutKind lists keys without a kind; every committed file has one on each', () => {
+  const r = (key: string, kind?: string) => ({ key, label: key, type: 'text' as const, required: false, from: 'project' as const, ...(kind ? { kind: kind as 'other' } : {}) });
+  assert.deepEqual(requirementsWithoutKind({ submission_requirements: [r('a', 'other'), r('b'), r('c')] }), ['b', 'c']);
+  for (const f of readdirSync(join(import.meta.dirname, '../../../../programs')).filter((f) => f.endsWith('.json'))) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')));
+    assert.deepEqual(requirementsWithoutKind(p), [], f);
+  }
 });

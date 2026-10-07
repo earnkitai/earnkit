@@ -20,7 +20,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   summary: 'S', tag: null, chains: ['base'], any_chain: false, investment: false, campaign, created_at: new Date(), opened_at: null, rules: [],
   source: 'file', max_award_usd: null, pool_usd: null, min_award_usd: null, pool_source_url: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
-  logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null,
+  logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null, judging: null,
 });
 const earnkitCampaign = {
   kind: 'earnkit', prize: { token: '0x' + 'a'.repeat(40), symbol: 'MINI', decimals: 18, chain: 'base' },

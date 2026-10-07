@@ -491,6 +491,13 @@ apps/frontend/
     submit-kit.ts(+test)       v2.8 Task 8: submitKit (the submit kit, returned only by
                                confirm_entry; copy_paste now, Task 10 adds the other modes),
                                proofFor (Ruling 28), submitHost. Pure
+    coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
+                               guidanceFor, coachFields, questionsFor (Ruling 26), coachIntro,
+                               bankFill and bankEntries (the answer bank's fill and rows),
+                               preSubmitCheck, draftTable, fixesLine, applicationOf. Pure
+    answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,
+                               Ruling 6: per installation, never public), saveApplication
+                               (projects.application)
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and

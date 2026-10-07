@@ -18,7 +18,9 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { tools } from './tools';
+import { COACH_NOTES, tools } from './tools';
+import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor } from './coach';
+import type { SubmissionRequirement } from './program-file';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
   CANT_PUSH,
@@ -619,7 +621,55 @@ const confirmTexts: [string, string][] = [
   ],
 ];
 
+// v2.8 Task 9: the coach's builder text (questions, the draft table, the fixes) from real inputs.
+const coachReq = (key: string, kind: SubmissionRequirement['kind'], label: string, o: Partial<SubmissionRequirement> = {}): SubmissionRequirement => ({
+  key, label, kind, type: 'text', required: true, from: 'builder', ...o,
+});
+const coachReqs: SubmissionRequirement[] = [
+  coachReq('live', 'links', 'Live deployment on Arc mainnet', { type: 'url', from: 'project' }),
+  coachReq('desc', 'solution', 'Short description of what your project does and what it uses Arc for', { from: 'project' }),
+  coachReq('traction', 'traction', 'Traction'),
+  coachReq('why', 'why_you', 'Why you'),
+  coachReq('funds', 'use_of_funds', 'Use of the grant'),
+  coachReq('ms', 'milestones', 'Milestones'),
+  coachReq('team', 'team', 'Team'),
+  coachReq('problem', 'problem', 'Problem'),
+  coachReq('full_name', 'contact', 'Full name'),
+  coachReq('email', 'contact', 'Email', { type: 'email' }),
+  coachReq('x_handle', 'contact', 'X (Twitter) handle'),
+];
+const coachTexts: [string, string][] = [
+  ['coachIntro: 3 questions', coachIntro('Arc Microgrants', questionsFor({ reqs: coachReqs, answers: {}, first: true, project: 'TipJar' }))!],
+  ['coachIntro: 1 question', coachIntro('Arc Microgrants', questionsFor({ reqs: coachReqs, answers: {}, first: false, project: 'TipJar' }))!],
+  ...coachReqs.flatMap((r): [string, string][] =>
+    questionsFor({ reqs: [r], answers: {}, first: true }).map((q) => [`question: ${r.kind}`, q.text]),
+  ),
+  ...Object.entries(DEFAULT_GUIDANCE).flatMap(([k, g]) => g.questions.map((q, i): [string, string] => [`DEFAULT_GUIDANCE.${k}.questions[${i}]`, q])),
+  ['draftTable', draftTable(coachReqs, { live: 'https://tipjar.example', desc: 'Tips for creators, paid in USDC on Arc, with one tap and no sign up', traction: 'Loved' })],
+  [
+    'fixesLine',
+    fixesLine(
+      preSubmitCheck({
+        reqs: coachReqs,
+        answers: { desc: 'x '.repeat(70), traction: 'Lots of users love it', why: 'Because', funds: 'More features' },
+        judging: { criteria: [{ text: 'Technical credibility', words: ['contract'] }], source_url: 'https://e.example' },
+      }),
+    )!,
+  ],
+  [
+    'fixesLine: link and criterion',
+    fixesLine(
+      preSubmitCheck({
+        reqs: coachReqs.slice(1, 2),
+        answers: { desc: 'Tips for 120 creators' },
+        judging: { criteria: [{ text: 'Relevance to Arc', words: ['usdc'] }], source_url: 'https://e.example' },
+      }),
+    )!,
+  ],
+];
+
 const builderFacing: [string, string][] = [
+  ...coachTexts,
   ...campaignPageTexts,
   ...confirmTexts,
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
@@ -671,6 +721,9 @@ const agentFacing: [string, string][] = [
   ['NO_WALLET_AGENT', NO_WALLET_AGENT],
   ['NEEDS_SYMBOL_AGENT', NEEDS_SYMBOL_AGENT],
   ['C7 notReadyAgentNote', notReadyAgentNote(['live_deployment_url'])],
+  // v2.8 Task 9: the coach's guidance and notes are the agent's.
+  ...Object.entries(DEFAULT_GUIDANCE).flatMap(([k, g]): [string, string][] => [[`DEFAULT_GUIDANCE.${k}.judges`, g.judges], [`DEFAULT_GUIDANCE.${k}.pattern`, g.pattern]]),
+  ...Object.entries(COACH_NOTES).map(([k, v]): [string, string] => [`COACH_NOTES.${k}`, v]),
   ...gatherDecideTokenAgentNotes(),
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
@@ -940,4 +993,13 @@ test('v2.8 Task 8: confirm notes are plain builder words; fixable ones say "go" 
     assert.ok(!fixable(l), l);
   assert.equal(byLabel.get('confirm note: gate: proof line missing')!.note, 'I need to add a short proof line to your repo first, then say go.');
   assert.match(byLabel.get('confirm note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt.*Then call confirm_entry again\./);
+});
+
+test('v2.8 Task 9: the coach screens are short: at most 3 questions, at most 3 fixes, one table', () => {
+  const intro = coachTexts.find(([l]) => l === 'coachIntro: 3 questions')![1];
+  assert.equal(intro.split('\n').length, 4);
+  assert.equal(intro.split('\n')[1], '1. Who has used TipJar so far?');
+  const fixes = coachTexts.find(([l]) => l === 'fixesLine')![1];
+  assert.equal(fixes.split('\n').length, 4);
+  for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
 });

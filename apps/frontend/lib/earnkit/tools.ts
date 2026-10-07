@@ -57,6 +57,18 @@ import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { submitKit, type SubmitKit } from './submit-kit';
+import {
+  applicationOf,
+  bankFill,
+  coachFields,
+  coachIntro,
+  draftTable,
+  fixesLine,
+  preSubmitCheck,
+  questionsFor,
+} from './coach';
+import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
+import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
@@ -130,6 +142,11 @@ const PrepareSubmissionInput = ProgramId.extend({
   project: ProjectInfo.optional(),
   answers: z.record(z.string(), z.string()).optional(),
   agent: AgentInput.optional(),
+  /**
+   * v2.8 Part D: true once the builder has answered this program's questions, so the coach asks
+   * once per program (at most 3 questions for the first, 1 after) and never a second round.
+   */
+  coach_asked: z.boolean().optional(),
 }).strict();
 
 /** v2.8 Ruling 1 (plan): the confirmation step's input. */
@@ -180,6 +197,46 @@ function tokenLine(token: TokenOutcome | null, fallback: string) {
   if (token?.status === 'pending') return 'Your token is launching.';
   return token?.note ?? fallback;
 }
+
+/**
+ * v2.8 Part D, Ruling 6 (plan): the answer bank's fill for this installation and project. A field
+ * the project info fills (its repo, its live link) is never overwritten from the bank. A failed read
+ * never fails the tool and logs the error class only (the bank is private).
+ */
+async function bankedAnswers(
+  installationId: number,
+  program: ProgramRow,
+  project: { name?: string; repo_url?: string; [k: string]: unknown } | undefined,
+  repoUrl: string | null | undefined,
+  answers: Record<string, string>,
+) {
+  const name = project?.name?.trim() || titleCase(repoNameOf(repoUrl ?? undefined) ?? '');
+  if (!name && !repoUrl) return { answers, from_bank: {} as Record<string, string>, banked: 0, key: null, name };
+  const key = projectKey({ repo_url: repoUrl, name });
+  let bank = new Map<FieldKind, string>();
+  try {
+    bank = await readBank(installationId, key);
+  } catch (err) {
+    console.error('[coach] bank read', err instanceof Error ? err.name : 'error');
+  }
+  const own = (f: string | undefined) => (f && typeof project?.[f] === 'string' ? String(project[f]).trim() : '');
+  const reqs = program.submission_requirements.filter((r) => !own(r.project_field));
+  return { ...bankFill(reqs, answers, bank), banked: bank.size, key, name };
+}
+
+/** v2.8 Part D: what the agent does with the coach's guidance. */
+const COACH_NOTE =
+  "Draft every field from the repo, onchain data and the builder's answers, using each field's judges, pattern and limit. " +
+  "Re-angle answers from the bank to this program's judges. Then call again with all answers.";
+const QUESTIONS_NOTE =
+  "Show show_to_builder as written and wait for the answers. Put each answer under the question's keys, pass coach_asked: true (the coach asks once per program), and draft every other empty field yourself. " +
+  COACH_NOTE;
+const DRAFT_NOTE = 'The table is the draft; when the builder says "show all", show every answer in full.';
+const FIXES_NOTE =
+  'If the builder wants the fixes, make the ones you can (length, wording, a link from the repo), ask only for a missing number, and call again.';
+
+/** Every coach note for the agent (the copy review scans them). */
+export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, FIXES_NOTE };
 
 const ListProgramsInput = z
   .object({
@@ -387,7 +444,7 @@ export const tools = {
   },
 
   prepare_submission: async (input: unknown, ctx: ToolContext) => {
-    const { program_id, agent, ...known } = PrepareSubmissionInput.parse(input);
+    const { program_id, agent, coach_asked, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -410,6 +467,12 @@ export const tools = {
           remembered,
         )
       : { wallet: null, note: null };
+    // v2.8 Part D, Ruling 6 (plan): outside campaigns, the answer bank fills what this project
+    // already answered for another program (never a field the agent or the project info gave).
+    const banked = program.campaign
+      ? null
+      : await bankedAnswers(ctx.installationId, program, known.project, known.project?.repo_url ?? known.answers?.repo_url, known.answers ?? {});
+    if (banked) known.answers = banked.answers;
     // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
     // leads with them and there is no token offer, wallet or ticker check yet.
     const prep = prepareSubmission(program.submission_requirements, known);
@@ -487,9 +550,40 @@ export const tools = {
         ...(token && { token }),
       });
 
-    // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the confirmation offer (the builder
-    // bonus comes with a token) closes the screen; the kit comes only from confirm_entry, so no
-    // submission link, prefilled link or paste list here.
+    // v2.8 Part D, Ruling 26 (plan): the coach. Every answer so far (the agent's draft, the bank and
+    // the project info); then at most 3 questions (1 once the project has banked answers) for what
+    // only the builder can say. While there are questions, they are the whole screen.
+    const values: Record<string, string> = {
+      ...(known.answers ?? {}),
+      ...Object.fromEntries(prep.complete.map((c) => [c.key, c.value])),
+    };
+    const coach = {
+      fields: coachFields(program.submission_requirements),
+      facts: {
+        chains: program.chains,
+        live_url: known.project?.live_url ?? null,
+        repo_url: repoUrl ?? null,
+      },
+      from_bank: banked?.from_bank ?? {},
+    };
+    const questions = open && !coach_asked
+      ? questionsFor({ reqs: program.submission_requirements, answers: values, first: (banked?.banked ?? 0) === 0, project: banked?.name })
+      : [];
+    const intro = coachIntro(program.title, questions);
+    if (intro)
+      return withAlerts(ctx.installationId, {
+        program_id,
+        show_to_builder: intro,
+        questions,
+        coach,
+        ready: false,
+        missing: prep.missing,
+        agent_note: QUESTIONS_NOTE,
+      });
+
+    // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
+    // confirmation offer (the builder bonus comes with a token) close the screen; the kit comes only
+    // from confirm_entry, so no submission link, prefilled link or paste list here.
     const canPush = agent?.can_push !== false;
     const facts = open && prep.ready ? await offerFacts(program, repoUrl, ctx) : null;
     // Fix round 1 (item 1): the wallet this entry already holds comes first; a "go" without a
@@ -517,13 +611,24 @@ export const tools = {
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' ? tokenLineFor(ctx.installationId, repoUrl) : null;
-    const show_to_builder = offer
-      ? `${table}\n\n${offer.endsWith(READY_TO_SUBMIT) ? offer : `Ready. ${offer}`}`
+    // Part D.4: the check before submitting, never blocking; shown with the draft once ready.
+    const fixes = prep.ready ? preSubmitCheck({ reqs: program.submission_requirements, answers: values, judging: program.judging ?? null }) : [];
+    const show_to_builder = prep.ready
+      ? [
+          draftTable(program.submission_requirements, values),
+          fixesLine(fixes),
+          offer ? (offer.endsWith(READY_TO_SUBMIT) ? offer : `Ready. ${offer}`) : null,
+        ]
+          .filter((x): x is string => Boolean(x))
+          .join('\n\n')
       : table;
+    const notes = [line && TOKEN_LINE_NOTE, ...(prep.ready ? [DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE])].filter(Boolean);
     return withAlerts(ctx.installationId, {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
+      // Ready: the fixes, and what came from the bank (for the agent to re-angle); else the guidance.
+      ...(prep.ready ? { fixes, ...(Object.keys(coach.from_bank).length > 0 && { from_bank: coach.from_bank }) } : { coach }),
       // Review Minor 7: the final values are the kit's job (confirm_entry); this is the draft check.
       ...prep,
       complete: prep.complete.map((c) => ({ key: c.key, label: c.label, filled_from: c.filled_from })),
@@ -539,7 +644,8 @@ export const tools = {
       // Ruling 30: the wallet the builder sees on the offer's wallet line, to echo as confirm_entry's
       // wallet once they say yes. confirm_entry never reads the remembered wallet itself.
       ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
-      ...(line && { token_line: line, agent_note: TOKEN_LINE_NOTE }),
+      ...(line && { token_line: line }),
+      ...(notes.length > 0 && { agent_note: notes.join(' ') }),
     });
   },
 
@@ -553,6 +659,17 @@ export const tools = {
     // Ruling 22: a wallet given is valid or the call fails (a typo never falls back to another).
     const given = givenWallet(i.wallet);
     const repoUrl = i.project.repo_url ?? i.answers.repo_url ?? null;
+    // v2.8 Part D: the bank fills what the draft showed from it, so the kit and the snapshot match it.
+    const banked = await bankedAnswers(ctx.installationId, program, i.project, repoUrl, i.answers);
+    const answers = banked.answers;
+    // Every answer (the agent's, the bank's, plus what the project info fills), in the form's order.
+    const filled = prepareSubmission(program.submission_requirements, {
+      project: { ...i.project, ...(repoUrl && { repo_url: repoUrl }) },
+      answers,
+    });
+    const values = Object.fromEntries(filled.complete.map((c) => [c.key, c.value]));
+    // Part D.4: the check before submitting, run before the decision; never blocking.
+    const fixes = preSubmitCheck({ reqs: program.submission_requirements, answers: values, judging: program.judging ?? null });
     const canPush = i.agent?.can_push !== false;
     const facts = await offerFacts(program, repoUrl, ctx);
     const decision = confirmDecision({
@@ -589,12 +706,26 @@ export const tools = {
       program,
       installationId: ctx.installationId,
       project: i.project,
-      answers: i.answers,
+      answers,
       choice: decision.kind === 'skip' ? 'skip' : 'go',
       now: new Date(),
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
+
+    // Part D.5, Ruling 6 (plan): the final answers and the check on the entry, and the answer bank
+    // for this project's next program. Neither ever fails the confirmation; errors log the class only.
+    try {
+      await saveApplication(ctx.installationId, entry.id, applicationOf(program.submission_requirements, values, fixes, new Date()));
+    } catch (err) {
+      console.error('[coach] application', entry.id, err instanceof Error ? err.name : 'error');
+    }
+    if (banked.key)
+      try {
+        await saveBank(ctx.installationId, banked.key, program.id, program.submission_requirements, values);
+      } catch (err) {
+        console.error('[coach] bank save', entry.id, err instanceof Error ? err.name : 'error');
+      }
 
     let token: TokenOutcome | null = null;
     if (entry.token_url)
@@ -635,16 +766,11 @@ export const tools = {
       decision.kind === 'skip' && !entry.token_url
         ? skipLine
         : tokenLine(token, decision.kind === 'record_only' ? decision.note : skipLine);
-    // The kit: every answer (the agent's, plus what the project info fills), in the form's order.
-    const filled = prepareSubmission(program.submission_requirements, {
-      project: { ...i.project, ...(repoUrl && { repo_url: repoUrl }) },
-      answers: i.answers,
-    });
     // Ruling C9: an incomplete entry still gets its token; the kit names what is missing first and
     // marks each missing (or invalid) required answer as a blank, never dropping it.
     const kit: SubmitKit = submitKit(
       program,
-      Object.fromEntries(filled.complete.map((c) => [c.key, c.value])),
+      values,
       { browser: i.agent?.browser === true },
       { problems: filled.missing.filter((m) => m.problem).map((m) => m.key) },
     );

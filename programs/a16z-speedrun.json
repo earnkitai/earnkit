@@ -35,6 +35,7 @@
     {
       "key": "email",
       "label": "Email",
+      "kind": "contact",
       "todo": "your email",
       "type": "email",
       "required": true,

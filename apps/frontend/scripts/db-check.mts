@@ -243,6 +243,35 @@ await db.unsafe(now); // re-applying the schema keeps it (idempotent)
 const [v28Again] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
 ok(v28Again.any_chain === false, 'any_chain stays false when the schema is applied again');
 
+// v2.8 Part D, Ruling 6 (plan): the answer bank, the application snapshot and judging are additive;
+// existing rows get NULL; one bank row per installation, project and kind; long answers refused.
+const [v28Judging] = await db<{ judging: unknown }[]>`SELECT judging FROM programs WHERE id = 'v25-migrate'`;
+ok(v28Judging.judging === null, 'a v2.5 program gets judging = NULL from the v2.8 migration');
+const [appCount] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE application IS NOT NULL`;
+ok(appCount.n === 0, 'existing entries get application = NULL');
+const [{ id: bankInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v28-bank') RETURNING id`;
+await db`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${bankInst}, 'name:tipjar', 'traction', '40 users', 'p')`;
+let dupBank = false;
+try {
+  await db`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${bankInst}, 'name:tipjar', 'traction', 'again', 'p')`;
+} catch {
+  dupBank = true;
+}
+ok(dupBank, 'answer_bank holds one row per installation, project and kind');
+let longBank = false;
+try {
+  await db`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${bankInst}, 'name:tipjar', 'team', ${'x'.repeat(4097)}, 'p')`;
+} catch {
+  longBank = true;
+}
+ok(longBank, 'answer_bank refuses an answer over 4096 characters');
+await db.unsafe(now); // re-applying the schema keeps the bank
+const [bankKept] = await db<{ answer: string }[]>`SELECT answer FROM answer_bank WHERE installation_id = ${bankInst}`;
+ok(bankKept?.answer === '40 users', 'answer_bank rows survive the schema running again');
+await db`DELETE FROM installations WHERE id = ${bankInst}`;
+const [bankGone] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM answer_bank WHERE installation_id = ${bankInst}`;
+ok(bankGone.n === 0, "an installation's bank goes with it (ON DELETE CASCADE)");
+
 // v2.8 Rulings 1-3 (plan): complete_at and its one backfill, applied over real pre-v2.8 rows (the
 // schema of f4923fb, v2.8 Part A on main, before these columns; Ruling C7 pins a commit on main). Proves no entry eligible before the migration
 // loses it: the pre-v2.8 rule (inlined as it was) and eligibleSql after select the same rows.

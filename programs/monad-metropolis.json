@@ -44,6 +44,7 @@
     {
       "key": "track",
       "label": "Track",
+      "kind": "other",
       "todo": "a track",
       "type": "choice",
       "required": true,
@@ -58,6 +59,7 @@
     {
       "key": "demo",
       "label": "Demo",
+      "kind": "demo_video",
       "todo": "a demo",
       "type": "url",
       "required": true,
@@ -68,6 +70,7 @@
     {
       "key": "write_up",
       "label": "Short write-up",
+      "kind": "solution",
       "todo": "a short write-up",
       "type": "text",
       "required": true,
@@ -76,6 +79,7 @@
     {
       "key": "code_url",
       "label": "Link to the code",
+      "kind": "links",
       "todo": "a link to the code",
       "type": "url",
       "required": true,

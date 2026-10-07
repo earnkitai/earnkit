@@ -11,6 +11,7 @@ import {
   type DifficultyOverride,
   type Focus,
   type GuideLogo,
+  type Judging,
   type PastRound,
   type ProgramFile,
   type SubmissionRequirement,
@@ -199,6 +200,8 @@ export type ProgramRow = {
   best_bet: string | null;
   difficulty_override: DifficultyOverride | null;
   winners_per_round: number | null;
+  /** v2.8 Part D.4: the judging criteria the source states, or null. */
+  judging: Judging | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -654,6 +657,7 @@ export async function upsertProgram(
       best_bet: p.best_bet ?? null,
       difficulty_override: p.difficulty_override ? tx.json(p.difficulty_override) : null,
       winners_per_round: p.winners_per_round ?? null,
+      judging: p.judging ? tx.json(p.judging) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };
