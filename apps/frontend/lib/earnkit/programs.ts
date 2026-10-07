@@ -35,7 +35,7 @@ import {
   trackRecord,
 } from './sponsor-verify';
 import { plainText, quoted } from './untrusted-text';
-import { poolLine, poolStated } from './pool';
+import { poolLine, poolStated, statedPool } from './pool';
 
 export class NotFoundError extends Error {}
 
@@ -131,11 +131,11 @@ export function perWinnerUsd(p: {
  * or a program without a stated pool. Pure; exported for tests.
  */
 export function poolFacts(p: Pick<ProgramRow, 'pool_usd' | 'reward' | 'title' | 'campaign'>) {
-  const usd = p.pool_usd == null || p.campaign ? null : Number(p.pool_usd);
-  const stated = usd ? poolStated(usd, p.reward) : null;
-  // programs:check refuses a pool its reward doesn't state; a row that slipped past counts as none.
-  if (!usd || !stated) return { pool_usd: null, pool_plus: false, pool_line: null };
-  return { pool_usd: usd, pool_plus: stated.plus, pool_line: poolLine(usd, stated, p.title) };
+  // programs:check refuses a pool its reward doesn't state; a row that slipped past counts as none
+  // (pool.ts statedPool, the same rule /api/stats' open_pools_usd uses).
+  const { pool_usd, plus } = p.campaign ? { pool_usd: null, plus: false } : statedPool(p.pool_usd, p.reward);
+  if (pool_usd === null) return { pool_usd: null, pool_plus: false, pool_line: null };
+  return { pool_usd, pool_plus: plus, pool_line: poolLine(pool_usd, poolStated(pool_usd, p.reward)!, p.title) };
 }
 
 /** A sponsor's title is shown quoted, so it reads as their words, not EarnKit's. */

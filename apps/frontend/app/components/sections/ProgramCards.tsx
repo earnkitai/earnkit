@@ -13,7 +13,7 @@ export const BONUS_LINE = 'Every entry also competes for the builder bonus.';
 const CHIP = 'rounded-full bg-ek-navy-deep px-3 py-1.5 font-funnel-sans text-sm text-ek-blue-light';
 
 /**
- * v2.7 §1, v2.7.1: the open curated programs, sorted by prize (landing.ts). Each card: logo, title
+ * v2.7 §1, v2.7.1: the open curated programs, sorted by pool (landing.ts byPool). Each card: logo, title
  * and chain, the big line (the pool, else the per-winner amount), "up to $X per winner" under it
  * when different, then chips for the deadline, the difficulty and the builder bonus ("+ Builder
  * bonus", "+ 0.42 ETH bonus"); "Ask your agent" opens the install modal with "What can I earn on

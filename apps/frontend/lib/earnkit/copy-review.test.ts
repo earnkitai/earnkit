@@ -490,7 +490,7 @@ const v271Texts: [string, string][] = [
   ['BONUS_EMPTY', BONUS_EMPTY],
   ...BONUS_PILLS.map((s, i): [string, string] => [`BONUS_PILLS[${i}]`, s]),
   ...STEPS.flatMap((s, i): [string, string][] => [[`STEPS[${i}].title`, s.title], [`STEPS[${i}].body`, s.body]]),
-  ['statsLine', statsLine({ open_money_usd: 0, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312 })!],
   ['bonusPill new', bonusPill('new pool')],
   ['bonusPill new (guide)', bonusPill('new pool', true)],
   ['bonusPill amount', bonusPill('0.42 ETH so far')],

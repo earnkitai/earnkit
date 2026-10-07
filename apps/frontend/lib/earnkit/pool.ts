@@ -48,12 +48,28 @@ export function poolLine(pool: number, s: PoolStatement, title: string): string 
 }
 
 /**
- * The hero's figure: the sum of the shown programs' pools, compact, with "+" when any of them has
- * no pool or its source says "+". Null when no program states a pool. Pure.
+ * The pool total behind the hero's figure: the sum of the shown programs' pools, and "+" when any
+ * of them has no pool or its source says "+". Shared with /api/stats (open_pools_usd/_plus). Pure.
  */
+export function poolTotal(pools: { pool_usd: number | null; plus: boolean }[]): { usd: number; plus: boolean } {
+  return {
+    usd: pools.reduce((a, p) => a + (p.pool_usd ?? 0), 0),
+    plus: pools.some((p) => p.pool_usd === null || p.plus),
+  };
+}
+
+/** The hero's figure ("$1.3M+"), or null when no program states a pool. Pure. */
 export function poolTotalText(pools: { pool_usd: number | null; plus: boolean }[]): string | null {
-  const total = pools.reduce((a, p) => a + (p.pool_usd ?? 0), 0);
-  if (total <= 0) return null;
-  const plus = pools.some((p) => p.pool_usd === null || p.plus);
-  return `${usdCompact(total)}${plus ? '+' : ''}`;
+  const t = poolTotal(pools);
+  return t.usd > 0 ? `${usdCompact(t.usd)}${t.plus ? '+' : ''}` : null;
+}
+
+/**
+ * One program's pool as the total counts it, from the DB row: the pool only when its reward text
+ * states it (programs:check enforces that; a row that slipped past counts as none). Pure.
+ */
+export function statedPool(pool_usd: string | number | null, reward: string): { pool_usd: number | null; plus: boolean } {
+  const n = pool_usd == null ? null : Number(pool_usd);
+  const s = n ? poolStated(n, reward) : null;
+  return s ? { pool_usd: n, plus: s.plus } : { pool_usd: null, plus: false };
 }

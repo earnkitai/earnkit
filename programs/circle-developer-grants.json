@@ -5,9 +5,11 @@
   "description": "Grants for teams building on Arc and the Circle Developer Platform: milestone-based USDC funding, co-marketing, technical guidance, and Circle ecosystem access. Focus areas: agentic economic activity, stablecoin FX, peer-to-peer payments, treasury management, prediction markets, and lending and borrowing. The current round is Circle 2026 Cohort 2.",
   "source_url": "https://www.circle.com/grant",
   "submission_url": "https://circle.questbook.app/",
-  "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $200K available)",
-  "summary": "milestone-based USDC grants · rolling",
+  "reward": "Milestone-based USDC grants from $5,000 to $100,000 per project (Cohort 2 shows $200K available)",
+  "summary": "$5,000 to $100,000 USDC grants · rolling",
+  "max_award_usd": 100000,
   "pool_usd": 200000,
+  "pool_source_url": "https://circle.questbook.app/",
   "ideas": [
     "An agent that settles payments in USDC on Arc",
     "A peer-to-peer payments app using Circle Wallets",

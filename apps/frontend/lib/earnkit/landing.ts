@@ -2,7 +2,7 @@ import { usd } from './campaigns';
 import { prizeOf } from './entry-text';
 import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { bonusCell, byPrize, daysLeftText, eth, type Card } from './present';
+import { bonusCell, daysLeftText, eth, type Card } from './present';
 import { poolTotalText } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
@@ -96,12 +96,21 @@ export function bonusPoolsText(wei: bigint): string | null {
 }
 
 /**
- * The landing data from open program cards (Ruling 21 (plan): curated programs only, never an
+ * v2.7.1: the cards' order (landing and /programs): the source-stated pool, highest first; a
+ * program without one by its per-winner amount; then the sooner deadline. The first message keeps
+ * `byPrize`. Pure.
+ */
+export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>) =>
+  (b.pool_usd ?? b.max_award_usd ?? -1) - (a.pool_usd ?? a.max_award_usd ?? -1) ||
+  (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
+
+/**
+ * The landing data from open program cards, by pool (`byPool`) (Ruling 21 (plan): curated programs only, never an
  * EarnKit or sponsor campaign), their open rounds' pools and the public stats. v2.7.1: the hero
  * figure is the sum of the cards' source-stated pools (the /programs page shows the same). Pure.
  */
 export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, stats: PublicStats, now: Date): Landing {
-  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPrize);
+  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPool);
   let bonusWei = 0n;
   const tiles = kept.map((c): Tile => {
     const pool = pools.get(c.id);

@@ -1,12 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATS_KEYS, STATS_LABELS, readStats, statsFrom, weiToEth } from './stats';
+import { STATS_KEYS, STATS_LABELS, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
 holdBonusDbLock();
 
 const E18 = 10n ** 18n;
+
+const emptyRow = {
+  open_money_usd: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
+  bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
+};
 
 test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
   assert.equal(weiToEth(0n), 0);
@@ -18,6 +23,12 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 test('statsFrom: exactly the public keys, numbers only, no per-user data', () => {
   const s = statsFrom({
     open_money_usd: '15500.00',
+    pool_rows: [
+      { pool_usd: 840000, reward: '$840,000 in prizes' },
+      { pool_usd: 250000, reward: '$250,000+ prize pool' },
+      { pool_usd: 99, reward: 'not stated' }, // programs:check refuses it; a row that slipped past counts as none
+      { pool_usd: null, reward: 'Up to $5,000' },
+    ],
     programs_open: 4,
     bonus_programs_open: 3,
     coins_launched: 7,
@@ -30,6 +41,9 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
   assert.deepEqual(s, {
     open_money_usd: 15500,
+    // v2.7.1: the landing's pool total ("$1.09M+"): Monad's "+" and the programs without a pool.
+    open_pools_usd: 1090000,
+    open_pools_plus: true,
     programs_open: 4,
     bonus_programs_open: 3,
     coins_launched: 7,
@@ -41,15 +55,15 @@ test('statsFrom: exactly the public keys, numbers only, no per-user data', () =>
     bonus_pools_eth: 0.6,
     installs: 12,
   });
-  for (const v of Object.values(s)) assert.equal(typeof v, 'number');
+  for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : 'number', k);
+  const exact = statsFrom({ ...emptyRow, pool_rows: [{ pool_usd: '10000', reward: '10,000 USDC pool' }] });
+  assert.deepEqual([exact.open_pools_usd, exact.open_pools_plus], [10000, false]);
 });
 
+
 test('statsFrom: an empty database reads as zeros', () => {
-  const s = statsFrom({
-    open_money_usd: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
-    bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
-  });
-  assert.deepEqual(Object.values(s), [0, 0, 0, 0, 0, 0, 0, 0]);
+  const s = statsFrom(emptyRow);
+  assert.deepEqual(Object.values(s), [0, 0, false, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -69,6 +83,10 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
   await prog(`${tag}-rolling`, 'active', null, 250);
   await prog(`${tag}-ended`, 'active', -86_400_000, 9999); // ended: not open
   await prog(`${tag}-closed`, 'closed', 86_400_000, 9999); // closed: not open
+  // v2.7.1: a curated program whose reward states its pool counts in open_pools_usd.
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, pool_usd)
+    VALUES (${`${tag}-pool`}, 'o', 'Pool', 'd', 'https://x', 'https://x', '$7,000 in prizes', 's', 'active', 'unknown', 7000)`;
   const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
   const [p1] = await sql()<{ id: number }[]>`
     INSERT INTO projects (program_id, name, installation_id, token_status, token_url, coin_address)
@@ -91,10 +109,12 @@ test('readStats: DB aggregates move with open programs, launched coins, bonus mo
     VALUES (${tag}, ${p1.id}, 1, 90, '0x1', 0, ${(E18 / 4n).toString()}, 'paid', '0xabc', now())`;
   try {
     const after = await readStats();
-    const d = (k: (typeof STATS_KEYS)[number]) => Math.round((after[k] - before[k]) * 1e6) / 1e6;
+    const d = (k: StatsNumberKey) => Math.round((after[k] - before[k]) * 1e6) / 1e6;
     // Other test files insert programs, coins and installations in parallel: those deltas are a
     // lower bound. The bonus tables are held by this file's lock: exact.
     assert.ok(d('open_money_usd') >= 5250, `open money +${d('open_money_usd')}`);
+    assert.ok(d('open_pools_usd') >= 7000, `open pools +${d('open_pools_usd')}`);
+    assert.equal(after.open_pools_plus, true); // the test's own programs have no pool
     assert.ok(d('programs_open') >= 2);
     assert.ok(d('bonus_programs_open') >= 2); // both open programs default to builder_bonus: true, no campaign
     assert.ok(d('coins_launched') >= 1);

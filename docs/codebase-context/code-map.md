@@ -59,7 +59,7 @@ apps/frontend/
                                HowItWorks exports STEPS. StatsStrip.tsx is gone (v2.7.1)
   app/components/sections/BuilderBonus.tsx  v2.7.1: #builder-bonus "Win twice.": BONUS_PILLS (Top 10 /
                                Paid in ETH / Ranked on real users), landing.bonus_pools or BONUS_EMPTY
-                               "Starts with the first entry", "Leaderboards" → /programs
+                               "Pools start with the first entry", "Leaderboards" → /programs
   app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
                                "Follow on X" is in the Footer only
@@ -138,7 +138,8 @@ apps/frontend/
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
     program-file.ts            zod format of programs/*.json (+ starter limits, optional max_award_usd,
-                               v2.7.1 optional pool_usd (must be stated in reward, never on a campaign),
+                               v2.7.1 optional pool_usd (must be stated in reward, never on a campaign)
+                               and pool_source_url (only with pool_usd),
                                token_policy encouraged|allowed|off, default encouraged; tokenPolicyLine);
                                v2.6 §4: builder_bonus (default true; false opts out); Ruling 8 (plan):
                                a windowed program with the bonus on (not opted out, not a campaign)
@@ -557,16 +558,18 @@ apps/frontend/
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; bonus = bonusPill;
                                open_text = pool.ts poolTotalText ("$1.3M+"); bonus_pools =
-                               bonusPoolsText; stats_line = statsLine (installs ≥100, bonus paid >0))
+                               bonusPoolsText; stats_line = statsLine (installs ≥100, bonus paid >0);
+                               cards sorted by byPool: pool, else max_award_usd, then deadline)
                                and readLanding (listPrograms, roundPoolsWei, readStats; rejects when
                                the DB is unreachable); GuidePage.bonus_pill;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
     pool.ts(+test)             v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
                                pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
-                               poolLine (a card's big line), poolTotalText (the hero figure)
+                               poolLine (a card's big line), poolTotal/poolTotalText (the hero figure,
+                               shared with stats.ts open_pools_usd/_plus), statedPool (a row's pool)
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
-                               open_money_usd (max_award_usd of open programs), programs_open,
+                               open_money_usd (max_award_usd of open programs), v2.7.1 open_pools_usd + open_pools_plus (the landing's pool total), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
                                builder_bonus AND campaign IS NULL, bonusOn's SQL twin),
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins

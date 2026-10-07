@@ -111,6 +111,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   )) as { show_to_builder: string };
   const first = list.show_to_builder;
   assert.match(first, /\| Difficulty \|/, first);
+  // v2.7.1 fix: the per-winner top prizes of the real files (Circle up to $100,000 now).
+  assert.ok(first.startsWith('$160,500 in top prizes is open right now. I can build an entry for you.'), first);
   assert.ok(
     first.trimEnd().endsWith(
       'Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.60 ETH so far.',

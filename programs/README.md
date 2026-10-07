@@ -32,7 +32,10 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      pool"); leave it out when none is published. `reward` must state the same amount
      (`$840,000`, `$840K` or `10,000 USDC`; `programs:check` refuses it otherwise), and a `+`
      right after it there ("$250,000+") shows on the page. The landing page's "$X open right now"
-     is the sum of the open programs' pools, with "+" when any lacks one.
+     is the sum of the open programs' pools, with "+" when any lacks one. The landing and
+     /programs sort cards by it (a program without one by `max_award_usd`).
+   - `pool_source_url` (optional, only with `pool_usd`): where the pool is stated when that isn't
+     `source_url` (e.g. Circle's Cohort 2 total on its grants portal).
    - `tag` (optional): `"long shot"` when few prizes go to many judged entries;
      `"needs a live product"` when it only suits builders who already shipped.
    - `ends_at`: ISO 8601 with timezone, converted from the organizer's timezone.
