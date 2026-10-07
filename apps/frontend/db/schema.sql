@@ -568,9 +568,10 @@ ALTER TABLE projects ADD CONSTRAINT projects_confirm_choice_check CHECK (confirm
 -- would mark v2.8 entries whose token launched while incomplete as complete (Ruling 2's gate).
 DO $$
 BEGIN
+  -- 'projects'::regclass resolves the table exactly as the ALTER and UPDATE below do (search_path).
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = current_schema() AND table_name = 'projects' AND column_name = 'complete_at'
+    SELECT 1 FROM pg_attribute
+    WHERE attrelid = 'projects'::regclass AND attname = 'complete_at' AND NOT attisdropped
   ) THEN
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS complete_at timestamptz;
     UPDATE projects SET complete_at = coin_launched_at WHERE complete_at IS NULL AND coin_launched_at IS NOT NULL;

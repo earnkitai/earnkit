@@ -13,7 +13,7 @@ import {
   selfEntryProblem,
   verifiedBonusContracts,
 } from './projects';
-import { LaunchTokenInput, launchToken } from './token-launch';
+import { LaunchTokenInput, completeAtWindow, launchToken } from './token-launch';
 import { eligibleSql } from './traction';
 import { sponsorProgramFile } from './sponsor-rules';
 import { ProgramFile } from './program-file';
@@ -882,6 +882,50 @@ test('v2.8 Ruling 2 (plan): record_submission sets complete_at once the entry is
   // A new entry recorded complete in one call is complete from the start.
   const other = await recordSubmission({ program_id: program.id, project: proofProject(72), submission_data: { ...full, repo_url: proofProject(72).repo_url, live_deployment_url: proofProject(72).live_url } } as never, installationId);
   assert.ok((await completeOf(other.project_id)) instanceof Date);
+});
+
+test('v2.8 Ruling C7: completeAtWindow marks deploy-window launches complete only when the stored entry passes; dry run by default; idempotent', dbTest, async () => {
+  const program = proofProgramFile(`t7-window-${process.pid}-${Date.now()}`, { submission_proof: null });
+  await upsertProgram(program);
+  const installationId = await freshInstallation();
+  // A one-hour window in 2001 unique to this run, so other rows never fall in it.
+  const since = new Date(Date.UTC(2001, 0, 1) + (Date.now() % 1_000_000) * 3_600_000);
+  const until = new Date(since.getTime() + 3_600_000);
+  const inWindow = new Date(since.getTime() + 600_000);
+  const full = { description: 'A kit.', builder_profile: 'https://github.com/alice' };
+  const add = async (
+    n: number,
+    o: { launched: Date; data: Record<string, unknown>; live?: string | null; choice?: 'go' | 'skip'; complete_at?: Date },
+  ) => {
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, coin_address, coin_launched_at, confirm_choice, complete_at)
+      VALUES (${program.id}, ${`W${n}`}, ${`https://github.com/alice/w${n}`}, ${o.live === undefined ? `https://w${n}.example` : o.live},
+        ${installationId}, ${randomAddress()}, ${o.launched}, ${o.choice ?? null}, ${o.complete_at ?? null})
+      RETURNING id`;
+    await sql()`INSERT INTO submissions (project_id, submission_data) VALUES (${id}, ${sql().json(o.data as never)})`;
+    return id;
+  };
+  const done = await add(1, { launched: inWindow, data: full });
+  const incomplete = await add(2, { launched: inWindow, data: full, live: null });
+  const confirmed = await add(3, { launched: inWindow, data: full, choice: 'go' });
+  const outside = await add(4, { launched: new Date(since.getTime() - 60_000), data: full });
+  const earlier = new Date(since.getTime() + 60_000);
+  const already = await add(5, { launched: inWindow, data: full, complete_at: earlier });
+  const completeOf = async (id: number) =>
+    (await sql()<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${id}`)[0].complete_at;
+
+  const dry = await completeAtWindow({ since, until, apply: false });
+  assert.deepEqual(dry, { launched_without_complete: 2, complete: 1, updated: 0 });
+  assert.equal(await completeOf(done), null, 'a dry run writes nothing');
+  const applied = await completeAtWindow({ since, until, apply: true });
+  assert.deepEqual(applied, { launched_without_complete: 2, complete: 1, updated: 1 });
+  assert.equal((await completeOf(done))?.getTime(), inWindow.getTime(), 'complete_at = coin_launched_at');
+  assert.equal(await completeOf(incomplete), null, 'a stored entry missing a required item stays incomplete');
+  assert.equal(await completeOf(confirmed), null, 'confirmed through v2.8: not a v2.7 launch, untouched');
+  assert.equal(await completeOf(outside), null, 'outside the window: untouched');
+  assert.equal((await completeOf(already))?.getTime(), earlier.getTime(), 'a set complete_at never moves');
+  // Run again: nothing left to do.
+  assert.deepEqual(await completeAtWindow({ since, until, apply: true }), { launched_without_complete: 1, complete: 0, updated: 0 });
 });
 
 after(async () => {

@@ -244,9 +244,9 @@ const [v28Again] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM prog
 ok(v28Again.any_chain === false, 'any_chain stays false when the schema is applied again');
 
 // v2.8 Rulings 1-3 (plan): complete_at and its one backfill, applied over real pre-v2.8 rows (the
-// schema of 021eba2, the base before these columns). Proves no entry eligible before the migration
+// schema of f4923fb, v2.8 Part A on main, before these columns; Ruling C7 pins a commit on main). Proves no entry eligible before the migration
 // loses it: the pre-v2.8 rule (inlined as it was) and eligibleSql after select the same rows.
-const v28pre = execFileSync('git', ['-C', root, 'show', '021eba2:apps/frontend/db/schema.sql'], {
+const v28pre = execFileSync('git', ['-C', root, 'show', 'f4923fb:apps/frontend/db/schema.sql'], {
   encoding: 'utf8',
 });
 await db.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');

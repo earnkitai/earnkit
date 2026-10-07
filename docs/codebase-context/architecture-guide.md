@@ -1613,6 +1613,35 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   before matching its mainnet hosts, so `testnet.snowtrace.io` or `sepolia.basescan.org` alone is
   not a mainnet signal; viem `avalanche` / `avalancheFuji` imports count.
 
+### Builder bonus eligibility and its ship step (v2.8 Task 7)
+
+- `traction.ts eligibleSql` (and its pure twin `projects.ts bonusEligible`) requires a launched
+  token, `projects.complete_at` before the round's end, and `confirm_choice` not `'skip'`, on top
+  of the counted submission, the test-installation exclusion and one entry per repo. The v2.7 C7
+  readiness gate no longer blocks the launch; it decides `complete_at`.
+- `complete_at` is set once (COALESCE, never cleared) by `record_submission` (from what the call
+  was given) and by `launch_token` when the stored entry passes `entryMissing` (Ruling C8).
+  `launch_token` and the submission token step refuse a skipped entry ("This entry was entered
+  without a token.").
+- Schema: `confirmed_at`, `confirm_choice` (`go`/`skip`), `complete_at`. The one backfill
+  (`complete_at = coin_launched_at`) sits in a `DO` block that runs only in the deploy that
+  creates the column: `schema.sql` runs before every deploy, and re-running it would mark v2.8
+  entries launched while incomplete as complete. `db:check` proves the eligible set is unchanged.
+- **Ship step (Ruling C7), right after the v2.8 deploy.** The migration runs before the cutover,
+  so a token launched by v2.7 code in between passed C7 but has `complete_at` NULL. Note when the
+  migration started (T0, from the deploy log), then:
+
+  | Step | Command |
+  |---|---|
+  | 1. Dry run, counts only | `pnpm exec tsx apps/frontend/scripts/v28-complete-at-window.mts --since <T0 ISO>` |
+  | 2. Apply | the same with `--apply` |
+  | 3. Check | run step 1 again: `complete entries: 0` |
+
+  It sets `complete_at = coin_launched_at` only for rows whose token launched in the window
+  (`--since`, default 24 h ago; `--until`, default now), with `complete_at` NULL, no confirmation
+  (v2.7 code never sets one) and a stored entry that passes `entryMissing`. Set-once, so re-running
+  is harmless. It logs counts only. Run it before any open round ends.
+
 ## Public trust pages (v2.5 §4, Task 9)
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from

@@ -377,8 +377,8 @@ type FlowStore = {
   ) => Promise<void>;
   /** Keeps the creator wallet on a project with no token yet, and remembers it for the installation. */
   saveCreatorWallet: (projectId: number, installationId: number, wallet: string) => Promise<void>;
-  /** v2.8 Ruling 2 (plan): sets complete_at once (never moved); absent in fakes that don't track it. */
-  markComplete?: (projectId: number) => Promise<void>;
+  /** v2.8 Ruling 2 (plan), Ruling C8: sets complete_at once (never moved). */
+  markComplete: (projectId: number) => Promise<void>;
 };
 
 export type TokenFlowDeps = {
@@ -724,6 +724,33 @@ export async function submissionToken(
   }
 }
 
+/**
+ * v2.8 Ruling C7: the deploy window. A token launched by v2.7 code between the migration (which
+ * backfills complete_at once) and the cutover passed C7 but has complete_at NULL. Rows whose token
+ * launched in [since, until], with complete_at NULL, no confirmation (v2.7 code never sets one) and
+ * a stored entry that passes entryMissing, get complete_at = coin_launched_at. Set-once (only where
+ * complete_at is still NULL), so re-running changes nothing. Dry run unless `apply`. Returns counts.
+ */
+export async function completeAtWindow(a: { since: Date; until: Date; apply: boolean }) {
+  const rows = await sql()<FlowProject[]>`
+    SELECT p.id, p.name, p.repo_url, p.live_url, p.description, p.demo_url,
+      pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
+      (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data
+    FROM projects p JOIN programs pr ON pr.id = p.program_id
+    WHERE p.complete_at IS NULL AND p.coin_launched_at IS NOT NULL AND p.confirm_choice IS NULL
+      AND p.coin_launched_at >= ${a.since} AND p.coin_launched_at <= ${a.until}
+    ORDER BY p.id`;
+  const complete = rows.filter((r) => entryMissing(r).length === 0).map((r) => r.id);
+  let updated = 0;
+  if (a.apply && complete.length)
+    updated = (
+      await sql()`
+        UPDATE projects SET complete_at = coin_launched_at
+        WHERE id IN ${sql()(complete)} AND complete_at IS NULL AND coin_launched_at IS NOT NULL`
+    ).count;
+  return { launched_without_complete: rows.length, complete: complete.length, updated };
+}
+
 /** v2.8 Ruling 3 (plan): launch_token's refusal on an entry the builder confirmed with "skip". */
 export const SKIPPED_ENTRY = 'This entry was entered without a token.';
 
@@ -783,9 +810,9 @@ export async function launchToken(
     await store.updateLinks(project.id, installationId, links);
     Object.assign(project, links);
   }
-  // v2.8 Ruling 2 (plan): an entry whose stored answers and links are complete (one from before
-  // v2.8 that never re-recorded, or a link fixed just now) is marked complete, once.
-  if (entryMissing(project).length === 0) await store.markComplete?.(project.id);
+  // v2.8 Ruling 2 (plan), Ruling C8: an entry whose stored answers and links are complete (one
+  // from before v2.8 that never re-recorded, or a link fixed just now) is marked complete, once.
+  if (entryMissing(project).length === 0) await store.markComplete(project.id);
   const out = await runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
   // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
   if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };

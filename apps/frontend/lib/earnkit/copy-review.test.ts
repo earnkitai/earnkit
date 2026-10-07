@@ -720,6 +720,7 @@ async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
         repoToken: async () => repoToken,
         updateLinks: async () => {},
         saveCreatorWallet: async () => {},
+        markComplete: async () => {},
       },
       ...extra,
     };
