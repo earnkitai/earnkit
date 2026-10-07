@@ -1,0 +1,51 @@
+{
+  "id": "a16z-speedrun",
+  "organizer": "a16z (Andreessen Horowitz)",
+  "title": "a16z speedrun SR008",
+  "description": "a16z's 12-week startup program, in person in San Francisco. It invests up to $1M in each accepted company, plus $10M+ in partner credits. SR008 runs from late January through April 2027; the priority application window is October 12 through November 1, and applications are accepted year-round.",
+  "source_url": "https://speedrun.a16z.com/faq",
+  "submission_url": "https://speedrun.a16z.com/apply",
+  "reward": "Up to $1M in funding and $10M+ in credits",
+  "summary": "up to $1M · priority window Oct 12 to Nov 1",
+  "max_award_usd": 1000000,
+  "tag": "long shot",
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-10-07",
+  "status": "active",
+  "existing_work": "allowed",
+  "chains": [],
+  "any_chain": true,
+  "setup": [
+    "start the application with your email"
+  ],
+  "each_time": [],
+  "rules": [
+    "Priority application window: October 12 through November 1. Applications submitted then are reviewed fastest; applications are accepted year-round.",
+    "SR008 runs from late January through April 2027 in San Francisco. In-person attendance is required.",
+    "The program runs for 12 intensive weeks and requires a full-time commitment.",
+    "For early-stage founders; companies that have already raised capital can apply.",
+    "For teams that can build and iterate on their product internally, usually with a technical co-founder.",
+    "Deal: $500K for 10% upfront in a SAFE, and another $500K in your next round within 18 months.",
+    "Applications are reviewed on a rolling basis, usually within 4 to 6 weeks."
+  ],
+  "submission_requirements": [
+    {
+      "key": "email",
+      "label": "Email",
+      "todo": "your email",
+      "type": "email",
+      "required": true,
+      "description": "Please enter your email to begin the application. The rest of the application follows; its questions are not public.",
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": {
+    "level": "Hard",
+    "basis": "speedrun says its acceptance rate is lower than 0.4%",
+    "source_url": "https://speedrun.a16z.com/faq"
+  }
+}

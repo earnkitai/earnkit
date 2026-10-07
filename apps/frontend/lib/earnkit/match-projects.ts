@@ -324,7 +324,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
     if (
       p.existing_work === 'new_work_only' &&
       p.starts_at &&
-      p.chains.some((c) => chains[c])
+      (p.any_chain || p.chains.some((c) => chains[c]))
     ) {
       const key = p.starts_at.toISOString();
       if (!(key in commitsSinceKnown)) {

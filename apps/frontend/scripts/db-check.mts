@@ -235,5 +235,12 @@ ok(
   'a v2.5 program gets empty past_rounds and NULL logo from the v2.7 migration',
 );
 
+// v2.8 Ruling 13 (plan): any_chain is additive; an existing program (seeded before it) is chain-bound.
+const [v28Old] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
+ok(v28Old.any_chain === false, 'a v2.5 program gets any_chain = false from the v2.8 migration');
+await db.unsafe(now); // re-applying the schema keeps it (idempotent)
+const [v28Again] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
+ok(v28Again.any_chain === false, 'any_chain stays false when the schema is applied again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

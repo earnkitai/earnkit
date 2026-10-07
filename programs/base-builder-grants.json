@@ -232,8 +232,8 @@
   },
   "best_bet": "A live x402 agent-payments product with Builder Codes integrated",
   "difficulty_override": {
-    "level": "Hard",
-    "basis": "Base says it grants very selectively; counts not published",
+    "level": "Easy",
+    "rated_by": "earnkit",
     "source_url": "https://docs.base.org/get-started/builders"
   }
 }

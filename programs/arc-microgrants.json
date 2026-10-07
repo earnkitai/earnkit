@@ -165,5 +165,10 @@
     "source_url": "https://www.arc.io/",
     "ecosystem": "Arc"
   },
-  "best_bet": "A pay-per-use agent app settling USDC micropayments, live on Arc mainnet"
+  "best_bet": "A pay-per-use agent app settling USDC micropayments, live on Arc mainnet",
+  "difficulty_override": {
+    "level": "Easy",
+    "rated_by": "earnkit",
+    "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
+  }
 }

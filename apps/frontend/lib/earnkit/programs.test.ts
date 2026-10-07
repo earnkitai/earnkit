@@ -17,7 +17,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   id: 'p', organizer: 'O', title: 'T', description: 'D', source_url: 'https://o.example',
   submission_url: 'https://o.example/s', reward: 'R', starts_at: null, ends_at: null, status: 'active',
   verified_at: null, existing_work: 'allowed', token_policy: 'encouraged', setup: [], each_time: [],
-  summary: 'S', tag: null, chains: ['base'], campaign, created_at: new Date(), opened_at: null, rules: [],
+  summary: 'S', tag: null, chains: ['base'], any_chain: false, campaign, created_at: new Date(), opened_at: null, rules: [],
   source: 'file', max_award_usd: null, pool_usd: null, min_award_usd: null, pool_source_url: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
   logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null,
@@ -339,7 +339,7 @@ test('v2.4 §7: an EarnKit campaign\'s build help is the campaign starter, not t
 });
 
 test('v2.7 §2: programCard.difficulty for a curated program; null for any campaign', () => {
-  assert.deepEqual(programCard(fileRow(null), []).difficulty, { level: 'Medium', estimate: true, basis: 'no past results yet' });
+  assert.deepEqual(programCard(fileRow(null), []).difficulty, { level: 'Medium', estimate: true, rated: false, basis: 'no past results yet' });
   assert.equal(programCard(fileRow(earnkitCampaign), []).difficulty, null);
   assert.equal(programCard(sponsorRow(), []).difficulty, null);
 });
@@ -358,4 +358,16 @@ test('v2.7 §2: get_program carries the guide for curated programs only', () => 
   assert.ok(!('guide' in programDetails(sponsorRow(), [], [])), 'sponsor campaign');
   assert.ok(!('guide_note' in programDetails(sponsorRow(), [], [])), 'sponsor campaign note');
   assert.ok(!('guide' in programDetails(fileRow(earnkitCampaign), [], [])), 'EarnKit campaign');
+});
+
+test('v2.8 Ruling 13: an any_chain row lists no chains; its landing tile reads "Any chain"', async () => {
+  const { landingFrom } = await import('./landing');
+  const card = programCard({ ...fileRow(null), chains: [], any_chain: true }, []);
+  assert.deepEqual(card.chains, []);
+  assert.equal(card.any_chain, true);
+  const stats = { installs: 0, bonus_paid_eth: 0 } as Parameters<typeof landingFrom>[2];
+  const [tile] = landingFrom([card], new Map(), stats, new Date('2026-10-07T12:00:00Z')).tiles;
+  assert.equal(tile.chain, 'Any chain');
+  const [baseTile] = landingFrom([programCard(fileRow(null), [])], new Map(), stats, new Date('2026-10-07T12:00:00Z')).tiles;
+  assert.equal(baseTile.chain, 'Base');
 });

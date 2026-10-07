@@ -16,7 +16,7 @@ const pre = (submissions: number | null, winners: number | null, label: string):
 
 test('v2.7 §2: odds bands, boundaries included (Ruling 2)', () => {
   const d = (s: number, w: number) => difficultyOf({ ...base, past_rounds: [round(s, w)] });
-  assert.deepEqual(d(160, 20), { level: 'Medium', estimate: false, basis: '20 of ~160 entries won last round' });
+  assert.deepEqual(d(160, 20), { level: 'Medium', estimate: false, rated: false, basis: '20 of ~160 entries won last round' });
   assert.equal(d(160, 40).level, 'Easy'); // exactly 25%
   assert.equal(d(100, 8).level, 'Medium'); // exactly 8%
   assert.equal(d(100, 7).level, 'Hard');
@@ -24,12 +24,12 @@ test('v2.7 §2: odds bands, boundaries included (Ruling 2)', () => {
 
 test('Ruling 2: the newest round with both counts; an older one is named', () => {
   const g = difficultyOf({ ...base, past_rounds: [round(undefined, 20, 'Arc Microgrants Q3'), round(200, 10, 'Arc Microgrants Q2')] });
-  assert.deepEqual(g, { level: 'Hard', estimate: false, basis: '10 of ~200 entries won in Arc Microgrants Q2' });
+  assert.deepEqual(g, { level: 'Hard', estimate: false, rated: false, basis: '10 of ~200 entries won in Arc Microgrants Q2' });
 });
 
 test('Rulings C2, C4: a predecessor event is named, never "last round", whatever its label', () => {
   assert.deepEqual(difficultyOf({ ...base, past_rounds: [pre(155, 4, "Arc's HackMoney 2026 track")] }),
-    { level: 'Hard', estimate: false, basis: "4 of ~155 entries won in Arc's HackMoney 2026 track" });
+    { level: 'Hard', estimate: false, rated: false, basis: "4 of ~155 entries won in Arc's HackMoney 2026 track" });
   assert.equal(difficultyOf({ ...base, past_rounds: [pre(null, 11, 'Rebel in Paradise AI Hackathon')] }).basis,
     '11 winners in Rebel in Paradise AI Hackathon; entry count not published');
   // A label that starts like the program's title is still a predecessor unless `own: true`.
@@ -42,17 +42,17 @@ test('Rulings C2, C4: a predecessor event is named, never "last round", whatever
 test('Ruling 4 (review Finding 2): with past rounds, never "no past results yet"', () => {
   const themed = { ...pre(null, null, 'Base Batches 003'), themes: [{ theme: 'Onchain payments', count: 3 }] };
   assert.deepEqual(difficultyOf({ ...base, past_rounds: [themed] }),
-    { level: 'Medium', estimate: true, basis: 'winners not published' });
+    { level: 'Medium', estimate: true, rated: false, basis: 'winners not published' });
   assert.deepEqual(difficultyOf({ ...base, past_rounds: [themed], winners_per_round: 10 }),
-    { level: 'Medium', estimate: true, basis: '10 winners per round; past counts not published' });
+    { level: 'Medium', estimate: true, rated: false, basis: '10 winners per round; past counts not published' });
   for (const w of [null, 2, 10])
     assert.doesNotMatch(difficultyOf({ ...base, past_rounds: [themed], winners_per_round: w }).basis, /no past results/);
 });
 
 test('Rulings 3-4: estimates, never Easy', () => {
-  assert.deepEqual(difficultyOf(base), { level: 'Medium', estimate: true, basis: 'no past results yet' });
+  assert.deepEqual(difficultyOf(base), { level: 'Medium', estimate: true, rated: false, basis: 'no past results yet' });
   assert.deepEqual(difficultyOf({ ...base, past_rounds: [round(undefined, 20)] }),
-    { level: 'Medium', estimate: true, basis: '20 winners last round; entry count not published' });
+    { level: 'Medium', estimate: true, rated: false, basis: '20 winners last round; entry count not published' });
   assert.equal(difficultyOf({ ...base, tag: 'long shot' }).level, 'Hard');
   assert.equal(difficultyOf({ ...base, winners_per_round: 2 }).level, 'Hard');
   assert.equal(difficultyOf({ ...base, winners_per_round: 20 }).basis, '20 winners per round; no past results yet');
@@ -61,7 +61,7 @@ test('Rulings 3-4: estimates, never Easy', () => {
   const barriers = {
     ...base, winners_per_round: 500, each_time: ['a demo video', 'a form'], rules: ['deploy on mainnet'],
   };
-  assert.deepEqual(difficultyOf(barriers), { level: 'Medium', estimate: true, basis: '500 winners per round; no past results yet' });
+  assert.deepEqual(difficultyOf(barriers), { level: 'Medium', estimate: true, rated: false, basis: '500 winners per round; no past results yet' });
   // Barriers lift a 3-winner program (−1) back to Medium.
   assert.equal(difficultyOf({ ...barriers, winners_per_round: 3 }).level, 'Medium');
   assert.equal(difficultyOf({ ...base, winners_per_round: 3 }).level, 'Hard');
@@ -70,12 +70,12 @@ test('Rulings 3-4: estimates, never Easy', () => {
 test('Ruling 5: an override wins and is not an estimate', () => {
   const o = { level: 'Easy' as const, basis: 'every complete entry is funded', source_url: 'https://e' };
   assert.deepEqual(difficultyOf({ ...base, difficulty_override: o, past_rounds: [round(1000, 1)] }),
-    { level: 'Easy', estimate: false, basis: 'every complete entry is funded' });
+    { level: 'Easy', estimate: false, rated: false, basis: 'every complete entry is funded' });
 });
 
 test('difficultyLabel', () => {
-  assert.equal(difficultyLabel({ level: 'Medium', estimate: false, basis: '' }), 'Medium');
-  assert.equal(difficultyLabel({ level: 'Hard', estimate: true, basis: '' }), 'Hard (estimate)');
+  assert.equal(difficultyLabel({ level: 'Medium', estimate: false, rated: false, basis: '' }), 'Medium');
+  assert.equal(difficultyLabel({ level: 'Hard', estimate: true, rated: false, basis: '' }), 'Hard (estimate)');
 });
 
 const NOW = new Date('2026-10-06T12:00:00Z');
@@ -267,4 +267,26 @@ test('Ruling C12 on the committed files: a shown round that is not own is named 
     }
   }
   assert.ok(named >= 4, 'the predecessor rounds of the open programs are named');
+});
+
+// ---- v2.8 Task 6: the EarnKit rating and the estimate override ----
+
+test('v2.8 Ruling 12: an EarnKit rating reads just "Easy", with no basis, stat or label', () => {
+  const rated = { ...arc, difficulty_override: { level: 'Easy' as const, rated_by: 'earnkit' as const, source_url: 'https://e/program' } };
+  assert.deepEqual(difficultyOf(rated), { level: 'Easy', estimate: false, rated: true, basis: '' });
+  const text = guideText(programGuide(rated, null, NOW));
+  const line = text.split('\n').find((l) => l.startsWith('Difficulty:'));
+  assert.equal(line, 'Difficulty: Easy');
+  assert.doesNotMatch(line!, /rated|EarnKit|%|\d/i);
+  // The rating's source is the program page, still cited (as "difficulty") but never shown as a basis.
+  assert.ok(guideSources(rated).includes('https://e/program'));
+});
+
+test('v2.8 Ruling 11: an estimate override shows "Hard (estimate)" and its basis (Ruling 17)', () => {
+  const o = { level: 'Hard' as const, estimate: true as const, basis: 'a16z publishes no acceptance figures', source_url: 'https://e/faq' };
+  const d = difficultyOf({ ...base, difficulty_override: o });
+  assert.deepEqual(d, { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' });
+  assert.equal(difficultyLabel(d), 'Hard (estimate)');
+  const text = guideText(programGuide({ ...arc, past_rounds: [], focus: null, best_bet: null, difficulty_override: o }, null, NOW));
+  assert.match(text, /^Difficulty: Hard \(estimate\)\. A16z publishes no acceptance figures\.$/m);
 });

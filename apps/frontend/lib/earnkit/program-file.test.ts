@@ -4,10 +4,12 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { logoFileProblem, ProgramFile, requiredWithoutTodo } from './program-file';
 
-/** The repo's first program file (any one will do; they all predate token_policy). */
+/**
+ * A committed program file that predates token_policy and lists one chain. v2.8 Task 6: named, not
+ * the alphabetically first file, since a16z-speedrun (any_chain, no chains) now sorts first.
+ */
 function firstProgramFile() {
-  const dir = join(import.meta.dirname, '../../../../programs');
-  return readdirSync(dir).filter((f) => f.endsWith('.json'))[0];
+  return 'arc-microgrants.json';
 }
 
 test('ProgramFile: token_policy defaults to encouraged and refuses unknown values', () => {
@@ -543,4 +545,53 @@ test('C5 carry: requiredWithoutTodo names required items with no todo; optional 
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')));
     assert.deepEqual(requiredWithoutTodo(p), [], f);
   }
+});
+
+// ---- v2.8 Task 6: the EarnKit rating, any_chain, Avalanche, no Optimism ----
+
+test('v2.8 Ruling 12: an EarnKit rating is Easy only, with no basis (strict)', () => {
+  const base = baseProgram();
+  const source_url = 'https://e/program';
+  const rated = ProgramFile.parse({ ...base, difficulty_override: { level: 'Easy', rated_by: 'earnkit', source_url } });
+  assert.deepEqual(rated.difficulty_override, { level: 'Easy', rated_by: 'earnkit', source_url });
+  assert.equal(ProgramFile.safeParse({ ...base, difficulty_override: { level: 'Hard', rated_by: 'earnkit', source_url } }).success, false);
+  assert.equal(
+    ProgramFile.safeParse({ ...base, difficulty_override: { level: 'Easy', rated_by: 'earnkit', basis: 'x', source_url } }).success,
+    false,
+  );
+});
+
+test('v2.8 Ruling 11: an estimate override parses', () => {
+  const o = { level: 'Hard', estimate: true, basis: 'a16z publishes no acceptance figures', source_url: 'https://e/faq' };
+  assert.deepEqual(ProgramFile.parse({ ...baseProgram(), difficulty_override: o }).difficulty_override, o);
+});
+
+test('v2.8 Ruling 13: chains need one entry unless any_chain, and any_chain lists none', () => {
+  const base = baseProgram();
+  assert.equal(ProgramFile.safeParse({ ...base, chains: [] }).success, false);
+  const any = ProgramFile.parse({ ...base, chains: [], any_chain: true });
+  assert.equal(any.any_chain, true);
+  assert.deepEqual(any.chains, []);
+  assert.equal(ProgramFile.parse(base).any_chain, false);
+  const both = ProgramFile.safeParse({ ...base, chains: ['base'], any_chain: true });
+  assert.equal(both.success, false);
+  assert.match(JSON.stringify(both.error!.issues), /any_chain programs list no chains/);
+});
+
+test('v2.8 Ruling 15: Optimism programs are refused by source_url or submission_url host', () => {
+  const base = baseProgram();
+  for (const p of [
+    { ...base, source_url: 'https://atlas.optimism.io/x' },
+    { ...base, submission_url: 'https://optimism.io/apply' },
+  ]) {
+    const r = ProgramFile.safeParse(p);
+    assert.equal(r.success, false);
+    assert.match(JSON.stringify(r.error!.issues), /Optimism programs are not listed/);
+  }
+  // A look-alike host is not Optimism.
+  assert.equal(ProgramFile.safeParse({ ...base, source_url: 'https://notoptimism.io/x' }).success, true);
+});
+
+test('v2.8 Ruling 14: avalanche is a chain', () => {
+  assert.deepEqual(ProgramFile.parse({ ...baseProgram(), chains: ['avalanche'] }).chains, ['avalanche']);
 });

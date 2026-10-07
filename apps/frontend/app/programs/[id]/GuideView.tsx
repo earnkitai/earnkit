@@ -5,6 +5,9 @@ import { Eyebrow, Panel } from '../../components/common/Panel';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
 import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
+
+/** v2.8 Ruling 13 (plan), Task 3 carry: the guide page (not the slim card) says a program fits any chain. */
+export const ANY_CHAIN = 'Any chain';
 import BonusPill from '../../components/ui/BonusPill';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
@@ -88,12 +91,21 @@ export default function GuideView({ page }: { page: GuidePage }) {
               {page.title}
             </h1>
           </div>
-          <p className="mt-6 font-funnel-display text-xl font-medium text-ek-blue-light md:text-3xl">{facts}</p>
+          <p className="mt-6 font-funnel-display text-xl font-medium text-ek-blue-light md:text-3xl">
+            {page.any_chain ? `${facts} · ${ANY_CHAIN}` : facts}
+          </p>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
             <dl className="font-funnel-sans text-base text-ek-blue-soft md:text-lg">
               <dt className="inline">Difficulty:</dt>{' '}
               <dd className="inline">
-                <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}.</span> {difficultyBasis(g.difficulty)}
+                {/* v2.8 Ruling 12 (plan): an EarnKit rating is the level alone, no basis. */}
+                {g.difficulty.rated ? (
+                  <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}</span>
+                ) : (
+                  <>
+                    <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}.</span> {difficultyBasis(g.difficulty)}
+                  </>
+                )}
               </dd>
             </dl>
             {/* v2.8 Ruling 19 (plan): the builder bonus pill beside Difficulty, linking to the leaderboard. */}

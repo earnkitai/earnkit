@@ -14,7 +14,10 @@ of `list_programs` on their own after `ends_at`.
 
 ## "Add this program to EarnKit: <url>"
 
-Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
+Only Base, Arc, Tempo, Monad, Robinhood Chain and Avalanche programs, plus programs not tied to
+one chain (`any_chain`, below). Never Optimism: no Optimism or OP Stack-only program is listed, and
+`programs:check` refuses a file whose `source_url` or `submission_url` is on `optimism.io` or any
+`*.optimism.io` host.
 
 1. Read the official pages: overview, rules, FAQ, and the submission form itself.
 2. Write `programs/<slug>.json` using only facts the source supports. If something isn't
@@ -51,7 +54,12 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      EarnKit should never book entries of this program's coins to a builder bonus round.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and
      skip re-reading the source, so update it whenever you re-check a program against its source.
-   - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood` a project must use.
+   - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood`, `avalanche` a project must use
+     (at least one).
+   - `any_chain` (optional): `true` only when the program isn't tied to one chain (e.g. an
+     accelerator that funds any startup). Then `chains` is `[]`, the program fits any repo (the
+     chain and mainnet checks are skipped; existing work, the tag and the live link still apply),
+     and its guide page says "Any chain".
    - `setup`: one-time steps only the builder can do, a few words each
      (e.g. `"log in to DoraHacks"`, `"send about $1 of USDC on Arc to a deploy wallet"`).
    - `each_time`: what the builder must provide for every entry (e.g. `"a 2-3 min pitch video"`).
@@ -104,7 +112,13 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
    4. `best_bet`: one line combining themes and focus, never a new fact. It needs at least one of
       `past_rounds` or `focus` to draw from (`pnpm programs:check` enforces this).
    5. `difficulty_override` only when the organizer publishes odds another way than a past
-      round's winners ÷ submissions.
+      round's winners ÷ submissions: `{ "level", "basis", "source_url" }`. Add `"estimate": true`
+      when the level is EarnKit's estimate rather than the organizer's figure (it shows as
+      "Hard (estimate)" with its basis).
+   6. The EarnKit rating: when the owner rates a program Easy, write
+      `{ "level": "Easy", "rated_by": "earnkit", "source_url": "<the file's source_url>" }`. Only
+      the owner gives this rating, and only `Easy`. Builders see just "Easy": no basis, no stat,
+      no "rated by" label. Never add a `basis` to it.
 5. Do not add starters. The owner decides those.
 6. Run `pnpm programs:check`, then push.
 
@@ -112,6 +126,8 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
 
 Once a week, for every active program:
 
+0. Skip and close (`"status": "closed"`) any Optimism or OP Stack-only program; never list a new
+   one.
 1. Re-read `source_url` and the focus source; update `focus` and `verified_at`.
 2. When a round's winners are announced, add it as the first `past_rounds` entry (newest first),
    following step 4 above (same sourcing rules, including the predecessor-round and
@@ -119,7 +135,8 @@ Once a week, for every active program:
 3. Re-check that `best_bet` still follows from the facts.
 4. Refresh any live count in a `difficulty_override` from its `source_url` (Circle Developer
    Grants: the accepted and submitted proposal counts on circle.questbook.app move every week).
-   If it can't be re-confirmed, remove the override.
+   If it can't be re-confirmed, remove the override. Leave an EarnKit rating (`rated_by`) as it
+   is: it is the owner's, not a count.
 5. Run `pnpm programs:check`, then push.
 
 ## "Add this starter to the <Track> track: <idea>"
