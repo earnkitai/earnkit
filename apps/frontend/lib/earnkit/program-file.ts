@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
+import { poolStated } from './pool';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -287,6 +288,13 @@ export const ProgramFile = z
      * in list_programs; leave it out otherwise (unknown sorts as 0).
      */
     max_award_usd: z.number().positive().optional(),
+    /**
+     * v2.7.1: the program's total prize pool in USD, only when its own source states one
+     * ("$840,000 in prizes", "10,000 USDC pool"). `reward` must state it (pool.ts
+     * poolStated), and a "+" after it there ("$250,000+") carries through to the page. Leave it
+     * out when no pool is published.
+     */
+    pool_usd: z.number().positive().optional(),
     /** Shown next to the title so the builder isn't misled about effort or odds. */
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     /**
@@ -358,6 +366,13 @@ export const ProgramFile = z
   .superRefine((p, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: 'custom', message });
+
+    // v2.7.1: a pool only where the curated source text states it, never on a campaign.
+    if (p.pool_usd !== undefined) {
+      if (p.campaign) issue('pool_usd is for curated programs, not campaigns');
+      else if (!poolStated(p.pool_usd, p.reward))
+        issue(`pool_usd ${p.pool_usd} must be stated in reward (e.g. "$${p.pool_usd.toLocaleString('en-US')}")`);
+    }
 
     const keys = p.submission_requirements.map((r) => r.key);
     if (p.campaign) {

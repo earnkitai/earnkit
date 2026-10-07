@@ -113,7 +113,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   assert.match(first, /\| Difficulty \|/, first);
   assert.ok(
     first.trimEnd().endsWith(
-      'Every entry also competes for the builder bonus: 0.60 ETH so far, paid to the top 10 on each program.',
+      'Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.60 ETH so far.',
     ),
     first,
   );

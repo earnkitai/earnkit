@@ -543,3 +543,7 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS focus jsonb;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS best_bet text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS difficulty_override jsonb;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS winners_per_round integer;
+
+-- v2.7.1: the program's total prize pool in USD, only when its own source states one (the hero's
+-- "$X open right now" and each card's big line). Additive: existing rows get NULL.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_usd numeric;

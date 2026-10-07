@@ -17,7 +17,7 @@ import {
   walletLine,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './mcp';
-import { presentFirstMessage, type Card, type FirstMessage } from './present';
+import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
@@ -66,6 +66,13 @@ import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures/guide';
 import { homeFixture } from './fixtures/landing';
+import Header from '../../app/components/common/Header';
+import AddToAgent from '../../app/components/sections/AddToAgent';
+import { BONUS_EMPTY, BONUS_PILLS } from '../../app/components/sections/BuilderBonus';
+import { BONUS_LINE } from '../../app/components/sections/ProgramCards';
+import { STEPS } from '../../app/components/sections/HowItWorks';
+import { bonusPill, bonusPoolsText, statsLine } from './landing';
+import { poolLine, poolTotalText } from './pool';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -470,6 +477,33 @@ const guideTexts: [string, string][] = [
   ['/programs (unavailable)', pageText(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' }))],
 ];
 
+// ---- v2.7.1: the simpler landing and the builder bonus, front and center: every new string.
+const bonusCard = (wei: bigint | null): Card => ({
+  id: 'p', title: 'P', summary: 's', tag: null, each_time: [], builder_bonus: true, bonus_pool_wei: wei,
+});
+const v271Texts: [string, string][] = [
+  ['header', pageText(React.createElement(Header))],
+  ['install modal', pageText(React.createElement(AddToAgent, { onClose: () => {} }))],
+  ['/programs (figure)', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text }))],
+  ['home page (no stats, empty pools)', homeText({ ...homeFixture, stats_line: null, bonus_pools: null })],
+  ['BONUS_LINE', BONUS_LINE],
+  ['BONUS_EMPTY', BONUS_EMPTY],
+  ...BONUS_PILLS.map((s, i): [string, string] => [`BONUS_PILLS[${i}]`, s]),
+  ...STEPS.flatMap((s, i): [string, string][] => [[`STEPS[${i}].title`, s.title], [`STEPS[${i}].body`, s.body]]),
+  ['statsLine', statsLine({ open_money_usd: 0, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312 })!],
+  ['bonusPill new', bonusPill('new pool')],
+  ['bonusPill new (guide)', bonusPill('new pool', true)],
+  ['bonusPill amount', bonusPill('0.42 ETH so far')],
+  ['bonusPoolsText', bonusPoolsText(6n * 10n ** 17n)!],
+  ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
+  ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
+  ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
+  ['poolTotalText', `${poolTotalText([{ pool_usd: 1_300_000, plus: true }])} open right now`],
+  ['bonusClose (pooled)', bonusClose([bonusCard(6n * 10n ** 17n)])!],
+  ['bonusClose (empty)', bonusClose([bonusCard(null)])!],
+  ['bonusClose (others)', bonusClose([bonusCard(6n * 10n ** 17n)], true)!],
+];
+
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
 // via the pure helpers it renders through (campaign-page-text.ts) — a sponsor campaign and a
 // non-sponsor (EarnKit) campaign, since the page's copy differs by kind.
@@ -529,6 +563,7 @@ const builderFacing: [string, string][] = [
   ['home page (live)', homeText(homeFixture)],
   ['home page (read failed)', homeText(null)],
   ...guideTexts,
+  ...v271Texts,
   ...Object.entries(STATS_LABELS).map(([k, v]): [string, string] => [`STATS_LABELS.${k}`, v]),
 ];
 

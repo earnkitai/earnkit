@@ -328,13 +328,13 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.match(text, /\| Program \| (Prize|You could win) \| Difficulty \| Ends \|/);
     assert.match(text, new RegExp(`\\| Proof ${run} \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\|`));
-    assert.match(text, /Every entry also competes for the builder bonus: 0\.42 ETH so far, paid to the top 10 on each program\.$/);
+    assert.match(text, /Plus the builder bonus: the top 10 on each program also get paid in ETH\. 0\.42 ETH so far\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /Every entry also competes for the builder bonus, paid to the top 10 on each program from its entries' token fees\.$/);
+    assert.match(plain.show_to_builder, /Plus the builder bonus: the top 10 on each program also get paid in ETH\.$/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't

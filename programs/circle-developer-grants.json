@@ -7,6 +7,7 @@
   "submission_url": "https://circle.questbook.app/",
   "reward": "Tiered, milestone-based USDC funding (amount per grant not stated; Cohort 2 shows $200K available)",
   "summary": "milestone-based USDC grants · rolling",
+  "pool_usd": 200000,
   "ideas": [
     "An agent that settles payments in USDC on Arc",
     "A peer-to-peer payments app using Circle Wallets",

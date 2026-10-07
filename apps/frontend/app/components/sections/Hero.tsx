@@ -5,12 +5,13 @@ import { motion } from 'framer-motion';
 import AddToAgent, { START_PROMPT } from './AddToAgent';
 
 /**
- * v2.7 §1: the promise, the live "open right now" figure (landing.ts, the first message's same $X,
- * formatted on the server so this client component never pulls in the server money modules; null
- * when the read failed or nothing is open, and then it doesn't show), the install button and what
- * to ask. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
+ * v2.7.1: the promise, the live "$1.3M+ open right now" figure (landing.ts: the open programs'
+ * source-stated pools, formatted on the server so this client component never pulls in the server
+ * money modules; null when the read failed or no pool is stated, and then it doesn't show), the
+ * builder bonus pill (to #builder-bonus), the install button, what to ask, and one short stats
+ * line once there is something to show. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
  */
-export default function Hero({ openText = null }: { openText?: string | null }) {
+export default function Hero({ openText = null, statsLine = null }: { openText?: string | null; statsLine?: string | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -41,14 +42,25 @@ export default function Hero({ openText = null }: { openText?: string | null }) 
         </p>
 
         <h1 className="mt-8 max-w-[16ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
-          Your agent finds money you already qualify for.
+          Find things worth building for.
         </h1>
+
+        <p className="mt-6 max-w-[36ch] font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl">
+          Find live builder programs and start building with your agent.
+        </p>
 
         {openText && (
           <p className="mt-6 font-funnel-display text-2xl font-medium tracking-[-0.01em] text-ek-blue-bright [text-shadow:0_0_24px_rgba(2,5,44,0.95),0_0_8px_rgba(2,5,44,0.9)] md:text-4xl">
             {openText} open right now
           </p>
         )}
+
+        <a
+          href="#builder-bonus"
+          className="mt-4 inline-flex min-h-11 items-center rounded-full border-2 border-ek-blue-soft/60 bg-[#02052c]/60 px-5 py-2 font-funnel-sans text-sm font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white"
+        >
+          + Builder bonus on every program
+        </a>
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
           <button
@@ -78,6 +90,10 @@ export default function Hero({ openText = null }: { openText?: string | null }) 
         <p className="mt-6 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
           Then ask: <em className="text-ek-white">{START_PROMPT}</em>
         </p>
+
+        {statsLine && (
+          <p className="mt-8 font-funnel-sans text-sm text-ek-blue-soft md:text-base">{statsLine}</p>
+        )}
       </motion.div>
 
       {installOpen && <AddToAgent onClose={closeInstall} />}

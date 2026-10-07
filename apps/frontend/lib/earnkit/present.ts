@@ -11,7 +11,7 @@ export { endsOf } from './entry-text';
  * The builder-facing text for list_programs (v2.5 §1): money first, markdown tables, no emojis.
  * Built on the server because many MCP clients never show the model the server instructions; a
  * ready-made result gets shown as written. Order, always: "Since you last checked", "EarnKit
- * matches you to $X in open money" with what the builder's repos fit, open EarnKit campaigns (none
+ * matches you to $X in top prizes" with what the builder's repos fit, open EarnKit campaigns (none
  * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
  * repo, sponsor campaigns (never first), program updates, then one offer closed by the builder
  * bonus (v2.7 §3).
@@ -29,6 +29,12 @@ export type Card = {
   closes_in_days?: number | null;
   /** The known per-winner award in USD (programs.ts perWinnerUsd); unknown sorts last. */
   max_award_usd?: number | null;
+  /** v2.7.1 (programs.ts poolFacts): the source-stated total pool in USD, or null. */
+  pool_usd?: number | null;
+  /** v2.7.1: the reward text says "+" after the pool ("$250,000+"). */
+  pool_plus?: boolean;
+  /** v2.7.1: the card's big line ("$840K in prizes", "10,000 USDC pool"), or null without a pool. */
+  pool_line?: string | null;
   /**
    * A sponsor campaign (verified or not): its own section after curated programs, never in a
    * repo's table, the closing offer or by name in the alerts (re-audit H4, M6).
@@ -115,7 +121,7 @@ const MAX_OTHERS = 5;
 const MAX_IDEAS = 6;
 
 /**
- * $X in "EarnKit matches you to $X in open money": each matched program's top per-winner prize,
+ * $X in "EarnKit matches you to $X in top prizes": each matched program's top per-winner prize,
  * once per program; programs without a stated per-winner amount count 0. Never whole pools. Pure.
  */
 export function openMoneyUsd(matched: Pick<Card, 'id' | 'max_award_usd'>[]): number {
@@ -154,17 +160,21 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
 export const BONUS_TOP = 10;
 
 /**
- * v2.7 §3, Ruling 11 (plan): what the builder bonus sentence says after "compete for ", or null
- * when no program on screen has a bonus. The total is the pools already read for those programs.
- * Pure.
+ * v2.7 §3, Ruling 11 (plan); v2.7.1 wording: the builder bonus sentence that closes the message,
+ * or null when no program on screen has a bonus. The total is the pools already read for those
+ * programs; while every pool is empty the "so far" sentence is dropped. `others` is the paragraph
+ * form before a campaign offer (or an offer that can't earn the bonus): "on the other open
+ * programs". Pure.
  */
-export function bonusClose(onScreen: Card[]): string | null {
+export function bonusClose(onScreen: Card[], others = false): string | null {
   const live = onScreen.filter((c) => bonusCell(c) !== '—');
   if (live.length === 0) return null;
   const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
-  if (wei <= 0n) return `the builder bonus, paid to the top ${BONUS_TOP} on each program from its entries' token fees.`;
-  const so = wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
-  return `the builder bonus: ${so}, paid to the top ${BONUS_TOP} on each program.`;
+  const head = others
+    ? `Plus the builder bonus on the other open programs: the top ${BONUS_TOP} on each also get paid in ETH.`
+    : `Plus the builder bonus: the top ${BONUS_TOP} on each program also get paid in ETH.`;
+  if (wei <= 0n) return head;
+  return `${head} ${wei < 10n ** 16n ? 'Under 0.01' : eth(wei)} ETH so far.`;
 }
 
 /**
@@ -340,9 +350,12 @@ export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
   return [...rows.map((r) => r.card), ...shown].filter((c) => c.builder_bonus !== false).map((c) => c.id);
 };
 
-/** The no-repo headline: "$60,500 is open right now." (all open curated programs' per-winner prizes). Pure. */
+/**
+ * The no-repo headline: "$60,500 in top prizes is open right now." (all open curated programs'
+ * per-winner prizes; v2.7.1 names them "top prizes", as the landing page's figure is the pools). Pure.
+ */
 const openHeadline = (total: number, agentCanBuild: boolean) =>
-  `${total > 0 ? `${usd(total)} is open right now.` : 'These programs are open right now.'}` +
+  `${total > 0 ? `${usd(total)} in top prizes is open right now.` : 'These programs are open right now.'}` +
   (agentCanBuild ? ' I can build an entry for you.' : '');
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
@@ -368,7 +381,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   else if (rows.length > 0) {
     const total = openMoneyUsd(rows.map((r) => r.card));
     sections.push(
-      `${total > 0 ? `EarnKit matches you to ${usd(total)} in open money you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
+      `${total > 0 ? `EarnKit matches you to ${usd(total)} in top prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, repo_url, v }) => {
@@ -441,11 +454,11 @@ export function presentFirstMessage(m: FirstMessage): string {
   // Final review M4: an offer whose row says "no builder bonus" (Ruling 25: the repo's token is
   // entered elsewhere) takes the campaign form too, and that program's pool isn't counted as "other".
   const close = offer(m, byId, rows, ideas.length > 0);
-  const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId));
+  const apart = close.campaign || !!close.noBonusId;
+  const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId), apart);
   if (!bonus) sections.push(close.text);
-  else if (close.campaign || close.noBonusId)
-    sections.push(`Entries in the other open programs also compete for ${bonus}`, close.text);
-  else sections.push(`${close.text} Every entry also competes for ${bonus}`);
+  else if (apart) sections.push(bonus, close.text);
+  else sections.push(`${close.text} ${bonus}`);
   return sections.join('\n\n');
 }
 

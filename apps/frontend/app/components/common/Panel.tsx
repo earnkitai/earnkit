@@ -8,13 +8,17 @@ export function Panel({
   children,
   className = '',
   label,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   label?: string;
+  /** An anchor target (v2.7.1: the homepage's #builder-bonus). */
+  id?: string;
 }) {
   return (
     <section
+      id={id}
       aria-label={label}
       className={`rounded-[40px] bg-ek-navy-deep px-6 md:rounded-[56px] md:px-16 ${className}`}
     >

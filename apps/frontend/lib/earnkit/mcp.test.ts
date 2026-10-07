@@ -244,8 +244,8 @@ test('v2.6 §3 fix round 1 (I3): the instructions cover the entry-link ask, wall
 test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {
   const { tools } = await listed({});
   const d = tools.find((t) => t.name === 'list_programs')!.description!;
-  assert.match(d, /leads with "EarnKit matches you to \$X in open money you qualify for"/);
-  assert.match(d, /or "\$X is open right now" with ideas you can build when there is no repo/);
+  assert.match(d, /leads with "EarnKit matches you to \$X in top prizes you qualify for"/);
+  assert.match(d, /or "\$X in top prizes is open right now" with ideas you can build when there is no repo/);
   assert.match(d, /Every program shows its difficulty; the builder bonus closes the message\./);
 });
 
