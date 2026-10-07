@@ -464,6 +464,8 @@ type OwnEntry = {
   submission_confirmed_at: Date | null;
   /** v2.8 Ruling 1 (plan): set once the builder passed the confirmation step (confirm_entry). */
   confirm_choice: 'go' | 'skip' | null;
+  /** v2.8 Ruling C9 fix: the entry's own wallet, which the confirmation offer shows. */
+  creator_wallet: string | null;
 };
 
 /**
@@ -479,7 +481,8 @@ async function ownEntry(
   const [row] = await q<OwnEntry[]>`
     SELECT id, token_url,
       (coin_address IS NOT NULL OR token_status IN ('launched', 'pending')) AS earnkit_coin,
-      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at, confirm_choice
+      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at, confirm_choice,
+      creator_wallet
     FROM projects
     WHERE program_id = ${k.programId} AND installation_id = ${k.installationId} AND payout_wallet IS NULL
       AND ${key ? q`bonus_repo_key = ${key}` : q`repo_url IS NULL AND lower(name) = lower(${k.name})`}
@@ -888,15 +891,31 @@ export async function recordSubmission(
 }
 
 /**
+ * v2.8 Task 8 fix round 1 (item 1): the wallet stored on this installation's entry of the project
+ * (ownEntry's rule), or null. The confirmation offer shows it, since a "go" without a wallet
+ * launches to it; so the wallet shown and the wallet used are the same.
+ */
+export async function ownEntryWallet(k: { programId: string; installationId: number; repoUrl: string | null; name: string }) {
+  if (!k.repoUrl && !k.name.trim()) return null;
+  return (await ownEntry(sql(), k))?.creator_wallet ?? null;
+}
+
+/**
  * v2.8 Ruling 1 (plan): the entry at the confirmation step (confirm_entry). Finds this
  * installation's entry of the project in the program through the same rule as recordSubmission
  * (ownEntry: same normalized repo, or the same name without a repo), or inserts it (charged against
- * recordSubmission's 20 a day through `charge`, only then). The latest answers are stored, so a later
- * launch_token reads them. `complete_at` is set once (completeAt's rule, COALESCE in SQL).
+ * recordSubmission's 20 a day through `charge`, only then). `complete_at` is set once (completeAt's
+ * rule, COALESCE in SQL). No `submissions` row is written: a confirmed entry counts as submitted
+ * (on the public board too, Ruling C10) only once record_submission records it or it is proven.
  *
- * The choice (Ruling 3 (plan), Task 7's carry): "skip" never lands on a row that has a token (it
- * stays "go"), so an eligible entry can never drop out of a round; once the entry is submitted
- * (`submission_confirmed_at`) the choice is locked, except that a row from before v2.8 gets one.
+ * The choice (Ruling 3 (plan), Task 7's carry): "skip" never lands on a row that has an EarnKit
+ * token or claim (it stays "go"), so an eligible entry can never drop out of a round; once the entry
+ * is submitted (`submission_confirmed_at`) or proven (`submission_proof_ok_at`) the choice is locked,
+ * except that a row from before v2.8 gets one.
+ *
+ * Fix round 1 (item 2): a token link the builder typed (an older entry) is not EarnKit's token. It
+ * is never returned as `token_url`, and a "go" clears it so EarnKit's token can launch (one per repo
+ * still holds at the claim).
  */
 export async function startEntry(a: {
   program: ProgramRow;
@@ -916,17 +935,26 @@ export async function startEntry(a: {
   return sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
     const own = await ownEntry(tx, key);
+    // An EarnKit token or claim on the row (N1), never a token link the builder typed; and whether
+    // the entry is submitted or proven (the choice is then locked). Fresh fragments per use.
+    const earnkit = () => tx`(coin_address IS NOT NULL OR COALESCE(token_status IN ('launched', 'pending'), false))`;
+    const locked = () => tx`(submission_confirmed_at IS NOT NULL OR submission_proof_ok_at IS NOT NULL)`;
     let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip' };
     if (own) {
       [row] = await tx<typeof row[]>`
         UPDATE projects SET
           confirmed_at = COALESCE(confirmed_at, ${now}),
           confirm_choice = CASE
-            WHEN ${choice} = 'skip' AND (token_url IS NOT NULL OR coin_address IS NOT NULL) THEN 'go'
-            WHEN confirm_choice IS NULL OR submission_confirmed_at IS NULL THEN ${choice}
+            WHEN ${choice} = 'skip' AND ${earnkit()} THEN 'go'
+            WHEN confirm_choice IS NULL OR NOT ${locked()} THEN ${choice}
             ELSE confirm_choice END,
+          token_url = CASE
+            WHEN ${choice} = 'go' AND token_url IS NOT NULL AND NOT ${earnkit()}
+              AND NOT (confirm_choice IS NOT DISTINCT FROM 'skip' AND ${locked()}) THEN NULL
+            ELSE token_url END,
           complete_at = COALESCE(complete_at, ${completeNow})
-        WHERE id = ${own.id} RETURNING id, token_url, confirm_choice`;
+        WHERE id = ${own.id}
+        RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice`;
     } else {
       await a.charge?.();
       [row] = await tx<typeof row[]>`
@@ -942,9 +970,8 @@ export async function startEntry(a: {
           confirmed_at: now,
           confirm_choice: choice,
           complete_at: completeNow,
-        })} RETURNING id, token_url, confirm_choice`;
+        })} RETURNING id, NULL::text AS token_url, confirm_choice`;
     }
-    await tx`INSERT INTO submissions ${tx({ project_id: row.id, submission_data: tx.json(answers as never), external_submission_url: null })}`;
     return { id: row.id, created: !own, token_url: row.token_url, confirm_choice: row.confirm_choice };
   });
 }

@@ -219,6 +219,10 @@ export async function bonusBoard(roundKey: string, now = new Date()): Promise<Bo
         SELECT rank, score FROM bonus_scores b
         WHERE b.round_key = ${r.round_key} AND b.project_id = p.id ORDER BY b.day DESC LIMIT 1) s ON true
       WHERE p.program_id = ${r.program_id} AND p.submitted_at < ${r.ends_at}
+        -- v2.8 Ruling C10: an entry confirmed at the confirmation step shows only once the builder
+        -- has submitted it (a recorded submission, their word, or a proof); never before.
+        AND (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
+          OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
       ORDER BY s.rank NULLS LAST, p.submitted_at, p.id
       LIMIT 500`;
     return { ...base, pool: ethText(BigInt(wei)), rows: openRows(entries), removed: 0 };

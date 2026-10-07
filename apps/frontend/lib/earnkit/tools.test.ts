@@ -982,7 +982,8 @@ test('8.5b Ruling 30: a remembered wallet is never used unless the agent passes 
     const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
     assert.equal(t.calls.deploy, 0);
     assert.ok(!('kit' in r));
-    assert.equal(r.show_to_builder, 'Wallet for fees and any bonus: 0x1581…b9a3 (used last time), or tell me another.');
+    assert.equal(r.show_to_builder, 'Use 0x1581…b9a3 for fees and any bonus, or tell me another?');
+    assert.match(r.agent_note ?? '', /^Pass shown_wallet as wallet once the builder confirms it\./);
     assert.equal(r.shown_wallet, W8);
     const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: r.shown_wallet }, t.ctx)) as Confirmed;
     assert.equal(ok.token?.status, 'launched');
@@ -1088,3 +1089,65 @@ test('8.12: list_programs closes with the token line and never says "optional"',
     if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
   }
 });
+
+// ---- Task 8 fix round 1.
+test('fix 1: the entry\'s own wallet is the one shown and the one used; the remembered one never', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('ownwallet', { remembered: W8 });
+    const A = '0x' + 'a'.repeat(39) + '9';
+    // An earlier attempt (or a v2.7 record) left wallet A on this entry; the remembered wallet is B (W8).
+    await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+    const prep = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string; shown_wallet?: string };
+    assert.equal(prep.shown_wallet, A);
+    assert.ok(prep.show_to_builder.includes('Wallet for fees and any bonus: 0xaaaa…aaa9 (used last time), or tell me another.'), prep.show_to_builder);
+    const offer = (await tools.confirm_entry(t.input, t.ctx)) as Confirmed;
+    assert.equal(offer.shown_wallet, A);
+    assert.match(offer.show_to_builder, /0xaaaa…aaa9/);
+    assert.doesNotMatch(offer.show_to_builder, /0x1581/);
+    // "go" without echoing: the launch uses the wallet shown (A), never the remembered one.
+    const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
+    assert.equal(r.token?.status, 'launched');
+    assert.deepEqual(t.calls.wallets, [A]);
+  }));
+
+test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launches EarnKit's, and never claims theirs", dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('typed');
+    await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, token_url)
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, 'https://mytoken.example/tip')`;
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(t.calls.deploy, 1);
+    assert.equal(r.token?.status, 'launched');
+    assert.ok(r.show_to_builder.startsWith('Your token: tokens.fun/coin/0x'), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /mytoken/);
+    assert.equal((await t.rows()).length, 1, 'the same entry');
+    // "skip" on such an entry is a real skip (the typed link is not a token that holds the choice).
+    const s = await confirmSetup('typedskip');
+    await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, token_url)
+      VALUES (${s.p.id}, 'Tip Jar', ${s.repo}, 'https://tipjar.example', ${s.inst}, ${s.repo.replace('https://', '')}, 'https://mytoken.example/tip')`;
+    const k = (await tools.confirm_entry({ ...s.input, builder_confirmed: true, decision: 'skip' }, s.ctx)) as Confirmed;
+    assert.ok(k.show_to_builder.startsWith('No token, no builder bonus.'), k.show_to_builder);
+    assert.equal((await s.rows())[0].confirm_choice, 'skip');
+    assert.equal(s.calls.deploy, 0);
+  }));
+
+test('fix 3 (C9): an incomplete entry still gets its token on "go"; the kit names what is missing first and marks blanks', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('incomplete');
+    const r = (await tools.confirm_entry({ ...t.input, answers: { description: 'Tips' }, ...go, wallet: W8 }, t.ctx)) as Confirmed & {
+      kit: { missing: string[]; fields: { key: string; answer: string; missing?: true }[]; show_to_builder: string };
+    };
+    assert.equal(r.token?.status, 'launched', 'goal 2: the token launches');
+    assert.equal(r.kit.missing.length, 1);
+    const kitText = r.kit.show_to_builder;
+    assert.ok(kitText.startsWith(`Before you submit: ${r.kit.missing[0]}.\n\nFor `), kitText);
+    assert.ok(kitText.includes('Public builder profile\n(still needed)'), kitText);
+    assert.ok(r.kit.fields.some((f) => f.key === 'builder_profile' && f.missing === true && f.answer === ''));
+    assert.equal((await t.rows())[0].complete_at, null, 'not complete, so not bonus-eligible yet');
+    // An answer given but not valid is a blank too, flagged to check.
+    const bad = (await tools.confirm_entry({ ...t.input, answers: { description: 'Tips', builder_profile: 'not a link' }, ...go, wallet: W8 }, t.ctx)) as typeof r;
+    assert.ok(bad.kit.show_to_builder.startsWith('Before you submit: '), bad.kit.show_to_builder);
+    assert.match(bad.kit.missing[0], /\(check it\)$/);
+    assert.doesNotMatch(bad.kit.show_to_builder, /not a link/);
+  }));

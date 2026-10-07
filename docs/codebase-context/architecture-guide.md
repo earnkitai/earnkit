@@ -1668,19 +1668,31 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
 - **The entry row** is created at confirmation (`projects.ts startEntry`, Ruling 1): found or
   inserted through `ownEntry` under the same advisory lock as `recordSubmission`, charged against
   the 20 a day only when inserted, `confirmed_at` set once, `complete_at` set once (completeAt's
-  rule), the answers stored as a `submissions` row (launch_token's `entryMissing` reads them).
+  rule). No `submissions` row is written at confirmation: only record_submission writes one.
   `confirm_choice`: "skip" never lands on a row that has a token (it stays `go`), and once the
   entry is submitted (`submission_confirmed_at`) the choice is locked; so an eligible entry can
-  never drop out of a round.
-- **Money safety:** the token's wallet is only `wallet` from this call (the agent echoes
-  `shown_wallet`) or the entry's own; a remembered wallet is never used unseen (no wallet passed
-  but one remembered: the reply re-shows it on the wallet line, no launch). A typo'd wallet
+  never drop out of a round. The choice is locked once the entry is submitted or proven
+  (`submission_confirmed_at` or `submission_proof_ok_at`), and the deploy claim (`tokens.ts
+  deployToken`) refuses a row confirmed with "skip".
+- **A token link the builder typed** (an older entry's `token_url` with no EarnKit coin or claim)
+  is never reported as EarnKit's token. A "go" clears it so EarnKit's token can launch (one token
+  per repo still holds at the claim).
+- **Money safety (Ruling C9 fix round):** the offer shows the entry's own stored wallet first
+  (`projects.ts ownEntryWallet`), then the remembered one, and returns it as `shown_wallet`. The
+  token's wallet is only `wallet` from this call or the entry's own (the one shown); a remembered
+  wallet is never used unseen (no wallet passed but one remembered: the reply asks "Use 0xab12…0123
+  for fees and any bonus, or tell me another?", no launch). A typo'd wallet
   errors before anything is written. The ticker is re-checked right before deploy, one token per
   repo holds (the claim), and a second "go" on an entry with a token launches nothing.
 - **The kit** (`submit-kit.ts submitKit`): Task 8 builds `copy_paste` only (every answer that
-  `prepareSubmission` fills, in form order, with the form's labels); `proof` is `entry_link` for
+  `prepareSubmission` fills, in form order, with the form's labels). Ruling C9: an incomplete entry
+  still gets its token on "go" (eligibility waits for `complete_at`); the kit opens with "Before you
+  submit: …" and every missing or invalid required answer is a "(still needed)" blank, never
+  dropped. `prepare_submission`'s `complete` no longer carries the values; `proof` is `entry_link` for
   DoraHacks, ETHGlobal, Devfolio, Colosseum, Akindo, TAIKAI and Karma, else `confirmation`
   (Ruling 28). Task 10 adds the other modes.
+- **The public bonus board** (Ruling C10, `bonus-board.ts`) lists a confirmed entry only once it
+  is submitted: a recorded submission (a `submissions` row), the builder's word, or a proof.
 - **record_submission** on a confirmed row updates it (answers, proof, `builder_submitted`) and
   reports the row's token; it never runs a token flow. An older agent's entry that never passed
   confirm_entry keeps the v2.7 token path.

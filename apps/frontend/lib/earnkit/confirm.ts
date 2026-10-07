@@ -36,6 +36,16 @@ export function offerWalletLine(a: { wallet: string | null; remembered: boolean;
     : `Wallet for ${what}: none yet. ${NO_WALLET_HINT}`;
 }
 
+/**
+ * Review Minor 5: after a "yes" that came without the wallet it showed, the question about the
+ * wallet shown (short), so the builder confirms it in one word. Pure.
+ */
+export const walletQuestion = (wallet: string, hasBonus: boolean) =>
+  `Use ${shortWallet(wallet.toLowerCase())} for ${hasBonus ? 'fees and any bonus' : 'fees'}, or tell me another?`;
+
+/** Review Minor 8: confirm_entry's builder line when a fixable problem has no note. */
+export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
+
 /** The confirmation offer the builder answers with one word. Pure. */
 export function confirmOffer(a: OfferInput): string {
   if (a.coinIn) return `${bonusCountsIn(a.coinIn)}\n${READY_TO_SUBMIT}`;

@@ -46,3 +46,20 @@ test('Part E: the builder text starts with the program and ends with the proof a
   assert.doesNotMatch(t, /project_name|repo_url|record_submission|confirm_entry|\p{Extended_Pictographic}|—/u);
   assert.ok(submitKit(program('https://forms.gle/abc'), answers, { browser: false }).show_to_builder.endsWith(CONFIRMATION_ASK));
 });
+
+test('Ruling C9: a required answer missing is never dropped: listed first and a marked blank; optional ones are left out', () => {
+  const kit = submitKit(program('https://dorahacks.io/x'), { project_name: 'Tip Jar' }, { browser: false }, { problems: [] });
+  assert.deepEqual(kit.missing, ['a GitHub repo', 'what does it do']);
+  assert.deepEqual(
+    kit.fields.map((f) => [f.key, f.answer, f.missing ?? false]),
+    [['project_name', 'Tip Jar', false], ['repo_url', '', true], ['description', '', true]],
+  );
+  const t = kit.show_to_builder;
+  assert.ok(t.startsWith('Before you submit: a GitHub repo, what does it do.\n\nFor Arc Microgrants, paste each answer into the form:'), t);
+  assert.ok(t.includes('GitHub repo\n(still needed)') && t.includes('What does it do?\n(still needed)'));
+  assert.doesNotMatch(t, /Anything else/);
+  // A given but invalid answer is a blank, flagged to check.
+  const bad = submitKit(program('https://dorahacks.io/x'), answers, { browser: false }, { problems: ['repo_url'] });
+  assert.deepEqual(bad.missing, ['a GitHub repo (check it)']);
+  assert.doesNotMatch(bad.show_to_builder, /github\.com\/alice/);
+});

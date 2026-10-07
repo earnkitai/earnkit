@@ -27,7 +27,9 @@ import {
   NO_WALLET_HINT,
   READY_TO_SUBMIT,
   SKIP_LINE,
+  TOKEN_ERROR_CONFIRM,
   bonusCountsIn,
+  walletQuestion,
   confirmOffer,
   offerWalletLine,
 } from './confirm';
@@ -578,6 +580,20 @@ const confirmTexts: [string, string][] = [
   ['NEEDS_REPO', NEEDS_REPO],
   ['NO_TOKEN_HERE', NO_TOKEN_HERE],
   ['bonusCountsIn', bonusCountsIn('Arc Microgrants')],
+  ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
+  ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
+  ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],
+  [
+    'submitKit: missing answers (C9)',
+    submitKit(
+      { title: 'Arc Microgrants', submission_url: 'https://dorahacks.io/x', submission_requirements: [
+        { key: 'repo_url', label: 'Public repo', type: 'url', required: true, from: 'project' },
+        { key: 'x_handle', label: 'X handle', type: 'text', required: true, from: 'builder' },
+      ] },
+      { repo_url: 'https://github.com/alice/tipjar' },
+      { browser: false },
+    ).show_to_builder,
+  ],
   [
     'submitKit: copy_paste (entry link)',
     submitKit(

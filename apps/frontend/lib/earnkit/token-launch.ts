@@ -11,6 +11,7 @@ import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
 import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { TOKEN_ERROR_CONFIRM } from './confirm';
 import {
   COIN_FOOTNOTE,
   coinRow,
@@ -785,8 +786,6 @@ export async function confirmToken(
       : { status: 'failed', note: TOKEN_ERROR_CONFIRM, fixable: true };
   }
 }
-
-const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
 /**
  * v2.8 Ruling C7: the deploy window. A token launched by v2.7 code between the migration (which
