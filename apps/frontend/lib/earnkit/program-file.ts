@@ -308,6 +308,11 @@ export const ProgramFile = z
     chains: z.array(z.enum(CHAINS)),
     /** v2.8 Ruling 13 (plan): the program isn't tied to one chain, so it fits any repo. */
     any_chain: z.boolean().default(false),
+    /**
+     * v2.8 Ruling C5: the award is an investment in the company (an accelerator such as a16z
+     * speedrun), not a prize: the card reads "up to $1M investment", never "per winner".
+     */
+    investment: z.boolean().default(false),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /**

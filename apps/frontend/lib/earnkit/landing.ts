@@ -107,7 +107,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     const cell = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
-    const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null });
+    const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null, investment: c.investment === true });
     const prize = c.pool_line ?? each ?? prizeOf(c);
     return {
       id: c.id,

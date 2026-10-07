@@ -15,9 +15,13 @@ of `list_programs` on their own after `ends_at`.
 ## "Add this program to EarnKit: <url>"
 
 Only Base, Arc, Tempo, Monad, Robinhood Chain and Avalanche programs, plus programs not tied to
-one chain (`any_chain`, below). Never Optimism: no Optimism or OP Stack-only program is listed, and
+one chain (`any_chain`, below). Never Optimism. An Optimism program is one whose only chain is
+OP Mainnet, or one run by Optimism or the Optimism Collective (OP Atlas, Retro Funding, Superchain
+grants), or one whose source or submission page is on `optimism.io`. None is listed, and
 `programs:check` refuses a file whose `source_url` or `submission_url` is on `optimism.io` or any
-`*.optimism.io` host.
+`*.optimism.io` host. Base programs, and programs for Base or any other chain that happens to be
+built on the OP Stack, are not Optimism programs: never close them under this rule. A multi-chain
+program is never closed under it either.
 
 1. Read the official pages: overview, rules, FAQ, and the submission form itself.
 2. Write `programs/<slug>.json` using only facts the source supports. If something isn't
@@ -56,6 +60,9 @@ one chain (`any_chain`, below). Never Optimism: no Optimism or OP Stack-only pro
      skip re-reading the source, so update it whenever you re-check a program against its source.
    - `chains`: any of `base`, `arc`, `tempo`, `monad`, `robinhood`, `avalanche` a project must use
      (at least one).
+   - `investment` (optional): `true` when the award is an investment in the company (an
+     accelerator), not a prize or grant. The card then reads "up to $1M investment", never
+     "per winner".
    - `any_chain` (optional): `true` only when the program isn't tied to one chain (e.g. an
      accelerator that funds any startup). Then `chains` is `[]`, the program fits any repo (the
      chain and mainnet checks are skipped; existing work, the tag and the live link still apply),
@@ -126,8 +133,9 @@ one chain (`any_chain`, below). Never Optimism: no Optimism or OP Stack-only pro
 
 Once a week, for every active program:
 
-0. Skip and close (`"status": "closed"`) any Optimism or OP Stack-only program; never list a new
-   one.
+0. Skip and close (`"status": "closed"`) any Optimism program as defined above (only chain OP
+   Mainnet, or run by Optimism or the Optimism Collective); never list a new one. Never close a
+   Base or multi-chain program under this step.
 1. Re-read `source_url` and the focus source; update `focus` and `verified_at`.
 2. When a round's winners are announced, add it as the first `past_rounds` entry (newest first),
    following step 4 above (same sourcing rules, including the predecessor-round and

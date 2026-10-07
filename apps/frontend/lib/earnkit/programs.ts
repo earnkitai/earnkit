@@ -169,6 +169,8 @@ export type ProgramRow = {
   chains: Chain[];
   /** v2.8 Ruling 13 (plan): not tied to one chain (then `chains` is empty); fits any repo. */
   any_chain: boolean;
+  /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"), not a prize. */
+  investment: boolean;
   campaign: CampaignConfig | null;
   created_at: Date;
   /** When the program last became active (v2.4 §4); null while it never was. */
@@ -235,6 +237,7 @@ export async function listPrograms() {
       | 'winners_per_round'
       | 'chains'
       | 'any_chain'
+      | 'investment'
       | 'rules'
       | 'token_policy'
     > & {
@@ -247,7 +250,7 @@ export async function listPrograms() {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.any_chain, p.rules, p.token_policy,
+      p.chains, p.any_chain, p.investment, p.rules, p.token_policy,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -304,6 +307,7 @@ export function programCard(
     | 'logo'
     | 'chains'
     | 'any_chain'
+    | 'investment'
     | 'past_rounds'
     | 'focus'
     | 'best_bet'
@@ -364,6 +368,8 @@ export function programCard(
     chains: p.chains,
     // v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain").
     any_chain: p.any_chain,
+    // v2.8 Ruling C5: an investment, never "per winner".
+    investment: p.investment === true,
     // v2.7 §2, Ruling 12 (plan): campaigns (EarnKit or sponsor) have no difficulty.
     difficulty: p.campaign ? null : difficultyOf(p),
     // v2.8 Task 5 fix round 1: whether entries get a token at all (the first message's token line).
@@ -630,6 +636,7 @@ export async function upsertProgram(
       pool_source_url: p.pool_source_url ?? null,
       chains: p.chains,
       any_chain: p.any_chain ?? false,
+      investment: p.investment ?? false,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,

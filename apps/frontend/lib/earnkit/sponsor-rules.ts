@@ -377,6 +377,7 @@ export function sponsorProgramFile(a: {
     token_policy: d.token_policy ?? 'encouraged',
     chains: d.chains,
     any_chain: false,
+    investment: false,
     setup: ['a public GitHub repo', 'a host for a live link'],
     each_time: [],
     // A sponsor campaign has no program source to draw ideas or submission proof from.

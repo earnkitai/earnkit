@@ -75,9 +75,17 @@ export function poolLine(pool: number, s: PoolStatement, title: string): string 
  * amount in USDC, else "up to $5,000 per grant" / "up to $30,000 per winner". Null without a
  * per-winner amount. Pure.
  */
-export function eachLine(p: { title: string; reward: string; max_award_usd: number | null; min_award_usd: number | null }): string | null {
+export function eachLine(p: {
+  title: string;
+  reward: string;
+  max_award_usd: number | null;
+  min_award_usd: number | null;
+  investment?: boolean;
+}): string | null {
   const max = p.max_award_usd;
   if (!max) return null;
+  // v2.8 Ruling C5: an investment program reads "up to $1M investment", never "per winner".
+  if (p.investment) return `up to ${usdCompact(max)} investment`;
   const unit = isGrant(p.title) ? 'grant' : 'winner';
   if (p.min_award_usd && p.min_award_usd < max) return `${usdCompact(p.min_award_usd)}–${usdCompact(max)} per ${unit}`;
   if (amountStated(max, p.reward)?.usdc) return `${max.toLocaleString('en-US')} USDC per ${unit}`;

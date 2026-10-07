@@ -253,3 +253,14 @@ test('v2.8 Ruling 14: chain ids 43114 and 43113 are Avalanche mainnet and Fuji t
   assert.equal(hosts.avalanche?.mainnet, false);
   assert.equal(CHAIN_NAMES.avalanche, 'Avalanche');
 });
+
+test('v2.8 fix round 1: a testnet-only explorer host is not a mainnet signal; viem Avalanche names', () => {
+  const fuji = detectChains([{ path: 'README.md', text: 'see https://testnet.snowtrace.io/address/0x1' }]);
+  assert.deepEqual([fuji.avalanche?.mainnet, fuji.avalanche?.testnet], [false, true]);
+  const sepolia = detectChains([{ path: 'README.md', text: 'https://sepolia.basescan.org/tx/0x1' }]);
+  assert.deepEqual([sepolia.base?.mainnet, sepolia.base?.testnet], [false, true]);
+  const both = detectChains([{ path: 'a.ts', text: 'https://snowtrace.io and https://testnet.snowtrace.io' }]);
+  assert.deepEqual([both.avalanche?.mainnet, both.avalanche?.testnet], [true, true]);
+  const viem = detectChains([{ path: 'wagmi.ts', text: "import { avalanche, avalancheFuji } from 'viem/chains'" }]);
+  assert.deepEqual([viem.avalanche?.mainnet, viem.avalanche?.testnet], [true, true]);
+});

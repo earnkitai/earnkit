@@ -17,6 +17,7 @@
   "existing_work": "allowed",
   "chains": [],
   "any_chain": true,
+  "investment": true,
   "setup": [
     "start the application with your email"
   ],

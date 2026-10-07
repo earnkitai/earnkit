@@ -236,8 +236,9 @@ ok(
 );
 
 // v2.8 Ruling 13 (plan): any_chain is additive; an existing program (seeded before it) is chain-bound.
-const [v28Old] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
+const [v28Old] = await db<{ any_chain: boolean; investment: boolean }[]>`SELECT any_chain, investment FROM programs WHERE id = 'v25-migrate'`;
 ok(v28Old.any_chain === false, 'a v2.5 program gets any_chain = false from the v2.8 migration');
+ok(v28Old.investment === false, 'a v2.5 program gets investment = false from the v2.8 migration (Ruling C5)');
 await db.unsafe(now); // re-applying the schema keeps it (idempotent)
 const [v28Again] = await db<{ any_chain: boolean }[]>`SELECT any_chain FROM programs WHERE id = 'v25-migrate'`;
 ok(v28Again.any_chain === false, 'any_chain stays false when the schema is applied again');
