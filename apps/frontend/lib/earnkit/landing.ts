@@ -2,7 +2,7 @@ import { prizeOf } from './entry-text';
 import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, daysLeftText, NO_CELL, type Card } from './present';
-import { eachLine, poolTotalText } from './pool';
+import { eachLine, openFigure } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { readStats, type PublicStats } from './stats';
@@ -125,7 +125,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     };
   });
   return {
-    open_text: poolTotalText(kept.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false }))),
+    open_text: openFigure(kept),
     tiles,
     stats_line: statsLine(stats),
   };

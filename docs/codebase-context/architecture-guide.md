@@ -1459,7 +1459,7 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   start with the first entry" after a successful read, and no figure at all when the read failed
   (never a claim we didn't read); "See programs" → /programs), How it works (3 short steps), Backed by, the footer. The stats strip is gone. The
   header is "Docs" (docs.earnkit.com) and "Add to your agent" on every page, desktop and mobile;
-  "Follow on X" is in the footer only. The install modal carries "+ Builder bonus on every entry"
+  "Follow on X" is in the footer only. The install modal carries (v2.8 Task 5: now `<BonusPill size="sm" />`) "+ Builder bonus on every entry"
   under the steps; guide pages carry the bonus as a pill beside Difficulty ("+ Builder bonus ·
   new pool" or "+ 0.42 ETH bonus"), linking to the leaderboard.
 - **v2.8 Part A page order (Task 2):** the hero is the "Agents only" pill (Ruling C3), `HERO_TITLE` "Earn rewards for building",
@@ -1484,6 +1484,29 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (`Tile.days_left`, was `ends`), difficulty chip (`Tile.difficulty` is the level word only, never
   "(estimate)"; the guide keeps the full label) and `BonusPill` sm. No buttons on cards. The
   landing cache key is `landing-v28` (the Tile shape changed).
+- **v2.8 Part A install modal and agent text (Task 5, Rulings 18, 23, 24, 25, C1):**
+  `AddToAgent.tsx AGENTS` is Grok Bot (default), Claude Code, Cursor, Codex, Muse (C1 keeps Muse
+  last). Each tab has a 20px local `<img>` icon from `public/images/agents/` (sources in the comment
+  above `AGENTS`, each checked by `logoFileProblem` in `install.test.ts`), drawn one color per state
+  with CSS filters. The editor tab and "Other agents" are gone (the link box above the tabs serves
+  any other client). Claude Code: `claude mcp add --transport http --scope user earnkit
+  https://earnkit.com/mcp`, then "Then type /mcp, pick earnkit, approve."; Codex: `codex mcp add
+  earnkit --url https://earnkit.com/mcp`, then `codex mcp login earnkit`. The pill under the steps
+  is `<BonusPill size="sm" />`. `Compatibility.tsx` (unused) is deleted. The MCP route reads
+  `leaderboard.ts earnkitCampaignOpen()` (one query, memoized 10 minutes; a failed read logs
+  `[mcp] campaign check failed` and uses false) and passes it to `createMcpServer(ctx, {
+  campaignOpen })`: while false, `toolDescriptions(false)` drops the campaign sentences from
+  record_submission and prepare_submission, and `deployer_signature` keeps only its
+  external-contracts sentence. `prepare_submission` returns `how_to_submit`/`sign_to_enter` only for
+  an open campaign. `SERVER_INSTRUCTIONS`' first line no longer claims EarnKit runs campaigns. One
+  money figure: `pool.ts openFigure` (the pools sum with "+") feeds `landing.open_text`, the no-repo
+  first message ("$1.3M+ in prizes open right now.") and the with-repo hook ("EarnKit matches you to
+  $X in prizes you qualify for.", the matched programs' pools; "Your repos fit these open programs:"
+  without one). `openMoneyUsd` is left only for `/api/stats` `open_money_usd`. `bonusClose`'s head is
+  `TOKEN_LINE` ("Every entry gets a token: you earn 40% of its trading fees, and its fees fund the
+  builder bonus."), plus " <x> ETH so far."; with no bonus on screen it is "Every entry gets a token:
+  you earn 40% of its trading fees."; the campaign paragraph form keeps its wording. llms.txt and the
+  README list the same five clients, a token and builder bonus section, and no campaigns section.
 - **v2.8 Part A footer (Task 4, Ruling 22):** `app/components/common/Footer.tsx` is one rounded
   card (`rounded-[40px] bg-ek-navy-deep`, `md:rounded-[56px]`) holding the wordmark, `FOOTER_TAGLINE`
   "Earn rewards for building" (same text as `HERO_TITLE`), and a `grid grid-cols-2 md:grid-cols-4`

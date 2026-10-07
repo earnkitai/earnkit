@@ -16,7 +16,7 @@ import {
   notReadyTokenNote,
   walletLine,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, toolDescriptions } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { tools } from './tools';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
@@ -199,7 +199,8 @@ test('v2.6 §3 copy review: the alert fixtures actually produce lines (not a vac
 const noRepoNoGithub = presentFirstMessage(msg({ cards: [arc] }));
 const githubZeroRepos = presentFirstMessage(msg({ cards: [arc], repos: { checked: 0, fits: [] }, githubGiven: true }));
 const withRepos = presentFirstMessage(
-  msg({ cards: [base], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', 'looks eligible')] }] } }),
+  // v2.8 Ruling 24 (plan): the hook uses the matched programs' pools.
+  msg({ cards: [{ ...base, pool_usd: 10000 }], repos: { checked: 1, fits: [{ repo: 'tipjar', repo_url: null, verdicts: [v('base-builder-grants', 'likely', 'looks eligible')] }] } }),
 );
 const withAlerts = presentFirstMessage(msg({ alerts: alertLinesMoved, cards: [arc] }));
 const noneOfYourReposFit = presentFirstMessage(
@@ -501,6 +502,7 @@ const v271Texts: [string, string][] = [
   ['bonusClose (pooled)', bonusClose([bonusCard(6n * 10n ** 17n)])!],
   ['bonusClose (empty)', bonusClose([bonusCard(null)])!],
   ['bonusClose (others)', bonusClose([bonusCard(6n * 10n ** 17n)], true)!],
+  ['bonusClose (no bonus)', bonusClose([{ ...bonusCard(null), builder_bonus: false }])!],
 ];
 
 // ---- v2.7 §4 fix round 1 (Important #2): app/campaigns/[slug]/page.tsx's own human-facing text,
@@ -578,6 +580,8 @@ const agentFacing: [string, string][] = [
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
   ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
+  // v2.8 Ruling 23 (plan): the descriptions while no EarnKit campaign is open.
+  ...Object.entries(toolDescriptions(false)).map(([name, d]): [string, string] => [`toolDescriptions(false).${name}`, d]),
   ...noCoinYets.map((s, i): [string, string] => [`noCoinYet[${i}]`, s]),
   // v2.7 §4 fix round 1 (Important #1): every agent_note string, directly and harvested.
   ['NO_WALLET_AGENT', NO_WALLET_AGENT],
@@ -610,7 +614,7 @@ test('v2.7 fix round 1 (Important #1): no implied affiliation, except the carved
   // SERVER_INSTRUCTIONS is agent-only too, and says EarnKit's listed facts are "checked against
   // official sources" — EarnKit's own verification, not a claim that EarnKit is official to anyone.
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())].filter(
-    ([label]) => label !== 'TOOL_DESCRIPTIONS.sponsor_campaign' && label !== 'SERVER_INSTRUCTIONS',
+    ([label]) => !label.endsWith('.sponsor_campaign') && label !== 'SERVER_INSTRUCTIONS',
   );
   // Only the negated disclaimer ("isn't affiliated with or endorsed by", Ruling 14 (plan)) is
   // allowed, on the policy page and the /bonus board pages that carry the same sentence; the

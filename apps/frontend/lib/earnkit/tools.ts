@@ -412,8 +412,10 @@ export const tools = {
       show_to_builder,
       ...prep,
       ...(ask.note && { payout_wallet_note: ask.note }),
+      // v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for a campaign, and only while
+      // it is open (so never while no EarnKit campaign is open); other programs get their link.
       ...(program.campaign
-        ? {
+        ? open && {
             how_to_submit:
               'This is an EarnKit campaign: record_submission is the entry; there is no other site. ' +
               `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +

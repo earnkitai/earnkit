@@ -71,25 +71,37 @@ const LIST_PROGRAMS_DESCRIPTION =
   'them as local_repos with what you see (chains, mainnet, live link, last commit); never ask for ' +
   'a GitHub username first (github_user is optional). EarnKit remembers them for later calls. ' +
   'Returns show_to_builder: show it exactly as written, with no extra summary or advice. ' +
-  'It leads with "EarnKit matches you to $X in top prizes you qualify for" when their repos fit, ' +
-  'or "$X in top prizes is open right now" with ideas you can build when there is no repo. Every program shows ' +
-  'its difficulty; the builder bonus closes the message. ' +
+  'It leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
+  'or "$X in prizes open right now" with ideas you can build when there is no repo. Every program shows ' +
+  'its difficulty; the token and builder bonus line closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
   SAFETY_TEXT;
 
-const RECORD_SUBMISSION_DESCRIPTION =
-  'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
-  "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
-  "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). " +
+/**
+ * v2.8 Ruling 23 (plan): record_submission's description. Its campaign sentences show only while an
+ * EarnKit campaign is open.
+ */
+const recordSubmissionDescription = (campaignOpen: boolean) =>
+  (campaignOpen
+    ? 'Record the project on EarnKit. Other programs: call it only after the project was submitted on the ' +
+      "program's own site. EarnKit campaigns: this call is the entry (contracts, payout_wallet, and " +
+      "deployer_signature when you deployed from your own wallet; see prepare_submission's how_to_submit). "
+    : 'Record the project on EarnKit. Call it only after the project was submitted on the ' +
+      "program's own site. ") +
   'Pass the final answers that were submitted (all of them: the token launches only once every required item is there). ' +
-  "Other programs: first ask the builder plainly, e.g. \"Did you submit on <program site>?\" " +
+  `${campaignOpen ? 'Other programs: f' : 'F'}irst ask the builder plainly, e.g. "Did you submit on <program site>?" ` +
   'Pass builder_submitted: true once the builder confirms it is submitted; it counts for the builder bonus when the program has no public entry page, or its page blocks EarnKit. ' +
   `${TO_LAUNCH} ${OWNERSHIP_FOR_TOKEN} ` +
   'Returns project_id and token: { status: launched | skipped | gate_failed | pending | failed, note, agent_note? }. ' +
-  'Also returns show_to_builder (other programs: the token and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
-  `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
-  `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). ` +
+  (campaignOpen
+    ? 'Also returns show_to_builder (other programs: the token and the builder bonus with its leaderboard link; campaign entries: rank, leaderboard, payout date): '
+    : 'Also returns show_to_builder (the token and the builder bonus with its leaderboard link): ') +
+  'show show_to_builder exactly as written; token.note and token.agent_note are for you, to act on (never read tool, field or file names to the builder). ' +
+  (campaignOpen
+    ? `Campaign entries: name up to ${TEXT_LIMITS.project_name.max} characters on one line, description up to ` +
+      `${TEXT_LIMITS.project_description.max}, plain words (no links or markup). `
+    : '') +
   SAFETY_TEXT;
 
 const LAUNCH_TOKEN_DESCRIPTION =
@@ -113,13 +125,18 @@ const GET_PROGRAM_DESCRIPTION =
   'ecosystem wants, the best bet): show it as written. ' +
   SAFETY_TEXT;
 
-const PREPARE_SUBMISSION_DESCRIPTION =
+/** v2.8 Ruling 23 (plan): prepare_submission's description, its campaign words only while one is open. */
+const prepareSubmissionDescription = (campaignOpen: boolean) =>
   'Call when the builder wants to submit. Pass everything you know about the project and any ' +
   'answers to program questions (keyed by submission requirement key). Returns what is complete, ' +
   'what is missing, and the submission link. Draft project-based answers yourself and confirm ' +
   'them; ask the builder for personal info. Never invent names, emails, wallets, or handles. ' +
   "Call again with the new answers until ready is true, then submit on the program's site. " +
-  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. When ready, it has one Token row (a token on Base) and a wallet line (EarnKit campaigns: no wallet line): one yes confirms them, and the builder can skip the token in one word. Other programs: shown_wallet is the wallet on that line; once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
+  'Show show_to_builder to the builder exactly as written: it is the one confirmation, prize first. When ready is false, show_to_builder leads with what\'s missing and has no token or wallet: finish those first and call again. ' +
+  (campaignOpen
+    ? 'When ready, it has one Token row (a token on Base) and a wallet line (EarnKit campaigns: no wallet line): one yes confirms them, and the builder can skip the token in one word. Other programs: shown_wallet is the wallet on that line; '
+    : 'When ready, it has one Token row (a token on Base) and a wallet line: one yes confirms them, and the builder can skip the token in one word. shown_wallet is the wallet on that line; ') +
+  'once the builder says yes, pass it back as record_submission\'s payout_wallet (EarnKit never assumes it). ' +
   `${OWNERSHIP_FOR_TOKEN} ` +
   `In record_submission: ${TO_LAUNCH} ` +
   'If you can generate a square logo, pass it as token.image_data to record_submission; otherwise EarnKit draws one.';
@@ -153,19 +170,38 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
   'sponsor has not approved in this conversation. ' +
   SAFETY_TEXT;
 
-/** v2.6 §3 fix round 1 (M4): all six tool descriptions, agent-facing; exported for the copy-review test. */
-export const TOOL_DESCRIPTIONS = {
-  list_programs: LIST_PROGRAMS_DESCRIPTION,
-  get_program: GET_PROGRAM_DESCRIPTION,
-  prepare_submission: PREPARE_SUBMISSION_DESCRIPTION,
-  record_submission: RECORD_SUBMISSION_DESCRIPTION,
-  launch_token: LAUNCH_TOKEN_DESCRIPTION,
-  sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
-};
+/**
+ * v2.6 §3 fix round 1 (M4): all six tool descriptions, agent-facing. v2.8 Ruling 23 (plan): the
+ * campaign sentences in record_submission and prepare_submission only while an EarnKit campaign is
+ * open. Pure.
+ */
+export function toolDescriptions(campaignOpen: boolean) {
+  return {
+    list_programs: LIST_PROGRAMS_DESCRIPTION,
+    get_program: GET_PROGRAM_DESCRIPTION,
+    prepare_submission: prepareSubmissionDescription(campaignOpen),
+    record_submission: recordSubmissionDescription(campaignOpen),
+    launch_token: LAUNCH_TOKEN_DESCRIPTION,
+    sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
+  };
+}
+
+/** Every description with its campaign sentences; exported for the copy-review test. */
+export const TOOL_DESCRIPTIONS = toolDescriptions(true);
+
+/**
+ * v2.8 Ruling 23 (plan): deployer_signature's description. While no EarnKit campaign is open only
+ * its external-contracts sentence is kept (it serves the builder bonus's contract check).
+ */
+const ENTRY_LINE = '"EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase';
+const deployerSignatureDescription = (campaignOpen: boolean) =>
+  campaignOpen
+    ? `EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission's sign_to_enter (${ENTRY_LINE}). It binds this program, repo, payout wallet and contract set. Other programs: the same, for \`contracts\` deployed by a wallet other than payout_wallet.`
+    : `For \`contracts\` deployed by a wallet other than payout_wallet: that wallet's signature (personal_sign) of ${ENTRY_LINE}. It binds this program, repo, payout wallet and contract set.`;
 
 /** v2.7 §4: the MCP server's instructions, agent-facing; exported for the copy-review test. */
 export const SERVER_INSTRUCTIONS = [
-  'EarnKit lists live builder programs with rewards, checked against official sources, and runs its own campaigns with prizes it pays.',
+  'EarnKit finds live grants and hackathons a builder can win, helps them write strong applications, and gives every entry a token whose fees fund the builder bonus.',
   'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
   'When a reply has since_you_last_checked, show it to the builder first, as written.',
   'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
@@ -176,8 +212,12 @@ export const SERVER_INSTRUCTIONS = [
   ...SAFETY_LINES,
 ].join('\n');
 
-/** The EarnKit MCP server for one connected agent (installation). */
-export function createMcpServer(ctx: ToolContext) {
+/**
+ * The EarnKit MCP server for one connected agent (installation). `campaignOpen` (v2.8 Ruling 23
+ * (plan), default false): whether an EarnKit campaign is open, read by the route.
+ */
+export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean } = {}): McpServer {
+  const descriptions = toolDescriptions(opts.campaignOpen ?? false);
   const server = new McpServer(
     { name: 'earnkit', version: '1.0.0' },
     { instructions: SERVER_INSTRUCTIONS },
@@ -259,7 +299,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'prepare_submission',
     {
-      description: PREPARE_SUBMISSION_DESCRIPTION,
+      description: descriptions.prepare_submission,
       inputSchema: {
         program_id: z.string(),
         project: project.optional(),
@@ -276,7 +316,7 @@ export function createMcpServer(ctx: ToolContext) {
   server.registerTool(
     'record_submission',
     {
-      description: RECORD_SUBMISSION_DESCRIPTION,
+      description: descriptions.record_submission,
       inputSchema: {
         program_id: z.string(),
         project: project.extend({ name: z.string() }),
@@ -322,15 +362,14 @@ export function createMcpServer(ctx: ToolContext) {
         deployer_signature: z
           .string()
           .optional()
-          .describe(
-            'EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission\'s sign_to_enter ("EarnKit entry: <program_id> github.com/<owner>/<repo> <payout wallet> <contracts, sorted, comma-separated>", lowercase). It binds this program, repo, payout wallet and contract set. Other programs: the same, for `contracts` deployed by a wallet other than payout_wallet.',
-          ),
+          .describe(deployerSignatureDescription(opts.campaignOpen ?? false)),
         contracts: z
           .array(z.string())
           .max(5)
           .optional()
           .describe(
-            "Other programs (not EarnKit campaigns), optional: the project's Base contracts (up to 5). Their real users count toward the builder bonus once verified: deployed by payout_wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming payout_wallet. Unverified ones are dropped with a note; the submission never fails.",
+            `${opts.campaignOpen ? 'Other programs (not EarnKit campaigns), optional' : 'Optional'}: the project's Base contracts (up to 5).` +
+            " Their real users count toward the builder bonus once verified: deployed by payout_wallet (or by the wallet that signed deployer_signature), with earnkit.txt naming payout_wallet. Unverified ones are dropped with a note; the submission never fails.",
           ),
         payout_wallet: z
           .string()

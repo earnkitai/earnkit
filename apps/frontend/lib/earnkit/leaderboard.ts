@@ -345,3 +345,28 @@ export async function earnkitCampaignRows(installationId: number, now = new Date
     .map((p) => campaignRow(p, entries.filter((e) => e.program_id === p.id), mine, now))
     .sort((a, b) => b.prize_usd_each - a.prize_usd_each || a.ends_at.getTime() - b.ends_at.getTime());
 }
+
+/** How long earnkitCampaignOpen keeps its answer (v2.8 Ruling 23 (plan): one query per 10 minutes). */
+export const CAMPAIGN_OPEN_TTL_MS = 10 * 60 * 1000;
+let campaignOpenMemo: { at: number; open: boolean } | null = null;
+
+/**
+ * v2.8 Ruling 23 (plan): whether any EarnKit campaign is open now (active, not past its end), the
+ * same rule as earnkitCampaignRows' `open`. Memoized in the module for 10 minutes; a failed read
+ * rejects and is not memoized (the MCP route then uses false).
+ */
+export async function earnkitCampaignOpen(now = new Date()): Promise<boolean> {
+  if (campaignOpenMemo && now.getTime() - campaignOpenMemo.at < CAMPAIGN_OPEN_TTL_MS) return campaignOpenMemo.open;
+  const [row] = await sql()<{ open: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM programs
+      WHERE campaign->>'kind' = 'earnkit' AND status = 'active' AND ends_at IS NOT NULL AND ends_at > ${now}
+    ) AS open`;
+  campaignOpenMemo = { at: now.getTime(), open: row.open };
+  return row.open;
+}
+
+/** Test only: forget the memoized answer. */
+export function resetCampaignOpenMemo() {
+  campaignOpenMemo = null;
+}

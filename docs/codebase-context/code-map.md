@@ -51,7 +51,9 @@ apps/frontend/
   app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, the Open programs
                                "Ask your agent", the guide's AskAgent with "What can I earn on <program>?"); START_PROMPT;
-                               v2.7.1 BONUS_ENTRY_PILL "+ Builder bonus on every entry" under the steps
+                               v2.8 Task 5: AGENTS (Grok Bot, Claude Code, Cursor, Codex, Muse) with
+                               local icons in public/images/agents/ (sources in the comment),
+                               `after` approve lines, <BonusPill size="sm" /> under the steps
   app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
                                v2.8 ProgramCards: h2/h1, `figure` "open right now", one "Ask your agent",
@@ -312,7 +314,9 @@ apps/frontend/
                                authorize, code -> token, metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              MCP server: the 5 builder tools, plus sponsor_campaign only when the
+    mcp.ts(+test)              v2.8 Task 5: createMcpServer(ctx, { campaignOpen }) and
+                               toolDescriptions(campaignOpen) (campaign sentences only while one is open).
+                               MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas; v2.6:
                                OWNERSHIP_FOR_TOKEN (the agent writes and pushes `token: <code>`
                                itself), record_submission's builder_submitted (ask "Did you submit on
@@ -451,7 +455,8 @@ apps/frontend/
     campaign-score.ts(+test)   the scoring loop (scoreCampaignEntries): per-entry isolation
                                (score_error), oldest attempt first, deadline; storeScore
                                (entry_wallets, code_share, score_partial)
-    leaderboard.ts(+test)      data for the leaderboard and entry pages (incl. sponsor state and
+    leaderboard.ts(+test)      v2.8 Task 5: earnkitCampaignOpen() (one query, memoized 10 min).
+                               data for the leaderboard and entry pages (incl. sponsor state and
                                award_onchain), yourCampaignEntries, entryNames; v2.4:
                                earnkitCampaignRows, campaignRow, campaignCandidates, reviewRows,
                                payingCampaign, publicNote; the board's review and funds
@@ -569,7 +574,7 @@ apps/frontend/
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
-                               open_text = pool.ts poolTotalText ("$1.3M+"); stats_line = statsLine
+                               open_text = pool.ts openFigure ("$1.3M+", v2.8 Ruling 24); stats_line = statsLine
                                (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
                                bonusPoolsText (Win twice removed); cards sorted by byPool: pools first by size, then the rest by
                                max_award_usd, then deadline); readGuidePage adds the "prize pool" source
@@ -577,7 +582,8 @@ apps/frontend/
                                the DB is unreachable); GuidePage.has_bonus / bonus_amount;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
-    pool.ts(+test)             v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
+    pool.ts(+test)             v2.8 Ruling 24: openFigure, the one money figure (site and first message).
+                               v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
                                pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
                                poolLine (a card's big line), poolTotal/poolTotalText (the hero figure,
                                shared with stats.ts open_pools_usd/_plus; "+" when rounding drops value),
@@ -610,6 +616,9 @@ apps/frontend/
                                a bonusOn program; Board.ends_label (Ruling 29: entry-text.ts
                                roundEndLabel, shown by BoardView)
     public-pages.test.ts       markup tests of /policy, BoardView and the footer link
+    install.test.ts            v2.8 Task 5: the install tabs and order, the Claude Code and Codex
+                               commands, local icons (logoFileProblem), no editor tab in the modal,
+                               llms.txt, README, app/ or lib/, and llms.txt's token/bonus text
     footer-links.ts(+test)     v2.8 Ruling 22: FOOTER_COLUMNS (Product, Resources, Legal, Contact),
                                FOOTER_TAGLINE, EXTERNAL_ALLOW, footerLinkProblems (internal hrefs
                                against appRoutes, external hrefs against EXTERNAL_ALLOW, labels

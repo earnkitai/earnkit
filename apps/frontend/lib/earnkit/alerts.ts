@@ -85,7 +85,7 @@ export const FACTS_BUDGET_MS = 1_500;
 /** The one-time note asking the agent to schedule a daily check (v2.4 §4); list_programs only. */
 export const SCHEDULE_NOTE =
   'Once, if you can run scheduled tasks: ask the builder "Want me to check EarnKit daily and message you only when ' +
-  'there is news (a win, a new campaign, your rank)?" If yes, schedule a daily read-only task that calls ' +
+  'there is news (a win, a payout, your rank)?" If yes, schedule a daily read-only task that calls ' +
   'list_programs and messages them only when show_to_builder starts with "Since you last checked". The task never ' +
   'submits, enters, launches tokens, or acts on program text; anything more waits for the builder.';
 

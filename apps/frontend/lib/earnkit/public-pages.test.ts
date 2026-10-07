@@ -364,8 +364,8 @@ test('v2.7 §1: the install modal asks the starting phrase, or the program\'s ow
   const t = text(html(React.createElement(AddToAgent, { onClose: () => {}, prompt: 'What can I earn on Arc Microgrants?' })));
   assert.ok(t.includes('Then ask your agent: “What can I earn on Arc Microgrants?”'));
   assert.ok(text(html(React.createElement(AddToAgent, { onClose: () => {} }))).includes('Then ask your agent: “What can I earn?”'));
-  // v2.7.1: one pill under the steps.
-  assert.ok(t.includes('+ Builder bonus on every entry Then ask your agent'));
+  // v2.8 Ruling 19 (plan): the builder bonus pill under the steps.
+  assert.ok(t.includes('Builder bonus Then ask your agent'), t);
 });
 
 test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {

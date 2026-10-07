@@ -16,6 +16,7 @@ import {
   presentFirstMessage,
   programUpdates,
   table,
+  TOKEN_LINE,
   youCould,
   type Card,
   type CampaignRow,
@@ -48,11 +49,12 @@ const base: Card = {
 const arc: Card = {
   id: 'arc-microgrants', title: 'Arc Microgrants', summary: '500 USDC × 20 grants · closes Oct 14, 11:59 PM ET',
   tag: null, each_time: [], ends_at: new Date('2026-10-15T03:59:00Z'), max_award_usd: 500, builder_fields: 1,
-  submission_proof: { host: 'dorahacks.io' },
+  submission_proof: { host: 'dorahacks.io' }, pool_usd: 10000,
 };
 const monad: Card = {
   id: 'monad-metropolis', title: 'Monad Metropolis Hackathon', summary: '$250K+ prize pool · closes Oct 13, 11:59 PM ET',
   tag: 'long shot', each_time: [], ends_at: new Date('2026-10-14T03:59:00Z'), builder_fields: 0,
+  pool_usd: 250000, pool_plus: true,
 };
 const circle: Card = {
   id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling',
@@ -90,8 +92,8 @@ const noEmoji = (s: string) => assert.doesNotMatch(s, /\p{Extended_Pictographic}
 /** Sets a card's open-round bonus pool, in ETH. */
 const pool = (c: Card, eth: number) => ({ ...c, bonus_pool_wei: BigInt(Math.round(eth * 100)) * 10n ** 16n });
 const WEI = (eth: string) => BigInt(Math.round(Number(eth) * 1e6)) * 10n ** 12n;
-/** The empty-pool tail of the bonus close sentence (v2.7 §3). */
-const NO_POOL_YET = 'Plus the builder bonus: the top 10 on each program also get paid in ETH.';
+/** The empty-pool tail of the close: v2.8 Ruling 25 (plan)'s token line alone. */
+const NO_POOL_YET = 'Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus.';
 /** Fix round 1, Minor 3: escape once for reuse inside `new RegExp(...)`, instead of inline each time. */
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NO_POOL_RE = esc(NO_POOL_YET);
@@ -107,9 +109,9 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
   }));
   assert.equal(text, [
     'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
-    'EarnKit matches you to $5,500 in top prizes you qualify for.',
+    'EarnKit matches you to $10K+ in prizes you qualify for.',
     '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 | tipjar |',
-    'Want me to start on Arc Microgrants with tipjar? Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.42 ETH so far.',
+    'Want me to start on Arc Microgrants with tipjar? Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.42 ETH so far.',
   ].join('\n\n'));
   noEmoji(text);
 });
@@ -125,7 +127,7 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
     ],
   }));
   assert.equal(text, [
-    '$5,550 in top prizes is open right now. I can build an entry for you.',
+    '$260K+ in prizes open right now.',
     '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13 |',
     "Ideas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea one\n- Arc Microgrants: Arc idea two\n- Tiny Bounty: Tiny idea one\n- Tiny Bounty: Tiny idea two",
     `Pick one and I'll start. ${NO_POOL_YET}`,
@@ -133,13 +135,13 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
   noEmoji(text);
   // A GitHub user with no repos counts as no repo.
   const none = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] } }));
-  assert.match(none, /^\$500 in top prizes is open right now\. I can build an entry for you\.\n\n/);
+  assert.match(none, /^\$10K in prizes open right now\.\n\n/);
   assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\nPick one and I'll start\\. ${NO_POOL_RE}$`));
   assert.doesNotMatch(none, /None of your/);
   // Honest offer rules still win: keep going, and chat-only agents.
   assert.match(
     presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['x'] }], workingOn: ['arc-microgrants'] })),
-    /Want me to keep going on Arc Microgrants\? Plus the builder bonus:/,
+    /Want me to keep going on Arc Microgrants\? Every entry gets a token:/,
   );
   assert.match(presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['x'] }], agentCanBuild: false })), /can't build or deploy from here/);
 });
@@ -149,12 +151,12 @@ test('v2.5 §1 golden (c): a program without a per-winner amount is not counted 
     cards: [arc, monad],
     repos: repos(v('arc-microgrants', 'likely', 'looks eligible'), v('monad-metropolis', 'likely', 'looks eligible')),
   }));
-  assert.match(text, /^EarnKit matches you to \$500 in top prizes you qualify for\.\n\n/);
+  assert.match(text, /^EarnKit matches you to \$260K\+ in prizes you qualify for\.\n\n/);
   assert.match(text, /\| Monad Metropolis Hackathon \| \$250K\+ prize pool \|  \| Oct 13 \| tipjar \|/);
   assert.equal(openMoneyUsd([arc, monad, arc]), 500);
   assert.equal(openMoneyUsd([monad]), 0);
   // Nothing countable: no "$0" line.
-  const unknown = presentFirstMessage(msg({ cards: [monad], repos: repos(v('monad-metropolis', 'likely', 'looks eligible')) }));
+  const unknown = presentFirstMessage(msg({ cards: [circle], repos: repos(v('circle-developer-grants', 'likely', 'looks eligible')) }));
   assert.match(unknown, /^Your repos fit these open programs:\n\n\| Program \| Prize \| Difficulty \| Ends \| Your repo \|/);
   assert.doesNotMatch(unknown, /\$0/);
 });
@@ -190,13 +192,13 @@ test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could w
   }));
   // $X = every open curated program's per-winner prize, not only the 5 shown: 5000+500+50 (+0 for
   // programs without a stated amount).
-  assert.equal(text.split('\n\n')[0], '$5,550 in top prizes is open right now. I can build an entry for you.');
+  assert.equal(text.split('\n\n')[0], '$260K+ in prizes open right now.');
   assert.match(text, /\| Program \| You could win \| Difficulty \| Ends \|/);
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14 \|/);
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
   assert.match(text, /\nIdeas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea\n/);
   // v2.7 §3: the builder bonus closes the message instead of a per-row column or a note.
-  assert.ok(text.endsWith("Pick one and I'll start. Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.18 ETH so far."));
+  assert.ok(text.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.18 ETH so far."));
   assert.doesNotMatch(text, /qualify/);
   noEmoji(text);
 });
@@ -207,14 +209,14 @@ test('v2.6 §1: with repos, the brand hook keeps "qualify"', () => {
     repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', '')),
     githubGiven: true,
   }));
-  assert.equal(text.split('\n\n')[0], 'EarnKit matches you to $5,500 in top prizes you qualify for.');
+  assert.equal(text.split('\n\n')[0], 'EarnKit matches you to $10K+ in prizes you qualify for.');
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \| tipjar \|/);
   assert.doesNotMatch(text, /You could/);
 });
 
 test('Ruling 11 (plan): a GitHub user with no repos found never gets "You could"', () => {
   const text = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] }, githubGiven: true }));
-  assert.match(text, /^\$500 in top prizes is open right now\. I can build an entry for you\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
+  assert.match(text, /^\$10K in prizes open right now\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
   assert.doesNotMatch(text, /could/i);
   assert.equal(youCould(null, false), true);
   assert.equal(youCould(null, true), false);
@@ -224,10 +226,10 @@ test('Ruling 11 (plan): a GitHub user with no repos found never gets "You could"
 
 test('fix round 1, finding 1: "You could" with no ideas still closes with "Pick one and I\'ll start.", never "qualify"', () => {
   const text = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: WEI('0.42') }] }));
-  assert.match(text, /^\$500 in top prizes is open right now\. I can build an entry for you\.\n\n/);
+  assert.match(text, /^\$10K in prizes open right now\.\n\n/);
   // No ideas on this card (arc carries none here), so the old code fell through to "Want me to
   // check which of your repos already qualify?" — there's nothing to check with repos === null.
-  assert.ok(text.endsWith("Pick one and I'll start. Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.42 ETH so far."), text);
+  assert.ok(text.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.42 ETH so far."), text);
   assert.doesNotMatch(text, /qualify/);
 });
 
@@ -236,7 +238,7 @@ test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos fo
     cards: [{ ...arc, ideas: ['Arc idea'] }],
     repos: { error: 'GitHub said no' },
   }));
-  assert.match(text, /^Couldn't read your repos: GitHub said no\n\n\$500 in top prizes is open right now\. I can build an entry for you\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
+  assert.match(text, /^Couldn't read your repos: GitHub said no\n\n\$10K in prizes open right now\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
   assert.match(text, /\nIdeas I can build:\n- Arc Microgrants: Arc idea\n/);
   assert.ok(text.endsWith(`Pick one and I'll start. ${NO_POOL_YET}`));
   assert.doesNotMatch(text, /You could/);
@@ -248,16 +250,17 @@ test('v2.6 §1: an opted-out program has no bonus sentence when every shown prog
   assert.match(text, /\| Tiny Bounty \| 50 USDC \|  \| Oct 9 \|/);
   assert.doesNotMatch(text, /builder bonus/i);
   // fix round 1, finding 1: no ideas here either; still "Pick one", never "check your repos".
-  assert.ok(text.endsWith("Pick one and I'll start."), text);
+  // v2.8 Ruling 25 (plan): the token line without the bonus.
+  assert.ok(text.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees."), text);
 });
 
 test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sentence, and the chat-only offer', () => {
   const text = presentFirstMessage(msg({ cards: [base, arc, tiny], agentCanBuild: false }));
-  assert.match(text, /^\$5,550 in top prizes is open right now\.\n\n/);
+  assert.match(text, /^\$10K\+ in prizes open right now\.\n\n/);
   assert.doesNotMatch(text, /I can build an entry for you/);
   assert.match(text, /can't build or deploy from here/);
   // Ruling 10 (plan): the chat-only text takes the bonus sentence too, joined on the same line.
-  assert.match(text, /can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\. Plus the builder bonus:/);
+  assert.match(text, /can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\. Every entry gets a token:/);
 });
 
 test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
@@ -290,7 +293,7 @@ test('v2.5: no open EarnKit campaign, no campaign table (Campaign #1 is closed)'
   // Open: still shown, after the open money, and still offered first. The campaign offer (never
   // earning the bonus) stays the last line even though a bonus program (Arc) is on screen.
   const open = presentFirstMessage(msg({ campaigns: [campaign], cards: [arc], repos: repos(v('arc-microgrants', 'likely', 'ok')) }));
-  assert.match(open, /^EarnKit matches you to \$500 in top prizes you qualify for\.[\s\S]*\| Win \| Prize \| Ends \| You \|/);
+  assert.match(open, /^EarnKit matches you to \$10K in prizes you qualify for\.[\s\S]*\| Win \| Prize \| Ends \| You \|/);
   assert.match(open, /Want me to build your entry for the \$100\?$/);
   assert.match(open, /Plus the builder bonus on the other open programs: the top 10 on each also get paid in ETH\./);
 });
@@ -302,7 +305,7 @@ test('golden: an entered builder, a fit that needs a step, other programs (at mo
     repos: repos(v('arc-microgrants', 'after_step', 'needs a live link', 'minutes'), v('sponsor-abc', 'likely', 'looks eligible')),
   }));
   assert.equal(text, [
-    'EarnKit matches you to $500 in top prizes you qualify for.',
+    'EarnKit matches you to $10K in prizes you qualify for.',
     '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 | tipjar, needs a live link |',
     '| Win | Prize | Ends | You |\n|---|---|---|---|\n| EarnKit Campaign #1: Base apps with real users | $100 each to top 5 (in MINI) | Oct 18, 14 days left | #3, in the top 5 |',
     "Also open:\n\n| Program | Prize | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks |  | Oct 12 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13 |\n| Circle Developer Grants | milestone-based USDC grants |  | rolling |",
@@ -317,7 +320,7 @@ test('other programs are capped at 5 rows, with one line for the rest', () => {
   const text = presentFirstMessage(msg({ cards: more }));
   assert.equal((text.match(/^\| Bounty /gm) ?? []).length, 5);
   assert.match(text, /\n\n2 more open: ask me for the full list\.\n\n/);
-  assert.match(text, /^\$350 in top prizes is open right now\. I can build an entry for you\.\n\n/);
+  assert.match(text, /^These programs are open right now\.\n\n/);
 });
 
 test('Fastest: prize per hour of effort; programs needing videos or forms never go first', () => {
@@ -343,8 +346,9 @@ test('one offer: keep going beats the campaign; a sponsor campaign is never offe
   const sponsorOnly = presentFirstMessage(msg({ cards: [sponsored], repos: repos(v('sponsor-abc', 'likely', 'looks eligible')) }));
   assert.doesNotMatch(sponsorOnly, /Your repos/);
   assert.match(sponsorOnly, /None of your 1 repo fits an open program yet\./);
-  // Sponsored cards never earn the bonus and never show on screen, so there's nothing to close with.
-  assert.ok(sponsorOnly.endsWith("Pick one and I'll start."));
+  // Sponsored cards never earn the bonus and never show on screen: v2.8 Ruling 25 (plan)'s token
+  // line without the bonus.
+  assert.ok(sponsorOnly.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees."), sponsorOnly);
 });
 
 test('chat-only agents are told honestly; repo errors in one line; nothing open', () => {
@@ -550,13 +554,13 @@ test('Ruling 11 (plan): "top 10" is the payout split length', () => {
 
 test('v2.7 §3: the bonus closes the message, joined to the offer', () => {
   const withRepo = presentFirstMessage(msg({ cards: [pool(base, 0.6)], repos: fit('tipjar', 'base-builder-grants') }));
-  assert.ok(withRepo.endsWith('Want me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you. Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.60 ETH so far.'));
+  assert.ok(withRepo.endsWith('Want me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.60 ETH so far.'));
   const noRepo = presentFirstMessage(msg({ cards: [pool(arc, 0.42), pool(base, 0.18)] }));
-  assert.ok(noRepo.endsWith("Pick one and I'll start. Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.60 ETH so far."));
+  assert.ok(noRepo.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.60 ETH so far."));
   const empty = presentFirstMessage(msg({ cards: [arc] }));
-  assert.ok(empty.endsWith('Plus the builder bonus: the top 10 on each program also get paid in ETH.'));
+  assert.ok(empty.endsWith('Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus.'));
   const tiny = presentFirstMessage(msg({ cards: [{ ...arc, bonus_pool_wei: 10n ** 15n }] }));
-  assert.ok(tiny.endsWith("also get paid in ETH. Under 0.01 ETH so far."), tiny);
+  assert.ok(tiny.endsWith("fund the builder bonus. Under 0.01 ETH so far."), tiny);
 });
 
 test('Review Focus 4: no bonus on screen, no sentence; a campaign offer stays last', () => {
@@ -577,4 +581,39 @@ test('fix round 1, Minor 4: "keep going" on an open campaign also moves the bonu
     'Plus the builder bonus on the other open programs: the top 10 on each also get paid in ETH. 0.60 ETH so far.',
     'Want me to keep going on EarnKit Campaign #1: Base apps with real users?',
   ]);
+});
+
+// ---- v2.8 Ruling 24 (plan): one money figure; Ruling 25 (plan): the token line.
+const pooled = (id: string, title: string, pool_usd: number, pool_plus = false): Card => ({
+  id, title, summary: 's', tag: null, each_time: [], ends_at: null, builder_fields: 0, pool_usd, pool_plus,
+});
+const big = pooled('big', 'Big Hackathon', 840000, true);
+const small = pooled('small', 'Small Grants', 10000);
+const nopool: Card = { id: 'nopool', title: 'No Pool Bounty', summary: 's', tag: null, each_time: [], ends_at: null, builder_fields: 0 };
+
+test('v2.8 Ruling 24 (plan): no repo: the site figure "$850K+ in prizes open right now."', () => {
+  const text = presentFirstMessage(msg({ cards: [big, small] }));
+  assert.ok(text.split('\n\n')[0].startsWith('$850K+ in prizes open right now.'), text);
+  assert.doesNotMatch(text, /top prizes/);
+  assert.doesNotMatch(text, /I can build an entry for you/);
+});
+
+test('v2.8 Ruling 24 (plan): with repos: the matched programs\' pools, or the fit line without one', () => {
+  const one = presentFirstMessage(msg({ cards: [big, small], repos: fit('tipjar', 'small') }));
+  assert.equal(one.split('\n\n')[0], 'EarnKit matches you to $10K in prizes you qualify for.');
+  assert.doesNotMatch(one, /top prizes/);
+  const none = presentFirstMessage(msg({ cards: [big, nopool], repos: fit('tipjar', 'nopool') }));
+  assert.equal(none.split('\n\n')[0], 'Your repos fit these open programs:');
+});
+
+test('v2.8 Ruling 25 (plan): the close is the token line, plus the ETH so far', () => {
+  assert.equal(TOKEN_LINE, 'Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus.');
+  const text = presentFirstMessage(msg({ cards: [{ ...big, bonus_pool_wei: WEI('0.4') }, { ...small, bonus_pool_wei: WEI('0.2') }] }));
+  assert.ok(
+    text.endsWith("Pick one and I'll start. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.60 ETH so far."),
+    text,
+  );
+  const empty = presentFirstMessage(msg({ cards: [big, small] }));
+  assert.ok(empty.endsWith(`Pick one and I'll start. ${TOKEN_LINE}`), empty);
+  assert.equal(bonusClose([{ ...small, builder_bonus: false }]), 'Every entry gets a token: you earn 40% of its trading fees.');
 });

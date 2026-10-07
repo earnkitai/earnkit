@@ -7,6 +7,8 @@ import { sql } from './db';
 import { NO_CELL, type Card } from './present';
 import type { PublicStats } from './stats';
 import { committedProgram } from './fixtures/program-file';
+import { openFigure } from './pool';
+import { presentFirstMessage } from './present';
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
@@ -311,4 +313,17 @@ test('Review Focus 1: an unreachable database makes readGuidePage reject (the un
 
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
+});
+
+test('v2.8 Ruling 24 (plan): the landing figure is openFigure of the same tiles, and the no-repo first message says it', () => {
+  const pooledMonad = { ...monad, pool_usd: 840000, pool_plus: true };
+  const pooledArc = { ...arc, pool_usd: 10000 };
+  const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
+  const l = landingFrom(cards, new Map(), stats(), now);
+  assert.equal(l.open_text, openFigure([pooledMonad, pooledArc, base]));
+  assert.equal(l.open_text, '$850K+');
+  const first = presentFirstMessage({
+    alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now,
+  });
+  assert.ok(first.startsWith(`${l.open_text} in prizes open right now.`), first);
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { OWNERSHIP_FOR_TOKEN, TOOL_DESCRIPTIONS, createMcpServer } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, toolDescriptions } from './mcp';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
 
@@ -244,9 +244,10 @@ test('v2.6 §3 fix round 1 (I3): the instructions cover the entry-link ask, wall
 test('v2.6 §1: list_programs says it leads with the qualify hook with repos, or "$X is open right now" without', async () => {
   const { tools } = await listed({});
   const d = tools.find((t) => t.name === 'list_programs')!.description!;
-  assert.match(d, /leads with "EarnKit matches you to \$X in top prizes you qualify for"/);
-  assert.match(d, /or "\$X in top prizes is open right now" with ideas you can build when there is no repo/);
-  assert.match(d, /Every program shows its difficulty; the builder bonus closes the message\./);
+  assert.match(d, /leads with "EarnKit matches you to \$X in prizes you qualify for"/);
+  assert.match(d, /or "\$X in prizes open right now" with ideas you can build when there is no repo/);
+  assert.match(d, /Every program shows its difficulty; the token and builder bonus line closes the message\./);
+  assert.doesNotMatch(d, /top prizes/);
 });
 
 test('Ruling 13 (plan): the local_repos item schema accepts a url', async () => {
@@ -279,4 +280,56 @@ test('v2.7 §3, Ruling 15/18 (plan): prepare_submission says what not ready mean
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /When ready is false/);
   assert.match(TOOL_DESCRIPTIONS.prepare_submission, /one Token row \(a token on Base\)/);
   for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);
+});
+
+// ---- v2.8 Ruling 23 (plan): campaign-only agent text, hidden while no EarnKit campaign is open.
+test('v2.8 Ruling 23 (plan): SERVER_INSTRUCTIONS opens with what EarnKit does, never "runs its own campaigns"', () => {
+  assert.equal(
+    SERVER_INSTRUCTIONS.split('\n')[0],
+    'EarnKit finds live grants and hackathons a builder can win, helps them write strong applications, and gives every entry a token whose fees fund the builder bonus.',
+  );
+  assert.doesNotMatch(SERVER_INSTRUCTIONS, /runs its own campaigns/);
+});
+
+test('v2.8 Ruling 23 (plan): toolDescriptions(false) drops the campaign sentences; (true) keeps them', () => {
+  const closed = toolDescriptions(false);
+  const open = toolDescriptions(true);
+  for (const name of ['record_submission', 'prepare_submission'] as const) {
+    for (const word of ['EarnKit campaign', 'how_to_submit', 'sign_to_enter', 'EIP-191'])
+      assert.ok(!closed[name].includes(word), `${name} (closed): ${word}`);
+    assert.match(open[name], /EarnKit campaign/, name);
+  }
+  assert.match(open.record_submission, /how_to_submit/);
+  assert.deepEqual(TOOL_DESCRIPTIONS, open);
+  // The rest of the text stays.
+  assert.match(closed.record_submission, /Did you submit on <program site>\?/);
+  assert.match(closed.prepare_submission, /shown_wallet is the wallet on that line/);
+});
+
+async function registered(opts?: { campaignOpen?: boolean }) {
+  const server = createMcpServer({ installationId: 1 }, opts);
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const { tools } = await client.listTools();
+  await client.close();
+  return tools;
+}
+
+test('v2.8 Ruling 23 (plan): createMcpServer with campaignOpen false (the default) registers the closed text', async () => {
+  for (const tools of [await registered({ campaignOpen: false }), await registered()]) {
+    const rec = tools.find((t) => t.name === 'record_submission')!;
+    const props = rec.inputSchema.properties as Record<string, { description?: string }>;
+    assert.ok(props.deployer_signature, 'deployer_signature stays registered');
+    assert.ok(props.contracts, 'contracts stays registered');
+    assert.doesNotMatch(props.deployer_signature.description ?? '', /EarnKit campaigns/);
+    assert.match(props.deployer_signature.description ?? '', /deployed by a wallet other than payout_wallet/);
+    assert.doesNotMatch(props.contracts.description ?? '', /EarnKit campaigns/);
+    assert.equal(rec.description, toolDescriptions(false).record_submission);
+    assert.equal(tools.find((t) => t.name === 'prepare_submission')!.description, toolDescriptions(false).prepare_submission);
+  }
+  const open = (await registered({ campaignOpen: true })).find((t) => t.name === 'record_submission')!;
+  const props = open.inputSchema.properties as Record<string, { description?: string }>;
+  assert.match(props.deployer_signature.description ?? '', /EarnKit campaigns/);
+  assert.equal(open.description, toolDescriptions(true).record_submission);
 });

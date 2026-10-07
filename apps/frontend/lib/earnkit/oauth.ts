@@ -8,7 +8,7 @@ import {
 /**
  * Anonymous OAuth for the hosted MCP endpoint.
  *
- * MCP clients (Grok, Muse, Claude, Cursor...) connect to remote servers with
+ * MCP clients (Grok, Muse, Claude, Cursor, Codex...) connect to remote servers with
  * OAuth 2.1 + PKCE + dynamic client registration. EarnKit has no accounts, so
  * the authorize step approves instantly and the issued token is the
  * installation. Nothing is stored except the installation itself: client ids
