@@ -4,11 +4,11 @@ import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
 import HowItWorks from './components/sections/HowItWorks';
 import ProgramCards from './components/sections/ProgramCards';
-import { HOME_CARDS, HOME_CARDS_MOBILE, type Landing } from '../lib/earnkit/landing';
+import type { Landing } from '../lib/earnkit/landing';
 
 /**
  * The homepage (v2.7 §1, v2.8 Part A), pure: the hero with the one-line stats, the open programs
- * (6, then "See all"), How you earn (#how-you-earn-3 is the hero pill's target), backed by, the
+ * (every one, in a carousel), How you earn (#how-you-earn-3 is the hero pill's target), backed by, the
  * footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without its
  * stats line and the cards are skipped.
  * It lives outside page.tsx because a page file may only export Next's own fields.
@@ -71,7 +71,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
 
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
       <div className="flex flex-col gap-4 pt-4">
-        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} limit={HOME_CARDS} mobileLimit={HOME_CARDS_MOBILE} seeAll />}
+        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} />}
         <HowItWorks />
         <BackedBy />
       </div>

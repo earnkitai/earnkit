@@ -3,8 +3,8 @@ import { connection } from 'next/server';
 import { cache } from 'react';
 import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type GuidePage, type Landing } from '../../lib/earnkit/landing';
 
-/** One DB read per 10 minutes at most (no new service); the value is plain JSON (Ruling 21 (plan)). */
-const cached = unstable_cache(() => readLanding(), ['landing-v271'], { revalidate: 600 });
+/** One DB read per 10 minutes at most (no new service); the value is plain JSON (Ruling 21 (plan)). v2.8: the key moved with the Tile shape (days_left), so a kept cache never serves old tiles. */
+const cached = unstable_cache(() => readLanding(), ['landing-v28'], { revalidate: 600 });
 
 /**
  * v2.7 Ruling 21 (plan): the landing data, or null. A failed read is logged and renders the page
