@@ -28,6 +28,33 @@ export type ProjectField = (typeof PROJECT_FIELDS)[number];
 export const TOKEN_POLICIES = ['encouraged', 'allowed', 'off'] as const;
 export type TokenPolicy = (typeof TOKEN_POLICIES)[number];
 
+/**
+ * v2.8 Part D.1: the fixed vocabulary of form field kinds. The coach's built-in guidance, its
+ * questions and the answer bank are all keyed by kind (coach.ts DEFAULT_GUIDANCE).
+ */
+export const FIELD_KINDS = [
+  'name', 'one_liner', 'problem', 'solution', 'how_it_works', 'traction', 'team', 'why_you',
+  'use_of_funds', 'milestones', 'demo_video', 'links', 'contact', 'other',
+] as const;
+export type FieldKind = (typeof FIELD_KINDS)[number];
+
+const HttpsSource = z.string().url().startsWith('https://');
+
+/**
+ * v2.8 Ruling 9 (plan): a program's own guidance for one field, sourced from its rubric or past
+ * winners. Each part overrides the kind's default; source_url is required.
+ */
+const FieldGuidance = z
+  .object({
+    judges: z.string().min(1).max(140).optional(),
+    questions: z.array(z.string().min(1).max(120)).max(2).optional(),
+    pattern: z.string().min(1).max(140).optional(),
+    limit_words: z.number().int().positive().optional(),
+    source_url: HttpsSource,
+  })
+  .strict();
+export type FieldGuidance = z.infer<typeof FieldGuidance>;
+
 export const SubmissionRequirement = z
   .object({
     key: z.string().regex(/^[a-z0-9_]+$/, 'use snake_case keys'),
@@ -58,6 +85,15 @@ export const SubmissionRequirement = z
      * itself; "builder" = personal info the agent must ask for.
      */
     from: z.enum(['project', 'builder']),
+    /**
+     * v2.8 Part D.1: what the field is for (FIELD_KINDS). Optional in the schema (runtime default
+     * `other`); `pnpm programs:check` requires it on every requirement (Ruling 9 (plan)).
+     */
+    kind: z.enum(FIELD_KINDS).optional(),
+    /** v2.8 Ruling 9 (plan): this program's guidance for the field, over the kind's default. */
+    guidance: FieldGuidance.optional(),
+    /** The form's character limit, when it states one. */
+    max_chars: z.number().int().positive().optional(),
   })
   .strict()
   .refine((r) => r.type !== 'choice' || (r.options && r.options.length > 0), {
@@ -274,6 +310,29 @@ export function isOptimismUrl(url: string): boolean {
   return host === 'optimism.io' || host.endsWith('.optimism.io');
 }
 
+/**
+ * v2.8 Part D.4: the judging criteria the program's source states (e.g. Arc's "Judged on relevance
+ * to Arc, technical credibility, ..."). `words` are lowercase stems; an application with none of a
+ * criterion's words in any answer gets one "No answer shows ... yet." fix.
+ */
+export const Judging = z
+  .object({
+    criteria: z
+      .array(
+        z
+          .object({
+            text: ShortText,
+            words: z.array(z.string().regex(/^[a-z]{3,}$/, 'lowercase words of 3+ letters')).min(1).max(6),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    source_url: HttpsSource,
+  })
+  .strict();
+export type Judging = z.infer<typeof Judging>;
+
 export const ProgramFile = z
   .object({
     id: slug,
@@ -405,6 +464,8 @@ export const ProgramFile = z
      * Nullable (fix round 1, Finding 1): the DB column already returns null.
      */
     winners_per_round: z.number().int().positive().nullable().optional(),
+    /** v2.8 Part D.4: set only where the source states judging criteria. */
+    judging: Judging.optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -535,3 +596,11 @@ export type ProgramFile = z.infer<typeof ProgramFile>;
  */
 export const requiredWithoutTodo = (p: Pick<ProgramFile, 'submission_requirements'>): string[] =>
   p.submission_requirements.filter((r) => r.required && !r.todo).map((r) => r.key);
+
+/**
+ * v2.8 Ruling 9 (plan): `pnpm programs:check` requires a `kind` on every requirement, like `todo`.
+ * A check-time rule, so DB rows and fixtures without one still parse (runtime default `other`).
+ * Returns the keys missing one. Pure.
+ */
+export const requirementsWithoutKind = (p: Pick<ProgramFile, 'submission_requirements'>): string[] =>
+  p.submission_requirements.filter((r) => !r.kind).map((r) => r.key);

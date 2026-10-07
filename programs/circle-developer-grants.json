@@ -45,6 +45,7 @@
     {
       "key": "business",
       "label": "Details on your business",
+      "kind": "solution",
       "todo": "details on your business",
       "type": "text",
       "required": true,
@@ -53,6 +54,7 @@
     {
       "key": "integrations",
       "label": "Your Circle and Arc integrations",
+      "kind": "how_it_works",
       "todo": "your Circle and Arc integrations",
       "type": "text",
       "required": true,
@@ -61,6 +63,7 @@
     {
       "key": "roadmap",
       "label": "Product roadmap",
+      "kind": "milestones",
       "todo": "a product roadmap",
       "type": "text",
       "required": true,
@@ -69,6 +72,7 @@
     {
       "key": "milestones",
       "label": "Proposed grant milestones",
+      "kind": "milestones",
       "todo": "proposed grant milestones",
       "type": "text",
       "required": true,

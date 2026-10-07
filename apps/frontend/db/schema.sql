@@ -580,3 +580,20 @@ BEGIN
     UPDATE projects SET complete_at = coin_launched_at WHERE complete_at IS NULL AND coin_launched_at IS NOT NULL;
   END IF;
 END $$;
+
+-- v2.8 Ruling 6 (plan): the builder's answers per project and field kind, for this installation
+-- only. Never read by a public page, stats, an admin page or a log.
+CREATE TABLE IF NOT EXISTS answer_bank (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  project_key     text NOT NULL,
+  kind            text NOT NULL,
+  answer          text NOT NULL CHECK (length(answer) <= 4096),
+  program_id      text NOT NULL,
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, project_key, kind)
+);
+-- v2.8 Part D.5: the final answers and the check result, stored on the entry at confirmation.
+-- Same privacy rule as answer_bank: no public or admin page reads it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS application jsonb;
+-- v2.8 Part D.4: the judging criteria a program's source states (programs/*.json judging).
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS judging jsonb;

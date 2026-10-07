@@ -86,6 +86,25 @@ program is never closed under it either.
      - `todo` (required when `required` is true; `pnpm programs:check` enforces it): the item as a
        short builder to-do for "Before you submit: …": lowercase start, at most 40 characters,
        no trailing punctuation or links (e.g. `"a live link on Arc mainnet"`)
+     - `kind` (required on every item; `pnpm programs:check` enforces it): what the field is for,
+       so the application coach can guide the agent and reuse the builder's answers across
+       programs. One of `name`, `one_liner`, `problem`, `solution`, `how_it_works`, `traction`,
+       `team`, `why_you`, `use_of_funds`, `milestones`, `demo_video`, `links`, `contact`, `other`.
+       Use `contact` for the builder's own name, email and handles (they fold into one question),
+       `links` for project links, and `other` for anything program-specific (a track, a consent box,
+       a builder code); `other` answers are never reused for another program.
+     - `max_chars` (optional): the form's character limit, when it states one (e.g. "max 280
+       characters" → `280`).
+     - `guidance` (optional): this program's own advice for the field, only from its rubric, FAQ
+       or past winners: `{ "judges", "questions" (at most 2), "pattern", "limit_words",
+       "source_url" }`, every part optional except `source_url`. Each part replaces the kind's
+       built-in default. Leave it out when the source says nothing specific; the defaults work on
+       their own.
+   - `judging` (optional): only when the source states how entries are judged (e.g. Arc's "Judged
+     on relevance to Arc, technical credibility, …"). `{ "criteria": [{ "text", "words" }],
+     "source_url" }`: 1 to 5 criteria in the source's words (`text`, 1 to 12 words) and 1 to 6
+     lowercase `words` (3+ letters) an answer that addresses it would use (`contract`, `mainnet`).
+     The check before submitting flags a criterion no answer touches. Never invent a criterion.
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
       Devfolio, and the ecosystem's blog or X.
@@ -199,9 +218,9 @@ track, and each names its `track` slug. Without tracks: at most 2.
   "best_bet": "A USDC payout tool with a live mainnet demo",
   "difficulty_override": null,
   "submission_requirements": [
-    { "key": "project_name", "label": "Project name", "todo": "a project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
-    { "key": "github", "label": "GitHub repository", "todo": "a GitHub repo link", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
-    { "key": "contact_email", "label": "Email", "todo": "your email", "type": "email", "required": true, "from": "builder" }
+    { "key": "project_name", "label": "Project name", "kind": "name", "todo": "a project name", "type": "text", "required": true, "project_field": "name", "from": "project" },
+    { "key": "github", "label": "GitHub repository", "kind": "links", "todo": "a GitHub repo link", "type": "url", "required": true, "project_field": "repo_url", "from": "project" },
+    { "key": "contact_email", "label": "Email", "kind": "contact", "todo": "your email", "type": "email", "required": true, "from": "builder" }
   ],
   "tracks": [],
   "starters": []

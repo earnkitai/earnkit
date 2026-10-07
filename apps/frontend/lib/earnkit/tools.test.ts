@@ -6,7 +6,9 @@ import { SponsorCampaignInput, tools } from './tools';
 import { sql } from './db';
 import { EntryError } from './campaigns';
 import { earnkitTexts } from './campaign-text';
-import { ProgramFile } from './program-file';
+import { ProgramFile, type SubmissionRequirement } from './program-file';
+import { coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
+import { projectKey, readBank } from './answer-bank';
 import { upsertProgram } from './programs';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
@@ -277,11 +279,11 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     // No project name, but a GitHub repo: the repo name is the name.
     const noName = await prep({ repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.example' }, answers);
     assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
-    // Fix round 1 (Minor 6): the Entry row names the repo, as the token does.
-    assert.match(noName.show_to_builder, /^\| Entry \| Tipjar for /);
+    // v2.8 Part D: once ready, the draft table leads (the Entry table stays for what is missing).
+    assert.match(noName.show_to_builder, /^\| Field \| Answer \|\n\|---\|---\|\n\| Live deployment on Arc mainnet \| https:\/\/tipjar\.example/);
     assert.match(noName.show_to_builder, /Want the builder bonus\? It comes with a token\./);
     // C5: an item given but invalid says "(check it)"; at most 3 items, then "and N more".
-    const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link' });
+    const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link', builder_profile: 'not a link either' });
     assert.ok(bad.show_to_builder.startsWith('Before you submit: a live link on Arc mainnet (check it); a public repo link; a short description; and 1 more.\n\n'), bad.show_to_builder);
   } finally {
     globalThis.fetch = realFetch;
@@ -808,10 +810,10 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
 
 // ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only
 // from confirm_entry, after the builder's yes or skip; the token launches on yes.
-async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean } = {}) {
+async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[] } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants');
-  const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_requirements: [...arc.submission_requirements, ...(o.extra ?? [])] };
   await upsertProgram(ProgramFile.parse(p));
   const [{ id: inst }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash, payout_wallet) VALUES (${`t8-${tag}-${stamp}`}, ${o.remembered ?? null}) RETURNING id`;
@@ -880,7 +882,7 @@ test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit,
     assert.doesNotMatch(JSON.stringify(r), /"(kit|submission_url|prefilled_url|paste)":/);
     // The token line for the agent to push with its work, before the builder confirms.
     assert.equal(r.token_line, tokenLineFor(t.inst, t.repo));
-    assert.match(String(r.agent_note), /^Commit this line to earnkit\.txt at the repo root with your next push, before the builder confirms\.$/);
+    assert.match(String(r.agent_note), /^Commit this line to earnkit\.txt at the repo root with your next push, before the builder confirms\. /);
     assert.equal(r.shown_wallet, W8);
     // An agent that can't push: no token line, and the one-line offer.
     const noPush = (await tools.prepare_submission({ ...t.input, agent: { can_push: false } }, t.ctx)) as Record<string, unknown>;
@@ -1189,4 +1191,120 @@ test('fix round 2: wallet X shown, "go" with no echo, stored wallet A on the ent
     const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: X }, t.ctx)) as Confirmed;
     assert.equal(ok.token?.status, 'launched');
     assert.deepEqual(t.calls.wallets, [X]);
+  }));
+
+// ---- v2.8 Task 9: the application coach and the answer bank (Part D, Rulings 6, 9, 26 (plan)) ----
+/** Arc plus three fields only the builder can answer, as a richer form would ask. */
+const COACH_EXTRA: SubmissionRequirement[] = [
+  { key: 'traction', label: 'Traction', todo: 'your traction', type: 'text', required: true, from: 'builder', kind: 'traction' },
+  { key: 'why_you', label: 'Why you', todo: 'why you', type: 'text', required: true, from: 'builder', kind: 'why_you' },
+  { key: 'next', label: 'Use of the grant', todo: 'use of the grant', type: 'text', required: true, from: 'builder', kind: 'use_of_funds' },
+];
+const COACH_ANSWERS = {
+  description: 'Tips for creators in USDC on Arc mainnet, with a deployed contract.',
+  builder_profile: 'https://github.com/alice',
+  traction: '120 creators got 900 tips in the first month.',
+  why_you: 'I built two payment apps used by 5,000 people.',
+  next: 'Ship a recurring tips contract in 6 weeks.',
+};
+type Coached = { show_to_builder: string; questions?: { keys: string[]; kind: string; text: string }[]; coach?: { fields: Record<string, unknown>[]; facts: Record<string, unknown>; from_bank: Record<string, string> }; fixes?: unknown[]; agent_note?: string; ready?: boolean };
+
+test('9 coach: no builder answers on Arc: the three questions are the whole screen, the fields guidance for the agent, no offer', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('coach', { remembered: W8, extra: COACH_EXTRA });
+    const r = (await tools.prepare_submission({ ...t.input, answers: { description: COACH_ANSWERS.description, builder_profile: COACH_ANSWERS.builder_profile } }, t.ctx)) as Coached;
+    const reqs = ProgramFile.parse(t.p).submission_requirements;
+    const q = questionsFor({ reqs, answers: { description: 'x', builder_profile: 'x' }, first: true, project: 'Tip Jar' });
+    assert.equal(r.show_to_builder, coachIntro(t.p.title, q));
+    assert.equal(r.show_to_builder.split('\n')[1], '1. Who has used Tip Jar so far?');
+    assert.equal(r.questions?.length, 3);
+    assert.deepEqual(r.questions?.map((x) => x.kind), ['traction', 'why_you', 'use_of_funds']);
+    assert.equal(r.coach?.fields.length, reqs.length);
+    for (const f of r.coach!.fields) for (const k of ['key', 'kind', 'judges', 'pattern', 'limit_words']) assert.ok(k in f, k);
+    assert.deepEqual(r.coach?.facts, { chains: ['arc'], live_url: 'https://tipjar.example/', repo_url: t.repo });
+    assert.doesNotMatch(r.show_to_builder, /builder bonus|Ready|Wallet|Fees in WETH/);
+    assert.ok(!('shown_wallet' in r) && !('token' in r) && !('token_line' in r));
+    assert.match(r.agent_note ?? '', /Draft every field from the repo, onchain data and the builder's answers/);
+    // No offer, and no kit, at any depth.
+    for (const k of ['kit', 'submission_url', 'prefilled_url', 'paste']) assert.ok(!keysOf(r).includes(k), k);
+  }));
+
+test('9 coach: all answers: the draft, the fixes, then Ready and the offer; still no kit', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('draft', { remembered: W8, extra: COACH_EXTRA });
+    const answers = { ...COACH_ANSWERS, traction: 'Creators love it.' };
+    const r = (await tools.prepare_submission({ ...t.input, answers }, t.ctx)) as Coached;
+    const p = ProgramFile.parse(t.p);
+    const values = { ...answers, live_deployment_url: 'https://tipjar.example/', repo_url: t.repo };
+    const fixes = preSubmitCheck({ reqs: p.submission_requirements, answers: values, judging: p.judging ?? null });
+    assert.ok(fixes.length > 0, 'a traction answer with no number');
+    assert.equal(
+      r.show_to_builder,
+      [
+        draftTable(p.submission_requirements, values),
+        fixesLine(fixes),
+        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true })}`,
+      ].join('\n\n'),
+    );
+    assert.match(r.show_to_builder, /\n1\. Traction: add a number \(users, volume or revenue\)\./);
+    assert.deepEqual(r.fixes, fixes);
+    assert.ok(!keysOf(r).includes('kit'));
+    assert.ok(!('questions' in r));
+    // 9.9: never blocking: "yes" with the fixes still open returns the kit.
+    const go1 = (await tools.confirm_entry({ ...t.input, answers, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(go1.kit);
+    assert.equal(go1.token?.status, 'launched');
+  }));
+
+test('9 coach: confirm_entry "go" stores the application and banks the answers; the next program asks at most 1 question', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('bank', { extra: COACH_EXTRA });
+    // The offer renders with fixes open (never blocking) and writes nothing.
+    const offer = (await tools.confirm_entry({ ...t.input, answers: { ...COACH_ANSWERS, traction: 'Loved.' } }, t.ctx)) as Confirmed;
+    assert.match(offer.show_to_builder, /^Want the builder bonus\?/);
+    const r = (await tools.confirm_entry({ ...t.input, answers: COACH_ANSWERS, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.ok(r.kit);
+    const [row] = await sql()<{ application: Application }[]>`SELECT application FROM projects WHERE id = ${r.project_id!}`;
+    assert.equal(row.application.answers.traction, COACH_ANSWERS.traction);
+    assert.equal(row.application.answers.repo_url, t.repo);
+    assert.equal(row.application.kinds.traction, 'traction');
+    assert.equal(row.application.kinds.live_deployment_url, 'links');
+    assert.ok(Array.isArray(row.application.fixes));
+    assert.ok(!Number.isNaN(Date.parse(row.application.at)));
+    const bank = await readBank(t.inst, projectKey({ repo_url: t.repo, name: 'Tip Jar' }));
+    assert.equal(bank.get('traction'), COACH_ANSWERS.traction);
+    assert.equal(bank.get('why_you'), COACH_ANSWERS.why_you);
+    assert.equal(bank.get('use_of_funds'), COACH_ANSWERS.next);
+    assert.ok(!bank.has('other'));
+    // The second program for the same project: the bank fills what it can; one question at most,
+    // though two required builder fields are still empty.
+    const second = { ...committedProgram('arc-microgrants'), id: `${t.p.id}-2`, title: 'Second Grants', status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+    second.submission_requirements = [
+      ...second.submission_requirements,
+      { key: 'usage', label: 'Usage so far', type: 'text', required: true, from: 'builder', kind: 'traction' },
+      { key: 'plan', label: 'Next 3 months', type: 'text', required: true, from: 'builder', kind: 'milestones' },
+      { key: 'team', label: 'Team', type: 'text', required: true, from: 'builder', kind: 'team' },
+    ];
+    await upsertProgram(ProgramFile.parse(second));
+    const r2 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, t.ctx)) as Coached;
+    assert.equal(r2.questions?.length, 1);
+    assert.equal(r2.show_to_builder, "Second Grants: 1 quick question, then I'll write your application.\n1. What will you ship in the next 3 months?");
+    assert.equal(r2.coach?.from_bank.usage, COACH_ANSWERS.traction);
+    assert.equal(r2.coach?.from_bank.builder_profile, COACH_ANSWERS.builder_profile);
+    assert.match(r2.agent_note ?? '', /Re-angle answers from the bank to this program's judges\./);
+    // One round per program: with the answer and coach_asked, no second question, even with a
+    // required builder field still empty (it shows as missing for the agent to draft).
+    const r2b = (await tools.prepare_submission(
+      { program_id: second.id, project: t.project, answers: { description: 'Tips on Arc', plan: 'Recurring tips by March.' }, coach_asked: true },
+      t.ctx,
+    )) as Coached & { missing: { key: string }[] };
+    assert.ok(!('questions' in r2b));
+    assert.equal(r2b.ready, false);
+    assert.deepEqual(r2b.missing.map((m) => m.key), ['team']);
+    assert.match(r2b.show_to_builder, /^Before you submit: a team\./);
+    // Another installation with the same repo gets nothing from this bank.
+    const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t9-other-${t.p.id}`}) RETURNING id`;
+    const r3 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, { ...t.ctx, installationId: other })) as Coached;
+    assert.equal(r3.questions?.length, 3);
+    assert.deepEqual(r3.coach?.from_bank, {});
   }));

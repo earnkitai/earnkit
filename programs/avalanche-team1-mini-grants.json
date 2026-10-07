@@ -35,6 +35,7 @@
     {
       "key": "consent_team1",
       "label": "I consent to the sharing of my data with Team1.",
+      "kind": "other",
       "todo": "your consent to share data with Team1",
       "type": "choice",
       "required": true,
@@ -42,11 +43,16 @@
         "I consent to the sharing of my data with Team1."
       ],
       "description": "Mini Grants is operated by Team1. Please confirm that you agree to share your application data with Team1 before continuing.",
-      "from": "builder"
+      "from": "builder",
+      "guidance": {
+        "pattern": "Only the builder can give this consent. Never answer it for them.",
+        "source_url": "https://www.team1.network/grants"
+      }
     },
     {
       "key": "project_name",
       "label": "Project name",
+      "kind": "name",
       "todo": "a project name",
       "type": "text",
       "required": true,
@@ -56,16 +62,19 @@
     {
       "key": "one_sentence_description",
       "label": "One-sentence description",
+      "kind": "one_liner",
       "todo": "a one-sentence description",
       "type": "text",
       "required": true,
       "description": "Summarize your project in one sentence (max 280 characters).",
       "project_field": "description",
-      "from": "project"
+      "from": "project",
+      "max_chars": 280
     },
     {
       "key": "project_website",
       "label": "Project URL",
+      "kind": "links",
       "type": "url",
       "required": false,
       "description": "On the project profile.",
@@ -75,6 +84,7 @@
     {
       "key": "project_x",
       "label": "X (Twitter)",
+      "kind": "links",
       "type": "url",
       "required": false,
       "from": "project"
@@ -82,6 +92,7 @@
     {
       "key": "project_github",
       "label": "GitHub",
+      "kind": "links",
       "type": "url",
       "required": false,
       "project_field": "repo_url",
@@ -90,6 +101,7 @@
     {
       "key": "other_links",
       "label": "Other links",
+      "kind": "links",
       "type": "url",
       "required": false,
       "description": "Add a pitch deck, demo, docs, or any other link.",
@@ -98,6 +110,7 @@
     {
       "key": "project_category",
       "label": "Project category",
+      "kind": "other",
       "type": "choice",
       "required": false,
       "options": [
@@ -115,6 +128,7 @@
     {
       "key": "existing_project",
       "label": "Is this an existing project?",
+      "kind": "other",
       "type": "choice",
       "required": false,
       "options": [
@@ -126,6 +140,7 @@
     {
       "key": "project_url",
       "label": "Project URL",
+      "kind": "links",
       "todo": "a project link",
       "type": "url",
       "required": true,
@@ -136,42 +151,54 @@
     {
       "key": "requested_amount_usd",
       "label": "Requested Amount (USD)",
+      "kind": "other",
       "todo": "the amount you request in USD",
       "type": "text",
       "required": true,
       "description": "Whole dollars. Maximum $10,000 USD.",
-      "from": "builder"
+      "from": "builder",
+      "guidance": {
+        "pattern": "Whole dollars, at most 10,000. Match it to the milestones.",
+        "source_url": "https://www.team1.network/grants"
+      }
     },
     {
       "key": "summary",
       "label": "Summary",
+      "kind": "solution",
       "todo": "a summary of what the grant will fund",
       "type": "text",
       "required": true,
       "description": "Briefly describe your project and what the grant will fund. Up to 4,000 characters.",
-      "from": "project"
+      "from": "project",
+      "max_chars": 4000
     },
     {
       "key": "milestones",
       "label": "Milestones",
+      "kind": "milestones",
       "todo": "the milestones you plan to deliver",
       "type": "text",
       "required": true,
       "description": "List the milestones you plan to deliver with this grant. Up to 4,000 characters.",
-      "from": "builder"
+      "from": "builder",
+      "max_chars": 4000
     },
     {
       "key": "why_grant",
       "label": "Why You Deserve a Grant",
+      "kind": "why_you",
       "todo": "why you deserve a grant",
       "type": "text",
       "required": true,
       "description": "Tell us why you'd be a great fit for a mini grant. We'd love to hear about your impact and how the funding would help. Up to 4,000 characters.",
-      "from": "builder"
+      "from": "builder",
+      "max_chars": 4000
     },
     {
       "key": "additional_url",
       "label": "Additional Link",
+      "kind": "links",
       "type": "url",
       "required": false,
       "description": "Optional. A deck, demo, or any supporting material.",
@@ -181,6 +208,7 @@
     {
       "key": "x_profile",
       "label": "X Profile",
+      "kind": "contact",
       "todo": "your X profile",
       "type": "text",
       "required": true,
@@ -190,6 +218,7 @@
     {
       "key": "telegram",
       "label": "Telegram",
+      "kind": "contact",
       "type": "text",
       "required": false,
       "description": "Optional.",

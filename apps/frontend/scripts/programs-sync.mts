@@ -2,7 +2,7 @@ import './env.mts';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
-import { ProgramFile, requiredWithoutTodo } from '../lib/earnkit/program-file';
+import { ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
@@ -36,6 +36,10 @@ for (const { f, result } of parsed) {
   const noTodo = requiredWithoutTodo(result.data);
   if (noTodo.length > 0)
     fileProblems.push({ f, problem: `submission_requirements: add a "todo" to each required item (${noTodo.join(', ')})` });
+  // v2.8 Ruling 9 (plan): every requirement needs its field kind (the coach's guidance and bank).
+  const noKind = requirementsWithoutKind(result.data);
+  if (noKind.length > 0)
+    fileProblems.push({ f, problem: `submission_requirements: add a "kind" to each item (${noKind.join(', ')})` });
   const logo = result.data.logo;
   if (!logo) continue;
   const problem = checkLogoFile(logo, publicDir);

@@ -47,10 +47,54 @@
     "You keep full ownership of your work. No equity, no IP assignment, no exclusivity.",
     "Judged on relevance to Arc, technical credibility, the quality of what you built, and whether the project is worth taking further."
   ],
+  "judging": {
+    "criteria": [
+      {
+        "text": "Relevance to Arc",
+        "words": [
+          "arc",
+          "usdc"
+        ]
+      },
+      {
+        "text": "Technical credibility",
+        "words": [
+          "contract",
+          "mainnet",
+          "deployed",
+          "tested",
+          "audit"
+        ]
+      },
+      {
+        "text": "Quality of what you built",
+        "words": [
+          "live",
+          "working",
+          "users",
+          "used",
+          "demo",
+          "shipped"
+        ]
+      },
+      {
+        "text": "Worth taking further",
+        "words": [
+          "next",
+          "roadmap",
+          "plan",
+          "grow",
+          "scale"
+        ]
+      }
+    ],
+    "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
+  },
   "submission_requirements": [
     {
       "key": "live_deployment_url",
       "label": "Live deployment on Arc mainnet",
+      "kind": "links",
       "todo": "a live link on Arc mainnet",
       "type": "url",
       "required": true,
@@ -61,6 +105,7 @@
     {
       "key": "repo_url",
       "label": "Public repo",
+      "kind": "links",
       "todo": "a public repo link",
       "type": "url",
       "required": true,
@@ -71,6 +116,7 @@
     {
       "key": "description",
       "label": "Short description of what your project does and what it uses Arc for",
+      "kind": "solution",
       "todo": "a short description",
       "type": "text",
       "required": true,
@@ -79,6 +125,7 @@
     {
       "key": "builder_profile",
       "label": "Public builder profile",
+      "kind": "contact",
       "todo": "a public builder profile",
       "type": "url",
       "required": true,
