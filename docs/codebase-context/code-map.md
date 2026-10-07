@@ -67,7 +67,11 @@ apps/frontend/
                                gone (v2.7.1); BuilderBonus.tsx ("Win twice") is gone (v2.8)
   app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
-                               "Follow on X" is in the Footer only
+                               the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
+                               Footer only
+  app/components/common/Footer.tsx  v2.8 Ruling 22: one rounded card (wordmark, FOOTER_TAGLINE, a
+                               grid of FOOTER_COLUMNS), the faded "EARNKIT" wordmark, the copyright
+                               line; renders from lib/earnkit/footer-links.ts; real links only
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -606,6 +610,13 @@ apps/frontend/
                                a bonusOn program; Board.ends_label (Ruling 29: entry-text.ts
                                roundEndLabel, shown by BoardView)
     public-pages.test.ts       markup tests of /policy, BoardView and the footer link
+    footer-links.ts(+test)     v2.8 Ruling 22: FOOTER_COLUMNS (Product, Resources, Legal, Contact),
+                               FOOTER_TAGLINE, EXTERNAL_ALLOW, footerLinkProblems (internal hrefs
+                               against appRoutes, external hrefs against EXTERNAL_ALLOW, labels
+                               non-empty), appRoutes (every page.tsx folder under app/, dynamic
+                               segments kept as "[id]"); imports FOR_SPONSORS/JENIL_X/CONTACT_EMAIL
+                               from app/lib/links.ts. The LINK_CHECK=1 test (fetch, status < 400,
+                               10 s per external link) is skipped unless that env var is set
     traction.ts(+test)         v2.5 traction score: signalsFor (users, live ratio, commit days,
                                contributors, interest, holders, market cap), rankNormalize, rankRound,
                                liveRatio (live_checks), dbStore (bonus_commits, github_users),

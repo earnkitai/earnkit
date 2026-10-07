@@ -26,6 +26,7 @@ import type { GuidePage } from './landing';
 import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
 import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
+import { FOOTER_COLUMNS, FOOTER_TAGLINE } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
@@ -214,8 +215,10 @@ test('v2.7 §1: the full home view', () => {
   const cards = cardsOf(h);
   assert.equal(cards.length, homeFixture.tiles.length);
   assert.doesNotMatch(t, /See all/);
-  // 44px tap targets: the footer links.
-  for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
+  // 44px tap targets: the footer links (Ruling 22, plan).
+  for (const name of ['Programs', 'Docs', 'For sponsors', 'Policy', 'j@earnkit.com'])
+    assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
+  assert.match(h, /aria-label="@jenilt on X"[^>]*class="[^"]*min-h-11[^"]*min-w-11[^"]*"/);
   // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
   assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard Builder bonus · 0.42 ETH'), t);
   assert.ok(t.includes('10,000 USDC pool 500 USDC per grant'));
@@ -234,9 +237,11 @@ test('v2.7 §1: the full home view', () => {
   assert.doesNotMatch(h, /id="builder-bonus"|Win twice/);
   assert.doesNotMatch(h, /Leaderboards/);
   assert.ok(t.indexOf('Open programs') < t.indexOf(HOW_TITLE) && t.indexOf(HOW_TITLE) < t.indexOf('Add EarnKit'));
-  // Footer: Docs, Policy, Programs.
-  for (const href of ['https://docs.earnkit.com', '/policy', '/programs']) assert.match(h, new RegExp(`href="${href}"`), href);
-  assert.ok(t.includes('Docs · Policy · Programs'));
+  // Footer (Ruling 22, plan): the real links only, the tagline, and the faded wordmark.
+  for (const href of [...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href)), '/'])
+    assert.match(h, new RegExp(`href="${href.replace(/[.+]/g, '\\$&')}"`), href);
+  assert.ok(t.includes(FOOTER_TAGLINE));
+  assert.ok(t.includes('EARNKIT'));
   // The design system: Funnel type, navy panels, the panel radius; no emojis, never "coin".
   assert.match(h, /rounded-\[40px\][^"]*md:rounded-\[56px\]/);
   assert.match(h, /<h2[^>]*font-funnel-display[^>]*>Open programs<\/h2>/);
@@ -334,12 +339,12 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
-test('v2.7.1: the header is Docs and the install, desktop and mobile; Follow on X is in the footer only', () => {
+test('v2.7.1: the header is Docs and the install, desktop and mobile; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
   assert.equal((h.match(/<a[^>]*href="https:\/\/docs\.earnkit\.com"[^>]*>Docs<\/a>/g) ?? []).length, 2);
-  assert.doesNotMatch(h, /Follow on X/);
-  assert.match(html(React.createElement(Footer)), /Follow on X/);
+  assert.doesNotMatch(h, /x\.com\/jenilt/);
+  assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
 });
 
 test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
@@ -421,8 +426,8 @@ test('v2.7 §2: the full guide page', () => {
   assert.doesNotMatch(t, /community\.arc\.io|\(2\)/);
   for (const { url } of fullGuide.sources)
     assert.match(h, new RegExp(`<a[^>]*href="${shownUrl(url)!.replace(/[.?]/g, '\\$&')}"[^>]*title="${new URL(url).hostname.replace(/\./g, '\\.')}"[^>]*rel="noopener noreferrer"`), url);
-  // Every visible link is https or a local path.
-  for (const [, href] of h.matchAll(/href="([^"]+)"/g)) assert.match(href, /^(https:\/\/|\/)/, href);
+  // Every visible link is https, a local path, or the footer's contact mailto.
+  for (const [, href] of h.matchAll(/href="([^"]+)"/g)) assert.match(href, /^(https:\/\/|\/|mailto:)/, href);
   // One primary action, with the program's own question; "All programs" goes to the index.
   assert.ok(t.includes('Ask your agent'));
   // Twice (fix round 1): under the difficulty line, above the fold, and in the action row.
@@ -432,9 +437,9 @@ test('v2.7 §2: the full guide page', () => {
   assert.match(h, /<a[^>]*href="\/programs"[^>]*>All programs<\/a>/);
   // No paragraphs of prose.
   for (const [, p] of h.matchAll(/<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/g)) // never an svg <path>
-    if (!p.includes('Where agents earn.') && !p.includes('All rights reserved'))
+    if (!p.includes(FOOTER_TAGLINE) && !p.includes('All rights reserved'))
       assert.ok(text(p).trim().length <= 140, text(p));
-  assert.ok(t.includes('Where agents earn.'), 'the footer');
+  assert.ok(t.includes(FOOTER_TAGLINE), 'the footer');
 });
 
 test('v2.7 §2: a partial guide leaves out the parts it has no data for', () => {
@@ -514,7 +519,7 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.match(page, /layout="grid"/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
-  assert.ok(u.includes('Where agents earn.'), 'the footer');
+  assert.ok(u.includes(FOOTER_TAGLINE), 'the footer');
 });
 
 // ---- v2.8 Task 3: the Open programs carousel and the slim card (Rulings 20, 21 (plan)).

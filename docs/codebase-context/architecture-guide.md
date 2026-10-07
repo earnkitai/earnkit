@@ -1484,6 +1484,24 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (`Tile.days_left`, was `ends`), difficulty chip (`Tile.difficulty` is the level word only, never
   "(estimate)"; the guide keeps the full label) and `BonusPill` sm. No buttons on cards. The
   landing cache key is `landing-v28` (the Tile shape changed).
+- **v2.8 Part A footer (Task 4, Ruling 22):** `app/components/common/Footer.tsx` is one rounded
+  card (`rounded-[40px] bg-ek-navy-deep`, `md:rounded-[56px]`) holding the wordmark, `FOOTER_TAGLINE`
+  "Earn rewards for building" (same text as `HERO_TITLE`), and a `grid grid-cols-2 md:grid-cols-4`
+  of columns from `lib/earnkit/footer-links.ts FOOTER_COLUMNS`: Product (Programs), Resources
+  (Docs, For sponsors), Legal (Policy), Contact (`j@earnkit.com` mailto, an X icon button to
+  `https://x.com/jenilt` with `aria-label="@jenilt on X"`, `app/components/ui/Icons.tsx XIcon`).
+  Below the card: the faded `<p aria-hidden="true">EARNKIT</p>` wordmark
+  (`font-funnel-display text-[18vw] text-ek-blue-light/10`), then the copyright line (unchanged,
+  "© \<year\> Tokenfi Inc. All rights reserved."). Every link is real; no placeholders. New links
+  in `app/lib/links.ts`: `FOR_SPONSORS`, `JENIL_X`, `CONTACT_EMAIL` (the old `X`/`FOLLOW_X`, EarnKit's
+  own account, stay for other callers; the footer no longer uses them). `footerLinkProblems(columns,
+  routes)` checks every link (internal paths against `appRoutes(appDir)`, external links against
+  `EXTERNAL_ALLOW`, labels non-empty); covered for `FOOTER_COLUMNS` itself in every `pnpm -s test`
+  run. A live network check of the external links (`fetch`, status \< 400, 10 s) runs only with
+  `LINK_CHECK=1`, never in `pnpm -s test`. Because the tagline now equals `HERO_TITLE`, the copy-review
+  helpers that used to cut page text at the literal string `'Where agents earn.'`
+  (`copy-review.test.ts` `policyText`/`boardText`/`pageText`) now cut the raw markup at `<footer`
+  instead, so they still isolate each page's own copy from the shared footer.
 - **`pool_usd`** (program file, optional; `programs.pool_usd numeric`, additive): set only where
   the program's own source states a pool; `programs:check` refuses one its `reward` doesn't state
   (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it

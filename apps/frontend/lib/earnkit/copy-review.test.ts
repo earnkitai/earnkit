@@ -309,11 +309,11 @@ const enteredTables = [
 // this scan is for the policy copy, not every page's site-wide footer.
 const policyHtml = renderToStaticMarkup(React.createElement(PolicyPage));
 const policyText = policyHtml
+  .split('<footer')[0]
   .replace(/<[^>]+>/g, ' ')
   .replace(/&#x27;|&#39;/g, "'")
   .replace(/&amp;/g, '&')
-  .replace(/\s+/g, ' ')
-  .split('Where agents earn.')[0];
+  .replace(/\s+/g, ' ');
 
 // ---- Gate reasons (T3, I2): every branch of tokenGate's GateResult, which flows straight into
 // record_submission/launch_token's `token.note` (plain builder words; agent_note is for the agent). This is where
@@ -447,11 +447,11 @@ const boardFixture = (o: Partial<Board> = {}): Board => ({
 // copy, not every page's site-wide footer (its "©" is Extended_Pictographic, not an emoji we add).
 const boardText = (b: Board) =>
   renderToStaticMarkup(React.createElement(BoardView, { board: b }))
+    .split('<footer')[0]
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#x27;|&#39;/g, "'")
     .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .split('Where agents earn.')[0];
+    .replace(/\s+/g, ' ');
 const openBoardText = boardText(boardFixture());
 const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null }));
 
@@ -459,11 +459,11 @@ const paidBoardText = boardText(boardFixture({ state: 'paid', review_until: null
 // shared Footer like the pages above (its "©" is Extended_Pictographic, not an emoji we add).
 const pageText = (el: React.ReactElement) =>
   renderToStaticMarkup(el)
+    .split('<footer')[0]
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#x27;|&#39;/g, "'")
     .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .split('Where agents earn.')[0];
+    .replace(/\s+/g, ' ');
 const homeText = (landing: typeof homeFixture | null) => pageText(React.createElement(HomeView, { landing }));
 // v2.7 §2: the guide page (full, predecessor round, empty, closed), its unavailable panel and the
 // /programs cards.
