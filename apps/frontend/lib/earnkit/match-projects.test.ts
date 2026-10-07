@@ -1,6 +1,7 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ForkCheckError, GitHubError, repoCodeFacts } from './match-projects';
+import { sql } from './db';
+import { ForkCheckError, GitHubError, cachedRepoChains, repoCodeFacts } from './match-projects';
 
 /** Stubs global fetch with GitHub answers by path (query kept); records every path asked. */
 async function withGitHub<T>(answers: Record<string, () => Response>, run: (calls: string[]) => Promise<T>) {
@@ -66,3 +67,35 @@ test('repoCodeFacts: a failed compare is a ForkCheckError, never "not found (or 
     await assert.rejects(repoCodeFacts('bob/kit'), (err: unknown) => err instanceof ForkCheckError && err.status === 404);
   });
 });
+
+// Against the local database when configured.
+const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => {
+  if (process.env.DATABASE_URL) await sql().end();
+});
+
+test(
+  'cachedRepoChains: mainnet evidence only (review fix round 1, item 2) — a testnet-only chain never counts as a fit; no row is null',
+  dbTest,
+  async () => {
+    const full = `test/cached-chains-${process.pid}-${Date.now()}`;
+    assert.equal(await cachedRepoChains(full), null, 'nothing cached yet');
+    await sql()`
+      INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
+        ${full}, now(),
+        ${sql().json({
+          base: { mainnet: true, testnet: false, evidence: 'x' },
+          avalanche: { mainnet: false, testnet: true, evidence: 'fuji only' },
+        })},
+        '{}')`;
+    assert.deepEqual(await cachedRepoChains(full), ['base'], 'the Avalanche Fuji-only evidence never counts as a fit');
+    // The latest row for this full name wins, same as the chains cache elsewhere.
+    await sql()`
+      INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
+        ${full}, now() + interval '1 second',
+        ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'y' } })},
+        '{}')`;
+    assert.deepEqual(await cachedRepoChains(full), ['arc']);
+    await sql()`DELETE FROM github_repo_facts WHERE full_name = ${full}`;
+  },
+);

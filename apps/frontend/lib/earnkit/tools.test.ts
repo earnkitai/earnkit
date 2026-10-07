@@ -112,6 +112,17 @@ async function withOnlyPrograms<T>(keep: string[], fn: () => Promise<T>): Promis
   }
 }
 
+/**
+ * v2.8 Task 11 review fix round 1, item 4: a bare `startsWith(prefix)` also passes a reply that
+ * glues more text onto `prefix` with no separator (or the wrong one). Anchors the match: `actual`
+ * must be exactly `prefix`, or `prefix` followed by exactly "\n\n" and then anything (the
+ * "Also qualifies" block's join). Exported-shaped for the tests below; not a general matcher.
+ */
+function assertEntered(actual: string, prefix: string, message?: string) {
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(actual, new RegExp(`^${escaped}(\\n\\n|$)`), message ?? actual);
+}
+
 test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async () => {
   const PAY = '0x' + 'a'.repeat(40);
   const C1 = '0x' + '1'.repeat(40);
@@ -471,8 +482,9 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       show_to_builder: string;
     };
     assert.equal(skipped.recorded, true);
-    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow.
-    assert.ok(skipped.show_to_builder.startsWith(`Entered in ${a.title}.`), 'skipped: no coin, no bonus line');
+    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow,
+    // anchored on the "\n\n" join (review fix round 1, item 4) so a glued-together reply would fail.
+    assertEntered(skipped.show_to_builder, `Entered in ${a.title}.`, 'skipped: no coin, no bonus line');
     assert.doesNotMatch(skipped.show_to_builder.split('\n\n')[0], /ETH|builder bonus/);
     // 2. The next prepare_submission, on another non-campaign program, prefills it.
     const prep = (await tools.prepare_submission({ program_id: b.id, ...ready() }, { installationId: id })) as {
@@ -531,11 +543,11 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // The agent's note names the tool; the builder's text never does.
     assert.equal(r.token.note, 'No token yet: no wallet was given.');
     assert.equal((r.token as { agent_note?: string }).agent_note, 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
-    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow.
-    assert.ok(
-      r.show_to_builder.startsWith(
-        `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
-      ),
+    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow,
+    // anchored on the "\n\n" join (review fix round 1, item 4).
+    assertEntered(
+      r.show_to_builder,
+      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -605,7 +617,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPoolsWei: pools })) as Held;
     assert.equal(held.repo_held, true);
     assert.equal(held.bonus_round, null);
-    assert.ok(held.show_to_builder.startsWith(`Entered in ${a.title}. ${REPO_HELD}`));
+    assertEntered(held.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
     assert.doesNotMatch(held.token.note ?? '', /launch_token|creator_wallet/);
     assert.match((held as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${ok.project_id} already holds this repo`));
     // The repo's coin is on an entry here that isn't eligible yet (no counting submission): still held.
@@ -613,7 +625,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const coinHeld = (await tools.record_submission(sameRepo(6), { installationId: await inst('four'), roundPoolsWei: pools })) as Held;
     assert.equal(coinHeld.repo_held, true);
     assert.equal(coinHeld.bonus_round, null);
-    assert.ok(coinHeld.show_to_builder.startsWith(`Entered in ${a.title}. ${REPO_HELD}`));
+    assertEntered(coinHeld.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
     assert.match((coinHeld as { bonus_note?: string }).bonus_note ?? '', /another entry of this repo in this program has its token/);
     // The holder's own re-record is not "held" by its own coin.
     const own = (await tools.record_submission({ ...coinEntry(4, B), builder_submitted: true }, ctxTwo)) as Held & { project_id: number };
@@ -1463,6 +1475,11 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
       // Uncached: chains fall back to Arc's own (arc only), so the Base-chain program doesn't fit.
       const r1 = await submit();
       assert.ok(!r1.also_qualifies?.some((x) => x.id === other.id));
+      // No candidate fits yet (isolated to just t.p and other, and other needs base): the reply is
+      // exactly the entered text, with no "Also qualifies" suffix at all. Captured for the full
+      // joined-string check below (review fix round 1, item 4).
+      const mainText = r1.show_to_builder;
+      assert.ok(!r1.also_qualifies);
 
       // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29).
       const full = t.repo.replace('https://github.com/', '');
@@ -1480,12 +1497,14 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
       const bank = await readBank(t.inst, projectKey({ repo_url: t.repo, name: 'Tip Jar' }));
       const programs = await alsoProgramFacts();
       const enteredIds = await enteredProgramIds(t.inst, { repoUrl: t.repo, name: 'Tip Jar' });
-      const args = { enteredProgramId: t.p.id, chains: ['arc', 'base'] as Chain[], programs, bank, answers: COACH_ANSWERS, now: new Date() };
+      const args = { enteredProgramId: t.p.id, chains: ['arc', 'base'] as Chain[], programs, bank, answers: COACH_ANSWERS, hasLiveProduct: true, now: new Date() };
       const expectedRows = alsoQualifies({ ...args, enteredIds });
       assert.deepEqual(r2.also_qualifies, expectedRows);
       // confirmSetup's ctx.repoCoins always answers {} (so the token launch flow never sees this
       // repo as held elsewhere): the same stub makes coinIn null here, not the entered program.
-      assert.ok(r2.show_to_builder.endsWith(alsoText(expectedRows, null)!));
+      // Review fix round 1, item 4: the full joined string (mainText + "\n\n" + the block), not
+      // just the tail, so a regression that glues the sections together would be caught.
+      assert.equal(r2.show_to_builder, `${mainText}\n\n${alsoText(expectedRows, null)}`);
 
       // Reusing the bank cuts how much is left (usage_numbers, kind traction, is filled from Arc's).
       const unbanked = alsoQualifies({ ...args, enteredIds, bank: new Map() }).find((x) => x.id === other.id)!;

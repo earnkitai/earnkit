@@ -222,6 +222,8 @@ async function alsoQualifiesBlock(
     enteredIds,
     bank,
     answers: answersOf(parsed.submission_data),
+    // Review fix round 1, item 3: the live-product gate reads the project's own live link.
+    hasLiveProduct: Boolean(parsed.project.live_url),
     now: new Date(),
   });
   const coinIn = (repoKey && coins.get(repoKey)?.title) || null;
