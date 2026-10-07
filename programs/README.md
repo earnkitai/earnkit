@@ -210,10 +210,13 @@ Once a week, for every active program:
 6. Results: for each program whose `results.expected` has passed (or that announced early), read
    `results.url`. When it names results, write `programs/outcomes/<program-id>.json` (format and
    example: `programs/outcomes/README.md`): the round's label, the announcement's https link,
-   today as `captured_at`, `complete`, the round's window (`entries_until`, the round's deadline
-   as a date, required when `complete` is true; `entries_from`, the round's first day, when the
-   source states it), and one result per named project, by its repo, name or live link exactly as
-   the announcement gives it. Only entries submitted inside the window are labelled for the round. `complete: true` only when the announcement
+   today as `captured_at`, `complete`, the round's window as dates (`entries_from`, the round's
+   first day, and `entries_until`, its deadline; both required when `complete` is true; for a
+   rolling program, `entries_from` is the day after the previous round's `entries_until`), and one
+   result per named project, by its repo, name or live link exactly as the announcement gives it.
+   Only entries submitted inside the window (both days inclusive, UTC) are labelled for the round;
+   an entry outside it is never relabelled. If the source doesn't state the window, set
+   `complete: false`. `complete: true` only when the announcement
    names every winner of the round (then every other EarnKit entry is labelled `not_selected`);
    otherwise `false` (the others are labelled `unknown`, which never counts). Only what the
    announcement states: never a builder's own report, never a guessed match, `prize_usd` only

@@ -34,8 +34,9 @@ export const OutcomeFile = z
     /**
      * Final review I4: the round's window, as UTC days, both inclusive. Only entries submitted in
      * it are this round's: an entry made after the round closed (already in the next round of a
-     * rolling program) is never labelled here. `entries_until` (the round's deadline) is required
-     * when `complete` is true; `entries_from` (the round's first day) is optional.
+     * rolling program) is never labelled here. Re-review I-A: a complete file needs both
+     * `entries_from` (the round's first day) and `entries_until` (its deadline), so only this
+     * round's entries are ever labelled `not_selected`; a partial file may leave them out.
      */
     entries_from: z.string().date().optional(),
     entries_until: z.string().date().optional(),
@@ -55,6 +56,10 @@ export const OutcomeFile = z
       .min(1),
   })
   .strict()
+  .refine((f) => !f.complete || f.entries_from !== undefined, {
+    message: "a complete file needs entries_from (the round's first day), so earlier rounds are never labelled",
+    path: ['entries_from'],
+  })
   .refine((f) => !f.complete || f.entries_until !== undefined, {
     message: 'a complete file needs entries_until (the round deadline), so later rounds are never labelled',
     path: ['entries_until'],
@@ -144,6 +149,9 @@ export async function syncOutcomeFile(
   f: OutcomeFile,
   db: Db = sql(),
 ): Promise<{ matched: number; unmatched: number; others: number }> {
+  // Re-review I-A: the loader parses with OutcomeFile; this guards a caller that didn't.
+  if (f.complete && (!f.entries_from || !f.entries_until))
+    throw new Error('a complete outcome file needs entries_from and entries_until');
   const entries = await db<EntryRef[]>`
     SELECT p.id, p.repo_url, p.name, p.live_url FROM projects p
     WHERE p.program_id = ${f.program_id}
