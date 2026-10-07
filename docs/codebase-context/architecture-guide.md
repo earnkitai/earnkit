@@ -1491,17 +1491,27 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (Docs, For sponsors), Legal (Policy), Contact (`j@earnkit.com` mailto, an X icon button to
   `https://x.com/jenilt` with `aria-label="@jenilt on X"`, `app/components/ui/Icons.tsx XIcon`).
   Below the card: the faded `<p aria-hidden="true">EARNKIT</p>` wordmark
-  (`font-funnel-display text-[18vw] text-ek-blue-light/10`), then the copyright line (unchanged,
-  "© \<year\> Tokenfi Inc. All rights reserved."). Every link is real; no placeholders. New links
-  in `app/lib/links.ts`: `FOR_SPONSORS`, `JENIL_X`, `CONTACT_EMAIL` (the old `X`/`FOLLOW_X`, EarnKit's
-  own account, stay for other callers; the footer no longer uses them). `footerLinkProblems(columns,
-  routes)` checks every link (internal paths against `appRoutes(appDir)`, external links against
-  `EXTERNAL_ALLOW`, labels non-empty); covered for `FOOTER_COLUMNS` itself in every `pnpm -s test`
-  run. A live network check of the external links (`fetch`, status \< 400, 10 s) runs only with
-  `LINK_CHECK=1`, never in `pnpm -s test`. Because the tagline now equals `HERO_TITLE`, the copy-review
-  helpers that used to cut page text at the literal string `'Where agents earn.'`
-  (`copy-review.test.ts` `policyText`/`boardText`/`pageText`) now cut the raw markup at `<footer`
-  instead, so they still isolate each page's own copy from the shared footer.
+  (`font-funnel-display text-[18vw] font-bold tracking-[-0.03em] text-ek-blue-light/10`, fix round
+  1: weight and tracking to match the branded `Wordmark` logo), then the copyright line (unchanged,
+  "© \<year\> Tokenfi Inc. All rights reserved."). Every link is real; no placeholders. `DOCS`,
+  `FOR_SPONSORS`, `JENIL_X`, `CONTACT_EMAIL` are defined in `lib/earnkit/footer-links.ts` (not
+  `app/lib/links.ts`) because `EXTERNAL_ALLOW`/`FOOTER_COLUMNS` need them and `lib/earnkit` never
+  imports from `app/` (fix round 1, Important #1); `app/lib/links.ts` re-exports all four so every
+  existing caller (`Header.tsx`'s `DOCS`, etc.) keeps working. The old `X`/`FOLLOW_X` (EarnKit's
+  own account) stay defined in `app/lib/links.ts` for other callers; the footer no longer uses
+  them. `footerLinkProblems(columns, routes)` checks every link (internal paths against
+  `appRoutes(appDir)`, external links against `EXTERNAL_ALLOW`, labels non-empty); covered for
+  `FOOTER_COLUMNS` itself in every `pnpm -s test` run. A live network check of the external links
+  (`fetch`, status \< 400, 10 s) runs only with `LINK_CHECK=1`, never in `pnpm -s test`. Because
+  the tagline now equals `HERO_TITLE`, the copy-review helpers that used to cut page text at the
+  literal string `'Where agents earn.'` (`copy-review.test.ts` `policyText`/`boardText`/`pageText`)
+  now cut the raw markup at `<footer` instead, so they still isolate each page's own copy from the
+  shared footer. Fix round 1 also: the X contact link is a bordered rounded-square icon button
+  (`rounded-xl border-2 border-ek-blue-soft/50`, the carousel arrows' language, not a bare glyph);
+  mobile `<footer>` bottom padding is `pb-[calc(10dvh+76px)]` so the copyright and faded wordmark
+  clear the fixed mobile bar's real footprint (`Header.tsx`'s `h-[10dvh]` bar plus its
+  `.mobile-header-bg` box-shadow, which extends another 60px of solid background below it); the
+  footer logo link gained `min-h-11` for a 44px tap target.
 - **`pool_usd`** (program file, optional; `programs.pool_usd numeric`, additive): set only where
   the program's own source states a pool; `programs:check` refuses one its `reward` doesn't state
   (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it

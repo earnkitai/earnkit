@@ -9,11 +9,11 @@ const LINK =
 
 export default function Footer() {
   return (
-    <footer className="w-full bg-ek-base pb-24 pt-4 md:pb-10">
+    <footer className="w-full bg-ek-base pb-[calc(10dvh+76px)] pt-4 md:pb-10">
       <div className="rounded-[40px] bg-ek-navy-deep px-8 py-12 md:rounded-[56px] md:px-16 md:py-14">
         <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between md:gap-16">
           <div className="flex flex-shrink-0 flex-col items-start gap-3">
-            <Link href="/" className="text-ek-blue-light">
+            <Link href="/" className="inline-flex min-h-11 items-center text-ek-blue-light">
               <Wordmark className="h-7 w-auto" />
             </Link>
             <p className="font-funnel-sans text-lg text-ek-blue-light">{FOOTER_TAGLINE}</p>
@@ -34,7 +34,7 @@ export default function Footer() {
                           target="_blank"
                           rel="noopener noreferrer"
                           aria-label={l.label}
-                          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-ek-blue-soft transition-colors hover:text-ek-white"
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border-2 border-ek-blue-soft/50 text-ek-blue-soft transition-colors hover:border-ek-blue-light hover:text-ek-white"
                         >
                           <XIcon className="h-5 w-5" />
                         </a>
@@ -64,7 +64,7 @@ export default function Footer() {
 
       <p
         aria-hidden="true"
-        className="mt-4 select-none text-center font-funnel-display text-[18vw] leading-none text-ek-blue-light/10"
+        className="mt-4 select-none text-center font-funnel-display text-[18vw] font-bold leading-none tracking-[-0.03em] text-ek-blue-light/10"
       >
         EARNKIT
       </p>
