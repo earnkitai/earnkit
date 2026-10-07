@@ -11,7 +11,7 @@ import type { Board } from './bonus-board';
 import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
-import { HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
 import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
 import { NO_CELL } from './present';
 import BonusPill, { BONUS_PILL_COLORS, BONUS_PILL_TEXT, bonusPillLabel } from '../../app/components/ui/BonusPill';
@@ -203,7 +203,7 @@ const home = (landing: Landing | null) => html(React.createElement(HomeView, { l
 test('v2.7 §1: the full home view', () => {
   const h = home(homeFixture);
   const t = text(h);
-  for (const s of [HERO_TITLE, HERO_SUBTITLE, '$1.3M+ open right now', 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
+  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, '$1.3M+ open right now', 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
     assert.ok(t.includes(s), s);
   // v2.8: the hero is the title, the subtitle, the bonus pill and the buttons; the pool figure
   // heads the Open programs section.
@@ -252,7 +252,7 @@ test('v2.7 §1: the full home view', () => {
   assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
   assert.equal(t.split('open right now').length, 2);
   // v2.8: no "Win twice" section; the programs come before How you earn.
-  assert.doesNotMatch(h, /id="builder-bonus"|Win twice|Agents only/);
+  assert.doesNotMatch(h, /id="builder-bonus"|Win twice/);
   assert.doesNotMatch(h, /Leaderboards/);
   assert.ok(t.indexOf('Open programs') < t.indexOf(HOW_TITLE) && t.indexOf(HOW_TITLE) < t.indexOf('Add EarnKit'));
   // Footer: Docs, Policy, Programs.
@@ -291,10 +291,13 @@ test('v2.8: the hero is the title, the subtitle, the bonus pill to step 3 and th
   const pill = h.match(/<a[^>]*href="#how-you-earn-3"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
   assert.equal(text(pill).trim(), 'Builder bonus');
   assert.match(pill, /h-11/); // size lg
-  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo'].map((s) => t.indexOf(s));
+  const order = [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo'].map((s) => t.indexOf(s));
   assert.ok(order.every((n) => n >= 0), String(order));
+  // Ruling C3: the "Agents only" pill sits right above the h1, in its v2.7 style.
+  assert.equal(HERO_EYEBROW, 'Agents only');
+  assert.match(h, /<p class="[^"]*rounded-full border-2 border-ek-blue-soft\/80[^"]*uppercase[^"]*">Agents only<\/p><h1 class="mt-8 /);
   assert.deepEqual([...order].sort((a, b) => a - b), order);
-  for (const gone of ['Agents only', 'Win twice', 'Find things worth building for', 'on every program']) assert.ok(!t.includes(gone), gone);
+  for (const gone of ['Win twice', 'Find things worth building for', 'on every program']) assert.ok(!t.includes(gone), gone);
   assert.doesNotMatch(h, /id="builder-bonus"|href="#builder-bonus"/);
   // Nothing else: from the h1 to the end of the hero section, only these carry text.
   const afterH1 = h.slice(h.indexOf('</h1>'));
@@ -323,11 +326,12 @@ test('v2.8: How you earn is a visible h2 with the three steps; step 3 is the pil
   }));
   assert.deepEqual(steps, STEPS.map((s, i) => ({ n: String(i + 1), ...s })));
   assert.match(h, /<li[^>]*id="how-you-earn-3"[^>]*class="[^"]*scroll-mt-4/);
+  assert.doesNotMatch(h, /<li[^>]*id="how-you-earn-[12]"[^>]*class="[^"]*scroll-mt-4/); // step 3 only (the brief)
 });
 
 test('v2.8: a failed read keeps the hero and How you earn, without Open programs', () => {
   const t = text(home(null));
-  for (const s of [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', HOW_TITLE, ...STEPS.map((s) => s.title)]) assert.ok(t.includes(s), s);
+  for (const s of [HERO_EYEBROW, HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', HOW_TITLE, ...STEPS.map((s) => s.title)]) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('Open programs'));
 });
 

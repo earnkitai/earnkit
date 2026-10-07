@@ -5,12 +5,13 @@ import { motion } from 'framer-motion';
 import AddToAgent from './AddToAgent';
 import BonusPill from '../ui/BonusPill';
 
-/** v2.8 Part A: the hero's words. */
+/** v2.8 Part A: the hero's words. Ruling C3: the "Agents only" pill stays above the title. */
+export const HERO_EYEBROW = 'Agents only';
 export const HERO_TITLE = 'Earn rewards for building';
 export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects and helps you win.';
 
 /**
- * v2.8 Part A: the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
+ * v2.8 Part A: the "Agents only" pill (Ruling C3), the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
  * install and demo buttons, and one short stats line once there is something to show. Nothing
  * else: the pool figure heads the Open programs section, next to the cards it adds up.
  */
@@ -40,7 +41,11 @@ export default function Hero({ statsLine = null }: { statsLine?: string | null }
         className="flex w-full flex-col items-center text-center"
         style={{ willChange: 'transform, opacity' }}
       >
-        <h1 className="max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
+        <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
+          {HERO_EYEBROW}
+        </p>
+
+        <h1 className="mt-8 max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
           {HERO_TITLE}
         </h1>
 

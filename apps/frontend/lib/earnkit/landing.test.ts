@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bonusAmount, bonusPoolsText, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { bonusAmount, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -73,7 +73,6 @@ test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review F
   assert.equal(arcTile.has_bonus, true);
   assert.equal(arcTile.bonus_amount, '0.42 ETH');
   assert.equal(arcTile.ends, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
-  assert.equal(l.bonus_pools, '0.42 ETH in pools so far');
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
 });
 
@@ -104,7 +103,6 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
   assert.equal(l.open_text, null); // no tile states a pool
-  assert.equal(l.bonus_pools, null); // every pool empty: never "0 ETH"
   assert.equal(HOME_CARDS, 6);
 });
 
@@ -166,12 +164,6 @@ test('v2.7.1 fix: byPool orders pools first by size, then the rest by per-winner
   assert.deepEqual(sorted, ['big-pool', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'no-pool-big-award', 'nothing']);
 });
 
-test('review #6: bonus_every only when no open curated program opted out', () => {
-  assert.equal(landingFrom([arc, base], new Map(), stats(), now).bonus_every, true);
-  assert.equal(landingFrom([arc, monad], new Map(), stats(), now).bonus_every, false); // Monad's fixture opted out
-  assert.equal(landingFrom([], new Map(), stats(), now).bonus_every, false);
-});
-
 test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid', () => {
   assert.equal(INSTALLS_SHOWN_FROM, 100);
   assert.equal(statsLine(stats({ installs: 99, bonus_pools_eth: 2 })), null);
@@ -185,17 +177,14 @@ test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid'
   assert.equal(statsLine(stats({ installs: 1234 })), '1,234 agents earning');
 });
 
-test('v2.8 Ruling 19 (plan): the bonus pill amount and the pools figure', () => {
+test('v2.8 Ruling 19 (plan): the bonus pill amount', () => {
   assert.equal(bonusAmount('new pool'), null);
   assert.equal(bonusAmount(NO_CELL), null);
   assert.equal(bonusAmount('0.42 ETH so far'), '0.42 ETH');
   assert.equal(bonusAmount('under 0.01 ETH so far'), '<0.01 ETH');
-  assert.equal(bonusPoolsText(0n), null);
-  assert.equal(bonusPoolsText(10n ** 15n), 'under 0.01 ETH in pools so far');
-  assert.equal(bonusPoolsText(6n * 10n ** 17n), '0.60 ETH in pools so far');
-  // Pools of programs without a bonus (opted out, frozen) never count.
+  // An opted-out program's pool never shows; a program with the bonus shows its own.
   const l = landingFrom([monad, arc], new Map([['monad-metropolis', 10n ** 18n], ['arc-microgrants', 2n * 10n ** 17n]]), stats(), now);
-  assert.equal(l.bonus_pools, '0.20 ETH in pools so far');
+  assert.deepEqual(l.tiles.map((t) => [t.id, t.bonus_amount]), [['monad-metropolis', null], ['arc-microgrants', '0.20 ETH']]);
 });
 
 test('Review Focus 1: an unreachable database rejects; never empty data that would read "$0 open"', async () => {
