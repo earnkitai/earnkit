@@ -443,14 +443,14 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     };
     assert.equal(prep.token.creator_wallet, W);
     assert.match(prep.show_to_builder, /\| Token \| Your entry gets a token on Base, Tip Jar \(\$TIP\): /);
-    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`), prep.show_to_builder);
+    assert.ok(prep.show_to_builder.includes(`Wallet for fees and any bonus: ${W} (used last time), or tell me another.`), prep.show_to_builder);
     assert.equal(prep.show_to_builder.split(W).length, 2, 'the full wallet once, on the wallet line');
     // A wallet given in this call is not "from last time".
     const OTHER = '0x' + 'f'.repeat(39) + '4';
     const given = (await tools.prepare_submission({ program_id: b.id, ...ready(), answers: { ...ready().answers, payout_wallet: OTHER } }, { installationId: id })) as {
       show_to_builder: string;
     };
-    assert.ok(given.show_to_builder.includes(`Wallet for fees and any bonus: ${OTHER} — or tell me another.`));
+    assert.ok(given.show_to_builder.includes(`Wallet for fees and any bonus: ${OTHER}, or tell me another.`));
     // Ruling 22: a typo'd wallet (bad EIP-55 checksum) is refused with a clear error, never shown or dropped.
     const TYPO = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';
     await assert.rejects(

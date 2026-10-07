@@ -61,7 +61,7 @@ export function walletLine(a: { wallet: string | null; remembered: boolean; hasB
   const what = a.hasBonus ? 'fees and any bonus' : 'fees';
   if (!a.wallet) return `Which wallet should get your token's ${what}?`;
   // Final review M8: "used last time", never "yours": on a shared registration it may not be.
-  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (used last time)' : ''} — or tell me another.`;
+  return `Wallet for ${what}: ${a.wallet}${a.remembered ? ' (used last time)' : ''}, or tell me another.`;
 }
 
 /**

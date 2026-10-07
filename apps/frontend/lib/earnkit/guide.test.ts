@@ -98,12 +98,12 @@ const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgran
 test('v2.7 §2: the full guide, exactly', () => {
   assert.equal(guideText(programGuide(arc, BONUS, NOW)), [
     'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14',
-    'Difficulty: Medium — 20 of ~160 entries won last round',
+    'Difficulty: Medium. 20 of ~160 entries won last round.',
     '',
     'What won last time',
     '- USDC payroll and payouts (3 of 20 winners)',
     '- Agent wallets paying for APIs (2 of 20)',
-    '- Example: PayStream — streamed salaries in USDC; cited for live mainnet demo',
+    '- Example: PayStream, streamed salaries in USDC; cited for live mainnet demo',
     '',
     'What Arc wants now',
     '- Stablecoin payments · FX · Agentic commerce',
@@ -128,7 +128,7 @@ test('Review Focus 5: partial data — no round winners, no why', () => {
   assert.deepEqual(g.won?.lines, [
     'USDC payroll and payouts (3 winners)',
     'Agent wallets paying for APIs (2)',
-    'Example: ArcFlow — agent payouts in USDC',
+    'Example: ArcFlow, agent payouts in USDC',
   ]);
   assert.equal(g.won?.source_url, 'https://e/h');
   assert.ok(!guideText(g).includes('cited for'));
@@ -190,7 +190,7 @@ test('Ruling C12: a round that is not own names its event under the heading; eac
   assert.equal(split.difficulty.basis, "4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026");
   assert.equal(split.won?.event, "in Arc's tracks at ETHGlobal Cannes 2026");
   const t = guideText(split);
-  assert.match(t, /Difficulty: Hard — 4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026\n/);
+  assert.match(t, /Difficulty: Hard\. 4 of ~155 entries won in Arc's tracks at ETHGlobal HackMoney 2026\.\n/);
   assert.match(t, /\nWhat won before\nin Arc's tracks at ETHGlobal Cannes 2026\n- Pay-per-use micropayments \(4 winners\)/);
   // An own round that isn't the newest is still named (it's not "last time").
   const older = programGuide({ ...arc, past_rounds: [round(undefined, 20, 'Arc Microgrants R3'), arc.past_rounds[0]] }, null, NOW);
@@ -199,7 +199,7 @@ test('Ruling C12: a round that is not own names its event under the heading; eac
 
 test('empty data: the header and the estimate only, no empty headings, no bonus line', () => {
   const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, null, NOW));
-  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14\nDifficulty: Medium (estimate) — no past results yet');
+  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14\nDifficulty: Medium (estimate). No past results yet.');
 });
 
 test('Ruling 7: focus.ecosystem names the heading', () => {

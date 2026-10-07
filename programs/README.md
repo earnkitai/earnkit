@@ -69,26 +69,26 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
        or `token_url` when the answer is simply that
      - `from`: `project` if the agent can draft it from the project, `builder` for personal info
      - `todo` (required when `required` is true; `pnpm programs:check` enforces it): the item as a
-       short builder to-do for "Before you submit: …" — lowercase start, at most 40 characters,
+       short builder to-do for "Before you submit: …": lowercase start, at most 40 characters,
        no trailing punctuation or links (e.g. `"a live link on Arc mainnet"`)
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
       Devfolio, and the ecosystem's blog or X.
       - Predecessor rounds are allowed when the label names the real event (e.g. the
         ecosystem's prior hackathon, season, or cohort, if this program has no past round of
-        its own yet) — never attribute it to this program.
+        its own yet), never attribute it to this program.
       - Set `"own": true` only on a round of this program itself. Leave it out for a predecessor
         event (the default): the guide then names the event ("in <label>", "What won before")
         instead of saying "last round", so write the label to read well after "in ".
       - Never use counts from a different kind of program (for example, an accelerator's counts
         for a grants program) for the odds: write `submissions`/`winners` as `null` instead of
         borrowing them.
-      - `submissions` counts entries submitted to that round only — never registrations,
+      - `submissions` counts entries submitted to that round only, never registrations,
         projects deployed, or applicants to a different stage (e.g. Monad's "101 projects
         deployed" is not a submissions count). Write `null` when the only published number is a
         different metric.
       - One rule for unknown counts: when `submissions` or `winners` isn't sourced (unpublished,
-        borrowed from elsewhere, or a different metric), write it as `null`. Don't omit the key —
+        borrowed from elsewhere, or a different metric), write it as `null`. Don't omit the key:
         a `null` says "checked, not stated"; a missing key just looks unfinished.
       - Omit anything else you can't source (`why`, `themes`, `examples`, `focus`, `logo`,
         `winners_per_round`, the whole round). Never invent a count, a theme, or a "why".
@@ -97,7 +97,7 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
       from winners you can list by name on the source. When the source describes only some of
       the winners, set `themes_of` to how many it describes (at most `winners`): the guide then
       shows the theme counts without "of N". Examples: 1–2, with `what` they did; `why`
-      only when a judge or organizer stated a reason — omit it otherwise, never invent one. Every
+      only when a judge or organizer stated a reason; omit it otherwise, never invent one. Every
       example carries its own `source_url`.
    3. `focus`: up to 3 areas from the program's current tracks or the ecosystem's published
       priorities, plus `source_url` and optionally `ecosystem`.

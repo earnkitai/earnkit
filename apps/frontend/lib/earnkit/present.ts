@@ -139,21 +139,24 @@ export const eth = (wei: bigint) => {
   return `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 };
 
+/** v2.8 Ruling 16 (plan): an empty table cell (no bonus, no difficulty). Never an em dash. */
+export const NO_CELL = '';
+
 /**
  * The builder bonus cell: the open round's pool in ETH (WETH); "new pool" while the round has
- * nothing yet; "—" when the program opted out of the builder bonus (Ruling 7 (plan)), or when the
- * program's round has already frozen (I2). Pure; exported for tests.
+ * nothing yet; NO_CELL when the program opted out of the builder bonus (Ruling 7 (plan)), or when
+ * the program's round has already frozen (I2). Pure; exported for tests.
  */
 export function bonusCell(c: Pick<Card, 'builder_bonus' | 'bonus_pool_wei' | 'bonus_closed'>) {
-  if (c.builder_bonus === false || c.bonus_closed) return '—';
+  if (c.builder_bonus === false || c.bonus_closed) return NO_CELL;
   const wei = c.bonus_pool_wei ?? 0n;
   if (wei <= 0n) return 'new pool';
   return wei < 10n ** 16n ? 'under 0.01 ETH so far' : `${eth(wei)} ETH so far`;
 }
 
-/** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or "—" with none. Pure. */
+/** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or NO_CELL with none. Pure. */
 export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
-  return c.difficulty ? difficultyLabel(c.difficulty) : '—';
+  return c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL;
 }
 
 /**
@@ -171,7 +174,7 @@ export const BONUS_TOP = 10;
  * programs". Pure.
  */
 export function bonusClose(onScreen: Card[], others = false): string | null {
-  const live = onScreen.filter((c) => bonusCell(c) !== '—');
+  const live = onScreen.filter((c) => bonusCell(c) !== NO_CELL);
   if (live.length === 0) return null;
   const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
   const head = others

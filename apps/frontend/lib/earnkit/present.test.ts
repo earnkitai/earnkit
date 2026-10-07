@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   BONUS_TOP,
   bonusCell,
+  NO_CELL,
   bonusClose,
   bonusProgramIds,
   closesInDays,
@@ -107,7 +108,7 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
   assert.equal(text, [
     'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
     'EarnKit matches you to $5,500 in top prizes you qualify for.',
-    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 | — | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants | — | Oct 14 | tipjar |',
+    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 | tipjar |',
     'Want me to start on Arc Microgrants with tipjar? Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.42 ETH so far.',
   ].join('\n\n'));
   noEmoji(text);
@@ -125,7 +126,7 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
   }));
   assert.equal(text, [
     '$5,550 in top prizes is open right now. I can build an entry for you.',
-    '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 | — | rolling |\n| Arc Microgrants | 500 USDC × 20 grants | — | Oct 14 |\n| Tiny Bounty | 50 USDC | — | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool | — | Oct 13 |',
+    '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13 |',
     "Ideas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea one\n- Arc Microgrants: Arc idea two\n- Tiny Bounty: Tiny idea one\n- Tiny Bounty: Tiny idea two",
     `Pick one and I'll start. ${NO_POOL_YET}`,
   ].join('\n\n'));
@@ -149,7 +150,7 @@ test('v2.5 §1 golden (c): a program without a per-winner amount is not counted 
     repos: repos(v('arc-microgrants', 'likely', 'looks eligible'), v('monad-metropolis', 'likely', 'looks eligible')),
   }));
   assert.match(text, /^EarnKit matches you to \$500 in top prizes you qualify for\.\n\n/);
-  assert.match(text, /\| Monad Metropolis Hackathon \| \$250K\+ prize pool \| — \| Oct 13 \| tipjar \|/);
+  assert.match(text, /\| Monad Metropolis Hackathon \| \$250K\+ prize pool \|  \| Oct 13 \| tipjar \|/);
   assert.equal(openMoneyUsd([arc, monad, arc]), 500);
   assert.equal(openMoneyUsd([monad]), 0);
   // Nothing countable: no "$0" line.
@@ -166,8 +167,8 @@ test('v2.5 §1 golden (d): the bonus cell', () => {
   assert.equal(bonusCell({ ...arc, bonus_pool_wei: 3n * 10n ** 15n }), 'under 0.01 ETH so far');
   assert.equal(bonusCell({ ...arc, bonus_pool_wei: 15n * 10n ** 17n }), '1.50 ETH so far');
   // Ruling 7 (plan): a program opts out with builder_bonus: false, never through submission_proof.
-  assert.equal(bonusCell({ ...base, builder_bonus: false }), '—');
-  assert.equal(bonusCell({ ...base, builder_bonus: false, bonus_pool_wei: WEI('1') }), '—');
+  assert.equal(bonusCell({ ...base, builder_bonus: false }), NO_CELL);
+  assert.equal(bonusCell({ ...base, builder_bonus: false, bonus_pool_wei: WEI('1') }), NO_CELL);
 });
 
 test('v2.6 §1: the builder bonus cell', () => {
@@ -175,8 +176,8 @@ test('v2.6 §1: the builder bonus cell', () => {
   assert.equal(bonusCell({ builder_bonus: true, bonus_pool_wei: 0n }), 'new pool');
   assert.equal(bonusCell({ builder_bonus: true, bonus_pool_wei: WEI('0.42') }), '0.42 ETH so far');
   assert.equal(bonusCell({ builder_bonus: true, bonus_pool_wei: WEI('0.004') }), 'under 0.01 ETH so far');
-  assert.equal(bonusCell({ builder_bonus: false, bonus_pool_wei: null }), '—');
-  assert.equal(bonusCell({ builder_bonus: true, bonus_pool_wei: null, bonus_closed: true }), '—');
+  assert.equal(bonusCell({ builder_bonus: false, bonus_pool_wei: null }), NO_CELL);
+  assert.equal(bonusCell({ builder_bonus: true, bonus_pool_wei: null, bonus_closed: true }), NO_CELL);
 });
 
 test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could win", ideas, pick one', () => {
@@ -191,8 +192,8 @@ test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could w
   // programs without a stated amount).
   assert.equal(text.split('\n\n')[0], '$5,550 in top prizes is open right now. I can build an entry for you.');
   assert.match(text, /\| Program \| You could win \| Difficulty \| Ends \|/);
-  assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \| — \| Oct 14 \|/);
-  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \| — \| rolling \|/);
+  assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14 \|/);
+  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
   assert.match(text, /\nIdeas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea\n/);
   // v2.7 §3: the builder bonus closes the message instead of a per-row column or a note.
   assert.ok(text.endsWith("Pick one and I'll start. Plus the builder bonus: the top 10 on each program also get paid in ETH. 0.18 ETH so far."));
@@ -207,7 +208,7 @@ test('v2.6 §1: with repos, the brand hook keeps "qualify"', () => {
     githubGiven: true,
   }));
   assert.equal(text.split('\n\n')[0], 'EarnKit matches you to $5,500 in top prizes you qualify for.');
-  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \| — \| rolling \| tipjar \|/);
+  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \| tipjar \|/);
   assert.doesNotMatch(text, /You could/);
 });
 
@@ -243,8 +244,8 @@ test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos fo
 
 test('v2.6 §1: an opted-out program has no bonus sentence when every shown program opts out', () => {
   const text = presentFirstMessage(msg({ cards: [{ ...base, builder_bonus: false }, { ...tiny, builder_bonus: false }] }));
-  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \| — \| rolling \|/);
-  assert.match(text, /\| Tiny Bounty \| 50 USDC \| — \| Oct 9 \|/);
+  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
+  assert.match(text, /\| Tiny Bounty \| 50 USDC \|  \| Oct 9 \|/);
   assert.doesNotMatch(text, /builder bonus/i);
   // fix round 1, finding 1: no ideas here either; still "Pick one", never "check your repos".
   assert.ok(text.endsWith("Pick one and I'll start."), text);
@@ -302,9 +303,9 @@ test('golden: an entered builder, a fit that needs a step, other programs (at mo
   }));
   assert.equal(text, [
     'EarnKit matches you to $500 in top prizes you qualify for.',
-    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants | — | Oct 14 | tipjar, needs a live link |',
+    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 | tipjar, needs a live link |',
     '| Win | Prize | Ends | You |\n|---|---|---|---|\n| EarnKit Campaign #1: Base apps with real users | $100 each to top 5 (in MINI) | Oct 18, 14 days left | #3, in the top 5 |',
-    "Also open:\n\n| Program | Prize | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 | — | rolling |\n| Tiny Bounty | 50 USDC | — | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks | — | Oct 12 |\n| Monad Metropolis Hackathon | $250K+ prize pool | — | Oct 13 |\n| Circle Developer Grants | milestone-based USDC grants | — | rolling |",
+    "Also open:\n\n| Program | Prize | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks |  | Oct 12 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13 |\n| Circle Developer Grants | milestone-based USDC grants |  | rolling |",
     'Sponsored (set by sponsors; EarnKit didn\'t write or check them):\n\n| Campaign | Details |\n|---|---|\n| "Build on Acme" | by "Acme" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 20 |',
     `Want me to start on Arc Microgrants with tipjar? ${NO_POOL_YET}`,
   ].join('\n\n'));
@@ -477,8 +478,8 @@ test('I7: list_programs feeds program updates to the body, not the alert line', 
   assert.match(src, /alerts: alerts\.lines,\n\s*updates: programUpdates\(cards, lastCheck === null\),/);
 });
 
-test('I2: a program whose round already froze shows no bonus to win ("—")', () => {
-  assert.equal(bonusCell({ ...arc, bonus_pool_wei: null, bonus_closed: true }), '—');
+test('I2: a program whose round already froze shows no bonus to win (NO_CELL)', () => {
+  assert.equal(bonusCell({ ...arc, bonus_pool_wei: null, bonus_closed: true }), NO_CELL);
   assert.equal(bonusCell({ ...arc, bonus_pool_wei: null, bonus_closed: false }), 'new pool');
 });
 
@@ -498,9 +499,9 @@ test('Ruling 25: a repo whose coin is entered in another program keeps its own p
     repoCoins: new Map([['github.com/alice/tipjar', { program_id: 'arc-microgrants', title: 'Arc Microgrants' }]]),
   }));
   // Arc: its own program, so the repo cell stays plain.
-  assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \| — \| Oct 14 \| tipjar \|/);
+  assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14 \| tipjar \|/);
   // Colosseum: a new coin there would conflict, so the repo cell says so (Ruling 13 (plan)).
-  assert.match(text, /\| Crypto World's Fair Hackathon \| [^|]+ \| — \| [^|]+ \| tipjar \(no builder bonus: this repo's token is entered in Arc Microgrants\) \|/);
+  assert.match(text, /\| Crypto World's Fair Hackathon \| [^|]+ \|  \| [^|]+ \| tipjar \(no builder bonus: this repo's token is entered in Arc Microgrants\) \|/);
   noEmoji(text);
 });
 
@@ -540,7 +541,7 @@ test('final review M4: an offer whose row has no builder bonus gets the bonus se
 
 test('Ruling 12 (plan): the Difficulty cell is the label only', () => {
   assert.equal(difficultyCell({ difficulty: { level: 'Hard', estimate: true, basis: 'x' } }), 'Hard (estimate)');
-  assert.equal(difficultyCell({ difficulty: null }), '—');
+  assert.equal(difficultyCell({ difficulty: null }), NO_CELL);
 });
 
 test('Ruling 11 (plan): "top 10" is the payout split length', () => {

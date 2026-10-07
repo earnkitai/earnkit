@@ -1,7 +1,7 @@
 import { prizeOf } from './entry-text';
 import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { bonusCell, daysLeftText, eth, type Card } from './present';
+import { bonusCell, daysLeftText, eth, NO_CELL, type Card } from './present';
 import { eachLine, poolTotalText } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
@@ -39,12 +39,14 @@ export type Tile = {
   prize_usd: number;
   /** v2.7.1: the source-stated pool in USD (programs.ts poolFacts), or null. */
   pool_usd: number | null;
-  /** "Medium (estimate)", or "—" without one (then no chip). */
+  /** "Medium (estimate)", or NO_CELL without one (then no chip). */
   difficulty: string;
   /** "8 days left", "ends today" or "rolling". */
   ends: string;
-  /** v2.7.1 pill: "+ 0.42 ETH bonus" once the open round has a pool, else "+ Builder bonus"; null without a bonus. */
-  bonus: string | null;
+  /** v2.8 Ruling 19 (plan): the program has the builder bonus (its pill shows). */
+  has_bonus: boolean;
+  /** v2.8 Ruling 19 (plan): the pill's amount, "0.42 ETH" or "<0.01 ETH", once the open round's pool is above 0; else null. */
+  bonus_amount: string | null;
   /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
   logo: string | null;
 };
@@ -80,14 +82,14 @@ export function statsLine(s: PublicStats): string | null {
 }
 
 /**
- * v2.7.1: the builder bonus pill from bonusCell's words: "+ 0.42 ETH bonus" once the round has a
- * pool, else "+ Builder bonus" (with `newPool`, "+ Builder bonus · new pool", the guide page's).
- * Pure.
+ * v2.8 Ruling 19 (plan): the bonus pill's amount from bonusCell's words: "0.42 ETH so far" is
+ * "0.42 ETH", "under 0.01 ETH so far" is "<0.01 ETH"; anything else (an empty pool, no bonus) is
+ * null, so the pill never shows "0 ETH". Pure.
  */
-export function bonusPill(cell: string, newPool = false): string {
+export function bonusAmount(cell: string): string | null {
   const so = cell.match(/^(.*) ETH so far$/);
-  if (so) return `+ ${so[1] === 'under 0.01' ? '<0.01' : so[1]} ETH bonus`;
-  return newPool ? '+ Builder bonus · new pool' : '+ Builder bonus';
+  if (!so) return null;
+  return `${so[1] === 'under 0.01' ? '<0.01' : so[1]} ETH`;
 }
 
 /** v2.7.1: the builder bonus section's figure: "0.60 ETH in pools so far", or null while every pool is empty. Pure. */
@@ -118,7 +120,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
   const tiles = kept.map((c): Tile => {
     const pool = pools.get(c.id);
     const cell = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
-    if (cell !== '—' && pool) bonusWei += pool;
+    if (cell !== NO_CELL && pool) bonusWei += pool;
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
     const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null });
@@ -131,9 +133,10 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
       prize_note: each && each !== prize ? each : null,
       prize_usd: perWinner,
       pool_usd: c.pool_usd ?? null,
-      difficulty: c.difficulty ? difficultyLabel(c.difficulty) : '—',
+      difficulty: c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL,
       ends: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
-      bonus: cell === '—' ? null : bonusPill(cell),
+      has_bonus: cell !== NO_CELL,
+      bonus_amount: bonusAmount(cell),
       logo: c.logo ? `/${c.logo}` : null,
     };
   });
@@ -174,8 +177,10 @@ export type GuidePage = {
   open: boolean;
   /** "/bonus/arc-microgrants-2026-09-16", or null without a bonus line. */
   board_path: string | null;
-  /** v2.7.1: "+ 0.42 ETH bonus" or "+ Builder bonus · new pool" beside Difficulty, or null without a bonus. */
-  bonus_pill: string | null;
+  /** v2.8 Ruling 19 (plan): the program has the builder bonus (its pill shows beside Difficulty). */
+  has_bonus: boolean;
+  /** v2.8 Ruling 19 (plan): the pill's amount ("0.42 ETH"), or null while the pool is empty or without a bonus. */
+  bonus_amount: string | null;
   /** The program's own page. */
   source_url: string;
   /** The program's own page, then every source the guide's facts rest on, labelled by role. */
@@ -208,7 +213,8 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     logo: row.logo ? `/${row.logo.path}` : null,
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
     board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
-    bonus_pill: bonus ? bonusPill(bonus.cell, true) : null,
+    has_bonus: bonus !== null,
+    bonus_amount: bonus ? bonusAmount(bonus.cell) : null,
     source_url: row.source_url,
     // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).
     sources: guideSourceList(row, [

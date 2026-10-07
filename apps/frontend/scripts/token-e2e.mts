@@ -295,7 +295,7 @@ let aRepo = '';
     prep.token,
   );
   // v2.6 §3: the remembered wallet is prefilled on the wallet line (one yes confirms both).
-  check(prep.token?.say_to_builder.includes('(used last time) — or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
+  check(prep.token?.say_to_builder.includes('(used last time), or tell me another.'), '(a) say_to_builder prefills the remembered wallet', prep.token);
   check(prep.token?.creator_wallet === WALLET, '(a) creator wallet is the remembered wallet');
   const before = deploys.length;
   const r = await submit({ project: p, token: { name: prep.token!.proposed!.name, symbol: 'CHAIN' }, confirmed: true });

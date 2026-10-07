@@ -1,10 +1,10 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bonusPill, bonusPoolsText, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { bonusAmount, bonusPoolsText, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
-import type { Card } from './present';
+import { NO_CELL, type Card } from './present';
 import type { PublicStats } from './stats';
 import { committedProgram } from './fixtures/program-file';
 
@@ -70,7 +70,8 @@ test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review F
   const l = landingFrom([monad, arc, sponsored, campaign, base], new Map([['arc-microgrants', 42n * 10n ** 16n]]), stats(), now);
   assert.deepEqual(l.tiles.map((t) => t.id), ['monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
   const arcTile = l.tiles.find((t) => t.id === 'arc-microgrants')!;
-  assert.equal(arcTile.bonus, '+ 0.42 ETH bonus');
+  assert.equal(arcTile.has_bonus, true);
+  assert.equal(arcTile.bonus_amount, '0.42 ETH');
   assert.equal(arcTile.ends, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
   assert.equal(l.bonus_pools, '0.42 ETH in pools so far');
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
@@ -87,16 +88,19 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
     prize_note: null, // the big line already says it
     prize_usd: 25000,
     pool_usd: null,
-    difficulty: '—',
+    difficulty: NO_CELL,
     ends: '14 days left',
-    bonus: null, // opted out
+    has_bonus: false, // opted out
+    bonus_amount: null,
     logo: null,
   });
   assert.equal(b.ends, 'rolling');
   assert.equal(b.difficulty, 'Hard');
-  assert.equal(b.bonus, null); // its round froze (I2)
+  assert.equal(b.has_bonus, false); // its round froze (I2)
+  assert.equal(b.bonus_amount, null);
   assert.equal(a.difficulty, 'Medium (estimate)');
-  assert.equal(a.bonus, '+ Builder bonus'); // no pool read yet: the pill still shows
+  assert.equal(a.has_bonus, true); // no pool read yet: the pill still shows
+  assert.equal(a.bonus_amount, null); // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
   assert.equal(l.open_text, null); // no tile states a pool
@@ -181,12 +185,11 @@ test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid'
   assert.equal(statsLine(stats({ installs: 1234 })), '1,234 agents earning');
 });
 
-test('v2.7.1: builder bonus pills and the pools figure', () => {
-  assert.equal(bonusPill('new pool'), '+ Builder bonus');
-  assert.equal(bonusPill('new pool', true), '+ Builder bonus · new pool');
-  assert.equal(bonusPill('0.42 ETH so far'), '+ 0.42 ETH bonus');
-  assert.equal(bonusPill('0.42 ETH so far', true), '+ 0.42 ETH bonus');
-  assert.equal(bonusPill('under 0.01 ETH so far'), '+ <0.01 ETH bonus');
+test('v2.8 Ruling 19 (plan): the bonus pill amount and the pools figure', () => {
+  assert.equal(bonusAmount('new pool'), null);
+  assert.equal(bonusAmount(NO_CELL), null);
+  assert.equal(bonusAmount('0.42 ETH so far'), '0.42 ETH');
+  assert.equal(bonusAmount('under 0.01 ETH so far'), '<0.01 ETH');
   assert.equal(bonusPoolsText(0n), null);
   assert.equal(bonusPoolsText(10n ** 15n), 'under 0.01 ETH in pools so far');
   assert.equal(bonusPoolsText(6n * 10n ** 17n), '0.60 ETH in pools so far');

@@ -1513,8 +1513,8 @@ check(
 );
 const board7 = (await getCampaignBoard(await prog(draft7.ref)))!;
 check(
-  statusOf(board7, eta.project_id) === 'no winners — sponsor refunded',
-  'board: Eta "no winners — sponsor refunded"',
+  statusOf(board7, eta.project_id) === 'no winners, sponsor refunded',
+  'board: Eta "no winners, sponsor refunded"',
 );
 const boardC = (await getCampaignBoard(c1.program_id!))!;
 check(
