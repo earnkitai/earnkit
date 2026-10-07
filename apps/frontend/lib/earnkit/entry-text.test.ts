@@ -153,8 +153,8 @@ test('Ruling 25 (I8): the token row of a repo whose token is entered in another 
 const W = '0xab12000000000000000000000000000000ef0123';
 test('v2.6 §3, Ruling 22: the coin row and the wallet line (the wallet in full, once)', () => {
   assert.equal(coinRow({ symbol: 'X', hasBonus: true, coinIn: 'Arc Microgrants' }), "no builder bonus: this repo's token is entered in Arc Microgrants");
-  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`);
-  assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W} — or tell me another.`);
+  assert.equal(walletLine({ wallet: W, remembered: true, hasBonus: true }), `Wallet for fees and any bonus: ${W} (used last time), or tell me another.`);
+  assert.equal(walletLine({ wallet: W, remembered: false, hasBonus: false }), `Wallet for fees: ${W}, or tell me another.`);
   assert.equal(walletLine({ wallet: null, remembered: false, hasBonus: true }), "Which wallet should get your token's fees and any bonus?");
   for (const line of [coinRow({ symbol: 'TIPJAR', hasBonus: true }), walletLine({ wallet: W, remembered: true, hasBonus: true }), COIN_FOOTNOTE])
     assert.doesNotMatch(line, /vault|\p{Extended_Pictographic}/u);
@@ -171,7 +171,7 @@ test('v2.6 §3, Ruling 22: confirmTable outside campaigns: Coin row, the full wa
       '| Prize | 500 USDC |',
       '| Token | Your entry gets a token on Base, $TIPJAR: you earn 40% of its trading fees, and it joins the builder bonus · say skip for no token (and no builder bonus) |',
       '',
-      `Wallet for fees and any bonus: ${W} (used last time) — or tell me another.`,
+      `Wallet for fees and any bonus: ${W} (used last time), or tell me another.`,
       '',
       COIN_FOOTNOTE,
     ].join('\n'),

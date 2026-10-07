@@ -94,6 +94,16 @@ export const difficultyOf = (p: GuideFacts): Difficulty => difficultyFrom(p).dif
 /** The Difficulty cell: "Medium", "Hard (estimate)". Pure. */
 export const difficultyLabel = (d: Difficulty) => (d.estimate ? `${d.level} (estimate)` : d.level);
 
+/** v2.8 Ruling 17 (plan): the basis as its own sentence: first letter capitalized, a closing period. Pure. */
+export const difficultyBasis = (d: Difficulty) => {
+  const b = d.basis.trim();
+  const cap = b.charAt(0).toUpperCase() + b.slice(1);
+  return /[.!?]$/.test(cap) ? cap : `${cap}.`;
+};
+
+/** v2.8 Ruling 17 (plan): "Medium (estimate). 20 winners per round; past counts not published." Pure. */
+export const difficultyText = (d: Difficulty) => `${difficultyLabel(d)}. ${difficultyBasis(d)}`;
+
 export type Guide = {
   /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14". */
   header: string;
@@ -130,7 +140,7 @@ function wonLines(r: PastRound): string[] {
       return `${t.theme} (${of ? `${t.count} of ${of}${unit}` : `${t.count}${unit}`})`;
     }),
     // Task 1 carry: "cited for" only when a judge or organizer said why.
-    ...(r.examples ?? []).map((e) => `Example: ${e.name} — ${e.what}${e.why ? `; cited for ${e.why}` : ''}`),
+    ...(r.examples ?? []).map((e) => `Example: ${e.name}, ${e.what}${e.why ? `; cited for ${e.why}` : ''}`),
   ];
 }
 
@@ -210,7 +220,7 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
 /** The guide as builder text: short sections, no paragraphs, empty sections left out. Pure. */
 export function guideText(g: Guide): string {
   const sections = [
-    `${g.header}\nDifficulty: ${difficultyLabel(g.difficulty)} — ${g.difficulty.basis}`,
+    `${g.header}\nDifficulty: ${difficultyText(g.difficulty)}`,
     g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     g.best_bet && `Your best bet\n- ${g.best_bet}`,

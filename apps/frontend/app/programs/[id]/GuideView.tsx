@@ -4,7 +4,8 @@ import Footer from '../../components/common/Footer';
 import { Eyebrow, Panel } from '../../components/common/Panel';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
-import { difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
+import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
+import BonusPill from '../../components/ui/BonusPill';
 import type { GuidePage } from '../../../lib/earnkit/landing';
 import { shownUrl } from '../../../lib/earnkit/untrusted-text';
 
@@ -92,18 +93,11 @@ export default function GuideView({ page }: { page: GuidePage }) {
             <dl className="font-funnel-sans text-base text-ek-blue-soft md:text-lg">
               <dt className="inline">Difficulty:</dt>{' '}
               <dd className="inline">
-                <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}</span> — {g.difficulty.basis}
+                <span className="font-medium text-ek-white">{difficultyLabel(g.difficulty)}.</span> {difficultyBasis(g.difficulty)}
               </dd>
             </dl>
-            {/* v2.7.1: the builder bonus as a pill beside Difficulty, linking to the leaderboard. */}
-            {page.bonus_pill && page.board_path && (
-              <Link
-                href={page.board_path}
-                className="inline-flex min-h-11 items-center rounded-full border border-ek-blue-bright/60 px-4 font-funnel-sans text-sm font-medium text-ek-blue-bright transition-colors hover:border-ek-blue-light hover:text-white md:text-base"
-              >
-                {page.bonus_pill}
-              </Link>
-            )}
+            {/* v2.8 Ruling 19 (plan): the builder bonus pill beside Difficulty, linking to the leaderboard. */}
+            {page.has_bonus && page.board_path && <BonusPill size="md" amount={page.bonus_amount} href={page.board_path} />}
           </div>
           {/* Fix round 1: the next step above the fold on mobile; the action row below repeats it. */}
           {page.open && (

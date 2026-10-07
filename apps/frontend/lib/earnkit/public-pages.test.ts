@@ -12,7 +12,8 @@ import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
 import { BONUS_PILLS } from '../../app/components/sections/BuilderBonus';
-import { BONUS_TOP } from './present';
+import { BONUS_TOP, NO_CELL } from './present';
+import BonusPill, { BONUS_PILL_COLORS, BONUS_PILL_TEXT, bonusPillLabel } from '../../app/components/ui/BonusPill';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
@@ -225,7 +226,7 @@ test('v2.7 §1: the full home view', () => {
   assert.match(h, /min-h-11[^"]*"[^>]*>See all<\/a>/);
   for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
   // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
-  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard (estimate) + 0.42 ETH bonus'));
+  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard (estimate) Builder bonus · 0.42 ETH'));
   assert.ok(t.includes('10,000 USDC pool 500 USDC per grant'));
   assert.ok(t.includes('up to $5,000 per grant rolling'));
   assert.ok(t.includes('$200K in grants $5K–$100K per grant rolling'));
@@ -241,11 +242,13 @@ test('v2.7 §1: the full home view', () => {
     assert.ok(ct.includes('Ask your agent'), tl.id);
     assert.match(c, new RegExp(`href="/programs/${tl.id}"[^>]*>Guide</a>`), tl.id);
     for (const v of [tl.title, tl.chain, tl.prize, tl.ends]) assert.ok(ct.includes(v), `${tl.id}: ${v}`);
-    // Chips: the deadline and the difficulty (none for "—"); the bonus pill whenever the program has one.
+    // Chips: the deadline and the difficulty (none for NO_CELL); the bonus pill whenever the program has one.
     const chips = [...c.slice(0, c.indexOf('Ask your agent')).matchAll(/<li class="rounded-full[^"]*"[^>]*>([^<]*)<\/li>/g)].map((m) => m[1]);
-    assert.deepEqual(chips, [tl.ends, ...(tl.difficulty === '—' ? [] : [tl.difficulty]), ...(tl.bonus ? [tl.bonus] : [])], tl.id);
+    assert.deepEqual(chips, [tl.ends, ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
+    assert.equal(ct.includes(bonusPillLabel(tl.bonus_amount)), tl.has_bonus, tl.id);
+    assert.equal(/<svg[^>]*aria-hidden="true"/.test(c.slice(0, c.indexOf('Ask your agent'))), tl.has_bonus, tl.id);
   }
-  assert.ok(t.includes('+ 0.42 ETH bonus') && t.includes('+ Builder bonus'));
+  assert.ok(t.includes('Builder bonus · 0.42 ETH') && t.includes('rolling Medium (estimate) Builder bonus Ask your agent'));
   // No stats strip, no duplicate open-money figure.
   assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
   assert.equal(t.split('open right now').length, 2);
@@ -375,7 +378,7 @@ test('v2.7 §2: the full guide page', () => {
   assert.match(h, /<h1[^>]*>Arc Microgrants<\/h1>/);
   assert.match(h, /<img[^>]*src="\/programs\/arc-microgrants.svg"[^>]*alt="Arc Microgrants"/);
   assert.ok(t.includes('500 USDC × 20 grants · ends Oct 14'));
-  assert.ok(t.includes('Difficulty: Medium — 20 of ~160 entries won last round'));
+  assert.ok(t.includes('Difficulty: Medium. 20 of ~160 entries won last round.'));
   for (const heading of ['What won last time', 'What Arc wants now', 'Your best bet'])
     // The won section wraps its list (Ruling C12's event line goes above it when not own).
     assert.match(h, new RegExp(`<h2[^>]*>${heading}</h2>\\s*(?:<div>\\s*)?<ul`), heading);
@@ -383,14 +386,14 @@ test('v2.7 §2: the full guide page', () => {
   for (const line of [
     'USDC payroll and payouts (3 of 20 winners)',
     'Agent wallets paying for APIs (2 of 20)',
-    'Example: PayStream — streamed salaries in USDC; cited for live mainnet demo',
+    'Example: PayStream, streamed salaries in USDC; cited for live mainnet demo',
     'Stablecoin payments', 'FX', 'Agentic commerce',
     'A USDC payout tool with a live mainnet demo',
   ])
     assert.ok(items.includes(line), line);
   // v2.7.1: the builder bonus is a pill beside Difficulty, linking to the leaderboard.
-  assert.ok(t.includes('Difficulty: Medium — 20 of ~160 entries won last round + 0.18 ETH bonus'));
-  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>\+ 0\.18 ETH bonus<\/a>/);
+  assert.ok(t.includes('Difficulty: Medium. 20 of ~160 entries won last round. Builder bonus · 0.18 ETH'));
+  assert.match(h, /<a[^>]*href="\/bonus\/arc-microgrants-2026-09-16"[^>]*>[\s\S]*?Builder bonus · <span[^>]*>0\.18 ETH<\/span>[\s\S]*?<\/a>/);
   assert.doesNotMatch(t, /leaderboard/);
   // Sources: labelled by what each backs (fix round 1), each link through shownUrl, host as title.
   assert.ok(t.includes('Sources: program page · past winners 1 · past winners 2 · priorities'));
@@ -407,7 +410,7 @@ test('v2.7 §2: the full guide page', () => {
   assert.equal(askPrompt('Arc Microgrants'), 'What can I earn on Arc Microgrants?');
   assert.match(h, /<a[^>]*href="\/programs"[^>]*>All programs<\/a>/);
   // No paragraphs of prose.
-  for (const [, p] of h.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g))
+  for (const [, p] of h.matchAll(/<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/g)) // never an svg <path>
     if (!p.includes('Where agents earn.') && !p.includes('All rights reserved'))
       assert.ok(text(p).trim().length <= 140, text(p));
   assert.ok(t.includes('Where agents earn.'), 'the footer');
@@ -425,7 +428,7 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
   const t = text(h);
   assert.match(h, /<h1[^>]*>Circle Developer Grants<\/h1>/);
   assert.ok(t.includes('milestone-based USDC grants · rolling'));
-  assert.ok(t.includes('Difficulty: Medium (estimate) — no past results yet'));
+  assert.ok(t.includes('Difficulty: Medium (estimate). No past results yet.'));
   assert.doesNotMatch(h, /<h2/);
   assert.doesNotMatch(t, /Builder bonus/);
   assert.equal(asks(emptyGuide).length, 2);
@@ -496,7 +499,7 @@ test('fix round 1, Minor 3: a predecessor round reads "What won before" and name
   const t = text(h);
   assert.match(h, /<h2[^>]*>What won before<\/h2>/);
   assert.doesNotMatch(t, /last (time|round)/);
-  assert.ok(t.includes("Difficulty: Medium — 20 of ~160 entries won in Arc's HackMoney 2026 track"));
+  assert.ok(t.includes("Difficulty: Medium. 20 of ~160 entries won in Arc's HackMoney 2026 track."));
 });
 
 test('Ruling C12: the web guide names the event under "What won before", never under "What won last time"', () => {
@@ -541,4 +544,49 @@ test('fix round 1, Minor 5: every source_url in programs/*.json survives shownUr
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.json'))) walk(JSON.parse(readFileSync(join(dir, f), 'utf8')));
   assert.ok(urls.length >= 6);
   for (const u of urls) assert.notEqual(shownUrl(u), null, u);
+});
+
+test('v2.8 Ruling 19 (plan): the builder bonus pill at sm, md and lg, with and without an amount', () => {
+  const heights = { sm: 'h-7', md: 'h-9', lg: 'h-11' } as const;
+  for (const size of ['sm', 'md', 'lg'] as const) {
+    for (const amount of [undefined, null, '0.42 ETH']) {
+      const h = html(React.createElement(BonusPill, { size, amount }));
+      const want = amount ? 'Builder bonus · 0.42 ETH' : 'Builder bonus';
+      assert.equal(text(h).trim(), want, `${size} ${amount}`);
+      assert.equal(bonusPillLabel(amount), want);
+      assert.match(h, /^<span /, 'no href: a span');
+      assert.match(h, new RegExp(`^<span class="[^"]*\\b${heights[size]}\\b`), size);
+      for (const other of Object.values(heights).filter((x) => x !== heights[size])) assert.doesNotMatch(h, new RegExp(`\\b${other}\\b`), size);
+      assert.match(h, /<svg[^>]*viewBox="0 0 16 16"[^>]*aria-hidden="true"/);
+      assert.match(h, /bg-clip-text text-transparent/);
+      assert.match(h, /padding-box/);
+      assert.match(h, /border-box/);
+    }
+  }
+  const a = html(React.createElement(BonusPill, { size: 'lg', href: '#how-you-earn-3' }));
+  assert.match(a, /^<a [^>]*href="#how-you-earn-3"/);
+  assert.equal(text(a).trim(), BONUS_PILL_TEXT);
+  // Never "0 ETH", never an empty amount.
+  for (const amount of ['0 ETH', '0.00 ETH', '', '  '])
+    assert.equal(text(html(React.createElement(BonusPill, { amount }))).trim(), 'Builder bonus', JSON.stringify(amount));
+  assert.equal(bonusPillLabel('<0.01 ETH'), 'Builder bonus · <0.01 ETH');
+  // Two pills on one page keep distinct gradient ids.
+  const two = html(React.createElement('div', null, React.createElement(BonusPill), React.createElement(BonusPill)));
+  const ids = [...two.matchAll(/<linearGradient id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, 2);
+  for (const id of ids) assert.ok(two.includes(`fill="url(#${id})"`), id);
+});
+
+test('v2.8 Ruling 19 (plan): the pill has accessible contrast (each orange stop at least 4.5:1 on the navy fill)', () => {
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (x: string, y: string) => {
+    const [hi, lo] = [lum(x), lum(y)].sort((m, n) => n - m);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  assert.equal(BONUS_PILL_COLORS.fill, '#0F1839');
+  assert.ok(lum(BONUS_PILL_COLORS.fill) < 0.02, 'a navy fill');
+  for (const stop of [BONUS_PILL_COLORS.from, BONUS_PILL_COLORS.to]) assert.ok(contrast(stop, BONUS_PILL_COLORS.fill) >= 4.5, stop);
 });

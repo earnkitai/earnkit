@@ -303,7 +303,7 @@ test('entryStatus: sponsor states and EarnKit eligibility', () => {
   assert.equal(entryStatus(sponsored, e, 'awarded'), 'not picked');
   assert.equal(
     entryStatus(sponsored, e, 'refunded'),
-    'no winners — sponsor refunded',
+    'no winners, sponsor refunded',
   );
   assert.equal(
     entryStatus(

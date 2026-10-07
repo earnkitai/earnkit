@@ -923,7 +923,7 @@ export type SponsorState =
 
 /**
  * One entry's public status (leaderboard and entry page). Sponsor campaigns: "entered" while
- * live, "won <amount>", "not picked" once awarded, "no winners — sponsor refunded" once refunded.
+ * live, "won <amount>", "not picked" once awarded, "no winners, sponsor refunded" once refunded.
  * EarnKit campaigns: "won", "eligible" or "building".
  */
 export function entryStatus(
@@ -938,7 +938,7 @@ export function entryStatus(
   if (e.prize_tx) return `won ${wonText(c, e.prize_amount)}`;
   if (c.kind === 'sponsor') {
     if (sponsorState === 'awarded') return 'not picked';
-    if (sponsorState === 'refunded') return 'no winners — sponsor refunded';
+    if (sponsorState === 'refunded') return 'no winners, sponsor refunded';
     return 'entered';
   }
   return e.score === null ? 'not scored yet' : e.score >= minScore(c) ? 'eligible' : 'building';

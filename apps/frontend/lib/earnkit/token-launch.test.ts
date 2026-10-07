@@ -134,7 +134,7 @@ test('tokenProposalBlock: v2.5 Task 8, a program with a builder bonus marks the 
   assert.match(b.say_to_builder, /say skip for no token \(and no builder bonus\)/);
   // Ruling 10: a remembered wallet says so on the wallet line.
   const r = await tokenProposalBlock({ program: bonusProgram, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW', remembered: true }, free);
-  assert.match(r!.say_to_builder, /\(used last time\) — or tell me another\./);
+  assert.match(r!.say_to_builder, /\(used last time\), or tell me another\./);
   // Campaigns keep v2.4's token row.
   const camp = { ...bonusProgram, campaign: { kind: 'earnkit' } } as unknown as ProgramRow;
   const c = await tokenProposalBlock({ program: camp, installationId: 1, projectName: 'Chain Kits', creatorWallet: '0xW' }, free);

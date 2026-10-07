@@ -251,6 +251,16 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   Coinbase), code comments, logs, SQL, test names, and the decorative `CoinsField` / `coin-float`.
   `copy-review.test.ts` (`coinWords`, renamed from `copy-v26.test.ts`) scans every builder, agent
   and page string for it.
+- **No em dash (v2.8 Rulings 16, 17).** No string literal, template literal part or JSX text in
+  non-test `.ts`/`.tsx`/`.mts` under `apps/frontend/{app,lib,scripts}`, and no line of `llms.txt`,
+  `programs/*.json`, `programs/README.md` or the READMEs, contains an em dash. `human-text.ts`
+  (`humanStrings`, a TypeScript AST walk that never sees comments; `humanTextFiles`) feeds
+  `human-text.test.ts`, which lists every hit as `path:line`. Empty table cells are
+  `present.ts NO_CELL` (`''`), never a dash. Comments and `docs/` are not scanned.
+- **Builder bonus pill (v2.8 Ruling 19).** One component, `app/components/ui/BonusPill.tsx`: navy
+  fill, 1px orange gradient border, spark mark, orange gradient text, `Builder bonus` or
+  `Builder bonus · 0.42 ETH` (never `0 ETH`), sizes sm/md/lg (h-7/h-9/h-11), a link with `href`.
+  Data carries only `has_bonus` and `bonus_amount` (`landing.ts bonusAmount`), never pill text.
 - **Coin gate (v2.6 §3; `token-gate.ts`, `ownership.ts`, `match-projects.ts`).** A launched coin is
   never re-gated (`runTokenFlow` stops at the existing token first), so no v2.5 coin is affected.
   - *The line* (Ruling 1 (plan)). `token: <code>`, where `code` is the first 16 hex characters of

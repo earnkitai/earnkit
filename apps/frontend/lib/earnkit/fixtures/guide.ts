@@ -1,5 +1,5 @@
 import { guideSourceList, programGuide, type GuideFacts } from '../guide';
-import { bonusPill, type GuidePage } from '../landing';
+import { bonusAmount, type GuidePage } from '../landing';
 
 /**
  * Test only: guide pages for public-pages and copy-review. The full one is guide.test.ts's Arc
@@ -37,7 +37,8 @@ const page = (facts: Facts, bonus: typeof BONUS | null, o: Partial<GuidePage> = 
     logo: null,
     open: facts.status === 'active',
     board_path: bonus ? '/bonus/arc-microgrants-2026-09-16' : null,
-    bonus_pill: bonus ? bonusPill(bonus.cell, true) : null,
+    has_bonus: bonus !== null,
+    bonus_amount: bonus ? bonusAmount(bonus.cell) : null,
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? 'Arc',

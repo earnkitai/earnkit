@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Eyebrow, Panel } from '../common/Panel';
 import AddToAgent from './AddToAgent';
 import ProgramLogo from './ProgramLogo';
+import BonusPill from '../ui/BonusPill';
 import type { Tile } from '../../../lib/earnkit/landing';
 
 const CHIP = 'rounded-full bg-ek-navy-deep px-3 py-1.5 font-funnel-sans text-sm text-ek-blue-light';
@@ -12,8 +13,8 @@ const CHIP = 'rounded-full bg-ek-navy-deep px-3 py-1.5 font-funnel-sans text-sm 
 /**
  * v2.7 §1, v2.7.1: the open curated programs, sorted by pool (landing.ts byPool). Each card: logo, title
  * and chain, the big line (the pool, else the per-winner amount), "up to $X per winner" under it
- * when different, then chips for the deadline, the difficulty and the builder bonus ("+ Builder
- * bonus", "+ 0.42 ETH bonus"); "Ask your agent" opens the install modal with "What can I earn on
+ * when different, then chips for the deadline, the difficulty and the builder bonus pill
+ * (v2.8: BonusPill, with the pool's amount once it is above 0); "Ask your agent" opens the install modal with "What can I earn on
  * <program>?", "Guide" opens /programs/<id>. /programs (heading h1) also shows the hero's figure.
  */
 export default function ProgramCards({
@@ -82,10 +83,11 @@ export default function ProgramCards({
               {t.prize_note && <p className="mt-1 font-funnel-sans text-sm text-ek-blue-soft">{t.prize_note}</p>}
               <ul className="mt-4 flex flex-wrap gap-2">
                 <li className={CHIP}>{t.ends}</li>
-                {t.difficulty !== '—' && <li className={CHIP}>{t.difficulty}</li>}
-                {t.bonus && (
-                  <li className="rounded-full border border-ek-blue-bright/60 px-3 py-[5px] font-funnel-sans text-sm font-medium text-ek-blue-bright">
-                    {t.bonus}
+                {/* present.ts NO_CELL (''): no difficulty, no chip. A client file imports no lib/earnkit module. */}
+                {t.difficulty !== '' && <li className={CHIP}>{t.difficulty}</li>}
+                {t.has_bonus && (
+                  <li className="flex items-center">
+                    <BonusPill size="sm" amount={t.bonus_amount} />
                   </li>
                 )}
               </ul>

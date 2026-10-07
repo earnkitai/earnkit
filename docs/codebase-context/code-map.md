@@ -90,6 +90,7 @@ apps/frontend/
                                for builds without one, where it renders per request); 503 no-store
                                on a failed read
   app/components/common/Panel.tsx  Panel (the rounded navy section) and Eyebrow
+  app/components/ui/BonusPill.tsx  v2.8 Ruling 19: the builder bonus brand pill (BONUS_PILL_TEXT, bonusPillLabel, BONUS_PILL_COLORS; sm/md/lg, optional amount and href); cards and the guide page so far
   app/sitemap.ts               force-dynamic: home, /policy, every non-empty bonus round (v2.6: by
                                boardSlug)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
@@ -314,14 +315,15 @@ apps/frontend/
                                newest round with both counts, ODDS_BANDS Easy ≥0.25 / Medium ≥0.08 / Hard; else an
                                estimate, never Easy; the override wins), difficultyLabel, programGuide → Guide (Ruling 9
                                header, difficulty, "What won last time/before" + event C3/C12, ecosystem focus, best bet,
-                               builder bonus), guideText (the agent's text), guideSources/guideSourceList, wonHeading;
+                               builder bonus), v2.8 difficultyBasis/difficultyText ("Medium (estimate). Basis."), guideText (the agent's text), guideSources/guideSourceList, wonHeading;
                                final review M3: wonLines drops "of N" when a round's themes_of is below its winners
+    human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
                                top prizes you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
                                repos, else "$X in top prizes is open right now" (youCould/githubGiven, Ruling 11;
                                that table's "Prize" column becomes "You could win") with a Difficulty
-                               column (difficultyCell: guide.ts difficultyLabel, or "—" with none;
+                               column (difficultyCell: guide.ts difficultyLabel, or NO_CELL ('') with none;
                                Ruling 25: a repo whose coin is entered in another program, repoCoins,
                                shows "no builder bonus: …" in its own repo cell instead of a bonus
                                column, Ruling 13 (plan)), open EarnKit campaigns only, at most 5
@@ -557,13 +559,13 @@ apps/frontend/
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
-                               prize_note "up to $X per winner" when different; bonus = bonusPill;
+                               prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
                                open_text = pool.ts poolTotalText ("$1.3M+"); bonus_pools =
                                bonusPoolsText; stats_line = statsLine (installs ≥100, bonus paid >0);
                                bonus_every; cards sorted by byPool: pools first by size, then the rest by
                                max_award_usd, then deadline); readGuidePage adds the "prize pool" source
                                and readLanding (listPrograms, roundPoolsWei, readStats; rejects when
-                               the DB is unreachable); GuidePage.bonus_pill;
+                               the DB is unreachable); GuidePage.has_bonus / bonus_amount;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
     pool.ts(+test)             v2.7.1 (pure): usdCompact ("$1.3M", "$840K", rounded down), poolStated (the
