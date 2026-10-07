@@ -1,126 +1,133 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel } from '../common/Panel';
 import AddToAgent from './AddToAgent';
-import ProgramLogo from './ProgramLogo';
-import BonusPill from '../ui/BonusPill';
+import ProgramCard from './ProgramCard';
+import { arrowState, scrollStep } from './carousel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
-const CHIP = 'rounded-full bg-ek-navy-deep px-3 py-1.5 font-funnel-sans text-sm text-ek-blue-light';
+const ARROW =
+  'flex h-11 w-11 items-center justify-center rounded-full border-2 border-ek-blue-soft/50 text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white disabled:cursor-default disabled:border-ek-blue-soft/15 disabled:text-ek-blue-soft/30';
+
+function Chevron({ dir }: { dir: 1 | -1 }) {
+  return (
+    <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={dir === 1 ? 'M8 4l6 6-6 6' : 'M12 4l-6 6 6 6'} />
+    </svg>
+  );
+}
 
 /**
- * v2.7 §1, v2.7.1: the open curated programs, sorted by pool (landing.ts byPool). Each card: logo, title
- * and chain, the big line (the pool, else the per-winner amount), "up to $X per winner" under it
- * when different, then chips for the deadline, the difficulty and the builder bonus pill
- * (v2.8: BonusPill, with the pool's amount once it is above 0); "Ask your agent" opens the install modal with "What can I earn on
- * <program>?", "Guide" opens /programs/<id>. /programs (heading h1) also shows the hero's figure.
+ * v2.8 Rulings 20, 21 (plan): "Open programs", the pool figure ("$1.3M+ open right now"), one "Ask
+ * your agent" (the install modal with the starting phrase), then every open curated program as a
+ * slim card (ProgramCard), sorted by pool (landing.ts byPool). Home: one row with native CSS scroll
+ * snap (swipe on mobile; from md, two arrows that move one card and turn off at the ends).
+ * /programs: the same cards in a grid (`layout="grid"`, heading h1), no arrows.
  */
 export default function ProgramCards({
   tiles,
-  limit,
-  seeAll = false,
-  mobileLimit,
-  heading = 'h2',
   figure = null,
+  heading = 'h2',
+  layout = 'carousel',
 }: {
   tiles: Tile[];
-  limit?: number;
-  seeAll?: boolean;
-  /** Cards shown below `sm`; the rest are hidden there and "See all programs" follows. */
-  mobileLimit?: number;
+  /** The pool total ("$1.3M+", landing.open_text), shown under the title; null hides the line. */
+  figure?: string | null;
   /** v2.7 /programs: the cards are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
-  /** v2.7.1 /programs: the landing page's "$1.3M+" (the same pool total), shown under the title. */
-  figure?: string | null;
+  layout?: 'carousel' | 'grid';
 }) {
   const Heading = heading;
-  const [asking, setAsking] = useState<string | null>(null);
-  const close = useCallback(() => setAsking(null), []);
-  const shown = limit === undefined ? tiles : tiles.slice(0, limit);
-  const more = seeAll && limit !== undefined && tiles.length > limit;
-  const moreMobile = seeAll && mobileLimit !== undefined && tiles.length > mobileLimit;
+  const carousel = layout === 'carousel';
+  const [asking, setAsking] = useState(false);
+  const close = useCallback(() => setAsking(false), []);
+  const scroller = useRef<HTMLUListElement>(null);
+  // Off until mounted: the static markup cannot know whether the row overflows.
+  const [arrows, setArrows] = useState({ prev: false, next: false });
+
+  const update = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const next = arrowState(el);
+    setArrows((a) => (a.prev === next.prev && a.next === next.next ? a : next));
+  }, []);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!carousel || !el) return;
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [carousel, update, tiles.length]);
+
+  const step = (dir: 1 | -1) => {
+    const el = scroller.current;
+    const card = el?.firstElementChild as HTMLElement | null;
+    if (!el || !card) return;
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({
+      left: scrollStep({ scrollLeft: el.scrollLeft, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, cardWidth: card.offsetWidth, gap, dir }),
+      behavior: reduce ? 'auto' : 'smooth',
+    });
+  };
 
   return (
     <Panel label="Open programs" className="py-12 md:py-16">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-6">
         <div>
-          <Heading className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
-            Open programs
-          </Heading>
+          <Heading className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">Open programs</Heading>
           {figure && (
-            <p className="mt-4 font-funnel-display text-2xl font-medium text-ek-blue-bright md:text-3xl">{figure} open right now</p>
+            <p className="mt-3 font-funnel-display text-2xl font-medium text-ek-blue-bright md:text-3xl">{figure} open right now</p>
           )}
-        </div>
-        {more && (
-          <Link
-            href="/programs"
-            className="hidden min-h-11 items-center px-2 font-funnel-sans text-base font-medium text-ek-blue-bright underline-offset-4 transition-colors hover:text-ek-white hover:underline sm:inline-flex"
+          <button
+            type="button"
+            onClick={() => setAsking(true)}
+            className="mt-6 inline-flex min-h-12 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-6 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
           >
-            See all
-          </Link>
+            Ask your agent
+          </button>
+        </div>
+        {carousel && (
+          <div className="hidden gap-3 md:flex">
+            <button type="button" aria-label="Previous programs" disabled={!arrows.prev} onClick={() => step(-1)} className={ARROW}>
+              <Chevron dir={-1} />
+            </button>
+            <button type="button" aria-label="Next programs" disabled={!arrows.next} onClick={() => step(1)} className={ARROW}>
+              <Chevron dir={1} />
+            </button>
+          </div>
         )}
       </div>
 
-      <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 md:mt-10">
-        {shown.map((t, i) => (
-          <li
-            key={t.id}
-            className={`flex-col rounded-[32px] bg-ek-navy p-6 ${mobileLimit !== undefined && i >= mobileLimit ? 'hidden sm:flex' : 'flex'}`}
-          >
-            <div className="flex items-center gap-4">
-              <ProgramLogo logo={t.logo} title={t.title} size={48} />
-              <div className="min-w-0">
-                <h3 className="font-funnel-display text-xl font-medium leading-tight text-ek-white">{t.title}</h3>
-                {t.chain && <p className="mt-1 font-funnel-sans text-sm text-ek-blue-soft">{t.chain}</p>}
-              </div>
-            </div>
-
-            <div className="mt-6 flex-1">
-              <p className="font-funnel-display text-2xl font-medium text-ek-white">{t.prize}</p>
-              {t.prize_note && <p className="mt-1 font-funnel-sans text-sm text-ek-blue-soft">{t.prize_note}</p>}
-              <ul className="mt-4 flex flex-wrap gap-2">
-                <li className={CHIP}>{t.ends}</li>
-                {/* present.ts NO_CELL (''): no difficulty, no chip. A client file imports no lib/earnkit module. */}
-                {t.difficulty !== '' && <li className={CHIP}>{t.difficulty}</li>}
-                {t.has_bonus && (
-                  <li className="flex items-center">
-                    <BonusPill size="sm" amount={t.bonus_amount} />
-                  </li>
-                )}
-              </ul>
-            </div>
-
-            <div className="mt-5 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setAsking(t.title)}
-                className="inline-flex flex-1 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-5 py-3 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
-              >
-                Ask your agent
-              </button>
-              <Link
-                href={`/programs/${t.id}`}
-                className="inline-flex items-center justify-center rounded-full border-2 border-ek-blue-soft/50 px-5 py-[10px] font-funnel-sans text-base font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white"
-              >
-                Guide
-              </Link>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      {moreMobile && (
-        <Link
-          href="/programs"
-          className="mt-4 flex min-h-12 items-center justify-center rounded-full border-2 border-ek-blue-soft/50 font-funnel-sans text-base font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white sm:hidden"
+      {/* Mobile: the row runs to the panel's edges so the next card peeks; the padding keeps focus rings unclipped. */}
+      {carousel ? (
+        <ul
+          ref={scroller}
+          tabIndex={0}
+          aria-label="Open programs"
+          onScroll={update}
+          className="-mx-6 mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-px-6 px-6 py-2 [scrollbar-width:none] md:-mx-2 md:mt-10 md:scroll-px-2 md:px-2 [&::-webkit-scrollbar]:hidden"
         >
-          See all programs
-        </Link>
+          {tiles.map((t) => (
+            <li key={t.id} className="w-[85%] flex-shrink-0 snap-start sm:w-[48%] lg:w-[31.5%]">
+              <ProgramCard tile={t} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 md:mt-10">
+          {tiles.map((t) => (
+            <li key={t.id}>
+              <ProgramCard tile={t} />
+            </li>
+          ))}
+        </ul>
       )}
 
-      {asking && <AddToAgent onClose={close} prompt={`What can I earn on ${asking}?`} />}
+      {asking && <AddToAgent onClose={close} />}
     </Panel>
   );
 }

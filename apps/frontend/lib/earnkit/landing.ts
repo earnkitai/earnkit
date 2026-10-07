@@ -1,5 +1,5 @@
 import { prizeOf } from './entry-text';
-import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
+import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, daysLeftText, NO_CELL, type Card } from './present';
 import { eachLine, poolTotalText } from './pool';
@@ -17,10 +17,6 @@ import { sql } from './db';
 
 /** Spec §1, Ruling 20 (plan): "agents earning" shows from 100 installs. */
 export const INSTALLS_SHOWN_FROM = 100;
-/** Spec §1: the first 6 cards, then "See all". */
-export const HOME_CARDS = 6;
-/** v2.7 fix round 1: below the `sm` breakpoint the homepage shows 3 cards, then "See all programs". */
-export const HOME_CARDS_MOBILE = 3;
 
 export type Tile = {
   id: string;
@@ -39,10 +35,10 @@ export type Tile = {
   prize_usd: number;
   /** v2.7.1: the source-stated pool in USD (programs.ts poolFacts), or null. */
   pool_usd: number | null;
-  /** "Medium (estimate)", or NO_CELL without one (then no chip). */
+  /** v2.8 Ruling 21 (plan): the level word only ("Hard", never "(estimate)"; the guide keeps the full label), or NO_CELL without one (then no chip). */
   difficulty: string;
-  /** "8 days left", "ends today" or "rolling". */
-  ends: string;
+  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`). */
+  days_left: string;
   /** v2.8 Ruling 19 (plan): the program has the builder bonus (its pill shows). */
   has_bonus: boolean;
   /** v2.8 Ruling 19 (plan): the pill's amount, "0.42 ETH" or "<0.01 ETH", once the open round's pool is above 0; else null. */
@@ -100,7 +96,7 @@ export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, 
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
 /**
- * The landing data from open program cards, by pool (`byPool`) (Ruling 21 (plan): curated programs only, never an
+ * The landing data from open program cards, by pool (`byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
  * EarnKit or sponsor campaign), their open rounds' pools and the public stats. v2.7.1: the hero
  * figure is the sum of the cards' source-stated pools (the /programs page shows the same). Pure.
  */
@@ -121,8 +117,8 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
       prize_note: each && each !== prize ? each : null,
       prize_usd: perWinner,
       pool_usd: c.pool_usd ?? null,
-      difficulty: c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL,
-      ends: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
+      difficulty: c.difficulty ? c.difficulty.level : NO_CELL,
+      days_left: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
       has_bonus: cell !== NO_CELL,
       bonus_amount: bonusAmount(cell),
       logo: c.logo ? `/${c.logo}` : null,

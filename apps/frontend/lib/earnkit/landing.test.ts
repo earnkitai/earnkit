@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bonusAmount, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { bonusAmount, byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -72,7 +72,7 @@ test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review F
   const arcTile = l.tiles.find((t) => t.id === 'arc-microgrants')!;
   assert.equal(arcTile.has_bonus, true);
   assert.equal(arcTile.bonus_amount, '0.42 ETH');
-  assert.equal(arcTile.ends, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
+  assert.equal(arcTile.days_left, '9 days left'); // Oct 15 03:59 UTC is 9 UTC days after Oct 6
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
 });
 
@@ -88,22 +88,30 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
     prize_usd: 25000,
     pool_usd: null,
     difficulty: NO_CELL,
-    ends: '14 days left',
+    days_left: '14 days left',
     has_bonus: false, // opted out
     bonus_amount: null,
     logo: null,
   });
-  assert.equal(b.ends, 'rolling');
+  assert.equal(b.days_left, 'rolling');
   assert.equal(b.difficulty, 'Hard');
   assert.equal(b.has_bonus, false); // its round froze (I2)
   assert.equal(b.bonus_amount, null);
-  assert.equal(a.difficulty, 'Medium (estimate)');
+  assert.equal(a.difficulty, 'Medium'); // v2.8 Ruling 21: the level word only; the guide keeps "(estimate)"
   assert.equal(a.has_bonus, true); // no pool read yet: the pill still shows
   assert.equal(a.bonus_amount, null); // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
   assert.equal(l.open_text, null); // no tile states a pool
-  assert.equal(HOME_CARDS, 6);
+});
+
+test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); the difficulty is the level word only', () => {
+  const many = Array.from({ length: 9 }, (_, i): Card => ({ ...arc, id: `p${i}`, title: `P${i}`, max_award_usd: 1000 + i }));
+  const l = landingFrom([...many, sponsored, campaign], new Map(), stats(), now);
+  assert.equal(l.tiles.length, 9);
+  const hard = landingFrom([{ ...base, difficulty: { level: 'Hard', estimate: true, basis: 'a16z publishes no acceptance figures' } }], new Map(), stats(), now);
+  assert.equal(hard.tiles[0].difficulty, 'Hard');
+  assert.ok(!('ends' in hard.tiles[0]), 'days_left replaces ends');
 });
 
 test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown amounts keep the curated text', () => {

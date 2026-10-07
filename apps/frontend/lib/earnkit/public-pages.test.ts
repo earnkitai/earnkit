@@ -210,44 +210,23 @@ test('v2.7 §1: the full home view', () => {
   const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning', 'Open programs', '$1.3M+ open right now'].map((s) => t.indexOf(s));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(!t.includes('Then ask:'));
-  // 6 cards, then "See all" to /programs; below `sm`, 3 cards, then "See all programs" (fix round 1).
-  const cards = h.split(/<li class="[^"]*rounded-\[32px\] bg-ek-navy p-6/).slice(1);
-  assert.equal(cards.length, 6);
-  assert.ok(!t.includes('Program Seven'));
-  assert.match(h, /<a[^>]*href="\/programs"[^>]*>See all<\/a>/);
-  const seeAllMobile = h.match(/<a [^>]*>See all programs<\/a>/)?.[0] ?? '';
-  assert.match(seeAllMobile, /href="\/programs"/);
-  assert.match(seeAllMobile, /(^|[ "])sm:hidden[ "]/);
-  assert.match(seeAllMobile, /min-h-12/);
-  const liClass = [...h.matchAll(/<li class="([^"]*rounded-\[32px\] bg-ek-navy p-6[^"]*)"/g)].map((m) => m[1]);
-  assert.deepEqual(liClass.map((c) => /(^| )hidden sm:flex( |$)/.test(c)), [false, false, false, true, true, true]);
-  // 44px tap targets: both "See all" links and the footer links.
-  assert.match(h, /min-h-11[^"]*"[^>]*>See all<\/a>/);
+  // v2.8 Ruling 20 (plan): every open program in one carousel row; no "See all".
+  const cards = cardsOf(h);
+  assert.equal(cards.length, homeFixture.tiles.length);
+  assert.doesNotMatch(t, /See all/);
+  // 44px tap targets: the footer links.
   for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
   // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
-  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard (estimate) Builder bonus · 0.42 ETH'));
+  assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard Builder bonus · 0.42 ETH'), t);
   assert.ok(t.includes('10,000 USDC pool 500 USDC per grant'));
   assert.ok(t.includes('up to $5,000 per grant rolling'));
   assert.ok(t.includes('$200K in grants $5K–$100K per grant rolling'));
   assert.doesNotMatch(t, /per winner rolling|grants? up to \$[\d,]+ per winner/); // review #1: grants never say "per winner"
   assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
   // The section: no "Open now" eyebrow; review #5: no bonus line under the title (the pills say it).
-  assert.match(t, /Open programs \$1\.3M\+ open right now See all CW Crypto World/);
-  assert.doesNotMatch(t, /Every entry also competes/);
+  assert.match(t, /Open programs \$1\.3M\+ open right now Ask your agent CW Crypto World/);
+  assert.doesNotMatch(t, /Every entry also competes|\(estimate\)/);
   assert.doesNotMatch(t, /Open now/i);
-  for (const [i, c] of cards.entries()) {
-    const ct = text(c);
-    const tl = homeFixture.tiles[i];
-    assert.ok(ct.includes('Ask your agent'), tl.id);
-    assert.match(c, new RegExp(`href="/programs/${tl.id}"[^>]*>Guide</a>`), tl.id);
-    for (const v of [tl.title, tl.chain, tl.prize, tl.ends]) assert.ok(ct.includes(v), `${tl.id}: ${v}`);
-    // Chips: the deadline and the difficulty (none for NO_CELL); the bonus pill whenever the program has one.
-    const chips = [...c.slice(0, c.indexOf('Ask your agent')).matchAll(/<li class="rounded-full[^"]*"[^>]*>([^<]*)<\/li>/g)].map((m) => m[1]);
-    assert.deepEqual(chips, [tl.ends, ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
-    assert.equal(ct.includes(bonusPillLabel(tl.bonus_amount)), tl.has_bonus, tl.id);
-    assert.equal(/<svg[^>]*aria-hidden="true"/.test(c.slice(0, c.indexOf('Ask your agent'))), tl.has_bonus, tl.id);
-  }
-  assert.ok(t.includes('Builder bonus · 0.42 ETH') && t.includes('rolling Medium (estimate) Builder bonus Ask your agent'));
   // No stats strip, no duplicate open-money figure.
   assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
   assert.equal(t.split('open right now').length, 2);
@@ -366,7 +345,7 @@ test('v2.7.1: the header is Docs and the install, desktop and mobile; Follow on 
 test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
   const hero = readFileSync(join(import.meta.dirname, '../../app/components/sections/Hero.tsx'), 'utf8');
   assert.doesNotMatch(hero, /lib\/earnkit\/campaigns|from 'viem'|from 'zod'/);
-  for (const f of ['ProgramCards.tsx', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
+  for (const f of ['ProgramCards.tsx', 'ProgramCard.tsx', 'carousel.ts', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
     assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\//, f);
 });
 
@@ -521,19 +500,144 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
 });
 
 test('/programs: every open program as cards under an h1, or the unavailable line', async () => {
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
+  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' }));
   assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
   assert.ok(!text(h).includes('By pool')); // v2.8: no eyebrow
   assert.doesNotMatch(text(h), /Open now/);
-  assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
+  assert.equal(cardsOf(h).length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
-  const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(' Open programs $1.3M+ open right now CW Crypto World') && !fig.includes('By pool'), fig);
-  assert.match(readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8'), /figure=\{landing\.open_text\}/);
+  const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', figure: homeFixture.open_text })));
+  assert.ok(fig.includes(' Open programs $1.3M+ open right now Ask your agent CW Crypto World') && !fig.includes('By pool'), fig);
+  const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
+  assert.match(page, /figure=\{landing\.open_text\}/);
+  assert.match(page, /layout="grid"/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
   assert.ok(u.includes('Where agents earn.'), 'the footer');
+});
+
+// ---- v2.8 Task 3: the Open programs carousel and the slim card (Rulings 20, 21 (plan)).
+/** The cards: each `<li>` of the section's list, holding its one link. */
+function cardsOf(h: string): string[] {
+  const sec = h.slice(h.indexOf('aria-label="Open programs"'));
+  const list = sec.slice(sec.indexOf('<ul'), sec.indexOf('</ul>') + 5);
+  return [...list.matchAll(/<li[ >][\s\S]*?<\/li>/g)].map((m) => m[0]);
+}
+/** The section from its heading to the end of its list. */
+function programsSection(h: string): string {
+  const sec = h.slice(h.indexOf('<section aria-label="Open programs"'));
+  return sec.slice(0, sec.indexOf('</section>'));
+}
+const chipsOf = (card: string) => [...card.matchAll(/<span class="[^"]*\bek-chip\b[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
+
+test('3.1 v2.8: the section is the h2, the figure, one "Ask your agent", then a list of whole-card links', () => {
+  const h = home(homeFixture);
+  const sec = programsSection(h);
+  const t = text(sec);
+  assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
+  const order = ['>Open programs</h2>', '$1.3M+ open right now', '>Ask your agent</button>', '<ul'].map((s) => sec.indexOf(s));
+  assert.ok(order.every((n) => n >= 0), String(order));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.equal(t.split('Ask your agent').length, 2, 'exactly one');
+  assert.equal(h.split('Ask your agent').length, 2, 'none anywhere else on the page');
+  const cards = cardsOf(h);
+  assert.equal(cards.length, 7);
+  for (const [i, c] of cards.entries()) {
+    const id = homeFixture.tiles[i].id;
+    assert.equal((c.match(/<a /g) ?? []).length, 1, id);
+    assert.match(c, new RegExp(`<a [^>]*href="/programs/${id}"`), id);
+    assert.doesNotMatch(c, /<button/, id);
+  }
+  assert.doesNotMatch(h, /See all/);
+});
+
+test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days left, difficulty word, bonus pill', () => {
+  const tiles = [
+    ...homeFixture.tiles,
+    { ...homeFixture.tiles[0], id: 'no-bonus', title: 'No Bonus Fest', has_bonus: false, bonus_amount: null, prize_note: null },
+  ];
+  const cards = cardsOf(html(React.createElement(ProgramCards, { tiles })));
+  assert.equal(cards.length, tiles.length);
+  for (const [i, c] of cards.entries()) {
+    const tl = tiles[i];
+    const ct = text(c);
+    assert.match(c, tl.logo ? new RegExp(`<img[^>]*src="${tl.logo}"`) : /aria-hidden="true"[^>]*>[A-Z]{1,2}<\/span>/, tl.id);
+    assert.match(c, new RegExp(`<h3[^>]*>${tl.title.replace(/'/g, '&#x27;')}</h3>`), tl.id);
+    assert.ok(ct.includes(tl.prize), tl.id);
+    if (tl.prize_note) assert.ok(ct.includes(tl.prize_note), tl.id);
+    assert.deepEqual(chipsOf(c), [tl.days_left, ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
+    assert.doesNotMatch(ct, /\(estimate\)/, tl.id);
+    assert.equal(ct.includes(bonusPillLabel(tl.bonus_amount)), tl.has_bonus, tl.id);
+    assert.equal(ct.includes('Builder bonus'), tl.has_bonus, tl.id);
+    // The whole card's name: "<title>, <prize>".
+    const label = c.match(/<a [^>]*aria-label="([^"]*)"/)?.[1]?.replace(/&#x27;/g, "'");
+    assert.equal(label, `${tl.title}, ${tl.prize}`, tl.id);
+    assert.doesNotMatch(ct, /\bcoins?\b|\u2014/i, tl.id);
+  }
+  // Colosseum: Hard (never "(estimate)"), the amount in the pill; Program Six: no difficulty chip, no pill.
+  assert.deepEqual(chipsOf(cards[0]), ['8 days left', 'Hard']);
+  assert.ok(text(cards[0]).includes('Builder bonus · 0.42 ETH'));
+  assert.deepEqual(chipsOf(cards[5]), ['8 days left']);
+  assert.ok(!text(cards[5]).includes('Builder bonus'));
+  assert.ok(text(cards[4]).includes('Builder bonus') && !text(cards[4]).includes('Builder bonus ·'), 'no amount, no "0 ETH"');
+  assert.deepEqual(chipsOf(cards[1]), ['ends today', 'Hard']);
+  assert.deepEqual(chipsOf(cards[2]), ['rolling', 'Medium']);
+});
+
+test('3.3 v2.8: two arrow buttons (desktop only), a focusable snap scroller, snap-start cards', () => {
+  const sec = programsSection(home(homeFixture));
+  for (const label of ['Previous programs', 'Next programs']) {
+    const b = sec.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? '';
+    assert.match(b, /type="button"/, label);
+  }
+  const arrows = sec.match(/<div class="([^"]*)"[^>]*><button[^>]*aria-label="Previous programs"/)?.[1] ?? '';
+  assert.match(arrows, /(^| )hidden( |$)/);
+  assert.match(arrows, /(^| )md:flex( |$)/);
+  const ul = sec.match(/<ul[^>]*>/)?.[0] ?? '';
+  for (const c of ['snap-x', 'snap-mandatory', 'overflow-x-auto']) assert.match(ul, new RegExp(`class="[^"]*(^|[ "])${c}( |")`), c);
+  assert.match(ul, /tabindex="0"/);
+  assert.match(ul, /aria-label="Open programs"/);
+  for (const c of cardsOf(sec)) assert.match(c, /<li class="[^"]*\bsnap-start\b/);
+});
+
+test('3.4 v2.8: one tile is one card; both arrows render disabled until mounted', () => {
+  const sec = programsSection(html(React.createElement(ProgramCards, { tiles: [homeFixture.tiles[0]] })));
+  assert.equal(cardsOf(sec).length, 1);
+  for (const label of ['Previous programs', 'Next programs'])
+    assert.match(sec.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? '', /disabled=""/, label);
+});
+
+test('3.5 v2.8: zero tiles or a failed read render no Open programs section', () => {
+  for (const landing of [{ ...homeFixture, tiles: [] }, null]) {
+    const h = home(landing);
+    assert.doesNotMatch(h, /aria-label="Open programs"/);
+    assert.ok(!text(h).includes('Open programs'));
+  }
+});
+
+test('3.6 v2.8: /programs is a grid of the same slim cards, with no arrows and one "Ask your agent"', () => {
+  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' }));
+  const ul = h.match(/<ul[^>]*>/)?.[0] ?? '';
+  assert.match(ul, /class="[^"]*\bgrid\b/);
+  assert.doesNotMatch(ul, /snap-x|overflow-x-auto/);
+  assert.doesNotMatch(h, /Previous programs|Next programs/);
+  assert.equal(h.split('Ask your agent').length, 2);
+  // The same cards as the carousel: same links, same text.
+  const carousel = cardsOf(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })));
+  assert.deepEqual(cardsOf(h).map((c) => text(c).trim()), carousel.map((c) => text(c).trim()));
+  for (const c of cardsOf(h)) assert.doesNotMatch(c, /<button/);
+});
+
+test('3.7 v2.8: keyboard: cards are never taken out of the tab order; the arrows come before the scroller', () => {
+  const src = (f: string) => readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8');
+  for (const f of ['ProgramCard.tsx', 'ProgramCards.tsx']) assert.doesNotMatch(src(f), /tabIndex=\{-1\}/, f);
+  const sec = programsSection(home(homeFixture));
+  assert.doesNotMatch(sec, /tabindex="-1"/);
+  assert.ok(sec.indexOf('aria-label="Previous programs"') < sec.indexOf('<ul'));
+  assert.ok(sec.indexOf('aria-label="Next programs"') < sec.indexOf('<ul'));
+  // HomeView and /programs pass no card cap.
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../app/HomeView.tsx'), 'utf8'), /HOME_CARDS|limit=|seeAll/);
 });
 
 test('fix round 1, Minor 3: a predecessor round reads "What won before" and names the round', () => {

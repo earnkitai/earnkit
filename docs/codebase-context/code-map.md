@@ -31,17 +31,17 @@ apps/frontend/
                                (earnkit.com/programs/<id>), the tools, live numbers (C9)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
-                               ProgramCards (6, "See all" → /programs), HowItWorks, BackedBy, Footer);
+                               ProgramCards (every open program, carousel), HowItWorks, BackedBy, Footer);
                                landing null (failed read) → hero without stats line, no cards (Ruling 21)
   app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE, BonusPill lg → #how-you-earn-3, the
                                install and demo buttons, statsLine; nothing else
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
-                               the cached curated id set ['guide-ids-v27'], else null with no per-id read;
+                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v28'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
   app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards
-                               (no limit, heading h1, v2.7.1 figure = landing.open_text, the landing's pool
+                               (layout="grid", heading h1, v2.7.1 figure = landing.open_text, the landing's pool
                                total); getLanding() null → "Programs are unavailable…"
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
@@ -49,14 +49,19 @@ apps/frontend/
                                pill (page.bonus_pill → the leaderboard), one Panel per part, AskAgent (open programs only), All programs,
                                Sources via shownUrl, Footer); exports askPrompt and Unavailable
   app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
-  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, and each card's
-                               "Ask your agent" with prompt "What can I earn on <program>?"); START_PROMPT;
+  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, the Open programs
+                               "Ask your agent", the guide's AskAgent with "What can I earn on <program>?"); START_PROMPT;
                                v2.7.1 BONUS_ENTRY_PILL "+ Builder bonus on every entry" under the steps
   app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
-                               ProgramCards shows 3 cards below sm, then "See all programs"; v2.7.1: no
-                               eyebrow (v2.8: none on /programs either), no line under the title, big line + "up to $X per
-                               winner", chips (ends, difficulty, bonus pill), optional `figure` (/programs);
+                               v2.8 ProgramCards: h2/h1, `figure` "open right now", one "Ask your agent",
+                               then every tile as a ProgramCard: layout "carousel" (home: scroll-snap row,
+                               md+ Previous/Next arrows) or "grid" (/programs); no eyebrow, no "See all";
+  app/components/sections/ProgramCard.tsx  v2.8 Ruling 21: one slim card, a whole-card link to
+                               /programs/<id> (aria-label "<title>, <prize>"): logo, title, big line,
+                               per-winner line, days-left and difficulty-word chips, BonusPill sm; no buttons
+  app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
+                               arrowState (prev/next enabled; both off when nothing overflows);
                                HowItWorks exports HOW_TITLE "How you earn" and STEPS, a Panel with a
                                visible h2 #how-it-works and steps #how-you-earn-1..3. StatsStrip.tsx is
                                gone (v2.7.1); BuilderBonus.tsx ("Win twice") is gone (v2.8)

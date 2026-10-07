@@ -1321,8 +1321,8 @@ Ruling C1: after the final review, the controller pushes and merges both repos w
 and permanent. The DB-backed version is `apps/frontend/lib/earnkit/v27-journey.test.ts` (its own
 throwaway database, real program files, no network).
 
-1. Open `/` at phone width (390): "$1.3M+ open right now" in the hero, 3 cards then "See all programs"
-   (6 at desktop width), and a guide (`/programs/<id>`) opens from a card.
+1. Open `/` at phone width (390): "$1.3M+ open right now" under "Open programs", the cards swipe
+   (arrows at desktop width), and a guide (`/programs/<id>`) opens from a card.
 2. Ask "What can I earn?": the tables have a Difficulty column, and the message closes on the
    builder bonus ("Plus the builder bonus: the top 10 on each program also get paid in ETH. …").
 3. Submit before going live (no live link): the reply leads with "Before you submit: …" and has
@@ -1470,6 +1470,20 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   `bonusPoolsText`. How you earn (`HowItWorks.tsx`: `HOW_TITLE`, `STEPS`) is a Panel with a visible h2
   (`#how-it-works`) and three step cards `#how-you-earn-1..3`. /programs has no "By pool" eyebrow.
   /policy's "The builder bonus" heading carries a `BonusPill` (md) beside it (Section's `aside`).
+- **v2.8 Part A Open programs (Task 3, Rulings 20, 21):** `ProgramCards` (client) is the h2 "Open
+  programs", "$1.3M+ open right now" (`landing.open_text`), one "Ask your agent" (the install modal
+  with `START_PROMPT`), then every open curated program (no cap; `HOME_CARDS`, "See all" and "See
+  all programs" are gone). Home (`layout="carousel"`): one `<ul>` row with native CSS scroll snap
+  (`snap-x snap-mandatory overflow-x-auto`, `tabIndex 0`, `aria-label="Open programs"`; cards
+  `w-[85%] sm:w-[48%] lg:w-[31.5%] snap-start`; edge to edge below md so the next card peeks).
+  From md, "Previous programs" / "Next programs" arrows (before the scroller in source order) move one
+  card and its gap (`carousel.ts scrollStep`) and turn off at the ends (`arrowState`, updated on
+  scroll and by a ResizeObserver; both off in the static markup until mounted). /programs:
+  `layout="grid"`, no arrows. Each card is `ProgramCard`: one `<a href="/programs/<id>"
+  aria-label="<title>, <prize>">` with the logo, title, big line, per-winner line, days-left chip
+  (`Tile.days_left`, was `ends`), difficulty chip (`Tile.difficulty` is the level word only, never
+  "(estimate)"; the guide keeps the full label) and `BonusPill` sm. No buttons on cards. The
+  landing cache key is `landing-v28` (the Tile shape changed).
 - **`pool_usd`** (program file, optional; `programs.pool_usd numeric`, additive): set only where
   the program's own source states a pool; `programs:check` refuses one its `reward` doesn't state
   (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it
@@ -1539,8 +1553,8 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
 - **/policy wording (v2.7):** "The launch protocol keeps 20% of trading fees" (`CLANKER_CUT_PCT`;
   never the protocol's name, Ruling 18), "token" throughout (Ruling 19). docs.earnkit.com's "Money
   and trust" page restates the same facts and links here.
-- **/programs** (v2.7 Ruling 22): every open curated program as cards, the target of the
-  landing's "See all" and the footer's "Programs"; each card links its guide
+- **/programs** (v2.7 Ruling 22, v2.8 Ruling 20): every open curated program as slim cards in a
+  grid, the target of the footer's "Programs"; each card links its guide
   `/programs/<id>` (see "Program guides and the landing page (v2.7)").
 - **/bonus/<round>** (`bonus-board.ts`) shows public data only. The URL segment is the slug
   `<program id>-<YYYY-MM-DD | YYYY-MM>` (v2.6 Ruling 12 (plan), `boardSlug`); the v2.5 `:` form
