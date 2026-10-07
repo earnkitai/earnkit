@@ -12,7 +12,7 @@ import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
 import { endsOf } from './present';
-import type { TokenFlowDeps } from './token-launch';
+import { SKIPPED_ENTRY, type TokenFlowDeps } from './token-launch';
 import { committedProgram } from './fixtures/program-file';
 
 const REF = `0x${'a'.repeat(64)}`;
@@ -700,6 +700,75 @@ test('v2.8 Ruling 2 (plan): record_submission launches the token on an incomplet
     assert.equal(again.token.status, 'launched');
     assert.deepEqual(deploys.map((d) => d.symbol), ['TIPJAR'], 'one launch only');
     assert.ok((await completeAt()) instanceof Date);
+  } finally {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+});
+
+test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is refused (nothing deploys); a set complete_at never moves', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = { ...arc, id: `t7lt-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t7lt-${stamp}`}) RETURNING id`;
+  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
+  const secret = process.env.EARNKIT_AUTH_SECRET;
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_AUTH_SECRET ||= 'tools-test-secret';
+  const deploys: string[] = [];
+  const tokenDeps = {
+    available: () => true,
+    limit: async () => {},
+    check: async () => true,
+    gate: {
+      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+      owner: async (r: { owner: string; repo: string }) => ({ status: 'ok' as const, text: tokenLineFor(inst, `https://github.com/${r.owner}/${r.repo}`)! }),
+      screen: async () => {},
+    },
+    deploy: async (d: { name: string; symbol: string }) => {
+      deploys.push(d.symbol);
+      return { status: 'launched' as const, name: d.name, symbol: d.symbol, tokens_fun: 'https://tokens.fun/coin/0xT7' };
+    },
+  } as unknown as TokenFlowDeps;
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), tokenDeps };
+  const W = '0x' + 'd'.repeat(39) + '7';
+  const entry = async (n: number, o: { choice?: 'go' | 'skip'; complete_at?: Date }) => {
+    const repo = `https://github.com/alice/t7lt-${stamp}-${n}`;
+    const [{ id }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, confirm_choice, complete_at)
+      VALUES (${p.id}, ${`Kit ${n}`}, ${repo}, ${`https://kit${n}.example`}, ${inst}, ${repo.replace('https://', '')},
+        ${o.choice ?? null}, ${o.complete_at ?? null})
+      RETURNING id`;
+    await sql()`INSERT INTO submissions (project_id, submission_data)
+      VALUES (${id}, ${sql().json({ description: 'A kit.', builder_profile: 'https://github.com/alice' })})`;
+    return id;
+  };
+  try {
+    // dbStore.load reads confirm_choice from the row: the refusal fires, nothing deploys or changes.
+    const skipped = await entry(1, { choice: 'skip' });
+    const out = (await tools.launch_token(
+      { project_id: skipped, builder_confirmed: true, creator_wallet: W, live_url: 'https://other.example' },
+      ctx,
+    )) as { status: string; note: string };
+    assert.deepEqual([out.status, out.note], ['failed', SKIPPED_ENTRY]);
+    assert.deepEqual(deploys, []);
+    const [row] = await sql()<{ live_url: string; token_url: string | null; complete_at: Date | null }[]>`
+      SELECT live_url, token_url, complete_at FROM projects WHERE id = ${skipped}`;
+    assert.deepEqual([row.live_url, row.token_url, row.complete_at], ['https://kit1.example', null, null]);
+    // A complete entry with complete_at already set: launch_token's COALESCE keeps the earlier value.
+    const earlier = new Date('2026-10-01T00:00:00Z');
+    const set = await entry(2, { complete_at: earlier });
+    await tools.launch_token({ project_id: set, builder_confirmed: true, creator_wallet: W }, ctx);
+    const [kept] = await sql()<{ complete_at: Date }[]>`SELECT complete_at FROM projects WHERE id = ${set}`;
+    assert.equal(kept.complete_at.getTime(), earlier.getTime());
+    // A complete entry without one: launch_token sets it (Ruling C8).
+    const unset = await entry(3, {});
+    await tools.launch_token({ project_id: unset, builder_confirmed: true, creator_wallet: W }, ctx);
+    const [now] = await sql()<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${unset}`;
+    assert.ok(now.complete_at instanceof Date);
   } finally {
     if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
     else process.env.EARNKIT_AUTH_SECRET = secret;

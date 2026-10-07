@@ -815,7 +815,7 @@ test('v2.6 Ruling 6 (plan): an owner test installation (EARNKIT_TEST_INSTALLATIO
 });
 
 test('v2.8 Rulings 2-3 (plan): eligibleSql needs a launched token, a complete entry and never a skip', db, async () => {
-  const PID4 = 't7-eligible-complete';
+  const PID4 = `t7-eligible-complete-${process.pid}-${Date.now()}`;
   const r4 = { starts: d('2026-10-01T00:00:00Z'), ends: d('2026-11-01T00:00:00Z') };
   await sql()`
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
