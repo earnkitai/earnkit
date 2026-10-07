@@ -176,6 +176,7 @@ const CONFIRM_ENTRY_DESCRIPTION =
   'Without builder_confirmed and a decision it returns the offer to show. ' +
   'A problem you can fix now (no wallet, a taken ticker, the token line not pushed yet, a failed read) returns token.fixable: true and no kit: ' +
   'show show_to_builder, fix it, and call confirm_entry again. ' +
+  "If the fix is the token line and you can't push to the repo, call confirm_entry again with agent: { can_push: false }: the entry records without a token and the kit comes back (a second go whose token line still isn't there does the same). " +
   'Otherwise the reply has kit: the submit kit (form link, every answer in form order, how to prove the entry). The kit is only in this reply; never show a kit any other way. ' +
   "kit.mode says how it is submitted: prefilled_link (the builder opens kit.prefilled_url and clicks submit), agent_fills (with a browser tool, follow kit.agent_steps in the builder's own browser: stop at login, captcha, wallet signing and file uploads; never click submit), " +
   "copy_paste (the builder pastes each answer; on DoraHacks and Questbook never fill the form, their terms ban it), or api (send kit.api.payload with the builder's own agent key; EarnKit never takes a key). The builder always clicks submit. " +

@@ -672,3 +672,13 @@ test('v2.8 Ruling C4: with the committed curated programs, Easy ones sort first 
   const easyShown = shown.slice(0, easy.length).map((c) => c.max_award_usd ?? 0);
   assert.deepEqual(easyShown, [...easyShown].sort((a, b) => b - a));
 });
+
+test('Ruling C23: the agent table reads "up to $1M investment" for an investment program, never a bare prize', () => {
+  const speedrun: Card = {
+    id: 'a16z-speedrun', title: 'a16z speedrun SR008', summary: 'up to $1M · priority window Oct 12 to Nov 1',
+    tag: 'long shot', each_time: [], ends_at: null, max_award_usd: 1_000_000, builder_fields: 1, investment: true, any_chain: true,
+  };
+  const text = presentFirstMessage(msg({ cards: [arc, speedrun] }));
+  assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
+  assert.doesNotMatch(text, /\| up to \$1M \|/);
+});

@@ -104,7 +104,8 @@ type Reply = Record<string, unknown> & { show_to_builder: string };
 
 /** Base as a second program after Arc (Task 9's `first` rule: the bank covered none of these). */
 const BASE_QUESTIONS = [
-  "Base Builder Grant Program: 3 quick questions, then I'll write your application.",
+  // Ruling C25: the heading counts every item shown, the bullet included.
+  "Base Builder Grant Program: 4 quick questions, then I'll write your application.",
   '1. Who has used TipJar so far?',
   '2. What will you ship in the next 3 months? And who is building TipJar with you?',
   '3. Your full name, email, X and Telegram?',
@@ -277,6 +278,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       // Today: an announcement only labels entries made by its day (never a date the clock passes).
       captured_at: new Date().toISOString().slice(0, 10),
       complete: true,
+      // The round's deadline (final review I4): today, so today's entry is in it.
+      entries_until: new Date().toISOString().slice(0, 10),
       results: [
         { repo: repo.replace('https://', ''), result: 'won', prize_usd: 500 },
         { name: 'Someone Else', result: 'won', prize_usd: 500 },

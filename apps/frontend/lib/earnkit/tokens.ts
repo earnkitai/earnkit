@@ -103,6 +103,8 @@ export type TokenOutcome = {
    * proof line, a transient read) and confirm again; no submit kit until then.
    */
   fixable?: boolean;
+  /** Ruling C24: confirm mode, the repo's proof line isn't there (yet). */
+  proof_line?: true;
 };
 
 /** What the builder is told about fee splits once a token is live. */

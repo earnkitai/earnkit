@@ -214,7 +214,7 @@ test('C15/C17: every builder-only field is asked; first program 3 numbered plus 
   assert.equal(
     coachIntro('Base Builder Grants', q),
     [
-      "Base Builder Grants: 3 quick questions, then I'll write your application.",
+      "Base Builder Grants: 4 quick questions, then I'll write your application.", // Ruling C25: the bullet counts.
       '1. Who has used TipJar so far?',
       '2. What will you ship in the next 3 months? And who is building TipJar with you?',
       '3. Your full name, email, X and Telegram?',

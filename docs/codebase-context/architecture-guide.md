@@ -1665,6 +1665,16 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
     `GateResult.fixable` marks the gate's) returns no kit; its builder note says "say go" and the
     agent note names confirm_entry. Anything else (a private repo, no real code, one token per
     repo, the daily limit, a tokens.fun refusal) is lasting: the kit comes back with the reason.
+  - **The proof line (Ruling C24): never a dead end.** A proof-line miss (`token-gate.ts
+    PROOF_LINE_PREFIX`, marked `TokenOutcome.proof_line`) adds `CANT_PUSH_RETRY_NOTE` to the agent
+    note (retry with `agent: { can_push: false }`; `CONFIRM_ENTRY_DESCRIPTION` says the same).
+    `startEntry` returns `proof_line_missed` (the row's stored `token_status = 'gate_failed'` with
+    that note, i.e. the previous "go" stopped there); if the proof line still fails on this "go",
+    the entry records without a token and the kit comes back with `CANT_PUSH`, as for
+    `can_push: false`. An agent that did push in between launches as usual.
+  - **The post-launch line** names the ticker when known (final review M8):
+    `Your token $TIPJAR: tokens.fun/coin/0x…. You earn 40% of its fees.` (`runTokenFlow` returns
+    the launched token's name and symbol).
 - **The entry row** is created at confirmation (`projects.ts startEntry`, Ruling 1): found or
   inserted through `ownEntry` under the same advisory lock as `recordSubmission`, charged against
   the 20 a day only when inserted, `confirmed_at` set once, `complete_at` set once (completeAt's
@@ -1723,7 +1733,11 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   is submitted: a recorded submission (a `submissions` row), the builder's word, or a proof.
 - **record_submission** on a confirmed row updates it (answers, proof, `builder_submitted`) and
   reports the row's token; it never runs a token flow. An older agent's entry that never passed
-  confirm_entry keeps the v2.7 token path.
+  confirm_entry keeps the v2.7 token path. Final review I3: a confirmed "go" with no token whose
+  repo's token is entered in another program (`tokenElsewhere`, `repoCoinPrograms` on the repo
+  key) reads `Entered in Base Builder Grant Program. Builder bonus counts in Arc Microgrants.`
+  (`entry-text.ts bonusCountsIn`, the confirmation's words), is skipped (no bonus line), and never
+  says "isn't launched yet" (kept for the no-push and fixable cases).
 
 ### The application coach and the answer bank (v2.8 Task 9, Part D)
 
@@ -1745,7 +1759,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   "Use a@b.co again? Plus your Telegram?"); money and other builder-only items together in their own
   item, never on contact. A first program shows at most 3 numbered, a 4th as a bullet; a later
   program (the bank filled any askable field) shows short bullets (C17); no question is over 25
-  words. Nothing only the builder knows is left for a second round. One round per program
+  words. The heading counts every item shown, the bullet included (`coachIntro`, Ruling C25:
+  "Base Builder Grant Program: 4 quick questions" over 3 numbered and 1 bullet); a later program
+  whose questions go beyond the bank asks like a first program (C25, accepted). Nothing only the builder knows is left for a second round. One round per program
   (`coach_asked: true`). The agent never answers a builder-only field.
 - **Draft and check** (C14): once ready, `prepare_submission` shows `draftTable` (at most 8 rows,
   cells cut at 60 characters, "show all"), then `fixesLine`, then the offer. `preSubmitCheck` builder
@@ -1759,7 +1775,10 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   details and links are banked per slot from the label (email, X, Telegram, a live link only from a
   label saying live, website or product). The fill never overwrites; for two fields of one kind it
   fills only the first; contact details are never filled silently (C16): the contact question offers
-  them ("Use a@b.co and @alice again?", `questions[].suggested`). `confirm_entry` also stores
+  them ("Use a@b.co and @alice again?", `questions[].suggested`). Final review M6: a project
+  without a repo is keyed by its name, which two builders on one shared agent registration could
+  share, so contact details are never banked or read back under a `name:` key
+  (`bankKeepsContact`). `confirm_entry` also stores
   `projects.application` (`answers`, `kinds`, `fixes`, `at`).
 - **Privacy**: the bank and `projects.application` are read only by these tools for the same
   installation; no public page, stats, admin page or log reads them (errors log the class only).
@@ -1767,7 +1786,8 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
 ### "Also qualifies" (v2.8 Task 11, Ruling 29, Part F)
 
 - **`also-qualifies.ts` (pure)**: `alsoQualifies` picks at most `MAX_ALSO` (3) other curated,
-  non-campaign, non-sponsor programs the project already qualifies for: not the program just
+  non-campaign, non-sponsor, non-investment (Ruling C23: its form isn't public) programs the
+  project already qualifies for: not the program just
   entered, not one this installation already entered for the same project (`enteredIds`; a
   confirmed-but-unsubmitted entry counts, Task 8 carry), not `new_work_only`, not closed, not
   ending within 2 days, and a chain fit or `any_chain`. A program tagged `needs a live product`
@@ -1776,7 +1796,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   `AlsoRow.needsLive` makes `alsoText` say "a live link" instead of a count. Sorted Easy first
   (`difficulty.level`, review fix round 1, item 1/C4), then the larger top prize per winner
   (`max_award_usd`), then fewest required fields the answer bank can't fill (`coach.ts bankFill`,
-  reused so a later program shows how little is left). `alsoText` renders the table (`Program`,
+  reused so a later program shows how little is left). A field the project info fills (repo, live
+  link, name, description, demo) counts as filled: the count runs `prepareSubmission` with the
+  entry's `project`, as the coach does (final review I1). `alsoText` renders the table (`Program`,
   `Prize`, `Ends`, `Still needed`) plus "Say \"enter it here too\"..." and, with `coinIn`
   (Ruling 5), "Your builder bonus is in \<program\>; these entries don't add to it."; null with no
   rows.
@@ -1823,7 +1845,10 @@ sections above have the details per task; this is how they fit together.
   - Announcements: the weekly routine commits `programs/outcomes/<program-id>.json` (`OutcomeFile`,
     format in `programs/outcomes/README.md`). `programs:check` validates them (and that the program
     file exists); `programs:sync` calls `syncOutcomeFile`. Candidates are the program's submitted
-    entries (the C10 rule) made by the announcement day. Each named result labels every entry it
+    entries (the C10 rule) made by the announcement day and inside the round's window (final
+    review I4: `entries_until`, the round's deadline, required with `complete: true`; optional
+    `entries_from`; UTC days, inclusive). An unnamed entry that another round's file already
+    labelled (anything but `unknown`) is left alone. Each named result labels every entry it
     matches (`matchOutcomeAll`: repo normalized and decisive; else the live link by host and path;
     else a name only when exactly one entry has it). Ruling C22: every other candidate is labelled
     too, `not_selected` when the file sets `complete: true` (the announcement names every winner),
@@ -1851,7 +1876,9 @@ sections above have the details per task; this is how they fit together.
   - New program lines where campaign lines go: `newProgramLines` over every open curated program.
     A program is news when it opened since tracking began and it fits: its chains overlap
     `installations.fit_chains` (written by `list_programs` from the matched repos' chains,
-    `setFitChains`, mainnet chains only; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`). At
+    `setFitChains`, mainnet chains only; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`).
+    An investment program reads `new: a16z speedrun SR008 (up to $1M investment)` (`newProgramOf`,
+    `entry-text.ts prizeOf`, Ruling C23: every builder and agent table too). At
     most `MAX_NEW_PROGRAM_LINES` (3), newest first: `new: Avalanche Team1 Mini Grants (up to
     $10,000, Easy)`. A fitting program over the cap stays unseen and shows next time; one that
     didn't fit when new is marked seen, so a later repo never makes an old program "new". The
@@ -1887,11 +1914,14 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
 2. Pick Arc with a throwaway repo deployed on Arc: the coach asks its questions (Arc: the public
    profile), then the draft table, at most 3 fixes, and "Ready. Want the builder bonus? It comes
    with a token."
-3. Say yes with your wallet: "Your token: tokens.fun/coin/…", then the DoraHacks paste list.
+3. Say yes with your wallet: "Your token $<TICKER>: tokens.fun/coin/…", then the DoraHacks paste
+   list. An agent that can't push says so (`can_push: false`), or says "go" twice with no proof
+   line: the kit comes back with "To launch your token, open this in Claude Code or Cursor."
 4. Submit on DoraHacks and paste the entry link: "Entered in Arc Microgrants", then "You also
    qualify for:" with Base Builder Grant Program.
 5. Enter Base too: its confirmation reads "Builder bonus counts in Arc Microgrants." then "Ready to
-   submit?" (no second token), and the kit is a prefilled Google form link.
+   submit?" (no second token), and the kit is a prefilled Google form link. Recording it reads
+   "Entered in Base Builder Grant Program. Builder bonus counts in Arc Microgrants."
 6. Owner screenshot checks (Task 10, Ruling C19), on Base's prefilled link:
    (a) the prefilled answers survive the Google sign-in redirect (if not, set `form.sign_in: true`
    in `programs/base-builder-grants.json`, which makes Base `agent_fills` or `copy_paste`);
@@ -1900,7 +1930,8 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
    `ENTRY_LINK_HOSTS` (`submit-hosts.ts`), so the kit asks for the entry link as proof.
 8. After Arc's results are due (`results.expected`, 2026-10-21): "What can I earn?" asks "Did
    \<name\> win anything in Arc Microgrants?" once. Once the weekly routine commits the outcome
-   file and it deploys, a sourced win leads the next reply: "Since you last checked: you won $500
+   file (with `entries_until`, the round's deadline, when it is `complete`) and it deploys, a
+   sourced win leads the next reply: "Since you last checked: you won $500
    in Arc Microgrants with \<name\>."
 
 ## Public trust pages (v2.5 §4, Task 9)

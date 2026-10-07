@@ -10,7 +10,14 @@ import { prepareSubmission, type KnownInfo } from './submission';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { RateLimitError, enforce } from './rate-limit';
-import { tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { PROOF_LINE_PREFIX, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+
+/**
+ * Ruling C24: the agent's way out of the proof-line loop (confirm mode). Agent text, so it names
+ * the tool and the field.
+ */
+export const CANT_PUSH_RETRY_NOTE =
+  "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
 import { TOKEN_ERROR_CONFIRM } from './confirm';
 import {
   COIN_FOOTNOTE,
@@ -654,9 +661,9 @@ async function runTokenFlow(
       liveUrl: project.live_url,
     });
     // Another entry of the repo claimed a token at the same moment: at submission, skipped.
-    return out.status === 'failed' && out.note?.startsWith(REPO_HAS_TOKEN)
-      ? { ...out, status: repoNotNow }
-      : out;
+    if (out.status === 'failed' && out.note?.startsWith(REPO_HAS_TOKEN)) return { ...out, status: repoNotNow };
+    // Final review M8: a launched token carries its ticker, for the builder's post-launch line.
+    return out.status === 'launched' ? { ...out, name: out.name ?? name, symbol: out.symbol ?? symbol } : out;
   } catch (err) {
     // The project is this installation's (checked by the callers), so a LaunchError here is a
     // refusal before any claim (e.g. launches unavailable): report it, don't throw.
@@ -777,10 +784,17 @@ export async function confirmToken(
       progress,
     );
     if (!out.fixable) return out;
+    // Ruling C24: an agent that can't push is never stuck on the proof line; it says so and the
+    // entry records without a token, with the kit.
+    const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
+    const agentNote = out.agent_note?.replace(/call launch_token/g, 'call confirm_entry again');
     return {
       ...out,
       ...(out.note && { note: out.note.replace(/say 'launch the token'/g, 'say go') }),
-      ...(out.agent_note && { agent_note: out.agent_note.replace(/call launch_token/g, 'call confirm_entry again') }),
+      ...((agentNote || proofLine) && {
+        agent_note: [agentNote, proofLine && CANT_PUSH_RETRY_NOTE].filter(Boolean).join(' '),
+      }),
+      ...(proofLine && { proof_line: true as const }),
     };
   } catch (err) {
     if (err instanceof LaunchError) throw err;

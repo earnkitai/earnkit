@@ -705,7 +705,9 @@ let retryRepo = '';
   check(r.token?.status === 'launched' && deploys.length === before + 1 && lastDeploy().creatorWallet === WALLET, '(w) yes launches the token to the shown wallet', r);
   check(
     r.kit?.mode === 'copy_paste' &&
-      r.show_to_builder.startsWith(`Your token: tokens.fun/coin/${TOKEN_ADDRESS}. You earn 40% of its fees.\n\nReady for Token e2e (encouraged).`) &&
+      // Final review M8: the post-launch line names the ticker.
+      r.show_to_builder.startsWith(`Your token $${r.token?.symbol}: tokens.fun/coin/${TOKEN_ADDRESS}. You earn 40% of its fees.\n\nReady for Token e2e (encouraged).`) &&
+      /^[A-Z0-9]+$/.test(r.token?.symbol ?? '') &&
       r.show_to_builder.endsWith('After you submit, send me the confirmation screenshot or email.'),
     '(w) the kit comes with the token line',
     r,

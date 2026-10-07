@@ -1,11 +1,15 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress } from 'viem';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ProgramFile } from './program-file';
 import {
   MAX_NEW_PROGRAM_LINES,
   MAX_OUTCOME_WIN_LINES,
   SCHEDULE_NOTE,
   newProgramLines,
+  newProgramOf,
   type NewProgram,
   type OutcomeWin,
   alertFacts,
@@ -688,4 +692,13 @@ test('alertFacts: announced wins only; a self-reported win never alerts; new pro
     await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
     await sql()`DELETE FROM programs WHERE id = ${tag}`;
   }
+});
+
+test('Ruling C23: a new investment program alert reads "up to $1M investment", never a bare prize', () => {
+  const f = ProgramFile.parse(JSON.parse(readFileSync(join(__dirname, '../../../../programs/a16z-speedrun.json'), 'utf8')));
+  const p = newProgramOf({ ...f, investment: f.investment, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]);
+  assert.equal(p.prize, 'up to $1M investment');
+  const { lines } = newProgramLines({ checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null }, [p], ['base']);
+  assert.deepEqual(lines, ['new: a16z speedrun SR008 (up to $1M investment)']);
+  assert.equal(newProgramOf({ ...f, investment: false, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]).prize, 'up to $1M');
 });

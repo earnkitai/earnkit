@@ -61,7 +61,7 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { CANT_PUSH, READY_TO_SUBMIT, bonusCountsIn, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   applicationOf,
@@ -195,6 +195,22 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
 }
 
 /**
+ * Final review I3: the other program this entry's repo token is entered in, or null (no repo, no
+ * token, or the token is this program's). A failed read logs the error class and is null.
+ */
+async function tokenElsewhere(parsed: z.infer<typeof RecordSubmissionInput>, ctx: ToolContext): Promise<string | null> {
+  const repoUrl = parsed.project.repo_url ?? answersOf(parsed.submission_data).repo_url ?? null;
+  if (!repoUrl) return null;
+  const key = normalizeRepoUrl(repoUrl);
+  const coins = await (ctx.repoCoins ?? repoCoinPrograms)([key]).catch((err: unknown) => {
+    console.error('[record] repo token lookup', err instanceof Error ? err.name : 'error');
+    return new Map<string, { program_id: string; title: string }>();
+  });
+  const coin = coins.get(key);
+  return coin && coin.program_id !== parsed.program_id ? coin.title : null;
+}
+
+/**
  * v2.8 Ruling 29 (plan): "Also qualifies", right after record_submission records the entry.
  * Chains come from the repo-facts cache for this repo when present, else the entered program's
  * own chains (the repo was just entered there). Never fails the reply: on error the caller logs
@@ -224,6 +240,8 @@ async function alsoQualifiesBlock(
     enteredIds,
     bank,
     answers: answersOf(parsed.submission_data),
+    // Final review I1: fields the project info fills (repo, live link, name) are not "left".
+    project: parsed.project,
     // Review fix round 1, item 3: the live-product gate reads the project's own live link.
     hasLiveProduct: Boolean(parsed.project.live_url),
     now: new Date(),
@@ -237,8 +255,9 @@ const TOKEN_LINE_NOTE = 'Commit this line to earnkit.txt at the repo root with y
 
 /** The first line of confirm_entry's reply once the entry is confirmed, before the kit. Pure. */
 function tokenLine(token: TokenOutcome | null, fallback: string) {
+  // Final review M8: the ticker, when known, so the builder recognizes and shares their token.
   if (token?.status === 'launched' && token.tokens_fun)
-    return `Your token: ${token.tokens_fun.replace(/^https?:\/\//, '')}. You earn 40% of its fees.`;
+    return `Your token${token.symbol ? ` $${token.symbol}` : ''}: ${token.tokens_fun.replace(/^https?:\/\//, '')}. You earn 40% of its fees.`;
   if (token?.status === 'pending') return 'Your token is launching.';
   return token?.note ?? fallback;
 }
@@ -852,8 +871,11 @@ export const tools = {
         { projectId: entry.id, installationId: ctx.installationId, token: i.token, wallet: given },
         ctx.tokenDeps,
       );
+      // Ruling C24: never a dead end. The proof line still can't be confirmed after an earlier "go"
+      // stopped on it: the entry records without a token and the kit comes back, as for can_push: false.
+      if (token.fixable && token.proof_line && entry.proof_line_missed) token = { status: 'skipped', note: CANT_PUSH };
       // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
-      if (token.fixable) {
+      else if (token.fixable) {
         // Fix round 2: no wallet passed with this "go": nothing launched. The entry's stored wallet,
         // else the remembered one, is suggested as a question, never used unseen.
         const remembered = token.no_wallet
@@ -927,12 +949,19 @@ export const tools = {
     // v2.8 Ruling 1 (plan): an entry that passed the confirmation step had its token decided there;
     // no token flow runs here, the row's token is reported.
     const confirmed = 'confirm_choice' in result ? result.confirm_choice : null;
+    const hasCoin = 'coin_url' in result && Boolean(result.coin_url);
+    // Final review I3: a confirmed "go" with no token, whose repo's one token is entered in another
+    // program (Ruling 5 (plan)): no token here by design, said as the confirmation said it.
+    const countsIn = confirmed === 'go' && !hasCoin ? await tokenElsewhere(parsed, ctx) : null;
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
         ? { status: 'pending', note: 'This entry\'s token is launching.' }
         : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its token.' }
       : confirmed
-        ? { status: 'skipped', note: confirmed === 'skip' ? SKIPPED_ENTRY : "This entry's token isn't launched." }
+        ? {
+            status: 'skipped',
+            note: confirmed === 'skip' ? SKIPPED_ENTRY : countsIn ? bonusCountsIn(countsIn) : "This entry's token isn't launched.",
+          }
         : await submissionToken(
       {
         projectId: result.project_id,
@@ -962,7 +991,11 @@ export const tools = {
         : token;
     // Skipped: the builder said no, the program has no coins, or (Ruling 25) the repo has its coin.
     const skipped =
-      parsed.token === 'skip' || confirmed === 'skip' || result.token_policy === 'off' || Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
+      parsed.token === 'skip' ||
+      confirmed === 'skip' ||
+      countsIn !== null ||
+      result.token_policy === 'off' ||
+      Boolean(token.note?.startsWith(REPO_HAS_TOKEN));
     const coin: EnteredText['coin'] =
       token.status === 'launched' && token.tokens_fun
         ? { status: 'launched', url: token.tokens_fun }
@@ -990,7 +1023,7 @@ export const tools = {
       return null;
     });
     const show_to_builder =
-      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld }) + (also?.text ? `\n\n${also.text}` : '');
+      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + (also?.text ? `\n\n${also.text}` : '');
     return withAlerts(ctx.installationId, {
       ...result,
       token: tokenOut,
