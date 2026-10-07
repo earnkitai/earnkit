@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EM_DASH, humanStrings, humanTextFiles } from './human-text';
+import { EM_DASH, humanStrings, humanTextFiles, notHumanText } from './human-text';
+import { NO_CELL } from './no-cell';
+import { NO_CELL as PRESENT_NO_CELL } from './present';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 
@@ -51,4 +54,38 @@ test('Ruling 16 (plan): the scan is not vacuous', () => {
   for (const f of ['apps/frontend/public/llms.txt', 'programs/arc-microgrants.json', 'programs/README.md', 'apps/frontend/app/page.tsx', 'apps/frontend/app/components/sections/Hero.tsx'])
     assert.ok(files.includes(f), f);
   assert.ok(!files.some((f) => /\.test\.tsx?$/.test(f) || f.includes('/fixtures/') || f.endsWith('/human-text.ts')));
+});
+
+test('final review M1: .test.mts files are not human text, like .test.ts and .test.tsx', () => {
+  for (const p of ['apps/frontend/scripts/x.test.mts', 'apps/frontend/lib/a.test.ts', 'apps/frontend/app/b.test.tsx'])
+    assert.ok(notHumanText(p), p);
+  for (const p of ['apps/frontend/scripts/x.mts', 'apps/frontend/lib/a.ts', 'apps/frontend/lib/testing.ts'])
+    assert.ok(!notHumanText(p), p);
+});
+
+test('final review M1: humanTextFiles never enters a fixtures directory', () => {
+  const root = mkdtempSync(join(tmpdir(), 'human-text-'));
+  const locked = join(root, 'apps/frontend/lib/fixtures');
+  try {
+    for (const d of ['apps/frontend/app', 'apps/frontend/scripts', 'programs', 'apps/frontend/lib/fixtures'])
+      mkdirSync(join(root, d), { recursive: true });
+    writeFileSync(join(root, 'apps/frontend/lib/a.ts'), "export const a = 'a';");
+    writeFileSync(join(locked, 'f.ts'), "export const f = 'f';");
+    // Unreadable: entering it would throw.
+    chmodSync(locked, 0o000);
+    const files = humanTextFiles(root);
+    assert.ok(files.includes('apps/frontend/lib/a.ts'));
+    assert.ok(!files.some((f) => f.includes('fixtures')));
+  } finally {
+    chmodSync(locked, 0o755);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('final review M1: the client card shares NO_CELL with the agent tables (one empty-cell sentinel)', () => {
+  assert.equal(PRESENT_NO_CELL, NO_CELL);
+  const card = readFileSync(join(ROOT, 'apps/frontend/app/components/sections/ProgramCard.tsx'), 'utf8');
+  assert.match(card, /import \{ NO_CELL \} from '..\/..\/..\/lib\/earnkit\/no-cell';/);
+  assert.match(card, /t\.difficulty !== NO_CELL/);
+  assert.doesNotMatch(card, /!== ''/);
 });

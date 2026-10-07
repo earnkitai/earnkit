@@ -82,8 +82,14 @@ export function summaryCloses(summary: string): string | null {
   return null;
 }
 
-/** The prize part of a program's summary ("500 USDC × 20 grants"). Pure. */
-export const prizeOf = (c: { summary: string }) => c.summary.split(' · ')[0];
+/**
+ * The prize part of a program's summary ("500 USDC × 20 grants"). Ruling C23: an investment
+ * program (a16z speedrun) reads "up to $1M investment" everywhere, never as a prize. Pure.
+ */
+export const prizeOf = (c: { summary: string; investment?: boolean }) => {
+  const prize = c.summary.split(' · ')[0];
+  return c.investment && !/\binvestment\b/i.test(prize) ? `${prize} investment` : prize;
+};
 
 /**
  * "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's last day (deadlineDay). Ruling 29:
@@ -137,6 +143,9 @@ export const noCoinYet = (endsLabel: string | null) =>
 /** Final review M1: the one line for an entry whose repo another entry already holds here. */
 export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';
 
+/** Ruling 5 (plan): the repo's one token is entered in another program. Pure. */
+export const bonusCountsIn = (program: string) => `Builder bonus counts in ${program}.`;
+
 export type EnteredText = {
   programTitle: string;
   coin:
@@ -167,6 +176,11 @@ export type EnteredText = {
   } | null;
   /** Final review M1: an earlier entry of this repo holds its coin and builder bonus in this program. */
   repoHeld?: boolean;
+  /**
+   * Final review I3: the repo's one token is entered in this other program (Ruling 5 (plan)), so
+   * this entry has none by design; said as the confirmation said it.
+   */
+  countsIn?: string | null;
 };
 
 /**
@@ -177,6 +191,7 @@ export function enteredText(a: EnteredText) {
   const entered = `Entered in ${a.programTitle}.`;
   // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
   if (a.repoHeld) return `${entered} ${REPO_HELD}`;
+  if (a.countsIn) return `${entered} ${bonusCountsIn(a.countsIn)}`;
   const round = a.bonus && `${a.bonus.cell} · ends ${a.bonus.ends} · ${a.bonus.board}`;
   if (a.coin.status === 'no_wallet')
     return round

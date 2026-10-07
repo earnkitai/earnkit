@@ -191,7 +191,8 @@ apps/frontend/
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
-                               confirmed_at/complete_at set once, "skip" never on a row with a token);
+                               confirmed_at/complete_at set once, "skip" never on a row with a token;
+                               proof_line_missed, Ruling C24: the last "go" stopped at the proof line);
                                recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
@@ -347,7 +348,9 @@ apps/frontend/
                                header, difficulty, "What won last time/before" + event C3/C12, ecosystem focus, best bet,
                                builder bonus), v2.8 difficultyBasis/difficultyText ("Medium (estimate). Basis."), guideText (the agent's text), guideSources/guideSourceList, wonHeading;
                                final review M3: wonLines drops "of N" when a round's themes_of is below its winners
-    human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text
+    human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
+                               final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
+    no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
                                top prizes you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
@@ -392,6 +395,9 @@ apps/frontend/
                                ASK_OUTCOME_NOTE) at most once per entry; Ruling C21: report_outcome
                                is its own tool (saveSelfReport; MCP readOnlyHint false) so
                                list_programs stays read-only;
+                               final review: record_submission's tokenElsewhere (I3: "Builder bonus
+                               counts in <program>." for a later program's entry), confirm_entry's
+                               C24 kit after a second proof-line miss, tokenLine with the ticker (M8);
                                v2.8 Task 8: confirm_entry (the confirmation step: offer, or startEntry +
                                confirmToken + submitKit); prepare_submission ends with the offer, returns
                                token_line, never a kit or submission_url; record_submission reports a
@@ -438,13 +444,15 @@ apps/frontend/
                                an HMAC of "token-line:v2:<installation>:<normalized repo>" under
                                EARNKIT_AUTH_SECRET, TOKEN_CODE_LENGTH; the v2.5 "token: <SYMBOL>
                                <code10>" line still counts for that ticker, legacyTokenLineCode,
+                               PROOF_LINE_PREFIX (Ruling C24: how the proof-line miss starts),
                                Ruling 1; no wallet line needed), sanctions screen; no live-link
                                check; first failure as a reason in plain builder words (never the
                                file or the line) plus agent_note with the technical detail (final
                                review M7: the exact line to write and push); repo/owner/screen
                                injectable (GateDeps)
     token-launch.ts(+test)     v2.8 Task 8: confirmToken (runTokenFlow mode 'confirm'; fixable outcomes:
-                               no kit, "say go", the agent note names confirm_entry);
+                               no kit, "say go", the agent note names confirm_entry; a proof-line miss adds
+                               CANT_PUSH_RETRY_NOTE and proof_line, Ruling C24; a launch returns name and symbol, M8);
                                the token flow: tokenProposalBlock (prepare_submission's token;
                                TokenBlock.has_bonus, .repo_coin_program: Ruling 25; v2.6: outside
                                campaigns coinRow + walletLine (the remembered wallet prefilled,
@@ -514,10 +522,12 @@ apps/frontend/
                                preSubmitCheck, draftTable, fixesLine, applicationOf. Pure
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
-                               (projects.application)
+                               (projects.application); final review M6: bankKeepsContact, contact
+                               never banked or read under a name: key
     also-qualifies.ts(+test)  v2.8 Task 11, Ruling 29: alsoQualifies (at most MAX_ALSO=3 other
-                               open, curated, non-campaign programs the project qualifies for;
-                               reuses coach.ts bankFill), alsoText (the table + "Your builder
+                               open, curated, non-campaign, non-investment (C23) programs the project qualifies for;
+                               reuses coach.ts bankFill, then counts with prepareSubmission and the entry's project, so
+                               project-known fields are filled, final review I1), alsoText (the table + "Your builder
                                bonus is in <program>; these entries don't add to it." with coinIn). Pure. Wired into tools.ts
                                record_submission (non-campaign only) with programs.ts
                                alsoProgramFacts, projects.ts enteredProgramIds, and
@@ -533,7 +543,9 @@ apps/frontend/
                                no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
                                deadlineDay (Ruling 29: one round date everywhere, the first
                                message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
-                               v2.7: prizeOf/endsOf (moved from present.ts), coinRow is the `Token` row "Your entry gets a
+                               v2.7: prizeOf/endsOf (moved from present.ts; prizeOf adds "investment" for an
+                               investment program, Ruling C23), bonusCountsIn (moved from confirm.ts; enteredText's
+                               countsIn, final review I3), coinRow is the `Token` row "Your entry gets a
                                token on Base, $X: you earn 40% of its trading fees[, and it joins the builder bonus] · skip:
                                …" (Ruling 17; skip text "say skip for no token (and no builder bonus)", C19), notReadyLine
                                ("Before you submit: …", ≤3 then "and N more"), todoList and todoOf (C5), notReadyTokenNote
@@ -557,11 +569,14 @@ apps/frontend/
                                v2.8 Task 12: outcome win lines first among wins (announcement rows
                                only, MAX_OUTCOME_WIN_LINES = 3, AlertState.outcomes), newProgramLines
                                (Ruling 10: open curated programs that fit fit_chains or are Easy,
-                               MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms)
-    outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile (complete, Ruling C22),
+                               MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms),
+                               newProgramOf (C23: "up to $1M investment")
+    outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile (complete, Ruling C22;
+                               entries_until required when complete, optional entries_from: the round window, final review I4),
                                matchOutcomeAll/matchOutcome (repo, then live link, then a unique
                                name), winLine, ReportOutcome, outcomeQuestion, syncOutcomeFile
-                               (labels every submitted entry by the announcement day: named results,
+                               (labels every submitted entry by the announcement day and inside the round window, never one
+                               another round already labelled as unnamed: named results,
                                the rest not_selected when complete else unknown; counts only),
                                saveSelfReport (own entry only, NotFoundError otherwise), outcomeToAsk
                                (one submitted entry per call after results.expected; sets

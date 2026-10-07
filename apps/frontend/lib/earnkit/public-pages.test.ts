@@ -351,7 +351,9 @@ test('fix round 1, Important 4: the client Hero never imports the server money m
   const hero = readFileSync(join(import.meta.dirname, '../../app/components/sections/Hero.tsx'), 'utf8');
   assert.doesNotMatch(hero, /lib\/earnkit\/campaigns|from 'viem'|from 'zod'/);
   for (const f of ['ProgramCards.tsx', 'ProgramCard.tsx', 'carousel.ts', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
-    assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\//, f);
+    // Final review M1: only no-cell.ts, which imports nothing, may be shared at runtime.
+    assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\/(?!no-cell';)/, f);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'no-cell.ts'), 'utf8'), /^import /m, 'no-cell.ts stays import-free');
 });
 
 test('fix round 1: a logo path that is not a local programs file renders the monogram', () => {

@@ -54,6 +54,11 @@ const msg = (err: unknown) => (err instanceof Error ? err.message : String(err))
 /** The one retry form in every reason: the builder says it, the agent calls launch_token. */
 const SAY = "say 'launch the token'";
 const AGAIN = `Try again in a minute: ${SAY}.`;
+/**
+ * Ruling C24: how the proof-line failure's reason starts (stored as the entry's token_note), so a
+ * second "go" whose proof line still can't be confirmed returns the kit instead of looping.
+ */
+export const PROOF_LINE_PREFIX = 'I need to add a short proof line to your repo first';
 
 export const TOKENS_NOT_CONFIGURED = "Token launches aren't configured right now.";
 export const TOKEN_CODE_LENGTH = 16;
@@ -136,7 +141,7 @@ export function ownerProblem(
   return ok
     ? null
     : {
-        reason: `I need to add a short proof line to your repo first, then ${SAY}.`,
+        reason: `${PROOF_LINE_PREFIX}, then ${SAY}.`,
         agent_note: `Write ${OWNERSHIP_FILE} at the root of ${repo} (default branch) with the line "${line}" and push it yourself; never ask the builder to edit files. Then call launch_token.`,
       };
 }

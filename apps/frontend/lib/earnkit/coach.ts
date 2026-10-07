@@ -393,13 +393,14 @@ export function questionsFor(a: {
 
 /**
  * The builder's screen while the coach has questions; null when it has none. Numbered questions as
- * "N quick questions"; a later program's bullets as "a few things only you know" (C17). Pure.
+ * "N quick questions", where N counts every item shown, the bullet after them included (Ruling
+ * C25); a later program's bullets alone as "a few things only you know" (C17). Pure.
  */
 export function coachIntro(title: string, questions: Question[]): string | null {
   const numbered = questions.filter((q) => !q.bullet);
   const bullets = questions.filter((q) => q.bullet);
   if (questions.length === 0) return null;
-  const n = numbered.length;
+  const n = numbered.length === 0 ? 0 : questions.length;
   const head =
     n === 0
       ? `${title}: a few things only you know, then I'll write it.`

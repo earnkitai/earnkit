@@ -60,3 +60,27 @@ test('9.8 Ruling 6: keyed by project, never across installations; the latest sav
   await saveBank(a, repoKey, 'prog-4', reqs, { traction: 'x'.repeat(5000) });
   assert.equal((await readBank(a, repoKey)).get('traction'), '120 users');
 });
+
+test('final review M6: a name-keyed project (no repo) never banks or offers contact details; a repo-keyed one does', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`m6-bank-${stamp}`}) RETURNING id`;
+  const withContact: SubmissionRequirement[] = [
+    ...reqs,
+    { key: 'email', label: 'Email', type: 'email', required: true, from: 'builder', kind: 'contact' },
+  ];
+  const nameKey = projectKey({ name: `Shared Name ${stamp}` });
+  const repoKey = projectKey({ repo_url: `https://github.com/alice/m6-${stamp}`, name: 'x' });
+  const answers = { traction: '40 users', email: 'alice@example.com' };
+  await saveBank(id, nameKey, 'prog-1', withContact, answers);
+  await saveBank(id, repoKey, 'prog-1', withContact, answers);
+  const byName = await readBank(id, nameKey);
+  assert.equal(byName.get('traction'), '40 users');
+  assert.ok(!byName.has('contact'), 'never offered under a name key');
+  const [{ n }] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM answer_bank WHERE installation_id = ${id} AND project_key = ${nameKey} AND kind = 'contact'`;
+  assert.equal(n, 0, 'never stored under a name key');
+  assert.ok((await readBank(id, repoKey)).get('contact')?.includes('alice@example.com'));
+  // A contact row from before this rule, under a name key, is never read back.
+  await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id) VALUES (${id}, ${nameKey}, 'contact', 'old', 'prog-0')`;
+  assert.ok(!(await readBank(id, nameKey)).has('contact'));
+});

@@ -1,4 +1,6 @@
-import { COIN_FOOTNOTE, shortWallet } from './entry-text';
+import { COIN_FOOTNOTE, bonusCountsIn, shortWallet } from './entry-text';
+
+export { bonusCountsIn };
 
 /**
  * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. One combined offer (the builder
@@ -25,8 +27,6 @@ export const READY_TO_SUBMIT = 'Ready to submit?';
 export const NEEDS_REPO = 'Your token needs a public repo.';
 /** Ruling 4 (plan): a `go` on a program without tokens, or while launches are unavailable. */
 export const NO_TOKEN_HERE = 'No token for this entry.';
-/** Ruling 5 (plan): the repo's one token is entered in another program. */
-export const bonusCountsIn = (program: string) => `Builder bonus counts in ${program}.`;
 
 /** The wallet line of the offer (Ruling 17's form): short, lowercase, or the no-wallet hint. Pure. */
 export function offerWalletLine(a: { wallet: string | null; remembered: boolean; hasBonus: boolean }) {

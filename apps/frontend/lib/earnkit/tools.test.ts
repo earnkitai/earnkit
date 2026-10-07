@@ -965,7 +965,9 @@ test('8.4/8.7/8.11: "go" launches the token and returns the kit; a second "go" l
     assert.ok(r.kit, 'the kit');
     assert.equal(r.kit!.mode, 'copy_paste');
     const link = r.token!.tokens_fun!.replace('https://', '');
-    assert.equal(r.show_to_builder, `Your token: ${link}. You earn 40% of its fees.\n\n${r.kit!.show_to_builder}`);
+    // Final review M8: the post-launch line names the ticker.
+    assert.match(r.token?.symbol ?? '', /^[A-Z0-9]+$/);
+    assert.equal(r.show_to_builder, `Your token $${r.token!.symbol}: ${link}. You earn 40% of its fees.\n\n${r.kit!.show_to_builder}`);
     assert.ok(r.kit!.show_to_builder.endsWith('After you submit, paste your entry link here.'));
     assert.deepEqual(t.calls.wallets, [W8], 'only the wallet given in this exchange');
     const [row] = await t.rows();
@@ -1117,6 +1119,55 @@ test('8.10b: the proof line not pushed yet is fixable (no kit, "say go"); a priv
     assert.equal(t.calls.deploy, 0);
   }));
 
+test('C24: the proof line still missing on the next "go" returns the kit with the can\'t-push line; the first miss tells the agent about can_push: false', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('c24');
+    const noLine = { ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps };
+    const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, noLine)) as Confirmed;
+    assert.ok(!('kit' in first));
+    assert.equal(first.token?.fixable, true);
+    assert.match(first.agent_note ?? '', /If you can't push to this repo, call confirm_entry again with agent: \{ can_push: false \}: the entry records without a token and the kit comes back\./);
+    // The next "go" with the line still missing: never a dead end.
+    const second = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, noLine)) as Confirmed;
+    assert.ok(second.kit, 'the kit');
+    assert.ok(!second.token?.fixable);
+    assert.ok(second.show_to_builder.startsWith(`${CANT_PUSH}\n\nReady for `), second.show_to_builder);
+    assert.equal(t.calls.deploy, 0);
+    assert.equal((await t.rows())[0].confirm_choice, 'go');
+    // An agent that did push in between: the next "go" launches as usual.
+    const u = await confirmSetup('c24push');
+    const missing = { ...u.ctx, tokenDeps: { ...u.ctx.tokenDeps, gate: { ...u.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps };
+    assert.ok(!('kit' in ((await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, missing)) as Confirmed)));
+    const pushed = (await tools.confirm_entry({ ...u.input, ...go, wallet: W8 }, u.ctx)) as Confirmed;
+    assert.equal(pushed.token?.status, 'launched');
+    assert.ok(pushed.kit);
+  }));
+
+test('I3: recording Base after Arc (the repo\'s token is in Arc): "Builder bonus counts in Arc", never "isn\'t launched yet"', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('i3');
+    const ctx = { ...t.ctx, repoCoins: undefined };
+    const arc = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.equal(arc.token?.status, 'launched');
+    // What deployToken records with the claim: the token's repo key (one token per repo).
+    await sql()`UPDATE projects SET token_repo_key = bonus_repo_key WHERE id = ${arc.project_id!}`;
+    const baseFile = committedProgram('base-builder-grants');
+    const baseId = `i3-base-${process.pid}-${Date.now()}`;
+    await upsertProgram(ProgramFile.parse({ ...baseFile, id: baseId, status: 'active' }));
+    const confirm = (await tools.confirm_entry({ ...t.input, program_id: baseId, ...go, wallet: W8 }, ctx)) as Confirmed;
+    assert.ok(confirm.kit);
+    assert.ok(confirm.show_to_builder.startsWith(`Builder bonus counts in ${t.p.title}.\n\n`), confirm.show_to_builder);
+    const rec = (await tools.record_submission(
+      { program_id: baseId, project: t.project, submission_data: t.answers, builder_submitted: true },
+      ctx,
+    )) as { show_to_builder: string; token: { status: string; note?: string } };
+    assert.ok(rec.show_to_builder.startsWith(`Entered in ${baseFile.title}. Builder bonus counts in ${t.p.title}.`), rec.show_to_builder);
+    assert.doesNotMatch(rec.show_to_builder, /isn't launched/);
+    assert.equal(rec.token.status, 'skipped');
+    assert.equal(rec.token.note, `Builder bonus counts in ${t.p.title}.`);
+    assert.equal(t.calls.deploy, 1);
+  }));
+
 test('8.12: list_programs closes with the token line and never says "optional"', dbTest, async () => {
   const stray = await sql()<{ id: string }[]>`
     SELECT id FROM programs WHERE status = 'active' AND campaign->>'kind' = 'earnkit'`;
@@ -1167,7 +1218,7 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
     const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(t.calls.deploy, 1);
     assert.equal(r.token?.status, 'launched');
-    assert.ok(r.show_to_builder.startsWith('Your token: tokens.fun/coin/0x'), r.show_to_builder);
+    assert.match(r.show_to_builder, /^Your token \$[A-Z0-9]+: tokens\.fun\/coin\/0x/, r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /mytoken/);
     assert.equal((await t.rows()).length, 1, 'the same entry');
     // Ruling C11: the builder's own link is kept, never as EarnKit's token.

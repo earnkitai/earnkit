@@ -20,11 +20,23 @@ export function projectKey(project: { repo_url?: string | null; name: string }):
 
 const isKind = (k: string): k is FieldKind => (FIELD_KINDS as readonly string[]).includes(k);
 
+/**
+ * Final review M6: a project with no repo is keyed by its name, which two builders on one shared
+ * agent registration can both use. Contact details are never banked or offered under such a key,
+ * so one builder's name and email are never shown to another. Pure.
+ */
+export const bankKeepsContact = (key: string) => !key.startsWith('name:');
+
 /** This installation's banked answers for one project, by kind. */
 export async function readBank(installationId: number, key: string): Promise<Map<FieldKind, string>> {
   const rows = await sql()<{ kind: string; answer: string }[]>`
     SELECT kind, answer FROM answer_bank WHERE installation_id = ${installationId} AND project_key = ${key}`;
-  return new Map(rows.flatMap((r) => (isKind(r.kind) && r.kind !== 'other' ? [[r.kind, r.answer] as const] : [])));
+  const contact = bankKeepsContact(key);
+  return new Map(
+    rows.flatMap((r) =>
+      isKind(r.kind) && r.kind !== 'other' && (contact || r.kind !== 'contact') ? [[r.kind, r.answer] as const] : [],
+    ),
+  );
 }
 
 /** Banks confirmed answers, one row per kind; the latest wins. `other` is never banked. */
@@ -36,12 +48,14 @@ export async function saveBank(
   answers: Record<string, string>,
 ): Promise<void> {
   const entries = bankEntries(reqs, answers, await readBank(installationId, key));
-  for (const [kind, answer] of entries)
+  for (const [kind, answer] of entries) {
+    if (kind === 'contact' && !bankKeepsContact(key)) continue;
     await sql()`
       INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id, updated_at)
       VALUES (${installationId}, ${key}, ${kind}, ${answer}, ${programId}, now())
       ON CONFLICT (installation_id, project_key, kind)
       DO UPDATE SET answer = EXCLUDED.answer, program_id = EXCLUDED.program_id, updated_at = now()`;
+  }
 }
 
 /** Part D.5: the application snapshot on the entry (its own installation's row only). */

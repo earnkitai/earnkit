@@ -67,6 +67,7 @@ const file = {
   source_url: 'https://community.arc.io/x',
   captured_at: '2026-10-22',
   complete: true,
+  entries_until: '2026-10-14',
   results: [{ repo: 'github.com/a/tipjar', result: 'won', prize_usd: 500 }],
 };
 
@@ -84,6 +85,16 @@ test('OutcomeFile: parses a valid file; refuses a result naming nothing, a non-h
   const { complete: _c, ...noComplete } = file;
   void _c;
   assert.ok(!OutcomeFile.safeParse(noComplete).success);
+  // Final review I4: a complete file names its round's window (entries_until); a partial one may not.
+  const { entries_until: _u, ...noUntil } = file;
+  void _u;
+  const refused = OutcomeFile.safeParse(noUntil);
+  assert.ok(!refused.success);
+  assert.ok(refused.error.issues.some((i) => i.path.join('.') === 'entries_until'));
+  assert.ok(OutcomeFile.safeParse({ ...noUntil, complete: false }).success);
+  assert.ok(OutcomeFile.safeParse({ ...file, entries_from: '2026-09-15' }).success);
+  assert.ok(!OutcomeFile.safeParse({ ...file, entries_from: '2026-10-15' }).success, 'from after until');
+  assert.ok(!OutcomeFile.safeParse({ ...file, entries_until: 'Oct 14' }).success);
 });
 
 test('ReportOutcome: the builder reports won, placed, finalist or not_selected; never unknown', () => {
@@ -127,6 +138,7 @@ test('Ruling C22: a complete list labels every other submitted entry not_selecte
       const before = await readStats(new Date(), tx);
       const f = (complete: boolean, round: string) => ({
         program_id: tag, round_label: round, source_url: 'https://x.example/results', captured_at: '2026-10-22', complete,
+        entries_until: '2026-10-22',
         results: [{ repo: 'github.com/a/win', result: 'won' as const, prize_usd: 500 }, { name: 'Nobody', result: 'won' as const }],
       });
       // Partial: the named winner (both entries of its repo) won; the other submitted entry is unknown.
@@ -147,6 +159,58 @@ test('Ruling C22: a complete list labels every other submitted entry not_selecte
       const end = await readStats(new Date(), tx);
       assert.equal(end.labelled_entries - before.labelled_entries, 3);
       assert.equal(end.entries_won - before.entries_won, 2);
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  }
+});
+
+test('final review I4: two rounds, one complete file each; a round-1 entry never gets a round-2 label, a round-2 entry never a round-1 one', dbTest, async () => {
+  const tag = `outcomes-i4-${process.pid}-${Date.now()}`;
+  const Rollback = new Error('rollback');
+  try {
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [{ id: inst }] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+      await tx`
+        INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+        VALUES (${tag}, 'o', ${tag}, 'd', 'https://x', 'https://x', 'r', 's', 'active', 'allowed')`;
+      const entry = async (name: string, at: string) =>
+        (await tx<{ id: number }[]>`
+          INSERT INTO projects (program_id, name, installation_id, repo_url, submitted_at)
+          VALUES (${tag}, ${name}, ${inst}, ${`https://github.com/a/${name.toLowerCase()}`}, ${at}) RETURNING id`)[0].id;
+      // Round 1 runs to Oct 14; an entry on Oct 20 is already in round 2 (a rolling program).
+      const r1win = await entry('OneWin', '2026-10-01T00:00:00Z');
+      const r1lost = await entry('OneLost', '2026-10-14T23:00:00Z');
+      const r2early = await entry('TwoEarly', '2026-10-20T00:00:00Z');
+      const r2win = await entry('TwoWin', '2026-11-05T00:00:00Z');
+      const r2lost = await entry('TwoLost', '2026-11-10T00:00:00Z');
+      const labels = async (round: string) =>
+        new Map((await tx<{ project_id: number; result: string }[]>`
+          SELECT project_id, result FROM entry_outcomes WHERE program_id = ${tag} AND basis = 'announcement' AND round_label = ${round}`).map((r) => [r.project_id, r.result]));
+      const base = { program_id: tag, source_url: 'https://x.example/results', complete: true };
+      // Round 1's file, captured after round 2's first entry.
+      assert.deepEqual(
+        await syncOutcomeFile({ ...base, round_label: 'R1', captured_at: '2026-10-22', entries_until: '2026-10-14', results: [{ repo: 'github.com/a/onewin', result: 'won' }] }, tx),
+        { matched: 1, unmatched: 0, others: 1 },
+      );
+      const one = await labels('R1');
+      assert.equal(one.get(r1win), 'won');
+      assert.equal(one.get(r1lost), 'not_selected');
+      assert.ok(!one.has(r2early), 'an entry made after round 1 closed is not labelled in round 1');
+      // Round 2's file replaces round 1's (one file per program); its window starts after round 1.
+      assert.deepEqual(
+        await syncOutcomeFile({ ...base, round_label: 'R2', captured_at: '2026-11-30', entries_until: '2026-11-15', results: [{ repo: 'github.com/a/twowin', result: 'won' }] }, tx),
+        { matched: 1, unmatched: 0, others: 2 },
+      );
+      const two = await labels('R2');
+      assert.equal(two.get(r2win), 'won');
+      assert.equal(two.get(r2lost), 'not_selected');
+      assert.equal(two.get(r2early), 'not_selected');
+      assert.ok(!two.has(r1win) && !two.has(r1lost), 'round-1 entries never get a round-2 label');
+      // entries_from bounds the start explicitly too.
+      await syncOutcomeFile({ ...base, round_label: 'R2b', captured_at: '2026-11-30', entries_from: '2026-11-01', entries_until: '2026-11-15', results: [{ repo: 'github.com/a/twowin', result: 'won' }] }, tx);
+      assert.ok(!(await labels('R2b')).has(r2early), 'before entries_from');
       throw Rollback;
     });
   } catch (err) {

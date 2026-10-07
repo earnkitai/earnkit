@@ -586,8 +586,11 @@ async function scenario(mock: Mock) {
   // alsoText's exact shape (review minor 9): heading, table head, 1 to 3 rows, the closing line.
   const ALSO_TAIL =
     '\\n\\nYou also qualify for:\\n\\| Program \\| Prize \\| Ends \\| Still needed \\|\\n\\|---\\|---\\|---\\|---\\|' +
-    '(?:\\n\\| [^\\n]+ \\|){1,3}\\nSay "enter it here too" for any of them\\.' +
-    "(?: Your builder bonus is in [^\\n;]+; these entries don't add to it\\.)?";
+    // Final review M7: each row is exactly four cells, "Still needed" one of its three forms; and
+    // this repo's token is in this program, so the closing sentence names it.
+    '(?:\\n\\| [^|\\n]+ \\| [^|\\n]+ \\| [^|\\n]+ \\| (?:nothing|a live link|\\d+ answers?) \\|){1,3}' +
+    '\\nSay "enter it here too" for any of them\\.' +
+    " Your builder bonus is in E2E Confirm Grants; these entries don't add to it\\.";
   // The after-submission reply: the coin, then the builder bonus with its leaderboard link. v2.8
   // Ruling 29 (plan): "Also qualifies" may follow after a blank line (the shared test database
   // holds other open programs this repo fits), anchored on that join.

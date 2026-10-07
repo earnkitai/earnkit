@@ -1,4 +1,5 @@
 import { normalizeRepoUrl, usd } from './campaigns';
+import { NO_CELL } from './no-cell';
 import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Verdict } from './match';
@@ -148,7 +149,7 @@ export const eth = (wei: bigint) => {
 };
 
 /** v2.8 Ruling 16 (plan): an empty table cell (no bonus, no difficulty). Never an em dash. */
-export const NO_CELL = '';
+export { NO_CELL };
 
 /**
  * The builder bonus cell: the open round's pool in ETH (WETH); "new pool" while the round has

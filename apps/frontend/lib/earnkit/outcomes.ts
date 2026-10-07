@@ -31,6 +31,14 @@ export const OutcomeFile = z
      * (which never counts as a published result).
      */
     complete: z.boolean(),
+    /**
+     * Final review I4: the round's window, as UTC days, both inclusive. Only entries submitted in
+     * it are this round's: an entry made after the round closed (already in the next round of a
+     * rolling program) is never labelled here. `entries_until` (the round's deadline) is required
+     * when `complete` is true; `entries_from` (the round's first day) is optional.
+     */
+    entries_from: z.string().date().optional(),
+    entries_until: z.string().date().optional(),
     results: z
       .array(
         z
@@ -46,7 +54,15 @@ export const OutcomeFile = z
       )
       .min(1),
   })
-  .strict();
+  .strict()
+  .refine((f) => !f.complete || f.entries_until !== undefined, {
+    message: 'a complete file needs entries_until (the round deadline), so later rounds are never labelled',
+    path: ['entries_until'],
+  })
+  .refine((f) => !f.entries_from || !f.entries_until || f.entries_from <= f.entries_until, {
+    message: 'entries_from is after entries_until',
+    path: ['entries_from'],
+  });
 export type OutcomeFile = z.infer<typeof OutcomeFile>;
 
 /** An EarnKit entry as the matcher sees it. */
@@ -116,10 +132,12 @@ export const SELF_REPORT_ROUND = 'builder report';
 
 /**
  * Upserts one announcement file as `entry_outcomes` rows (basis 'announcement'). Candidates are
- * the program's submitted entries (the Ruling C10 rule) made by the announcement day, in id order;
+ * the program's submitted entries (the Ruling C10 rule) made by the announcement day and inside
+ * the round's window (`entries_from` to `entries_until`, UTC days, final review I4), in id order;
  * test installations are included here and excluded later, in stats. Each named result labels
  * every entry it matches. Ruling C22: every other candidate is labelled too, `not_selected` when
- * the file is `complete`, else `unknown`. The file is the truth for its round: a re-sync
+ * the file is `complete`, else `unknown`, except an entry already labelled by another round's
+ * announcement (it belongs to that round). The file is the truth for its round: a re-sync
  * overwrites. Returns counts only: callers print counts, never names.
  */
 export async function syncOutcomeFile(
@@ -131,6 +149,11 @@ export async function syncOutcomeFile(
     WHERE p.program_id = ${f.program_id}
       -- By the end of the announcement day, in UTC (never the server's time zone).
       AND p.submitted_at < ((${f.captured_at}::date + 1)::timestamp AT TIME ZONE 'UTC')
+      -- Final review I4: the round's window (UTC days, inclusive). A later round's entry is not this round's.
+      AND (${f.entries_until ?? null}::date IS NULL
+        OR p.submitted_at < ((${f.entries_until ?? null}::date + 1)::timestamp AT TIME ZONE 'UTC'))
+      AND (${f.entries_from ?? null}::date IS NULL
+        OR p.submitted_at >= (${f.entries_from ?? null}::date::timestamp AT TIME ZONE 'UTC'))
       AND (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
         OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
     ORDER BY p.id`;
@@ -156,7 +179,17 @@ export async function syncOutcomeFile(
       await upsert(id, r.result, r.prize_usd ?? null);
     }
   }
-  const others = entries.filter((e) => !named.has(e.id));
+  // An unnamed entry another round's announcement already labelled (a real result, not `unknown`)
+  // belongs to that round.
+  const elsewhere = new Set(
+    (
+      await db<{ project_id: number }[]>`
+        SELECT DISTINCT project_id FROM entry_outcomes
+        WHERE program_id = ${f.program_id} AND basis = 'announcement' AND round_label <> ${f.round_label}
+          AND result <> 'unknown'`
+    ).map((r) => r.project_id),
+  );
+  const others = entries.filter((e) => !named.has(e.id) && !elsewhere.has(e.id));
   for (const e of others) await upsert(e.id, f.complete ? 'not_selected' : 'unknown', null);
   return { matched, unmatched, others: others.length };
 }

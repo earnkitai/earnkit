@@ -31,6 +31,7 @@ import {
 } from './sanctions';
 import { proofCheck, type ProofOutcome } from './submission-proof';
 import { repoCoinPrograms } from './tokens';
+import { PROOF_LINE_PREFIX } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
 import { CLANKER_ADDRESSES } from './traction';
@@ -940,7 +941,14 @@ export async function startEntry(a: {
   choice: 'go' | 'skip';
   now: Date;
   charge?: () => Promise<unknown>;
-}): Promise<{ id: number; created: boolean; token_url: string | null; confirm_choice: 'go' | 'skip' }> {
+}): Promise<{
+  id: number;
+  created: boolean;
+  token_url: string | null;
+  confirm_choice: 'go' | 'skip';
+  /** Ruling C24: the last "go" on this entry stopped at the repo's proof line. */
+  proof_line_missed: boolean;
+}> {
   const { program, installationId, project, answers, choice, now } = a;
   const tooLarge = submissionDataProblem(answers, OTHER_VALUE_MAX);
   if (tooLarge) throw new EntryError(tooLarge);
@@ -954,7 +962,7 @@ export async function startEntry(a: {
     // the entry is submitted or proven (the choice is then locked). Fresh fragments per use.
     const earnkit = () => tx`(coin_address IS NOT NULL OR COALESCE(token_status IN ('launched', 'pending'), false))`;
     const locked = () => tx`(submission_confirmed_at IS NOT NULL OR submission_proof_ok_at IS NOT NULL)`;
-    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip' };
+    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip'; proof_line_missed: boolean };
     if (own) {
       [row] = await tx<typeof row[]>`
         UPDATE projects SET
@@ -975,7 +983,8 @@ export async function startEntry(a: {
             ELSE token_url END,
           complete_at = COALESCE(complete_at, ${completeNow})
         WHERE id = ${own.id}
-        RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice`;
+        RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
+          COALESCE(token_status = 'gate_failed' AND starts_with(token_note, ${PROOF_LINE_PREFIX}), false) AS proof_line_missed`;
     } else {
       await a.charge?.();
       [row] = await tx<typeof row[]>`
@@ -991,8 +1000,14 @@ export async function startEntry(a: {
           confirmed_at: now,
           confirm_choice: choice,
           complete_at: completeNow,
-        })} RETURNING id, NULL::text AS token_url, confirm_choice`;
+        })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed`;
     }
-    return { id: row.id, created: !own, token_url: row.token_url, confirm_choice: row.confirm_choice };
+    return {
+      id: row.id,
+      created: !own,
+      token_url: row.token_url,
+      confirm_choice: row.confirm_choice,
+      proof_line_missed: row.proof_line_missed,
+    };
   });
 }

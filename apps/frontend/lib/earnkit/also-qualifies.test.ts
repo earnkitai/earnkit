@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { FieldKind, SubmissionRequirement } from './program-file';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ProgramFile, type FieldKind, type SubmissionRequirement } from './program-file';
 import type { Chain } from './match';
 import type { Difficulty } from './guide';
 import { MAX_ALSO, alsoQualifies, alsoText, type AlsoProgram, type AlsoRow } from './also-qualifies';
@@ -33,6 +35,7 @@ const prog = (id: string, o: Partial<AlsoProgram> = {}): AlsoProgram => ({
   status: 'active',
   campaign: false,
   source: 'file',
+  investment: false,
   max_award_usd: null,
   difficulty: null,
   requirements: [req(`${id}_field`, 'other', { required: false })],
@@ -214,4 +217,40 @@ test('alsoText: the table, "Still needed", and the builder bonus sentence with c
 test('alsoText: "N answers" plural for left > 1', () => {
   const rows: AlsoRow[] = [{ id: 'p', title: 'P', prize: 'up to $1,000', ends: 'rolling', left: 3 }];
   assert.match(alsoText(rows, null)!, /\| 3 answers \|/);
+});
+
+// Final review I1: "Still needed" counts a field the project info fills (repo, live link, name) as
+// filled, the same check as the coach (prepareSubmission). Real program files.
+const fileProgram = (id: string): AlsoProgram => {
+  const f = ProgramFile.parse(JSON.parse(readFileSync(join(__dirname, '../../../../programs', `${id}.json`), 'utf8')));
+  return prog(id, { title: f.title, chains: f.chains, tag: f.tag ?? null, requirements: f.submission_requirements });
+};
+
+test('alsoQualifies (I1): Base "Still needed" drops by one when the project gives its live link', () => {
+  const programs = [fileProgram('base-builder-grants')];
+  const repo = { name: 'TipJar', repo_url: 'https://github.com/alice/tipjar' };
+  const [without] = alsoQualifies({ ...base, programs, project: repo });
+  const [withLive] = alsoQualifies({ ...base, programs, project: { ...repo, live_url: 'https://tipjar.xyz' } });
+  assert.equal(withLive.left, without.left - 1);
+});
+
+test('alsoQualifies (I1): Avalanche never counts its name, one-liner or project link when the project gives them', () => {
+  const programs = [fileProgram('avalanche-team1-mini-grants')];
+  const chains: Chain[] = ['avalanche'];
+  const [bare] = alsoQualifies({ ...base, chains, programs });
+  const [known] = alsoQualifies({
+    ...base,
+    chains,
+    programs,
+    project: { name: 'TipJar', description: 'Tips for creators in USDC.', live_url: 'https://tipjar.xyz' },
+  });
+  assert.equal(known.left, bare.left - 3);
+});
+
+test('alsoQualifies (C23): an investment program never shows, even when it fits any chain', () => {
+  const rows = alsoQualifies({
+    ...base,
+    programs: [prog('a16z-speedrun', { any_chain: true, chains: [], investment: true, summary: 'up to $1M · rolling' })],
+  });
+  assert.deepEqual(rows, []);
 });

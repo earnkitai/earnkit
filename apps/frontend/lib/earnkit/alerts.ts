@@ -348,10 +348,11 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
         ProgramRow,
         | 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'opened_at' | 'past_rounds' | 'focus' | 'best_bet'
         | 'difficulty_override' | 'winners_per_round' | 'tag' | 'each_time' | 'submission_requirements' | 'rules'
+        | 'investment'
       > & { opened_at: Date })[]
     >`
       SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
-        winners_per_round, tag, each_time, submission_requirements, rules
+        winners_per_round, tag, each_time, submission_requirements, rules, investment
       FROM programs
       WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`,
     db<{ fit_chains: Chain[] }[]>`SELECT fit_chains FROM installations WHERE id = ${installationId}`,
@@ -394,15 +395,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       ? null
       : { usd: feesUsd, tokens: tokens.map((t) => ({ url: t.token_url, symbol: t.token_symbol })) },
     bonusWins,
-    newPrograms: curated.map((p) => ({
-      id: p.id,
-      title: p.title,
-      prize: prizeOf(p),
-      easy: difficultyOf(p).level === 'Easy',
-      chains: p.chains,
-      any_chain: p.any_chain,
-      opened_at: p.opened_at,
-    })),
+    newPrograms: curated.map(newProgramOf),
     fitChains: fit[0]?.fit_chains ?? [],
     outcomeWins: outcomeWins.map((o) => ({ ...o, prize_usd: o.prize_usd === null ? null : Number(o.prize_usd) })),
     bonusStandings: bonusRank.map((r) => ({
@@ -411,6 +404,25 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       round_key: r.round_key,
       inTop: r.rank <= BONUS_TOP_N,
     })),
+  };
+}
+
+/**
+ * One open curated program as a new program alert candidate. Ruling C23: an investment program's
+ * prize reads "up to $1M investment" (prizeOf). Pure; exported for tests.
+ */
+export function newProgramOf(
+  p: Parameters<typeof difficultyOf>[0] &
+    Pick<ProgramRow, 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'investment'> & { opened_at: Date },
+): NewProgram {
+  return {
+    id: p.id,
+    title: p.title,
+    prize: prizeOf(p),
+    easy: difficultyOf(p).level === 'Easy',
+    chains: p.chains,
+    any_chain: p.any_chain,
+    opened_at: p.opened_at,
   };
 }
 

@@ -30,8 +30,9 @@ export function humanStrings(path: string, source: string): { text: string; line
 
 const SOURCE_DIRS = ['apps/frontend/app', 'apps/frontend/lib', 'apps/frontend/scripts'];
 const TEXT_FILES = ['apps/frontend/public/llms.txt', 'programs/README.md', 'README.md', 'apps/frontend/README.md'];
-const skip = (p: string) =>
-  /\.test\.tsx?$/.test(p) || p.includes('/fixtures/') || p.includes('node_modules') || p.endsWith('/human-text.ts');
+/** Not human text: tests (`.test.ts`, `.test.tsx`, `.test.mts`), fixtures, node_modules and this file. Pure. */
+export const notHumanText = (p: string) =>
+  /\.test\.m?tsx?$/.test(p) || p.includes('/fixtures/') || p.includes('node_modules') || p.endsWith('/human-text.ts');
 
 /** Every file Ruling 16 (plan) scans, repo-relative. */
 export function humanTextFiles(root: string): string[] {
@@ -39,7 +40,8 @@ export function humanTextFiles(root: string): string[] {
   const walkDir = (dir: string) => {
     for (const name of readdirSync(join(root, dir))) {
       const rel = `${dir}/${name}`;
-      if (skip(rel)) continue;
+      // Final review M1: a fixtures directory is never entered (its files are test data).
+      if (name === 'fixtures' || notHumanText(rel)) continue;
       if (statSync(join(root, rel)).isDirectory()) walkDir(rel);
       else if (/\.(ts|tsx|mts)$/.test(name)) files.push(rel);
     }
