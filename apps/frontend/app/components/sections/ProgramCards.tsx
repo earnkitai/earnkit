@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
-import { Eyebrow, Panel } from '../common/Panel';
+import { Panel } from '../common/Panel';
 import AddToAgent from './AddToAgent';
 import ProgramLogo from './ProgramLogo';
 import BonusPill from '../ui/BonusPill';
@@ -46,8 +46,7 @@ export default function ProgramCards({
     <Panel label="Open programs" className="py-12 md:py-16">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          {heading === 'h1' && <Eyebrow>By pool</Eyebrow>}
-          <Heading className={`${heading === 'h1' ? 'mt-4 ' : ''}font-funnel-display text-3xl font-medium text-ek-white md:text-5xl`}>
+          <Heading className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
             Open programs
           </Heading>
           {figure && (

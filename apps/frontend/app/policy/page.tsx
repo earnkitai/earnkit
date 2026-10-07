@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Footer from '../components/common/Footer';
 import { Eyebrow, Panel } from '../components/common/Panel';
+import BonusPill from '../components/ui/BonusPill';
 import { X } from '../lib/links';
 import {
   CLANKER_CUT_PCT,
@@ -20,12 +21,21 @@ export const metadata = {
 
 const link = 'text-ek-white underline underline-offset-4 transition-colors hover:text-ek-blue-soft';
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/** `aside` sits beside the heading (v2.8 Ruling 19: the builder bonus pill). */
+function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  const heading = <h2 className="font-funnel-display text-2xl font-medium text-ek-white md:text-3xl">{title}</h2>;
   return (
     <div
       id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}
       className="scroll-mt-32 grid gap-4 border-t border-ek-navy py-10 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
-      <h2 className="font-funnel-display text-2xl font-medium text-ek-white md:text-3xl">{title}</h2>
+      {aside ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 self-start">
+          {heading}
+          {aside}
+        </div>
+      ) : (
+        heading
+      )}
       <div className="max-w-2xl space-y-4 font-funnel-sans text-base font-light leading-relaxed text-ek-blue-light md:text-lg">
         {children}
       </div>
@@ -119,7 +129,7 @@ export default function PolicyPage() {
           </p>
         </Section>
 
-        <Section title="The builder bonus">
+        <Section title="The builder bonus" aside={<BonusPill size="md" />}>
           <Sub>How it&apos;s funded</Sub>
           <p>
             The builder bonus share of every token&apos;s fees goes to a pool for the program the project entered.

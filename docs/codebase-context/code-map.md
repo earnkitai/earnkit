@@ -30,10 +30,11 @@ apps/frontend/
   public/llms.txt              agent-readable summary: install, "What can I earn?", program guides
                                (earnkit.com/programs/<id>), the tools, live numbers (C9)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v2.7 §1, v2.7.1: the pure home render (hero with "$1.3M+ open right now"
-                               (landing.open_text) and stats_line, ProgramCards (6, "See all" → /programs),
-                               BuilderBonus, HowItWorks, BackedBy, Footer); landing null (failed read) →
-                               hero without figure, no cards, bonus section without amount (Ruling 21)
+  app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
+                               ProgramCards (6, "See all" → /programs), HowItWorks, BackedBy, Footer);
+                               landing null (failed read) → hero without stats line, no cards (Ruling 21)
+  app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE, BonusPill lg → #how-you-earn-3, the
+                               install and demo buttons, statsLine; nothing else
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
@@ -54,13 +55,11 @@ apps/frontend/
   app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
                                ProgramCards shows 3 cards below sm, then "See all programs"; v2.7.1: no
-                               eyebrow on the home ("By pool" on /programs), no line under the title, big line + "up to $X per
+                               eyebrow (v2.8: none on /programs either), no line under the title, big line + "up to $X per
                                winner", chips (ends, difficulty, bonus pill), optional `figure` (/programs);
-                               HowItWorks exports STEPS. StatsStrip.tsx is gone (v2.7.1)
-  app/components/sections/BuilderBonus.tsx  v2.7.1: #builder-bonus "Win twice.": bonusPills(every) (Top 10 /
-                               Paid in ETH / Ranked on real users), landing.bonus_pools or BONUS_EMPTY
-                               "Pools start with the first entry" (no figure when the read failed),
-                               "See programs" → /programs
+                               HowItWorks exports HOW_TITLE "How you earn" and STEPS, a Panel with a
+                               visible h2 #how-it-works and steps #how-you-earn-1..3. StatsStrip.tsx is
+                               gone (v2.7.1); BuilderBonus.tsx ("Win twice") is gone (v2.8)
   app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
                                "Follow on X" is in the Footer only
@@ -78,7 +77,8 @@ apps/frontend/
                                funding/eligibility/ranking/review/payout, coin optional, no
                                affiliation, contact); numbers from lib/earnkit/policy.ts; v2.6: the
                                bonus on every program unless opted out, page / confirmation /
-                               unverified-page eligibility, the coin's earnkit.txt token line
+                               unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
+                               builder bonus heading has a BonusPill (md) beside it (Section aside)
   app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
                                (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
                                only shownUrl https forms, tx links only 32-byte hashes); v2.6

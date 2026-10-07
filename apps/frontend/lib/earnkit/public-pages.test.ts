@@ -11,8 +11,9 @@ import type { Board } from './bonus-board';
 import { resolveRoundParam } from './bonus-rounds';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
-import { BONUS_PILLS } from '../../app/components/sections/BuilderBonus';
-import { BONUS_TOP, NO_CELL } from './present';
+import { HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
+import { NO_CELL } from './present';
 import BonusPill, { BONUS_PILL_COLORS, BONUS_PILL_TEXT, bonusPillLabel } from '../../app/components/ui/BonusPill';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
@@ -202,14 +203,12 @@ const home = (landing: Landing | null) => html(React.createElement(HomeView, { l
 test('v2.7 §1: the full home view', () => {
   const h = home(homeFixture);
   const t = text(h);
-  for (const s of ['Agents only', 'Find things worth building for.', 'Find live builder programs and start building with your agent.', '$1.3M+ open right now', '+ Builder bonus on every program', 'Add to your agent', 'Watch the demo', '120 agents earning'])
+  for (const s of [HERO_TITLE, HERO_SUBTITLE, '$1.3M+ open right now', 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning'])
     assert.ok(t.includes(s), s);
-  // v2.7.2: the hero is the promise, the orange bonus pill and the buttons; no figure, no "Then ask"
-  // line. The pool figure heads the Open programs section instead.
-  const order = ['Find things worth building for.', 'Find live builder programs', '+ Builder bonus on every program', 'Add to your agent', '120 agents earning', 'Open programs', '$1.3M+ open right now'].map((s) => t.indexOf(s));
+  // v2.8: the hero is the title, the subtitle, the bonus pill and the buttons; the pool figure
+  // heads the Open programs section.
+  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', '120 agents earning', 'Open programs', '$1.3M+ open right now'].map((s) => t.indexOf(s));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
-  assert.match(h, /<a[^>]*href="#builder-bonus"[^>]*>\+ Builder bonus on every program<\/a>/);
-  assert.match(h, /<a[^>]*href="#builder-bonus"[^>]*class="[^"]*bg-ek-orange[^"]*"/);
   assert.ok(!t.includes('Then ask:'));
   // 6 cards, then "See all" to /programs; below `sm`, 3 cards, then "See all programs" (fix round 1).
   const cards = h.split(/<li class="[^"]*rounded-\[32px\] bg-ek-navy p-6/).slice(1);
@@ -252,18 +251,10 @@ test('v2.7 §1: the full home view', () => {
   // No stats strip, no duplicate open-money figure.
   assert.doesNotMatch(t, /Open money|EarnKit in numbers/);
   assert.equal(t.split('open right now').length, 2);
-  // v2.7.1: the builder bonus section, between the programs and how it works.
-  const bb = h.slice(h.indexOf('id="builder-bonus"'));
-  assert.ok(h.includes('id="builder-bonus"'));
-  const bt = text(bb.slice(0, bb.indexOf('</section>')));
-  for (const s of ['Win twice.', 'Top 10 on every program', 'Paid in ETH', 'Ranked on real users', '0.60 ETH in pools so far', 'See programs']) assert.ok(bt.includes(s), s);
-  assert.match(bb, /<a[^>]*href="\/programs"[^>]*>See programs<\/a>/);
+  // v2.8: no "Win twice" section; the programs come before How you earn.
+  assert.doesNotMatch(h, /id="builder-bonus"|Win twice|Agents only/);
   assert.doesNotMatch(h, /Leaderboards/);
-  assert.equal(BONUS_PILLS[0], `Top ${BONUS_TOP} on every program`); // the payout split's length
-  assert.ok(t.indexOf('Open programs') < t.indexOf('Win twice.') && t.indexOf('Win twice.') < t.indexOf('Add EarnKit'));
-  // The 3 steps.
-  for (const s of ['Add EarnKit', 'One link, free.', 'Ask “What can I earn?”', 'Your agent finds programs you qualify for.', 'Your agent builds and submits', 'With a token that joins the builder bonus.'])
-    assert.ok(t.includes(s), s);
+  assert.ok(t.indexOf('Open programs') < t.indexOf(HOW_TITLE) && t.indexOf(HOW_TITLE) < t.indexOf('Add EarnKit'));
   // Footer: Docs, Policy, Programs.
   for (const href of ['https://docs.earnkit.com', '/policy', '/programs']) assert.match(h, new RegExp(`href="${href}"`), href);
   assert.ok(t.includes('Docs · Policy · Programs'));
@@ -276,29 +267,76 @@ test('v2.7 §1: the full home view', () => {
 test('Review Focus 1: a failed read renders the headline and the button, without the live parts', () => {
   const h = home(null);
   const t = text(h);
-  assert.ok(t.includes('Find things worth building for.'));
+  assert.ok(t.includes(HERO_TITLE));
   assert.ok(t.includes('Add to your agent'));
   assert.ok(!t.includes('Then ask:'));
   assert.ok(!t.includes('open right now'));
   assert.ok(!t.includes('Ask your agent'));
   assert.ok(!t.includes('Open programs'));
   assert.ok(!t.includes('agents earning'));
-  // Review #2: the bonus section keeps its pills but shows no figure: the read failed, so it
-  // never claims the pools are empty (or "0 ETH").
-  for (const s of ['Win twice.', 'Top 10 per program', 'Paid in ETH', 'Ranked on real users']) assert.ok(t.includes(s), s);
-  assert.doesNotMatch(t, /Pools start|in pools so far|\b0 ETH/);
-  // Review #6: "on every program" only when the read shows it.
-  assert.ok(t.includes('+ Builder bonus Add to your agent'));
-  assert.doesNotMatch(t, /on every program/);
-  assert.ok(t.includes('Your agent builds and submits')); // how it works stays
+  // v2.8: the hero pill needs no read, and never claims an amount or "0 ETH".
+  assert.ok(t.includes(`${HERO_SUBTITLE} Builder bonus Add to your agent Watch the demo`));
+  assert.doesNotMatch(t, /Pools start|in pools so far|\b0 ETH|Win twice/);
+  assert.ok(t.includes(HOW_TITLE) && t.includes(STEPS[2].title)); // How you earn stays
+  assert.match(h, /id="how-you-earn-3"/);
 });
 
-test('review #2, #6: a successful read with empty pools says so; a program without the bonus drops "every"', () => {
-  const t = text(home({ ...homeFixture, bonus_pools: null }));
-  assert.ok(t.includes('Win twice. See programs Pools start with the first entry'));
-  const some = text(home({ ...homeFixture, bonus_every: false }));
-  assert.ok(some.includes('+ Builder bonus Add to your agent') && some.includes('Top 10 per program'));
-  assert.doesNotMatch(some, /on every program/);
+// ---- v2.8 Task 2: the hero, How you earn, no Win twice.
+test('v2.8: the hero is the title, the subtitle, the bonus pill to step 3 and the two buttons', () => {
+  const h = home(homeFixture);
+  const t = text(h);
+  assert.match(h, new RegExp(`<h1[^>]*>${HERO_TITLE}</h1>`));
+  assert.equal(HERO_TITLE, 'Earn rewards for building');
+  assert.equal(HERO_SUBTITLE, 'Find live programs. EarnKit matches your projects and helps you win.');
+  const pill = h.match(/<a[^>]*href="#how-you-earn-3"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+  assert.equal(text(pill).trim(), 'Builder bonus');
+  assert.match(pill, /h-11/); // size lg
+  const order = [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo'].map((s) => t.indexOf(s));
+  assert.ok(order.every((n) => n >= 0), String(order));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  for (const gone of ['Agents only', 'Win twice', 'Find things worth building for', 'on every program']) assert.ok(!t.includes(gone), gone);
+  assert.doesNotMatch(h, /id="builder-bonus"|href="#builder-bonus"/);
+  // Nothing else: from the h1 to the end of the hero section, only these carry text.
+  const afterH1 = h.slice(h.indexOf('</h1>'));
+  const hero = afterH1.slice(0, afterH1.indexOf('</section>'));
+  const bits = [...hero.matchAll(/>([^<]+)</g)].map((m) => text(m[1]).trim()).filter(Boolean);
+  assert.deepEqual(bits, [HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', homeFixture.stats_line]);
+});
+
+test('v2.8: How you earn is a visible h2 with the three steps; step 3 is the pill target', () => {
+  const h = home(homeFixture);
+  assert.equal(HOW_TITLE, 'How you earn');
+  const h2 = h.match(/<h2[^>]*id="how-it-works"[^>]*>([^<]*)<\/h2>/) ?? h.match(/<h2[^>]*>(How you earn)<\/h2>/);
+  assert.ok(h2, 'h2');
+  assert.equal(h2![1], HOW_TITLE);
+  assert.match(h2![0], /id="how-it-works"/);
+  assert.doesNotMatch(h2![0], /sr-only/);
+  assert.deepEqual(STEPS, [
+    { title: 'Add EarnKit', body: 'One link, free.' },
+    { title: 'Ask “What can I earn?”', body: 'Your agent finds programs you qualify for.' },
+    { title: 'Submit and earn', body: "Launch your entry's token to compete for the builder bonus." },
+  ]);
+  const steps = [...h.matchAll(/<li[^>]*id="how-you-earn-(\d)"[^>]*>[\s\S]*?<h3[^>]*>([^<]*)<\/h3>[\s\S]*?<p[^>]*>([^<]*)<\/p>/g)].map((m) => ({
+    n: m[1],
+    title: text(m[2]).trim(),
+    body: text(m[3]).trim(),
+  }));
+  assert.deepEqual(steps, STEPS.map((s, i) => ({ n: String(i + 1), ...s })));
+  assert.match(h, /<li[^>]*id="how-you-earn-3"[^>]*class="[^"]*scroll-mt-4/);
+});
+
+test('v2.8: a failed read keeps the hero and How you earn, without Open programs', () => {
+  const t = text(home(null));
+  for (const s of [HERO_TITLE, HERO_SUBTITLE, 'Builder bonus', 'Add to your agent', 'Watch the demo', HOW_TITLE, ...STEPS.map((s) => s.title)]) assert.ok(t.includes(s), s);
+  assert.ok(!t.includes('Open programs'));
+});
+
+test('v2.8: /policy shows the builder bonus pill in its builder bonus section', () => {
+  const h = html(React.createElement(PolicyPage));
+  const sec = h.slice(h.indexOf('id="the-builder-bonus"'));
+  const head = sec.slice(0, sec.indexOf('<h3'));
+  assert.match(head, /<h2[^>]*>The builder bonus<\/h2>/);
+  assert.match(head, /<span[^>]*class="[^"]*rounded-full[^"]*h-9[^"]*"[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"[\s\S]*?Builder bonus/);
 });
 
 test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a local <img>', () => {
@@ -481,13 +519,13 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
 test('/programs: every open program as cards under an h1, or the unavailable line', async () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
   assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
-  assert.ok(text(h).includes('By pool'));
+  assert.ok(!text(h).includes('By pool')); // v2.8: no eyebrow
   assert.doesNotMatch(text(h), /Open now/);
   assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
-  assert.ok(fig.includes('By pool Open programs $1.3M+ open right now CW Crypto World'), fig);
+  assert.ok(fig.includes(' Open programs $1.3M+ open right now CW Crypto World') && !fig.includes('By pool'), fig);
   assert.match(readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8'), /figure=\{landing\.open_text\}/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
