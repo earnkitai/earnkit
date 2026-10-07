@@ -520,13 +520,13 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
 // ---- v2.8 Task 3: the Open programs carousel and the slim card (Rulings 20, 21 (plan)).
 /** The cards: each `<li>` of the section's list, holding its one link. */
 function cardsOf(h: string): string[] {
-  const sec = h.slice(h.indexOf('aria-label="Open programs"'));
+  const sec = h.slice(h.indexOf('<section id="open-programs"'));
   const list = sec.slice(sec.indexOf('<ul'), sec.indexOf('</ul>') + 5);
   return [...list.matchAll(/<li[ >][\s\S]*?<\/li>/g)].map((m) => m[0]);
 }
 /** The section from its heading to the end of its list. */
 function programsSection(h: string): string {
-  const sec = h.slice(h.indexOf('<section aria-label="Open programs"'));
+  const sec = h.slice(h.indexOf('<section id="open-programs"'));
   return sec.slice(0, sec.indexOf('</section>'));
 }
 const chipsOf = (card: string) => [...card.matchAll(/<span class="[^"]*\bek-chip\b[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
