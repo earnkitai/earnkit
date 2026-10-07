@@ -144,6 +144,17 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
   const [b] = await mk('beta', null, true);
   // v2.8 Ruling 2 (plan): a token and a counted submission, but the entry is incomplete.
   await mk('gamma', `0x${(process.pid.toString(16) + Date.now().toString(16) + 'f').padStart(40, '0')}`, true, false);
+  // v2.8 Ruling C10: confirmed at the confirmation step but never submitted: never on the board.
+  // Confirmed and then recorded (a submissions row), or confirmed by the builder: listed.
+  const confirmed = (name: string) => sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, repo_url, bonus_repo_key, submitted_at, confirmed_at, confirm_choice)
+    VALUES (${tag}, ${name}, ${`https://github.com/a/${name}`}, ${`github.com/a/${name}`}, now() - interval '1 hour', now(), 'go')
+    RETURNING id`;
+  await confirmed('delta-unsubmitted');
+  const [recorded] = await confirmed('epsilon-recorded');
+  await sql()`INSERT INTO submissions (project_id, submission_data) VALUES (${recorded.id}, ${sql().json({})})`;
+  const [said] = await confirmed('zeta-said');
+  await sql()`UPDATE projects SET submission_confirmed_at = now() WHERE id = ${said.id}`;
   await sql()`
     INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
     VALUES (${tag}, ${tag}, now() - interval '1 day', ${new Date(realNow.getTime() + 3 * 86_400_000)}, 'open')`;
@@ -172,7 +183,10 @@ test('bonusBoard: an open round (live ranking, pool so far) and a paid round (fr
       ['alpha', 1, '61.5', 'Yes'],
       ['beta', null, null, 'No: no token'],
       ['gamma', null, null, 'No: entry incomplete'],
+      ['epsilon-recorded', null, null, 'No: no token'],
+      ['zeta-said', null, null, 'No: no token'],
     ]);
+    assert.ok(!JSON.stringify(open).includes('delta-unsubmitted'), 'a confirmed, unsubmitted entry never shows');
     const paid = await bonusBoard(paidKey, realNow);
     assert.ok(paid);
     assert.deepEqual([paid.state, paid.pool, paid.days_left], ['paid', '1', 0]);

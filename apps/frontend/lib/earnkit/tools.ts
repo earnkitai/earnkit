@@ -3,6 +3,7 @@ import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import {
   RecordSubmissionInput,
   recordSubmission,
+  ownEntryWallet,
   startEntry,
   type EntryDeps,
 } from './projects';
@@ -54,7 +55,7 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { READY_TO_SUBMIT, confirmDecision, confirmOffer, offerWalletLine, NO_WALLET_HINT } from './confirm';
+import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { submitKit, type SubmitKit } from './submit-kit';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -491,14 +492,24 @@ export const tools = {
     // submission link, prefilled link or paste list here.
     const canPush = agent?.can_push !== false;
     const facts = open && prep.ready ? await offerFacts(program, repoUrl, ctx) : null;
-    const offerWallet = given ?? remembered;
+    // Fix round 1 (item 1): the wallet this entry already holds comes first; a "go" without a
+    // wallet launches to it, so it is the one shown.
+    const stored = given || !facts
+      ? null
+      : await ownEntryWallet({
+          programId: program.id,
+          installationId: ctx.installationId,
+          repoUrl: repoUrl ?? null,
+          name: known.project?.name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''),
+        });
+    const offerWallet = given ?? stored ?? remembered;
     const offer = facts
       ? confirmOffer({
           hasBonus: facts.hasBonus,
           coinIn: facts.coinIn,
           canPush,
           wallet: offerWallet,
-          remembered: !given && remembered !== null,
+          remembered: !given && offerWallet !== null,
           tokensOff: facts.policyOff || !facts.available,
         })
       : null;
@@ -513,7 +524,9 @@ export const tools = {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
+      // Review Minor 7: the final values are the kit's job (confirm_entry); this is the draft check.
       ...prep,
+      complete: prep.complete.map((c) => ({ key: c.key, label: c.label, filled_from: c.filled_from })),
       ...(token && {
         token: {
           proposed: token.proposed,
@@ -554,10 +567,14 @@ export const tools = {
     const tokensOff = facts.policyOff || !facts.available;
     const offersToken = !facts.coinIn && canPush && !tokensOff;
     if (decision.kind === 'offer') {
-      const remembered = given ? null : await rememberedWallet(ctx.installationId);
-      const wallet = given ?? remembered;
+      // Fix round 1 (item 1): the entry's own wallet first (a "go" without a wallet uses it), then
+      // the remembered one; whichever is shown comes back as shown_wallet.
+      const stored = given
+        ? null
+        : await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
+      const wallet = given ?? stored ?? (await rememberedWallet(ctx.installationId));
       return {
-        show_to_builder: confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && remembered !== null, tokensOff }),
+        show_to_builder: confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && wallet !== null, tokensOff }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         agent_note:
           "Show show_to_builder as written. When the builder says yes, call confirm_entry again with builder_confirmed: true, decision: 'go'" +
@@ -592,16 +609,18 @@ export const tools = {
       // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
       if (token.fixable) {
         const remembered = token.no_wallet ? await rememberedWallet(ctx.installationId) : null;
+        // Review Minor 5: the remembered wallet wasn't passed back: ask about it, never use it unseen.
+        const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;
         return {
           project_id: entry.id,
           token,
           show_to_builder: token.no_wallet
             ? remembered
-              ? offerWalletLine({ wallet: remembered, remembered: true, hasBonus: facts.hasBonus })
+              ? walletQuestion(remembered, facts.hasBonus)
               : NO_WALLET_HINT
-            : (token.note ?? ''),
+            : token.note || TOKEN_ERROR_CONFIRM,
           ...(token.no_wallet && remembered && { shown_wallet: remembered }),
-          agent_note: `${token.agent_note ? `${token.agent_note} ` : ''}The submit kit comes only in confirm_entry's reply, once this is fixed.`,
+          agent_note: `${agentNote ? `${agentNote} ` : ''}The submit kit comes only in confirm_entry's reply, once this is fixed.`,
         };
       }
     } else if (decision.kind === 'launch' && entry.confirm_choice === 'skip')
@@ -617,10 +636,13 @@ export const tools = {
       project: { ...i.project, ...(repoUrl && { repo_url: repoUrl }) },
       answers: i.answers,
     });
+    // Ruling C9: an incomplete entry still gets its token; the kit names what is missing first and
+    // marks each missing (or invalid) required answer as a blank, never dropping it.
     const kit: SubmitKit = submitKit(
       program,
       Object.fromEntries(filled.complete.map((c) => [c.key, c.value])),
       { browser: i.agent?.browser === true },
+      { problems: filled.missing.filter((m) => m.problem).map((m) => m.key) },
     );
     return {
       project_id: entry.id,

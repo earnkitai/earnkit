@@ -305,7 +305,7 @@ export async function deployToken(
     if (other) return { status: 'failed', note: repoHasTokenNote(other) };
   }
 
-  // Claim the project atomically: only this installation's project, only if it has no token yet,
+  // Claim the project atomically: only this installation's project, only if it has no token yet (and v2.8 Ruling 3, was never confirmed with "skip"),
   // only while its links are still the ones the gate checked (launch_token can change them), only
   // if no other project on its repo has one. The claim (token_url = 'pending') is released
   // ONLY when tokens.fun answers 4xx with a parsed JSON body (it refused before minting); every
@@ -324,6 +324,7 @@ export async function deployToken(
       token_name = ${a.name}, token_symbol = ${a.symbol}, token_repo_key = ${repoKey},
       token_image = ${a.image?.bytes ?? null}, token_image_type = ${a.image?.type ?? null}
     WHERE id = ${a.projectId} AND installation_id = ${a.installationId} AND token_url IS NULL
+      AND confirm_choice IS DISTINCT FROM 'skip'
       AND repo_url IS NOT DISTINCT FROM ${a.repoUrl}::text
       AND live_url IS NOT DISTINCT FROM ${a.liveUrl}::text
       AND (${repoKey}::text IS NULL OR NOT EXISTS (
