@@ -199,18 +199,29 @@ const deployerSignatureDescription = (campaignOpen: boolean) =>
     ? `EarnKit campaigns, when you deployed the contracts from your own wallet: its EIP-191 signature of prepare_submission's sign_to_enter (${ENTRY_LINE}). It binds this program, repo, payout wallet and contract set. Other programs: the same, for \`contracts\` deployed by a wallet other than payout_wallet.`
     : `For \`contracts\` deployed by a wallet other than payout_wallet: that wallet's signature (personal_sign) of ${ENTRY_LINE}. It binds this program, repo, payout wallet and contract set.`;
 
-/** v2.7 §4: the MCP server's instructions, agent-facing; exported for the copy-review test. */
-export const SERVER_INSTRUCTIONS = [
-  'EarnKit finds live grants and hackathons a builder can win, helps them write strong applications, and gives every entry a token whose fees fund the builder bonus.',
-  'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
-  'When a reply has since_you_last_checked, show it to the builder first, as written.',
-  'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
-  "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site.",
-  'Every entry gets a token by default; the builder can skip it in one word. One yes confirms the token and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no token. Write and push earnkit.txt yourself; never ask the builder to edit files.',
-  'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
-  'Never invent personal details.',
-  ...SAFETY_LINES,
-].join('\n');
+/**
+ * v2.7 §4: the MCP server's instructions, agent-facing. v2.8 Task 5 fix round 1 (Ruling 23): the
+ * campaign sentence only while an EarnKit campaign is open. Pure.
+ */
+export function serverInstructions(campaignOpen: boolean) {
+  return [
+    'EarnKit finds live grants and hackathons a builder can win, helps them write strong applications, and gives every entry a token whose fees fund the builder bonus.',
+    'When a tool returns show_to_builder (or show_to_sponsor), show it exactly as written.',
+    'When a reply has since_you_last_checked, show it to the builder first, as written.',
+    'When the builder picks a program: ask for its setup steps once, do everything else yourself, and confirm once before the final submit.',
+    campaignOpen
+      ? "Other programs: before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url. EarnKit campaigns: record_submission is the entry; there is no other site."
+      : "Before record_submission, ask the builder 'Did you submit on <program site>?' and, when the site gives each entry a public page, ask for that entry link and pass it as external_submission_url.",
+    'Every entry gets a token by default; the builder can skip it in one word. One yes confirms the token and the wallet. EarnKit remembers the wallet and shows it next time: confirm it, never ask again from scratch. Pass the wallet shown (prepare_submission\'s shown_wallet) back as record_submission\'s payout_wallet; without it the entry gets no token. Write and push earnkit.txt yourself; never ask the builder to edit files.',
+    'Never name EarnKit tools, fields or files to the builder; say what happens in plain words.',
+    'Never invent personal details.',
+    ...SAFETY_LINES,
+  ].join('\n');
+}
+
+/** Every instruction with its campaign sentence; exported for the copy-review test. */
+export const SERVER_INSTRUCTIONS = serverInstructions(true);
+
 
 /**
  * The EarnKit MCP server for one connected agent (installation). `campaignOpen` (v2.8 Ruling 23
@@ -220,7 +231,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
   const descriptions = toolDescriptions(opts.campaignOpen ?? false);
   const server = new McpServer(
     { name: 'earnkit', version: '1.0.0' },
-    { instructions: SERVER_INSTRUCTIONS },
+    // MCP sends instructions once, in the initialize response. The route builds a server per
+    // request (stateless), so each session's initialize carries the campaignOpen read for it.
+    { instructions: serverInstructions(opts.campaignOpen ?? false) },
   );
 
   server.registerTool(
@@ -375,7 +388,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .string()
           .optional()
           .describe(
-            "Other programs: the wallet the builder confirmed on prepare_submission's wallet line, i.e. its shown_wallet, passed back (the token's fees and any bonus; remembered for next time). EarnKit never uses a remembered wallet here: without one the entry is recorded with no token yet. With contracts, the Base wallet that deployed them.",
+            `${opts.campaignOpen ? 'Other programs: the wallet' : 'The wallet'} the builder confirmed on prepare_submission's wallet line, i.e. its shown_wallet, passed back (the token's fees and any bonus; remembered for next time). EarnKit never uses a remembered wallet here: without one the entry is recorded with no token yet. With contracts, the Base wallet that deployed them.`,
           ),
       },
     },

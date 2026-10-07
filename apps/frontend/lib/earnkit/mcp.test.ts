@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, toolDescriptions } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions } from './mcp';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
 
@@ -14,7 +14,7 @@ after(async () => {
 
 const FACTORY = '0x00000000000000000000000000000000000000fa';
 
-async function listed(env: Record<string, string | undefined>) {
+async function listed(env: Record<string, string | undefined>, opts?: { campaignOpen?: boolean }) {
   const saved = {
     ESCROW_CHAIN: process.env.ESCROW_CHAIN,
     ESCROW_FACTORY_ADDRESS: process.env.ESCROW_FACTORY_ADDRESS,
@@ -25,7 +25,7 @@ async function listed(env: Record<string, string | undefined>) {
   const errLog = console.error;
   console.error = () => {}; // partially-configured envs log a line; keep test output clean
   try {
-    const server = createMcpServer({ installationId: 1 });
+    const server = createMcpServer({ installationId: 1 }, opts);
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test', version: '0' });
     await Promise.all([server.connect(a), client.connect(b)]);
@@ -217,8 +217,8 @@ test('v2.4: the instructions say every reply may open with since_you_last_checke
   assert.match(instructions, /since_you_last_checked/);
 });
 
-test('v2.4: the instructions say record_submission is the campaign entry', async () => {
-  const { instructions } = await listed({});
+test('v2.4: the instructions say record_submission is the campaign entry (while a campaign is open)', async () => {
+  const { instructions } = await listed({}, { campaignOpen: true });
   assert.match(instructions, /EarnKit campaigns: record_submission is the entry; there is no other site\./);
   assert.doesNotMatch(instructions, /Call\s+record_submission only after it was really submitted/);
 });
@@ -332,4 +332,22 @@ test('v2.8 Ruling 23 (plan): createMcpServer with campaignOpen false (the defaul
   const props = open.inputSchema.properties as Record<string, { description?: string }>;
   assert.match(props.deployer_signature.description ?? '', /EarnKit campaigns/);
   assert.equal(open.description, toolDescriptions(true).record_submission);
+});
+
+test('v2.8 Task 5 fix round 1: serverInstructions(false) drops the campaign sentence; the server sends it at initialize', async () => {
+  const closed = serverInstructions(false);
+  assert.doesNotMatch(closed, /EarnKit campaign/);
+  assert.doesNotMatch(closed, /Other programs:/);
+  assert.match(closed, /^Before record_submission, ask the builder 'Did you submit on <program site>\?'/m);
+  assert.equal(SERVER_INSTRUCTIONS, serverInstructions(true));
+  assert.match(SERVER_INSTRUCTIONS, /EarnKit campaigns: record_submission is the entry; there is no other site\./);
+  assert.equal((await listed({})).instructions, closed);
+  assert.equal((await listed({}, { campaignOpen: true })).instructions, SERVER_INSTRUCTIONS);
+  // payout_wallet: no "Other programs:" contrast while no campaign is open.
+  const pw = (open?: boolean) => {
+    const rec = (open === undefined ? listed({}) : listed({}, { campaignOpen: open })).then((l) => l.tools.find((t) => t.name === 'record_submission')!);
+    return rec.then((r) => (r.inputSchema.properties as Record<string, { description?: string }>).payout_wallet.description ?? '');
+  };
+  assert.match(await pw(), /^The wallet the builder confirmed/);
+  assert.match(await pw(true), /^Other programs: the wallet the builder confirmed/);
 });

@@ -233,6 +233,7 @@ export async function listPrograms() {
       | 'winners_per_round'
       | 'chains'
       | 'rules'
+      | 'token_policy'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -243,7 +244,7 @@ export async function listPrograms() {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.rules,
+      p.chains, p.rules, p.token_policy,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -305,7 +306,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  >,
+  > & { token_policy?: TokenPolicy },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -359,6 +360,8 @@ export function programCard(
     chains: p.chains,
     // v2.7 §2, Ruling 12 (plan): campaigns (EarnKit or sponsor) have no difficulty.
     difficulty: p.campaign ? null : difficultyOf(p),
+    // v2.8 Task 5 fix round 1: whether entries get a token at all (the first message's token line).
+    token_policy: p.token_policy,
   };
 }
 

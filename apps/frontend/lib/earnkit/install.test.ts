@@ -43,6 +43,16 @@ test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
   assert.ok(cx.code?.includes('https://earnkit.com/mcp'));
   assert.equal(cx.code, CODEX);
   assert.equal(cx.after, 'Then run codex mcp login earnkit and approve.');
+  // Fix round 1: the login command can be copied too.
+  assert.equal(cx.afterCode, 'codex mcp login earnkit');
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.match(src, /<CopyButton text=\{agent\.afterCode\}/);
+});
+
+test('Cursor points at ~/.cursor/mcp.json; commands wrap only at spaces', () => {
+  assert.deepEqual(byName('Cursor').steps, ['Or add this to ~/.cursor/mcp.json:']);
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.doesNotMatch(src, /overflow-wrap:anywhere|break-all/);
 });
 
 test('every icon is a local file logoFileProblem accepts, rendered as a decorative 20px img', () => {
