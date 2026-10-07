@@ -111,7 +111,7 @@ test('9.5 contact folds into one question with every key; at most 3 still holds'
   ];
   const q = questionsFor({ reqs, answers: {}, first: true });
   assert.deepEqual(q.map((x) => x.kind), ['traction', 'contact']);
-  assert.equal(q[1].text, 'Your full name, email and X (Twitter) handle?');
+  assert.equal(q[1].text, 'Your full name, email and X?');
   assert.deepEqual(q[1].keys, ['full_name', 'email', 'x_handle']);
   // More than 3 groups on a first program: 3 numbered questions and one short folded bullet.
   const many = questionsFor({ reqs: [...arcLike, ...reqs.slice(0, 3), req('team', 'team'), req('m', 'milestones')], answers: {}, first: true });
@@ -162,7 +162,7 @@ test('C16: banked contact details are never filled silently; the contact questio
   assert.deepEqual(f.suggested, { contact_email: 'a@b.co', x_profile: '@alice' });
   const q = questionsFor({ reqs: later, answers: f.answers, first: false, suggested: f.suggested });
   assert.equal(q.length, 1);
-  assert.equal(q[0].text, 'Use a@b.co and @alice again, and your Telegram?');
+  assert.equal(q[0].text, 'Use a@b.co and @alice again? Plus your Telegram?');
   assert.deepEqual(q[0].suggested, { contact_email: 'a@b.co', x_profile: '@alice' });
   assert.equal(questionsFor({ reqs: later.slice(0, 2), answers: {}, first: false, suggested: f.suggested })[0].text, 'Use a@b.co and @alice again?');
   // A later program's new slot merges with what was banked.
@@ -216,9 +216,9 @@ test('C15/C17: every builder-only field is asked; first program 3 numbered plus 
     [
       "Base Builder Grants: 3 quick questions, then I'll write your application.",
       '1. Who has used TipJar so far?',
-      '2. What will you ship in the next 3 months?',
-      '3. Who is building TipJar with you?',
-      '- Your contact details, and how it makes money today, your main challenge right now and the credits you want?',
+      '2. What will you ship in the next 3 months? And who is building TipJar with you?',
+      '3. Your full name, email, X and Telegram?',
+      '- How it makes money today, your main challenge right now and the credits you want?',
     ].join('\n'),
   );
   assert.deepEqual(new Set(q.flatMap((x) => x.keys)), new Set(builderKeys));
@@ -261,19 +261,53 @@ test('C15/C17: every builder-only field is asked; first program 3 numbered plus 
   assert.equal(questionsFor({ reqs: [own], answers: {}, first: true, project: 'TipJar' })[0].text, 'Is it open source?');
 });
 
-test('C17: no question over 25 words and never more than 4 bullets, on every committed program, first and later', () => {
+test('Round 3: contact is its own bullet naming what the form wants; money never joins it; Base from saved speedrun or Avalanche data in one round', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const prog = (id: string) => ProgramFile.parse(JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf8')));
+  const base = prog('base-builder-grants');
+  const draft = Object.fromEntries(base.submission_requirements.filter((r) => r.from === 'project').map((r) => [r.key, 'x']));
+  const builderKeys = base.submission_requirements.filter((r) => r.required && r.from === 'builder').map((r) => r.key);
+  // What a builder banked on speedrun (an email) or Avalanche (X profile, Telegram), as Base's fill offers it.
+  for (const [from, saved] of [
+    ['a16z-speedrun', bankEntries(prog('a16z-speedrun').submission_requirements, { email: 'alice@example.com' })],
+    ['avalanche-team1-mini-grants', bankEntries(prog('avalanche-team1-mini-grants').submission_requirements, { x_profile: '@alice', telegram: '@alice_tg' })],
+  ] as const) {
+    const fill = bankFill(base.submission_requirements, draft, saved);
+    assert.ok(Object.keys(fill.suggested).length > 0, from);
+    const q = questionsFor({ reqs: base.submission_requirements, answers: fill.answers, first: false, project: 'TipJar', suggested: fill.suggested });
+    const screen = coachIntro('Base Builder Grants', q)!;
+    assert.ok(q.length <= MAX_BULLETS, `${from}: ${screen}`);
+    assert.ok(q.every((x) => x.bullet), from);
+    for (const x of q) assert.ok(x.text.split(/\s+/).length <= MAX_QUESTION_WORDS, `${from}: ${x.text}`);
+    // One round: every builder-only field is under some bullet.
+    assert.deepEqual(new Set(q.flatMap((x) => x.keys)), new Set(builderKeys), from);
+    const contact = q.filter((x) => x.kind === 'contact');
+    assert.equal(contact.length, 1, from);
+    assert.ok(contact[0].keys.every((k) => base.submission_requirements.find((r) => r.key === k)!.kind === 'contact'), `${from}: money joined contact`);
+    if (from === 'a16z-speedrun') assert.equal(contact[0].text, 'Use alice@example.com again? Plus your full name, X and Telegram?');
+    else assert.equal(contact[0].text, 'Use @alice and @alice_tg again? Plus your full name and email?');
+  }
+});
+
+test('C17, round 3: on every committed program, first and later: at most 4 items, 25 words each, never "contact details", contact never shares a bullet', () => {
   const dir = join(import.meta.dirname, '../../../../programs');
   const contact = { full_name: 'Alice Doe', email: 'alice@example.com', x_handle: '@alice', telegram: '@alice_tg', x_profile: '@alice', builder_profile: 'https://github.com/alice' };
   let screens = 0;
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    const kindOfKey = new Map(p.submission_requirements.map((r) => [r.key, r.kind ?? 'other']));
     for (const first of [true, false])
       for (const suggested of [{}, contact]) {
         const q = questionsFor({ reqs: p.submission_requirements, answers: {}, first, project: 'A Long Project Name', suggested });
         screens++;
-        assert.ok(q.filter((x) => x.bullet).length <= MAX_BULLETS, f);
-        assert.ok(q.length <= MAX_FIRST_QUESTIONS + 1, f);
-        for (const x of q) assert.ok(x.text.split(/\s+/).length <= MAX_QUESTION_WORDS, `${f}: ${x.text}`);
+        assert.ok(q.length <= MAX_BULLETS, f);
+        assert.ok(q.filter((x) => !x.bullet).length <= MAX_FIRST_QUESTIONS, f);
+        for (const x of q) {
+          assert.ok(x.text.split(/\s+/).length <= MAX_QUESTION_WORDS, `${f}: ${x.text}`);
+          assert.doesNotMatch(x.text, /contact details/i, f);
+          const kinds = new Set(x.keys.map((k) => kindOfKey.get(k)));
+          if (kinds.has('contact')) assert.equal(kinds.size, 1, `${f}: contact shares a bullet: ${x.text}`);
+        }
       }
   }
   assert.ok(screens >= 16);

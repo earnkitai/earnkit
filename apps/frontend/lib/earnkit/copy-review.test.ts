@@ -1009,7 +1009,7 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
   assert.equal(intro.split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
   for (const [label, text] of coachTexts.filter(([l]) => l.startsWith('coachIntro')))
     for (const line of text.split('\n').slice(1)) assert.ok(line.split(/\s+/).length - 1 <= 25, `${label}: ${line}`);
-  assert.equal(intro.split('\n')[1], '1. Who has used TipJar so far?');
+  assert.ok(intro.split('\n')[1].startsWith('1. Who has used TipJar so far?'));
   const fixes = coachTexts.find(([l]) => l === 'fixesLine')![1];
   assert.equal(fixes.split('\n').length, 4);
   // C14: every shown fix reads "<Field>: <the exact thing to add>."
