@@ -11,11 +11,13 @@ import { readStats } from '@/lib/earnkit/stats';
  * `bonus_programs_open`: open programs with the builder bonus on (v2.6 Ruling 16 (plan)). Owner
  * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs` or `coins_launched`.
  * v2.7.1: `open_pools_usd`/`open_pools_plus` are the landing page's "$1.3M+" (pool total and its
- * "+"); `open_money_usd` stays the per-winner sum.
+ * "+"); `open_money_usd` stays the per-winner sum. v2.8 Part G: `labelled_entries` (entries with
+ * a published result) and `entries_won` (won or placed), announcement-sourced only, never a
+ * self-report or a test installation's entry. No win-rate claim until 30 labelled entries.
  */
 export const revalidate = 600;
 
-const cachedStats = unstable_cache(() => readStats(), ['public-stats-v27'], { revalidate: 600 });
+const cachedStats = unstable_cache(() => readStats(), ['public-stats-v28'], { revalidate: 600 });
 
 export async function GET() {
   try {

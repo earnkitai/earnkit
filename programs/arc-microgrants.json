@@ -20,6 +20,10 @@
   },
   "starts_at": "2026-09-16T10:00:00Z",
   "ends_at": "2026-10-15T03:59:00Z",
+  "results": {
+    "url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq",
+    "expected": "2026-10-21"
+  },
   "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "allowed",

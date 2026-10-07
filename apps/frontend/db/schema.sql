@@ -601,3 +601,20 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS judging jsonb;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS submit_host text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS submit_api boolean NOT NULL DEFAULT false;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS form jsonb;
+
+-- v2.8 Part G: what happened to each entry. Additive. Self-reports never count in stats.
+CREATE TABLE IF NOT EXISTS entry_outcomes (
+  id          serial PRIMARY KEY,
+  project_id  integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  program_id  text NOT NULL REFERENCES programs(id),
+  round_label text NOT NULL,
+  result      text NOT NULL CHECK (result IN ('won', 'placed', 'finalist', 'not_selected', 'unknown')),
+  prize_usd   numeric,
+  source_url  text,
+  captured_at timestamptz NOT NULL DEFAULT now(),
+  basis       text NOT NULL CHECK (basis IN ('announcement', 'self_reported')),
+  UNIQUE (project_id, round_label, basis)
+);
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS results jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS outcome_asked_at timestamptz;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS fit_chains text[] NOT NULL DEFAULT '{}';

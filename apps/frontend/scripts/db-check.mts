@@ -382,5 +382,39 @@ ok(again.complete_at === null, 'the complete_at backfill never runs again (a lat
 const [kept] = await db<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${seeded.eligible}`;
 ok(kept.complete_at?.getTime() === at(2).getTime(), 'a backfilled complete_at is kept by later deploys');
 
+// v2.8 Part G, Ruling 30 (plan): outcomes are additive. On the same pre-v2.8 rows: programs get no
+// results, entries were never asked, installations fit no chain yet; entry_outcomes takes one row
+// per entry, round and basis, refuses an unknown result or basis, survives the schema running
+// again, and goes with its entry.
+const [outcomeProg] = await db<{ results: unknown }[]>`SELECT results FROM programs WHERE id = 'v28-elig'`;
+ok(outcomeProg.results === null, 'a pre-v2.8 program gets results = NULL');
+const [asked] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE outcome_asked_at IS NOT NULL`;
+ok(asked.n === 0, 'existing entries get outcome_asked_at = NULL');
+const [{ id: fitInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v28-fit') RETURNING id`;
+const [fit] = await db<{ fit_chains: string[] }[]>`SELECT fit_chains FROM installations WHERE id = ${fitInst}`;
+ok(Array.isArray(fit.fit_chains) && fit.fit_chains.length === 0, "an installation's fit_chains defaults to an empty list");
+const outcome = (result: string, basis: string, round = 'R1') => db`
+  INSERT INTO entry_outcomes (project_id, program_id, round_label, result, basis)
+  VALUES (${seeded.eligible}, 'v28-elig', ${round}, ${result}, ${basis})`;
+await outcome('won', 'announcement');
+await outcome('not_selected', 'self_reported');
+const refused = async (f: () => Promise<unknown>) => {
+  try {
+    await f();
+    return false;
+  } catch {
+    return true;
+  }
+};
+ok(await refused(() => outcome('placed', 'announcement')), 'entry_outcomes holds one row per entry, round and basis');
+ok(await refused(() => outcome('champion', 'announcement', 'R2')), 'entry_outcomes refuses an unknown result');
+ok(await refused(() => outcome('won', 'rumour', 'R2')), 'entry_outcomes refuses an unknown basis');
+await db.unsafe(now);
+const [kept2] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${seeded.eligible}`;
+ok(kept2.n === 2, 'entry_outcomes rows survive the schema running again');
+await db`DELETE FROM projects WHERE id = ${seeded.eligible}`;
+const [gone] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${seeded.eligible}`;
+ok(gone.n === 0, "an entry's outcomes go with it (ON DELETE CASCADE)");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

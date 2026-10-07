@@ -85,6 +85,8 @@ const LIST_PROGRAMS_DESCRIPTION =
   'its difficulty; the token and builder bonus line closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
+  'When the reply has ask_outcome, ask the builder its question once and pass their answer as ' +
+  'report_outcome on your next list_programs call. ' +
   SAFETY_TEXT;
 
 /**
@@ -319,6 +321,14 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
+        report_outcome: z
+          .object({
+            project_id: z.number().int().positive().describe("ask_outcome's project_id"),
+            result: z.enum(['won', 'placed', 'finalist', 'not_selected']),
+            prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
+          })
+          .optional()
+          .describe("The builder's answer to ask_outcome's question. Stored as their own report; never shown publicly."),
       },
       annotations: { readOnlyHint: true },
     },

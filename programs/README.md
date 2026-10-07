@@ -76,6 +76,10 @@ program is never closed under it either.
      or site; never redraw or guess a mark.
    - `winners_per_round` (optional): only when the source states how many winners a round has
      (e.g. "Twenty microgrants" → `20`).
+   - `results` (optional): `{ "url", "expected" }`, only when the source states when results are
+     announced (`expected` is that date, `YYYY-MM-DD`; Arc's "all decisions by October 21, 2026"
+     is `2026-10-21`). `url` is the https page where they will appear (the program page when it
+     names no other). After `expected`, EarnKit asks each builder once whether they won.
    - `submission_requirements`: mirror the real form field by field:
      - `key`: snake_case; `label`: the question as the form asks it
      - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`; `required`
@@ -181,7 +185,20 @@ program is never closed under it either.
       the owner gives this rating, and only `Easy`. Builders see just "Easy": no basis, no stat,
       no "rated by" label. Never add a `basis` to it.
 5. Do not add starters. The owner decides those.
-6. Run `pnpm programs:check`, then push.
+6. For each program whose `results.expected` has passed (or that announced early), read
+   `results.url`. When it names winners, write `programs/outcomes/<program-id>.json` (format and
+   example: `programs/outcomes/README.md`): the round's label, the announcement's https link, today
+   as `captured_at`, and one result per named project, by its repo, name or live link exactly as
+   the announcement gives it. Only what the announcement states: never a builder's own report,
+   never a guessed match, `prize_usd` only when stated. Then add the round to `past_rounds` (step
+   2). When results are late, update `results.expected` only if the source gives a new date;
+   otherwise leave it.
+7. Builders' own reports ("Did TipJar win anything in Arc Microgrants?") are stored privately and
+   never count. They are only a hint to look harder at that program's announcement; only step 6
+   labels an entry.
+8. Run `pnpm programs:check`, then push. Deploy runs `pnpm programs:sync`, which writes the
+   outcome files to the database and prints only counts (`Outcomes arc-microgrants.json: 3
+   matched, 1 unmatched`).
 
 ## Weekly re-verification
 

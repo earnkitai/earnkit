@@ -20,7 +20,16 @@ export const STATS_KEYS = [
   'bonus_paid_eth',
   'bonus_pools_eth',
   'installs',
+  'labelled_entries',
+  'entries_won',
 ] as const;
+
+/**
+ * v2.8 Part G, Ruling 30 (plan): the public win-rate claim ("X% of EarnKit entries win") is withheld
+ * until at least this many entries have a published result, and a baseline exists. Documentation
+ * only: no code path makes the claim. `labelled_entries` and `entries_won` are the raw counts.
+ */
+export const WIN_RATE_MIN_LABELLED = 30;
 
 /** Every stat but `open_pools_plus` is a number. */
 export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus'>;
@@ -47,6 +56,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   bonus_paid_eth: 'builder bonus paid (ETH)',
   bonus_pools_eth: 'builder bonus pools open (ETH)',
   installs: 'installs',
+  labelled_entries: 'entries with a published result',
+  entries_won: 'entries that won',
 };
 
 /** Wei to ETH as a number, 6 decimals, rounded down. Pure. */
@@ -64,6 +75,8 @@ type Row = {
   bonus_paid_wei: string | null;
   bonus_pools_wei: string | null;
   installs: number;
+  labelled_entries: number;
+  entries_won: number;
 };
 
 /**
@@ -92,6 +105,8 @@ export function statsFrom(r: Row): PublicStats {
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),
     bonus_pools_eth: weiToEth(big(r.bonus_pools_wei)),
     installs: Number(r.installs),
+    labelled_entries: Number(r.labelled_entries),
+    entries_won: Number(r.entries_won),
   };
 }
 
@@ -103,7 +118,8 @@ export function statsFrom(r: Row): PublicStats {
  * Coins: launches tokens.fun confirmed. Bonus paid: mined builder bonus payouts. Bonus pools (v2.7
  * Ruling 20 (plan)): every open round's bookings (`destination = 'round'`); a frozen round's don't count. v2.6 Ruling 6/16
  * (plan): an owner test installation (EARNKIT_TEST_INSTALLATIONS) counts in none of `installs`,
- * `coins_launched`, `bonus_pools_eth` (final review M7) or the bonus deposits behind `fees_to_safe_eth` — its coin and fees are real,
+ * `coins_launched`, `bonus_pools_eth` (final review M7), the bonus deposits behind `fees_to_safe_eth`,
+ * `labelled_entries` or `entries_won` (v2.8 Ruling 30 (plan)): its coin and fees are real,
  * but it never shows in public stats. `db` defaults to the pool; a test that needs two reads to
  * agree despite other test files writing in parallel passes one transaction (fix round 1,
  * finding 2), the way `alertFacts` takes one.
@@ -143,6 +159,15 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND l.round_key IN (SELECT round_key FROM bonus_rounds WHERE state = 'open')
           AND NOT (l.coin IS NOT NULL AND l.coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_pools_wei,
-      (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs`;
+      (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs,
+      -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
+      -- counts), never a test installation's entry. Labelled: distinct entries with an announced
+      -- result. Won: distinct entries announced as won or placed.
+      (SELECT count(DISTINCT eo.project_id) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
+        WHERE eo.basis = 'announcement'
+          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS labelled_entries,
+      (SELECT count(DISTINCT eo.project_id) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id
+        WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed')
+          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS entries_won`;
   return statsFrom(r);
 }

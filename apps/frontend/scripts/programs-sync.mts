@@ -1,12 +1,15 @@
 import './env.mts';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkLogoFile } from '../lib/earnkit/logo-check';
+import { OutcomeFile } from '../lib/earnkit/outcomes';
 import { ProgramFile, requiredWithoutTodo, requirementsWithoutKind } from '../lib/earnkit/program-file';
 
 /**
  * pnpm programs:check — validates every programs/*.json.
  * pnpm programs:sync  — validates, then writes them all to the database (runs before each deploy).
+ * v2.8 Part G, Ruling 30 (plan): programs/outcomes/*.json (announced results) are validated in both,
+ * and sync matches them to EarnKit entries. Output is counts only, never names.
  */
 const checkOnly = process.argv.includes('--check');
 const dir = join(import.meta.dirname, '..', '..', '..', 'programs');
@@ -50,10 +53,35 @@ for (const { f, problem } of fileProblems) {
   console.error(`  - ${problem}`);
 }
 
-if (invalid.length > 0 || fileProblems.length > 0) process.exit(1);
+// v2.8 Part G: announced results, one file per program round set (programs/outcomes/<program-id>.json).
+const outcomesDir = join(dir, 'outcomes');
+const outcomeFiles = existsSync(outcomesDir)
+  ? readdirSync(outcomesDir).filter((f) => f.endsWith('.json')).sort()
+  : [];
+const programIds = new Set(parsed.flatMap(({ result }) => (result.success ? [result.data.id] : [])));
+const outcomes = outcomeFiles.map((f) => ({
+  f,
+  result: OutcomeFile.safeParse(JSON.parse(readFileSync(join(outcomesDir, f), 'utf8'))),
+}));
+let outcomeProblems = 0;
+for (const { f, result } of outcomes) {
+  const problems = result.success
+    ? [
+        ...(programIds.has(result.data.program_id) ? [] : [`program_id: no programs/${result.data.program_id}.json`]),
+        ...(f === `${result.data.program_id}.json` ? [] : [`the file is named <program_id>.json`]),
+      ]
+    : result.error.issues.map((i) => `${i.path.join('.') || '(file)'}: ${i.message}`);
+  if (problems.length === 0) continue;
+  outcomeProblems++;
+  console.error(`outcomes/${f} is not valid:`);
+  for (const p of problems) console.error(`  - ${p}`);
+}
+
+if (invalid.length > 0 || fileProblems.length > 0 || outcomeProblems > 0) process.exit(1);
 
 if (checkOnly) {
   for (const { f } of parsed) console.log(`Valid: ${f}`);
+  for (const { f } of outcomes) console.log(`Valid: outcomes/${f}`);
   process.exit(0);
 }
 
@@ -62,5 +90,10 @@ const { sql } = await import('../lib/earnkit/db');
 for (const { f, result } of parsed) {
   await upsertProgram(result.data!);
   console.log(`Synced ${f}`);
+}
+const { syncOutcomeFile } = await import('../lib/earnkit/outcomes');
+for (const { f, result } of outcomes) {
+  const { matched, unmatched } = await syncOutcomeFile(result.data!);
+  console.log(`Outcomes ${f}: ${matched} matched, ${unmatched} unmatched`);
 }
 await sql().end();

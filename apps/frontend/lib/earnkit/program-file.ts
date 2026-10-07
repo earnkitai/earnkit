@@ -512,6 +512,14 @@ export const ProgramFile = z
     submit_api: z.boolean().default(false),
     /** v2.8 Ruling 8 (plan): a Google, Airtable or Tally form's field ids, for the prefilled link. */
     form: SubmitForm.optional(),
+    /**
+     * v2.8 Part G, Ruling 30 (plan): where results are announced and the date the source says they
+     * are due. After `expected`, the agent asks the builder once, and the weekly routine reads `url`.
+     */
+    results: z
+      .object({ url: HttpsUrl, expected: z.string().date() })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((p, ctx) => {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ReportedRepo } from './match';
+import type { Chain, ReportedRepo } from './match';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
 
@@ -32,6 +32,15 @@ export function testInstallationIds(
     warn(`[earnkit] EARNKIT_TEST_INSTALLATIONS: ignored ${bad.length} malformed id${bad.length === 1 ? '' : 's'} (position ${bad.join(', ')})`);
   }
   return [...ids].sort((a, b) => a - b);
+}
+
+/**
+ * v2.8 Ruling 10 (plan): the chains of the builder's repos that last matched (at least one program
+ * they fit), written by list_programs after matching. New program alerts read it.
+ */
+export async function setFitChains(installationId: number, chains: Chain[]) {
+  const unique = [...new Set(chains)].sort();
+  await sql()`UPDATE installations SET fit_chains = ${unique} WHERE id = ${installationId}`;
 }
 
 /** True when this token, or (v2.4) this OAuth client, already has an installation. */
