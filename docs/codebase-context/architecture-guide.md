@@ -1426,8 +1426,9 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
 - `/` (`app/page.tsx`, `revalidate = 600`) reads `getLanding()` (`app/lib/landing-cache.ts`):
   `readLanding` behind `unstable_cache` for 10 minutes, so at most one DB read per 10 minutes and
   no new service. The cached value is plain JSON (`Landing`: no bigint, no Date).
-- Curated programs only (no EarnKit or sponsor campaign), sorted like the first message
-  (`byPrize`). **v2.7.1:** the hero's "$1.3M+ open right now" is the sum of the cards'
+- Curated programs only (no EarnKit or sponsor campaign), sorted by pool, highest first, then
+  the per-winner amount for a program without one (`landing.ts` `byPool`; the first message keeps
+  `byPrize`). **v2.7.1:** the hero's "$1.3M+ open right now" is the sum of the cards'
   source-stated pools (`pool.ts` `poolTotalText`, compact and rounded down, "+" when any card has
   no pool or its reward says "+"); `/programs` shows the same figure under its h1. The first
   message keeps the per-winner sum, now called "top prizes". Each card's big line is the pool
@@ -1440,7 +1441,7 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   program" pill → `#builder-bonus`, the two buttons, "Then ask", and `statsLine` only when
   installs ≥ 100 or bonus paid > 0), Open programs ("Every entry also competes for the builder
   bonus."), the builder bonus section (`BuilderBonus.tsx`: "Win twice.", three pills, `bonusPoolsText`
-  "0.60 ETH in pools so far" or "Starts with the first entry", never "0 ETH"; "Leaderboards" →
+  "0.60 ETH in pools so far" or "Pools start with the first entry", never "0 ETH"; "Leaderboards" →
   /programs), How it works (3 short steps), Backed by, the footer. The stats strip is gone. The
   header is "Docs" (docs.earnkit.com) and "Add to your agent" on every page, desktop and mobile;
   "Follow on X" is in the footer only. The install modal carries "+ Builder bonus on every entry"
@@ -1451,7 +1452,11 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it
   into `pool_usd`/`pool_plus`/`pool_line` (`programs.ts` `poolFacts`). Verified 2026-10-07:
   Colosseum 840000, Monad 250000 (+), Arc 10000 USDC, Circle 200000 (Cohort 2 on
-  circle.questbook.app); Base publishes none. Spec: `v2.7.1-landing-simplify.md`.
+  circle.questbook.app, recorded as `pool_source_url`, allowed only with `pool_usd`); Base
+  publishes none. Circle's `max_award_usd` is 100000 ("$5,000 … up to $100,000 in USDC",
+  circle.com/grant), so the first message's per-winner total includes it. `/api/stats` adds
+  `open_pools_usd` and `open_pools_plus` (the same total and "+", `pool.ts` `poolTotal`/`statedPool`,
+  over listPrograms' open rule, curated only); `open_money_usd` is unchanged. Spec: `v2.7.1-landing-simplify.md`.
 - The figure is formatted on the server (`landing.ts`) and passed to the client `Hero` as a string:
   client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
 - A failed read (no `DATABASE_URL` at build, a Neon blip) logs `[landing]`, calls

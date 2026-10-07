@@ -1,6 +1,7 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
+import { poolTotal, statedPool } from './pool';
 
 /**
  * Public stats (v2.5 §4) for jenil.ai: /api/stats, cached 10 min. Database aggregates only: no
@@ -10,6 +11,8 @@ import { FEE_SPLIT_BPS } from './policy';
  */
 export const STATS_KEYS = [
   'open_money_usd',
+  'open_pools_usd',
+  'open_pools_plus',
   'programs_open',
   'bonus_programs_open',
   'coins_launched',
@@ -19,7 +22,15 @@ export const STATS_KEYS = [
   'installs',
 ] as const;
 
-export type PublicStats = Record<(typeof STATS_KEYS)[number], number>;
+/** Every stat but `open_pools_plus` is a number. */
+export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus'>;
+/**
+ * v2.7.1: `open_pools_usd` is the pool total behind the landing page's "$1.3M+ open right now"
+ * (the open curated programs' source-stated pools, pool.ts poolTotal) and `open_pools_plus` its "+"
+ * (some open program has no pool, or its source says "+"). `open_money_usd` is unchanged (the
+ * per-winner sum jenil.ai reads).
+ */
+export type PublicStats = Record<StatsNumberKey, number> & { open_pools_plus: boolean };
 
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
@@ -27,6 +38,8 @@ export type PublicStats = Record<(typeof STATS_KEYS)[number], number>;
  */
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   open_money_usd: 'open money matched (USD)',
+  open_pools_usd: 'open prize pools (USD)',
+  open_pools_plus: 'some open programs publish no pool',
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
@@ -41,6 +54,8 @@ export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
 
 type Row = {
   open_money_usd: string | null;
+  /** v2.7.1: each open curated program's pool_usd and reward (json, so pool_usd is a number). */
+  pool_rows: { pool_usd: string | number | null; reward: string }[] | null;
   programs_open: number;
   bonus_programs_open: number;
   coins_launched: number;
@@ -65,8 +80,11 @@ type Row = {
 export function statsFrom(r: Row): PublicStats {
   const big = (v: string | null) => BigInt(v ?? '0');
   const safeWei = (big(r.bonus_deposits_wei) * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus) + big(r.bonus_to_safe_wei);
+  const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   return {
     open_money_usd: Math.round(Number(r.open_money_usd ?? 0)),
+    open_pools_usd: Math.round(pools.usd),
+    open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
     bonus_programs_open: Number(r.bonus_programs_open),
     coins_launched: Number(r.coins_launched),
@@ -99,6 +117,9 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
     )
     SELECT
       (SELECT sum(max_award_usd) FROM open)::text AS open_money_usd,
+      -- v2.7.1: the landing page's programs (listPrograms' open rule, curated only: no campaign).
+      (SELECT json_agg(json_build_object('pool_usd', pool_usd, 'reward', reward)) FROM programs
+        WHERE status = 'active' AND campaign IS NULL AND (ends_at IS NULL OR ${now} < ends_at)) AS pool_rows,
       (SELECT count(*) FROM open)::int AS programs_open,
       (SELECT count(*) FROM open WHERE builder_bonus AND campaign IS NULL)::int AS bonus_programs_open,
       (SELECT count(*) FROM projects

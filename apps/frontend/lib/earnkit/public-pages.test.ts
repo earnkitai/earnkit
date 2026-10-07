@@ -275,7 +275,7 @@ test('Review Focus 1: a failed read renders the headline and the button, without
   assert.ok(!t.includes('Open programs'));
   assert.ok(!t.includes('agents earning'));
   // The bonus section keeps its copy without an amount: never "0 ETH".
-  assert.ok(t.includes('Win twice.') && t.includes('Starts with the first entry'));
+  assert.ok(t.includes('Win twice.') && t.includes('Pools start with the first entry'));
   assert.doesNotMatch(t, /\b0 ETH/);
   assert.ok(t.includes('Your agent builds and submits')); // how it works stays
 });

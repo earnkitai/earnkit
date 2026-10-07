@@ -295,6 +295,11 @@ export const ProgramFile = z
      * out when no pool is published.
      */
     pool_usd: z.number().positive().optional(),
+    /**
+     * v2.7.1: where the pool is stated, when that is not `source_url` (Circle's Cohort 2 total is on
+     * its grants portal, circle.questbook.app). Only with `pool_usd`.
+     */
+    pool_source_url: HttpsUrl.optional(),
     /** Shown next to the title so the builder isn't misled about effort or odds. */
     tag: z.enum(['long shot', 'needs a live product']).optional(),
     /**
@@ -368,6 +373,7 @@ export const ProgramFile = z
       ctx.addIssue({ code: 'custom', message });
 
     // v2.7.1: a pool only where the curated source text states it, never on a campaign.
+    if (p.pool_source_url !== undefined && p.pool_usd === undefined) issue('pool_source_url needs pool_usd');
     if (p.pool_usd !== undefined) {
       if (p.campaign) issue('pool_usd is for curated programs, not campaigns');
       else if (!poolStated(p.pool_usd, p.reward))

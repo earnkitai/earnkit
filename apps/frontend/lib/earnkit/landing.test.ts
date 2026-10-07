@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bonusPill, bonusPoolsText, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { bonusPill, bonusPoolsText, byPool, HOME_CARDS, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -10,6 +10,8 @@ import { committedProgram } from './fixtures/program-file';
 
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
+  open_pools_usd: 0,
+  open_pools_plus: false,
   programs_open: 5,
   bonus_programs_open: 4,
   coins_launched: 0,
@@ -135,8 +137,25 @@ test('v2.7.1: the real program files add up to "$1.3M+ open right now"', () => {
   assert.equal(t('monad-metropolis').prize, '$250K+ in prizes');
   assert.equal(t('arc-microgrants').prize, '10,000 USDC pool');
   assert.equal(t('circle-developer-grants').prize, '$200K in grants');
+  assert.equal(t('circle-developer-grants').prize_note, 'up to $100,000 per winner');
+  // Fix: sorted by pool, highest first; no pool falls back to the per-winner amount.
+  assert.deepEqual(l.tiles.map((x) => x.id), ['colosseum-worlds-fair', 'monad-metropolis', 'circle-developer-grants', 'arc-microgrants', 'base-builder-grants']);
   assert.equal(t('base-builder-grants').prize, 'up to $5,000 per winner');
   assert.equal(t('base-builder-grants').pool_usd, null);
+});
+
+test('v2.7.1 fix: byPool orders by pool, then per-winner amount without one, then the sooner deadline', () => {
+  const c = (id: string, pool_usd: number | null, max_award_usd: number | null, ends: string | null): Card =>
+    ({ ...arc, id, pool_usd, max_award_usd, ends_at: ends ? new Date(ends) : null });
+  const sorted = [
+    c('small-pool', 10000, 500, null),
+    c('no-pool-big-award', null, 50000, null),
+    c('big-pool', 840000, 30000, null),
+    c('nothing', null, null, null),
+    c('same-pool-later', 10000, 500, '2026-10-30T00:00:00Z'),
+    c('same-pool-sooner', 10000, 500, '2026-10-10T00:00:00Z'),
+  ].sort(byPool).map((x) => x.id);
+  assert.deepEqual(sorted, ['big-pool', 'no-pool-big-award', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'nothing']);
 });
 
 test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid', () => {

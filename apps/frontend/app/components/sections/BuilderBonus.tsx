@@ -4,7 +4,7 @@ import { Panel } from '../common/Panel';
 /** v2.7.1: the builder bonus in three pills, one line each (the policy page has the rules). */
 export const BONUS_PILLS = ['Top 10 on every program', 'Paid in ETH', 'Ranked on real users'];
 /** v2.7.1: the figure while every open round's pool is empty (never "0 ETH"). */
-export const BONUS_EMPTY = 'Starts with the first entry';
+export const BONUS_EMPTY = 'Pools start with the first entry';
 
 /**
  * v2.7.1: the homepage's builder bonus section (#builder-bonus, the hero pill's target), between
