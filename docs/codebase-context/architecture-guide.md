@@ -1715,9 +1715,11 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   only the builder can answer).
 - **Questions** (Ruling 26, C15, `questionsFor`): askable fields (`askableKeys`) are required, empty
   and either `from: 'builder'` (consent, an amount, revenue, handles) or a kind the agent doesn't
-  draft. Groups go in QUESTION_ORDER, then the form's order; at most 3 questions (1 once the bank
-  filled any askable field); contact folds into one, and every group past the cap folds into the last
-  question, so nothing only the builder knows is left for a second round. One round per program
+  draft. Groups go in QUESTION_ORDER, then the form's order; contact folds into one. A first
+  program gets at most 3 numbered questions plus one short bullet folding the rest; a later program
+  (the bank filled any askable field) gets one round of at most 4 short bullets (C17: shipping plan,
+  team, contact, money), the rest folded into the 4th; no question is over 25 words. Nothing only
+  the builder knows is left for a second round. One round per program
   (`coach_asked: true`). The agent never answers a builder-only field.
 - **Draft and check** (C14): once ready, `prepare_submission` shows `draftTable` (at most 8 rows,
   cells cut at 60 characters, "show all"), then `fixesLine`, then the offer. `preSubmitCheck` builder

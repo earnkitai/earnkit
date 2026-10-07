@@ -100,7 +100,11 @@ export const DEFAULT_GUIDANCE: Record<FieldKind, Guidance> = {
 /** Ruling 26 (plan): the order the few builder questions are picked in; other kinds follow in form order. */
 export const QUESTION_ORDER: FieldKind[] = ['traction', 'why_you', 'use_of_funds', 'milestones', 'team', 'problem', 'contact'];
 export const MAX_FIRST_QUESTIONS = 3;
+/** Ruling 26: one round for a later program; C17 renders it as at most MAX_BULLETS short bullets. */
 export const MAX_LATER_QUESTIONS = 1;
+/** C17: never more than 4 bullets, and no question over 25 words. */
+export const MAX_BULLETS = 4;
+export const MAX_QUESTION_WORDS = 25;
 export const MAX_FIXES = 3;
 
 const DIGIT = /\d/;
@@ -267,7 +271,8 @@ export function bankEntries(reqs: SubmissionRequirement[], answers: Record<strin
   return out;
 }
 
-export type Question = { keys: string[]; kind: FieldKind; text: string; suggested?: Record<string, string> };
+/** One question. `bullet`: shown as "- text" (C17: a later program's round, or the first program's leftovers). */
+export type Question = { keys: string[]; kind: FieldKind; text: string; bullet?: true; suggested?: Record<string, string> };
 
 /**
  * C15: a field the coach asks about: required, still empty, and only the builder can answer it
@@ -281,11 +286,19 @@ export function askableKeys(reqs: SubmissionRequirement[], answers: Record<strin
 }
 
 /** One group's question: the kind's question, the contact fold, or the fields' own to-dos. */
-function groupText(kind: FieldKind, reqs: SubmissionRequirement[], name: string | undefined, suggested: Record<string, string>) {
+function groupText(
+  kind: FieldKind,
+  reqs: SubmissionRequirement[],
+  name: string | undefined,
+  suggested: Record<string, string>,
+  compact = false,
+) {
   if (kind === 'contact') {
     const saved = reqs.filter((r) => suggested[r.key]);
     const fresh = reqs.filter((r) => !suggested[r.key]);
-    const labels = list(fresh.map((r) => lowerFirst(shortLabel(r.label).replace(/^(your|the)\s+/i, ''))));
+    const labels = compact
+      ? 'contact details'
+      : list(fresh.map((r) => lowerFirst(shortLabel(r.label).replace(/^(your|the)\s+/i, ''))));
     const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again` : '';
     if (use && fresh.length > 0) return `${use}, and your ${labels}?`;
     return use ? `${use}?` : `Your ${labels}?`;
@@ -300,13 +313,18 @@ function groupText(kind: FieldKind, reqs: SubmissionRequirement[], name: string 
   return `${upperFirst(list(reqs.map((r) => r.todo ?? lowerFirst(shortLabel(r.label)))))}?`;
 }
 
+type Group = { kind: FieldKind; reqs: SubmissionRequirement[] };
+
 /**
- * Ruling 26 (plan), C15: the questions only the builder can answer, for the askable fields
- * (askableKeys) after the agent's draft and the bank fill, in QUESTION_ORDER then the form's order;
- * at most 3 for a project's first program, 1 after. Every contact field folds into one question, and
- * whatever is left past the cap folds into the last one, so nothing only the builder knows is left
- * for a second round. `suggested` (banked contact details) turns the contact part into a yes/no
- * ("Use a@b.co and @alice again?"). `project` names the project in the built-in questions. Pure.
+ * Ruling 26 (plan), C15, C17: the questions only the builder can answer, for the askable fields
+ * (askableKeys) after the agent's draft and the bank fill, in QUESTION_ORDER then the form's order.
+ * - A project's first program: at most 3 numbered questions; anything left folds into one short 4th
+ *   bullet.
+ * - A later program: one round. A single question stays numbered; more are short bullets (shipping
+ *   plan, team, contact, money), at most 4, the rest folded into the 4th.
+ * Every contact field folds into one question, which turns into a yes/no ("Use a@b.co and @alice
+ * again?") for `suggested` (banked contact details). No question is over 25 words. `project` names
+ * the project in the built-in questions. Pure.
  */
 export function questionsFor(a: {
   reqs: SubmissionRequirement[];
@@ -318,37 +336,58 @@ export function questionsFor(a: {
   const keys = new Set(askableKeys(a.reqs, a.answers));
   const empty = a.reqs.filter((r) => keys.has(r.key));
   const kinds = [...QUESTION_ORDER, ...new Set(empty.map(kindOf).filter((k) => !QUESTION_ORDER.includes(k)))];
-  const groups = kinds.flatMap((kind) => {
+  const groups: Group[] = kinds.flatMap((kind) => {
     const reqs = empty.filter((r) => kindOf(r) === kind);
     return reqs.length > 0 ? [{ kind, reqs }] : [];
   });
   const name = a.project?.trim();
   const suggested = a.suggested ?? {};
-  const cap = a.first ? MAX_FIRST_QUESTIONS : MAX_LATER_QUESTIONS;
-  const question = (gs: typeof groups): Question => {
+  const question = (gs: Group[], bullet: boolean): Question => {
     const reqs = gs.flatMap((g) => g.reqs);
     const sugg = Object.fromEntries(reqs.filter((r) => suggested[r.key]).map((r) => [r.key, suggested[r.key]]));
-    const text =
-      gs.length === 1
-        ? groupText(gs[0].kind, gs[0].reqs, name, suggested)
-        : `${upperFirst(gs.map((g, i) => {
-            const t = groupText(g.kind, g.reqs, name, suggested).replace(/\?$/, '');
-            return i === 0 ? t : lowerFirst(t);
-          }).join('; '))}?`;
-    return { keys: reqs.map((r) => r.key), kind: gs[0].kind, text, ...(Object.keys(sugg).length > 0 && { suggested: sugg }) };
+    return {
+      keys: reqs.map((r) => r.key),
+      kind: gs[0].kind,
+      text: gs.length === 1 ? groupText(gs[0].kind, gs[0].reqs, name, suggested) : foldText(gs),
+      ...(bullet && { bullet: true as const }),
+      ...(Object.keys(sugg).length > 0 && { suggested: sugg }),
+    };
   };
-  if (groups.length <= cap) return groups.map((g) => question([g]));
-  return [...groups.slice(0, cap - 1).map((g) => question([g])), question(groups.slice(cap - 1))];
+  // Several groups as one plain question: "Your contact details, and how it makes money today?"
+  const foldText = (gs: Group[]) => {
+    for (const compact of [false, true]) {
+      const parts = gs.map((g, i) => {
+        const t = groupText(g.kind, g.reqs, name, suggested, compact).replace(/\?$/, '');
+        return i === 0 ? t : lowerFirst(t);
+      });
+      const text = `${parts.length > 2 ? parts.slice(0, -1).join(', ') : parts[0]}, and ${parts.at(-1)}?`;
+      if (words(text) <= MAX_QUESTION_WORDS) return text;
+    }
+    return `${groupText(gs[0].kind, gs[0].reqs, name, suggested, true).replace(/\?$/, '')}, and a few more short answers?`;
+  };
+  if (a.first) {
+    if (groups.length <= MAX_FIRST_QUESTIONS) return groups.map((g) => question([g], false));
+    return [...groups.slice(0, MAX_FIRST_QUESTIONS).map((g) => question([g], false)), question(groups.slice(MAX_FIRST_QUESTIONS), true)];
+  }
+  if (groups.length <= MAX_LATER_QUESTIONS) return groups.map((g) => question([g], false));
+  if (groups.length <= MAX_BULLETS) return groups.map((g) => question([g], true));
+  return [...groups.slice(0, MAX_BULLETS - 1).map((g) => question([g], true)), question(groups.slice(MAX_BULLETS - 1), true)];
 }
 
-/** The builder's screen while the coach has questions; null when it has none. Pure. */
+/**
+ * The builder's screen while the coach has questions; null when it has none. Numbered questions as
+ * "N quick questions"; a later program's bullets as "a few things only you know" (C17). Pure.
+ */
 export function coachIntro(title: string, questions: Question[]): string | null {
-  const n = questions.length;
-  if (n === 0) return null;
-  return [
-    `${title}: ${n} quick question${n === 1 ? '' : 's'}, then I'll write your application.`,
-    ...questions.map((q, i) => `${i + 1}. ${q.text}`),
-  ].join('\n');
+  const numbered = questions.filter((q) => !q.bullet);
+  const bullets = questions.filter((q) => q.bullet);
+  if (questions.length === 0) return null;
+  const n = numbered.length;
+  const head =
+    n === 0
+      ? `${title}: a few things only you know, then I'll write it.`
+      : `${title}: ${n} quick question${n === 1 ? '' : 's'}, then I'll write your application.`;
+  return [head, ...numbered.map((q, i) => `${i + 1}. ${q.text}`), ...bullets.map((q) => `- ${q.text}`)].join('\n');
 }
 
 /**
