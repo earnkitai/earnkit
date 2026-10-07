@@ -1462,6 +1462,14 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   "Follow on X" is in the footer only. The install modal carries "+ Builder bonus on every entry"
   under the steps; guide pages carry the bonus as a pill beside Difficulty ("+ Builder bonus ·
   new pool" or "+ 0.42 ETH bonus"), linking to the leaderboard.
+- **v2.8 Part A page order (Task 2):** the hero is only `HERO_TITLE` "Earn rewards for building",
+  `HERO_SUBTITLE` "Find live programs. EarnKit matches your projects and helps you win.", the
+  `BonusPill` (lg, no amount) linking to `#how-you-earn-3`, "Add to your agent" and "Watch the demo",
+  plus `statsLine` when it shows. "Agents only" and the "Win twice" section (`BuilderBonus.tsx`,
+  `#builder-bonus`) are gone; `landing.bonus_every` and `landing.bonus_pools` no longer render on the
+  home page. How you earn (`HowItWorks.tsx`: `HOW_TITLE`, `STEPS`) is a Panel with a visible h2
+  (`#how-it-works`) and three step cards `#how-you-earn-1..3`. /programs has no "By pool" eyebrow.
+  /policy's "The builder bonus" heading carries a `BonusPill` (md) beside it (Section's `aside`).
 - **`pool_usd`** (program file, optional; `programs.pool_usd numeric`, additive): set only where
   the program's own source states a pool; `programs:check` refuses one its `reward` doesn't state
   (`poolStated`: "$840,000", "$840K", "10,000 USDC") or one on a campaign. `programCard` turns it

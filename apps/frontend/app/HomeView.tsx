@@ -4,14 +4,13 @@ import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
 import HowItWorks from './components/sections/HowItWorks';
 import ProgramCards from './components/sections/ProgramCards';
-import BuilderBonus from './components/sections/BuilderBonus';
 import { HOME_CARDS, HOME_CARDS_MOBILE, type Landing } from '../lib/earnkit/landing';
 
 /**
- * The homepage (v2.7 §1, v2.7.1), pure: hero with the live pool figure and the one-line stats, the
- * open programs (6, then "See all"), the builder bonus (#builder-bonus), how it works, backed by,
- * the footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without
- * its figure or stats line, the cards are skipped and the bonus section shows no amount.
+ * The homepage (v2.7 §1, v2.8 Part A), pure: the hero with the one-line stats, the open programs
+ * (6, then "See all"), How you earn (#how-you-earn-3 is the hero pill's target), backed by, the
+ * footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero renders without its
+ * stats line and the cards are skipped.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
@@ -66,14 +65,13 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero statsLine={landing?.stats_line ?? null} bonusEvery={landing?.bonus_every ?? false} />
+          <Hero statsLine={landing?.stats_line ?? null} />
         </div>
       </section>
 
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
       <div className="flex flex-col gap-4 pt-4">
         {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} limit={HOME_CARDS} mobileLimit={HOME_CARDS_MOBILE} seeAll />}
-        <BuilderBonus pools={landing?.bonus_pools ?? null} known={landing !== null} every={landing?.bonus_every ?? false} />
         <HowItWorks />
         <BackedBy />
       </div>

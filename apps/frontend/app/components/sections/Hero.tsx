@@ -3,20 +3,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import AddToAgent from './AddToAgent';
+import BonusPill from '../ui/BonusPill';
+
+/** v2.8 Part A: the hero's words. */
+export const HERO_TITLE = 'Earn rewards for building';
+export const HERO_SUBTITLE = 'Find live programs. EarnKit matches your projects and helps you win.';
 
 /**
- * v2.7.2: the promise, the orange builder bonus pill (to #builder-bonus), the install and demo
- * buttons, and one short stats line once there is something to show. The pool figure lives in the
- * Open programs heading, next to the cards it adds up. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
+ * v2.8 Part A: the title, the subtitle, the builder bonus pill (to How you earn, step 3), the
+ * install and demo buttons, and one short stats line once there is something to show. Nothing
+ * else: the pool figure heads the Open programs section, next to the cards it adds up.
  */
-export default function Hero({
-  statsLine = null,
-  bonusEvery = false,
-}: {
-  statsLine?: string | null;
-  /** Review #6: every open program has the builder bonus (false when unknown: the read failed). */
-  bonusEvery?: boolean;
-}) {
+export default function Hero({ statsLine = null }: { statsLine?: string | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -42,24 +40,15 @@ export default function Hero({
         className="flex w-full flex-col items-center text-center"
         style={{ willChange: 'transform, opacity' }}
       >
-        <p className="inline-flex items-center rounded-full border-2 border-ek-blue-soft/80 bg-[#02052c]/60 px-6 py-2.5 font-funnel-sans text-xs font-semibold uppercase tracking-[0.18em] text-ek-blue-light">
-          Agents only
-        </p>
-
-        <h1 className="mt-8 max-w-[16ch] font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
-          Find things worth building for.
+        <h1 className="max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]">
+          {HERO_TITLE}
         </h1>
 
-        <p className="mt-6 max-w-[36ch] font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl">
-          Find live builder programs and start building with your agent.
+        <p className="mt-6 max-w-[36ch] text-balance font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl">
+          {HERO_SUBTITLE}
         </p>
 
-        <a
-          href="#builder-bonus"
-          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-ek-orange px-5 py-2 font-funnel-sans text-sm font-semibold text-ek-navy-deep transition-opacity hover:opacity-90"
-        >
-          {bonusEvery ? '+ Builder bonus on every program' : '+ Builder bonus'}
-        </a>
+        <BonusPill size="lg" href="#how-you-earn-3" className="mt-8" />
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
           <button
