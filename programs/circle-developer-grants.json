@@ -8,6 +8,7 @@
   "reward": "Milestone-based USDC grants from $5,000 to $100,000 per project (Cohort 2 shows $200K available)",
   "summary": "$5,000 to $100,000 USDC grants · rolling",
   "max_award_usd": 100000,
+  "min_award_usd": 5000,
   "pool_usd": 200000,
   "pool_source_url": "https://circle.questbook.app/",
   "ideas": [

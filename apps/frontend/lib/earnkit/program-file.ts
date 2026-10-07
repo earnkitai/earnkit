@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
-import { poolStated } from './pool';
+import { amountStated, poolStated } from './pool';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -296,6 +296,12 @@ export const ProgramFile = z
      */
     pool_usd: z.number().positive().optional(),
     /**
+     * v2.7.1 review: the smallest award, only when the source states a range ("from $5,000 to
+     * $100,000"): the card then reads "$5K–$100K per grant". Needs max_award_usd, below it, and
+     * stated in `reward`.
+     */
+    min_award_usd: z.number().positive().optional(),
+    /**
      * v2.7.1: where the pool is stated, when that is not `source_url` (Circle's Cohort 2 total is on
      * its grants portal, circle.questbook.app). Only with `pool_usd`.
      */
@@ -374,6 +380,10 @@ export const ProgramFile = z
 
     // v2.7.1: a pool only where the curated source text states it, never on a campaign.
     if (p.pool_source_url !== undefined && p.pool_usd === undefined) issue('pool_source_url needs pool_usd');
+    if (p.min_award_usd !== undefined) {
+      if (p.max_award_usd === undefined || p.min_award_usd >= p.max_award_usd) issue('min_award_usd needs a larger max_award_usd');
+      else if (!amountStated(p.min_award_usd, p.reward)) issue(`min_award_usd ${p.min_award_usd} must be stated in reward`);
+    }
     if (p.pool_usd !== undefined) {
       if (p.campaign) issue('pool_usd is for curated programs, not campaigns');
       else if (!poolStated(p.pool_usd, p.reward))

@@ -66,14 +66,14 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         </div>
 
         <div className="relative flex min-h-[88vh] w-full flex-col items-center justify-center px-6 py-16 md:min-h-[calc(var(--vh,1vh)*100-12vh)] md:px-12">
-          <Hero openText={landing?.open_text ?? null} statsLine={landing?.stats_line ?? null} />
+          <Hero openText={landing?.open_text ?? null} statsLine={landing?.stats_line ?? null} bonusEvery={landing?.bonus_every ?? false} />
         </div>
       </section>
 
       {/* Sections stack 16px apart, as on every page; the footer brings its own top margin. */}
       <div className="flex flex-col gap-4 pt-4">
         {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} limit={HOME_CARDS} mobileLimit={HOME_CARDS_MOBILE} seeAll />}
-        <BuilderBonus pools={landing?.bonus_pools ?? null} />
+        <BuilderBonus pools={landing?.bonus_pools ?? null} known={landing !== null} every={landing?.bonus_every ?? false} />
         <HowItWorks />
         <BackedBy />
       </div>

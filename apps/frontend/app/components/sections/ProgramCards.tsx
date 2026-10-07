@@ -7,9 +7,6 @@ import AddToAgent from './AddToAgent';
 import ProgramLogo from './ProgramLogo';
 import type { Tile } from '../../../lib/earnkit/landing';
 
-/** v2.7.1: the line under the title, on the homepage and /programs. */
-export const BONUS_LINE = 'Every entry also competes for the builder bonus.';
-
 const CHIP = 'rounded-full bg-ek-navy-deep px-3 py-1.5 font-funnel-sans text-sm text-ek-blue-light';
 
 /**
@@ -48,14 +45,13 @@ export default function ProgramCards({
     <Panel label="Open programs" className="py-12 md:py-16">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          {heading === 'h1' && <Eyebrow>By prize</Eyebrow>}
+          {heading === 'h1' && <Eyebrow>By pool</Eyebrow>}
           <Heading className={`${heading === 'h1' ? 'mt-4 ' : ''}font-funnel-display text-3xl font-medium text-ek-white md:text-5xl`}>
             Open programs
           </Heading>
           {figure && (
             <p className="mt-4 font-funnel-display text-2xl font-medium text-ek-blue-bright md:text-3xl">{figure} open right now</p>
           )}
-          <p className="mt-3 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">{BONUS_LINE}</p>
         </div>
         {more && (
           <Link

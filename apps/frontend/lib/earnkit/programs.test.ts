@@ -18,7 +18,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   submission_url: 'https://o.example/s', reward: 'R', starts_at: null, ends_at: null, status: 'active',
   verified_at: null, existing_work: 'allowed', token_policy: 'encouraged', setup: [], each_time: [],
   summary: 'S', tag: null, chains: ['base'], campaign, created_at: new Date(), opened_at: null, rules: [],
-  source: 'file', max_award_usd: null, pool_usd: null, submission_requirements: [],
+  source: 'file', max_award_usd: null, pool_usd: null, min_award_usd: null, pool_source_url: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
   logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null,
 });
@@ -163,6 +163,8 @@ const sponsorRow = (legacy = false): ProgramRow => {
     tag: null,
     max_award_usd: null,
     pool_usd: null,
+    min_award_usd: null,
+    pool_source_url: null,
     starts_at: new Date(f.starts_at!),
     ends_at: new Date(f.ends_at!),
     verified_at: new Date('2026-10-01'),

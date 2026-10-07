@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { poolLine, poolStated, poolTotalText, usdCompact } from './pool';
+import { eachLine, poolLine, poolStated, poolTotalText, usdCompact } from './pool';
 import { ProgramFile } from './program-file';
 import { committedProgram } from './fixtures/program-file';
 
@@ -24,6 +24,26 @@ test('v2.7.1: poolStated finds the pool in the curated reward text, with its "+"
   assert.equal(poolStated(5000, 'Up to $50,000 in grants'), null);
 });
 
+test('review #10: an amount is a pool only when a pool word follows it', () => {
+  assert.equal(poolStated(5000, 'Up to $5,000 in grants'), null);
+  assert.equal(poolStated(30000, '$30,000 grand prize'), null);
+  assert.equal(poolStated(500, '500 USDC per microgrant'), null);
+  assert.deepEqual(poolStated(1000000, '$1M total'), { plus: false, usdc: false });
+  assert.deepEqual(poolStated(250000, '$250,000+ USD prize pool'), { plus: true, usdc: false });
+});
+
+test('review #1, #11: "per grant" for grant programs, a stated range, and "+" when rounding drops value', () => {
+  const each = (title: string, reward: string, max: number | null, min: number | null = null) => eachLine({ title, reward, max_award_usd: max, min_award_usd: min });
+  assert.equal(each('Circle Developer Grants', 'from $5,000 to $100,000', 100000, 5000), '$5K–$100K per grant');
+  assert.equal(each('Arc Microgrants', '500 USDC per microgrant', 500), '500 USDC per grant');
+  assert.equal(each('Base Builder Grant Program', 'Up to $5,000 in grants', 5000), 'up to $5,000 per grant');
+  assert.equal(each("Crypto World's Fair Hackathon", '$30,000 grand prize', 30000), 'up to $30,000 per winner');
+  assert.equal(each('Hackathon', 'x', null), null);
+  assert.equal(poolTotalText([{ pool_usd: 1_050_000, plus: false }]), '$1M+');
+  assert.equal(poolTotalText([{ pool_usd: 1_300_000, plus: false }]), '$1.3M');
+  assert.equal(poolLine(1_050_000, { plus: false, usdc: false }, 'Hackathon'), '$1M+ in prizes');
+});
+
 test('v2.7.1: poolLine and the hero total', () => {
   assert.equal(poolLine(840000, { plus: false, usdc: false }, "Crypto World's Fair Hackathon"), '$840K in prizes');
   assert.equal(poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon'), '$250K+ in prizes');
@@ -42,6 +62,13 @@ test('v2.7.1: programs:check refuses a pool the reward text does not state, and 
   const wrong = ProgramFile.safeParse({ ...arc, pool_usd: 20000 });
   assert.equal(wrong.success, false);
   assert.match(JSON.stringify(wrong.error?.issues), /pool_usd 20000 must be stated in reward/);
+  // Review: min_award_usd needs a larger max and must be in reward; pool_source_url needs a pool.
+  const circle = committedProgram('circle-developer-grants');
+  assert.equal(ProgramFile.safeParse(circle).success, true);
+  assert.match(JSON.stringify(ProgramFile.safeParse({ ...circle, min_award_usd: 7000 }).error?.issues), /min_award_usd 7000 must be stated in reward/);
+  assert.match(JSON.stringify(ProgramFile.safeParse({ ...circle, min_award_usd: 200000 }).error?.issues), /needs a larger max_award_usd/);
+  const { pool_usd: _p, ...noPool } = circle;
+  assert.match(JSON.stringify(ProgramFile.safeParse(noPool).error?.issues), /pool_source_url needs pool_usd/);
   const camp = ProgramFile.safeParse({ ...committedProgram('earnkit-campaign-1-base'), pool_usd: 100 });
   assert.match(JSON.stringify(camp.error?.issues), /pool_usd is for curated programs/);
   // The four sourced pools; Base publishes none.

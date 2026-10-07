@@ -9,7 +9,7 @@ export const revalidate = 600;
 
 export const metadata = {
   title: 'Open programs · EarnKit',
-  description: 'Every open program EarnKit tracks, by prize: the pool, the deadline, the difficulty and the builder bonus.',
+  description: 'Every open program EarnKit tracks, by pool: the prize, the deadline, the difficulty and the builder bonus.',
   alternates: { canonical: 'https://earnkit.com/programs' },
 };
 

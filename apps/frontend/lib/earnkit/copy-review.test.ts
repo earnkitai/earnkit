@@ -68,11 +68,10 @@ import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures
 import { homeFixture } from './fixtures/landing';
 import Header from '../../app/components/common/Header';
 import AddToAgent from '../../app/components/sections/AddToAgent';
-import { BONUS_EMPTY, BONUS_PILLS } from '../../app/components/sections/BuilderBonus';
-import { BONUS_LINE } from '../../app/components/sections/ProgramCards';
+import { BONUS_EMPTY, bonusPills } from '../../app/components/sections/BuilderBonus';
 import { STEPS } from '../../app/components/sections/HowItWorks';
 import { bonusPill, bonusPoolsText, statsLine } from './landing';
-import { poolLine, poolTotalText } from './pool';
+import { eachLine, poolLine, poolTotalText } from './pool';
 
 /**
  * v2.7 §4, Ruling 19 (plan): "coin" as a word in human-facing text, ignoring identifiers and URLs.
@@ -486,14 +485,19 @@ const v271Texts: [string, string][] = [
   ['install modal', pageText(React.createElement(AddToAgent, { onClose: () => {} }))],
   ['/programs (figure)', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text }))],
   ['home page (no stats, empty pools)', homeText({ ...homeFixture, stats_line: null, bonus_pools: null })],
-  ['BONUS_LINE', BONUS_LINE],
   ['BONUS_EMPTY', BONUS_EMPTY],
-  ...BONUS_PILLS.map((s, i): [string, string] => [`BONUS_PILLS[${i}]`, s]),
+  ...[...bonusPills(true), ...bonusPills(false)].map((s, i): [string, string] => [`bonusPills[${i}]`, s]),
+  ['home page (bonus not on every program)', homeText({ ...homeFixture, bonus_every: false })],
+  ['eachLine range', eachLine({ title: 'Circle Developer Grants', reward: 'from $5,000 to $100,000', max_award_usd: 100000, min_award_usd: 5000 })!],
+  ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
+  ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
+  ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
   ...STEPS.flatMap((s, i): [string, string][] => [[`STEPS[${i}].title`, s.title], [`STEPS[${i}].body`, s.body]]),
   ['statsLine', statsLine({ open_money_usd: 0, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312 })!],
   ['bonusPill new', bonusPill('new pool')],
   ['bonusPill new (guide)', bonusPill('new pool', true)],
   ['bonusPill amount', bonusPill('0.42 ETH so far')],
+  ['bonusPill tiny', bonusPill('under 0.01 ETH so far')],
   ['bonusPoolsText', bonusPoolsText(6n * 10n ** 17n)!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
