@@ -285,24 +285,31 @@ export function askableKeys(reqs: SubmissionRequirement[], answers: Record<strin
     .map((r) => r.key);
 }
 
-/** One group's question: the kind's question, the contact fold, or the fields' own to-dos. */
-function groupText(
-  kind: FieldKind,
-  reqs: SubmissionRequirement[],
-  name: string | undefined,
-  suggested: Record<string, string>,
-  compact = false,
-) {
-  if (kind === 'contact') {
-    const saved = reqs.filter((r) => suggested[r.key]);
-    const fresh = reqs.filter((r) => !suggested[r.key]);
-    const labels = compact
-      ? 'contact details'
-      : list(fresh.map((r) => lowerFirst(shortLabel(r.label).replace(/^(your|the)\s+/i, ''))));
-    const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again` : '';
-    if (use && fresh.length > 0) return `${use}, and your ${labels}?`;
-    return use ? `${use}?` : `Your ${labels}?`;
-  }
+/** A contact label as the form means it, short: "X (Twitter) handle" reads "X", "Telegram username" "Telegram". */
+const contactLabel = (r: SubmissionRequirement) =>
+  lowerFirst(
+    shortLabel(r.label)
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/^(your|the)\s+/i, '')
+      .replace(/\s+(handle|username)$/i, '')
+      .trim(),
+  );
+
+/**
+ * C16, round 3: the contact question names exactly what the form wants, never "contact details".
+ * Saved details are a yes/no and the rest are asked in the same bullet: "Use a@b.co and @alice
+ * again? Plus your Telegram?"
+ */
+function contactText(reqs: SubmissionRequirement[], suggested: Record<string, string>) {
+  const saved = reqs.filter((r) => suggested[r.key]);
+  const fresh = list(reqs.filter((r) => !suggested[r.key]).map(contactLabel));
+  const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again?` : '';
+  if (use && fresh) return `${use} Plus your ${fresh}?`;
+  return use || `Your ${fresh}?`;
+}
+
+/** One group's question: the kind's question, or the fields' own to-dos ("How it makes money today?"). */
+function groupText(kind: FieldKind, reqs: SubmissionRequirement[], name: string | undefined) {
   const r0 = reqs[0];
   const g = guidanceFor(r0);
   if (kind !== 'other' && g.questions[0]) {
@@ -314,17 +321,36 @@ function groupText(
 }
 
 type Group = { kind: FieldKind; reqs: SubmissionRequirement[] };
+/** Kinds whose questions are about the work (shipping plan, team, ...), in QUESTION_ORDER. */
+const PROSE_ORDER = QUESTION_ORDER.filter((k) => k !== 'contact');
 
 /**
- * Ruling 26 (plan), C15, C17: the questions only the builder can answer, for the askable fields
- * (askableKeys) after the agent's draft and the bank fill, in QUESTION_ORDER then the form's order.
- * - A project's first program: at most 3 numbered questions; anything left folds into one short 4th
- *   bullet.
- * - A later program: one round. A single question stays numbered; more are short bullets (shipping
- *   plan, team, contact, money), at most 4, the rest folded into the 4th.
- * Every contact field folds into one question, which turns into a yes/no ("Use a@b.co and @alice
- * again?") for `suggested` (banked contact details). No question is over 25 words. `project` names
- * the project in the built-in questions. Pure.
+ * Splits `xs` into at most `n` contiguous chunks, as even as possible, in order; the larger chunks
+ * last, so the most important questions (first in order) stay on their own. Pure.
+ */
+const chunks = <T,>(xs: T[], n: number): T[][] => {
+  const k = Math.min(n, xs.length);
+  const out: T[][] = [];
+  let i = 0;
+  for (let c = 0; c < k; c++) {
+    const size = Math.floor(xs.length / k) + (c >= k - (xs.length % k) ? 1 : 0);
+    out.push(xs.slice(i, i + size));
+    i += size;
+  }
+  return out;
+};
+
+/**
+ * Ruling 26 (plan), C15, C17, round 3: the questions only the builder can answer, for the askable
+ * fields (askableKeys) after the agent's draft and the bank fill. At most MAX_BULLETS items, one round:
+ * - the work questions in QUESTION_ORDER (shipping plan, team, ...), each a plain question; past the
+ *   limit the least important merge ("What will you ship next? And who is building it with you?");
+ * - contact, always its own item, naming exactly what the form wants (a yes/no for `suggested`,
+ *   the saved contact details, plus the rest);
+ * - money and every other builder-only item, together in their own item, never joined onto contact.
+ * A project's first program shows them as at most 3 numbered questions, a 4th as a bullet; a later
+ * program's round (more than one item) as short bullets. No builder-only field is ever dropped.
+ * `project` names the project in the built-in questions. Pure.
  */
 export function questionsFor(a: {
   reqs: SubmissionRequirement[];
@@ -335,43 +361,34 @@ export function questionsFor(a: {
 }): Question[] {
   const keys = new Set(askableKeys(a.reqs, a.answers));
   const empty = a.reqs.filter((r) => keys.has(r.key));
-  const kinds = [...QUESTION_ORDER, ...new Set(empty.map(kindOf).filter((k) => !QUESTION_ORDER.includes(k)))];
-  const groups: Group[] = kinds.flatMap((kind) => {
+  const name = a.project?.trim();
+  const suggested = a.suggested ?? {};
+  const prose: Group[] = PROSE_ORDER.flatMap((kind) => {
     const reqs = empty.filter((r) => kindOf(r) === kind);
     return reqs.length > 0 ? [{ kind, reqs }] : [];
   });
-  const name = a.project?.trim();
-  const suggested = a.suggested ?? {};
-  const question = (gs: Group[], bullet: boolean): Question => {
-    const reqs = gs.flatMap((g) => g.reqs);
+  const contact = empty.filter((r) => kindOf(r) === 'contact');
+  const rest = empty.filter((r) => !QUESTION_ORDER.includes(kindOf(r)));
+  const make = (kind: FieldKind, reqs: SubmissionRequirement[], text: string): Question => {
     const sugg = Object.fromEntries(reqs.filter((r) => suggested[r.key]).map((r) => [r.key, suggested[r.key]]));
-    return {
-      keys: reqs.map((r) => r.key),
-      kind: gs[0].kind,
-      text: gs.length === 1 ? groupText(gs[0].kind, gs[0].reqs, name, suggested) : foldText(gs),
-      ...(bullet && { bullet: true as const }),
-      ...(Object.keys(sugg).length > 0 && { suggested: sugg }),
-    };
+    return { keys: reqs.map((r) => r.key), kind, text, ...(Object.keys(sugg).length > 0 && { suggested: sugg }) };
   };
-  // Several groups as one plain question: "Your contact details, and how it makes money today?"
-  const foldText = (gs: Group[]) => {
-    for (const compact of [false, true]) {
-      const parts = gs.map((g, i) => {
-        const t = groupText(g.kind, g.reqs, name, suggested, compact).replace(/\?$/, '');
-        return i === 0 ? t : lowerFirst(t);
-      });
-      const text = `${parts.length > 2 ? parts.slice(0, -1).join(', ') : parts[0]}, and ${parts.at(-1)}?`;
-      if (words(text) <= MAX_QUESTION_WORDS) return text;
-    }
-    return `${groupText(gs[0].kind, gs[0].reqs, name, suggested, true).replace(/\?$/, '')}, and a few more short answers?`;
-  };
-  if (a.first) {
-    if (groups.length <= MAX_FIRST_QUESTIONS) return groups.map((g) => question([g], false));
-    return [...groups.slice(0, MAX_FIRST_QUESTIONS).map((g) => question([g], false)), question(groups.slice(MAX_FIRST_QUESTIONS), true)];
-  }
-  if (groups.length <= MAX_LATER_QUESTIONS) return groups.map((g) => question([g], false));
-  if (groups.length <= MAX_BULLETS) return groups.map((g) => question([g], true));
-  return [...groups.slice(0, MAX_BULLETS - 1).map((g) => question([g], true)), question(groups.slice(MAX_BULLETS - 1), true)];
+  const tail: Question[] = [
+    ...(contact.length > 0 ? [make('contact', contact, contactText(contact, suggested))] : []),
+    ...(rest.length > 0 ? [make(kindOf(rest[0]), rest, groupText('other', rest, name))] : []),
+  ];
+  const room = Math.max(1, MAX_BULLETS - tail.length);
+  const work = chunks(prose, room).map((gs) =>
+    make(
+      gs[0].kind,
+      gs.flatMap((g) => g.reqs),
+      gs.map((g, i) => (i === 0 ? groupText(g.kind, g.reqs, name) : `And ${lowerFirst(groupText(g.kind, g.reqs, name))}`)).join(' '),
+    ),
+  );
+  const items = [...work, ...tail];
+  if (a.first) return items.map((q, i) => (i < MAX_FIRST_QUESTIONS ? q : { ...q, bullet: true as const }));
+  if (items.length <= MAX_LATER_QUESTIONS) return items;
+  return items.map((q) => ({ ...q, bullet: true as const }));
 }
 
 /**
