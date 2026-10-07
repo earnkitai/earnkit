@@ -92,19 +92,24 @@ program is never closed under it either.
        `team`, `why_you`, `use_of_funds`, `milestones`, `demo_video`, `links`, `contact`, `other`.
        Use `contact` for the builder's own name, email and handles (they fold into one question),
        `links` for project links, and `other` for anything program-specific (a track, a consent box,
-       a builder code); `other` answers are never reused for another program.
+       a builder code); `other` answers are never reused for another program. Set `from: "builder"`
+       on anything only the builder can answer (consent, an amount, revenue): the coach asks it and
+       the agent never drafts it.
      - `max_chars` (optional): the form's character limit, when it states one (e.g. "max 280
-       characters" → `280`).
+       characters" → `280`). Only stated limits are checked; the agent trims to them.
      - `guidance` (optional): this program's own advice for the field, only from its rubric, FAQ
        or past winners: `{ "judges", "questions" (at most 2), "pattern", "limit_words",
        "source_url" }`, every part optional except `source_url`. Each part replaces the kind's
        built-in default. Leave it out when the source says nothing specific; the defaults work on
        their own.
    - `judging` (optional): only when the source states how entries are judged (e.g. Arc's "Judged
-     on relevance to Arc, technical credibility, …"). `{ "criteria": [{ "text", "words" }],
-     "source_url" }`: 1 to 5 criteria in the source's words (`text`, 1 to 12 words) and 1 to 6
-     lowercase `words` (3+ letters) an answer that addresses it would use (`contract`, `mainnet`).
-     The check before submitting flags a criterion no answer touches. Never invent a criterion.
+     on relevance to Arc, technical credibility, …"). `{ "criteria": [{ "text" }], "source_url" }`:
+     1 to 5 criteria in the source's words (`text`, 1 to 12 words). The agent drafts toward them;
+     they are never matched by keywords. A criterion shows the builder a fix only when you write
+     one by hand: `"fix": { "kind", "needs", "add" }`, the field kind it belongs in, what that answer
+     must hold (`link`, `number` or `date`) and the exact thing to add, lowercase, no final period
+     (e.g. `{ "kind": "solution", "needs": "link", "add": "link the contract on the Arc explorer" }`,
+     shown as "<that field>: link the contract on the Arc explorer."). Never invent a criterion.
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
       Devfolio, and the ecosystem's blog or X.

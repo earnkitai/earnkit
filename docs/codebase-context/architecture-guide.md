@@ -1705,25 +1705,33 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
 
 - **Field kinds** (`program-file.ts FIELD_KINDS`): every requirement in `programs/*.json` has a
   `kind` (`programs:check` enforces it, Ruling 9); `other` is the runtime default. A requirement may
-  carry `guidance` (judges, at most 2 questions, pattern, limit_words, source_url) and `max_chars`; a
-  program may carry `judging` (1 to 5 criteria with lowercase match words), only where its source
-  states them (Arc, Colosseum).
+  carry `guidance` (judges, at most 2 questions, pattern, limit_words, source_url) and `max_chars`.
+  A program may carry `judging` (1 to 5 criteria in the source's words), only where its source
+  states them (Arc, Colosseum). C13: criteria go to the agent (`coach.judging`) and are never
+  keyword-matched; a criterion is a builder fix only through a hand-written `fix` (field kind, needs
+  link, number or date, the exact thing to add).
 - **Guidance** (`coach.ts DEFAULT_GUIDANCE`, `guidanceFor`): a built-in default per kind, the
-  program's override on top. It is for the agent only (`coach.fields` in the reply).
-- **Questions** (Ruling 26, `questionsFor`): after the bank fill, required empty fields the agent
-  can't draft (traction, why_you, use_of_funds, milestones, team, problem, contact, in that order)
-  become at most 3 questions (1 once the project has banked answers); contact fields fold into one.
-  `show_to_builder` is `coachIntro`. One round per program: the agent passes `coach_asked: true` with
-  the answers, and no further question is asked (what is still empty shows as missing).
-- **Draft and check**: once ready, `prepare_submission` shows `draftTable` (at most 8 rows, cells
-  cut at 60 characters, "show all" for the rest), then `fixesLine` (`preSubmitCheck`: empty,
-  over_limit, no_number, no_proof_link, criterion; at most 3; never blocking), then the offer.
-  Still no kit (Ruling 4).
+  program's override on top. It is for the agent only (`coach.fields`, with `builder_only` on fields
+  only the builder can answer).
+- **Questions** (Ruling 26, C15, `questionsFor`): askable fields (`askableKeys`) are required, empty
+  and either `from: 'builder'` (consent, an amount, revenue, handles) or a kind the agent doesn't
+  draft. Groups go in QUESTION_ORDER, then the form's order; at most 3 questions (1 once the bank
+  filled any askable field); contact folds into one, and every group past the cap folds into the last
+  question, so nothing only the builder knows is left for a second round. One round per program
+  (`coach_asked: true`). The agent never answers a builder-only field.
+- **Draft and check** (C14): once ready, `prepare_submission` shows `draftTable` (at most 8 rows,
+  cells cut at 60 characters, "show all"), then `fixesLine`, then the offer. `preSubmitCheck` builder
+  fixes all read "<Field>: <the exact thing to add>." (traction: how many people used it; milestones
+  and the grant's use: one milestone and a date; a claim: the number next to "users"; the proof link
+  names its field; a curated criterion), at most 3, never blocking. Agent fixes (`agent_fixes`, never
+  shown): a length over a limit the program states, and a proof link the agent already knows.
 - **The answer bank** (`answer-bank.ts`, table `answer_bank`, Ruling 6): `confirm_entry` (go or
   skip) banks the final answers per installation, project (`projectKey`: normalized repo, else
-  `name:<name>`) and kind; `other` is never banked; contact details and links are banked per slot
-  (email, X, Telegram, live link, ...) as a JSON object. `prepare_submission` and `confirm_entry`
-  fill empty fields from it (never a field the agent or the project info gave). It also stores
+  `name:<name>`) and kind; `other` is never banked; a kind with two fields banks the first. Contact
+  details and links are banked per slot from the label (email, X, Telegram, a live link only from a
+  label saying live, website or product). The fill never overwrites; for two fields of one kind it
+  fills only the first; contact details are never filled silently (C16): the contact question offers
+  them ("Use a@b.co and @alice again?", `questions[].suggested`). `confirm_entry` also stores
   `projects.application` (`answers`, `kinds`, `fixes`, `at`).
 - **Privacy**: the bank and `projects.application` are read only by these tools for the same
   installation; no public page, stats, admin page or log reads them (errors log the class only).

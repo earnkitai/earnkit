@@ -492,7 +492,8 @@ apps/frontend/
                                confirm_entry; copy_paste now, Task 10 adds the other modes),
                                proofFor (Ruling 28), submitHost. Pure
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
-                               guidanceFor, coachFields, questionsFor (Ruling 26), coachIntro,
+                               guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
+                               C15), coachIntro,
                                bankFill and bankEntries (the answer bank's fill and rows),
                                preSubmitCheck, draftTable, fixesLine, applicationOf. Pure
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,

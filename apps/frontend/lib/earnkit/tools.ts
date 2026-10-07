@@ -64,6 +64,7 @@ import {
   coachIntro,
   draftTable,
   fixesLine,
+  askableKeys,
   preSubmitCheck,
   questionsFor,
 } from './coach';
@@ -211,7 +212,8 @@ async function bankedAnswers(
   answers: Record<string, string>,
 ) {
   const name = project?.name?.trim() || titleCase(repoNameOf(repoUrl ?? undefined) ?? '');
-  if (!name && !repoUrl) return { answers, from_bank: {} as Record<string, string>, banked: 0, key: null, name };
+  const none = {} as Record<string, string>;
+  if (!name && !repoUrl) return { answers, from_bank: none, suggested: none, first: true, key: null, name };
   const key = projectKey({ repo_url: repoUrl, name });
   let bank = new Map<FieldKind, string>();
   try {
@@ -221,22 +223,29 @@ async function bankedAnswers(
   }
   const own = (f: string | undefined) => (f && typeof project?.[f] === 'string' ? String(project[f]).trim() : '');
   const reqs = program.submission_requirements.filter((r) => !own(r.project_field));
-  return { ...bankFill(reqs, answers, bank), banked: bank.size, key, name };
+  const filled = bankFill(reqs, answers, bank);
+  // C15: still the project's first program while the bank filled none of what the coach would ask.
+  const first = !askableKeys(program.submission_requirements, answers).some((k) => k in filled.from_bank || k in filled.suggested);
+  return { ...filled, first, key, name };
 }
 
 /** v2.8 Part D: what the agent does with the coach's guidance. */
 const COACH_NOTE =
   "Draft every field from the repo, onchain data and the builder's answers, using each field's judges, pattern and limit. " +
+  'Make each of coach.judging visible in the field that fits it. When two fields share a kind, write a distinct answer for each. ' +
+  "Never answer a field marked builder_only yourself: only the builder's own words go there. " +
   "Re-angle answers from the bank to this program's judges. Then call again with all answers.";
 const QUESTIONS_NOTE =
-  "Show show_to_builder as written and wait for the answers. Put each answer under the question's keys, pass coach_asked: true (the coach asks once per program), and draft every other empty field yourself. " +
+  "Show show_to_builder as written and wait for the answers. Put each answer under the question's keys (a question can cover several; split the answer). " +
+  "When a question offers saved details and the builder says yes, use its suggested values. Then pass coach_asked: true (the coach asks once per program). " +
   COACH_NOTE;
 const DRAFT_NOTE = 'The table is the draft; when the builder says "show all", show every answer in full.';
-const FIXES_NOTE =
-  'If the builder wants the fixes, make the ones you can (length, wording, a link from the repo), ask only for a missing number, and call again.';
+const AGENT_FIXES_NOTE =
+  'Before showing show_to_builder, make every agent_fixes change yourself (trim to the limit, add the link you know) and call again.';
+const FIXES_NOTE = 'If the builder gives what a fix asks for, add it to that answer and call again.';
 
 /** Every coach note for the agent (the copy review scans them). */
-export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, FIXES_NOTE };
+export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES_NOTE, FIXES_NOTE };
 
 const ListProgramsInput = z
   .object({
@@ -564,10 +573,18 @@ export const tools = {
         live_url: known.project?.live_url ?? null,
         repo_url: repoUrl ?? null,
       },
+      // C13: the program's judging criteria, for the agent to draft toward (never keyword-checked).
+      judging: (program.judging?.criteria ?? []).map((c) => c.text),
       from_bank: banked?.from_bank ?? {},
     };
     const questions = open && !coach_asked
-      ? questionsFor({ reqs: program.submission_requirements, answers: values, first: (banked?.banked ?? 0) === 0, project: banked?.name })
+      ? questionsFor({
+          reqs: program.submission_requirements,
+          answers: values,
+          first: banked?.first ?? true,
+          project: banked?.name,
+          suggested: banked?.suggested,
+        })
       : [];
     const intro = coachIntro(program.title, questions);
     if (intro)
@@ -612,7 +629,16 @@ export const tools = {
     // its work before the builder confirms (an agent that can't push gets none).
     const line = repoUrl && canPush && program.token_policy !== 'off' ? tokenLineFor(ctx.installationId, repoUrl) : null;
     // Part D.4: the check before submitting, never blocking; shown with the draft once ready.
-    const fixes = prep.ready ? preSubmitCheck({ reqs: program.submission_requirements, answers: values, judging: program.judging ?? null }) : [];
+    const checked = prep.ready
+      ? preSubmitCheck({
+          reqs: program.submission_requirements,
+          answers: values,
+          judging: program.judging ?? null,
+          knownLinks: [repoUrl ?? '', known.project?.live_url ?? ''],
+        })
+      : [];
+    const fixes = checked.filter((f) => f.for === 'builder');
+    const agent_fixes = checked.filter((f) => f.for === 'agent');
     const show_to_builder = prep.ready
       ? [
           draftTable(program.submission_requirements, values),
@@ -622,13 +648,22 @@ export const tools = {
           .filter((x): x is string => Boolean(x))
           .join('\n\n')
       : table;
-    const notes = [line && TOKEN_LINE_NOTE, ...(prep.ready ? [DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE])].filter(Boolean);
+    const notes = [
+      line && TOKEN_LINE_NOTE,
+      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
+    ].filter(Boolean);
     return withAlerts(ctx.installationId, {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
       // Ready: the fixes, and what came from the bank (for the agent to re-angle); else the guidance.
-      ...(prep.ready ? { fixes, ...(Object.keys(coach.from_bank).length > 0 && { from_bank: coach.from_bank }) } : { coach }),
+      ...(prep.ready
+        ? {
+            fixes,
+            ...(agent_fixes.length > 0 && { agent_fixes }),
+            ...(Object.keys(coach.from_bank).length > 0 && { from_bank: coach.from_bank }),
+          }
+        : { coach }),
       // Review Minor 7: the final values are the kit's job (confirm_entry); this is the draft check.
       ...prep,
       complete: prep.complete.map((c) => ({ key: c.key, label: c.label, filled_from: c.filled_from })),
@@ -669,7 +704,12 @@ export const tools = {
     });
     const values = Object.fromEntries(filled.complete.map((c) => [c.key, c.value]));
     // Part D.4: the check before submitting, run before the decision; never blocking.
-    const fixes = preSubmitCheck({ reqs: program.submission_requirements, answers: values, judging: program.judging ?? null });
+    const fixes = preSubmitCheck({
+      reqs: program.submission_requirements,
+      answers: values,
+      judging: program.judging ?? null,
+      knownLinks: [repoUrl ?? '', i.project.live_url ?? ''],
+    });
     const canPush = i.agent?.can_push !== false;
     const facts = await offerFacts(program, repoUrl, ctx);
     const decision = confirmDecision({

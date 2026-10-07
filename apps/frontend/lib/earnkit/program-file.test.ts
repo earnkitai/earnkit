@@ -632,12 +632,19 @@ test('v2.8 Part D: kind, guidance, max_chars and judging parse; bad values fail'
   assert.equal(ProgramFile.safeParse(withReq({ guidance: { judges: 'x'.repeat(141), source_url } })).success, false);
   assert.equal(ProgramFile.safeParse(withReq({ max_chars: 280 })).success, true);
   assert.equal(ProgramFile.safeParse(withReq({ max_chars: 0 })).success, false);
-  const criterion = { text: 'Technical credibility', words: ['contract'] };
-  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [criterion], source_url } }).success, true);
+  const criterion = { text: 'Technical credibility' };
+  const judged = (c: unknown) => ProgramFile.safeParse({ ...base, judging: { criteria: [c], source_url } }).success;
+  assert.equal(judged(criterion), true);
   assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: Array(6).fill(criterion), source_url } }).success, false);
-  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [{ ...criterion, words: ['Contract'] }], source_url } }).success, false);
-  assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [{ ...criterion, words: ['ux'] }], source_url } }).success, false);
   assert.equal(ProgramFile.safeParse({ ...base, judging: { criteria: [], source_url } }).success, false);
+  // C13: no keyword lists; a fix is hand-written as field kind + what it needs + the exact thing to add.
+  assert.equal(judged({ ...criterion, words: ['contract'] }), false);
+  const fix = { kind: 'solution', needs: 'link', add: 'link the contract on the Arc explorer' };
+  assert.equal(judged({ ...criterion, fix }), true);
+  assert.equal(judged({ ...criterion, fix: { ...fix, kind: 'bogus' } }), false);
+  assert.equal(judged({ ...criterion, fix: { ...fix, needs: 'word' } }), false);
+  assert.equal(judged({ ...criterion, fix: { ...fix, add: 'Link the contract' } }), false, 'lowercase start');
+  assert.equal(judged({ ...criterion, fix: { ...fix, add: 'link the contract.' } }), false, 'no final period');
 });
 
 test('v2.8 Ruling 9: requirementsWithoutKind lists keys without a kind; every committed file has one on each', () => {

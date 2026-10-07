@@ -641,6 +641,10 @@ const coachReqs: SubmissionRequirement[] = [
 const coachTexts: [string, string][] = [
   ['coachIntro: 3 questions', coachIntro('Arc Microgrants', questionsFor({ reqs: coachReqs, answers: {}, first: true, project: 'TipJar' }))!],
   ['coachIntro: 1 question', coachIntro('Arc Microgrants', questionsFor({ reqs: coachReqs, answers: {}, first: false, project: 'TipJar' }))!],
+  [
+    'coachIntro: saved contact details',
+    coachIntro('Base Builder Grants', questionsFor({ reqs: coachReqs.slice(8), answers: {}, first: false, suggested: { email: 'a@b.co', x_handle: '@alice' } }))!,
+  ],
   ...coachReqs.flatMap((r): [string, string][] =>
     questionsFor({ reqs: [r], answers: {}, first: true }).map((q) => [`question: ${r.kind}`, q.text]),
   ),
@@ -652,7 +656,7 @@ const coachTexts: [string, string][] = [
       preSubmitCheck({
         reqs: coachReqs,
         answers: { desc: 'x '.repeat(70), traction: 'Lots of users love it', why: 'Because', funds: 'More features' },
-        judging: { criteria: [{ text: 'Technical credibility', words: ['contract'] }], source_url: 'https://e.example' },
+        judging: null,
       }),
     )!,
   ],
@@ -662,7 +666,10 @@ const coachTexts: [string, string][] = [
       preSubmitCheck({
         reqs: coachReqs.slice(1, 2),
         answers: { desc: 'Tips for 120 creators' },
-        judging: { criteria: [{ text: 'Relevance to Arc', words: ['usdc'] }], source_url: 'https://e.example' },
+        judging: {
+          criteria: [{ text: 'Technical credibility', fix: { kind: 'solution', needs: 'link', add: 'link the contract on the Arc explorer' } }],
+          source_url: 'https://e.example',
+        },
       }),
     )!,
   ],
@@ -1001,5 +1008,8 @@ test('v2.8 Task 9: the coach screens are short: at most 3 questions, at most 3 f
   assert.equal(intro.split('\n')[1], '1. Who has used TipJar so far?');
   const fixes = coachTexts.find(([l]) => l === 'fixesLine')![1];
   assert.equal(fixes.split('\n').length, 4);
+  // C14: every shown fix reads "<Field>: <the exact thing to add>."
+  for (const [label, text] of coachTexts.filter(([l]) => l.startsWith('fixesLine')))
+    for (const line of text.split('\n').slice(1)) assert.match(line, /^\d\. [^:\n]{1,41}: [a-z][^\n]*\.$/, label);
   for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
 });

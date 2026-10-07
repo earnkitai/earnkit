@@ -1236,7 +1236,9 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
     const r = (await tools.prepare_submission({ ...t.input, answers }, t.ctx)) as Coached;
     const p = ProgramFile.parse(t.p);
     const values = { ...answers, live_deployment_url: 'https://tipjar.example/', repo_url: t.repo };
-    const fixes = preSubmitCheck({ reqs: p.submission_requirements, answers: values, judging: p.judging ?? null });
+    const fixes = preSubmitCheck({ reqs: p.submission_requirements, answers: values, judging: p.judging ?? null, knownLinks: [t.repo] }).filter(
+      (f) => f.for === 'builder',
+    );
     assert.ok(fixes.length > 0, 'a traction answer with no number');
     assert.equal(
       r.show_to_builder,
@@ -1246,7 +1248,9 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
         `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true })}`,
       ].join('\n\n'),
     );
-    assert.match(r.show_to_builder, /\n1\. Traction: add a number \(users, volume or revenue\)\./);
+    assert.match(r.show_to_builder, /\n1\. Traction: add how many people used it \(e\.g\. 120 users, 900 payments\)\./);
+    // C13: Arc's judging goes to the agent, never as a keyword fix to the builder.
+    assert.doesNotMatch(r.show_to_builder, /No answer shows/);
     assert.deepEqual(r.fixes, fixes);
     assert.ok(!keysOf(r).includes('kit'));
     assert.ok(!('questions' in r));
@@ -1287,15 +1291,26 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     ];
     await upsertProgram(ProgramFile.parse(second));
     const r2 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, t.ctx)) as Coached;
+    // C15: one question holds everything only the builder knows; C16: the saved profile is a yes/no.
     assert.equal(r2.questions?.length, 1);
-    assert.equal(r2.show_to_builder, "Second Grants: 1 quick question, then I'll write your application.\n1. What will you ship in the next 3 months?");
+    assert.equal(
+      r2.show_to_builder,
+      "Second Grants: 1 quick question, then I'll write your application.\n1. What will you ship in the next 3 months; who is building Tip Jar with you; use https://github.com/alice again?",
+    );
     assert.equal(r2.coach?.from_bank.usage, COACH_ANSWERS.traction);
-    assert.equal(r2.coach?.from_bank.builder_profile, COACH_ANSWERS.builder_profile);
+    assert.ok(!('builder_profile' in (r2.coach?.from_bank ?? {})), 'contact details are never filled silently');
+    assert.deepEqual((r2.questions?.[0] as { suggested?: unknown }).suggested, { builder_profile: COACH_ANSWERS.builder_profile });
+    assert.deepEqual(r2.coach && (r2.coach as unknown as { judging: string[] }).judging, [
+      'Relevance to Arc',
+      'Technical credibility',
+      'Quality of what you built',
+      'Worth taking further',
+    ]);
     assert.match(r2.agent_note ?? '', /Re-angle answers from the bank to this program's judges\./);
     // One round per program: with the answer and coach_asked, no second question, even with a
     // required builder field still empty (it shows as missing for the agent to draft).
     const r2b = (await tools.prepare_submission(
-      { program_id: second.id, project: t.project, answers: { description: 'Tips on Arc', plan: 'Recurring tips by March.' }, coach_asked: true },
+      { program_id: second.id, project: t.project, answers: { description: 'Tips on Arc', plan: 'Recurring tips by March.', builder_profile: COACH_ANSWERS.builder_profile }, coach_asked: true },
       t.ctx,
     )) as Coached & { missing: { key: string }[] };
     assert.ok(!('questions' in r2b));
@@ -1307,4 +1322,31 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     const r3 = (await tools.prepare_submission({ program_id: second.id, project: t.project, answers: { description: 'Tips on Arc' } }, { ...t.ctx, installationId: other })) as Coached;
     assert.equal(r3.questions?.length, 3);
     assert.deepEqual(r3.coach?.from_bank, {});
+  }));
+
+test('C15: Base Builder Grants, first program: 3 questions cover every builder-only field; the answers make it ready (no second round)', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('base15', { remembered: W8 });
+    const base = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
+    await upsertProgram(ProgramFile.parse(base));
+    const draft = {
+      project_name_description: 'TipJar: tips for creators in USDC.',
+      live_product_url: 'https://tipjar.example',
+      demo_loom: 'https://loom.com/share/abc',
+      contract_address: '0x' + '1'.repeat(40),
+      track: 'Trading',
+      builder_code: 'abc',
+    };
+    const r = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers: draft }, t.ctx)) as Coached;
+    assert.equal(r.questions?.length, 3);
+    const asked = new Set(r.questions!.flatMap((q) => q.keys));
+    const builderOnly = (base.submission_requirements as SubmissionRequirement[]).filter((x) => x.required && x.from === 'builder').map((x) => x.key);
+    for (const k of builderOnly) assert.ok(asked.has(k), k);
+    assert.match(r.agent_note ?? '', /Never answer a field marked builder_only yourself/);
+    // The builder's answers under the questions' keys: ready, straight to the draft and the offer.
+    const answers = { ...draft, ...Object.fromEntries(builderOnly.map((k) => [k, k === 'email' ? 'alice@example.com' : `${k} 120 by March`])) };
+    const done = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers, coach_asked: true }, t.ctx)) as Coached;
+    assert.equal(done.ready, true);
+    assert.match(done.show_to_builder, /Ready\. Want the builder bonus\?/);
+    assert.doesNotMatch(done.show_to_builder, /^Before you submit: /);
   }));

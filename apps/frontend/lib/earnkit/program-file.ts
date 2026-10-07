@@ -311,9 +311,12 @@ export function isOptimismUrl(url: string): boolean {
 }
 
 /**
- * v2.8 Part D.4: the judging criteria the program's source states (e.g. Arc's "Judged on relevance
- * to Arc, technical credibility, ..."). `words` are lowercase stems; an application with none of a
- * criterion's words in any answer gets one "No answer shows ... yet." fix.
+ * v2.8 Part D.4, C13: the judging criteria the program's source states (e.g. Arc's "Judged on
+ * relevance to Arc, technical credibility, ..."), in its words. They go to the agent with its drafting
+ * guidance. A criterion becomes a builder fix only through a hand-written `fix`: the field kind it
+ * belongs in, what it needs (a link, a number or a date) and the exact thing to add, e.g.
+ * `{ "kind": "solution", "needs": "link", "add": "link the contract on the Arc explorer" }`, shown as
+ * "<that field>: link the contract on the Arc explorer." when that field's answer has none.
  */
 export const Judging = z
   .object({
@@ -322,7 +325,19 @@ export const Judging = z
         z
           .object({
             text: ShortText,
-            words: z.array(z.string().regex(/^[a-z]{3,}$/, 'lowercase words of 3+ letters')).min(1).max(6),
+            fix: z
+              .object({
+                kind: z.enum(FIELD_KINDS),
+                needs: z.enum(['link', 'number', 'date']),
+                add: z
+                  .string()
+                  .min(1)
+                  .max(80)
+                  .refine((t) => /^\p{Ll}/u.test(t), 'lowercase start (it follows "<Field>: ")')
+                  .refine((t) => !/[.?!]$/.test(t), 'no trailing punctuation'),
+              })
+              .strict()
+              .optional(),
           })
           .strict(),
       )
