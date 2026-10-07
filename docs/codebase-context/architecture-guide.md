@@ -1701,7 +1701,10 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   `HOST_MODES` (Google Forms, `forms.gle`, Airtable, Tally: `prefilled_link`; ETHGlobal, Devfolio,
   Colosseum, Monad's hackathon site, Akindo, TAIKAI: `agent_fills`; DoraHacks and any
   `*.questbook.app`: `copy_paste`; Superteam Earn, Karma GAP: `api`; any other host: `copy_paste`),
-  then: no `form` data means paste; a form with `sign_in` is filled in the browser; `api` needs the
+  then: no `form` data means paste; a form with `sign_in: true` (a file question or another sign-in
+  cause) is filled in the browser, while `sign_in: "email_only"` (Google's verified email only,
+  Ruling C19) keeps the link and the builder's own list starts with "Sign in to Google and tick
+  Record my email address." (`builder_steps`, from the form data); `api` needs the
   file's `submit_api`, else the browser; no `agent.browser` means paste; DoraHacks and Questbook
   are always paste (their terms ban automated use).
   - `prefilled_link`: `googlePrefill` / `airtablePrefill` / `tallyPrefill` build the URL from the

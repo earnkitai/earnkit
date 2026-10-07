@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AGENT_FILL_STEPS,
+  GOOGLE_EMAIL_SIGN_IN,
   CONFIRMATION_ASK,
   ENTRY_LINK_ASK,
   ENTRY_LINK_HOSTS,
@@ -178,12 +179,12 @@ test('10.8 prefilled_link: open, check, click submit; the answers that are not i
   assert.deepEqual(kit.paste.map((f) => f.key), ['description']);
   assert.equal(
     kit.show_to_builder,
-    `Ready for Base Builder Grants. Open this, check it, and click submit:\n${kit.prefilled_url}\n\nThen paste these:\nWhat does it do?\nTips for creators\n\n${CONFIRMATION_ASK}`,
+    `Ready for Base Builder Grants. Open this, check it, and click submit:\n${kit.prefilled_url}\n\nYou add these yourself:\nWhat does it do?\nTips for creators\n\n${CONFIRMATION_ASK}`,
   );
   // Everything in the link: no paste list.
   const all = submitKit({ ...p, form: { ...gform, fields: { project_name: 'entry.1', repo_url: 'entry.2', description: 'entry.3' } } }, kitAnswers, { browser: false });
   assert.deepEqual(all.paste, []);
-  assert.doesNotMatch(all.show_to_builder, /Then paste these/);
+  assert.doesNotMatch(all.show_to_builder, /You add these yourself/);
   assert.ok(all.show_to_builder.endsWith(`click submit:\n${all.prefilled_url}\n\n${CONFIRMATION_ASK}`), all.show_to_builder);
 });
 
@@ -192,7 +193,7 @@ test('10.8 C9 prefilled_link: what is missing first; blanks are marked in the pa
   const kit = submitKit(p, { project_name: 'Tip Jar' }, { browser: false });
   assert.equal(kit.prefilled_url, 'https://docs.google.com/forms/d/e/1FAIpQ/viewform?usp=pp_url&entry.1=Tip%20Jar');
   assert.ok(kit.show_to_builder.startsWith('Before you submit: a GitHub repo, what does it do.\n\nFor Arc Microgrants, open this, check it, and click submit once the blanks are in:\n'), kit.show_to_builder);
-  assert.ok(kit.show_to_builder.includes('Then paste these:\nGitHub repo\n(still needed)\n\nWhat does it do?\n(still needed)'));
+  assert.ok(kit.show_to_builder.includes('You add these yourself:\nGitHub repo\n(still needed)\n\nWhat does it do?\n(still needed)'));
 });
 
 test('10.8 agent_fills: the builder logs in, checks and submits; the steps stop at login, captcha, signing and uploads, never submit', () => {
@@ -233,7 +234,7 @@ test('10.8 api: the platform agent API with the builder key; payload maps keys t
   const kit = submitKit(p, kitAnswers, { browser: false });
   assert.equal(kit.mode, 'api');
   assert.deepEqual(kit.api, { platform: 'superteam', payload: kitAnswers });
-  assert.equal(kit.show_to_builder, `Ready for Superteam Bounty. I'll send it through Superteam Earn's agent API with your key, then you confirm there.\n\n${CONFIRMATION_ASK}`);
+  assert.equal(kit.show_to_builder, `Ready for Superteam Bounty. I'll send it to Superteam Earn for you, then you confirm it there.\n\n${CONFIRMATION_ASK}`);
   const keys = (v: unknown): string[] => (v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : []);
   for (const k of keys(kit)) assert.doesNotMatch(k, /api_?key|apikey|secret|password|authorization|bearer/i, k);
   assert.equal(submitKit(kp('https://gap.karmahq.xyz/p', { submit_api: true }), kitAnswers, { browser: false }).api?.platform, 'karma');
@@ -252,4 +253,34 @@ test('10.8: every mode ends with the proof ask and names no field keys or tools'
     assert.ok(k.show_to_builder.endsWith(k.proof.ask), k.mode);
     assert.doesNotMatch(k.show_to_builder, /project_name|repo_url|kit\.|record_submission|confirm_entry|\p{Extended_Pictographic}|—|\bcoins?\b/u, k.mode);
   }
+});
+
+test('C19: a Google form whose only sign-in is verified email keeps the link; the sign-in is the first own item; never emailAddress=', () => {
+  const p = kp('https://forms.gle/abc', { title: 'Base Builder Grants', form: { ...gform, sign_in: 'email_only', fields: { project_name: 'entry.1', repo_url: 'entry.2' } } });
+  for (const browser of [false, true]) {
+    const kit = submitKit(p, kitAnswers, { browser });
+    assert.equal(kit.mode, 'prefilled_link', String(browser));
+    assert.deepEqual(kit.builder_steps, [GOOGLE_EMAIL_SIGN_IN]);
+    assert.doesNotMatch(kit.prefilled_url ?? '', /emailAddress/);
+    assert.equal(
+      kit.show_to_builder,
+      `Ready for Base Builder Grants. Open this, check it, and click submit:\n${kit.prefilled_url}\n\nYou add these yourself:\nSign in to Google and tick Record my email address.\n\nWhat does it do?\nTips for creators\n\n${CONFIRMATION_ASK}`,
+    );
+  }
+  // Every answer in the link: the sign-in is still the one own item.
+  const all = submitKit({ ...p, form: { ...p.form!, fields: { project_name: 'entry.1', repo_url: 'entry.2', description: 'entry.3' } } }, kitAnswers, { browser: false });
+  assert.ok(all.show_to_builder.endsWith(`\n\nYou add these yourself:\n${GOOGLE_EMAIL_SIGN_IN}\n\n${CONFIRMATION_ASK}`), all.show_to_builder);
+  // Driven by the form data: no sign-in, no step; a full sign-in (a file question) is the browser.
+  assert.ok(!('builder_steps' in submitKit({ ...p, form: { ...p.form!, sign_in: false } }, kitAnswers, { browser: false })));
+  assert.equal(submitModeFor({ ...p, form: { ...p.form!, sign_in: true } }, { browser: true }), 'agent_fills');
+  assert.equal(submitModeFor({ ...p, form: { ...p.form!, sign_in: true } }, { browser: false }), 'copy_paste');
+  // Not a Google form: no Google step even if the data says email_only.
+  const tally = submitKit(kp('https://tally.so/r/abc', { form: { url: 'https://tally.so/r/abc', fields: { project_name: 'project' }, sign_in: 'email_only', read_at: '2026-10-07' } }), kitAnswers, { browser: false });
+  assert.ok(!('builder_steps' in tally));
+  assert.match(kitAgentNote(submitKit(p, kitAnswers, { browser: false }), p), /kit\.builder_steps/);
+});
+
+test('review Minor 6: the api note tells the agent to map the answers to the platform fields', () => {
+  const p = kp('https://superteam.fun/earn/listing/x', { submit_api: true });
+  assert.match(kitAgentNote(submitKit(p, kitAnswers, { browser: false }), p), /map each answer to the platform's own submission fields/);
 });

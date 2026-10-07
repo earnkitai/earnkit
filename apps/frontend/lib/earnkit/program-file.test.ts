@@ -668,7 +668,7 @@ test('10.10 the committed Base file carries its Google form: full viewform link,
   const base = ProgramFile.parse(programJson('base-builder-grants'));
   assert.ok(base.form);
   assert.match(base.form.url, /^https:\/\/docs\.google\.com\/forms\/d\/e\/[\w-]+\/viewform$/);
-  assert.equal(base.form.sign_in, false);
+  assert.equal(base.form.sign_in, 'email_only', 'verified email collection (C19)');
   const keys = base.submission_requirements.map((r) => r.key);
   for (const [k, v] of Object.entries(base.form.fields)) {
     assert.ok(keys.includes(k), k);
@@ -695,4 +695,15 @@ test('10.10 form: https, requirement keys only, never a forms.gle link; submit_a
   assert.deepEqual(issues({ ...arc, submission_url: 'https://superteam.fun/earn/listing/x', submit_api: true }), []);
   assert.deepEqual(issues({ ...arc, submit_host: 'gap.karmahq.xyz', submit_api: true }), []);
   assert.ok(issues({ ...arc, submit_host: 'https://dorahacks.io' }).length > 0, 'a bare host');
+});
+
+test('C19: sign_in "email_only" is for Google forms only; booleans still parse', () => {
+  const base = programJson('base-builder-grants');
+  assert.deepEqual(issues({ ...base, form: { ...base.form, sign_in: true } }), []);
+  assert.deepEqual(issues({ ...base, form: { ...base.form, sign_in: false } }), []);
+  assert.ok(issues({ ...base, form: { ...base.form, sign_in: 'maybe' } }).length > 0);
+  const arc = programJson('arc-microgrants');
+  assert.ok(
+    issues({ ...arc, submission_url: 'https://tally.so/r/abc', form: { url: 'https://tally.so/r/abc', fields: {}, sign_in: 'email_only', read_at: '2026-10-07' } }).includes('form.sign_in "email_only" is for Google forms'),
+  );
 });

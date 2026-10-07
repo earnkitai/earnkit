@@ -133,8 +133,12 @@ program is never closed under it either.
          free text, a grid, and any question you can't match: they stay in the paste list.
        - Airtable: `fields` maps keys to the form's field names (sent as `prefill_<Field Name>`).
        - Tally: `fields` maps keys to the form's URL parameter names.
-       - `sign_in`: `true` when the form asks for a Google sign-in (verified email, one response
-         per person) or has a file question; it is then filled in the browser instead.
+       - `sign_in`: `false` when the form needs no sign-in. `"email_only"` (Google only) when its
+         only sign-in cause is verified email collection: `FB_PUBLIC_LOAD_DATA_[1][10][6]` is `2`
+         (VERIFIED; `3` is a typed email box, which needs no sign-in) and there is no file question
+         (type 13). The prefilled link stays, and the builder's first item is to sign in to Google
+         and tick "Record my email address". `true` for a file question, one response per person,
+         or any other sign-in cause: the form is then filled in the builder's browser instead.
        - `read_at`: today's date (`YYYY-MM-DD`).
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,

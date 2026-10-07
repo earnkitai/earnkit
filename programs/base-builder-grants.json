@@ -271,7 +271,7 @@
       "builder_code": "entry.703891879",
       "credits": "entry.1350986773"
     },
-    "sign_in": false,
+    "sign_in": "email_only",
     "read_at": "2026-10-07"
   }
 }

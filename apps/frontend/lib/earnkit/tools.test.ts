@@ -1391,7 +1391,8 @@ test('10.9 Ruling 4, Part E: Base (its Google form in the file): prepare_submiss
     assert.ok(url.length <= 8000);
     // The checkbox question has no entry id in the file: it is pasted (ticked) by the builder.
     assert.deepEqual(r.kit!.paste.map((f) => f.key), ['primary_challenge']);
-    assert.ok(r.kit!.show_to_builder.startsWith(`Ready for ${base.title}. Open this, check it, and click submit:\n${url}\n\nThen paste these:\n`), r.kit!.show_to_builder);
+    assert.ok(r.kit!.show_to_builder.startsWith(`Ready for ${base.title}. Open this, check it, and click submit:\n${url}\n\nYou add these yourself:\nSign in to Google and tick Record my email address.\n\nWhat is the primary challenge`), r.kit!.show_to_builder);
+    assert.ok(!url.includes('emailAddress'), 'never emailAddress= (C19)');
     assert.ok(r.kit!.show_to_builder.endsWith('After you submit, send me the confirmation screenshot or email.'));
     assert.match(r.agent_note ?? '', /Never submit the form for them/);
     // Skip: the same kit.
