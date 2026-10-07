@@ -161,14 +161,26 @@ export type Focus = z.infer<typeof Focus>;
 /**
  * v2.7 Ruling 5 (plan): when set, wins over the computed difficulty and shows as not an estimate.
  * v2.7 fix round 1 (Finding 3): `basis` is spec §2 "short text" (ShortText), like `best_bet`.
+ * v2.8 Ruling 11 (plan): `estimate: true` shows it as an estimate ("Hard (estimate)").
+ * v2.8 Ruling 12 (plan): or the EarnKit rating, Easy only, shown as just "Easy" (no basis, no
+ * label); its `source_url` is the program page that gives its facts.
  */
-const DifficultyOverride = z
+const StatedDifficulty = z
   .object({
     level: z.enum(['Easy', 'Medium', 'Hard']),
     basis: ShortText,
     source_url: HttpsUrl,
+    estimate: z.literal(true).optional(),
   })
   .strict();
+const EarnkitRating = z
+  .object({
+    level: z.literal('Easy'),
+    rated_by: z.literal('earnkit'),
+    source_url: HttpsUrl,
+  })
+  .strict();
+const DifficultyOverride = z.union([EarnkitRating, StatedDifficulty]);
 export type DifficultyOverride = z.infer<typeof DifficultyOverride>;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -251,6 +263,17 @@ const SubmissionProof = z
   .strict();
 export type SubmissionProof = z.infer<typeof SubmissionProof>;
 
+/** v2.8 Ruling 15 (plan): a URL whose host is optimism.io or a subdomain of it. Pure. */
+export function isOptimismUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host === 'optimism.io' || host.endsWith('.optimism.io');
+}
+
 export const ProgramFile = z
   .object({
     id: slug,
@@ -278,8 +301,13 @@ export const ProgramFile = z
     setup: z.array(z.string().min(1).max(80)),
     /** Needed again for every entry (a pitch video, program-specific answers). */
     each_time: z.array(z.string().min(1).max(80)),
-    /** Chains a project must use to count (for matching a builder's repos). */
-    chains: z.array(z.enum(CHAINS)).min(1),
+    /**
+     * Chains a project must use to count (for matching a builder's repos). At least one, unless
+     * `any_chain` (v2.8 Ruling 13 (plan)), which lists none.
+     */
+    chains: z.array(z.enum(CHAINS)),
+    /** v2.8 Ruling 13 (plan): the program isn't tied to one chain, so it fits any repo. */
+    any_chain: z.boolean().default(false),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /**
@@ -377,6 +405,13 @@ export const ProgramFile = z
   .superRefine((p, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: 'custom', message });
+
+    // v2.8 Ruling 13 (plan): one chain at least, unless the program fits any chain (then none).
+    if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
+    if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
+
+    // v2.8 Ruling 15 (plan): Optimism is not listed (owner, 2026-10-07).
+    if (isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url)) issue('Optimism programs are not listed');
 
     // v2.7.1: a pool only where the curated source text states it, never on a campaign.
     if (p.pool_source_url !== undefined && p.pool_usd === undefined) issue('pool_source_url needs pool_usd');

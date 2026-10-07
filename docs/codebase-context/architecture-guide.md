@@ -1589,6 +1589,22 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   only); a test checks every `source_url` in `programs/*.json` survives it. The logo CSP (`IMAGE_CSP`) matches
   only `/programs/<id>.svg|png`, never the page routes.
 
+### Programs: the EarnKit rating, any chain, Avalanche, no Optimism (v2.8 Task 6)
+
+- `difficulty_override` is either a stated level (`basis`, `source_url`, optional
+  `estimate: true`, shown as "Hard (estimate)") or the owner's EarnKit rating
+  `{ level: "Easy", rated_by: "earnkit", source_url }`. `difficultyOf` gives the rating
+  `rated: true` with an empty basis; the guide text, the guide page and the card chip show just
+  "Easy". Arc Microgrants, Base Builder Grants and Avalanche Team1 Mini Grants carry it.
+- `any_chain: true` (with `chains: []`) marks a program not tied to one chain (a16z speedrun).
+  `matchRepo` lets it fit any repo: no chain or mainnet check; existing work, the tag and the live
+  link still apply. The landing tile's `chain` is "Any chain"; the slim card shows no chain line
+  (Ruling 21), so the guide page appends "· Any chain" to its facts line. Column
+  `programs.any_chain boolean NOT NULL DEFAULT false` (additive).
+- `avalanche` is a chain (C-Chain 43114, Fuji 43113, Ruling 14). Builder bonus tokens stay on Base.
+- `programs:check` refuses any file whose `source_url` or `submission_url` host is `optimism.io`
+  or a subdomain (Ruling 15); the weekly re-check closes such programs.
+
 ## Public trust pages (v2.5 §4, Task 9)
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from

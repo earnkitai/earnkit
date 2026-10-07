@@ -24,7 +24,7 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   ...o,
 });
 const now = new Date('2026-10-06T12:00:00Z');
-const medium = { level: 'Medium' as const, estimate: true, basis: 'no past results yet' };
+const medium = { level: 'Medium' as const, estimate: true, rated: false, basis: 'no past results yet' };
 
 const arc: Card = {
   id: 'arc-microgrants',
@@ -48,7 +48,7 @@ const base: Card = {
   ends_at: null,
   max_award_usd: 5000,
   builder_bonus: true,
-  difficulty: { level: 'Hard', estimate: false, basis: '20 of ~160 entries won last round' },
+  difficulty: { level: 'Hard', estimate: false, rated: false, basis: '20 of ~160 entries won last round' },
   logo: null,
   chains: ['base'],
 };
@@ -111,7 +111,7 @@ test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); 
   const many = Array.from({ length: 9 }, (_, i): Card => ({ ...arc, id: `p${i}`, title: `P${i}`, max_award_usd: 1000 + i }));
   const l = landingFrom([...many, sponsored, campaign], new Map(), stats(), now);
   assert.equal(l.tiles.length, 9);
-  const hard = landingFrom([{ ...base, difficulty: { level: 'Hard', estimate: true, basis: 'a16z publishes no acceptance figures' } }], new Map(), stats(), now);
+  const hard = landingFrom([{ ...base, difficulty: { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' } }], new Map(), stats(), now);
   assert.equal(hard.tiles[0].difficulty, 'Hard');
   assert.ok(!('ends' in hard.tiles[0]), 'days_left replaces ends');
 });

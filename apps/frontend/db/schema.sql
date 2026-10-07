@@ -551,3 +551,6 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_usd numeric;
 -- where the pool is stated when that isn't source_url. Additive: existing rows get NULL.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_award_usd numeric;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_source_url text;
+
+-- v2.8 Ruling 13 (plan): a program not tied to one chain fits any repo. Additive.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS any_chain boolean NOT NULL DEFAULT false;

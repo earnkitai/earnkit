@@ -6,7 +6,7 @@ import { githubRepo } from './campaigns';
  * Recognizing which chains a codebase targets, from chain IDs and RPC hosts in its files.
  * IDs and hosts come from each chain's official docs (checked 2026-09-28).
  */
-export const CHAINS = ['base', 'arc', 'tempo', 'monad', 'robinhood'] as const;
+export const CHAINS = ['base', 'arc', 'tempo', 'monad', 'robinhood', 'avalanche'] as const;
 export type Chain = (typeof CHAINS)[number];
 
 export const CHAIN_NAMES: Record<Chain, string> = {
@@ -15,6 +15,7 @@ export const CHAIN_NAMES: Record<Chain, string> = {
   tempo: 'Tempo',
   monad: 'Monad',
   robinhood: 'Robinhood Chain',
+  avalanche: 'Avalanche',
 };
 
 type Signals = {
@@ -69,6 +70,11 @@ const SIGNALS: Record<Chain, Signals> = {
   robinhood: {
     mainnet: { ids: [4663], hosts: ['mainnet.chain.robinhood.com'] },
     testnet: { ids: [46630], hosts: ['testnet.chain.robinhood.com'] },
+  },
+  // v2.8 Ruling 14 (plan): the C-Chain and Fuji. Builder bonus tokens stay on Base.
+  avalanche: {
+    mainnet: { ids: [43114], hosts: ['api.avax.network', 'snowtrace.io', 'subnets.avax.network'] },
+    testnet: { ids: [43113], hosts: ['api.avax-test.network', 'testnet.snowtrace.io'] },
   },
 };
 
@@ -171,6 +177,8 @@ export type ProgramFacts = {
   id: string;
   title: string;
   chains: Chain[];
+  /** v2.8 Ruling 13 (plan): not tied to one chain; fits any repo (chain and mainnet checks skipped). */
+  any_chain: boolean;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   tag: string | null;
   starts_at: Date | null;
@@ -258,9 +266,7 @@ export function matchRepo(
   const verdicts: Verdict[] = [];
   for (const p of programs) {
     const chain = p.chains.find((c) => repo.chains[c]);
-    if (!chain) continue;
-    const signal = repo.chains[chain]!;
-    const name = CHAIN_NAMES[chain];
+    if (!chain && !p.any_chain) continue;
     const v = (
       status: Verdict['status'],
       note: string | null,
@@ -300,12 +306,13 @@ export function matchRepo(
       continue;
     }
 
-    // Existing work allowed and the project must be live on the chain.
+    // Existing work allowed and the project must be live on the chain. v2.8 Ruling 13 (plan): an
+    // any_chain program skips the mainnet check; the live link still applies.
     const missing: Missing[] = [];
-    if (!signal.mainnet) missing.push('mainnet_deploy');
+    if (chain && !p.any_chain && !repo.chains[chain]!.mainnet) missing.push('mainnet_deploy');
     if (!repo.homepage) missing.push('live_url');
     const words = {
-      mainnet_deploy: `a deploy on ${name} mainnet`,
+      mainnet_deploy: chain ? `a deploy on ${CHAIN_NAMES[chain]} mainnet` : '',
       live_url: 'a live link',
     };
     if (missing.length > 0)

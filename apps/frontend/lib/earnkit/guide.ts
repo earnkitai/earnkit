@@ -8,7 +8,11 @@ import type { ProgramRow } from './programs';
  * the builder bonus). One renderer for get_program, the cards and the /programs/<id> page. Pure.
  */
 export type Level = 'Easy' | 'Medium' | 'Hard';
-export type Difficulty = { level: Level; estimate: boolean; basis: string };
+/**
+ * v2.8 Ruling 12 (plan): `rated` is true for an EarnKit rating, shown as just the level ("Easy"):
+ * its `basis` is '' and no basis line, stat or label is ever shown for it.
+ */
+export type Difficulty = { level: Level; estimate: boolean; rated: boolean; basis: string };
 
 /** Ruling 2 (plan): odds bands, lower bounds included (exactly 25% is Easy, exactly 8% Medium). */
 export const ODDS_BANDS = { easy: 0.25, medium: 0.08 } as const;
@@ -47,7 +51,12 @@ const when = (p: GuideFacts, r: PastRound) => (lastOwn(p, r) ? 'last round' : `i
  */
 function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: Difficulty; source_url: string | null } {
   const o = p.difficulty_override;
-  if (o) return { difficulty: { level: o.level, estimate: false, basis: o.basis }, source_url: o.source_url };
+  // v2.8 Ruling 12 (plan): the EarnKit rating, just "Easy"; its source is the program page.
+  if (o && 'rated_by' in o)
+    return { difficulty: { level: 'Easy', estimate: false, rated: true, basis: '' }, source_url: o.source_url };
+  // v2.8 Ruling 11 (plan): a stated override may be an estimate ("Hard (estimate)").
+  if (o)
+    return { difficulty: { level: o.level, estimate: o.estimate === true, rated: false, basis: o.basis }, source_url: o.source_url };
   const newest = p.past_rounds[0] ?? null;
   // Ruling 2 (plan): odds from the newest round with both counts.
   const counted = p.past_rounds.find((r) => r.submissions && r.winners);
@@ -56,7 +65,7 @@ function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: 
     const level: Level =
       odds >= ODDS_BANDS.easy ? 'Easy' : odds >= ODDS_BANDS.medium ? 'Medium' : 'Hard';
     return {
-      difficulty: { level, estimate: false, basis: `${counted.winners} of ~${counted.submissions} entries won ${when(p, counted)}` },
+      difficulty: { level, estimate: false, rated: false, basis: `${counted.winners} of ~${counted.submissions} entries won ${when(p, counted)}` },
       source_url: counted.source_url,
     };
   }
@@ -76,7 +85,7 @@ function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: 
   if (p.tag === 'long shot') score -= 2;
   if (barriers >= 2) score += 1;
   const level: Level = score < 0 ? 'Hard' : 'Medium';
-  const est = (basis: string, source_url: string | null) => ({ difficulty: { level, estimate: true, basis }, source_url });
+  const est = (basis: string, source_url: string | null) => ({ difficulty: { level, estimate: true, rated: false, basis }, source_url });
   // "no past results yet" only with no past round at all (Ruling 4; review Finding 2).
   if (newest?.winners) return est(`${winners} winners ${when(p, newest)}; entry count not published`, newest.source_url);
   if (newest)
@@ -101,8 +110,11 @@ export const difficultyBasis = (d: Difficulty) => {
   return /[.!?]$/.test(cap) ? cap : `${cap}.`;
 };
 
-/** v2.8 Ruling 17 (plan): "Medium (estimate). 20 winners per round; past counts not published." Pure. */
-export const difficultyText = (d: Difficulty) => `${difficultyLabel(d)}. ${difficultyBasis(d)}`;
+/**
+ * v2.8 Ruling 17 (plan): "Medium (estimate). 20 winners per round; past counts not published."
+ * v2.8 Ruling 12 (plan): an EarnKit rating is the label alone ("Easy"). Pure.
+ */
+export const difficultyText = (d: Difficulty) => (d.rated ? difficultyLabel(d) : `${difficultyLabel(d)}. ${difficultyBasis(d)}`);
 
 export type Guide = {
   /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14". */

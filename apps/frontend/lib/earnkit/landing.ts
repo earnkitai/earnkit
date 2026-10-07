@@ -21,7 +21,7 @@ export const INSTALLS_SHOWN_FROM = 100;
 export type Tile = {
   id: string;
   title: string;
-  /** "Base · Tempo · Robinhood Chain". */
+  /** "Base · Tempo · Robinhood Chain", or "Any chain" (v2.8 Ruling 13 (plan)). */
   chain: string;
   /**
    * v2.7.1: the big line. The pool when the source states one ("$840K in prizes", "10,000 USDC
@@ -112,7 +112,8 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     return {
       id: c.id,
       title: c.title,
-      chain: (c.chains ?? []).map((ch) => CHAIN_NAMES[ch]).join(' · '),
+      // v2.8 Ruling 13 (plan): a program not tied to one chain.
+      chain: c.any_chain ? 'Any chain' : (c.chains ?? []).map((ch) => CHAIN_NAMES[ch]).join(' · '),
       prize,
       prize_note: each && each !== prize ? each : null,
       prize_usd: perWinner,
@@ -163,6 +164,8 @@ export type GuidePage = {
   has_bonus: boolean;
   /** v2.8 Ruling 19 (plan): the pill's amount ("0.42 ETH"), or null while the pool is empty or without a bonus. */
   bonus_amount: string | null;
+  /** v2.8 Ruling 13 (plan), Task 3 carry: the program fits any chain; the page says "Any chain". */
+  any_chain: boolean;
   /** The program's own page. */
   source_url: string;
   /** The program's own page, then every source the guide's facts rest on, labelled by role. */
@@ -197,6 +200,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
     has_bonus: bonus !== null,
     bonus_amount: bonus ? bonusAmount(bonus.cell) : null,
+    any_chain: row.any_chain === true,
     source_url: row.source_url,
     // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).
     sources: guideSourceList(row, [

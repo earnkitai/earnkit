@@ -106,7 +106,9 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     { agent_can_build: true },
     {
       installationId: id,
-      roundPoolsWei: async () => new Map([['arc-microgrants', 6n * 10n ** 17n]]),
+      // v2.8 Task 6: the pool sits on a program the first table shows. With 7 curated files the
+      // table keeps the top 5 by prize, and a16z speedrun (up to $1M) is always among them.
+      roundPoolsWei: async () => new Map([['a16z-speedrun', 6n * 10n ** 17n]]),
     },
   )) as { show_to_builder: string };
   const first = list.show_to_builder;

@@ -39,6 +39,7 @@ const page = (facts: Facts, bonus: typeof BONUS | null, o: Partial<GuidePage> = 
     board_path: bonus ? '/bonus/arc-microgrants-2026-09-16' : null,
     has_bonus: bonus !== null,
     bonus_amount: bonus ? bonusAmount(bonus.cell) : null,
+    any_chain: false,
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? 'Arc',

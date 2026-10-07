@@ -544,7 +544,7 @@ test('final review M4: an offer whose row has no builder bonus gets the bonus se
 });
 
 test('Ruling 12 (plan): the Difficulty cell is the label only', () => {
-  assert.equal(difficultyCell({ difficulty: { level: 'Hard', estimate: true, basis: 'x' } }), 'Hard (estimate)');
+  assert.equal(difficultyCell({ difficulty: { level: 'Hard', estimate: true, rated: false, basis: 'x' } }), 'Hard (estimate)');
   assert.equal(difficultyCell({ difficulty: null }), NO_CELL);
 });
 

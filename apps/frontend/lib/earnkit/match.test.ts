@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectChains, pickFiles } from './match';
+import { CHAIN_NAMES, detectChains, pickFiles } from './match';
 import {
   matchRepo,
   reportedFacts,
@@ -52,6 +52,7 @@ const programs: ProgramFacts[] = [
     chains: ['arc'],
     existing_work: 'allowed',
     tag: null,
+    any_chain: false,
     starts_at: null,
   },
   {
@@ -60,6 +61,7 @@ const programs: ProgramFacts[] = [
     chains: ['arc'],
     existing_work: 'allowed',
     tag: 'needs a live product',
+    any_chain: false,
     starts_at: null,
   },
   {
@@ -68,6 +70,7 @@ const programs: ProgramFacts[] = [
     chains: ['monad'],
     existing_work: 'new_work_only',
     tag: 'long shot',
+    any_chain: false,
     starts_at: new Date('2026-09-01T00:00:00Z'),
   },
 ];
@@ -208,4 +211,45 @@ test('fix round 1, finding 3: Ruling 13 (plan) — a url over 300 characters is 
   assert.equal(atLimit.length, 300);
   const kept = ReportedRepoInput.safeParse({ name: 'tipjar', chains: [], url: atLimit });
   assert.equal(kept.success && kept.data.url, atLimit);
+});
+
+// ---- v2.8 Task 6: any_chain programs and Avalanche ----
+
+const speedrun: ProgramFacts = {
+  id: 'speedrun',
+  title: 'a16z speedrun',
+  chains: [],
+  any_chain: true,
+  existing_work: 'allowed',
+  tag: 'long shot',
+  starts_at: null,
+};
+
+test('v2.8 Ruling 13: an any_chain program fits a repo with no detected chains; only the live link applies', () => {
+  const live = matchRepo(repo({ homepage: 'https://app.x' }), [speedrun]);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].status, 'likely');
+  const noLink = matchRepo(repo({}), [speedrun]);
+  assert.equal(noLink[0].status, 'after_step');
+  assert.deepEqual(noLink[0].missing, ['live_url']);
+  assert.equal(noLink[0].note, 'needs a live link');
+  // A testnet-only repo is not asked for a mainnet deploy.
+  const testnet = matchRepo(repo({ homepage: 'https://app.x', chains: { arc: { mainnet: false, testnet: true, evidence: 'x' } } }), [speedrun]);
+  assert.equal(testnet[0].status, 'likely');
+  // existing_work still applies.
+  const fresh = matchRepo(repo({ homepage: 'https://app.x' }), [{ ...speedrun, existing_work: 'new_work_only' }]);
+  assert.equal(fresh[0].status, 'after_step');
+});
+
+test('v2.8 Ruling 14: chain ids 43114 and 43113 are Avalanche mainnet and Fuji testnet', () => {
+  assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43114' }]).avalanche, {
+    mainnet: true, testnet: false, evidence: 'hardhat.config.ts: chain id 43114',
+  });
+  assert.deepEqual(detectChains([{ path: 'hardhat.config.ts', text: 'chainId: 43113' }]).avalanche, {
+    mainnet: false, testnet: true, evidence: 'hardhat.config.ts: chain id 43113',
+  });
+  const hosts = detectChains([{ path: '.env.example', text: 'RPC=https://api.avax-test.network/ext/bc/C/rpc' }]);
+  assert.equal(hosts.avalanche?.testnet, true);
+  assert.equal(hosts.avalanche?.mainnet, false);
+  assert.equal(CHAIN_NAMES.avalanche, 'Avalanche');
 });

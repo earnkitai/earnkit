@@ -47,6 +47,8 @@ export type Card = {
   sponsored?: boolean;
   /** Required answers only the builder can give (personal info, forms). */
   builder_fields?: number;
+  /** v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain"). */
+  any_chain?: boolean;
   /** Up to 3 curated build ideas (program file `ideas`), shown when the builder has no repo. */
   ideas?: string[];
   /** Set when entries are public pages EarnKit can check: how the submission is checked, never whether it has a bonus (Ruling 7 (plan)). */

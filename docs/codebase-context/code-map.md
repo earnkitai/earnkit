@@ -161,7 +161,11 @@ apps/frontend/
                                (PastRound: newest first, ≤5, counts nullable C2, own C4, themes_of ≤ winners M3), focus (Focus, ecosystem Ruling 7),
                                best_bet (ShortText, only with past_rounds or focus, Ruling 8), difficulty_override
                                (DifficultyOverride, Ruling 5), winners_per_round (Ruling 6); requirements' `todo` (C5) and
-                               requiredWithoutTodo (programs:check refuses a required item without one)
+                               requiredWithoutTodo (programs:check refuses a required item without one);
+                               v2.8 Task 6: DifficultyOverride is a stated level (optional estimate: true) or
+                               the EarnKit rating { level: Easy, rated_by: earnkit, source_url } (Ruling 12);
+                               any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
+                               refuses optimism.io hosts (Ruling 15)
     programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
@@ -175,7 +179,10 @@ apps/frontend/
                                focus, best_bet, difficulty_override, winners_per_round, chains and Card.difficulty
                                (difficultyOf); upsertProgram writes them; get_program's guide block (guideBlock: guide
                                { text, difficulty, best_bet, sources } + guide_note, curated programs only) with
-                               guideBonus (the open round's pool so far)
+                               guideBonus (the open round's pool so far); v2.8 Task 6: ProgramRow/Card/
+                               openProgramFacts carry any_chain (landing tile "Any chain", guide page
+                               "· Any chain"); match.ts CHAINS gains avalanche (43114 / Fuji 43113) and
+                               matchRepo skips chain and mainnet checks for any_chain programs
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
     projects.ts(+test)         recordSubmission (campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
