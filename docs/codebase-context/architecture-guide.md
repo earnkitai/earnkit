@@ -1679,10 +1679,13 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   builder data is never erased; the column is never shown as EarnKit's token or on a public page)
   so EarnKit's token can launch (one token per repo still holds at the claim).
 - **Money safety (Ruling C9 fix round):** the offer shows the entry's own stored wallet first
-  (`projects.ts ownEntryWallet`), then the remembered one, and returns it as `shown_wallet`. The
-  token's wallet is only `wallet` from this call or the entry's own (the one shown); a remembered
-  wallet is never used unseen (no wallet passed but one remembered: the reply asks "Use 0xab12…0123
-  for fees and any bonus, or tell me another?", no launch). A typo'd wallet
+  (`projects.ts ownEntryWallet`), then the remembered one, and returns it as `shown_wallet`. In
+  confirm mode the token launches only to the `wallet` passed with that "go" (the agent echoes
+  `shown_wallet`): never the entry's stored wallet or a remembered one. With none passed nothing
+  launches and the reply asks "Use 0xab12…0123 for fees and any bonus, or tell me another?" (the
+  stored wallet, else the remembered one, as the suggestion). Known gap, fails safe: a confirmed
+  entry has no stored answers until record_submission, so launch_token's markComplete check and
+  the deploy-window script don't mark it complete before then. A typo'd wallet
   errors before anything is written. The ticker is re-checked right before deploy, one token per
   repo holds (the claim), and a second "go" on an entry with a token launches nothing.
 - **The kit** (`submit-kit.ts submitKit`): Task 8 builds `copy_paste` only (every answer that

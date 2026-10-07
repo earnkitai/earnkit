@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFIRMATION_ASK, ENTRY_LINK_ASK, submitKit, type KitProgram } from './submit-kit';
 import type { SubmissionRequirement } from './program-file';
+import { todoOf } from './entry-text';
 
 const reqs: SubmissionRequirement[] = [
   { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'builder' },
@@ -62,4 +63,8 @@ test('Ruling C9: a required answer missing is never dropped: listed first and a 
   const bad = submitKit(program('https://dorahacks.io/x'), answers, { browser: false }, { problems: ['repo_url'] });
   assert.deepEqual(bad.missing, ['a GitHub repo (check it)']);
   assert.doesNotMatch(bad.show_to_builder, /github\.com\/alice/);
+  // An optional answer given but not valid is a blank to check too, never dropped silently.
+  const opt = submitKit(program('https://dorahacks.io/x'), answers, { browser: false }, { problems: ['notes'] });
+  assert.deepEqual(opt.missing, [todoOf({ label: 'Anything else?' }, true)]);
+  assert.ok(opt.show_to_builder.includes('Anything else?\n(still needed)'), opt.show_to_builder);
 });

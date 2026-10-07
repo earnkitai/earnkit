@@ -532,8 +532,12 @@ async function runTokenFlow(
   // another entry's, another person's on a shared registration, or changed since the builder saw
   // it). Only a wallet given in this call (record_submission's payout_wallet, the agent echoing the
   // wallet line the builder confirmed, or creator_wallet) or the entry's own wallet.
+  // v2.8 fix round 2: in confirm mode, only the wallet passed with this "go" (the agent echoes the
+  // wallet it showed); never the entry's stored wallet, which the builder may not have seen.
   const wallet =
-    choice?.creator_wallet ?? a.givenWallet ?? project.creator_wallet ?? project.payout_wallet ?? null;
+    a.mode === 'confirm'
+      ? (choice?.creator_wallet ?? null)
+      : (choice?.creator_wallet ?? a.givenWallet ?? project.creator_wallet ?? project.payout_wallet ?? null);
   const decision = decideToken({
     policy: project.token_policy,
     choice: a.choice,
