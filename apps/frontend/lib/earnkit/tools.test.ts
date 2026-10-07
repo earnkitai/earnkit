@@ -1122,6 +1122,12 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
     assert.ok(r.show_to_builder.startsWith('Your token: tokens.fun/coin/0x'), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /mytoken/);
     assert.equal((await t.rows()).length, 1, 'the same entry');
+    // Ruling C11: the builder's own link is kept, never as EarnKit's token.
+    const [kept] = await sql()<{ own_token_url: string | null; token_url: string | null }[]>`
+      SELECT own_token_url, token_url FROM projects WHERE installation_id = ${t.inst}`;
+    assert.equal(kept.own_token_url, 'https://mytoken.example/tip');
+    assert.match(kept.token_url ?? '', /^https:\/\/tokens\.fun\/coin\//);
+    assert.doesNotMatch(JSON.stringify(r), /mytoken/, 'never in the reply');
     // "skip" on such an entry is a real skip (the typed link is not a token that holds the choice).
     const s = await confirmSetup('typedskip');
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, token_url)
@@ -1129,6 +1135,9 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
     const k = (await tools.confirm_entry({ ...s.input, builder_confirmed: true, decision: 'skip' }, s.ctx)) as Confirmed;
     assert.ok(k.show_to_builder.startsWith('No token, no builder bonus.'), k.show_to_builder);
     assert.equal((await s.rows())[0].confirm_choice, 'skip');
+    const [untouched] = await sql()<{ own_token_url: string | null; token_url: string | null }[]>`
+      SELECT own_token_url, token_url FROM projects WHERE installation_id = ${s.inst}`;
+    assert.deepEqual([untouched.own_token_url, untouched.token_url], [null, 'https://mytoken.example/tip'], 'skip changes nothing');
     assert.equal(s.calls.deploy, 0);
   }));
 

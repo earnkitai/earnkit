@@ -1675,8 +1675,9 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   (`submission_confirmed_at` or `submission_proof_ok_at`), and the deploy claim (`tokens.ts
   deployToken`) refuses a row confirmed with "skip".
 - **A token link the builder typed** (an older entry's `token_url` with no EarnKit coin or claim)
-  is never reported as EarnKit's token. A "go" clears it so EarnKit's token can launch (one token
-  per repo still holds at the claim).
+  is never reported as EarnKit's token. A "go" moves it to `projects.own_token_url` (Ruling C11:
+  builder data is never erased; the column is never shown as EarnKit's token or on a public page)
+  so EarnKit's token can launch (one token per repo still holds at the claim).
 - **Money safety (Ruling C9 fix round):** the offer shows the entry's own stored wallet first
   (`projects.ts ownEntryWallet`), then the remembered one, and returns it as `shown_wallet`. The
   token's wallet is only `wallet` from this call or the entry's own (the one shown); a remembered
