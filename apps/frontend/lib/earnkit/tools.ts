@@ -1,13 +1,15 @@
 import { z } from 'zod';
-import { getProgram, getProgramRow, isOpen, listPrograms } from './programs';
+import { alsoProgramFacts, getProgram, getProgramRow, isOpen, listPrograms } from './programs';
 import {
   RecordSubmissionInput,
   recordSubmission,
+  answersOf,
+  enteredProgramIds,
   ownEntryWallet,
   startEntry,
   type EntryDeps,
 } from './projects';
-import { EntryError, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
+import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { repoNameOf, titleCase } from './token-proposal';
@@ -23,9 +25,11 @@ import {
   GitHubError,
   MatchProjectsInput,
   ReportedRepoInput,
+  cachedRepoChains,
   checkEligibility,
   matchProjects,
 } from './match-projects';
+import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import {
   bonusCell,
   bonusProgramIds,
@@ -186,6 +190,42 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
     policyOff: program.token_policy === 'off',
     available: (ctx.tokenDeps?.available ?? tokenLaunchesAvailable)(),
   };
+}
+
+/**
+ * v2.8 Ruling 29 (plan): "Also qualifies", right after record_submission records the entry.
+ * Chains come from the repo-facts cache for this repo when present, else the entered program's
+ * own chains (the repo was just entered there). Never fails the reply: on error the caller logs
+ * `[also_qualifies]` with the error class and the whole section is left out.
+ */
+async function alsoQualifiesBlock(
+  parsed: z.infer<typeof RecordSubmissionInput>,
+  ctx: ToolContext,
+): Promise<{ rows: AlsoRow[]; text: string | null }> {
+  const repoUrl = parsed.project.repo_url ?? null;
+  const name = parsed.project.name;
+  const key = projectKey({ repo_url: repoUrl, name });
+  const repoKey = repoUrl ? normalizeRepoUrl(repoUrl) : null;
+  const full = repoUrl ? githubRepo(repoUrl) : null;
+  const [program, programs, enteredIds, bank, coins, cached] = await Promise.all([
+    getProgramRow(parsed.program_id),
+    alsoProgramFacts(),
+    enteredProgramIds(ctx.installationId, { repoUrl, name }),
+    readBank(ctx.installationId, key),
+    (ctx.repoCoins ?? repoCoinPrograms)(repoKey ? [repoKey] : []),
+    full ? cachedRepoChains(`${full.owner}/${full.repo}`) : Promise.resolve(null),
+  ]);
+  const rows = alsoQualifies({
+    enteredProgramId: parsed.program_id,
+    chains: cached ?? program.chains,
+    programs,
+    enteredIds,
+    bank,
+    answers: answersOf(parsed.submission_data),
+    now: new Date(),
+  });
+  const coinIn = (repoKey && coins.get(repoKey)?.title) || null;
+  return { rows, text: alsoText(rows, coinIn) };
 }
 
 /** The agent's note with the token line: commit it with the next push, before the builder confirms. */
@@ -910,8 +950,18 @@ export const tools = {
           join: 'bonus_join' in result ? result.bonus_join : null,
         };
     }
-    const show_to_builder = enteredText({ programTitle: result.program_title, coin, bonus, repoHeld });
-    return withAlerts(ctx.installationId, { ...result, token: tokenOut, show_to_builder });
+    const also = await alsoQualifiesBlock(parsed, ctx).catch((err: unknown) => {
+      console.error('[also_qualifies]', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    const show_to_builder =
+      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld }) + (also?.text ? `\n\n${also.text}` : '');
+    return withAlerts(ctx.installationId, {
+      ...result,
+      token: tokenOut,
+      show_to_builder,
+      ...(also?.rows.length && { also_qualifies: also.rows }),
+    });
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>

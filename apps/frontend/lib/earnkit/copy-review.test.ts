@@ -20,6 +20,7 @@ import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInst
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { COACH_NOTES, tools } from './tools';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor } from './coach';
+import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
 import {
@@ -729,8 +730,27 @@ const coachTexts: [string, string][] = [
   ],
 ];
 
+// v2.8 Task 11: "Also qualifies", after record_submission.
+const alsoQualifiesTexts: [string, string][] = [
+  [
+    'alsoText: with coinIn',
+    alsoText(
+      [
+        { id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 },
+        { id: 'avalanche-team1-mini-grants', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', ends: 'rolling', left: 0 },
+      ],
+      'Arc Microgrants',
+    )!,
+  ],
+  [
+    'alsoText: no coinIn',
+    alsoText([{ id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1 }], null)!,
+  ],
+];
+
 const builderFacing: [string, string][] = [
   ...coachTexts,
+  ...alsoQualifiesTexts,
   ...campaignPageTexts,
   ...confirmTexts,
   ...kitTexts,

@@ -5,12 +5,14 @@ import {
   matchRepo,
   reportedFacts,
   pickFiles,
+  type Chain,
   type Detection,
   type ProgramFacts,
   type RepoFacts,
 } from './match';
 import { openProgramFacts } from './programs';
 import { loadRepoFacts, saveRepoFacts } from './repo-cache';
+import { sql } from './db';
 
 /**
  * Reads public GitHub data with EarnKit's own token (GITHUB_TOKEN). Builders only give a
@@ -210,6 +212,19 @@ async function readRepoChains(repo: Repo) {
 
 export const repoChains = async (repo: Repo): Promise<Detection> =>
   (await readRepoChains(repo)).chains;
+
+/**
+ * v2.8 Ruling 29 (plan): a repo's cached chains, read from github_repo_facts only (no GitHub
+ * call), for "Also qualifies" right after an entry. The latest cached row for this full name
+ * (any version: a GitHub call to find the current pushed_at is exactly what this avoids), or null
+ * when nothing is cached yet.
+ */
+export async function cachedRepoChains(repoFullName: string): Promise<Chain[] | null> {
+  const [row] = await sql()<{ chains: Detection }[]>`
+    SELECT chains FROM github_repo_facts WHERE full_name = ${repoFullName.toLowerCase()}
+    ORDER BY fetched_at DESC LIMIT 1`;
+  return row ? (Object.keys(row.chains) as Chain[]) : null;
+}
 
 /** Whether the repo has a commit at or after `since`; null when GitHub couldn't say. */
 async function commitsSince(repo: Repo, since: Date) {

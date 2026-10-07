@@ -1,5 +1,6 @@
 import type postgres from 'postgres';
 import { prizeText, prizeUsdEach, type CampaignConfig } from './campaigns';
+import type { AlsoProgram } from './also-qualifies';
 import { escrowLink } from './escrow';
 import type { Chain } from './match';
 import { sql } from './db';
@@ -408,6 +409,32 @@ export async function openProgramFacts() {
   return rows.map(({ source, ...p }) => ({
     ...p,
     title: shownTitle({ ...p, source }),
+  }));
+}
+
+/** v2.8 Ruling 29 (plan): open, curated candidate programs for "Also qualifies" (alsoQualifies filters the rest). */
+export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
+  const rows = await sql()<
+    Pick<
+      ProgramRow,
+      'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'existing_work' | 'ends_at' | 'status' | 'campaign' | 'source' | 'pool_usd' | 'submission_requirements'
+    >[]
+  >`
+    SELECT id, title, summary, chains, any_chain, existing_work, ends_at, status, campaign, source, pool_usd, submission_requirements
+    FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
+  return rows.map((p) => ({
+    id: p.id,
+    title: p.title,
+    summary: p.summary,
+    chains: p.chains,
+    any_chain: p.any_chain,
+    existing_work: p.existing_work,
+    ends_at: p.ends_at,
+    status: p.status,
+    campaign: p.campaign !== null,
+    source: p.source,
+    pool_usd: p.pool_usd === null ? null : Number(p.pool_usd),
+    requirements: p.submission_requirements,
   }));
 }
 

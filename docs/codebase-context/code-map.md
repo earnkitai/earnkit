@@ -376,7 +376,8 @@ apps/frontend/
                                repoCodeFacts -> RepoCode {fork, hasCommits, aheadOfParent} for the
                                coin gate (repo + commits reads together, the parent compare only for
                                a fork; a private repo reads as "not found (or private)";
-                               ForkCheckError when the compare fails)
+                               ForkCheckError when the compare fails); v2.8 Task 11: cachedRepoChains
+                               (github_repo_facts only, no GitHub call, for "Also qualifies")
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
@@ -503,6 +504,13 @@ apps/frontend/
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
                                (projects.application)
+    also-qualifies.ts(+test)  v2.8 Task 11, Ruling 29: alsoQualifies (at most MAX_ALSO=3 other
+                               open, curated, non-campaign programs the project qualifies for;
+                               reuses coach.ts bankFill), alsoText (the table + "Builder bonus
+                               counts in <program>" with coinIn). Pure. Wired into tools.ts
+                               record_submission (non-campaign only) with programs.ts
+                               alsoProgramFacts, projects.ts enteredProgramIds, and
+                               match-projects.ts cachedRepoChains
     entry-text.ts(+test)       confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                Task 8, "· skip: no builder bonus"; coinIn: Ruling 25),
                                repoCoinNote, TOKEN_FOOTNOTE, siteUrl; v2.6 §3: coinRow and
