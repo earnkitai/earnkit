@@ -608,8 +608,12 @@ export const tools = {
       );
       // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
       if (token.fixable) {
-        const remembered = token.no_wallet ? await rememberedWallet(ctx.installationId) : null;
-        // Review Minor 5: the remembered wallet wasn't passed back: ask about it, never use it unseen.
+        // Fix round 2: no wallet passed with this "go": nothing launched. The entry's stored wallet,
+        // else the remembered one, is suggested as a question, never used unseen.
+        const remembered = token.no_wallet
+          ? ((await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
+            (await rememberedWallet(ctx.installationId)))
+          : null;
         const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;
         return {
           project_id: entry.id,

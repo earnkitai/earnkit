@@ -1105,9 +1105,15 @@ test('fix 1: the entry\'s own wallet is the one shown and the one used; the reme
     assert.equal(offer.shown_wallet, A);
     assert.match(offer.show_to_builder, /0xaaaa…aaa9/);
     assert.doesNotMatch(offer.show_to_builder, /0x1581/);
-    // "go" without echoing: the launch uses the wallet shown (A), never the remembered one.
+    // "go" without echoing: nothing launches (fix round 2); A is suggested as a question.
     const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
-    assert.equal(r.token?.status, 'launched');
+    assert.equal(t.calls.deploy, 0);
+    assert.ok(!('kit' in r));
+    assert.equal(r.show_to_builder, 'Use 0xaaaa…aaa9 for fees and any bonus, or tell me another?');
+    assert.equal(r.shown_wallet, A);
+    // Echoed: launched to A, never the remembered one.
+    const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: r.shown_wallet }, t.ctx)) as Confirmed;
+    assert.equal(ok.token?.status, 'launched');
     assert.deepEqual(t.calls.wallets, [A]);
   }));
 
@@ -1159,4 +1165,28 @@ test('fix 3 (C9): an incomplete entry still gets its token on "go"; the kit name
     assert.ok(bad.kit.show_to_builder.startsWith('Before you submit: '), bad.kit.show_to_builder);
     assert.match(bad.kit.missing[0], /\(check it\)$/);
     assert.doesNotMatch(bad.kit.show_to_builder, /not a link/);
+  }));
+
+test('fix round 2: wallet X shown, "go" with no echo, stored wallet A on the entry: nothing launches', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('noecho');
+    const A = '0x' + 'a'.repeat(39) + '9';
+    const X = '0x' + 'c'.repeat(39) + '1';
+    await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+    // The offer is given X: it shows X.
+    const offer = (await tools.confirm_entry({ ...t.input, wallet: X }, t.ctx)) as Confirmed;
+    assert.equal(offer.shown_wallet, X);
+    assert.match(offer.show_to_builder, /0xcccc…ccc1/);
+    // "go" arrives without the echo: no deploy at all, to A or anyone; the reply asks.
+    const r = (await tools.confirm_entry({ ...t.input, ...go }, t.ctx)) as Confirmed;
+    assert.equal(t.calls.deploy, 0);
+    assert.deepEqual(t.calls.wallets, []);
+    assert.equal(r.token?.fixable, true);
+    assert.ok(!('kit' in r));
+    assert.equal(r.show_to_builder, 'Use 0xaaaa…aaa9 for fees and any bonus, or tell me another?');
+    // The builder names X again and the agent passes it: launched to X.
+    const ok = (await tools.confirm_entry({ ...t.input, ...go, wallet: X }, t.ctx)) as Confirmed;
+    assert.equal(ok.token?.status, 'launched');
+    assert.deepEqual(t.calls.wallets, [X]);
   }));

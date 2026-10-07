@@ -94,7 +94,8 @@ export function submitKit(
   const fields: KitField[] = program.submission_requirements.flatMap((r): KitField[] => {
     const answer = problems.has(r.key) ? '' : (answers[r.key]?.trim() ?? '');
     if (answer) return [{ key: r.key, label: r.label, answer }];
-    if (!r.required) return [];
+    // An empty optional answer is left out; one given but not valid is a blank to check.
+    if (!r.required && !problems.has(r.key)) return [];
     missing.push(todoOf(r, problems.has(r.key)));
     return [{ key: r.key, label: r.label, answer: '', missing: true }];
   });
