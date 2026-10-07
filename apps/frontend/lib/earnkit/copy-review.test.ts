@@ -68,9 +68,9 @@ import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures
 import { homeFixture } from './fixtures/landing';
 import Header from '../../app/components/common/Header';
 import AddToAgent from '../../app/components/sections/AddToAgent';
-import { HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
+import { HERO_EYEBROW, HERO_SUBTITLE, HERO_TITLE } from '../../app/components/sections/Hero';
 import { HOW_TITLE, STEPS } from '../../app/components/sections/HowItWorks';
-import { bonusPoolsText, statsLine } from './landing';
+import { statsLine } from './landing';
 import { bonusPillLabel } from '../../app/components/ui/BonusPill';
 import { eachLine, poolLine, poolTotalText } from './pool';
 
@@ -485,7 +485,7 @@ const v271Texts: [string, string][] = [
   ['header', pageText(React.createElement(Header))],
   ['install modal', pageText(React.createElement(AddToAgent, { onClose: () => {} }))],
   ['/programs (figure)', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text }))],
-  ['home page (no stats, empty pools)', homeText({ ...homeFixture, stats_line: null, bonus_pools: null })],
+  ['home page (no stats)', homeText({ ...homeFixture, stats_line: null })],
   ['eachLine range', eachLine({ title: 'Circle Developer Grants', reward: 'from $5,000 to $100,000', max_award_usd: 100000, min_award_usd: 5000 })!],
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
@@ -494,7 +494,6 @@ const v271Texts: [string, string][] = [
   ['bonusPillLabel', bonusPillLabel()],
   ['bonusPillLabel amount', bonusPillLabel('0.42 ETH')],
   ['bonusPillLabel tiny', bonusPillLabel('<0.01 ETH')],
-  ['bonusPoolsText', bonusPoolsText(6n * 10n ** 17n)!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -565,6 +564,7 @@ const builderFacing: [string, string][] = [
   ...guideTexts,
   ...v271Texts,
   // v2.8 Task 2: the hero and How you earn.
+  ['HERO_EYEBROW', HERO_EYEBROW],
   ['HERO_TITLE', HERO_TITLE],
   ['HERO_SUBTITLE', HERO_SUBTITLE],
   ['HOW_TITLE', HOW_TITLE],

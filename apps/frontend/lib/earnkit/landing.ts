@@ -1,7 +1,7 @@
 import { prizeOf } from './entry-text';
 import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { bonusCell, daysLeftText, eth, NO_CELL, type Card } from './present';
+import { bonusCell, daysLeftText, NO_CELL, type Card } from './present';
 import { eachLine, poolTotalText } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
@@ -55,12 +55,8 @@ export type Landing = {
   /** v2.7.1: "$1.3M+" (pool.ts poolTotalText of the tiles), or null when no tile has a pool. */
   open_text: string | null;
   tiles: Tile[];
-  /** v2.7.1: "0.60 ETH in pools so far" (the open rounds of the tiles), or null while all are empty. */
-  bonus_pools: string | null;
   /** v2.7.1: "312 agents earning · 0.42 ETH builder bonus paid", or null below both thresholds. */
   stats_line: string | null;
-  /** Review #6: every open program has the builder bonus, so "on every program" is true. */
-  bonus_every: boolean;
 };
 
 /**
@@ -92,12 +88,6 @@ export function bonusAmount(cell: string): string | null {
   return `${so[1] === 'under 0.01' ? '<0.01' : so[1]} ETH`;
 }
 
-/** v2.7.1: the builder bonus section's figure: "0.60 ETH in pools so far", or null while every pool is empty. Pure. */
-export function bonusPoolsText(wei: bigint): string | null {
-  if (wei <= 0n) return null;
-  return `${wei < 10n ** 16n ? 'under 0.01' : eth(wei)} ETH in pools so far`;
-}
-
 /**
  * v2.7.1: the cards' order (landing and /programs): programs with a source-stated pool first,
  * highest pool first; then the rest by their per-winner amount; then the sooner deadline. The first message keeps
@@ -116,11 +106,9 @@ export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, 
  */
 export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, stats: PublicStats, now: Date): Landing {
   const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPool);
-  let bonusWei = 0n;
   const tiles = kept.map((c): Tile => {
     const pool = pools.get(c.id);
     const cell = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
-    if (cell !== NO_CELL && pool) bonusWei += pool;
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
     const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null });
@@ -141,10 +129,8 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     };
   });
   return {
-    bonus_every: kept.length > 0 && kept.every((c) => c.builder_bonus !== false),
     open_text: poolTotalText(kept.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false }))),
     tiles,
-    bonus_pools: bonusPoolsText(bonusWei),
     stats_line: statsLine(stats),
   };
 }

@@ -560,9 +560,9 @@ apps/frontend/
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
-                               open_text = pool.ts poolTotalText ("$1.3M+"); bonus_pools =
-                               bonusPoolsText; stats_line = statsLine (installs ≥100, bonus paid >0);
-                               bonus_every; cards sorted by byPool: pools first by size, then the rest by
+                               open_text = pool.ts poolTotalText ("$1.3M+"); stats_line = statsLine
+                               (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
+                               bonusPoolsText (Win twice removed); cards sorted by byPool: pools first by size, then the rest by
                                max_award_usd, then deadline); readGuidePage adds the "prize pool" source
                                and readLanding (listPrograms, roundPoolsWei, readStats; rejects when
                                the DB is unreachable); GuidePage.has_bonus / bonus_amount;

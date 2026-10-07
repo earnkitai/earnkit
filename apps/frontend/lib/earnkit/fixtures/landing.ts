@@ -24,7 +24,6 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
 });
 export const homeFixture: Landing = {
   open_text: '$1.3M+',
-  bonus_every: true,
   tiles: [
     tile('colosseum-worlds-fair', "Crypto World's Fair Hackathon", 30000, { chain: 'Base · Tempo · Robinhood Chain', prize: '$840K in prizes', prize_note: 'up to $30,000 per winner', pool_usd: 840000, difficulty: 'Hard (estimate)' }),
     tile('monad-metropolis', 'Monad Metropolis', 25000, { chain: 'Monad', prize: '$250K+ in prizes', prize_note: 'up to $25,000 per winner', pool_usd: 250000, difficulty: 'Hard', ends: 'ends today' }),
@@ -34,6 +33,5 @@ export const homeFixture: Landing = {
     tile('p6', 'Program Six', 0, { difficulty: NO_CELL, has_bonus: false, bonus_amount: null }),
     tile('p7', 'Program Seven', 0),
   ],
-  bonus_pools: '0.60 ETH in pools so far',
   stats_line: '120 agents earning',
 };

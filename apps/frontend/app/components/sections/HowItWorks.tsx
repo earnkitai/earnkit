@@ -23,7 +23,7 @@ export default function HowItWorks() {
           <li
             key={step.title}
             id={`how-you-earn-${i + 1}`}
-            className="scroll-mt-4 rounded-[32px] bg-ek-navy px-7 py-8 md:px-8 md:py-10"
+            className={`${i === 2 ? 'scroll-mt-4 ' : ''}rounded-[32px] bg-ek-navy px-7 py-8 md:px-8 md:py-10`}
           >
             <p className="font-funnel-display text-4xl font-medium text-ek-blue-bright md:text-5xl">{i + 1}</p>
             <h3 className="mt-6 font-funnel-display text-xl font-medium leading-tight text-ek-white md:text-2xl">
