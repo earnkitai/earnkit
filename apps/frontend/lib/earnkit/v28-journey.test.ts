@@ -102,6 +102,15 @@ async function withEnv<T>(env: Record<string, string>, fn: () => Promise<T>) {
 
 type Reply = Record<string, unknown> & { show_to_builder: string };
 
+/** Base as a second program after Arc (Task 9's `first` rule: the bank covered none of these). */
+const BASE_QUESTIONS = [
+  "Base Builder Grant Program: 3 quick questions, then I'll write your application.",
+  '1. Who has used TipJar so far?',
+  '2. What will you ship in the next 3 months? And who is building TipJar with you?',
+  '3. Your full name, email, X and Telegram?',
+  '- How it makes money today, your main challenge right now and the credits you want?',
+].join('\n');
+
 test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the confirmation, the kit and Also qualifies', dbTest, () =>
   withEnv({ TOKENSFUN_DEPLOY_API_KEY: 'test-key', EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET || 'v28-journey-secret' }, async () => {
     const replies: [string, unknown][] = [];
@@ -172,7 +181,6 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     });
     // Ruling 26 (plan): at most 3 questions, only for what only the builder can say. Arc's form has
     // one such field (the public profile; the agent drafts the description), so it asks one.
-    assert.ok(asked.questions.length >= 1 && asked.questions.length <= 3);
     assert.equal(asked.show_to_builder, "Arc Microgrants: 1 quick question, then I'll write your application.\n1. Your public builder profile?");
     assert.ok(!('kit' in asked));
 
@@ -223,15 +231,17 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       recorded.show_to_builder,
     );
 
-    // 7. "Enter it here too" for Base: one round of at most 3 questions. (The brief's "at most 1"
-    //    holds only once the bank answers something the coach would ask, Ruling C15; Arc banked a
-    //    description and a profile link, which Base's questions don't cover.) "Go" there launches
-    //    nothing (one token per repo) and the kit is Base's prefilled Google form link.
+    // 7. "Enter it here too" for Base: one round, pinned. (The brief's "at most 1" holds only once
+    //    the bank answers something the coach would ask: Task 9's `first` rule, accepted in its
+    //    re-review. Arc banked a description and a profile link, which Base's questions don't
+    //    cover, so Base asks 3 and a bullet.) "Go" there launches nothing (one token per repo) and
+    //    the kit is Base's prefilled Google form link.
     const baseAsked = keep('prepare_submission (Base)', (await tools.prepare_submission({ program_id: 'base-builder-grants', project }, ctx)) as Reply & {
       questions?: { keys: string[]; bullet?: boolean }[];
     });
-    assert.ok(baseAsked.show_to_builder.startsWith('Base Builder Grant Program: '), baseAsked.show_to_builder);
-    assert.ok((baseAsked.questions ?? []).filter((q) => !q.bullet).length <= 3, baseAsked.show_to_builder);
+    assert.equal(baseAsked.show_to_builder, BASE_QUESTIONS);
+    assert.equal(baseAsked.questions?.filter((q) => !q.bullet).length, 3);
+    assert.equal(baseAsked.questions?.filter((q) => q.bullet).length, 1);
     assert.ok(!('kit' in baseAsked));
     const baseAnswers: Record<string, string> = {
       full_name: 'Alice Doe',
@@ -264,13 +274,15 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       program_id: 'arc-microgrants',
       round_label: 'Arc Microgrants 2026',
       source_url: 'https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq',
-      captured_at: '2026-10-22',
+      // Today: an announcement only labels entries made by its day (never a date the clock passes).
+      captured_at: new Date().toISOString().slice(0, 10),
+      complete: true,
       results: [
         { repo: repo.replace('https://', ''), result: 'won', prize_usd: 500 },
         { name: 'Someone Else', result: 'won', prize_usd: 500 },
       ],
     });
-    assert.deepEqual(synced, { matched: 1, unmatched: 1 });
+    assert.deepEqual(synced, { matched: 1, unmatched: 1, others: 0 });
     const later = keep('list_programs (later)', (await tools.list_programs({ agent_can_build: true }, ctx)) as Reply & {
       since_you_last_checked?: string;
     });
@@ -286,5 +298,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
       const shown = (r as Reply).show_to_builder;
       assert.deepEqual(coinWords(shown), [], label);
       assert.doesNotMatch(shown, TECHNICAL_TERMS, label);
+      // The kit's own text: never "coin" (field labels are expected there, so no tool-name scan).
+      const kit = (r as { kit?: { show_to_builder?: string } }).kit?.show_to_builder;
+      if (kit) assert.deepEqual(coinWords(kit), [], `${label} kit`);
     }
   }));

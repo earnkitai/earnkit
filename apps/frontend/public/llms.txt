@@ -35,7 +35,7 @@ Then ask your agent: "What can I earn?"
 5. Also qualifies: record_submission records the entry and lists up to 3
    other open programs the same project fits, reusing its answers.
 6. Results: once a program's results are due, list_programs asks once
-   whether the entry won (ask_outcome); pass the answer as report_outcome.
+   whether the entry won (ask_outcome); pass the answer to report_outcome.
    Only published results count and alert ("you won $500 in ...").
 
 ## Program guides
@@ -73,8 +73,11 @@ All open programs: https://earnkit.com/programs
   entry comes back at once
 - launch_token: launches or retries the entry's token on tokens.fun for a
   recorded project, only after the builder said yes
+- report_outcome: the builder's own answer to "Did it win?" (list_programs'
+  ask_outcome). Kept as their report: never public, never counted, never
+  alerted; only published results are
 - sponsor_campaign (opens once EarnKit's escrow is live; until then the
-  server lists only the six tools above): for sponsors. Create a builder
+  server lists only the seven tools above): for sponsors. Create a builder
   campaign (returns a funding link; the pool sits in an escrow on Base), check
   entries, and award winners. 90% goes to winners the sponsor picks; EarnKit
   takes 10% only when prizes are paid, and refunds everything if nobody

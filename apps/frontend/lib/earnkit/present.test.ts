@@ -386,13 +386,13 @@ test('fieldText and endsOf', () => {
   assert.equal(endsOf({ ...arc, summary: '500 USDC' }), 'Oct 15');
 });
 
-test('programUpdates: curated programs by name, sponsored ones counted, nothing on a first check', () => {
+test('programUpdates: sponsored ones counted, closing soon by name, nothing on a first check; new curated programs are alert news only', () => {
   const cards: Card[] = [
     { ...arc, is_new: true },
     { ...tiny, closes_in_days: 1 },
     { ...sponsored, is_new: true },
   ];
-  assert.deepEqual(programUpdates(cards, false), ['new: Arc Microgrants', '1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  assert.deepEqual(programUpdates(cards, false), ['1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
   assert.deepEqual(programUpdates(cards, true), []);
 });
 
@@ -467,7 +467,7 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
   // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
   // above whatever the offer is.
-  assert.match(quiet, new RegExp(`\\n\\nUpdates: new: Arc Microgrants; 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\. ${NO_POOL_RE}$`));
+  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\. ${NO_POOL_RE}$`));
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);

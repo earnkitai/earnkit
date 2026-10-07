@@ -185,20 +185,7 @@ program is never closed under it either.
       the owner gives this rating, and only `Easy`. Builders see just "Easy": no basis, no stat,
       no "rated by" label. Never add a `basis` to it.
 5. Do not add starters. The owner decides those.
-6. For each program whose `results.expected` has passed (or that announced early), read
-   `results.url`. When it names winners, write `programs/outcomes/<program-id>.json` (format and
-   example: `programs/outcomes/README.md`): the round's label, the announcement's https link, today
-   as `captured_at`, and one result per named project, by its repo, name or live link exactly as
-   the announcement gives it. Only what the announcement states: never a builder's own report,
-   never a guessed match, `prize_usd` only when stated. Then add the round to `past_rounds` (step
-   2). When results are late, update `results.expected` only if the source gives a new date;
-   otherwise leave it.
-7. Builders' own reports ("Did TipJar win anything in Arc Microgrants?") are stored privately and
-   never count. They are only a hint to look harder at that program's announcement; only step 6
-   labels an entry.
-8. Run `pnpm programs:check`, then push. Deploy runs `pnpm programs:sync`, which writes the
-   outcome files to the database and prints only counts (`Outcomes arc-microgrants.json: 3
-   matched, 1 unmatched`).
+6. Run `pnpm programs:check`, then push.
 
 ## Weekly re-verification
 
@@ -220,7 +207,23 @@ Once a week, for every active program:
    `FB_PUBLIC_LOAD_DATA_` again). Update the entry ids, `sign_in` and `read_at`. Remove a field
    whose question is gone; if the form moved to a host without prefill, remove `form`. A stale id
    never breaks an entry: that answer just moves to the paste list.
-6. Run `pnpm programs:check`, then push.
+6. Results: for each program whose `results.expected` has passed (or that announced early), read
+   `results.url`. When it names results, write `programs/outcomes/<program-id>.json` (format and
+   example: `programs/outcomes/README.md`): the round's label, the announcement's https link,
+   today as `captured_at`, `complete`, and one result per named project, by its repo, name or
+   live link exactly as the announcement gives it. `complete: true` only when the announcement
+   names every winner of the round (then every other EarnKit entry is labelled `not_selected`);
+   otherwise `false` (the others are labelled `unknown`, which never counts). Only what the
+   announcement states: never a builder's own report, never a guessed match, `prize_usd` only
+   when stated. Never change a committed `round_label`: a new label is a new round. Then add the
+   round to `past_rounds` (step 2). When results are late, update `results.expected` only if the
+   source gives a new date; otherwise leave it.
+7. Builders' own reports ("Did TipJar win anything in Arc Microgrants?") are stored privately and
+   never count. They are only a hint to look harder at that program's announcement; only step 6
+   labels an entry.
+8. Run `pnpm programs:check`, then push. Deploy runs `pnpm programs:sync`, which writes the
+   outcome files to the database and prints only counts (`Outcomes arc-microgrants.json: 3
+   matched, 1 unmatched, 12 others labelled`).
 
 ## "Add this starter to the <Track> track: <idea>"
 

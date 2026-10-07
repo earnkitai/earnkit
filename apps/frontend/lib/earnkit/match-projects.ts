@@ -398,8 +398,11 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
     .map((r) => ({
       repo: r.repo.name,
       repo_url: r.repo.url || null,
-      // v2.8 Ruling 10 (plan): the repo's detected chains, for new program alerts (fit_chains).
-      chains: Object.keys(r.repo.chains) as Chain[],
+      // v2.8 Ruling 10 (plan): the repo's mainnet chains, for new program alerts (fit_chains);
+      // testnet-only never counts as a fit (review minor 6, as cachedRepoChains).
+      chains: Object.entries(r.repo.chains)
+        .filter(([, d]) => d?.mainnet)
+        .map(([c]) => c as Chain),
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
     }))
     .filter((r) => r.verdicts.length > 0)

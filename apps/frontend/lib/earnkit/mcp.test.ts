@@ -51,9 +51,11 @@ const SIX = [
   'list_programs',
   'prepare_submission',
   'record_submission',
+  // v2.8 Ruling C21: the builder's own answer to "Did it win?", its own tool.
+  'report_outcome',
 ];
 
-test('without escrow config the server offers exactly the 6 builder tools', async () => {
+test('without escrow config the server offers exactly the 7 builder tools', async () => {
   assert.deepEqual(await toolNames({}), SIX);
 });
 
@@ -381,4 +383,15 @@ test('v2.8 Part C: confirm_entry is registered, strict, and says the kit is only
   } finally {
     await client.close();
   }
+});
+
+test('v2.8 Ruling C21: list_programs stays read-only; report_outcome is its own tool and says it writes', async () => {
+  const { tools } = await listed({});
+  const list = tools.find((t) => t.name === 'list_programs')!;
+  assert.equal(list.annotations?.readOnlyHint, true);
+  assert.ok(!('report_outcome' in ((list.inputSchema as { properties?: object }).properties ?? {})));
+  const report = tools.find((t) => t.name === 'report_outcome')!;
+  assert.deepEqual(report.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+  assert.deepEqual(Object.keys((report.inputSchema as { properties: object }).properties).sort(), ['prize_usd', 'project_id', 'result']);
+  assert.match(list.description!, /pass their answer to report_outcome/);
 });

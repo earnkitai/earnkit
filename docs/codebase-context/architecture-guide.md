@@ -1804,7 +1804,7 @@ sections above have the details per task; this is how they fit together.
 | Kit | `confirm_entry` only | by host (Ruling 27): prefilled link, agent fills, copy paste (DoraHacks, Questbook), api; proof (Ruling 28) |
 | Record | `record_submission` | updates the confirmed row, no second token flow (Ruling 1) |
 | Also qualifies | `record_submission` | at most 3 rows, the bank fills the rest (Ruling 29) |
-| Outcomes | `programs:sync`, `list_programs` | announcements count; self-reports never (Ruling 30) |
+| Outcomes | `programs:sync`, `list_programs`, `report_outcome` | announcements count; self-reports never (Ruling 30, C21, C22) |
 
 - **The ordering rule (owner, binding).** The ready-to-submit kit (any mode) comes only from
   `confirm_entry` after the builder's "go" or "skip" (Ruling 4). `prepare_submission` never
@@ -1822,19 +1822,25 @@ sections above have the details per task; this is how they fit together.
     `self_reported`.
   - Announcements: the weekly routine commits `programs/outcomes/<program-id>.json` (`OutcomeFile`,
     format in `programs/outcomes/README.md`). `programs:check` validates them (and that the program
-    file exists); `programs:sync` calls `syncOutcomeFile`, which matches each result to the
-    program's entries (`matchOutcome`: repo normalized and decisive; else the live link by host
-    and path; else a name only when exactly one entry has it) and upserts announcement rows. It
-    prints counts only (`Outcomes arc-microgrants.json: 3 matched, 1 unmatched`).
+    file exists); `programs:sync` calls `syncOutcomeFile`. Candidates are the program's submitted
+    entries (the C10 rule) made by the announcement day. Each named result labels every entry it
+    matches (`matchOutcomeAll`: repo normalized and decisive; else the live link by host and path;
+    else a name only when exactly one entry has it). Ruling C22: every other candidate is labelled
+    too, `not_selected` when the file sets `complete: true` (the announcement names every winner),
+    else `unknown`. The file is the truth for its round (re-sync overwrites); a committed
+    `round_label` never changes. It prints counts only (`Outcomes arc-microgrants.json: 3 matched,
+    1 unmatched, 12 others labelled`).
   - Self-report: a program file's `results: { url, expected }` (stored in `programs.results`).
     Once `expected` has passed, `list_programs` picks at most one submitted entry of this
     installation with no outcome and `outcome_asked_at` NULL (`outcomeToAsk`, which sets it in the
     same statement), and returns `ask_outcome` (`project_id`, the question `Did TipJar win anything
-    in Arc Microgrants?`, `ASK_OUTCOME_NOTE`). The agent passes the answer as
-    `list_programs.report_outcome`; `saveSelfReport` stores it as `self_reported` (round label
+    in Arc Microgrants?`, `ASK_OUTCOME_NOTE`); it is read last, after the reply is built. The
+    agent passes the answer to the `report_outcome` tool (Ruling C21: its own tool, not read-only,
+    so `list_programs` keeps `readOnlyHint: true` and "What can I earn?" never needs approval);
+    `saveSelfReport` stores it as `self_reported` (round label
     `builder report`) for the installation's own entry only (another's is `NotFoundError`).
     Self-reports never alert, never count in stats and never show on a public page.
-  - Stats: `labelled_entries` (distinct entries with an announcement row) and `entries_won`
+  - Stats: `labelled_entries` (distinct entries with an announcement row other than `unknown`) and `entries_won`
     (announced `won` or `placed`), both excluding test installations. `WIN_RATE_MIN_LABELLED = 30`
     is documentation only: no code path makes a win-rate claim.
 - **Alerts (Ruling 10; `alerts.ts`).** No new cron: alerts are pulled on the builder's calls.
@@ -1845,12 +1851,14 @@ sections above have the details per task; this is how they fit together.
   - New program lines where campaign lines go: `newProgramLines` over every open curated program.
     A program is news when it opened since tracking began and it fits: its chains overlap
     `installations.fit_chains` (written by `list_programs` from the matched repos' chains,
-    `setFitChains`; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`). At
+    `setFitChains`, mainnet chains only; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`). At
     most `MAX_NEW_PROGRAM_LINES` (3), newest first: `new: Avalanche Team1 Mini Grants (up to
     $10,000, Easy)`. A fitting program over the cap stays unseen and shows next time; one that
     didn't fit when new is marked seen, so a later repo never makes an old program "new". The
     first-ever check is quiet and marks every open program seen; a pre-v2.8 memory (no
-    `newPrograms` list) counts programs opened by its last check as seen.
+    `newPrograms` list) counts programs opened by its last check as seen. The body's "Updates"
+    line (`present.ts programUpdates`) no longer names new curated programs, so a program is
+    announced once per reply; it keeps the new sponsored count and closing-soon lines.
 
 **Owner steps for the v2.8 deploy.**
 
@@ -1859,8 +1867,11 @@ sections above have the details per task; this is how they fit together.
    `outcome_asked_at`; `answer_bank`, `entry_outcomes`; `programs.any_chain`, `investment`,
    `judging`, `submit_host`, `submit_api`, `form`, `results`; `installations.fit_chains`) and the
    one backfill of `complete_at` (Ruling 2), then `programs:sync` loads program and outcome files.
-2. Right after the deploy, the ship step: `scripts/v28-complete-at-window.mts` (see "Builder bonus
-   eligibility and its ship step (v2.8 Task 7)": dry run, then `--apply` if the count is above 0).
+2. Right after the deploy, the ship step (Ruling C7; T0 is when the migration started, from the
+   deploy log): `pnpm exec tsx apps/frontend/scripts/v28-complete-at-window.mts --since <T0 ISO>`
+   (dry run, counts only); if the count is above 0, the same with `--apply`, then the dry run
+   again (`complete entries: 0`). Details: "Builder bonus eligibility and its ship step (v2.8
+   Task 7)".
 3. Point the weekly re-verification routine at `programs/README.md` "Weekly re-verification". It
    now also reads results when `results.expected` passes, writes outcome files, re-reads forms
    and skips Optimism.
@@ -1879,14 +1890,15 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
 3. Say yes with your wallet: "Your token: tokens.fun/coin/…", then the DoraHacks paste list.
 4. Submit on DoraHacks and paste the entry link: "Entered in Arc Microgrants", then "You also
    qualify for:" with Base Builder Grant Program.
-5. Enter Base too: no second token ("Your builder bonus is in Arc Microgrants"), and the kit is a
-   prefilled Google form link.
+5. Enter Base too: its confirmation reads "Builder bonus counts in Arc Microgrants." then "Ready to
+   submit?" (no second token), and the kit is a prefilled Google form link.
 6. Owner screenshot checks (Task 10, Ruling C19), on Base's prefilled link:
    (a) the prefilled answers survive the Google sign-in redirect (if not, set `form.sign_in: true`
    in `programs/base-builder-grants.json`, which makes Base `agent_fills` or `copy_paste`);
-   (b) the `primary_challenge` checkbox options, which stay in the paste list;
-   (c) Monad's entry-link host for the proof (`ENTRY_LINK_HOSTS`).
-7. After Arc's results are due (`results.expected`, 2026-10-21): "What can I earn?" asks "Did
+   (b) the `primary_challenge` checkbox options, which stay in the paste list.
+7. Owner check (c), on Monad Metropolis: after submitting, the entry link's host matches
+   `ENTRY_LINK_HOSTS` (`submit-hosts.ts`), so the kit asks for the entry link as proof.
+8. After Arc's results are due (`results.expected`, 2026-10-21): "What can I earn?" asks "Did
    \<name\> win anything in Arc Microgrants?" once. Once the weekly routine commits the outcome
    file and it deploys, a sourced win leads the next reply: "Since you last checked: you won $500
    in Arc Microgrants with \<name\>."

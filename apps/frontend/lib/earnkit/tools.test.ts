@@ -1524,7 +1524,7 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
   }));
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): the outcome question, asked once; the builder's answer.
-test('12 list_programs: ask_outcome once after results are due; report_outcome stores a self-report for the own entry only', dbTest, async () => {
+test('12 list_programs: ask_outcome once after results are due; the report_outcome tool stores a self-report for the own entry only', dbTest, async () => {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants');
   const due = { ...arc, id: `t12-due-${stamp}`, title: `Arc Due ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', results: { url: arc.source_url, expected: '2026-01-01' } };
@@ -1544,7 +1544,7 @@ test('12 list_programs: ask_outcome once after results are due; report_outcome s
   await entry(later.id, mine, 'TooEarly'); // results not due yet
   const theirs = await entry(due.id, other, 'Theirs');
   const ctx = { installationId: mine, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
-  type Listed = { ask_outcome?: { project_id: number; question: string; agent_note: string }; outcome_saved?: boolean };
+  type Listed = { ask_outcome?: { project_id: number; question: string; agent_note: string } };
   try {
     const first = (await tools.list_programs({}, ctx)) as Listed;
     assert.deepEqual(first.ask_outcome && { ...first.ask_outcome, agent_note: undefined }, {
@@ -1556,23 +1556,46 @@ test('12 list_programs: ask_outcome once after results are due; report_outcome s
     // Asked once: not on the next call.
     const second = (await tools.list_programs({}, ctx)) as Listed;
     assert.ok(!('ask_outcome' in second));
-    // The answer: stored as the builder's own report.
-    const saved = (await tools.list_programs({ report_outcome: { project_id: tipjar, result: 'won', prize_usd: 500 } }, ctx)) as Listed;
-    assert.equal(saved.outcome_saved, true);
+    // Ruling C21: list_programs takes no answer (it stays read-only); report_outcome stores it.
+    await assert.rejects(tools.list_programs({ report_outcome: { project_id: tipjar, result: 'won' } }, ctx));
+    const saved = (await tools.report_outcome({ project_id: tipjar, result: 'won', prize_usd: 500 }, ctx)) as { saved: boolean; agent_note: string };
+    assert.equal(saved.saved, true);
     const rows = await sql()<{ basis: string; result: string; prize_usd: string }[]>`
       SELECT basis, result, prize_usd::text FROM entry_outcomes WHERE project_id = ${tipjar}`;
     assert.deepEqual([...rows], [{ basis: 'self_reported', result: 'won', prize_usd: '500' }]);
     // Another installation's entry: refused, nothing stored.
     await assert.rejects(
-      tools.list_programs({ report_outcome: { project_id: theirs, result: 'won' } }, ctx),
+      tools.report_outcome({ project_id: theirs, result: 'won' }, ctx),
       (err: Error) => err.constructor.name === 'NotFoundError',
     );
     assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${theirs}`)[0].n, 0);
-    // A self-report never alerts: the wins in this reply's alerts come from announcements only.
-    assert.doesNotMatch(JSON.stringify(saved), /you won \$500/);
+    // A self-report never alerts: the wins in the next reply come from announcements only.
+    const next = (await tools.list_programs({}, ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(next.show_to_builder, /you won \$500/);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id IN (${due.id}, ${later.id})`;
     await sql()`DELETE FROM installations WHERE id IN (${mine}, ${other})`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${due.id}, ${later.id})`;
+  }
+});
+
+// ---- v2.8 Task 12 review finding 3: a newly listed program is announced once per reply.
+test('12 list_programs: a new fitting program shows exactly once (the alert), never again in Updates', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t12-new-${stamp}`}) RETURNING id`;
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  const base = committedProgram('base-builder-grants');
+  const p = { ...base, id: `t12-new-${stamp}`, title: `Fresh Base ${stamp}`, status: 'active', form: undefined };
+  try {
+    await tools.list_programs({}, ctx); // the first check: quiet, marks every open program seen
+    await sql()`UPDATE installations SET fit_chains = '{base}' WHERE id = ${inst}`;
+    await upsertProgram(ProgramFile.parse(p));
+    const r = (await tools.list_programs({}, ctx)) as { show_to_builder: string };
+    const count = r.show_to_builder.split(`new: ${p.title}`).length - 1;
+    assert.equal(count, 1, r.show_to_builder);
+    assert.match(r.show_to_builder, new RegExp(`^Since you last checked: .*new: ${p.title} \\(up to \\$5,000, Easy\\)`));
+  } finally {
+    await sql()`DELETE FROM installations WHERE id = ${inst}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
   }
 });

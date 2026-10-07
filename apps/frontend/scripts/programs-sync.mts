@@ -93,7 +93,7 @@ for (const { f, result } of parsed) {
 }
 const { syncOutcomeFile } = await import('../lib/earnkit/outcomes');
 for (const { f, result } of outcomes) {
-  const { matched, unmatched } = await syncOutcomeFile(result.data!);
-  console.log(`Outcomes ${f}: ${matched} matched, ${unmatched} unmatched`);
+  const { matched, unmatched, others } = await syncOutcomeFile(result.data!);
+  console.log(`Outcomes ${f}: ${matched} matched, ${unmatched} unmatched, ${others} others labelled`);
 }
 await sql().end();

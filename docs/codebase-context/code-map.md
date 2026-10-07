@@ -387,9 +387,11 @@ apps/frontend/
     http.ts(+test)             CORS + small response helpers; secretMatches, bearerMatches
                                (timing-safe; v2.4 cron and veto)
     tools.ts                   tool name -> handler + input validation (+ caller's installation);
-                               v2.8 Task 12: list_programs takes report_outcome (saveSelfReport first),
-                               writes fit_chains (setFitChains) after matching, and returns
-                               ask_outcome (outcomeToAsk, ASK_OUTCOME_NOTE) at most once per entry;
+                               v2.8 Task 12: list_programs writes fit_chains (setFitChains) after
+                               matching and returns ask_outcome (outcomeToAsk, read last,
+                               ASK_OUTCOME_NOTE) at most once per entry; Ruling C21: report_outcome
+                               is its own tool (saveSelfReport; MCP readOnlyHint false) so
+                               list_programs stays read-only;
                                v2.8 Task 8: confirm_entry (the confirmation step: offer, or startEntry +
                                confirmToken + submitKit); prepare_submission ends with the offer, returns
                                token_line, never a kit or submission_url; record_submission reports a
@@ -556,9 +558,11 @@ apps/frontend/
                                only, MAX_OUTCOME_WIN_LINES = 3, AlertState.outcomes), newProgramLines
                                (Ruling 10: open curated programs that fit fit_chains or are Easy,
                                MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms)
-    outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile, matchOutcome (repo,
-                               then live link, then a unique name), winLine, ReportOutcome,
-                               outcomeQuestion, syncOutcomeFile (announcement upserts, counts only),
+    outcomes.ts(+test)         v2.8 Task 12, Part G, Ruling 30: OutcomeFile (complete, Ruling C22),
+                               matchOutcomeAll/matchOutcome (repo, then live link, then a unique
+                               name), winLine, ReportOutcome, outcomeQuestion, syncOutcomeFile
+                               (labels every submitted entry by the announcement day: named results,
+                               the rest not_selected when complete else unknown; counts only),
                                saveSelfReport (own entry only, NotFoundError otherwise), outcomeToAsk
                                (one submitted entry per call after results.expected; sets
                                outcome_asked_at). Self-reports never alert or count
@@ -673,8 +677,8 @@ apps/frontend/
                                bonus_pools_eth (open rounds' `destination = 'round'` bookings, test installations' coins
                                excluded, final review M7), STATS_LABELS.coins_launched
                                = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats;
-                               v2.8 Ruling 30: labelled_entries and entries_won (announcement rows of
-                               entry_outcomes only, test installations excluded), WIN_RATE_MIN_LABELLED = 30
+                               v2.8 Ruling 30: labelled_entries (never 'unknown', C22) and entries_won
+                               (announcement rows of entry_outcomes only, test installations excluded), WIN_RATE_MIN_LABELLED = 30
                                (documentation only, no win-rate claim)
     bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
                                with eligibility in words; review/paying/paid: frozen bonus_payouts

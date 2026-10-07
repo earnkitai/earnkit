@@ -85,9 +85,17 @@ const LIST_PROGRAMS_DESCRIPTION =
   'its difficulty; the token and builder bonus line closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
-  'When the reply has ask_outcome, ask the builder its question once and pass their answer as ' +
-  'report_outcome on your next list_programs call. ' +
+  'When the reply has ask_outcome, ask the builder its question once and pass their answer to report_outcome. ' +
   SAFETY_TEXT;
+
+/**
+ * v2.8 Ruling C21: report_outcome is its own tool, so list_programs stays read-only (no approval
+ * prompt on "What can I earn?").
+ */
+const REPORT_OUTCOME_DESCRIPTION =
+  "Stores the builder's answer to list_programs' ask_outcome question (did their entry win?) for their own entry. " +
+  'Call it only with what the builder said; pass nothing when they do not know yet. It is kept as their own report: ' +
+  'it never shows publicly, never counts in EarnKit numbers, and never triggers a win alert (only published results do).';
 
 /**
  * v2.8 Ruling 23 (plan): record_submission's description. Its campaign sentences show only while an
@@ -205,7 +213,7 @@ const SPONSOR_CAMPAIGN_DESCRIPTION =
   SAFETY_TEXT;
 
 /**
- * v2.6 §3 fix round 1 (M4): all seven tool descriptions, agent-facing. v2.8 Ruling 23 (plan): the
+ * v2.6 §3 fix round 1 (M4): every tool description, agent-facing. v2.8 Ruling 23 (plan): the
  * campaign sentences in record_submission and prepare_submission only while an EarnKit campaign is
  * open. Pure.
  */
@@ -217,6 +225,7 @@ export function toolDescriptions(campaignOpen: boolean) {
     record_submission: recordSubmissionDescription(campaignOpen),
     confirm_entry: CONFIRM_ENTRY_DESCRIPTION,
     launch_token: LAUNCH_TOKEN_DESCRIPTION,
+    report_outcome: REPORT_OUTCOME_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
 }
@@ -321,14 +330,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
-        report_outcome: z
-          .object({
-            project_id: z.number().int().positive().describe("ask_outcome's project_id"),
-            result: z.enum(['won', 'placed', 'finalist', 'not_selected']),
-            prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
-          })
-          .optional()
-          .describe("The builder's answer to ask_outcome's question. Stored as their own report; never shown publicly."),
       },
       annotations: { readOnlyHint: true },
     },
@@ -542,8 +543,26 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'launch_token', input),
   );
 
+  // v2.8 Ruling C21: the builder's own answer to "Did it win?". It writes, so it is not read-only;
+  // list_programs stays read-only.
+  server.registerTool(
+    'report_outcome',
+    {
+      description: descriptions.report_outcome,
+      inputSchema: z
+        .object({
+          project_id: z.number().int().positive().describe("ask_outcome's project_id"),
+          result: z.enum(['won', 'placed', 'finalist', 'not_selected']),
+          prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
+        })
+        .strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    (input) => run(ctx, 'report_outcome', input),
+  );
+
   // Sponsor campaigns are offered only once EarnKit's escrow is configured on this deployment
-  // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 5 builder
+  // (ESCROW_FACTORY_ADDRESS set, ESCROW_CHAIN valid). Until then the server has the 7 builder
   // tools, so no agent is ever offered a tool that can only fail.
   const escrowProblem = escrowConfigProblem();
   if (escrowProblem && process.env.ESCROW_FACTORY_ADDRESS)

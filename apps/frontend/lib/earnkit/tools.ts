@@ -301,15 +301,16 @@ const ListProgramsInput = z
       .string()
       .regex(/^0x[0-9a-fA-F]{40}$/, 'wallet must be a 0x address of 40 hex characters; pass the builder wallet or leave it out.')
       .optional(),
-    /** v2.8 Part G, Ruling 30 (plan): the builder's answer to ask_outcome's question. */
-    report_outcome: ReportOutcome.optional(),
   })
   .strict();
 
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. */
 export const ASK_OUTCOME_NOTE =
   'Results for this entry were due. After showing show_to_builder, ask the builder this question once, as written. ' +
-  "Pass their answer on the next list_programs call as report_outcome (this project_id, the result, and prize_usd if they won money). If they don't know yet, pass nothing.";
+  "Then call report_outcome with this project_id, their result, and prize_usd if they won money. If they don't know yet, call nothing.";
+
+/** v2.8 Ruling C21: report_outcome's note to the agent. */
+export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
 
 const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
 export const SponsorCampaignInput = z.discriminatedUnion('action', [
@@ -356,10 +357,8 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, report_outcome } =
+    const { agent_can_build, github_user, repos, local_repos, wallet } =
       ListProgramsInput.parse(input ?? {});
-    // v2.8 Ruling 30 (plan): the builder's answer first; another installation's entry is NotFoundError.
-    if (report_outcome) await saveSelfReport(ctx.installationId, report_outcome);
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
     const [memory, programs, campaigns] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
@@ -440,12 +439,6 @@ export const tools = {
       bonus_closed: pools.has(c.id) && pools.get(c.id) === null,
     }));
     const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
-    // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Never
-    // fails the tool (the entry is then asked on a later call).
-    const ask = await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
-      console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
-      return null;
-    });
 
     const show_to_builder = presentFirstMessage({
       alerts: alerts.lines,
@@ -459,6 +452,14 @@ export const tools = {
       sponsorEntries: entries.section,
       now: new Date(),
       repoCoins,
+    });
+
+    // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
+    // last (review minor 11), so nothing after marking it asked can lose the question. Never fails
+    // the tool (the entry is then asked on a later call).
+    const ask = await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
+      console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
+      return null;
     });
 
     return {
@@ -479,7 +480,6 @@ export const tools = {
           agent_note: ASK_OUTCOME_NOTE,
         },
       }),
-      ...(report_outcome && { outcome_saved: true }),
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
@@ -997,6 +997,16 @@ export const tools = {
       show_to_builder,
       ...(also?.rows.length && { also_qualifies: also.rows }),
     });
+  },
+
+  // v2.8 Ruling C21: the builder's own answer to ask_outcome's question, for their own entry only
+  // (another installation's is NotFoundError). Kept apart so list_programs stays read-only.
+  report_outcome: async (input: unknown, ctx: ToolContext) => {
+    await saveSelfReport(ctx.installationId, ReportOutcome.parse(input));
+    return {
+      saved: true,
+      agent_note: OUTCOME_SAVED_NOTE,
+    };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>

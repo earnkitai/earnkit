@@ -255,16 +255,16 @@ export type YourRepos =
 export const youCould = (repos: YourRepos | null, githubGiven: boolean) => repos === null && !githubGiven;
 
 /**
- * Program news for the body (never "Since you last checked", I7): new curated ones by name, new
- * sponsored ones counted (re-audit H4), curated ones closing within 3 days. None on a first check.
- * Pure.
+ * Program news for the body (never "Since you last checked", I7): new sponsored ones counted
+ * (re-audit H4), curated ones closing within 3 days. None on a first check. v2.8 Task 12 review
+ * finding 3: new curated programs are the alerts' news only (newProgramLines, Ruling 10: fit or
+ * Easy, at most 3), so a program is never announced twice in one reply. Pure.
  */
 export function programUpdates(cards: Card[], firstCheck: boolean): string[] {
   if (firstCheck) return [];
   const named = cards.filter((c) => !c.sponsored);
   const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
   return [
-    ...named.filter((c) => c.is_new).map((c) => `new: ${c.title}`),
     ...(sponsoredNew > 0
       ? [`${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`]
       : []),
