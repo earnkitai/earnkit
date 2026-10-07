@@ -562,6 +562,9 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS confirmed_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS confirm_choice text;
 ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_confirm_choice_check;
 ALTER TABLE projects ADD CONSTRAINT projects_confirm_choice_check CHECK (confirm_choice IN ('go', 'skip'));
+-- v2.8 Ruling C11: a token link the builder typed on an older entry, kept when "go" at the
+-- confirmation step makes way for EarnKit's token. Never shown as EarnKit's token or on a public page.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS own_token_url text;
 -- The first time the entry's answers and links were complete (the v2.7 C7 gate, now on eligibility).
 -- The one backfill: every token launched before v2.8 passed C7 or predates it. This file runs
 -- before EVERY deploy, so the backfill runs only in the run that creates the column: run again, it

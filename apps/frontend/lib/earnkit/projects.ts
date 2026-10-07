@@ -914,8 +914,8 @@ export async function ownEntryWallet(k: { programId: string; installationId: num
  * except that a row from before v2.8 gets one.
  *
  * Fix round 1 (item 2): a token link the builder typed (an older entry) is not EarnKit's token. It
- * is never returned as `token_url`, and a "go" clears it so EarnKit's token can launch (one per repo
- * still holds at the claim).
+ * is never returned as `token_url`, and a "go" moves it to `own_token_url` (Ruling C11: kept, never
+ * shown as EarnKit's token) so EarnKit's token can launch (one per repo still holds at the claim).
  */
 export async function startEntry(a: {
   program: ProgramRow;
@@ -948,6 +948,12 @@ export async function startEntry(a: {
             WHEN ${choice} = 'skip' AND ${earnkit()} THEN 'go'
             WHEN confirm_choice IS NULL OR NOT ${locked()} THEN ${choice}
             ELSE confirm_choice END,
+          -- Ruling C11: never erase builder data. The typed link moves to own_token_url (the old
+          -- value: SET reads the row as it was), never shown as EarnKit's token or on a public page.
+          own_token_url = CASE
+            WHEN ${choice} = 'go' AND token_url IS NOT NULL AND NOT ${earnkit()}
+              AND NOT (confirm_choice IS NOT DISTINCT FROM 'skip' AND ${locked()}) THEN token_url
+            ELSE own_token_url END,
           token_url = CASE
             WHEN ${choice} = 'go' AND token_url IS NOT NULL AND NOT ${earnkit()}
               AND NOT (confirm_choice IS NOT DISTINCT FROM 'skip' AND ${locked()}) THEN NULL
