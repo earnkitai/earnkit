@@ -3,6 +3,7 @@ import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
 import { amountStated, poolStated } from './pool';
+import { apiPlatformOf, prefillKindOf, urlHost } from './submit-hosts';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -348,6 +349,22 @@ export const Judging = z
   .strict();
 export type Judging = z.infer<typeof Judging>;
 
+/**
+ * v2.8 Ruling 8 (plan): a public form's field ids, read once at listing from the public form
+ * (read-only; nothing is submitted) and re-read by the weekly routine. Never fetched at request time.
+ * `fields` maps requirement keys to `entry.<n>` (Google), the field name (Airtable) or the URL
+ * parameter (Tally). `sign_in`: true when the form needs a Google sign-in or has a file question.
+ */
+const SubmitForm = z
+  .object({
+    url: HttpsSource,
+    fields: z.record(z.string().regex(/^[a-z0-9_]+$/), z.string().min(1).max(200)),
+    sign_in: z.boolean(),
+    read_at: z.string().date(),
+  })
+  .strict();
+export type SubmitForm = z.infer<typeof SubmitForm>;
+
 export const ProgramFile = z
   .object({
     id: slug,
@@ -481,6 +498,18 @@ export const ProgramFile = z
     winners_per_round: z.number().int().positive().nullable().optional(),
     /** v2.8 Part D.4: set only where the source states judging criteria. */
     judging: Judging.optional(),
+    /**
+     * v2.8 Ruling 27 (plan): the form's host when it isn't submission_url's (e.g. a program page
+     * that links to a DoraHacks form). It picks the submit mode and the proof.
+     */
+    submit_host: z
+      .string()
+      .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/, 'submit_host is a bare lowercase host like "dorahacks.io"')
+      .optional(),
+    /** v2.8 Ruling 27 (plan): the listing confirmed agents may submit through the platform's agent API. */
+    submit_api: z.boolean().default(false),
+    /** v2.8 Ruling 8 (plan): a Google, Airtable or Tally form's field ids, for the prefilled link. */
+    form: SubmitForm.optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
@@ -507,6 +536,23 @@ export const ProgramFile = z
     }
 
     const keys = p.submission_requirements.map((r) => r.key);
+
+    // v2.8 Rulings 8, 27 (plan): the submit host, the agent API and the prefilled form.
+    const host = p.submit_host ?? urlHost(p.submission_url);
+    if (p.submit_api && !apiPlatformOf(host)) issue(`submit_api is only for a host with an agent API (Superteam Earn, Karma GAP), not ${host}`);
+    if (p.form) {
+      const formHost = urlHost(p.form.url);
+      if (formHost === 'forms.gle') issue('form.url must be the full viewform link');
+      else if (!prefillKindOf(host) || prefillKindOf(formHost) !== prefillKindOf(host))
+        issue('form is only for a Google, Airtable or Tally form on the submit host');
+      else if (formHost === 'docs.google.com' && !/^\/forms\/d\/e\/[\w-]+\/viewform$/.test(new URL(p.form.url).pathname))
+        issue('form.url must be the full viewform link');
+      else if (new URL(p.form.url).search) issue('form.url has no query string');
+      for (const k of Object.keys(p.form.fields)) if (!keys.includes(k)) issue(`form.fields key "${k}" is not a submission requirement key`);
+      if (formHost === 'docs.google.com')
+        for (const [k, v] of Object.entries(p.form.fields)) if (!/^entry\.\d+$/.test(v)) issue(`form.fields.${k} must be "entry.<number>"`);
+    }
+
     if (p.campaign) {
       for (const k of Object.values(CAMPAIGN_KEYS)) {
         if (!keys.includes(k))

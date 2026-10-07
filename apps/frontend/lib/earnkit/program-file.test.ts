@@ -655,3 +655,44 @@ test('v2.8 Ruling 9: requirementsWithoutKind lists keys without a kind; every co
     assert.deepEqual(requirementsWithoutKind(p), [], f);
   }
 });
+
+// ---- v2.8 Task 10, Rulings 8 and 27 (plan): submit_host, submit_api and the prefilled form.
+const programJson = (name: string) =>
+  JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', `${name}.json`), 'utf8'));
+const issues = (p: unknown) => {
+  const r = ProgramFile.safeParse(p);
+  return r.success ? [] : r.error.issues.map((i) => i.message);
+};
+
+test('10.10 the committed Base file carries its Google form: full viewform link, requirement keys, entry ids', () => {
+  const base = ProgramFile.parse(programJson('base-builder-grants'));
+  assert.ok(base.form);
+  assert.match(base.form.url, /^https:\/\/docs\.google\.com\/forms\/d\/e\/[\w-]+\/viewform$/);
+  assert.equal(base.form.sign_in, false);
+  const keys = base.submission_requirements.map((r) => r.key);
+  for (const [k, v] of Object.entries(base.form.fields)) {
+    assert.ok(keys.includes(k), k);
+    assert.match(v, /^entry\.\d+$/);
+  }
+  assert.equal(base.submit_api, false);
+});
+
+test('10.10 form: https, requirement keys only, never a forms.gle link; submit_api only on an agent-API host', () => {
+  const base = programJson('base-builder-grants');
+  assert.deepEqual(issues(base), []);
+  assert.ok(issues({ ...base, form: { ...base.form, url: 'http://docs.google.com/forms/d/e/1FAIpQ/viewform' } }).length > 0, 'https');
+  assert.ok(issues({ ...base, form: { ...base.form, fields: { nope: 'entry.1' } } }).includes('form.fields key "nope" is not a submission requirement key'));
+  assert.ok(issues({ ...base, form: { ...base.form, url: 'https://forms.gle/urqjBJYJjR6Vqqre6' } }).includes('form.url must be the full viewform link'));
+  assert.ok(issues({ ...base, form: { ...base.form, url: 'https://docs.google.com/forms/d/e/1FAIpQ/viewform?usp=send_form' } }).length > 0, 'no query string');
+  assert.ok(issues({ ...base, form: { ...base.form, fields: { email: 'emailAddress' } } }).includes('form.fields.email must be "entry.<number>"'));
+  // A form on a host that isn't a Google, Airtable or Tally form.
+  const arc = programJson('arc-microgrants');
+  assert.ok(issues({ ...arc, form: { url: 'https://tally.so/r/abc', fields: {}, sign_in: false, read_at: '2026-10-07' } }).length > 0);
+  // Tally on a Tally host is fine.
+  assert.deepEqual(issues({ ...arc, submission_url: 'https://tally.so/r/abc', form: { url: 'https://tally.so/r/abc', fields: {}, sign_in: false, read_at: '2026-10-07' } }), []);
+  // submit_api only where the platform has an agent API.
+  assert.ok(issues({ ...arc, submit_api: true }).some((m) => m.startsWith('submit_api is only for a host with an agent API')));
+  assert.deepEqual(issues({ ...arc, submission_url: 'https://superteam.fun/earn/listing/x', submit_api: true }), []);
+  assert.deepEqual(issues({ ...arc, submit_host: 'gap.karmahq.xyz', submit_api: true }), []);
+  assert.ok(issues({ ...arc, submit_host: 'https://dorahacks.io' }).length > 0, 'a bare host');
+});

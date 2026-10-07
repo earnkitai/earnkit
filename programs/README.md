@@ -110,6 +110,32 @@ program is never closed under it either.
      must hold (`link`, `number` or `date`) and the exact thing to add, lowercase, no final period
      (e.g. `{ "kind": "solution", "needs": "link", "add": "link the contract on the Arc explorer" }`,
      shown as "<that field>: link the contract on the Arc explorer."). Never invent a criterion.
+   - How the entry is submitted (the submit kit, which only comes after the builder confirms):
+     the mode follows the form's host. Google Forms, Airtable and Tally get a prefilled link;
+     ETHGlobal, Devfolio, Colosseum, Monad's hackathon site, Akindo and TAIKAI are filled in the
+     builder's own browser by an agent that has a browser tool (it stops at login, captcha, wallet
+     signing and file uploads; the builder clicks submit); DoraHacks and Questbook are always a
+     paste list (their terms ban automated filling); Superteam Earn and Karma GAP can use their
+     agent API. Any other host is a paste list.
+     - `submit_host` (optional): the form's bare host (e.g. `"dorahacks.io"`) when it isn't
+       `submission_url`'s host.
+     - `submit_api` (optional): `true` only on Superteam Earn or Karma GAP, and only when the
+       listing itself allows agents to submit (Superteam: `agentAccess` AGENT_ALLOWED or
+       AGENT_ONLY). `programs:check` refuses it on any other host.
+     - `form` (Google Forms, Airtable or Tally only): read the public form once, here, and store its
+       field ids. Never submit it, never fill it in, never sign in to read it.
+       - Google Forms: resolve a `forms.gle` link first (`curl -sIL <link>`, take the last
+         `location`). `url` is the full `https://docs.google.com/forms/d/e/<id>/viewform`, with no
+         query string. GET that page (read only) and read `FB_PUBLIC_LOAD_DATA_` with a small
+         throwaway script (not committed): each question is `[id, title, description, type,
+         [[entry_id, options, required]]]`. Match each question title to its requirement and write
+         `"<key>": "entry.<entry_id>"`. Leave out a checkbox question (type 4) whose requirement is
+         free text, a grid, and any question you can't match: they stay in the paste list.
+       - Airtable: `fields` maps keys to the form's field names (sent as `prefill_<Field Name>`).
+       - Tally: `fields` maps keys to the form's URL parameter names.
+       - `sign_in`: `true` when the form asks for a Google sign-in (verified email, one response
+         per person) or has a file question; it is then filled in the browser instead.
+       - `read_at`: today's date (`YYYY-MM-DD`).
 4. Past winners and focus (the program guide page and `get_program`'s "best bet"):
    1. Research past rounds on the program's own winner announcements, DoraHacks, Colosseum,
       Devfolio, and the ecosystem's blog or X.
@@ -169,7 +195,11 @@ Once a week, for every active program:
    Grants: the accepted and submitted proposal counts on circle.questbook.app move every week).
    If it can't be re-confirmed, remove the override. Leave an EarnKit rating (`rated_by`) as it
    is: it is the owner's, not a count.
-5. Run `pnpm programs:check`, then push.
+5. Re-read a program's `form` the same way as at listing (Google: resolve the link, read
+   `FB_PUBLIC_LOAD_DATA_` again). Update the entry ids, `sign_in` and `read_at`. Remove a field
+   whose question is gone; if the form moved to a host without prefill, remove `form`. A stale id
+   never breaks an entry: that answer just moves to the paste list.
+6. Run `pnpm programs:check`, then push.
 
 ## "Add this starter to the <Track> track: <idea>"
 

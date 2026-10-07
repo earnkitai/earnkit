@@ -1694,7 +1694,28 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   submit: …" and every missing or invalid required answer is a "(still needed)" blank, never
   dropped. `prepare_submission`'s `complete` no longer carries the values; `proof` is `entry_link` for
   DoraHacks, ETHGlobal, Devfolio, Colosseum, Akindo, TAIKAI and Karma, else `confirmation`
-  (Ruling 28). Task 10 adds the other modes.
+  (Ruling 28).
+- **Submit modes** (Task 10, Part E, Rulings 7, 8, 27 (plan); `submit-hosts.ts` holds the
+  registry, pure and import-free so `program-file.ts` can validate against it). `hostOf` is the
+  file's `submit_host`, else `submission_url`'s host without `www.`. `submitModeFor` starts from
+  `HOST_MODES` (Google Forms, `forms.gle`, Airtable, Tally: `prefilled_link`; ETHGlobal, Devfolio,
+  Colosseum, Monad's hackathon site, Akindo, TAIKAI: `agent_fills`; DoraHacks and any
+  `*.questbook.app`: `copy_paste`; Superteam Earn, Karma GAP: `api`; any other host: `copy_paste`),
+  then: no `form` data means paste; a form with `sign_in` is filled in the browser; `api` needs the
+  file's `submit_api`, else the browser; no `agent.browser` means paste; DoraHacks and Questbook
+  are always paste (their terms ban automated use).
+  - `prefilled_link`: `googlePrefill` / `airtablePrefill` / `tallyPrefill` build the URL from the
+    file's `form.fields` (requirement key to `entry.<n>`, Airtable field name, or Tally parameter).
+    A choice not exactly one of its options, a file, a key the form no longer has, and anything
+    past `MAX_PREFILL_URL` (8000) go to `paste`. The form ids are read once at listing from the
+    public form (`programs/README.md`) and re-read weekly; never fetched at request time.
+  - `agent_fills`: `agent_steps` is `AGENT_FILL_STEPS` (the builder's own browser; stop at login,
+    captcha, wallet signing and uploads; never click submit). `paste` is the file fields and blanks.
+  - `api`: `api: { platform, payload }`, the answers by key. The key is the builder's agent's own;
+    nothing in the kit or any EarnKit call carries one.
+  - Builder text names no tools or fields; the agent's instructions are `kitAgentNote`, joined
+    into confirm_entry's `agent_note`. Every mode ends with the proof ask. Columns:
+    `programs.submit_host`, `submit_api`, `form` (additive).
 - **The public bonus board** (Ruling C10, `bonus-board.ts`) lists a confirmed entry only once it
   is submitted: a recorded submission (a `submissions` row), the builder's word, or a proof.
 - **record_submission** on a confirmed row updates it (answers, proof, `builder_submitted`) and

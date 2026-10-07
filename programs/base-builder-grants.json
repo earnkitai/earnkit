@@ -251,5 +251,27 @@
     "level": "Easy",
     "rated_by": "earnkit",
     "source_url": "https://docs.base.org/get-started/builders"
+  },
+  "form": {
+    "url": "https://docs.google.com/forms/d/e/1FAIpQLSeEFi9BLm5XCm7KrFzRZC-rxcAqCNZPzWZ9He4aZkxsKuRXjw/viewform",
+    "fields": {
+      "full_name": "entry.100652540",
+      "email": "entry.567744978",
+      "x_handle": "entry.57269102",
+      "telegram": "entry.1412451360",
+      "project_name_description": "entry.736699383",
+      "founding_team": "entry.2135613942",
+      "live_product_url": "entry.1792418505",
+      "demo_loom": "entry.1167675868",
+      "contract_address": "entry.1872809856",
+      "track": "entry.1495021877",
+      "usage_numbers": "entry.1765671176",
+      "revenue": "entry.612337056",
+      "gtm_plan": "entry.158694497",
+      "builder_code": "entry.703891879",
+      "credits": "entry.1350986773"
+    },
+    "sign_in": false,
+    "read_at": "2026-10-07"
   }
 }

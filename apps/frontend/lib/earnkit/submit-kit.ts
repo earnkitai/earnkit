@@ -1,29 +1,43 @@
 import type { ProgramRow } from './programs';
+import type { SubmissionRequirement } from './program-file';
 import { todoOf } from './entry-text';
+import {
+  ENTRY_LINK_HOSTS,
+  HOST_MODES,
+  apiPlatformOf,
+  baseModeOf,
+  isNoAgentHost,
+  prefillKindOf,
+  urlHost,
+  type SubmitMode,
+} from './submit-hosts';
+
+export { ENTRY_LINK_HOSTS, HOST_MODES, type SubmitMode };
 
 /**
- * v2.8 Part E (spec) and Rulings 27-28 (plan): the hand-off to the program's own form. Returned
+ * v2.8 Part E (spec) and Rulings 7, 8, 27-28 (plan): the hand-off to the program's own form. Returned
  * ONLY by confirm_entry, after the builder passed the confirmation (the owner's ordering rule).
- * Task 8 builds the copy_paste kit; Task 10 adds the prefilled link, agent filling and the api modes.
- * Pure.
+ * Four modes, by the form's host: a prefilled link (Google Forms, Airtable, Tally), the agent filling
+ * the form in the builder's own browser, a paste list, or the platform's agent API with the
+ * builder's own key. EarnKit never holds credentials, never solves a captcha and never submits:
+ * the builder always clicks submit. Pure.
  */
 
-export type SubmitMode = 'prefilled_link' | 'agent_fills' | 'copy_paste' | 'api';
 /** `missing`: a required answer still to fill (`answer` is ''), shown as a marked blank. */
 export type KitField = { key: string; label: string; answer: string; missing?: true };
 export type SubmitKit = {
   mode: SubmitMode;
   /** The program's submission_url. */
   url: string;
-  /** Task 10. */
+  /** prefilled_link: the form with every answer that fits in its URL. */
   prefilled_url?: string;
   /** Every answer, in form order. */
   fields: KitField[];
-  /** The fields the builder (or agent) still enters by hand. */
+  /** The fields the builder enters by hand (or, agent_fills, adds or uploads themselves), in form order. */
   paste: KitField[];
-  /** Task 10. */
+  /** agent_fills: AGENT_FILL_STEPS. */
   agent_steps?: string[];
-  /** Task 10. */
+  /** api: the answers by requirement key, sent with the builder's own agent key (never in the kit). */
   api?: { platform: 'superteam' | 'karma'; payload: Record<string, string> };
   proof: { kind: 'entry_link' | 'confirmation'; ask: string };
   /** v2.8 Ruling C9: the required answers still missing, as short to-dos (todoOf), in form order. */
@@ -34,13 +48,16 @@ export type SubmitKit = {
 /** Ruling C9: how a required answer still missing shows in the paste list. */
 export const STILL_NEEDED = '(still needed)';
 
-/** Ruling 8 (plan): a public form's field ids, read once at listing (Task 10 fills it in). */
-export type ProgramForm = {
-  url: string;
-  fields: Record<string, string>;
-  sign_in?: boolean;
-  read_at?: string;
-};
+/**
+ * Ruling 8 (plan): a public form's field ids, read once at listing from the public form and stored
+ * in the program file (never fetched at request time). `fields` maps requirement keys to the form's
+ * own parameter: `entry.<n>` (Google), the field name (Airtable), the URL parameter (Tally).
+ * `sign_in`: the form needs a Google sign-in (or has a file question), so it is filled in the
+ * builder's browser instead. `read_at`: the day the ids were read (YYYY-MM-DD).
+ */
+export type ProgramForm = { url: string; fields: Record<string, string>; sign_in: boolean; read_at: string };
+/** The brief's name for ProgramForm (module scope; the DOM FormData is never used here). */
+export type FormData = ProgramForm;
 
 export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_requirements' | 'title'> & {
   submit_host?: string | null;
@@ -48,39 +65,127 @@ export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_require
   form?: ProgramForm | null;
 };
 
-/** Ruling 28 (plan): hosts that give each entry a public page, so the proof is its link. */
-const ENTRY_LINK_HOSTS = new Set([
-  'dorahacks.io',
-  'ethglobal.com',
-  'devfolio.co',
-  'colosseum.com',
-  'arena.colosseum.org',
-  'app.akindo.io',
-  'taikai.network',
-  'gap.karmahq.xyz',
-]);
+/** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */
+export const MAX_PREFILL_URL = 8000;
 
 export const ENTRY_LINK_ASK = 'After you submit, paste your entry link here.';
 export const CONFIRMATION_ASK = 'After you submit, send me the confirmation screenshot or email.';
 
+/**
+ * Ruling 7 (plan): what an agent with a browser does. Agent text (kit.agent_steps), never shown.
+ * It stops for the builder at every login, captcha, wallet signature and file upload, and never
+ * clicks submit.
+ */
+export const AGENT_FILL_STEPS: string[] = [
+  "Open kit.url in the builder's own logged-in browser, through your browser tool on their machine. Never a separate or cloud browser.",
+  'Fill each field in kit.fields with its answer, matching the form label. Leave a field marked missing empty.',
+  'Stop and ask the builder at any login, captcha, wallet signature or file upload. Never type a password, code or key, and never solve a captcha.',
+  'Never click submit.',
+  'Tell the builder the form is filled and ready for them to check and submit.',
+];
+
 /** The form's host ("dorahacks.io"), from submit_host or submission_url; '' when unknown. Pure. */
-export function submitHost(p: Pick<KitProgram, 'submission_url' | 'submit_host'>): string {
-  const raw = p.submit_host?.trim() || (URL.canParse(p.submission_url) ? new URL(p.submission_url).hostname : '');
-  return raw.toLowerCase().replace(/^www\./, '');
+export function hostOf(p: Pick<KitProgram, 'submission_url' | 'submit_host'>): string {
+  const own = p.submit_host?.trim().toLowerCase().replace(/^www\./, '');
+  return own || urlHost(p.submission_url);
 }
+/** Task 8's name for hostOf. */
+export const submitHost = hostOf;
 
 /** Ruling 28 (plan): how the builder proves the entry once submitted. Pure. */
 export function proofFor(host: string): SubmitKit['proof'] {
-  return ENTRY_LINK_HOSTS.has(host) ? { kind: 'entry_link', ask: ENTRY_LINK_ASK } : { kind: 'confirmation', ask: CONFIRMATION_ASK };
+  return ENTRY_LINK_HOSTS.includes(host) ? { kind: 'entry_link', ask: ENTRY_LINK_ASK } : { kind: 'confirmation', ask: CONFIRMATION_ASK };
 }
+
+/**
+ * Ruling 27 (plan): the mode for this program and this agent. The host's registry mode, then:
+ * a Google form that needs sign-in is filled in the browser; a prefilled link without form data is
+ * pasted; `api` only when the file confirms the listing allows agents (`submit_api`), else the
+ * browser; no browser means paste. DoraHacks and Questbook are always pasted. Pure.
+ */
+export function submitModeFor(p: KitProgram, agent: { browser: boolean }): SubmitMode {
+  const host = hostOf(p);
+  let mode = baseModeOf(host);
+  if (mode === 'prefilled_link' && !p.form) mode = 'copy_paste';
+  if (mode === 'prefilled_link' && p.form?.sign_in) mode = 'agent_fills';
+  if (mode === 'api' && !p.submit_api) mode = 'agent_fills';
+  if (mode === 'agent_fills' && !agent.browser) mode = 'copy_paste';
+  if (isNoAgentHost(host)) mode = 'copy_paste';
+  return mode;
+}
+
+const enc = encodeURIComponent;
+
+/** Adds `param=value` pairs while the URL stays within MAX_PREFILL_URL; the rest go to `over`. */
+function prefill(base: string, sep: '?' | '&', pairs: [string, string][], over: string[]): string {
+  let url = base;
+  let s: string = sep;
+  for (const [param, value] of pairs) {
+    const next = `${url}${s}${param}=${enc(value)}`;
+    if (next.length > MAX_PREFILL_URL) {
+      over.push(param);
+      continue;
+    }
+    url = next;
+    s = '&';
+  }
+  return url;
+}
+
+/**
+ * Rulings 8, 27 (plan): which answers can ride in the URL; the rest are pasted. A key the form
+ * doesn't know (a stale form), a choice that isn't exactly one of its options, and a file can't.
+ */
+function fillable(form: ProgramForm, reqs: SubmissionRequirement[], answers: Record<string, string>) {
+  const pairs: [string, string, string][] = []; // [key, param, value]
+  const left: string[] = [];
+  for (const r of reqs) {
+    const v = answers[r.key]?.trim();
+    if (!v) continue;
+    const param = form.fields[r.key];
+    const badChoice = r.type === 'choice' && !(r.options ?? []).includes(v);
+    if (!param || badChoice || r.type === 'file') left.push(r.key);
+    else pairs.push([r.key, param, v]);
+  }
+  return { pairs, left };
+}
+
+function build(
+  base: string,
+  sep: '?' | '&',
+  paramOf: (p: string) => string,
+  form: ProgramForm,
+  reqs: SubmissionRequirement[],
+  answers: Record<string, string>,
+): { url: string; left: string[] } {
+  const { pairs, left } = fillable(form, reqs, answers);
+  const over: string[] = [];
+  const url = prefill(base, sep, pairs.map(([, p, v]) => [paramOf(p), v]), over);
+  const overKeys = pairs.filter(([, p]) => over.includes(paramOf(p))).map(([k]) => k);
+  const order = reqs.map((r) => r.key);
+  return { url, left: [...left, ...overKeys].sort((a, b) => order.indexOf(a) - order.indexOf(b)) };
+}
+
+/** Google Forms: `viewform?usp=pp_url&entry.<n>=<answer>`. Pure. */
+export const googlePrefill = (f: ProgramForm, reqs: SubmissionRequirement[], a: Record<string, string>) =>
+  build(`${f.url}?usp=pp_url`, '&', (p) => p, f, reqs, a);
+/** Airtable: `?prefill_<Field Name>=<answer>`. Pure. */
+export const airtablePrefill = (f: ProgramForm, reqs: SubmissionRequirement[], a: Record<string, string>) =>
+  build(f.url, '?', (p) => `prefill_${enc(p)}`, f, reqs, a);
+/** Tally: `?<param>=<answer>`. Pure. */
+export const tallyPrefill = (f: ProgramForm, reqs: SubmissionRequirement[], a: Record<string, string>) =>
+  build(f.url, '?', (p) => enc(p), f, reqs, a);
+
+const PREFILL = { google: googlePrefill, airtable: airtablePrefill, tally: tallyPrefill } as const;
+
+const listOf = (fields: KitField[]) => fields.map((f) => `${f.label}\n${f.missing ? STILL_NEEDED : f.answer}`).join('\n\n');
 
 /**
  * The kit for one confirmed entry. `answers`: every valid answer by requirement key (the agent's
  * answers plus what the project info fills in). Fields follow the form's own order and labels;
  * empty optional answers are left out. Ruling C9: a required answer that is empty (or, in
- * `opts.problems`, given but not valid) is never dropped: it is a marked blank in the list, and the
- * kit opens with "Before you submit: …" naming each one. Task 8: always copy_paste (`agent.browser`
- * is used from Task 10). Pure.
+ * `opts.problems`, given but not valid) is never dropped: it is a marked blank, and the kit opens
+ * with "Before you submit: …" naming each one. Every mode ends with the proof ask. Pure.
  */
 export function submitKit(
   program: KitProgram,
@@ -88,10 +193,10 @@ export function submitKit(
   agent: { browser: boolean },
   opts: { problems?: string[] } = {},
 ): SubmitKit {
-  void agent; // Task 10: agent_fills needs agent.browser; Task 8 always returns copy_paste.
   const problems = new Set(opts.problems ?? []);
+  const reqs = program.submission_requirements;
   const missing: string[] = [];
-  const fields: KitField[] = program.submission_requirements.flatMap((r): KitField[] => {
+  const fields: KitField[] = reqs.flatMap((r): KitField[] => {
     const answer = problems.has(r.key) ? '' : (answers[r.key]?.trim() ?? '');
     if (answer) return [{ key: r.key, label: r.label, answer }];
     // An empty optional answer is left out; one given but not valid is a blank to check.
@@ -99,16 +204,101 @@ export function submitKit(
     missing.push(todoOf(r, problems.has(r.key)));
     return [{ key: r.key, label: r.label, answer: '', missing: true }];
   });
-  const proof = proofFor(submitHost(program));
-  const list = fields.map((f) => `${f.label}\n${f.missing ? STILL_NEEDED : f.answer}`).join('\n\n');
-  const show_to_builder = [
-    ...(missing.length ? [`Before you submit: ${missing.join(', ')}.\n`] : []),
-    missing.length
-      ? `For ${program.title}, paste each answer into the form:`
-      : `Ready for ${program.title}. Paste each answer into the form:`,
-    `Form: ${program.submission_url}`,
-    ...(list ? [`\n${list}`] : []),
-    `\n${proof.ask}`,
-  ].join('\n');
-  return { mode: 'copy_paste', url: program.submission_url, fields, paste: fields, proof, missing, show_to_builder };
+  const given = Object.fromEntries(fields.filter((f) => !f.missing).map((f) => [f.key, f.answer]));
+  const host = hostOf(program);
+  const proof = proofFor(host);
+  const title = program.title;
+  const before = missing.length ? [`Before you submit: ${missing.join(', ')}.\n`] : [];
+  const done = (lines: string[]) => [...before, ...lines, `\n${proof.ask}`].join('\n');
+  const base = { url: program.submission_url, fields, proof, missing };
+
+  let mode = submitModeFor(program, agent);
+  const kind = prefillKindOf(host);
+  if (mode === 'prefilled_link' && program.form && kind) {
+    const { url, left } = PREFILL[kind](program.form, reqs, given);
+    const paste = fields.filter((f) => f.missing || left.includes(f.key));
+    return {
+      mode,
+      ...base,
+      prefilled_url: url,
+      paste,
+      show_to_builder: done([
+        missing.length
+          ? `For ${title}, open this, check it, and click submit once the blanks are in:`
+          : `Ready for ${title}. Open this, check it, and click submit:`,
+        url,
+        ...(paste.length ? ['\nThen paste these:', listOf(paste)] : []),
+      ]),
+    };
+  }
+  if (mode === 'prefilled_link') mode = 'copy_paste';
+
+  if (mode === 'agent_fills') {
+    // The builder uploads files and fills the blanks; the agent stops for them (AGENT_FILL_STEPS).
+    const types = new Map(reqs.map((r) => [r.key, r.type]));
+    const paste = fields.filter((f) => f.missing || types.get(f.key) === 'file');
+    return {
+      mode,
+      ...base,
+      paste,
+      agent_steps: AGENT_FILL_STEPS,
+      show_to_builder: done([
+        missing.length
+          ? `For ${title}, I'll fill the form in your browser. You log in, add the blanks, check it and click submit.`
+          : `Ready for ${title}. I'll fill the form in your browser. You log in, check it and click submit.`,
+        ...(paste.length ? ['\nYou add these yourself:', listOf(paste)] : []),
+      ]),
+    };
+  }
+
+  const platform = mode === 'api' ? apiPlatformOf(host) : null;
+  if (platform) {
+    const paste = fields.filter((f) => f.missing);
+    return {
+      mode: 'api',
+      ...base,
+      paste,
+      api: { platform: platform.platform, payload: given },
+      show_to_builder: done([
+        missing.length
+          ? `For ${title}, once the blanks are in, I'll send it through ${platform.name}'s agent API with your key, then you confirm there.`
+          : `Ready for ${title}. I'll send it through ${platform.name}'s agent API with your key, then you confirm there.`,
+        ...(paste.length ? ['\nStill needed:', listOf(paste)] : []),
+      ]),
+    };
+  }
+
+  const list = listOf(fields);
+  return {
+    mode: 'copy_paste',
+    ...base,
+    paste: fields,
+    show_to_builder: done([
+      missing.length ? `For ${title}, paste each answer into the form:` : `Ready for ${title}. Paste each answer into the form:`,
+      `Form: ${program.submission_url}`,
+      ...(list ? [`\n${list}`] : []),
+    ]),
+  };
+}
+
+/**
+ * The agent's instructions for this kit (agent_note; never shown to the builder). Pure.
+ */
+export function kitAgentNote(kit: SubmitKit, program: Pick<KitProgram, 'submission_url' | 'submit_host'>): string {
+  const host = hostOf(program);
+  switch (kit.mode) {
+    case 'prefilled_link':
+      return 'The builder opens kit.prefilled_url, checks it, pastes kit.paste and clicks submit. Never submit the form for them.';
+    case 'agent_fills':
+      return `Follow kit.agent_steps in order: ${AGENT_FILL_STEPS.join(' ')}`;
+    case 'api':
+      return (
+        "Send kit.api.payload through the platform's own agent API with the builder's own agent key, only on a listing that allows agents. " +
+        'Never ask for the key here or put it in any EarnKit call. The builder confirms the entry on the platform.'
+      );
+    default:
+      return isNoAgentHost(host)
+        ? "This platform's terms ban automated use: never fill or submit its form for the builder, even with a browser tool. The builder pastes each answer."
+        : 'The builder pastes each answer into the form and clicks submit. Never submit the form for them.';
+  }
 }

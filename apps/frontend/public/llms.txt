@@ -45,7 +45,11 @@ All open programs: https://earnkit.com/programs
 - confirm_entry: the builder's one-word answer to that offer. "Yes" launches
   the entry's token and returns the submit kit (the form link and every
   answer, ready to paste); "skip" means no token and no builder bonus. The
-  kit comes only from this tool
+  kit comes only from this tool. By the form's platform it is a prefilled
+  link, a fill in the builder's own browser (the agent stops at login,
+  captcha, wallet signing and uploads), a paste list (always on DoraHacks and
+  Questbook), or the platform's agent API with the builder's own key. The
+  builder always clicks submit; EarnKit never holds credentials
 - record_submission: records the project after it was submitted on the
   program's own site (it updates the confirmed entry). Every problem with an
   entry comes back at once

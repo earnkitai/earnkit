@@ -167,6 +167,8 @@ const CONFIRM_ENTRY_DESCRIPTION =
   'A problem you can fix now (no wallet, a taken ticker, the token line not pushed yet, a failed read) returns token.fixable: true and no kit: ' +
   'show show_to_builder, fix it, and call confirm_entry again. ' +
   'Otherwise the reply has kit: the submit kit (form link, every answer in form order, how to prove the entry). The kit is only in this reply; never show a kit any other way. ' +
+  "kit.mode says how it is submitted: prefilled_link (the builder opens kit.prefilled_url and clicks submit), agent_fills (with a browser tool, follow kit.agent_steps in the builder's own browser: stop at login, captcha, wallet signing and file uploads; never click submit), " +
+  "copy_paste (the builder pastes each answer; on DoraHacks and Questbook never fill the form, their terms ban it), or api (send kit.api.payload with the builder's own agent key; EarnKit never takes a key). The builder always clicks submit. " +
   'If required answers are still missing, the token still launches and the kit lists them first, as blanks: fill them with the builder before they submit. ' +
   'Show show_to_builder exactly as written; token.note and agent_note are for you. ' +
   'Once the builder has submitted, call record_submission (it updates this entry).';

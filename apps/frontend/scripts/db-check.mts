@@ -247,6 +247,18 @@ ok(v28Again.any_chain === false, 'any_chain stays false when the schema is appli
 // existing rows get NULL; one bank row per installation, project and kind; long answers refused.
 const [v28Judging] = await db<{ judging: unknown }[]>`SELECT judging FROM programs WHERE id = 'v25-migrate'`;
 ok(v28Judging.judging === null, 'a v2.5 program gets judging = NULL from the v2.8 migration');
+// v2.8 Part E, Rulings 8 and 27 (plan): the submit kit's columns are additive; an existing program
+// gets no submit host, no agent API and no form, and keeps them when the schema runs again.
+const kitCols = async () =>
+  (await db<{ submit_host: string | null; submit_api: boolean; form: unknown }[]>`
+    SELECT submit_host, submit_api, form FROM programs WHERE id = 'v25-migrate'`)[0];
+const kitOld = await kitCols();
+ok(kitOld.submit_host === null && kitOld.form === null, 'a v2.5 program gets submit_host and form = NULL from the v2.8 migration');
+ok(kitOld.submit_api === false, 'a v2.5 program gets submit_api = false from the v2.8 migration');
+await db`UPDATE programs SET form = ${db.json({ url: 'https://tally.so/r/abc', fields: { name: 'project' }, sign_in: false, read_at: '2026-10-07' })} WHERE id = 'v25-migrate'`;
+await db.unsafe(now);
+ok(((await kitCols()).form as { url?: string } | null)?.url === 'https://tally.so/r/abc', 'a program form survives the schema running again');
+await db`UPDATE programs SET form = NULL WHERE id = 'v25-migrate'`;
 const [appCount] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE application IS NOT NULL`;
 ok(appCount.n === 0, 'existing entries get application = NULL');
 const [{ id: bankInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v28-bank') RETURNING id`;

@@ -378,6 +378,8 @@ export function sponsorProgramFile(a: {
     chains: d.chains,
     any_chain: false,
     investment: false,
+    // v2.8 Part E: entered on EarnKit, never through a platform agent API.
+    submit_api: false,
     setup: ['a public GitHub repo', 'a host for a live link'],
     each_time: [],
     // A sponsor campaign has no program source to draw ideas or submission proof from.

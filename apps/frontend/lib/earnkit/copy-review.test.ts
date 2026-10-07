@@ -35,7 +35,7 @@ import {
   confirmOffer,
   offerWalletLine,
 } from './confirm';
-import { submitKit } from './submit-kit';
+import { AGENT_FILL_STEPS, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
 import {
   confirmToken,
   decideToken,
@@ -621,6 +621,37 @@ const confirmTexts: [string, string][] = [
   ],
 ];
 
+// v2.8 Task 10: the kit's builder text in every mode, and the agent's notes and steps.
+const kitReqs: SubmissionRequirement[] = [
+  { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'project' },
+  { key: 'repo_url', label: 'Public repo', type: 'url', required: true, from: 'project' },
+  { key: 'description', label: 'Short description', type: 'text', required: true, from: 'project' },
+  { key: 'logo', label: 'Logo', type: 'file', required: false, from: 'builder' },
+];
+const kitAnswers = { project_name: 'Tip Jar', repo_url: 'https://github.com/alice/tipjar', description: 'Tips for creators', logo: 'logo.png' };
+const kitProgram = (title: string, submission_url: string, extra: Partial<KitProgram> = {}): KitProgram => ({ title, submission_url, submission_requirements: kitReqs, ...extra });
+const kitPrograms: [string, KitProgram, boolean][] = [
+  ['prefilled_link', kitProgram('Base Builder Grants', 'https://forms.gle/abc', { form: { url: 'https://docs.google.com/forms/d/e/1FAIpQ/viewform', fields: { project_name: 'entry.1', repo_url: 'entry.2' }, sign_in: false, read_at: '2026-10-07' } }), false],
+  ['agent_fills', kitProgram('Colosseum', 'https://colosseum.com/arena'), true],
+  ['copy_paste (DoraHacks)', kitProgram('Arc Microgrants', 'https://dorahacks.io/hackathon/arc-microgrants'), true],
+  ['copy_paste (no browser)', kitProgram('Monad Metropolis', 'https://hackathon.monad.xyz/'), false],
+  ['api', kitProgram('Superteam Bounty', 'https://superteam.fun/earn/listing/x', { submit_api: true }), false],
+];
+const kitTexts: [string, string][] = kitPrograms.flatMap(([mode, p, browser]): [string, string][] => [
+  [`submitKit ${mode}`, submitKit(p, kitAnswers, { browser }).show_to_builder],
+  [`submitKit ${mode}, missing`, submitKit(p, { project_name: 'Tip Jar' }, { browser }).show_to_builder],
+]);
+const kitAgentTexts: [string, string][] = [
+  ...AGENT_FILL_STEPS.map((s, i): [string, string] => [`AGENT_FILL_STEPS[${i}]`, s]),
+  ...kitPrograms.map(([mode, p, browser]): [string, string] => [`kitAgentNote ${mode}`, kitAgentNote(submitKit(p, kitAnswers, { browser }), p)]),
+];
+
+test('Task 10: every kit mode has its own builder text, ending with the proof ask', () => {
+  const modes = kitPrograms.map(([, p, browser]) => submitKit(p, kitAnswers, { browser }).mode);
+  assert.deepEqual(modes, ['prefilled_link', 'agent_fills', 'copy_paste', 'copy_paste', 'api']);
+  for (const [label, text] of kitTexts) assert.match(text, /After you submit, (paste your entry link here|send me the confirmation screenshot or email)\.$/, label);
+});
+
 // v2.8 Task 9: the coach's builder text (questions, the draft table, the fixes) from real inputs.
 const coachReq = (key: string, kind: SubmissionRequirement['kind'], label: string, o: Partial<SubmissionRequirement> = {}): SubmissionRequirement => ({
   key, label, kind, type: 'text', required: true, from: 'builder', ...o,
@@ -679,6 +710,7 @@ const builderFacing: [string, string][] = [
   ...coachTexts,
   ...campaignPageTexts,
   ...confirmTexts,
+  ...kitTexts,
   ...coinRows.map((s, i): [string, string] => [`coinRow[${i}]`, s]),
   ...walletLines.map((s, i): [string, string] => [`walletLine[${i}]`, s]),
   ...enteredTexts.map((s, i): [string, string] => [`enteredText[${i}]`, s]),
@@ -732,6 +764,7 @@ const agentFacing: [string, string][] = [
   ...Object.entries(DEFAULT_GUIDANCE).flatMap(([k, g]): [string, string][] => [[`DEFAULT_GUIDANCE.${k}.judges`, g.judges], [`DEFAULT_GUIDANCE.${k}.pattern`, g.pattern]]),
   ...Object.entries(COACH_NOTES).map(([k, v]): [string, string] => [`COACH_NOTES.${k}`, v]),
   ...gatherDecideTokenAgentNotes(),
+  ...kitAgentTexts,
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];

@@ -12,6 +12,7 @@ import {
   type Focus,
   type GuideLogo,
   type Judging,
+  type SubmitForm,
   type PastRound,
   type ProgramFile,
   type SubmissionRequirement,
@@ -202,6 +203,12 @@ export type ProgramRow = {
   winners_per_round: number | null;
   /** v2.8 Part D.4: the judging criteria the source states, or null. */
   judging: Judging | null;
+  /** v2.8 Ruling 27 (plan): the form's host when it isn't submission_url's, or null. */
+  submit_host: string | null;
+  /** v2.8 Ruling 27 (plan): the listing allows agents to submit through the platform's agent API. */
+  submit_api: boolean;
+  /** v2.8 Ruling 8 (plan): a Google, Airtable or Tally form's field ids, or null. */
+  form: SubmitForm | null;
 };
 
 /** Open programs: marked active and the deadline hasn't passed. */
@@ -658,6 +665,9 @@ export async function upsertProgram(
       difficulty_override: p.difficulty_override ? tx.json(p.difficulty_override) : null,
       winners_per_round: p.winners_per_round ?? null,
       judging: p.judging ? tx.json(p.judging) : null,
+      submit_host: p.submit_host ?? null,
+      submit_api: p.submit_api ?? false,
+      form: p.form ? tx.json(p.form) : null,
       source,
       opened_at: p.status === 'active' ? new Date() : null,
     };

@@ -597,3 +597,7 @@ CREATE TABLE IF NOT EXISTS answer_bank (
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS application jsonb;
 -- v2.8 Part D.4: the judging criteria a program's source states (programs/*.json judging).
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS judging jsonb;
+-- v2.8 Part E: the submit kit. Additive.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS submit_host text;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS submit_api boolean NOT NULL DEFAULT false;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS form jsonb;
