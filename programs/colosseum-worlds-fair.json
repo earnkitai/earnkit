@@ -52,51 +52,19 @@
   "judging": {
     "criteria": [
       {
-        "text": "Functionality",
-        "words": [
-          "working",
-          "live",
-          "deployed",
-          "mainnet",
-          "demo"
-        ]
+        "text": "Functionality"
       },
       {
-        "text": "Potential impact",
-        "words": [
-          "users",
-          "market",
-          "impact",
-          "customers"
-        ]
+        "text": "Potential impact"
       },
       {
-        "text": "Novelty and UX",
-        "words": [
-          "first",
-          "novel",
-          "design",
-          "simple",
-          "onboarding"
-        ]
+        "text": "Novelty and UX"
       },
       {
-        "text": "Open source",
-        "words": [
-          "open",
-          "github",
-          "license"
-        ]
+        "text": "Open source"
       },
       {
-        "text": "Business plan",
-        "words": [
-          "revenue",
-          "business",
-          "fees",
-          "pricing",
-          "customers"
-        ]
+        "text": "Business plan"
       }
     ],
     "source_url": "https://colosseum.com/worldsfair"
@@ -181,7 +149,7 @@
     {
       "key": "gtm",
       "label": "Go-to-market strategy, demand validation, and plans for developing distribution",
-      "kind": "traction",
+      "kind": "milestones",
       "todo": "a go-to-market strategy",
       "type": "text",
       "required": true,

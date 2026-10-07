@@ -97,7 +97,7 @@ export const DEFAULT_GUIDANCE: Record<FieldKind, Guidance> = {
   },
 };
 
-/** Ruling 26 (plan): the order the few builder questions are picked in. */
+/** Ruling 26 (plan): the order the few builder questions are picked in; other kinds follow in form order. */
 export const QUESTION_ORDER: FieldKind[] = ['traction', 'why_you', 'use_of_funds', 'milestones', 'team', 'problem', 'contact'];
 export const MAX_FIRST_QUESTIONS = 3;
 export const MAX_LATER_QUESTIONS = 1;
@@ -106,10 +106,14 @@ export const MAX_FIXES = 3;
 const DIGIT = /\d/;
 const LINK = /https:\/\/\S+/;
 const CLAIM = /\b(users?|customers?|revenue|volume|growth|transactions|downloads|installs)\b/i;
-const NUMBER_KINDS: FieldKind[] = ['traction', 'use_of_funds', 'milestones'];
-/** Kinds the agent drafts from the repo and onchain data: never asked. */
+/** A date or a time frame: a year, a month, a quarter, "6 weeks", "week 3". */
+const DATE =
+  /\b(19|20)\d{2}\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\bq[1-4]\b|\b\d+\s*(days?|weeks?|months?)\b|\b(week|month|day)\s*\d+\b/i;
+/** Kinds whose answer needs a date (a milestone), not a user count. */
+const DATE_KINDS: FieldKind[] = ['use_of_funds', 'milestones'];
+/** Kinds the agent drafts from the repo and onchain data: never asked, unless only the builder can answer. */
 const AGENT_DRAFTS: FieldKind[] = ['name', 'one_liner', 'solution', 'how_it_works', 'links', 'demo_video', 'other'];
-/** Kinds whose answers aren't prose (no "add a number" claim check); `other` is often a choice. */
+/** Kinds whose answers aren't prose (no claim check); `other` is often a choice. */
 const NOT_PROSE: FieldKind[] = ['name', 'links', 'demo_video', 'contact', 'other'];
 const PROOF_KINDS: FieldKind[] = ['links', 'demo_video', 'how_it_works'];
 
@@ -124,9 +128,19 @@ export function shortLabel(label: string): string {
   return `${cut || s.slice(0, 40)}…`;
 }
 
-const PROPER = /^(Telegram|Discord|Farcaster|Twitter|Warpcast|GitHub|LinkedIn)\b/;
-/** "Full name" reads "full name" mid-sentence; "X (Twitter) handle", "GitHub" and "Telegram" keep their case. */
-const lowerFirst = (s: string) => (PROPER.test(s) ? s : s.replace(/^(\p{Lu})(\p{Ll}+)(?![\p{L}])/u, (_m, a: string, b: string) => a.toLowerCase() + b));
+const PROPER = /^(Telegram|Discord|Farcaster|Twitter|Warpcast|GitHub|LinkedIn|Base|Arc|USD|USDC)\b/;
+/**
+ * "Full name" reads "full name" mid-sentence; "X Profile" reads "X profile"; "X (Twitter) handle",
+ * "GitHub" and "Telegram" keep their case.
+ */
+const lowerFirst = (s: string) => {
+  if (PROPER.test(s)) return s;
+  const x = s.match(/^X (\p{Lu})(\p{Ll}+)(?![\p{L}])/u);
+  if (x) return `X ${x[1].toLowerCase()}${x[2]}${s.slice(x[0].length)}`;
+  return s.replace(/^(\p{Lu})(\p{Ll}+)(?![\p{L}])/u, (_m, a: string, b: string) => a.toLowerCase() + b);
+};
+const upperFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : (xs[0] ?? ''));
 
 /** A field's guidance: the program's own (Ruling 9 (plan)) over the kind's default. Pure. */
 export function guidanceFor(r: SubmissionRequirement): Guidance & { kind: FieldKind; source_url: string | null } {
@@ -152,6 +166,7 @@ export function coachFields(reqs: SubmissionRequirement[]) {
       label: r.label,
       kind: g.kind,
       required: r.required,
+      ...(r.from === 'builder' && { builder_only: true }),
       judges: g.judges,
       pattern: g.pattern,
       limit_words: g.limit_words,
@@ -163,7 +178,8 @@ export function coachFields(reqs: SubmissionRequirement[]) {
 
 /**
  * Kinds whose fields are told apart by what they hold (an email, an X handle, a live link), so one
- * project's contact details and links are banked per slot, as a JSON object, not as one answer.
+ * project's contact details and links are banked per slot, as a JSON object, not as one answer. A
+ * field whose label says none of these is its own slot (its key), so it is never reused elsewhere.
  */
 const SLOT_KINDS: FieldKind[] = ['contact', 'links'];
 const SLOTS: [string, RegExp][] = [
@@ -172,15 +188,16 @@ const SLOTS: [string, RegExp][] = [
   ['discord', /discord/],
   ['farcaster', /farcaster|warpcast/],
   ['x', /(^|[^a-z])x([^a-z]|$)|twitter/],
-  ['github', /github|repo|code/],
+  ['github', /github|repo\b|repository|source code/],
   ['demo', /demo|video|loom/],
-  ['live', /live|deploy|website|product|url/],
-  ['name', /name/],
+  ['live', /\blive\b|website|\bproduct\b/],
+  ['name', /\bname\b/],
   ['profile', /profile/],
 ];
+/** Matched on the label only (the form's words), never on a key like `additional_url`. */
 const slotOf = (r: SubmissionRequirement) => {
-  const t = `${r.key} ${r.label}`.toLowerCase();
-  return SLOTS.find(([, re]) => re.test(t))?.[0] ?? r.key;
+  const t = r.label.toLowerCase();
+  return SLOTS.find(([, re]) => re.test(t))?.[0] ?? `key:${r.key}`;
 };
 const slotsOf = (text: string | undefined): Record<string, string> => {
   if (!text) return {};
@@ -195,31 +212,44 @@ const slotsOf = (text: string | undefined): Record<string, string> => {
 };
 
 /**
- * The answer bank's fill: every field still empty whose kind the bank holds gets the banked answer
- * (a given answer is never overwritten; `other` is program-specific and never filled). Pure.
+ * The answer bank's fill (Ruling 6 (plan)). A given answer is never overwritten; `other` is never
+ * filled. When a form has two fields of one kind, only the first is filled (the agent writes a
+ * distinct answer for the second). Contact details are never filled silently (C16): they come back
+ * as `suggested`, for the contact question to confirm ("Use a@b.co again?"). Pure.
  */
 export function bankFill(reqs: SubmissionRequirement[], answers: Record<string, string>, bank: Map<FieldKind, string>) {
   const out = { ...answers };
   const from_bank: Record<string, string> = {};
+  const suggested: Record<string, string> = {};
+  const seen = new Set<FieldKind>();
   for (const r of reqs) {
     const k = kindOf(r);
+    const firstOfKind = !seen.has(k);
+    seen.add(k);
     if (k === 'other' || out[r.key]?.trim()) continue;
-    const banked = SLOT_KINDS.includes(k) ? slotsOf(bank.get(k))[slotOf(r)] : bank.get(k);
-    if (banked?.trim()) out[r.key] = from_bank[r.key] = banked;
+    if (SLOT_KINDS.includes(k)) {
+      const banked = slotsOf(bank.get(k))[slotOf(r)];
+      if (!banked?.trim()) continue;
+      if (k === 'contact') suggested[r.key] = banked;
+      else out[r.key] = from_bank[r.key] = banked;
+    } else if (firstOfKind) {
+      const banked = bank.get(k);
+      if (banked?.trim()) out[r.key] = from_bank[r.key] = banked;
+    }
   }
-  return { answers: out, from_bank };
+  return { answers: out, from_bank, suggested };
 }
 
 /** The bank's longest answer, as projects.ts SUBMISSION_VALUE_MAX and the table's CHECK. */
 export const BANK_ANSWER_MAX = 4096;
 
 /**
- * What to bank from confirmed answers, one per kind (Ruling 6 (plan)): never `other`; several fields
- * of one kind join with a blank line; contact details and links merge into the kind's slots, over
- * what `existing` holds. An answer over BANK_ANSWER_MAX is left out. Pure.
+ * What to bank from confirmed answers, one per kind (Ruling 6 (plan)): never `other`; for a kind with
+ * several fields in the form, the first field's answer; contact details and links merge into the
+ * kind's slots, over what `existing` holds. An answer over BANK_ANSWER_MAX is left out. Pure.
  */
 export function bankEntries(reqs: SubmissionRequirement[], answers: Record<string, string>, existing: Map<FieldKind, string> = new Map()) {
-  const plain = new Map<FieldKind, string[]>();
+  const plain = new Map<FieldKind, string>();
   const slots = new Map<FieldKind, Record<string, string>>();
   for (const r of reqs) {
     const k = kindOf(r);
@@ -229,46 +259,86 @@ export function bankEntries(reqs: SubmissionRequirement[], answers: Record<strin
       const s = slots.get(k) ?? { ...slotsOf(existing.get(k)) };
       s[slotOf(r)] = v;
       slots.set(k, s);
-    } else plain.set(k, [...(plain.get(k) ?? []), v]);
+    } else if (!plain.has(k)) plain.set(k, v);
   }
-  const out = new Map<FieldKind, string>();
-  for (const [k, vs] of plain) out.set(k, vs.join('\n\n'));
+  const out = new Map<FieldKind, string>(plain);
   for (const [k, s] of slots) out.set(k, JSON.stringify(s));
   for (const [k, v] of out) if (v.length > BANK_ANSWER_MAX) out.delete(k);
   return out;
 }
 
-export type Question = { keys: string[]; kind: FieldKind; text: string };
+export type Question = { keys: string[]; kind: FieldKind; text: string; suggested?: Record<string, string> };
 
 /**
- * Ruling 26 (plan): the few questions only the builder can answer, for required fields still empty
- * after the agent's draft and the bank fill, in QUESTION_ORDER; at most 3 for a project's first
- * program, 1 after. Every empty contact field folds into one question. `project` names the
- * project in "Who has used TipJar so far?". Pure.
+ * C15: a field the coach asks about: required, still empty, and only the builder can answer it
+ * (`from: 'builder'`: consent, an amount, revenue, a handle) or its kind is not one the agent drafts.
+ * Pure.
+ */
+export function askableKeys(reqs: SubmissionRequirement[], answers: Record<string, string>): string[] {
+  return reqs
+    .filter((r) => r.required && !answers[r.key]?.trim() && (r.from === 'builder' || !AGENT_DRAFTS.includes(kindOf(r))))
+    .map((r) => r.key);
+}
+
+/** One group's question: the kind's question, the contact fold, or the fields' own to-dos. */
+function groupText(kind: FieldKind, reqs: SubmissionRequirement[], name: string | undefined, suggested: Record<string, string>) {
+  if (kind === 'contact') {
+    const saved = reqs.filter((r) => suggested[r.key]);
+    const fresh = reqs.filter((r) => !suggested[r.key]);
+    const labels = list(fresh.map((r) => lowerFirst(shortLabel(r.label).replace(/^(your|the)\s+/i, ''))));
+    const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again` : '';
+    if (use && fresh.length > 0) return `${use}, and your ${labels}?`;
+    return use ? `${use}?` : `Your ${labels}?`;
+  }
+  const r0 = reqs[0];
+  const g = guidanceFor(r0);
+  if (kind !== 'other' && g.questions[0]) {
+    // The project's name only in the built-in questions ("Who has used TipJar so far?").
+    const own = Boolean(r0.guidance?.questions);
+    return name && !own ? g.questions[0].replace(/\bit\b/, name) : g.questions[0];
+  }
+  return `${upperFirst(list(reqs.map((r) => r.todo ?? lowerFirst(shortLabel(r.label)))))}?`;
+}
+
+/**
+ * Ruling 26 (plan), C15: the questions only the builder can answer, for the askable fields
+ * (askableKeys) after the agent's draft and the bank fill, in QUESTION_ORDER then the form's order;
+ * at most 3 for a project's first program, 1 after. Every contact field folds into one question, and
+ * whatever is left past the cap folds into the last one, so nothing only the builder knows is left
+ * for a second round. `suggested` (banked contact details) turns the contact part into a yes/no
+ * ("Use a@b.co and @alice again?"). `project` names the project in the built-in questions. Pure.
  */
 export function questionsFor(a: {
   reqs: SubmissionRequirement[];
   answers: Record<string, string>;
   first: boolean;
   project?: string;
+  suggested?: Record<string, string>;
 }): Question[] {
-  const empty = a.reqs.filter((r) => r.required && !a.answers[r.key]?.trim() && !AGENT_DRAFTS.includes(kindOf(r)));
-  const name = a.project?.trim();
-  const out: Question[] = [];
-  for (const kind of QUESTION_ORDER) {
+  const keys = new Set(askableKeys(a.reqs, a.answers));
+  const empty = a.reqs.filter((r) => keys.has(r.key));
+  const kinds = [...QUESTION_ORDER, ...new Set(empty.map(kindOf).filter((k) => !QUESTION_ORDER.includes(k)))];
+  const groups = kinds.flatMap((kind) => {
     const reqs = empty.filter((r) => kindOf(r) === kind);
-    if (reqs.length === 0) continue;
-    if (kind === 'contact') {
-      const labels = reqs.map((r) => lowerFirst(shortLabel(r.label).replace(/^(your|the)\s+/i, '')));
-      const list = labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}` : labels[0];
-      out.push({ keys: reqs.map((r) => r.key), kind, text: `Your ${list}?` });
-    } else {
-      const g = guidanceFor(reqs[0]);
-      const text = g.questions[0] ?? `${shortLabel(reqs[0].label)}?`;
-      out.push({ keys: reqs.map((r) => r.key), kind, text: name ? text.replace(/\bit\b/, name) : text });
-    }
-  }
-  return out.slice(0, a.first ? MAX_FIRST_QUESTIONS : MAX_LATER_QUESTIONS);
+    return reqs.length > 0 ? [{ kind, reqs }] : [];
+  });
+  const name = a.project?.trim();
+  const suggested = a.suggested ?? {};
+  const cap = a.first ? MAX_FIRST_QUESTIONS : MAX_LATER_QUESTIONS;
+  const question = (gs: typeof groups): Question => {
+    const reqs = gs.flatMap((g) => g.reqs);
+    const sugg = Object.fromEntries(reqs.filter((r) => suggested[r.key]).map((r) => [r.key, suggested[r.key]]));
+    const text =
+      gs.length === 1
+        ? groupText(gs[0].kind, gs[0].reqs, name, suggested)
+        : `${upperFirst(gs.map((g, i) => {
+            const t = groupText(g.kind, g.reqs, name, suggested).replace(/\?$/, '');
+            return i === 0 ? t : lowerFirst(t);
+          }).join('; '))}?`;
+    return { keys: reqs.map((r) => r.key), kind: gs[0].kind, text, ...(Object.keys(sugg).length > 0 && { suggested: sugg }) };
+  };
+  if (groups.length <= cap) return groups.map((g) => question([g]));
+  return [...groups.slice(0, cap - 1).map((g) => question([g])), question(groups.slice(cap - 1))];
 }
 
 /** The builder's screen while the coach has questions; null when it has none. Pure. */
@@ -281,42 +351,78 @@ export function coachIntro(title: string, questions: Question[]): string | null 
   ].join('\n');
 }
 
-export type Fix = { key: string; rule: 'empty' | 'over_limit' | 'no_number' | 'no_proof_link' | 'criterion'; text: string };
+/**
+ * A pre-submit fix. Every text reads "<Field>: <the exact thing to add>." (C14). `for`: the builder
+ * (shown, at most MAX_FIXES) or the agent (it fixes them itself; never shown).
+ */
+export type Fix = {
+  key: string;
+  rule: 'empty' | 'no_number' | 'no_date' | 'no_proof_link' | 'criterion' | 'over_limit';
+  for: 'builder' | 'agent';
+  text: string;
+};
+
+const NEEDS: Record<'link' | 'number' | 'date', (v: string) => boolean> = {
+  link: (v) => LINK.test(v),
+  number: (v) => DIGIT.test(v),
+  date: (v) => DATE.test(v),
+};
 
 /**
- * Part D.4: the check before submitting. Pure rules, in this order, at most MAX_FIXES; never
- * blocking (the builder can submit with fixes open). Never throws.
+ * Part D.4: the check before submitting. Pure rules, never blocking, never throws.
+ * Builder fixes, in this order, at most MAX_FIXES: empty (only the stored snapshot sees it, as
+ * prepare_submission checks once ready), no_number, no_date, no_proof_link, criterion (only a
+ * program's hand-written fix, C13). Agent fixes after them: over_limit (only a limit the program
+ * states: max_chars or its own guidance.limit_words), and the proof link when the agent knows one
+ * (`knownLinks`).
  */
-export function preSubmitCheck(a: { reqs: SubmissionRequirement[]; answers: Record<string, string>; judging: Judging | null }): Fix[] {
-  const fixes: Fix[] = [];
+export function preSubmitCheck(a: {
+  reqs: SubmissionRequirement[];
+  answers: Record<string, string>;
+  judging: Judging | null;
+  knownLinks?: string[];
+}): Fix[] {
+  const builder: Fix[] = [];
+  const agent: Fix[] = [];
   const val = (r: SubmissionRequirement) => (typeof a.answers[r.key] === 'string' ? a.answers[r.key].trim() : '');
-  for (const r of a.reqs) if (r.required && !val(r)) fixes.push({ key: r.key, rule: 'empty', text: `${shortLabel(r.label)}: still empty.` });
-  for (const r of a.reqs) {
-    const v = val(r);
-    if (!v) continue;
-    const limit = guidanceFor(r).limit_words;
-    if (limit && words(v) > limit)
-      fixes.push({ key: r.key, rule: 'over_limit', text: `${shortLabel(r.label)}: ${words(v)} words; keep it to ${limit}.` });
-    else if (r.max_chars && v.length > r.max_chars)
-      fixes.push({ key: r.key, rule: 'over_limit', text: `${shortLabel(r.label)}: ${v.length} characters; keep it to ${r.max_chars}.` });
-  }
+  const label = (r: SubmissionRequirement) => shortLabel(r.label);
+  for (const r of a.reqs)
+    if (r.required && !val(r)) builder.push({ key: r.key, rule: 'empty', for: 'builder', text: `${label(r)}: add the answer.` });
   for (const r of a.reqs) {
     const v = val(r);
     const k = kindOf(r);
-    if (!v || r.type !== 'text' || DIGIT.test(v)) continue;
-    if (NUMBER_KINDS.includes(k) || (!NOT_PROSE.includes(k) && CLAIM.test(v)))
-      fixes.push({ key: r.key, rule: 'no_number', text: `${shortLabel(r.label)}: add a number (users, volume or revenue).` });
+    if (!v || r.type !== 'text') continue;
+    if (k === 'traction' && !DIGIT.test(v))
+      builder.push({ key: r.key, rule: 'no_number', for: 'builder', text: `${label(r)}: add how many people used it (e.g. 120 users, 900 payments).` });
+    else if (DATE_KINDS.includes(k) && !DATE.test(v))
+      builder.push({ key: r.key, rule: 'no_date', for: 'builder', text: `${label(r)}: name one milestone and a date.` });
+    else if (!NOT_PROSE.includes(k) && !DATE_KINDS.includes(k) && k !== 'traction' && !DIGIT.test(v)) {
+      const claim = v.match(CLAIM)?.[1];
+      if (claim) builder.push({ key: r.key, rule: 'no_number', for: 'builder', text: `${label(r)}: put the number next to "${claim.toLowerCase()}".` });
+    }
   }
   const all = a.reqs.map(val).join('\n');
   if (a.reqs.length > 0 && !LINK.test(all)) {
     const target = a.reqs.find((r) => PROOF_KINDS.includes(kindOf(r))) ?? a.reqs[0];
-    fixes.push({ key: target.key, rule: 'no_proof_link', text: 'Add one proof link (live app, demo or contract).' });
+    const text = `${label(target)}: link the live app or the contract on the explorer.`;
+    if (a.knownLinks?.some((l) => LINK.test(l))) agent.push({ key: target.key, rule: 'no_proof_link', for: 'agent', text });
+    else builder.push({ key: target.key, rule: 'no_proof_link', for: 'builder', text });
   }
   for (const c of a.judging?.criteria ?? []) {
-    const hit = c.words.some((w) => new RegExp(`\\b${w.replace(/[^a-z]/g, '')}`, 'i').test(all));
-    if (!hit) fixes.push({ key: '', rule: 'criterion', text: `No answer shows ${lowerFirst(c.text)} yet.` });
+    if (!c.fix) continue;
+    const r = a.reqs.find((x) => kindOf(x) === c.fix!.kind && val(x));
+    if (r && !NEEDS[c.fix.needs](val(r))) builder.push({ key: r.key, rule: 'criterion', for: 'builder', text: `${label(r)}: ${c.fix.add}.` });
   }
-  return fixes.slice(0, MAX_FIXES);
+  for (const r of a.reqs) {
+    const v = val(r);
+    if (!v) continue;
+    const limit = r.guidance?.limit_words;
+    if (limit && words(v) > limit)
+      agent.push({ key: r.key, rule: 'over_limit', for: 'agent', text: `${label(r)}: trim it to ${limit} words (now ${words(v)}).` });
+    else if (r.max_chars && v.length > r.max_chars)
+      agent.push({ key: r.key, rule: 'over_limit', for: 'agent', text: `${label(r)}: trim it to ${r.max_chars} characters (now ${v.length}).` });
+  }
+  return [...builder.slice(0, MAX_FIXES), ...agent];
 }
 
 const DRAFT_CELL = 60;
@@ -359,13 +465,14 @@ export function draftTable(reqs: SubmissionRequirement[], answers: Record<string
   return cut || hidden > 0 ? `${table}\n\n${more}Say "show all" for the full text.` : table;
 }
 
-/** The check's fixes for the builder, numbered; null when there are none. Pure. */
+/** The check's builder fixes, numbered (agent fixes are never shown); null when there are none. Pure. */
 export function fixesLine(fixes: Fix[]): string | null {
-  const n = fixes.length;
+  const shown = fixes.filter((f) => f.for !== 'agent');
+  const n = shown.length;
   if (n === 0) return null;
   return [
     `Before you submit, ${n} quick fix${n === 1 ? '' : 'es'} would make it stronger:`,
-    ...fixes.map((f, i) => `${i + 1}. ${f.text}`),
+    ...shown.map((f, i) => `${i + 1}. ${f.text}`),
   ].join('\n');
 }
 

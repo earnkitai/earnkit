@@ -50,42 +50,16 @@
   "judging": {
     "criteria": [
       {
-        "text": "Relevance to Arc",
-        "words": [
-          "arc",
-          "usdc"
-        ]
+        "text": "Relevance to Arc"
       },
       {
-        "text": "Technical credibility",
-        "words": [
-          "contract",
-          "mainnet",
-          "deployed",
-          "tested",
-          "audit"
-        ]
+        "text": "Technical credibility"
       },
       {
-        "text": "Quality of what you built",
-        "words": [
-          "live",
-          "working",
-          "users",
-          "used",
-          "demo",
-          "shipped"
-        ]
+        "text": "Quality of what you built"
       },
       {
-        "text": "Worth taking further",
-        "words": [
-          "next",
-          "roadmap",
-          "plan",
-          "grow",
-          "scale"
-        ]
+        "text": "Worth taking further"
       }
     ],
     "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
