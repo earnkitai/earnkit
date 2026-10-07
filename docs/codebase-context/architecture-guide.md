@@ -1764,6 +1764,26 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
 - **Privacy**: the bank and `projects.application` are read only by these tools for the same
   installation; no public page, stats, admin page or log reads them (errors log the class only).
 
+### "Also qualifies" (v2.8 Task 11, Ruling 29, Part F)
+
+- **`also-qualifies.ts` (pure)**: `alsoQualifies` picks at most `MAX_ALSO` (3) other curated,
+  non-campaign, non-sponsor programs the project already qualifies for: not the program just
+  entered, not one this installation already entered for the same project (`enteredIds`; a
+  confirmed-but-unsubmitted entry counts, Task 8 carry), not `new_work_only`, not closed, not
+  ending within 2 days, and a chain fit or `any_chain`. Sorted by fewest required fields the answer
+  bank can't fill (`coach.ts bankFill`, reused so a later program shows how little is left), then
+  larger `pool_usd`, then sooner deadline. `alsoText` renders the table (`Program`, `Prize`, `Ends`,
+  `Still needed`) plus "Say \"enter it here too\"..." and, with `coinIn` (Ruling 5), "Builder bonus
+  counts in \<program\>."; null with no rows.
+- **Wiring (`tools.ts record_submission`, non-campaign only)**: chains come from the repo-facts
+  cache (`match-projects.ts cachedRepoChains`, `github_repo_facts` only, no GitHub call) when
+  present, else the entered program's own chains. Candidate programs: `programs.ts
+  alsoProgramFacts`. Already-entered programs for this project: `projects.ts enteredProgramIds`
+  (same repo/name match as `ownEntry`, across every program). `coinIn`: `repoCoinPrograms` on the
+  project's repo key. Never fails the reply: on error it logs `[also_qualifies]` (class only) and
+  the section is left out. The reply carries `also_qualifies` (the rows) and the text is appended
+  to `show_to_builder` after a blank line.
+
 ## Public trust pages (v2.5 §4, Task 9)
 
 - **/policy** states matching, the fee split, and the builder bonus rules. Its numbers come from

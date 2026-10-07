@@ -491,6 +491,21 @@ async function ownEntry(
   return row ?? null;
 }
 
+/**
+ * v2.8 Ruling 29 (plan), Task 8 carry: every non-campaign program this installation already has a
+ * row for, for the same project (ownEntry's own repo/name match: a confirmed-but-unsubmitted entry
+ * counts too). For "Also qualifies": a program already entered is never offered a second time.
+ */
+export async function enteredProgramIds(installationId: number, k: { repoUrl: string | null; name: string }): Promise<Set<string>> {
+  const q = sql();
+  const key = k.repoUrl ? normalizeRepoUrl(k.repoUrl) : null;
+  const rows = await q<{ program_id: string }[]>`
+    SELECT DISTINCT program_id FROM projects
+    WHERE installation_id = ${installationId}
+      AND ${key ? q`bonus_repo_key = ${key}` : q`repo_url IS NULL AND lower(name) = lower(${k.name})`}`;
+  return new Set(rows.map((r) => r.program_id));
+}
+
 /** A program's submission site as builder text ("dorahacks.io"), or null. Pure. */
 const siteOf = (url: string | null | undefined) =>
   url && URL.canParse(url) ? new URL(url).hostname.replace(/^www\./, '') : null;

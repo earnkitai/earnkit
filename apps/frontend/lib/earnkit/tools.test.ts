@@ -9,7 +9,8 @@ import { earnkitTexts } from './campaign-text';
 import { ProgramFile, type SubmissionRequirement } from './program-file';
 import { coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, type Application } from './coach';
 import { projectKey, readBank } from './answer-bank';
-import { upsertProgram } from './programs';
+import { alsoProgramFacts, upsertProgram } from './programs';
+import { enteredProgramIds } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
@@ -18,6 +19,8 @@ import { SKIPPED_ENTRY, tickerTakenNote, type TokenFlowDeps } from './token-laun
 import { CANT_PUSH, NO_WALLET_HINT, confirmOffer } from './confirm';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
+import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
+import type { Chain } from './match';
 
 const REF = `0x${'a'.repeat(64)}`;
 
@@ -90,6 +93,24 @@ test('SponsorCampaignInput rejects an award whose winners is a number', () => {
 
 // Against the local database when configured.
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+
+/**
+ * v2.8 Task 11: other dbTests leave stray active, curated, non-campaign programs behind (never
+ * closed), which record_submission's "Also qualifies" (Ruling 29 (plan)) would now pick up and
+ * fold into show_to_builder, breaking an exact-equality assertion written before that existed.
+ * Closes every such program except `keep`'s ids for the duration of `fn` (best effort, same
+ * pattern as the neighboring "v2.5 §1" and "Ruling 11 (plan) fix round 1" tests), then reopens them.
+ */
+async function withOnlyPrograms<T>(keep: string[], fn: () => Promise<T>): Promise<T> {
+  const stray = await sql()<{ id: string }[]>`
+    SELECT id FROM programs WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN ${sql()(keep)}`;
+  if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  try {
+    return await fn();
+  } finally {
+    if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+  }
+}
 
 test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses one', dbTest, async () => {
   const PAY = '0x' + 'a'.repeat(40);
@@ -434,6 +455,15 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     answers: { description: 'Tips', builder_profile: 'https://github.com/alice' },
   });
   try {
+    await withOnlyPrograms([a.id, b.id], () => run());
+  } finally {
+    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
+    else process.env.EARNKIT_AUTH_SECRET = secret;
+    globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
+  }
+  async function run() {
     // 1. An entry naming a wallet (the builder skipped the coin): remembered for the installation.
     const id = await inst('one');
     const skipped = (await tools.record_submission(entry(a.id, 1, { payout_wallet: W, token: 'skip' }), { installationId: id, roundPoolsWei: pools })) as {
@@ -441,7 +471,9 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
       show_to_builder: string;
     };
     assert.equal(skipped.recorded, true);
-    assert.equal(skipped.show_to_builder, `Entered in ${a.title}.`, 'skipped: no coin, no bonus line');
+    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow.
+    assert.ok(skipped.show_to_builder.startsWith(`Entered in ${a.title}.`), 'skipped: no coin, no bonus line');
+    assert.doesNotMatch(skipped.show_to_builder.split('\n\n')[0], /ETH|builder bonus/);
     // 2. The next prepare_submission, on another non-campaign program, prefills it.
     const prep = (await tools.prepare_submission({ program_id: b.id, ...ready() }, { installationId: id })) as {
       show_to_builder: string;
@@ -499,9 +531,11 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // The agent's note names the tool; the builder's text never does.
     assert.equal(r.token.note, 'No token yet: no wallet was given.');
     assert.equal((r.token as { agent_note?: string }).agent_note, 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
-    assert.equal(
-      r.show_to_builder,
-      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
+    // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow.
+    assert.ok(
+      r.show_to_builder.startsWith(
+        `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
+      ),
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -543,7 +577,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.$/,
+      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.(\n\n|$)/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
@@ -571,7 +605,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPoolsWei: pools })) as Held;
     assert.equal(held.repo_held, true);
     assert.equal(held.bonus_round, null);
-    assert.equal(held.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
+    assert.ok(held.show_to_builder.startsWith(`Entered in ${a.title}. ${REPO_HELD}`));
     assert.doesNotMatch(held.token.note ?? '', /launch_token|creator_wallet/);
     assert.match((held as { bonus_note?: string }).bonus_note ?? '', new RegExp(`entry #${ok.project_id} already holds this repo`));
     // The repo's coin is on an entry here that isn't eligible yet (no counting submission): still held.
@@ -579,7 +613,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     const coinHeld = (await tools.record_submission(sameRepo(6), { installationId: await inst('four'), roundPoolsWei: pools })) as Held;
     assert.equal(coinHeld.repo_held, true);
     assert.equal(coinHeld.bonus_round, null);
-    assert.equal(coinHeld.show_to_builder, `Entered in ${a.title}. ${REPO_HELD}`);
+    assert.ok(coinHeld.show_to_builder.startsWith(`Entered in ${a.title}. ${REPO_HELD}`));
     assert.match((coinHeld as { bonus_note?: string }).bonus_note ?? '', /another entry of this repo in this program has its token/);
     // The holder's own re-record is not "held" by its own coin.
     const own = (await tools.record_submission({ ...coinEntry(4, B), builder_submitted: true }, ctxTwo)) as Held & { project_id: number };
@@ -627,12 +661,6 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     };
     assert.equal(echoed.token.status, 'launched');
     assert.deepEqual(fiveDeploys.map((d) => d.creatorWallet), [SHOWN]);
-  } finally {
-    if (secret === undefined) delete process.env.EARNKIT_AUTH_SECRET;
-    else process.env.EARNKIT_AUTH_SECRET = secret;
-    globalThis.fetch = realFetch;
-    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
-    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
   }
 });
 
@@ -1408,4 +1436,70 @@ test('10 Part E: confirm_entry on DoraHacks with a browser is still the paste li
     assert.equal(r.kit?.mode, 'copy_paste');
     assert.ok(!r.kit?.agent_steps);
     assert.match(r.agent_note ?? '', /terms ban automated use/);
+  }));
+
+test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, also_qualifies reuses the bank and the cached chains; never Arc; Task 8 carry excludes an entered one', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('also', { extra: COACH_EXTRA });
+    // v2.8 Part E's Base fixture, cloned under a fresh id (already open and rolling, as committed).
+    const other = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, title: `Also Base ${t.p.id}` };
+    await upsertProgram(ProgramFile.parse(other));
+
+    // Isolate: close every other active, curated, non-campaign program for the duration, so stray
+    // rows other dbTests leave in this shared database can't crowd the top MAX_ALSO rows (same
+    // pattern as the v2.5 §1 list_programs test's stray-campaign handling).
+    const stray = await sql()<{ id: string }[]>`
+      SELECT id FROM programs WHERE status = 'active' AND source = 'file' AND campaign IS NULL AND id NOT IN (${t.p.id}, ${other.id})`;
+    if (stray.length) await sql()`UPDATE programs SET status = 'closed' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+    try {
+      const go1 = (await tools.confirm_entry({ ...t.input, answers: COACH_ANSWERS, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+      assert.ok(go1.kit);
+      const submit = () =>
+        tools.record_submission(
+          { program_id: t.p.id, project: t.project, submission_data: COACH_ANSWERS, builder_submitted: true },
+          t.ctx,
+        ) as Promise<{ also_qualifies?: AlsoRow[]; show_to_builder: string }>;
+
+      // Uncached: chains fall back to Arc's own (arc only), so the Base-chain program doesn't fit.
+      const r1 = await submit();
+      assert.ok(!r1.also_qualifies?.some((x) => x.id === other.id));
+
+      // Cache the repo's chains as covering Base too: it now shows, via the cache (Ruling 29).
+      const full = t.repo.replace('https://github.com/', '');
+      await sql()`
+        INSERT INTO github_repo_facts (full_name, pushed_at, chains, commits_since) VALUES (
+          ${full}, now(),
+          ${sql().json({ arc: { mainnet: true, testnet: false, evidence: 'x' }, base: { mainnet: true, testnet: false, evidence: 'x' } })},
+          '{}')`;
+      const r2 = await submit();
+      assert.ok(!r2.also_qualifies?.some((x) => x.id === t.p.id), 'never the entered program itself');
+      const row = r2.also_qualifies?.find((x) => x.id === other.id);
+      assert.ok(row, 'the Base-chain program shows via the cached chains');
+
+      // The wiring matches the pure function exactly, given the same bank, programs and entries.
+      const bank = await readBank(t.inst, projectKey({ repo_url: t.repo, name: 'Tip Jar' }));
+      const programs = await alsoProgramFacts();
+      const enteredIds = await enteredProgramIds(t.inst, { repoUrl: t.repo, name: 'Tip Jar' });
+      const args = { enteredProgramId: t.p.id, chains: ['arc', 'base'] as Chain[], programs, bank, answers: COACH_ANSWERS, now: new Date() };
+      const expectedRows = alsoQualifies({ ...args, enteredIds });
+      assert.deepEqual(r2.also_qualifies, expectedRows);
+      // confirmSetup's ctx.repoCoins always answers {} (so the token launch flow never sees this
+      // repo as held elsewhere): the same stub makes coinIn null here, not the entered program.
+      assert.ok(r2.show_to_builder.endsWith(alsoText(expectedRows, null)!));
+
+      // Reusing the bank cuts how much is left (usage_numbers, kind traction, is filled from Arc's).
+      const unbanked = alsoQualifies({ ...args, enteredIds, bank: new Map() }).find((x) => x.id === other.id)!;
+      assert.ok(row!.left < unbanked.left, 'reusing the bank cuts how much is left for the next program');
+
+      // Task 8 carry: confirming Base too (skip, never submitted) still counts as entered; it is
+      // never offered a second time.
+      await tools.confirm_entry(
+        { program_id: other.id, project: t.project, answers: COACH_ANSWERS, builder_confirmed: true, decision: 'skip' },
+        t.ctx,
+      );
+      const r3 = await submit();
+      assert.ok(!r3.also_qualifies?.some((x) => x.id === other.id), 'already entered (confirmed, unsubmitted): never offered twice');
+    } finally {
+      if (stray.length) await sql()`UPDATE programs SET status = 'active' WHERE id IN ${sql()(stray.map((s) => s.id))}`;
+    }
   }));
