@@ -11,7 +11,16 @@ import AddToAgent, { START_PROMPT } from './AddToAgent';
  * builder bonus pill (to #builder-bonus), the install button, what to ask, and one short stats
  * line once there is something to show. Ruling 27 (plan): "Agents only" and "Watch the demo" stay.
  */
-export default function Hero({ openText = null, statsLine = null }: { openText?: string | null; statsLine?: string | null }) {
+export default function Hero({
+  openText = null,
+  statsLine = null,
+  bonusEvery = false,
+}: {
+  openText?: string | null;
+  statsLine?: string | null;
+  /** Review #6: every open program has the builder bonus (false when unknown: the read failed). */
+  bonusEvery?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -59,7 +68,7 @@ export default function Hero({ openText = null, statsLine = null }: { openText?:
           href="#builder-bonus"
           className="mt-4 inline-flex min-h-11 items-center rounded-full border-2 border-ek-blue-soft/60 bg-[#02052c]/60 px-5 py-2 font-funnel-sans text-sm font-medium text-ek-blue-light transition-colors hover:border-ek-blue-light hover:text-white"
         >
-          + Builder bonus on every program
+          {bonusEvery ? '+ Builder bonus on every program' : '+ Builder bonus'}
         </a>
 
         <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">

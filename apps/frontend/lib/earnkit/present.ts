@@ -29,6 +29,10 @@ export type Card = {
   closes_in_days?: number | null;
   /** The known per-winner award in USD (programs.ts perWinnerUsd); unknown sorts last. */
   max_award_usd?: number | null;
+  /** The organizer's reward text (programs.ts programCard). */
+  reward?: string;
+  /** v2.7.1 review: the smallest award when the source states a range, or null. */
+  min_award_usd?: number | null;
   /** v2.7.1 (programs.ts poolFacts): the source-stated total pool in USD, or null. */
   pool_usd?: number | null;
   /** v2.7.1: the reward text says "+" after the pool ("$250,000+"). */

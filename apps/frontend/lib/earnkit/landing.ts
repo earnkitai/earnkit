@@ -1,9 +1,8 @@
-import { usd } from './campaigns';
 import { prizeOf } from './entry-text';
 import { difficultyLabel, guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
 import { bonusCell, daysLeftText, eth, type Card } from './present';
-import { poolTotalText } from './pool';
+import { eachLine, poolTotalText } from './pool';
 import { getProgramRow, guideBonus, isOpen, listPrograms, NotFoundError } from './programs';
 import { boardSlug, roundFor, roundPoolsWei } from './bonus-rounds';
 import { readStats, type PublicStats } from './stats';
@@ -34,7 +33,7 @@ export type Tile = {
    * ("milestone-based USDC grants").
    */
   prize: string;
-  /** v2.7.1: "up to $30,000 per winner" under the big line, when it differs from it. */
+  /** v2.7.1: "up to $30,000 per winner" / "$5K–$100K per grant" under the big line, when it differs from it. */
   prize_note: string | null;
   /** The per-winner USD amount (0 when unknown). */
   prize_usd: number;
@@ -58,6 +57,8 @@ export type Landing = {
   bonus_pools: string | null;
   /** v2.7.1: "312 agents earning · 0.42 ETH builder bonus paid", or null below both thresholds. */
   stats_line: string | null;
+  /** Review #6: every open program has the builder bonus, so "on every program" is true. */
+  bonus_every: boolean;
 };
 
 /**
@@ -85,7 +86,7 @@ export function statsLine(s: PublicStats): string | null {
  */
 export function bonusPill(cell: string, newPool = false): string {
   const so = cell.match(/^(.*) ETH so far$/);
-  if (so) return `+ ${so[1]} ETH bonus`;
+  if (so) return `+ ${so[1] === 'under 0.01' ? '<0.01' : so[1]} ETH bonus`;
   return newPool ? '+ Builder bonus · new pool' : '+ Builder bonus';
 }
 
@@ -96,11 +97,13 @@ export function bonusPoolsText(wei: bigint): string | null {
 }
 
 /**
- * v2.7.1: the cards' order (landing and /programs): the source-stated pool, highest first; a
- * program without one by its per-winner amount; then the sooner deadline. The first message keeps
+ * v2.7.1: the cards' order (landing and /programs): programs with a source-stated pool first,
+ * highest pool first; then the rest by their per-winner amount; then the sooner deadline. The first message keeps
  * `byPrize`. Pure.
  */
 export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>) =>
+  // Review #10: programs with a pool first (never a pool against a per-winner amount).
+  Number(b.pool_usd != null) - Number(a.pool_usd != null) ||
   (b.pool_usd ?? b.max_award_usd ?? -1) - (a.pool_usd ?? a.max_award_usd ?? -1) ||
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
@@ -117,7 +120,8 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     const cell = bonusCell({ builder_bonus: c.builder_bonus, bonus_pool_wei: pool ?? null, bonus_closed: pools.has(c.id) && pool === null });
     if (cell !== '—' && pool) bonusWei += pool;
     const perWinner = c.max_award_usd ?? 0;
-    const each = perWinner > 0 ? `up to ${usd(perWinner)} per winner` : null;
+    // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
+    const each = eachLine({ title: c.title, reward: c.reward ?? '', max_award_usd: perWinner || null, min_award_usd: c.min_award_usd ?? null });
     const prize = c.pool_line ?? each ?? prizeOf(c);
     return {
       id: c.id,
@@ -134,6 +138,7 @@ export function landingFrom(cards: Card[], pools: Map<string, bigint | null>, st
     };
   });
   return {
+    bonus_every: kept.length > 0 && kept.every((c) => c.builder_bonus !== false),
     open_text: poolTotalText(kept.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false }))),
     tiles,
     bonus_pools: bonusPoolsText(bonusWei),
@@ -205,7 +210,13 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     board_path: round ? `/bonus/${boardSlug(round.key)}` : null,
     bonus_pill: bonus ? bonusPill(bonus.cell, true) : null,
     source_url: row.source_url,
-    sources: guideSourceList(row, [{ label: 'program page', url: row.source_url }]),
+    // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).
+    sources: guideSourceList(row, [
+      { label: 'program page', url: row.source_url },
+      ...(row.pool_usd != null && row.pool_source_url && row.pool_source_url !== row.source_url
+        ? [{ label: 'prize pool', url: row.pool_source_url }]
+        : []),
+    ]),
     ecosystem: guide.wants?.ecosystem ?? CHAIN_NAMES[row.chains[0]] ?? row.title,
   };
 }

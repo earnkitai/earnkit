@@ -29,11 +29,15 @@ Only Base, Arc, Tempo, Monad, and Robinhood Chain programs.
      campaigns don't need it: their per-winner amount is the prize divided by the winners.
    - `pool_usd` (optional): the program's total prize pool in USD, as a number. Set it only when
      the source states a pool (e.g. `840000` for "$840,000 in prizes", `10000` for "10,000 USDC
-     pool"); leave it out when none is published. `reward` must state the same amount
-     (`$840,000`, `$840K` or `10,000 USDC`; `programs:check` refuses it otherwise), and a `+`
+     pool"); leave it out when none is published. `reward` must state the same amount followed by
+     a pool word (`$840,000 in prizes`, `$250,000+ prize pool`, `10,000 USDC pool`, `$200K
+     available`; `programs:check` refuses it otherwise), and a `+`
      right after it there ("$250,000+") shows on the page. The landing page's "$X open right now"
      is the sum of the open programs' pools, with "+" when any lacks one. The landing and
-     /programs sort cards by it (a program without one by `max_award_usd`).
+     /programs sort cards with a pool first, by pool, then the rest by `max_award_usd`.
+   - `min_award_usd` (optional): the smallest award, only when the source states a range ("from
+     $5,000 to $100,000"); needs a larger `max_award_usd` and must be stated in `reward`. The card
+     then reads "$5K–$100K per grant" (grant programs say "per grant", others "per winner").
    - `pool_source_url` (optional, only with `pool_usd`): where the pool is stated when that isn't
      `source_url` (e.g. Circle's Cohort 2 total on its grants portal).
    - `tag` (optional): `"long shot"` when few prizes go to many judged entries;

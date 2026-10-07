@@ -177,6 +177,10 @@ export type ProgramRow = {
   max_award_usd: string | null;
   /** v2.7.1: the source-stated total prize pool in USD (numeric, so a string), or null. */
   pool_usd: string | null;
+  /** v2.7.1 review: the smallest award when the source states a range (numeric, so a string), or null. */
+  min_award_usd: string | null;
+  /** v2.7.1 review: where the pool is stated, when that isn't source_url. */
+  pool_source_url: string | null;
   submission_requirements: SubmissionRequirement[];
   /** Up to 3 short ideas drawn from the program's stated focus or its published winners. */
   ideas: string[];
@@ -215,6 +219,7 @@ export async function listPrograms() {
       | 'campaign'
       | 'max_award_usd'
       | 'pool_usd'
+      | 'min_award_usd'
       | 'opened_at'
       | 'submission_requirements'
       | 'ideas'
@@ -235,7 +240,7 @@ export async function listPrograms() {
     })[]
   >`
     SELECT p.id, p.title, p.organizer, p.reward, p.ends_at, p.existing_work, p.setup, p.each_time,
-      p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd,
+      p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.rules,
@@ -286,6 +291,7 @@ export function programCard(
     | 'campaign'
     | 'max_award_usd'
     | 'pool_usd'
+    | 'min_award_usd'
     | 'opened_at'
     | 'submission_requirements'
     | 'ideas'
@@ -333,6 +339,7 @@ export function programCard(
     max_award_usd: perWinnerUsd(p),
     // v2.7.1: a curated program's source-stated pool, how its reward text states it, its big line.
     ...poolFacts(p),
+    min_award_usd: p.campaign || p.min_award_usd == null ? null : Number(p.min_award_usd),
     // Its own "Sponsored" section; never the "Fastest" headline or the closing offer (present.ts).
     sponsored,
     tracks,
@@ -609,6 +616,8 @@ export async function upsertProgram(
       tag: p.tag ?? null,
       max_award_usd: p.max_award_usd ?? null,
       pool_usd: p.pool_usd ?? null,
+      min_award_usd: p.min_award_usd ?? null,
+      pool_source_url: p.pool_source_url ?? null,
       chains: p.chains,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,

@@ -223,12 +223,14 @@ test('v2.7 §1: the full home view', () => {
   for (const name of ['Docs', 'Policy', 'Programs']) assert.match(h, new RegExp(`class="[^"]*min-h-11[^"]*"[^>]*>${name}</a>`), name);
   // v2.7.1: the pool is the big line, "up to $X per winner" under it; no pool, the per-winner amount.
   assert.ok(t.includes('$840K in prizes up to $30,000 per winner 8 days left Hard (estimate) + 0.42 ETH bonus'));
-  assert.ok(t.includes('10,000 USDC pool up to $500 per winner'));
-  assert.ok(t.includes('up to $5,000 per winner rolling'));
-  assert.ok(t.includes('$200K in grants rolling'));
+  assert.ok(t.includes('10,000 USDC pool 500 USDC per grant'));
+  assert.ok(t.includes('up to $5,000 per grant rolling'));
+  assert.ok(t.includes('$200K in grants $5K–$100K per grant rolling'));
+  assert.doesNotMatch(t, /per winner rolling|grants? up to \$[\d,]+ per winner/); // review #1: grants never say "per winner"
   assert.ok(!t.includes('Prize ') && !t.includes('Ends ') && !t.includes('Difficulty '));
-  // The section: no "Open now" eyebrow, one line under the title.
-  assert.ok(t.includes('Open programs Every entry also competes for the builder bonus.'));
+  // The section: no "Open now" eyebrow; review #5: no bonus line under the title (the pills say it).
+  assert.match(t, /Open programs See all CW Crypto World/);
+  assert.doesNotMatch(t, /Every entry also competes/);
   assert.doesNotMatch(t, /Open now/i);
   for (const [i, c] of cards.entries()) {
     const ct = text(c);
@@ -248,8 +250,9 @@ test('v2.7 §1: the full home view', () => {
   const bb = h.slice(h.indexOf('id="builder-bonus"'));
   assert.ok(h.includes('id="builder-bonus"'));
   const bt = text(bb.slice(0, bb.indexOf('</section>')));
-  for (const s of ['Win twice.', 'Top 10 on every program', 'Paid in ETH', 'Ranked on real users', '0.60 ETH in pools so far', 'Leaderboards']) assert.ok(bt.includes(s), s);
-  assert.match(bb, /<a[^>]*href="\/programs"[^>]*>Leaderboards<\/a>/);
+  for (const s of ['Win twice.', 'Top 10 on every program', 'Paid in ETH', 'Ranked on real users', '0.60 ETH in pools so far', 'See programs']) assert.ok(bt.includes(s), s);
+  assert.match(bb, /<a[^>]*href="\/programs"[^>]*>See programs<\/a>/);
+  assert.doesNotMatch(h, /Leaderboards/);
   assert.equal(BONUS_PILLS[0], `Top ${BONUS_TOP} on every program`); // the payout split's length
   assert.ok(t.indexOf('Open programs') < t.indexOf('Win twice.') && t.indexOf('Win twice.') < t.indexOf('Add EarnKit'));
   // The 3 steps.
@@ -274,10 +277,22 @@ test('Review Focus 1: a failed read renders the headline and the button, without
   assert.ok(!t.includes('Ask your agent'));
   assert.ok(!t.includes('Open programs'));
   assert.ok(!t.includes('agents earning'));
-  // The bonus section keeps its copy without an amount: never "0 ETH".
-  assert.ok(t.includes('Win twice.') && t.includes('Pools start with the first entry'));
-  assert.doesNotMatch(t, /\b0 ETH/);
+  // Review #2: the bonus section keeps its pills but shows no figure: the read failed, so it
+  // never claims the pools are empty (or "0 ETH").
+  for (const s of ['Win twice.', 'Top 10 per program', 'Paid in ETH', 'Ranked on real users']) assert.ok(t.includes(s), s);
+  assert.doesNotMatch(t, /Pools start|in pools so far|\b0 ETH/);
+  // Review #6: "on every program" only when the read shows it.
+  assert.ok(t.includes('+ Builder bonus Add to your agent'));
+  assert.doesNotMatch(t, /on every program/);
   assert.ok(t.includes('Your agent builds and submits')); // how it works stays
+});
+
+test('review #2, #6: a successful read with empty pools says so; a program without the bonus drops "every"', () => {
+  const t = text(home({ ...homeFixture, bonus_pools: null }));
+  assert.ok(t.includes('Win twice. See programs Pools start with the first entry'));
+  const some = text(home({ ...homeFixture, bonus_every: false }));
+  assert.ok(some.includes('+ Builder bonus Add to your agent') && some.includes('Top 10 per program'));
+  assert.doesNotMatch(some, /on every program/);
 });
 
 test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a local <img>', () => {
@@ -440,7 +455,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(index.includes('Programs are unavailable right now.'));
   assert.doesNotMatch(index, /limit=/);
   const cache = read('app/lib/landing-cache.ts');
-  assert.match(cache, /\['guide-v27'\], \{ revalidate: 600 \}/);
+  assert.match(cache, /\['guide-v271'\], \{ revalidate: 600 \}/); // review #7: bumped with the GuidePage shape
   assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
   assert.match(cache, /gatedGuidePage\(id, cachedIds, cachedGuide\)/);
   assert.match(cache, /export const getGuidePage = cache\(/);
@@ -460,13 +475,13 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
 test('/programs: every open program as cards under an h1, or the unavailable line', async () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
   assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
-  assert.ok(text(h).includes('By prize'));
+  assert.ok(text(h).includes('By pool'));
   assert.doesNotMatch(text(h), /Open now/);
   assert.equal([...h.matchAll(/>Guide</g)].length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
-  assert.ok(fig.includes('Open programs $1.3M+ open right now Every entry also competes for the builder bonus.'));
+  assert.ok(fig.includes('By pool Open programs $1.3M+ open right now CW Crypto World'), fig);
   assert.match(readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8'), /figure=\{landing\.open_text\}/);
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));

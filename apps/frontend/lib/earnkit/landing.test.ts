@@ -98,7 +98,7 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
   assert.equal(a.difficulty, 'Medium (estimate)');
   assert.equal(a.bonus, '+ Builder bonus'); // no pool read yet: the pill still shows
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
-  assert.equal(b.prize, 'up to $5,000 per winner');
+  assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
   assert.equal(l.open_text, null); // no tile states a pool
   assert.equal(l.bonus_pools, null); // every pool empty: never "0 ETH"
   assert.equal(HOME_CARDS, 6);
@@ -115,8 +115,8 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   );
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.deepEqual([t('monad-metropolis').prize, t('monad-metropolis').prize_note], ['$250K+ in prizes', 'up to $25,000 per winner']);
-  assert.deepEqual([t('arc-microgrants').prize, t('arc-microgrants').prize_note], ['10,000 USDC pool', 'up to $500 per winner']);
-  assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per winner', null]);
+  assert.deepEqual([t('arc-microgrants').prize, t('arc-microgrants').prize_note], ['10,000 USDC pool', 'up to $500 per grant']);
+  assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per grant', null]);
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
   // The sponsor and EarnKit campaigns never count; "+" for Monad's "+" and for the programs without a pool.
   assert.equal(l.open_text, '$260K+');
@@ -127,7 +127,7 @@ test('v2.7.1: the real program files add up to "$1.3M+ open right now"', () => {
   const ids = ['colosseum-worlds-fair', 'monad-metropolis', 'arc-microgrants', 'circle-developer-grants', 'base-builder-grants'];
   const cards = ids.map((id): Card => {
     const f = ProgramFile.parse(committedProgram(id));
-    return { ...arc, id, title: f.title, max_award_usd: f.max_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
+    return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
   const l = landingFrom(cards, new Map(), stats(), now);
   assert.equal(l.open_text, '$1.3M+');
@@ -137,14 +137,17 @@ test('v2.7.1: the real program files add up to "$1.3M+ open right now"', () => {
   assert.equal(t('monad-metropolis').prize, '$250K+ in prizes');
   assert.equal(t('arc-microgrants').prize, '10,000 USDC pool');
   assert.equal(t('circle-developer-grants').prize, '$200K in grants');
-  assert.equal(t('circle-developer-grants').prize_note, 'up to $100,000 per winner');
+  // Review #1: grant programs say "per grant", with the stated range; hackathons keep "per winner".
+  assert.equal(t('circle-developer-grants').prize_note, '$5K–$100K per grant');
+  assert.equal(t('arc-microgrants').prize_note, '500 USDC per grant');
+  assert.equal(t('monad-metropolis').prize_note, 'up to $25,000 per winner');
   // Fix: sorted by pool, highest first; no pool falls back to the per-winner amount.
   assert.deepEqual(l.tiles.map((x) => x.id), ['colosseum-worlds-fair', 'monad-metropolis', 'circle-developer-grants', 'arc-microgrants', 'base-builder-grants']);
-  assert.equal(t('base-builder-grants').prize, 'up to $5,000 per winner');
+  assert.equal(t('base-builder-grants').prize, 'up to $5,000 per grant');
   assert.equal(t('base-builder-grants').pool_usd, null);
 });
 
-test('v2.7.1 fix: byPool orders by pool, then per-winner amount without one, then the sooner deadline', () => {
+test('v2.7.1 fix: byPool orders pools first by size, then the rest by per-winner amount, then the sooner deadline', () => {
   const c = (id: string, pool_usd: number | null, max_award_usd: number | null, ends: string | null): Card =>
     ({ ...arc, id, pool_usd, max_award_usd, ends_at: ends ? new Date(ends) : null });
   const sorted = [
@@ -155,7 +158,14 @@ test('v2.7.1 fix: byPool orders by pool, then per-winner amount without one, the
     c('same-pool-later', 10000, 500, '2026-10-30T00:00:00Z'),
     c('same-pool-sooner', 10000, 500, '2026-10-10T00:00:00Z'),
   ].sort(byPool).map((x) => x.id);
-  assert.deepEqual(sorted, ['big-pool', 'no-pool-big-award', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'nothing']);
+  // Review #10: every program with a pool before any without (never a pool against a per-winner amount).
+  assert.deepEqual(sorted, ['big-pool', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'no-pool-big-award', 'nothing']);
+});
+
+test('review #6: bonus_every only when no open curated program opted out', () => {
+  assert.equal(landingFrom([arc, base], new Map(), stats(), now).bonus_every, true);
+  assert.equal(landingFrom([arc, monad], new Map(), stats(), now).bonus_every, false); // Monad's fixture opted out
+  assert.equal(landingFrom([], new Map(), stats(), now).bonus_every, false);
 });
 
 test('v2.7.1: the stats line shows only from 100 installs or once bonus is paid', () => {
@@ -176,7 +186,7 @@ test('v2.7.1: builder bonus pills and the pools figure', () => {
   assert.equal(bonusPill('new pool', true), '+ Builder bonus · new pool');
   assert.equal(bonusPill('0.42 ETH so far'), '+ 0.42 ETH bonus');
   assert.equal(bonusPill('0.42 ETH so far', true), '+ 0.42 ETH bonus');
-  assert.equal(bonusPill('under 0.01 ETH so far'), '+ under 0.01 ETH bonus');
+  assert.equal(bonusPill('under 0.01 ETH so far'), '+ <0.01 ETH bonus');
   assert.equal(bonusPoolsText(0n), null);
   assert.equal(bonusPoolsText(10n ** 15n), 'under 0.01 ETH in pools so far');
   assert.equal(bonusPoolsText(6n * 10n ** 17n), '0.60 ETH in pools so far');
@@ -215,6 +225,18 @@ test('v2.7.1: programs:sync writes pool_usd and the row reads back as the card\'
   assert.deepEqual(poolFacts(row), { pool_usd: 10000, pool_plus: false, pool_line: '10,000 USDC pool' });
   await upsertProgram(ProgramFile.parse(programFile('base-builder-grants')));
   assert.equal((await getProgramRow('base-builder-grants')).pool_usd, null);
+});
+
+test('review #1, #9: Circle\'s range and pool source reach the DB and the guide\'s sources', dbTest, async () => {
+  await upsertProgram(ProgramFile.parse(programFile('circle-developer-grants')));
+  const row = await getProgramRow('circle-developer-grants');
+  assert.equal(Number(row.min_award_usd), 5000);
+  assert.equal(row.pool_source_url, 'https://circle.questbook.app/');
+  const page = await readGuidePage('circle-developer-grants', now);
+  assert.deepEqual(page?.sources.slice(0, 2), [
+    { label: 'program page', url: 'https://www.circle.com/grant' },
+    { label: 'prize pool', url: 'https://circle.questbook.app/' },
+  ]);
 });
 
 test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache serializes it)', dbTest, async () => {

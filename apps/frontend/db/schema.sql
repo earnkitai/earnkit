@@ -547,3 +547,7 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS winners_per_round integer;
 -- v2.7.1: the program's total prize pool in USD, only when its own source states one (the hero's
 -- "$X open right now" and each card's big line). Additive: existing rows get NULL.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_usd numeric;
+-- v2.7.1 review: the smallest award when the source states a range ("$5,000 to $100,000"), and
+-- where the pool is stated when that isn't source_url. Additive: existing rows get NULL.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_award_usd numeric;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_source_url text;
