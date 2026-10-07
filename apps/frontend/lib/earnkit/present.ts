@@ -3,6 +3,7 @@ import { endsOf, prizeOf, repoCoinNote } from './entry-text';
 import { shortDate } from './dates';
 import { EFFORT_ORDER, type Chain, type Effort, type Verdict } from './match';
 import { difficultyLabel, type Difficulty } from './guide';
+import { openFigure } from './pool';
 
 /** v2.7: moved to entry-text.ts (shared with guide.ts); re-exported for existing callers. */
 export { endsOf } from './entry-text';
@@ -11,7 +12,7 @@ export { endsOf } from './entry-text';
  * The builder-facing text for list_programs (v2.5 §1): money first, markdown tables, no emojis.
  * Built on the server because many MCP clients never show the model the server instructions; a
  * ready-made result gets shown as written. Order, always: "Since you last checked", "EarnKit
- * matches you to $X in top prizes" with what the builder's repos fit, open EarnKit campaigns (none
+ * matches you to $X in prizes" with what the builder's repos fit, open EarnKit campaigns (none
  * while Campaign #1 is closed), other open programs (at most 5), ideas when the builder has no
  * repo, sponsor campaigns (never first), program updates, then one offer closed by the builder
  * bonus (v2.7 §3).
@@ -125,8 +126,9 @@ const MAX_OTHERS = 5;
 const MAX_IDEAS = 6;
 
 /**
- * $X in "EarnKit matches you to $X in top prizes": each matched program's top per-winner prize,
- * once per program; programs without a stated per-winner amount count 0. Never whole pools. Pure.
+ * The per-winner sum: each program's top per-winner prize, once per program; programs without a
+ * stated per-winner amount count 0. v2.8 Ruling 24 (plan): only /api/stats' open_money_usd uses it
+ * now; the first message uses openFigure. Pure.
  */
 export function openMoneyUsd(matched: Pick<Card, 'id' | 'max_award_usd'>[]): number {
   const seen = new Map(matched.map((c) => [c.id, c.max_award_usd ?? 0]));
@@ -166,20 +168,27 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
  */
 export const BONUS_TOP = 10;
 
+/** v2.8 Ruling 25 (plan): the first message's token line, before the bonus total. */
+export const TOKEN_LINE =
+  'Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus.';
+/** The token line when no program on screen has a builder bonus. */
+export const TOKEN_LINE_NO_BONUS = 'Every entry gets a token: you earn 40% of its trading fees.';
+
 /**
- * v2.7 §3, Ruling 11 (plan); v2.7.1 wording: the builder bonus sentence that closes the message,
- * or null when no program on screen has a bonus. The total is the pools already read for those
- * programs; while every pool is empty the "so far" sentence is dropped. `others` is the paragraph
- * form before a campaign offer (or an offer that can't earn the bonus): "on the other open
- * programs". Pure.
+ * v2.7 §3, Ruling 11 (plan); v2.8 Ruling 25 (plan): the token and builder bonus sentence that
+ * closes the message: TOKEN_LINE, plus " 0.60 ETH so far." from the pools already read for the
+ * programs on screen (dropped while every pool is empty); TOKEN_LINE_NO_BONUS when no program on
+ * screen has a bonus. `others` is the paragraph form before a campaign offer (or an offer that
+ * can't earn the bonus), which keeps its v2.7 wording ("on the other open programs"), or null
+ * without a bonus. Pure.
  */
 export function bonusClose(onScreen: Card[], others = false): string | null {
   const live = onScreen.filter((c) => bonusCell(c) !== NO_CELL);
-  if (live.length === 0) return null;
+  if (live.length === 0) return others ? null : TOKEN_LINE_NO_BONUS;
   const wei = live.reduce((a, c) => a + (c.bonus_pool_wei ?? 0n), 0n);
   const head = others
     ? `Plus the builder bonus on the other open programs: the top ${BONUS_TOP} on each also get paid in ETH.`
-    : `Plus the builder bonus: the top ${BONUS_TOP} on each program also get paid in ETH.`;
+    : TOKEN_LINE;
   if (wei <= 0n) return head;
   return `${head} ${wei < 10n ** 16n ? 'Under 0.01' : eth(wei)} ETH so far.`;
 }
@@ -358,12 +367,12 @@ export const bonusProgramIds = (m: Pick<FirstMessage, 'cards' | 'repos'>) => {
 };
 
 /**
- * The no-repo headline: "$60,500 in top prizes is open right now." (all open curated programs'
- * per-winner prizes; v2.7.1 names them "top prizes", as the landing page's figure is the pools). Pure.
+ * v2.8 Ruling 24 (plan): the no-repo headline, "$1.3M+ in prizes open right now." with the site's
+ * figure (openFigure over every open curated program), else "These programs are open right now.".
+ * Pure.
  */
-const openHeadline = (total: number, agentCanBuild: boolean) =>
-  `${total > 0 ? `${usd(total)} in top prizes is open right now.` : 'These programs are open right now.'}` +
-  (agentCanBuild ? ' I can build an entry for you.' : '');
+const openHeadline = (fig: string | null) =>
+  fig ? `${fig} in prizes open right now.` : 'These programs are open right now.';
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
 export function presentFirstMessage(m: FirstMessage): string {
@@ -386,9 +395,10 @@ export function presentFirstMessage(m: FirstMessage): string {
       `None of your ${m.repos.checked} repo${m.repos.checked === 1 ? '' : 's'} fits an open program yet.`,
     );
   else if (rows.length > 0) {
-    const total = openMoneyUsd(rows.map((r) => r.card));
+    // v2.8 Ruling 24 (plan): the matched programs' pools, the same figure the site uses.
+    const fig = openFigure(rows.map((r) => r.card));
     sections.push(
-      `${total > 0 ? `EarnKit matches you to ${usd(total)} in top prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
+      `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, repo_url, v }) => {
@@ -428,7 +438,7 @@ export function presentFirstMessage(m: FirstMessage): string {
     sections.push(
       `${
         zeroState
-          ? openHeadline(openMoneyUsd(m.cards.filter((c) => !c.sponsored)), m.agentCanBuild)
+          ? openHeadline(openFigure(m.cards.filter((c) => !c.sponsored && !c.earnkit_campaign)))
           : above
             ? 'Also open:'
             : 'Open money right now:'

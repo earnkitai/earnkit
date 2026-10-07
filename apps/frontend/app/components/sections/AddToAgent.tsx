@@ -1,39 +1,65 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import BonusPill from '../ui/BonusPill';
 
 const MCP_URL = 'https://earnkit.com/mcp';
 
-type Agent = {
-  name: string;
+export type AgentName = 'Grok Bot' | 'Claude Code' | 'Cursor' | 'Codex' | 'Muse';
+
+export type Agent = {
+  name: AgentName;
+  /** The tab's icon: a local SVG under public/ ("/images/agents/<file>.svg"), never fetched from elsewhere. */
+  icon: string;
   /** One-click install deep link, when the agent supports one. */
   install?: string;
   steps: string[];
   code?: string;
+  /** One line after the command (the approve step). */
+  after?: string;
 };
 
-const AGENTS: Agent[] = [
+/**
+ * v2.8 Ruling 18 (plan), Ruling C1: the install tabs, Grok Bot first. The editor tab and "Other agents"
+ * are gone; the EarnKit link box above the tabs serves any other agent.
+ *
+ * Icon sources (each the maker's official brand or press kit, stored locally, single color):
+ * - grok.svg: xAI brand guidelines, https://x.ai/legal/brand-guidelines
+ *   (SpaceXAI_Grok_Assets.zip, Grok_Logomark_Dark.svg), unchanged.
+ * - claude-code.svg: Anthropic press kit, https://www.anthropic.com/press-kit
+ *   (Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg), unchanged.
+ * - cursor.svg: Cursor brand page, https://cursor.com/brand
+ *   (cursor-brand-assets.zip, Cube/SVG/CUBE_2D_LIGHT.svg), the same path with its class style
+ *   written as a fill attribute.
+ * - codex.svg: OpenAI brand guidelines, https://openai.com/brand/
+ *   (openai-logos.zip, OAI_OpenAI-Blossom_Black.svg), the same path with the viewBox cropped to
+ *   the mark (the clear space is the tab's own padding at 20px).
+ * - muse.svg: an EarnKit "M" monogram. Meta's brand center has no Muse mark, and its company logo
+ *   needs Meta's approval, so no Meta mark is used.
+ *
+ * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
+ * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
+ * (codex mcp add <name> --url <url>, then codex mcp login <name>).
+ */
+export const AGENTS: Agent[] = [
   {
     name: 'Grok Bot',
+    icon: '/images/agents/grok.svg',
     steps: [
       'Add an MCP connector in Grok Bot.',
       'Paste the EarnKit link and save.',
     ],
   },
   {
-    name: 'Muse',
-    steps: [
-      'Add a custom integration in Muse.',
-      'Paste the EarnKit link and save.',
-    ],
-  },
-  {
     name: 'Claude Code',
+    icon: '/images/agents/claude-code.svg',
     steps: ['Run this in your terminal:'],
-    code: `claude mcp add --transport http earnkit ${MCP_URL}`,
+    code: `claude mcp add --transport http --scope user earnkit ${MCP_URL}`,
+    after: 'Then type /mcp, pick earnkit, approve.',
   },
   {
     name: 'Cursor',
+    icon: '/images/agents/cursor.svg',
     install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${btoa(JSON.stringify({ url: MCP_URL }))}`,
     steps: ['Or open Settings, then MCP, and add this to your config:'],
     code: JSON.stringify(
@@ -43,19 +69,19 @@ const AGENTS: Agent[] = [
     ),
   },
   {
-    name: 'VS Code',
-    install: `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name: 'earnkit', type: 'http', url: MCP_URL }))}`,
-    steps: [
-      'Or run MCP: Add Server from the Command Palette and paste the EarnKit link.',
-    ],
+    name: 'Codex',
+    icon: '/images/agents/codex.svg',
+    steps: ['Run this in your terminal:'],
+    code: `codex mcp add earnkit --url ${MCP_URL}`,
+    after: 'Then run codex mcp login earnkit and approve.',
   },
   {
-    name: 'Other agents',
+    name: 'Muse',
+    icon: '/images/agents/muse.svg',
     steps: [
-      'Paste the EarnKit link wherever your agent adds MCP servers or connectors.',
-      'If it only runs local servers, use:',
+      'Add a custom integration in Muse.',
+      'Paste the EarnKit link and save.',
     ],
-    code: `npx -y mcp-remote ${MCP_URL}`,
   },
 ];
 
@@ -80,8 +106,6 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 
 /** v2.7: the starting phrase, everywhere (spec Decisions). */
 export const START_PROMPT = 'What can I earn?';
-/** v2.7.1: the install modal's builder bonus pill. */
-export const BONUS_ENTRY_PILL = '+ Builder bonus on every entry';
 
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
@@ -166,12 +190,21 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               role="tab"
               aria-selected={i === active}
               onClick={() => setActive(i)}
-              className={`rounded-full px-4 py-2 font-funnel-sans text-sm font-medium transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-full py-2 pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors ${
                 i === active
                   ? 'bg-ek-blue-light text-ek-navy-deep'
                   : 'bg-ek-navy text-ek-blue-light hover:bg-ek-blue-strong'
               }`}
             >
+              {/* One color per state: the mark is drawn dark on the light tab, light on the navy one. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={a.icon}
+                alt=""
+                width="20"
+                height="20"
+                className={`h-5 w-5 object-contain ${i === active ? 'brightness-0' : 'brightness-0 invert'}`}
+              />
               {a.name}
             </button>
           ))}
@@ -196,7 +229,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           </ol>
           {agent.code && (
             <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 overflow-x-auto py-1.5 font-mono text-sm text-ek-white">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white [overflow-wrap:anywhere]">
                 {agent.code}
               </pre>
               <CopyButton
@@ -205,10 +238,11 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               />
             </div>
           )}
-          {/* v2.7.1: the builder bonus, one pill under the steps. */}
-          <p className="mt-4 inline-flex rounded-full border border-ek-blue-bright/60 px-3 py-[5px] text-sm font-medium text-ek-blue-bright">
-            {BONUS_ENTRY_PILL}
-          </p>
+          {agent.after && <p className="mt-3 font-light">{agent.after}</p>}
+          {/* v2.8 Ruling 19 (plan): the builder bonus pill under the steps. */}
+          <div className="mt-4">
+            <BonusPill size="sm" />
+          </div>
         </div>
 
         <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">

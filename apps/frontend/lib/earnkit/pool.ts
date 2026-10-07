@@ -113,3 +113,11 @@ export function statedPool(pool_usd: string | number | null, reward: string): { 
   const s = n ? poolStated(n, reward) : null;
   return s ? { pool_usd: n, plus: s.plus } : { pool_usd: null, plus: false };
 }
+
+/**
+ * v2.8 Ruling 24 (plan): the one money figure. The site, /programs and the first message all call
+ * this, so "$1.3M+" is the same everywhere. Pure.
+ */
+export function openFigure(cards: { pool_usd?: number | null; pool_plus?: boolean }[]): string | null {
+  return poolTotalText(cards.map((c) => ({ pool_usd: c.pool_usd ?? null, plus: c.pool_plus ?? false })));
+}

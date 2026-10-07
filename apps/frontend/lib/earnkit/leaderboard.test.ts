@@ -79,3 +79,26 @@ test('earnkitCampaignRows: an ended entry made elsewhere with a wallet this agen
     await sql()`DELETE FROM installations WHERE id IN ${sql()([me.id, other.id])}`;
   }
 });
+
+test('v2.8 Ruling 23 (plan): earnkitCampaignOpen reads one query and keeps the answer 10 minutes', { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' }, async () => {
+  const { CAMPAIGN_OPEN_TTL_MS, earnkitCampaignOpen, resetCampaignOpenMemo } = await import('./leaderboard');
+  assert.equal(CAMPAIGN_OPEN_TTL_MS, 10 * 60 * 1000);
+  resetCampaignOpenMemo();
+  // Far in the future, every campaign has ended: none is open.
+  const later = new Date('2200-01-01T00:00:00Z');
+  assert.equal(await earnkitCampaignOpen(later), false);
+  // Memoized: a time within 10 minutes returns the same answer without reading again.
+  const db = sql();
+  const id = `r23-memo-${process.pid}-${Date.now()}`;
+  await db`INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at, campaign)
+    VALUES (${id}, 'EarnKit', 'Memo test', 'd', 'https://earnkit.com', 'https://earnkit.com', 'r', 's', 'active', 'allowed',
+      ${new Date('2300-01-01T00:00:00Z')}, ${db.json({ kind: 'earnkit' })})`;
+  try {
+    assert.equal(await earnkitCampaignOpen(new Date(later.getTime() + 60_000)), false);
+    // After 10 minutes it reads again and sees the open campaign.
+    assert.equal(await earnkitCampaignOpen(new Date(later.getTime() + CAMPAIGN_OPEN_TTL_MS)), true);
+  } finally {
+    await db`DELETE FROM programs WHERE id = ${id}`;
+    resetCampaignOpenMemo();
+  }
+});

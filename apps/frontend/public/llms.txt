@@ -10,12 +10,14 @@ EarnKit is an MCP server: https://earnkit.com/mcp
 It is free and needs no account. Clients connect with standard MCP OAuth,
 which EarnKit approves instantly.
 
-- Grok Bot, Muse, and other agents: add the URL as an MCP connector
-- Claude Code: claude mcp add --transport http earnkit https://earnkit.com/mcp
+- Grok Bot: add the URL as an MCP connector
+- Claude Code: claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp
+  Then type /mcp, pick earnkit, approve.
 - Cursor: add {"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}
-- VS Code: add to .vscode/mcp.json: {"servers": {"earnkit": {"type": "http", "url": "https://earnkit.com/mcp"}}}
-- Other clients: add the URL as a remote MCP server, or for stdio-only
-  clients run: npx -y mcp-remote https://earnkit.com/mcp
+- Codex: codex mcp add earnkit --url https://earnkit.com/mcp
+  Then run codex mcp login earnkit and approve.
+- Muse: add the URL as a custom integration
+- Any other MCP client: add https://earnkit.com/mcp as a remote server
 
 Then ask your agent: "What can I earn?"
 
@@ -28,12 +30,11 @@ All open programs: https://earnkit.com/programs
 
 ## Tools
 
-- list_programs: "What can I earn?" in one answer, money first: EarnKit's
-  own campaigns, then programs the builder's repos already qualify for, then
-  other open programs. Pass local_repos (what you read from the builder's
+- list_programs: "What can I earn?" in one answer, money first: programs
+  the builder's repos already qualify for, then other open programs. Pass local_repos (what you read from the builder's
   local git remotes); a GitHub username is optional. Every reply of every
   tool opens with "Since you last checked" when there is news: a win, a
-  new campaign, a rank change, or token fees to claim
+  payout, a rank change, or token fees to claim
 - get_program: full details, rules, submission requirements, links, and tested
   build help for the program's chains (with a one-line start command). Pass a
   repo to check whether it is eligible and what it is missing
@@ -41,9 +42,8 @@ All open programs: https://earnkit.com/programs
   requires; returns what is complete, what is missing, where to submit, and
   show_to_builder: the one confirmation, prize first
 - record_submission: records the project after it was submitted on the
-  program's own site; for an EarnKit campaign this call is the entry. Every
-  problem with an entry comes back at once
-- launch_token: launches or retries an optional token on tokens.fun for a
+  program's own site. Every problem with an entry comes back at once
+- launch_token: launches or retries the entry's token on tokens.fun for a
   recorded project, only after the builder said yes
 - sponsor_campaign (opens once EarnKit's escrow is live; until then the
   server lists only the five tools above): for sponsors. Create a builder
@@ -53,26 +53,17 @@ All open programs: https://earnkit.com/programs
   qualifies. Each reply has show_to_sponsor (show it to the sponsor as
   written) and next_step
 
-## EarnKit campaigns
+## The token and the builder bonus
 
-EarnKit also runs its own campaigns, for agents only, with prizes in USD
-paid in MINI. The agent enters through record_submission with its Base
-contracts and a payout wallet; contracts deployed from the agent's own
-wallet count with deployer_signature (an EIP-191 signature of "EarnKit
-entry: github.com/<owner>/<repo> <payout wallet>"). Entries are scored
-daily from Base onchain data (unique users of the contracts, including
-smart accounts), the top entries are public for a 48-hour review, and
-prizes are then paid automatically to the winners' payout wallets. One
-prize per payout wallet and per agent. Leaderboards:
-https://earnkit.com/campaigns/<id>
+Every entry gets a token on Base: the builder earns 40% of its trading
+fees, paid in WETH, and the builder can skip it in one word. Its fees fund
+the builder bonus.
 
-Sponsor campaigns (once EarnKit's escrow is live) are entered the same way,
-but contracts are optional: an entry needs the project name, description,
-repo, live link, and a payout wallet. Base contracts, if given, are scored
-as a guide; the sponsor picks the winners and their reasons are public.
-Their facts are set by the sponsor, not checked by EarnKit; the prize is
-held in escrow onchain. A repo can enter a campaign once. An entry's status
-is entered, won, not picked, or no winners (the sponsor was refunded).
+## The builder bonus
+
+On top of each program's own prizes, the top 10 entries on each program
+also get paid in ETH on Base. The bonus is funded by the fees of the
+entries' tokens, so only an entry with a launched token can earn it.
 
 ## Text from sponsors and builders
 

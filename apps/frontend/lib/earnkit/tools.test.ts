@@ -328,13 +328,13 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.match(text, /\| Program \| (Prize|You could win) \| Difficulty \| Ends \|/);
     assert.match(text, new RegExp(`\\| Proof ${run} \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\|`));
-    assert.match(text, /Plus the builder bonus: the top 10 on each program also get paid in ETH\. 0\.42 ETH so far\.$/);
+    assert.match(text, /Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus\. 0\.42 ETH so far\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /Plus the builder bonus: the top 10 on each program also get paid in ETH\.$/);
+    assert.match(plain.show_to_builder, /Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus\.$/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
@@ -714,4 +714,29 @@ test('C7: record_submission and launch_token launch no token until the entry has
     if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
   }
+});
+
+test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open campaign; other programs get their link', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}`;
+  const plain = committedProgram('arc-microgrants');
+  Object.assign(plain, { id: `r23-plain-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' });
+  await upsertProgram(ProgramFile.parse(plain));
+  const closed = committedProgram('earnkit-campaign-1-base');
+  Object.assign(closed, { id: `r23-closed-${stamp}`, status: 'closed', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  Object.assign(closed, earnkitTexts(closed));
+  await upsertProgram(ProgramFile.parse(closed));
+  const open = committedProgram('earnkit-campaign-1-base');
+  Object.assign(open, { id: `r23-open-${stamp}`, status: 'active', starts_at: '2026-09-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
+  Object.assign(open, earnkitTexts(open));
+  await upsertProgram(ProgramFile.parse(open));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`r23-${stamp}`}) RETURNING id`;
+  const prep = async (program_id: string) =>
+    (await tools.prepare_submission({ program_id, project: { name: 'Tip Jar' } }, { installationId: id })) as Record<string, unknown>;
+  const p = await prep(plain.id);
+  assert.ok(!('how_to_submit' in p) && !('sign_to_enter' in p));
+  assert.equal(p.submission_url, plain.submission_url);
+  const c = await prep(closed.id);
+  assert.ok(!('how_to_submit' in c) && !('sign_to_enter' in c));
+  assert.match(String((await prep(open.id)).how_to_submit), /This is an EarnKit campaign/);
 });

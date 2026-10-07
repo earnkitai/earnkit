@@ -250,7 +250,8 @@ test('token fees from $100, once per crossing; money lines first', () => {
 
 test('the daily-check offer never mentions tokens', () => {
   assert.doesNotMatch(SCHEDULE_NOTE, /token fee/i);
-  assert.match(SCHEDULE_NOTE, /\(a win, a new campaign, your rank\)/);
+  assert.match(SCHEDULE_NOTE, /\(a win, a payout, your rank\)/);
+  assert.doesNotMatch(SCHEDULE_NOTE, /campaign/);
 });
 
 test('sinceLine', () => {

@@ -1,6 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CORS, json, preflight } from '@/lib/earnkit/http';
 import { touchInstallation } from '@/lib/earnkit/installations';
+import { earnkitCampaignOpen } from '@/lib/earnkit/leaderboard';
 import { createMcpServer } from '@/lib/earnkit/mcp';
 import { publicOrigin } from '@/lib/earnkit/oauth';
 
@@ -28,7 +29,12 @@ async function handle(request: Request) {
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
-  await createMcpServer({ installationId }).connect(transport);
+  // v2.8 Ruling 23 (plan): campaign-only text shows only while an EarnKit campaign is open.
+  const campaignOpen = await earnkitCampaignOpen().catch(() => {
+    console.error('[mcp] campaign check failed');
+    return false;
+  });
+  await createMcpServer({ installationId }, { campaignOpen }).connect(transport);
   const response = await transport.handleRequest(request);
 
   const headers = new Headers(response.headers);
