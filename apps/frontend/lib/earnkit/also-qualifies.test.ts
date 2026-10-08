@@ -197,9 +197,13 @@ test('alsoText: the table, "Still needed", and the builder bonus sentence with c
       '|---|---|---|---|',
       '| Base Builder Grant Program | up to $5,000 | rolling | 1 answer |',
       '| Avalanche Team1 Mini Grants | up to $10,000 | rolling | nothing |',
-      "Say \"enter it here too\" for any of them. Your builder bonus rides on your Arc Microgrants entry.",
+      'Say "enter it here too" for any of them. Your builder bonus rides on your Arc Microgrants entry. Your builder bonus moves to your next entry when a program ends.',
     ].join('\n'),
   );
+  // v2.8.1 §D: the rollover line once, next to the positive note; never an em dash or "coin".
+  const text = alsoText(rows, 'Arc Microgrants')!;
+  assert.equal(text.split('moves to your next entry').length, 2);
+  assert.doesNotMatch(text, /\u2014|\bcoin/i);
   assert.equal(
     alsoText(rows, null),
     [

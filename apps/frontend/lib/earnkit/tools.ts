@@ -88,7 +88,7 @@ import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
-import { roundPoolsWei as readRoundPools } from './bonus-rounds';
+import { bonusEntryProgram, roundPoolsWei as readRoundPools } from './bonus-rounds';
 import { LAUNCHING, NOT_LAUNCHED_YET, REPO_HAS_TOKEN, launchClaimedAt, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
@@ -105,6 +105,11 @@ export type ToolContext = {
   roundPoolsWei?: (programIds: string[]) => Promise<Map<string, bigint | null>>;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
+  /**
+   * v2.8.1 §D: the program whose round a repo's token fees book to now (after rollover); defaults to
+   * bonus-rounds.ts bonusEntryProgram (undefined: no token found there; null: the Safe).
+   */
+  bonusEntry?: (repoKey: string) => Promise<{ program_id: string; title: string } | null | undefined>;
   /** Test and e2e injection only; never set by the MCP route. */
   matchProjects?: typeof matchProjects;
 };
@@ -296,7 +301,17 @@ async function alsoQualifiesBlock(
     hasLiveProduct: Boolean(parsed.project.live_url),
     now: new Date(),
   });
-  const coinIn = (repoKey && coins.get(repoKey)?.title) || null;
+  // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover; a failed
+  // read keeps the token's own program.
+  const home = (repoKey && coins.get(repoKey)) || null;
+  let coinIn = home?.title ?? null;
+  if (home && repoKey && rows.length > 0) {
+    const booked = await (ctx.bonusEntry ?? bonusEntryProgram)(repoKey).catch((err: unknown) => {
+      console.error('[also_qualifies] bonus round lookup', err instanceof Error ? err.name : 'error');
+      return undefined;
+    });
+    if (booked !== undefined) coinIn = booked?.title ?? null;
+  }
   return { rows, text: alsoText(rows, coinIn) };
 }
 

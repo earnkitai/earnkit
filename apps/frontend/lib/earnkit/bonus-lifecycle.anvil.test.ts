@@ -590,7 +590,7 @@ async function scenario(mock: Mock) {
     // this repo's token is in this program, so the closing sentence names it.
     '(?:\\n\\| [^|\\n]+ \\| [^|\\n]+ \\| [^|\\n]+ \\| (?:nothing|a live link|\\d+ answers?) \\|){1,3}' +
     '\\nSay "enter it here too" for any of them\\.' +
-    ' Your builder bonus rides on your E2E Confirm Grants entry\\.';
+    ' Your builder bonus rides on your E2E Confirm Grants entry\\. Your builder bonus moves to your next entry when a program ends\\.';
   // The after-submission reply: the coin, then the builder bonus with its leaderboard link. v2.8
   // Ruling 29 (plan): "Also qualifies" may follow after a blank line (the shared test database
   // holds other open programs this repo fits), anchored on that join.

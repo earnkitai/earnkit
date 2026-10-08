@@ -1153,6 +1153,38 @@ test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records
     assert.ok(r.show_to_builder.startsWith('Ready for '), r.show_to_builder);
   }));
 
+test('v2.8.1 §D (T4 carry): Also qualifies names the round the token fees book to after rollover, with the rollover line once', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('rollnote');
+    const asked: string[] = [];
+    const ctx = {
+      ...t.ctx,
+      repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)),
+      bonusEntry: async (key: string) => {
+        asked.push(key);
+        return { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' };
+      },
+    };
+    await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx);
+    const rec = (await tools.record_submission(
+      { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
+      ctx,
+    )) as { show_to_builder: string };
+    const also = rec.show_to_builder.split('\n\nYou also qualify for:')[1];
+    if (also) {
+      assert.match(also, /Your builder bonus rides on your Base Builder Grant Program entry\. Your builder bonus moves to your next entry when a program ends\.$/);
+      assert.equal(rec.show_to_builder.split('moves to your next entry').length, 2, rec.show_to_builder);
+      assert.doesNotMatch(rec.show_to_builder, /Arc Microgrants entry/);
+      assert.deepEqual(asked, [t.repo.replace('https://', '')]);
+      // Fees bound for the Safe (no open entry): no bonus note at all.
+      const none = (await tools.record_submission(
+        { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
+        { ...ctx, bonusEntry: async () => null },
+      )) as { show_to_builder: string };
+      assert.doesNotMatch(none.show_to_builder, /rides on|moves to your next entry/);
+    } else assert.doesNotMatch(rec.show_to_builder, /moves to your next entry/);
+  }));
+
 test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another ticker is shown first; a shown ticker taken since gets a new Yes line; nothing deploys unseen', dbTest, () =>
   withTokenEnv(async () => {
     let taken = new Set<string>();

@@ -477,7 +477,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   confirmation is one yes; "go" still launches only to the wallet passed with it (Ruling C12).
   Base's Loom demo and Builder Code are `from: builder`, so they are asked in the first round.
   The bonus note for a repo whose token is in another program is said once, in Also qualifies
-  ("Your builder bonus rides on your Arc Microgrants entry."), or after "Entered in…" without that
+  ("Your builder bonus rides on your Arc Microgrants entry.", v2.8.1 §D: naming the program the
+  fees book to after rollover, followed by "Your builder bonus moves to your next entry when a
+  program ends."), or after "Entered in…" without that
   block; never in the offer, the confirmation or the first message's rows. An investment
   program's kit says where the application goes on (`continuesLine`). Program deadlines show in
   the program's own time zone, from the summary ("Oct 14, 11:59 PM ET"). The proof-link fix
@@ -896,6 +898,21 @@ during the build); plan: `v2.4-money-first-plan.md`.
   first deposit after the v2.6 deploy, and its pool counts from there. `roundPoolsWei` (list_programs) is one grouped query, open
   rounds only; a program whose current round exists but froze maps to null, and its builder bonus
   cell reads "—".
+- **Rollover (v2.8.1 §D, option B).** Once a coin's program is over at the deposit's block time
+  (`rollsOver`: it has the builder bonus, the deposit is not before its start, and its `ends_at`
+  passed or it closed; or its round froze), `bookDeposit` books the deposit to the earliest
+  still-open round (`rolloverRounds`: by end, then start, then key) of another builder-bonus
+  program in which the same repo (`token_repo_key` = `bonus_repo_key`) has an entry submitted
+  (`submission_proof_ok_at`) and complete (`complete_at`) by the block time, never skipped, not a
+  test installation (`rolloverPrograms`). A frozen, paid or otherwise not-open round is passed
+  over and never touched; none left means the Safe, logged ("no open entry of its repo to roll
+  over to"). A deposit already in `bonus_ledger` is returned as booked, never moved, so
+  re-indexing is idempotent. That entry has no coin of its own (one token per repo), so
+  `eligibleSql` counts the carried token (`coinSql`: the repo's token, launched before the round
+  end, from a builder-bonus program that ended or closed before it) and scoring reads its signals
+  (`scoredCoinSql`). The Also qualifies note names the program the fees book to now
+  (`bonusEntryProgram`; null, the Safe, drops the note) and adds "Your builder bonus moves to your
+  next entry when a program ends." (`BONUS_MOVES`) once, right after it.
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`
   (Ruling 7; an error about it names the key's length and shape only, never its value). Skipped without a usable key (missing, or malformed: `skipped` plus

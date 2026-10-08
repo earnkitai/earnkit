@@ -1,4 +1,6 @@
+import type postgres from 'postgres';
 import { sql } from './db';
+import { testInstallationIds } from './installations';
 
 /**
  * Builder bonus rounds (v2.5 §3). A program with an end date (`ends_at`) is one round per window,
@@ -71,8 +73,8 @@ export function bonusOn(p: { status: string; builder_bonus?: boolean | null; cam
 }
 
 /**
- * Where a deposit at `at` from a coin entered in `program` goes: its open round, or the Safe (no
- * rollover). The Safe when the program opted out (builder_bonus: false) or is a campaign, and
+ * Where a deposit at `at` from a coin entered in `program` goes: its open round, or the Safe (v2.8.1
+ * §D: bookDeposit then tries the repo's next open entry, `rollsOver`). The Safe when the program opted out (builder_bonus: false) or is a campaign, and
  * whenever it isn't 'active'. v2.6 drops v2.5's "no submission_proof → Safe" (Ruling 9); deposits
  * booked under it stay with the Safe (Ruling 2 (plan)). Pure.
  */
@@ -86,6 +88,102 @@ export function bookingFor(
     return { destination: 'safe', reason: 'builder bonus off' };
   const round = program.status !== 'active' ? null : roundFor(program, at);
   return round ? { destination: 'round', round } : { destination: 'safe', reason: 'no open round' };
+}
+
+/**
+ * v2.8.1 §D (option B): whether a deposit at `at` from a coin entered in `program` rolls over to
+ * the repo's next open entry, because the program's round is over: the program has the builder
+ * bonus (not opted out, not a campaign), the deposit is not before its start, and the program has
+ * ended by `at` (its `ends_at` passed, or it is no longer active; a rolling program ends only when
+ * it closes). A round that froze while its window still runs is the caller's case (bookDeposit).
+ * Pure.
+ */
+export function rollsOver(program: Window & { status: string; builder_bonus?: boolean | null; campaign?: unknown }, at: Date) {
+  if (!bonusOn({ ...program, status: 'active' })) return false;
+  if (program.starts_at && at.getTime() < program.starts_at.getTime()) return false;
+  return program.status !== 'active' || (program.ends_at !== null && at.getTime() >= program.ends_at.getTime());
+}
+
+/**
+ * v2.8.1 §D: the rounds a rolled-over deposit at `at` may book to, earliest first (by end, then
+ * start, then key): the round open at `at` of each candidate program that has the builder bonus
+ * (bonusOn). The caller takes the first whose stored round is still 'open'. Pure.
+ */
+export function rolloverRounds(
+  programs: (Window & { status: string; builder_bonus?: boolean | null; campaign?: unknown })[],
+  at: Date,
+): { programId: string; round: Round }[] {
+  return programs
+    .filter((p) => bonusOn(p))
+    .flatMap((p) => {
+      const round = roundFor(p, at);
+      return round ? [{ programId: p.id, round }] : [];
+    })
+    .sort(
+      (a, b) =>
+        a.round.ends.getTime() - b.round.ends.getTime() ||
+        a.round.starts.getTime() - b.round.starts.getTime() ||
+        (a.round.key < b.round.key ? -1 : a.round.key > b.round.key ? 1 : 0),
+    );
+}
+
+type BonusProgram = Window & { status: string; builder_bonus: boolean | null; campaign: unknown; title: string };
+
+/**
+ * v2.8.1 §D: the programs a deposit at `at` of the repo's token (entered by project `coin.project`
+ * in `coin.program`) may roll over to: other programs where the same repo (`bonus_repo_key`) has
+ * an entry submitted (`submission_proof_ok_at`) and complete (`complete_at`) by `at`, never
+ * skipped, not an owner test installation. Both stamps are judged at `at`, so re-indexing books
+ * the same way. rolloverRounds orders their rounds.
+ */
+export async function rolloverPrograms(
+  db: postgres.Sql | postgres.TransactionSql,
+  coin: { project: number; program: string; repoKey: string | null },
+  at: Date,
+): Promise<BonusProgram[]> {
+  if (!coin.repoKey) return [];
+  return db<BonusProgram[]>`
+    SELECT DISTINCT g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
+    FROM projects e JOIN programs g ON g.id = e.program_id
+    WHERE e.bonus_repo_key = ${coin.repoKey} AND e.id <> ${coin.project} AND e.program_id <> ${coin.program}
+      AND e.submission_proof_ok_at <= ${at} AND e.complete_at <= ${at}
+      AND e.confirm_choice IS DISTINCT FROM 'skip'
+      AND NOT COALESCE(e.installation_id = ANY(${testInstallationIds()}::int[]), false)`;
+}
+
+/**
+ * v2.8.1 §D, the T4 carry: the program whose round the repo's token fees book to now, for the
+ * bonus note ("Your builder bonus rides on your <title> entry."): the token's own program while
+ * its round is open; once that round is over (rollsOver, or it froze), the program of the
+ * earliest still-open round the fees roll over to (bonus-ledger.ts rolloverRound's rule). Null
+ * when that round is over and there is no open entry to roll over to (the fees go to the Safe);
+ * undefined when the repo has no EarnKit token, or its program has no builder bonus.
+ */
+export async function bonusEntryProgram(
+  repoKey: string,
+  now = new Date(),
+): Promise<{ program_id: string; title: string } | null | undefined> {
+  const [home] = await sql()<(BonusProgram & { project: number })[]>`
+    SELECT p.id AS project, g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
+    FROM projects p JOIN programs g ON g.id = p.program_id
+    WHERE p.token_repo_key = ${repoKey} AND p.token_url IS NOT NULL
+    ORDER BY p.id LIMIT 1`;
+  // No token, or its program never had the builder bonus (an opt-out, a campaign): nothing rolls.
+  if (!home || !bonusOn({ ...home, status: 'active' })) return undefined;
+  const stateOf = async (key: string) =>
+    (await sql()<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${key}`)[0]?.state ?? 'open';
+  const b = bookingFor(home, now);
+  let over = rollsOver(home, now);
+  if (b.destination === 'round') {
+    if ((await stateOf(b.round.key)) === 'open') return { program_id: home.id, title: home.title };
+    over = true;
+  }
+  // Not over yet: the bonus still rides on the token's own entry.
+  if (!over) return { program_id: home.id, title: home.title };
+  const programs = await rolloverPrograms(sql(), { project: home.project, program: home.id, repoKey }, now);
+  for (const c of rolloverRounds(programs, now))
+    if ((await stateOf(c.round.key)) === 'open') return { program_id: c.programId, title: programs.find((p) => p.id === c.programId)!.title };
+  return null;
 }
 
 /**

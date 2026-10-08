@@ -27,7 +27,7 @@ import {
   type RawLog,
 } from './bonus-ledger';
 import { sql } from './db';
-import { roundPoolsWei } from './bonus-rounds';
+import { bonusEntryProgram, roundPoolsWei } from './bonus-rounds';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
 import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
@@ -884,5 +884,177 @@ test('Ruling 24 / M9: a non-Base launch records no coin address (no builder bonu
     else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
     await cleanup();
     await sql()`DELETE FROM installations WHERE token_hash = 't4-rh'`;
+  }
+});
+
+// ---- v2.8.1 §D (option B): the builder bonus follows the repo to its next open entry ----
+
+const REPO = 'github.com/t5-rollover/app';
+const R2 = 't4-ledger-r2';
+const R3 = 't4-ledger-r3';
+const ROUND2 = `${R2}:2026-10-05`;
+const ROUND3 = `${R3}:2026-10-05`;
+/**
+ * The home program (PROG, Oct 1 to Oct 8) holds the repo's token (COIN_A). R2 (Oct 5 to Oct 20) and
+ * R3 (Oct 5 to Oct 30) each get an entry of the same repo, without a token of its own (one token
+ * per repo), submitted and complete on Oct 6 unless `o` says otherwise.
+ */
+async function rolloverSetup(o: { r2?: { proof?: string | null; complete?: string | null; skip?: boolean }; r3?: boolean } = {}) {
+  await setup();
+  await sql()`UPDATE projects SET token_url = 'https://tokens.fun/coin/a', token_repo_key = ${REPO}, bonus_repo_key = ${REPO}
+    WHERE coin_address = ${COIN_A}`;
+  for (const [id, ends] of [[R2, '2026-10-20T00:00:00Z'], [R3, '2026-10-30T00:00:00Z']] as const)
+    await sql()`
+      INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+        status, existing_work, starts_at, ends_at)
+      VALUES (${id}, 'X', ${id}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+        '2026-10-05T00:00:00Z', ${ends})`;
+  const r2 = o.r2 ?? {};
+  await sql()`
+    INSERT INTO projects (program_id, name, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
+    VALUES (${R2}, 't5 r2', ${REPO}, ${r2.proof === undefined ? '2026-10-06T00:00:00Z' : r2.proof},
+      ${r2.complete === undefined ? '2026-10-06T00:00:00Z' : r2.complete}, ${r2.skip ? 'skip' : 'go'})`;
+  if (o.r3 !== false)
+    await sql()`
+      INSERT INTO projects (program_id, name, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
+      VALUES (${R3}, 't5 r3', ${REPO}, '2026-10-06T00:00:00Z', '2026-10-06T00:00:00Z', 'go')`;
+}
+const bookAt = (id: string, at: string, log: (l: string) => void = quiet) =>
+  bookDeposit({ txHash: `0xt5roll${id}`, logIndex: 0, amount: 9n, coin: COIN_A, blockNumber: 1n, blockTime: new Date(at) }, log);
+
+test('v2.8.1 §D: a deposit after round 1 ends books to the repo\'s open round 2 (the earliest open one); before the end it stays home', db, async () => {
+  try {
+    await rolloverSetup();
+    assert.deepEqual(await bookAt('home', '2026-10-07T00:00:00Z'), { destination: 'round', roundKey: ROUND, inserted: true });
+    // After Oct 8: R2 ends first, so it takes the deposit (R3 is open too).
+    assert.deepEqual(await bookAt('after', '2026-10-10T00:00:00Z'), { destination: 'round', roundKey: ROUND2, inserted: true });
+    const [r] = await sql()<{ state: string; program_id: string; ends_at: Date }[]>`SELECT state, program_id, ends_at FROM bonus_rounds WHERE round_key = ${ROUND2}`;
+    assert.deepEqual([r.state, r.program_id, r.ends_at.toISOString()], ['open', R2, '2026-10-20T00:00:00.000Z']);
+    // After R2 ends, R3 is the next open entry.
+    assert.deepEqual(await bookAt('later', '2026-10-25T00:00:00Z'), { destination: 'round', roundKey: ROUND3, inserted: true });
+    // A program that closed (status) rolls over too, inside its old window.
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${PROG}`;
+    assert.equal((await bookAt('closed', '2026-10-07T12:00:00Z')).roundKey, ROUND2);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('v2.8.1 §D: with no open entry of the repo, the deposit goes to the Safe, logged; an opted-out program never rolls', db, async () => {
+  try {
+    await rolloverSetup({ r3: false });
+    const lines: string[] = [];
+    // After R2 ends there is no open entry left.
+    assert.deepEqual(await bookAt('none', '2026-10-25T00:00:00Z', (l) => lines.push(l)), { destination: 'safe', roundKey: null, inserted: true });
+    assert.match(lines.join('\n'), /no open round; no open entry of its repo to roll over to/);
+    // No repo key on the token: nothing to follow.
+    await sql()`UPDATE projects SET token_repo_key = NULL WHERE coin_address = ${COIN_A}`;
+    assert.equal((await bookAt('norepo', '2026-10-10T00:00:00Z')).destination, 'safe');
+    await sql()`UPDATE projects SET token_repo_key = ${REPO} WHERE coin_address = ${COIN_A}`;
+    // The token's program opted out of the builder bonus: the Safe, as before (no rollover).
+    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
+    assert.equal((await bookAt('optout', '2026-10-10T00:00:00Z')).destination, 'safe');
+    await sql()`UPDATE programs SET builder_bonus = true WHERE id = ${PROG}`;
+    // A target program without the builder bonus, or a campaign, is never a target.
+    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${R2}`;
+    assert.equal((await bookAt('r2off', '2026-10-10T00:00:00Z')).destination, 'safe');
+    assert.equal(await sql()`SELECT 1 FROM bonus_rounds WHERE program_id = ${R2}`.then((r) => r.length), 0, 'no round row is made');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('v2.8.1 §D: frozen rounds and past bookings are never touched; a frozen target is passed over', db, async () => {
+  try {
+    await rolloverSetup();
+    await bookAt('a', '2026-10-07T00:00:00Z'); // home round
+    await bookAt('b', '2026-10-10T00:00:00Z'); // R2
+    const before = await rows();
+    // R2 freezes (its program file then moves its end): it takes nothing more and its window stays.
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
+    await sql()`UPDATE programs SET ends_at = '2026-10-22T00:00:00Z' WHERE id = ${R2}`;
+    assert.equal((await bookAt('c', '2026-10-11T00:00:00Z')).roundKey, ROUND3, 'the next open entry takes it');
+    const [r2] = await sql()<{ state: string; ends_at: Date }[]>`SELECT state, ends_at FROM bonus_rounds WHERE round_key = ${ROUND2}`;
+    assert.deepEqual([r2.state, r2.ends_at.toISOString()], ['frozen', '2026-10-20T00:00:00.000Z']);
+    // A paid round too.
+    await sql()`UPDATE bonus_rounds SET state = 'paid' WHERE round_key = ${ROUND3}`;
+    assert.equal((await bookAt('d', '2026-10-12T00:00:00Z')).destination, 'safe');
+    // Every earlier booking is exactly as it was.
+    const after = await rows();
+    for (const b of before) assert.deepEqual(after.find((x) => x.tx_hash === b.tx_hash), b);
+    // The home round frozen inside its window rolls over too (a later extension of the home program).
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND}`;
+    await sql()`UPDATE bonus_rounds SET state = 'open' WHERE round_key = ${ROUND3}`;
+    await sql()`UPDATE programs SET ends_at = '2026-10-15T00:00:00Z' WHERE id = ${PROG}`;
+    assert.equal((await bookAt('e', '2026-10-12T00:00:00Z')).roundKey, ROUND3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('v2.8.1 §D: an entry not submitted, not complete, skipped, or only submitted after the deposit is never the target', db, async () => {
+  const cases: [string, Parameters<typeof rolloverSetup>[0]][] = [
+    ['not submitted', { r2: { proof: null } }],
+    ['not complete', { r2: { complete: null } }],
+    ['skipped', { r2: { skip: true } }],
+    ['submitted after the deposit', { r2: { proof: '2026-10-11T00:00:00Z' } }],
+    ['complete after the deposit', { r2: { complete: '2026-10-11T00:00:00Z' } }],
+  ];
+  try {
+    for (const [name, o] of cases) {
+      await rolloverSetup({ ...o, r3: false });
+      assert.equal((await bookAt(name.replace(/ /g, ''), '2026-10-10T00:00:00Z')).destination, 'safe', name);
+    }
+    // With R3's complete entry present, R3 takes it instead of R2's incomplete one.
+    await rolloverSetup({ r2: { complete: null } });
+    assert.equal((await bookAt('r3', '2026-10-10T00:00:00Z')).roundKey, ROUND3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('v2.8.1 §D: re-indexing is idempotent: the same rows, no deposit moved, even after the target round froze', db, async () => {
+  try {
+    await rolloverSetup();
+    const f = fakeChain({ head: 40_000n + CONFIRMATIONS });
+    // One block a minute from Oct 1: block 8,000 is Oct 6 13:20 (home round), 13,000 is Oct 10 00:40 (after it).
+    const t1 = f.add(8_000n, [store(1, BONUS, 20n), claimed(2, COIN_A)]);
+    const t2 = f.add(13_000n, [store(1, BONUS, 30n), claimed(2, COIN_A)]);
+    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 7_000n, log: quiet });
+    const first = (await rows()).map((r) => [r.tx_hash, r.round_key, r.destination, r.amount_wei]);
+    assert.deepEqual(first, [
+      [t1, ROUND, 'round', '20'],
+      [t2, ROUND2, 'round', '30'],
+    ]);
+    // R2 freezes; a re-index from the start books nothing new and moves nothing.
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
+    await sql()`DELETE FROM bonus_cursor`;
+    await indexDeposits(ACCOUNT.address, { rpc: f.rpc, chain: C, startBlock: 7_000n, log: quiet });
+    assert.deepEqual((await rows()).map((r) => [r.tx_hash, r.round_key, r.destination, r.amount_wei]), first);
+    // bookDeposit itself answers the stored booking for a repeat.
+    const again = await bookDeposit({ txHash: t2, logIndex: 1, amount: 30n, coin: COIN_A, blockNumber: 13_000n, blockTime: f.timeOf(13_000n) }, quiet);
+    assert.deepEqual(again, { destination: 'round', roundKey: ROUND2, inserted: false });
+  } finally {
+    await cleanup();
+  }
+});
+
+test('v2.8.1 §D: bonusEntryProgram names the program whose round the token fees book to, after rollover too', db, async () => {
+  try {
+    await rolloverSetup({ r3: false });
+    const at = (s: string) => bonusEntryProgram(REPO, new Date(s));
+    assert.deepEqual(await at('2026-10-07T00:00:00Z'), { program_id: PROG, title: PROG });
+    assert.deepEqual(await at('2026-10-10T00:00:00Z'), { program_id: R2, title: R2 });
+    // R2 froze: no open entry left, so the fees go to the Safe (null).
+    await bookAt('x', '2026-10-10T00:00:00Z');
+    await sql()`UPDATE bonus_rounds SET state = 'frozen' WHERE round_key = ${ROUND2}`;
+    assert.equal(await at('2026-10-11T00:00:00Z'), null);
+    // No token on the repo: undefined (the caller keeps its own name).
+    assert.equal(await bonusEntryProgram('github.com/t5-rollover/none', new Date('2026-10-10T00:00:00Z')), undefined);
+    // A program without the builder bonus never rolls: undefined.
+    await sql()`UPDATE programs SET builder_bonus = false WHERE id = ${PROG}`;
+    assert.equal(await at('2026-10-10T00:00:00Z'), undefined);
+  } finally {
+    await cleanup();
   }
 });
