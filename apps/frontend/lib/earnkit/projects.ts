@@ -561,9 +561,11 @@ export async function recordSubmission(
     charge?: () => Promise<unknown>;
     /** v2.9 A5: this step's link and contract checks (completeness, and the verified columns). */
     verified?: KnownInfo['verified'];
+    /** The program row, when the caller already read it (record_submission); else read here. */
+    program?: ProgramRow;
   } = {},
 ) {
-  const program = await getProgramRow(input.program_id);
+  const program = deps.program ?? (await getProgramRow(input.program_id));
   const tooLarge = submissionDataProblem(
     input.submission_data,
     program.campaign ? SUBMISSION_VALUE_MAX : OTHER_VALUE_MAX,

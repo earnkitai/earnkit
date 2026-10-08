@@ -15,6 +15,8 @@ export const ProjectInfo = z
     demo_url: BuilderUrl.optional(),
     token_url: BuilderUrl.optional(),
     // v2.9 A5 (Pre-flight P4): up to 2 mainnet contracts the project deployed, for the contract check.
+    // An array, unlike the `contracts` answer (one comma-separated string, submission_data) and the
+    // projects.contracts column (Base contracts a campaign or the builder bonus scores).
     contracts: z.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x contract address')).max(2).optional(),
   })
   .strict();

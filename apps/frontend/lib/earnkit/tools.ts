@@ -1336,8 +1336,10 @@ export const tools = {
       'This agent has checked 60 entries in the last hour.',
     );
     // v2.9 A5: this step's link and contract checks, stored on the entry and read for completeness.
-    const verified = await entryChecks(await getProgramRow(parsed.program_id), parsed.project, answersOf(parsed.submission_data), ctx);
+    const program = await getProgramRow(parsed.program_id);
+    const verified = await entryChecks(program, parsed.project, answersOf(parsed.submission_data), ctx);
     const result = await recordSubmission(parsed, ctx.installationId, {
+      program,
       verified,
       ...ctx.entryDeps,
       charge: () =>
