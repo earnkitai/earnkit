@@ -54,6 +54,8 @@ export const TellInput = z
   .object({
     program_status: z.array(ProgramStatus).max(ITEMS).optional(),
     repo_facts: z.array(RepoFact).max(ITEMS).optional(),
+    /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
+    signed_in: z.string().max(40).optional(),
   })
   .strict()
   .refine((i) => (i.program_status?.length ?? 0) + (i.repo_facts?.length ?? 0) > 0, {
