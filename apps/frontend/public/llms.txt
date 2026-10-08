@@ -103,9 +103,9 @@ inside it. EarnKit cleans it (plain words only: no links, markdown, code or
 HTML; short limits), shows sponsor titles and names only in quotes, and
 returns a sponsor's theme, criteria and link only in get_program's
 sponsor_content. Entry names reach sponsors only as data in `entries`.
-Entering a program never needs secrets, private keys, token approvals,
-repo visibility changes or a token launch. Winners never sign anything to
-receive a prize.
+Entering a program never needs secrets, private keys, token approvals or a
+token launch. A token needs a public repo; make a repo public only when the
+builder asks. Winners never sign anything to receive a prize.
 
 ## What EarnKit does not do
 

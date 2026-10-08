@@ -956,8 +956,8 @@ test('v2.6 Ruling 10: a non-campaign entry naming a wallet remembers it for the 
   assert.equal(result.program_title, program.title);
   // The open round of this program now (bonusOn: active, bonus on, not a campaign), for the reply.
   const round = roundFor({ id: program.id, starts_at: program.starts_at ? new Date(program.starts_at) : null, ends_at: program.ends_at ? new Date(program.ends_at) : null }, new Date());
-  // Ruling 29: Arc's real deadline (2026-10-15T03:59Z, Oct 14 11:59 PM ET) reads "Oct 14", as in the first message.
-  assert.deepEqual(result.bonus_round, round ? { key: round.key, ends_at: round.ends.toISOString(), ends_label: 'Oct 14' } : null);
+  // Ruling 29: Arc's real deadline (2026-10-15T03:59Z, Oct 14 11:59 PM ET) reads "Oct 14, 11:59 PM ET", as in the first message.
+  assert.deepEqual(result.bonus_round, round ? { key: round.key, ends_at: round.ends.toISOString(), ends_label: 'Oct 14, 11:59 PM ET' } : null);
   // Ruling 22: a wallet given but invalid (one typo in a checksummed address) fails the call:
   // nothing recorded, never silently dropped, and the earlier wallet stays.
   const typo = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a4';

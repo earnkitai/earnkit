@@ -1,6 +1,6 @@
-import { COIN_FOOTNOTE, bonusCountsIn, shortWallet } from './entry-text';
+import { COIN_FOOTNOTE, bonusRidesOn, shortWallet } from './entry-text';
 
-export { bonusCountsIn };
+export { bonusRidesOn };
 
 /**
  * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. One combined offer (the builder
@@ -65,9 +65,13 @@ export function yesLine(proposal: { name: string; symbol: string } | null, hasBo
   return `Yes: ${what}. You earn 40% of its trading fees${hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
 }
 
-/** The confirmation offer the builder answers with one word. Pure. */
+/**
+ * The confirmation offer the builder answers with one word. v2.8.1 §C13: a repo whose token is in
+ * another program gets "Ready to submit?" alone (the bonus note is said once, in Also qualifies).
+ * Pure.
+ */
 export function confirmOffer(a: OfferInput): string {
-  if (a.coinIn) return `${bonusCountsIn(a.coinIn)}\n${READY_TO_SUBMIT}`;
+  if (a.coinIn) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
   if (!a.canPush) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
   const wallet = offerWalletLine(a);
@@ -80,7 +84,7 @@ export function confirmOffer(a: OfferInput): string {
 export type ConfirmDecision =
   | { kind: 'offer' } // not confirmed yet: show the offer
   | { kind: 'skip' }
-  | { kind: 'record_only'; note: string } // lasting reason: no token, kit returned
+  | { kind: 'record_only'; note: string } // lasting reason: no token, kit returned ('' : nothing to say)
   | { kind: 'launch' };
 
 /** What a confirm_entry call does (Ruling 4 (plan)). Pure. */
@@ -95,7 +99,8 @@ export function confirmDecision(a: {
 }): ConfirmDecision {
   if (!a.confirmed || !a.decision) return { kind: 'offer' };
   if (a.decision === 'skip') return { kind: 'skip' };
-  if (a.coinIn) return { kind: 'record_only', note: bonusCountsIn(a.coinIn) };
+  // v2.8.1 §C13: the repo's token is in another program: the kit alone, no bonus note.
+  if (a.coinIn) return { kind: 'record_only', note: '' };
   if (!a.canPush) return { kind: 'record_only', note: CANT_PUSH };
   if (!a.hasRepo) return { kind: 'record_only', note: NEEDS_REPO };
   if (a.policyOff || !a.available) return { kind: 'record_only', note: NO_TOKEN_HERE };

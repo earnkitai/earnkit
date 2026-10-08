@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { ProgramFile } from './program-file';
 import {
   AGENT_FILL_STEPS,
+  continuesLine,
   GOOGLE_EMAIL_SIGN_IN,
   CONFIRMATION_ASK,
   ENTRY_LINK_ASK,
@@ -283,4 +287,26 @@ test('C19: a Google form whose only sign-in is verified email keeps the link; th
 test('review Minor 6: the api note tells the agent to map the answers to the platform fields', () => {
   const p = kp('https://superteam.fun/earn/listing/x', { submit_api: true });
   assert.match(kitAgentNote(submitKit(p, kitAnswers, { browser: false }), p), /map each answer to the platform's own submission fields/);
+});
+
+test('v2.8.1 §C14: the speedrun kit says the application continues on a16z\'s site after the email step', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const speedrun = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'a16z-speedrun.json'), 'utf8')));
+  const kit = submitKit({ ...speedrun, title: speedrun.title }, { email: 'erin@example.com' }, { browser: false });
+  assert.equal(continuesLine(speedrun), "After the email step, the application continues on a16z's site.");
+  assert.equal(
+    kit.show_to_builder,
+    [
+      'Ready for a16z speedrun SR008. Paste each answer into the form:',
+      'Form: https://speedrun.a16z.com/apply',
+      '\nEmail\nerin@example.com',
+      "\nAfter the email step, the application continues on a16z's site.",
+      `\n${CONFIRMATION_ASK}`,
+    ].join('\n'),
+  );
+  // Every other committed program: no such line.
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && x !== 'a16z-speedrun.json')) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    assert.equal(continuesLine(p), null, f);
+  }
 });

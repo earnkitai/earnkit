@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
 import { CHAINS } from './match';
@@ -37,6 +38,13 @@ const AGENT = z
   .strict()
   .describe('What you can do in this session');
 
+/**
+ * v2.8.1 §C15: what the agent sees for an unexpected error (a database blip, a failed fetch): a
+ * plain message with the id the server logged it under, never the raw error. Exported for tests.
+ */
+export const unexpectedErrorText = (id: string) =>
+  `EarnKit hit an unexpected error. Try again in a minute. If it keeps happening, tell the EarnKit team error id ${id}.`;
+
 async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
   try {
     const result = await tools[tool](input, ctx);
@@ -61,7 +69,10 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
           : err.message;
       return { content: [{ type: 'text' as const, text }], isError: true };
     }
-    throw err;
+    // v2.8.1 §C15: logged on the server with an id; the agent gets a plain message.
+    const id = randomBytes(4).toString('hex');
+    console.error(`[mcp] ${tool} error ${id}`, err);
+    return { content: [{ type: 'text' as const, text: unexpectedErrorText(id) }], isError: true };
   }
 }
 

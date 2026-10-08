@@ -337,7 +337,9 @@ apps/frontend/
                                authorize, code -> token, metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.8 Task 5: createMcpServer(ctx, { campaignOpen }) and
+    mcp.ts(+test)              v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
+                               and returns unexpectedErrorText(id), never the raw error.
+                               v2.8 Task 5: createMcpServer(ctx, { campaignOpen }) and
                                toolDescriptions(campaignOpen) (campaign sentences only while one is open).
                                MCP server: the 5 builder tools, plus sponsor_campaign only when the
                                escrow is configured; descriptions and schemas; v2.6:
@@ -545,11 +547,15 @@ apps/frontend/
                                elsewhere (Ruling 5) and can't-push (CANT_PUSH) variants) and
                                confirmDecision (offer | skip | record_only | launch). Pure. v2.8.1:
                                yesLine ("Yes: launches $TIP (TipJar) on Base. You earn 40% …",
-                               OfferInput.proposal), proofLineWaiting (a second proof-line miss)
+                               OfferInput.proposal; v2.8.1 §F19: the entry flow's only "40%"),
+                               proofLineWaiting (a second proof-line miss); v2.8.1 §C13: token
+                               elsewhere is "Ready to submit?" alone (record_only note '')
     submit-kit.ts(+test)       v2.8 Tasks 8, 10: submitKit (the submit kit, returned only by
                                confirm_entry, in four modes), submitModeFor, hostOf, proofFor
                                (Ruling 28), googlePrefill/airtablePrefill/tallyPrefill
-                               (MAX_PREFILL_URL), AGENT_FILL_STEPS, kitAgentNote. Pure
+                               (MAX_PREFILL_URL), AGENT_FILL_STEPS, kitAgentNote; v2.8.1 §C14:
+                               continuesLine (an investment program's kit: "After the email step,
+                               the application continues on a16z's site."). Pure
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
                                the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
                                platforms by host. Pure, no imports
@@ -557,7 +563,10 @@ apps/frontend/
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,
                                bankFill and bankEntries (the answer bank's fill and rows),
-                               preSubmitCheck, draftTable, fixesLine, applicationOf. Pure
+                               preSubmitCheck, draftTable, fixesLine, applicationOf. Pure.
+                               v2.8.1 §C11: questionsFor's `wallet` (WALLET_KEY payout_wallet,
+                               walletAsk: joined to contact, else its own item, else the last);
+                               §C15: the proof-link fix only on a proof field (links, demo, how it works)
     answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
                                (projects.application); final review M6: bankKeepsContact, contact
@@ -565,8 +574,8 @@ apps/frontend/
     also-qualifies.ts(+test)  v2.8 Task 11, Ruling 29: alsoQualifies (at most MAX_ALSO=3 other
                                open, curated, non-campaign, non-investment (C23) programs the project qualifies for;
                                reuses coach.ts bankFill, then counts with prepareSubmission and the entry's project, so
-                               project-known fields are filled, final review I1), alsoText (the table + "Your builder
-                               bonus is in <program>; these entries don't add to it." with coinIn). Pure. Wired into tools.ts
+                               project-known fields are filled, final review I1), alsoText (the table + v2.8.1 §C13
+                               "Your builder bonus rides on your <program> entry." with coinIn: the bonus note's one place). Pure. Wired into tools.ts
                                record_submission (non-campaign only) with programs.ts
                                alsoProgramFacts, projects.ts enteredProgramIds, and
                                match-projects.ts cachedRepoChains
@@ -580,10 +589,11 @@ apps/frontend/
                                yet joins once it is; M1: REPO_HELD), noCoinYet (the agent's
                                no-wallet note, "by <Mon D>"), roundEndLabel/summaryCloses/
                                deadlineDay (Ruling 29: one round date everywhere, the first
-                               message's), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
+                               message's; v2.8.1 §C15: a program deadline in its own time zone,
+                               "Oct 14, 11:59 PM ET", from the summary, else deadlineLabel in UTC), boardLink (earnkit.com/bonus/<boardSlug>), shortWallet;
                                v2.7: prizeOf/endsOf (moved from present.ts; prizeOf adds "investment" for an
-                               investment program, Ruling C23), bonusCountsIn (moved from confirm.ts; enteredText's
-                               countsIn, final review I3), coinRow is the `Token` row "Your entry gets a
+                               investment program, Ruling C23), bonusRidesOn (v2.8.1 §C13, was bonusCountsIn: said once, in
+                               Also qualifies or after "Entered in…"; enteredText's countsIn adds nothing), coinRow is the `Token` row "Your entry gets a
                                token on Base, $X: you earn 40% of its trading fees[, and it joins the builder bonus] · skip:
                                …" (Ruling 17; skip text "say skip for no token (and no builder bonus)", C19), notReadyLine
                                ("Before you submit: …", ≤3 then "and N more"), todoList and todoOf (C5), notReadyTokenNote

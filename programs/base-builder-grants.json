@@ -111,7 +111,7 @@
       "type": "url",
       "required": true,
       "project_field": "demo_url",
-      "from": "project"
+      "from": "builder"
     },
     {
       "key": "contract_address",
@@ -175,7 +175,7 @@
       "todo": "your Base Builder Code",
       "type": "text",
       "required": true,
-      "from": "project"
+      "from": "builder"
     },
     {
       "key": "primary_challenge",

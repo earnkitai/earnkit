@@ -109,7 +109,8 @@ const BASE_QUESTIONS = [
   '1. Who has used TipJar so far?',
   '2. What will you ship in the next 3 months? And who is building TipJar with you?',
   '3. Your full name, email, X and Telegram?',
-  '- How it makes money today, your main challenge right now and the credits you want?',
+  // v2.8.1 §C12: the Loom demo and the Builder Code are asked in this first round.
+  '- A Loom product demo, how it makes money today, your Base Builder Code, your main challenge right now and the credits you want?',
 ].join('\n');
 
 test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the confirmation, the kit and Also qualifies', dbTest, () =>
@@ -182,29 +183,38 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     });
     // Ruling 26 (plan): at most 3 questions, only for what only the builder can say. Arc's form has
     // one such field (the public profile; the agent drafts the description), so it asks one.
-    assert.equal(asked.show_to_builder, "Arc Microgrants: 1 quick question, then I'll write your application.\n1. Your public builder profile?");
+    // v2.8.1 §C11: the wallet is asked with it, in this same round (no wallet is known yet).
+    assert.equal(
+      asked.show_to_builder,
+      "Arc Microgrants: 1 quick question, then I'll write your application.\n" +
+        "1. Your public builder profile? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.",
+    );
     assert.ok(!('kit' in asked));
 
     // 4. The agent's draft and the builder's three answers: the draft, at most 3 fixes, then the offer.
     const answers: Record<string, string> = {
       description: 'TipJar lets fans tip creators in USDC on Arc mainnet; 120 creators received 900 tips in the first month.',
       builder_profile: 'https://github.com/alice',
+      payout_wallet: W,
     };
     for (const q of asked.questions) for (const k of q.keys) answers[k] ??= `Answer for ${k}`;
     const draft = keep('prepare_submission (draft)', (await tools.prepare_submission(
       { program_id: 'arc-microgrants', project, answers, coach_asked: true },
       ctx,
-    )) as Reply & { ready: boolean; fixes: unknown[] });
+    )) as Reply & { ready: boolean; fixes: unknown[]; shown_wallet?: string });
     assert.equal(draft.ready, true);
     assert.ok(draft.show_to_builder.startsWith('|'), draft.show_to_builder);
     assert.ok(draft.fixes.length <= 3);
     assert.match(draft.show_to_builder, /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
+    // v2.8.1 §C11: the wallet from the coach round is on the offer; the confirmation is a single yes.
+    assert.match(draft.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3, or tell me another\./);
+    assert.equal(draft.shown_wallet, W);
     assert.ok(!('kit' in draft));
 
     // 5. "Yes, go" with the wallet: the token launches (the fake deploy), then the copy-paste kit
-    //    (DoraHacks: the builder pastes each answer), every Arc field in it.
+    //    (DoraHacks: the builder pastes each answer), every Arc field in it. The agent echoes shown_wallet.
     const confirmed = keep('confirm_entry (go)', (await tools.confirm_entry(
-      { program_id: 'arc-microgrants', project, answers, builder_confirmed: true, decision: 'go', wallet: W },
+      { program_id: 'arc-microgrants', project, answers, builder_confirmed: true, decision: 'go', wallet: draft.shown_wallet },
       ctx,
     )) as Reply & { project_id: number; token: { status: string }; kit: { mode: string; show_to_builder: string } });
     assert.equal(confirmed.token.status, 'launched');
@@ -226,11 +236,8 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     )) as Reply & { project_id: number; also_qualifies?: { id: string; title: string }[] });
     assert.equal(recorded.project_id, confirmed.project_id);
     assert.ok(recorded.also_qualifies?.some((r) => r.title === 'Base Builder Grant Program'), JSON.stringify(recorded.also_qualifies));
-    // Task 11 fix round 1 reworded the brief's "Builder bonus counts in Arc Microgrants." line.
-    assert.ok(
-      recorded.show_to_builder.endsWith("Your builder bonus is in Arc Microgrants; these entries don't add to it."),
-      recorded.show_to_builder,
-    );
+    // v2.8.1 §C13: the bonus note, once, positively, in the Also qualifies block.
+    assert.ok(recorded.show_to_builder.endsWith('Your builder bonus rides on your Arc Microgrants entry.'), recorded.show_to_builder);
 
     // 7. "Enter it here too" for Base: one round, pinned. (The brief's "at most 1" holds only once
     //    the bank answers something the coach would ask: Task 9's `first` rule, accepted in its
@@ -293,6 +300,20 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
     const since = later.since_you_last_checked ?? later.show_to_builder;
     assert.match(since, /you won \$500 in Arc Microgrants with TipJar/);
     assert.match(later.show_to_builder, /^Since you last checked: you won \$500 in Arc Microgrants with TipJar/);
+
+    // 8b. v2.8.1 §F19: "40%" exactly once in the whole Arc entry flow (first message, coach, draft and
+    //     offer, launch and kit, "Entered in…" and Also qualifies): in the offer's Yes line. Never on
+    //     the later program (Base). The bonus note at most once per reply.
+    const builderText = (r: unknown) => [(r as Reply).show_to_builder, (r as { kit?: { show_to_builder?: string } }).kit?.show_to_builder ?? ''].join('\n');
+    const forty = (labels: string[]) =>
+      replies.filter(([l]) => labels.includes(l)).reduce((n, [, r]) => n + (builderText(r).match(/40%/g)?.length ?? 0), 0);
+    assert.equal(forty(['list_programs', 'prepare_submission (questions)', 'prepare_submission (draft)', 'confirm_entry (go)', 'record_submission']), 1);
+    assert.equal(replies.filter(([, r]) => /40%/.test(builderText(r))).map(([l]) => l).join(), 'prepare_submission (draft)');
+    assert.match(draft.show_to_builder, /\nYes: launches \$[A-Z0-9]+ \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
+    for (const [label, r] of replies) {
+      assert.ok((builderText(r).match(/builder bonus (rides|counts|is in)/gi)?.length ?? 0) <= 1, label);
+      assert.doesNotMatch(builderText(r), /no builder bonus:|don't add to it/, label);
+    }
 
     // 9. Every reply: no em dash, no Clanker, never "coin"; builder text names no tool, field or file.
     for (const [label, r] of replies) {

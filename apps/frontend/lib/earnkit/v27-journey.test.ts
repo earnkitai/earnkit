@@ -117,7 +117,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
   assert.match(first, /^\$[\d.]+[KM]?\+? in prizes open right now\.\n\n/, first);
   assert.ok(
     first.trimEnd().endsWith(
-      'Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.60 ETH so far.',
+      'Every entry gets a token that pays you, and its fees fund the builder bonus. 0.60 ETH so far.',
     ),
     first,
   );

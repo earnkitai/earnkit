@@ -16,11 +16,11 @@ import {
   notReadyTokenNote,
   walletLine,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
 import { ASK_OUTCOME_NOTE, COACH_NOTES, OUTCOME_SAVED_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
-import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor } from './coach';
+import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
 import { ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
@@ -32,14 +32,14 @@ import {
   READY_TO_SUBMIT,
   SKIP_LINE,
   TOKEN_ERROR_CONFIRM,
-  bonusCountsIn,
+  bonusRidesOn,
   walletQuestion,
   confirmOffer,
   offerWalletLine,
   proofLineWaiting,
   yesLine,
 } from './confirm';
-import { AGENT_FILL_STEPS, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
+import { AGENT_FILL_STEPS, continuesLine, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
 import {
   confirmToken,
   decideToken,
@@ -607,7 +607,7 @@ const confirmTexts: [string, string][] = [
   ['READY_TO_SUBMIT', READY_TO_SUBMIT],
   ['NEEDS_REPO', NEEDS_REPO],
   ['NO_TOKEN_HERE', NO_TOKEN_HERE],
-  ['bonusCountsIn', bonusCountsIn('Arc Microgrants')],
+  ['bonusRidesOn', bonusRidesOn('Arc Microgrants')],
   ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
   ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
   ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],
@@ -625,6 +625,23 @@ const confirmTexts: [string, string][] = [
   ['AGENT_LIMITED', AGENT_LIMITED],
   ['walletLimitNote', walletLimitNote(new Date('2026-10-08T14:20:00Z'))],
   ['walletLimitNote: no time', walletLimitNote(null)],
+  // v2.8.1 §C: the wallet in the coach round, the speedrun kit's next step, the plain error.
+  ['walletAsk', walletAsk(true)],
+  ['walletAsk: no bonus', walletAsk(false)],
+  [
+    'coachIntro: the wallet joined to contact',
+    coachIntro('Base Builder Grants', questionsFor({
+      reqs: [{ key: 'email', label: 'Email', kind: 'contact', type: 'email', required: true, from: 'builder' }],
+      answers: {},
+      first: true,
+      wallet: { hasBonus: true },
+    }))!,
+  ],
+  [
+    'continuesLine',
+    continuesLine({ investment: true, organizer: 'a16z (Andreessen Horowitz)', submission_requirements: [{ key: 'email', label: 'Email', type: 'email', required: true, from: 'builder' }] })!,
+  ],
+  ['unexpectedErrorText', unexpectedErrorText('1a2b3c4d')],
   [
     'submitKit: missing answers (C9)',
     submitKit(
