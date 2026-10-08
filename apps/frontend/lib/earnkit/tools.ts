@@ -126,7 +126,7 @@ export type ToolContext = {
    */
   bonusEntry?: (repoKey: string) => Promise<{ program_id: string; title: string } | null | undefined>;
   /** Test and e2e injection only; never set by the MCP route. */
-  matchProjects?: typeof matchProjects;
+  matchProjects?: (input: z.infer<typeof MatchProjectsInput>) => Promise<Exclude<YourRepos, { error: string }>>;
   /** v2.9 A5: test injection only: the link probe, getCode and cache for the entry checks. */
   verifyDeps?: CheckDeps;
 };

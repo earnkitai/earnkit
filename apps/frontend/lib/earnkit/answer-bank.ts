@@ -18,6 +18,15 @@ export function projectKey(project: { repo_url?: string | null; name: string }):
   return repo ? normalizeRepoUrl(repo) : `name:${project.name.trim().toLowerCase()}`;
 }
 
+/**
+ * v2.9 A1 (plan Ruling 2, Pre-flight P7): the one repo key across GitHub and local results and
+ * every v2.9 table: lowercased `owner/repo` (projectKey without its leading `github.com/`), else
+ * `name:<lowercased trimmed name>`. Pure.
+ */
+export function repoKey(r: { url?: string | null; name: string }): string {
+  return projectKey({ repo_url: r.url, name: r.name }).replace(/^github\.com\//, '');
+}
+
 const isKind = (k: string): k is FieldKind => (FIELD_KINDS as readonly string[]).includes(k);
 
 /**

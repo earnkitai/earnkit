@@ -1,20 +1,33 @@
 import { z } from 'zod';
 import {
   CHAINS,
+  DEFAULT_README,
+  TUTORIAL,
   chainOfId,
   detectChains,
+  earnkitOwner,
   matchRepo,
+  ownerOk,
+  missingSignalNote,
+  productScore,
   reportedFacts,
   pickFiles,
   type Chain,
   type Detection,
+  type Product,
   type ProgramFacts,
   type RepoFacts,
+  type ReportedRepo,
 } from './match';
 import { openProgramFacts } from './programs';
-import { loadRepoFacts, saveRepoFacts } from './repo-cache';
+import { loadRepoFacts, saveRepoFacts, type CachedProduct } from './repo-cache';
 import { sql } from './db';
 import { placeholderLink } from './placeholder';
+import { githubRepo } from './campaigns';
+import { repoKey } from './answer-bank';
+import { CheckBudget, GETCODE_PER_REPO, LIST_BUDGET, contractDeployed, liveVerified, type CheckDeps } from './verify';
+
+export { repoKey } from './answer-bank';
 
 /**
  * Reads public GitHub data with EarnKit's own token (GITHUB_TOKEN). Builders only give a
@@ -72,17 +85,52 @@ export type Repo = {
   /** Set by GitHub on every repo read; EarnKit's token can see some private repos. */
   private?: boolean;
   visibility?: string;
+  /** v2.9 A1: set on list and repo reads. */
+  is_template?: boolean;
+  /** v2.9 A1 (Pre-flight P49): only on a single repo read (GET /repos/{r}). */
+  template_repository?: unknown;
+  description?: string | null;
+  topics?: string[];
+  owner: { login: string };
 };
 
-const CONTRIBUTED_LIMIT = 10;
+/** v2.9 A1: at most this many repos are scored per call (each costs GitHub reads and checks). */
+export const SCORE_LIMIT = 8;
+/** v2.9 A1: repos owned by others get the 100-commit read only with this many search hits, at most 3. */
+const CONTRIB_MIN_HITS = 5;
+const CONTRIB_CANDIDATES = 3;
+const DAY_MS = 86_400_000;
+
+/** A repo's owner login (the full name's first part when GitHub left `owner` out). */
+const ownerOf = (r: Pick<Repo, 'full_name'> & { owner?: { login: string } }) => r.owner?.login ?? r.full_name.split('/')[0];
+
+/** v2.9 A2: a fork, a template, or a tutorial, course, starter or docs repo by name, description or topic. Pure. */
+export const unoriginal = (r: Pick<Repo, 'name' | 'fork' | 'is_template' | 'template_repository' | 'description' | 'topics'>) =>
+  r.fork ||
+  r.is_template === true ||
+  Boolean(r.template_repository) ||
+  [r.name, r.description ?? '', ...(r.topics ?? [])].some((t) => TUTORIAL.test(t));
 
 /**
- * Most recently pushed original (non-fork, non-archived) public repos: the user's own, plus
- * public repos owned by others (e.g. their orgs) they committed to in the last year.
+ * v2.9 A1: dropped before any per-repo call: forks, templates, archived repos, tutorials, EarnKit's
+ * own repos, and repos neither created nor pushed in the last 365 days. Pure.
  */
-export async function userRepos(user: string, limit: number) {
+export function droppedRepo(r: Repo, now: Date): boolean {
+  if (r.archived || unoriginal(r) || earnkitOwner(ownerOf(r))) return true;
+  const year = now.getTime() - 365 * DAY_MS;
+  return Date.parse(r.created_at) < year && Date.parse(r.pushed_at) < year;
+}
+
+const byPushed = (a: Repo, b: Repo) => Date.parse(b.pushed_at) - Date.parse(a.pushed_at);
+
+/**
+ * v2.9 A1: the builder's repos worth scoring, most recently pushed first, at most SCORE_LIMIT: their
+ * own (after the pre-filter), plus repos owned by others where ownerOk holds on their last 100
+ * commits. `found` counts every repo seen, dropped ones included (Pre-flight P12).
+ */
+export async function userRepos(user: string, now = new Date()): Promise<{ repos: Repo[]; found: number }> {
   const own: Repo[] = [];
-  for (let page = 1; page <= 3 && own.length < limit * 2; page++) {
+  for (let page = 1; page <= 3 && own.length < REPO_LIMIT * 2; page++) {
     const batch = await gh<Repo[]>(
       `/users/${encodeURIComponent(user)}/repos?per_page=100&sort=pushed&page=${page}`,
     );
@@ -90,42 +138,57 @@ export async function userRepos(user: string, limit: number) {
     if (batch.length < 100) break;
   }
   const names = new Set(own.map((r) => r.full_name.toLowerCase()));
-  const repos = [...own, ...(await contributedRepos(user, names))];
-  return repos
-    .filter((r) => !r.fork && !r.archived)
-    .sort((a, b) => Date.parse(b.pushed_at) - Date.parse(a.pushed_at))
-    .slice(0, limit);
+  const contributed = await contributedRepos(user, names, now);
+  const repos = [...own.filter((r) => !droppedRepo(r, now)), ...contributed.repos].sort(byPushed).slice(0, SCORE_LIMIT);
+  return { repos, found: own.length + contributed.found };
 }
 
-/** Public repos owned by someone else that `user` authored commits in during the last year. */
-async function contributedRepos(user: string, skip: Set<string>) {
-  const since = new Date(Date.now() - 365 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+/** The builder's share of a repo's last 100 commits, for ownerOk. Null when GitHub couldn't say. */
+async function contribution(fullName: string, user: string) {
+  try {
+    const recent = await gh<{ author?: { login?: string } | null }[]>(`/repos/${fullName}/commits?per_page=100`);
+    const me = user.toLowerCase();
+    return { userCommits: recent.filter((c) => c.author?.login?.toLowerCase() === me).length, recentCommits: recent.length };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * v2.9 A1: public repos owned by someone else that `user` committed to in the last year. A repo
+ * counts only with 5+ search hits (at most 3 candidates, most hits first), passing the pre-filter on
+ * its own read, and ownerOk on its last 100 commits. EarnKit's own repos are never read.
+ */
+async function contributedRepos(user: string, skip: Set<string>, now: Date): Promise<{ repos: Repo[]; found: number }> {
+  const since = new Date(now.getTime() - 365 * DAY_MS).toISOString().slice(0, 10);
   const q = encodeURIComponent(`author:${user} author-date:>${since}`);
   let found: { items: { repository: { full_name: string } }[] };
   try {
-    found = await gh(
-      `/search/commits?q=${q}&sort=author-date&order=desc&per_page=100`,
-    );
+    found = await gh(`/search/commits?q=${q}&sort=author-date&order=desc&per_page=100`);
   } catch (err) {
-    // The user's own repos still match; this only adds org/other repos.
-    console.error('[match] commit search failed:', err);
-    return [];
+    // The user's own repos still match; this only adds org/other repos. Logged by class only.
+    console.error('[match] commit search failed:', err instanceof Error ? err.name : 'error');
+    return { repos: [], found: 0 };
   }
-  const names = [
-    ...new Set(found.items.map((i) => i.repository.full_name)),
-  ].filter(
-    (n) =>
-      !skip.has(n.toLowerCase()) &&
-      n.split('/')[0].toLowerCase() !== user.toLowerCase(),
-  );
+  const hits = new Map<string, number>();
+  for (const i of found.items) {
+    const n = i.repository.full_name;
+    if (skip.has(n.toLowerCase()) || n.split('/')[0].toLowerCase() === user.toLowerCase()) continue;
+    hits.set(n, (hits.get(n) ?? 0) + 1);
+  }
+  const candidates = [...hits]
+    .filter(([n, count]) => count >= CONTRIB_MIN_HITS && !earnkitOwner(n.split('/')[0]))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, CONTRIB_CANDIDATES);
   const repos = await Promise.all(
-    names
-      .slice(0, CONTRIBUTED_LIMIT)
-      .map((n) => repoByName(n).catch(() => null)),
+    candidates.map(async ([n]) => {
+      const r = await repoByName(n).catch(() => null);
+      if (!r || droppedRepo(r, now)) return null;
+      const c = await contribution(r.full_name, user);
+      return c && ownerOk(ownerOf(r), user, c) ? r : null;
+    }),
   );
-  return repos.filter((r) => r !== null);
+  return { repos: repos.filter((r) => r !== null), found: hits.size };
 }
 
 export const repoByName = (fullName: string) => gh<Repo>(`/repos/${fullName}`);
@@ -183,9 +246,28 @@ export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
   }
 }
 
+/** v2.9 A2: a root README of at least this many bytes can count (1.5 KB). */
+const README_MIN_BYTES = 1536;
+const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
+
+/** A raw file from the repo's default branch (raw.githubusercontent.com: no API rate limit), or null. */
+async function rawFile(repo: Repo, path: string, init: RequestInit = {}) {
+  const res = await fetch(
+    `https://raw.githubusercontent.com/${repo.full_name}/${encodeURIComponent(repo.default_branch)}/${path
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`,
+    { ...init, signal: AbortSignal.timeout(10_000) },
+  ).catch(() => null);
+  return res?.ok ? await res.text().catch(() => null) : null;
+}
+
 /**
  * Reads a handful of config-like files and detects which chains the repo targets. `complete` is
- * false when the tree or a file couldn't be read (such a result isn't cached).
+ * false when the tree or a file couldn't be read (such a result isn't cached). v2.9 A2 (plan
+ * Ruling 1): also the root README's size and path (free, from the tree) and up to 2 contract
+ * candidates: addresses in the files read.
  */
 async function readRepoChains(repo: Repo) {
   let complete = true;
@@ -197,26 +279,37 @@ async function readRepoChains(repo: Repo) {
     complete = false;
     return { tree: [] };
   });
-  const paths = pickFiles(
-    tree.tree
-      .filter((t) => t.type === 'blob')
-      .map((t) => ({ path: t.path, size: t.size ?? 0 })),
-  );
+  const blobs = tree.tree.filter((t) => t.type === 'blob');
+  const paths = pickFiles(blobs.map((t) => ({ path: t.path, size: t.size ?? 0 })));
   const files = await Promise.all(
     paths.map(async (path) => {
-      // raw.githubusercontent.com doesn't count against the API rate limit.
-      const res = await fetch(
-        `https://raw.githubusercontent.com/${repo.full_name}/${encodeURIComponent(repo.default_branch)}/${path
-          .split('/')
-          .map(encodeURIComponent)
-          .join('/')}`,
-        { signal: AbortSignal.timeout(10_000) },
-      ).catch(() => null);
-      if (!res?.ok) complete = false;
-      return { path, text: res?.ok ? await res.text() : '' };
+      const text = await rawFile(repo, path);
+      if (text === null) complete = false;
+      return { path, text: text ?? '' };
     }),
   );
-  return { chains: detectChains(files), complete };
+  const readme = blobs.find((t) => /^readme(\.(md|markdown|txt|rst))?$/i.test(t.path)) ?? null;
+  const addresses = [
+    ...new Set(files.flatMap((f) => f.text.match(ADDRESS) ?? []).map((a) => a.toLowerCase())),
+  ]
+    .filter((a) => a !== ZERO_ADDRESS)
+    .slice(0, GETCODE_PER_REPO);
+  return {
+    chains: detectChains(files),
+    complete,
+    readme: readme ? { path: readme.path, size: readme.size ?? 0 } : null,
+    addresses,
+  };
+}
+
+/**
+ * v2.9 A2: a root README of 1.5 KB or more whose first 2 KB (one raw read) is not a framework's
+ * default text. Null when it couldn't be read.
+ */
+async function readmeCounts(repo: Repo, readme: { path: string; size: number } | null): Promise<boolean | null> {
+  if (!readme || readme.size < README_MIN_BYTES) return false;
+  const text = await rawFile(repo, readme.path, { headers: { Range: 'bytes=0-2047' } });
+  return text === null ? null : !DEFAULT_README.test(text.slice(0, 2048));
 }
 
 export const repoChains = async (repo: Repo): Promise<Detection> =>
@@ -474,19 +567,94 @@ function fullName(ref: string) {
   return m[1];
 }
 
+/** Test and e2e seams for matchProjects; production uses the defaults. */
+export type MatchDeps = {
+  /** The open programs (default: openProgramFacts). */
+  programs?: ProgramFacts[];
+  /** The repo facts cache (default: github_repo_facts). */
+  cache?: { load: typeof loadRepoFacts; save: typeof saveRepoFacts };
+  /** Link probe, getCode and url_checks cache; one LIST_BUDGET is added per call. */
+  checks?: CheckDeps;
+  now?: Date;
+};
+
+/** What scoring one repo needs: who the builder is, whether the repo counts as theirs, one shared budget. */
+type ScoreCtx = {
+  builder: string | null;
+  owned: boolean;
+  checks: CheckDeps;
+  now: Date;
+  cache: NonNullable<MatchDeps['cache']>;
+  /** v2.9 plan Ruling 2: the local report of the same repo (it adds a live link or chains GitHub lacks). */
+  local?: ReportedRepo;
+};
+
+const within = (iso: string | undefined | null, days: number, now: Date) =>
+  Boolean(iso) && now.getTime() - Date.parse(iso!) <= days * DAY_MS;
+
+/** The chains with mainnet evidence. */
+const mainnetChains = (d: Detection) =>
+  Object.entries(d)
+    .filter(([, v]) => v?.mainnet)
+    .map(([c]) => c as Chain);
+
 /**
- * One repo's facts and its verdicts against the given programs. Facts come from the hour-long
- * cache for this repo version (pushed_at) when present; only complete reads are cached.
+ * v2.9 A2: deployed means the live link loads from here, or one of the repo's contract candidates
+ * has code on a detected mainnet (at most GETCODE_PER_REPO checks). Never throws.
  */
-async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
-  const cached = await loadRepoFacts(repo.full_name, repo.pushed_at);
+async function deployedCheck(homepage: string | null, addresses: string[], chains: Chain[], checks: CheckDeps) {
+  const live = homepage ? await liveVerified(homepage, checks) : false;
+  if (live) return { live, deployed: true };
+  const pairs = addresses.flatMap((a) => chains.map((c) => [c, a] as const)).slice(0, GETCODE_PER_REPO);
+  for (const [chain, address] of pairs) if ((await contractDeployed(chain, address, checks)) === true) return { live, deployed: true };
+  return { live, deployed: false };
+}
+
+/** Whether the builder committed to the repo in the last 90 days (one read); null when GitHub couldn't say. */
+async function builderActive(repo: Repo, builder: string, now: Date) {
+  const since = new Date(now.getTime() - 90 * DAY_MS).toISOString();
+  return gh<unknown[]>(
+    `/repos/${repo.full_name}/commits?author=${encodeURIComponent(builder)}&since=${since}&per_page=1`,
+  ).then(
+    (c) => c.length > 0,
+    () => null,
+  );
+}
+
+/** Adds the chains a local report names that GitHub's files don't show (claims; plan Ruling 2). */
+function withReportedChains(chains: Detection, local?: ReportedRepo): Detection {
+  if (!local) return chains;
+  const out: Detection = { ...chains };
+  for (const c of local.chains)
+    out[c.chain] ??= { mainnet: c.mainnet, testnet: !c.mainnet, evidence: 'reported by the agent' };
+  return out;
+}
+
+/**
+ * One repo's facts, its real-product score and its verdicts against the given programs. The repo's
+ * own facts (chains, commits since a window, and its product signals: young, original, README,
+ * contract candidates) come from the hour-long cache for this repo version (pushed_at) when
+ * present; only complete reads are cached. owned, active and deployed are worked out on every call
+ * (Pre-flight P6): one commits read for active, and the link and contract checks (url_checks).
+ */
+async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx) {
+  const cached = await ctx.cache.load(repo.full_name, repo.pushed_at);
   let changed = false;
   let cacheable = true;
   let chains = cached?.chains;
-  if (!chains) {
+  let own: CachedProduct | null | undefined = cached?.product;
+  if (!chains || !own) {
     const read = await readRepoChains(repo);
     chains = read.chains;
     cacheable = read.complete;
+    const readme = await readmeCounts(repo, read.readme);
+    if (readme === null) cacheable = false;
+    own = {
+      young: within(repo.created_at, 365, ctx.now),
+      original: !unoriginal(repo),
+      readme: readme === true,
+      addresses: read.addresses,
+    };
     changed = true;
   }
   const commitsSinceKnown = { ...cached?.commits_since };
@@ -510,76 +678,176 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
     }
   }
   if (changed && cacheable)
-    await saveRepoFacts(
+    await ctx.cache.save(
       repo.full_name,
       repo.pushed_at,
-      { chains, commits_since: commitsSinceKnown },
-      cached?.fetched_at,
+      { chains, commits_since: commitsSinceKnown, product: own },
+      cached?.product ? cached.fetched_at : undefined,
     );
+
+  const allChains = withReportedChains(chains, ctx.local);
+  // v2.9 A5: a placeholder homepage is no homepage. Plan Ruling 2: GitHub's wins, else the local link.
+  const homepage = (repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null) ?? ctx.local?.live_url ?? null;
+  // Plan Ruling 1: a commit by the builder in 90 days; without a known builder, a push in 90 days.
+  const active = ctx.builder
+    ? ((await builderActive(repo, ctx.builder, ctx.now)) ?? within(repo.pushed_at, 90, ctx.now))
+    : within(repo.pushed_at, 90, ctx.now);
+  const { live, deployed } = await deployedCheck(
+    homepage,
+    [...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])],
+    mainnetChains(allChains),
+    ctx.checks,
+  );
+  const product = productScore({
+    active,
+    young: own.young || active,
+    original: own.original,
+    readme: own.readme,
+    deployed,
+    owned: ctx.owned,
+  });
   const facts: RepoFacts = {
     name: repo.name,
     url: repo.html_url,
-    // v2.9 A5: a placeholder homepage is no homepage.
-    homepage: repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null,
+    homepage,
     created_at: repo.created_at,
-    chains,
+    chains: allChains,
     commits_in_window,
+    product,
+    live_verified: live,
   };
   return { repo: facts, verdicts: matchRepo(facts, programs) };
 }
 
-/** Checks a builder's repos (public on GitHub, or reported by the agent) against open programs. */
-export async function matchProjects(input: z.infer<typeof MatchProjectsInput>) {
-  const programs = await openProgramFacts();
-  const repos: Repo[] = input.repos?.length
-    ? await Promise.all(input.repos.map((r) => repoByName(fullName(r))))
-    : input.github_user
-      ? await userRepos(input.github_user, REPO_LIMIT)
-      : [];
-  const local = input.local_repos ?? [];
+/**
+ * v2.9 A2 (plan Ruling 1): a local repo's score. EarnKit never reads its code, so `readme` is false;
+ * active is a last commit within 90 days (young follows it); original reads the name only.
+ */
+async function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: ScoreCtx) {
+  const facts = reportedFacts(r, programs);
+  const active = within(r.last_commit_at, 90, ctx.now);
+  const { live, deployed } = await deployedCheck(facts.homepage, r.contracts ?? [], mainnetChains(facts.chains), ctx.checks);
+  const product = productScore({ active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned });
+  const scored: RepoFacts = { ...facts, product, live_verified: live };
+  return { repo: scored, verdicts: matchRepo(scored, programs) };
+}
 
-  const results = [
-    ...(await mapLimit(repos, 6, (repo) => checkRepo(repo, programs))),
-    ...local.map((r) => {
-      const facts = reportedFacts(r, programs);
-      return { repo: facts, verdicts: matchRepo(facts, programs) };
-    }),
-  ];
+/** A repo to score: from GitHub (with any local report of the same repo), or local only. */
+type Candidate =
+  | { key: string; github: Repo; owned: boolean; local?: ReportedRepo }
+  | { key: string; github?: undefined; owned: boolean; local: ReportedRepo };
+
+const recency = (c: Candidate) => Date.parse(c.github?.pushed_at ?? c.local?.last_commit_at ?? '') || 0;
+
+/**
+ * Checks a builder's repos (public on GitHub, or reported by the agent) against open programs.
+ * v2.9 A1, A2: only the builder's own repos (never EarnKit's, a fork, a template, an archived repo
+ * or a tutorial), one per repo key, the SCORE_LIMIT most recent scored, under one LIST_BUDGET of
+ * link and contract checks. `checked` counts every repo found (dropped ones too); `scored` the ones
+ * scored.
+ */
+export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, deps: MatchDeps = {}) {
+  const now = deps.now ?? new Date();
+  const programs = deps.programs ?? (await openProgramFacts());
+  const builder = input.github_user ?? null;
+  let found = 0;
+  const github: { repo: Repo; owned: boolean }[] = [];
+  if (input.repos?.length) {
+    const names = input.repos.map(fullName);
+    found += names.length;
+    const read = await Promise.all(names.filter((n) => !earnkitOwner(n.split('/')[0])).map((n) => repoByName(n)));
+    const kept = read.filter((r) => !droppedRepo(r, now)).sort(byPushed).slice(0, SCORE_LIMIT);
+    // Pre-flight P28: without a builder, a named repo counts like a local one (owned unless EarnKit's).
+    let contribReads = 0;
+    for (const r of kept) {
+      const owner = ownerOf(r);
+      let owned = !builder || ownerOk(owner, builder);
+      if (builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
+        const c = await contribution(r.full_name, builder);
+        owned = c !== null && ownerOk(owner, builder, c);
+      }
+      github.push({ repo: r, owned });
+    }
+  } else if (builder) {
+    const mine = await userRepos(builder, now);
+    found += mine.found;
+    github.push(...mine.repos.map((repo) => ({ repo, owned: true })));
+  }
+
+  const candidates = new Map<string, Candidate>();
+  for (const g of github) {
+    const key = repoKey({ url: g.repo.html_url, name: g.repo.name });
+    if (!candidates.has(key)) candidates.set(key, { key, github: g.repo, owned: g.owned });
+  }
+  for (const r of input.local_repos ?? []) {
+    found++;
+    const gh = r.url ? githubRepo(r.url) : null;
+    if (gh && earnkitOwner(gh.owner)) continue;
+    const key = repoKey({ url: r.url, name: r.name });
+    const known = candidates.get(key);
+    if (known) {
+      known.local ??= r;
+      continue;
+    }
+    // Plan Ruling 1: a local repo is the builder's unless its GitHub link names another owner.
+    const owned = !gh || !builder || gh.owner.toLowerCase() === builder.toLowerCase();
+    candidates.set(key, { key, owned, local: r });
+  }
+  const toScore = [...candidates.values()].sort((a, b) => recency(b) - recency(a)).slice(0, SCORE_LIMIT);
+
+  const checks: CheckDeps = { ...deps.checks, now, budget: new CheckBudget(LIST_BUDGET) };
+  const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
+  const results = await mapLimit(toScore, 6, async (c) => {
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local };
+    return { key: c.key, ...(c.github ? await checkRepo(c.github, programs, ctx) : await checkLocal(c.local, programs, ctx)) };
+  });
   // Builders want what can earn: "no" verdicts and repos with only those are left out.
   const fits = results
     .map((r) => ({
+      key: r.key,
       repo: r.repo.name,
       repo_url: r.repo.url || null,
       // v2.8 Ruling 10 (plan): the repo's mainnet chains, for new program alerts (fit_chains);
       // testnet-only never counts as a fit (review minor 6, as cachedRepoChains).
-      chains: Object.entries(r.repo.chains)
-        .filter(([, d]) => d?.mainnet)
-        .map(([c]) => c as Chain),
+      chains: mainnetChains(r.repo.chains),
       verdicts: r.verdicts.filter((v) => v.status !== 'no'),
+      product: r.repo.product as Product,
+      live_verified: r.repo.live_verified === true,
+      // Pre-flight P13: the merged facts, for later steps (fit repos for alerts).
+      facts: r.repo,
     }))
     .filter((r) => r.verdicts.length > 0)
     .sort(
       (a, b) =>
         Number(!a.verdicts.some((v) => v.status === 'likely')) -
-        Number(!b.verdicts.some((v) => v.status === 'likely')),
+          Number(!b.verdicts.some((v) => v.status === 'likely')) || b.product.score - a.product.score,
     );
-  return { checked: results.length, fits };
+  return { checked: found, scored: results.length, fits };
 }
 
-/** get_program's eligibility check: one repo against one open program. */
-export async function checkEligibility(ref: string, programId: string) {
-  const program = (await openProgramFacts()).find((p) => p.id === programId);
+/** get_program's eligibility check: one repo against one open program (scored, owned unless EarnKit's). */
+export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}) {
+  const program = (deps.programs ?? (await openProgramFacts())).find((p) => p.id === programId);
   if (!program) return null;
-  const { verdicts } = await checkRepo(await repoByName(fullName(ref)), [
-    program,
-  ]);
+  const repo = await repoByName(fullName(ref));
+  const now = deps.now ?? new Date();
+  const { repo: facts, verdicts } = await checkRepo(repo, [program], {
+    builder: null,
+    owned: !earnkitOwner(ownerOf(repo)),
+    checks: { ...deps.checks, now, budget: new CheckBudget(LIST_BUDGET) },
+    now,
+    cache: deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts },
+  });
   const [v] = verdicts;
   if (!v)
     return {
       status: 'no' as const,
       missing: [],
       effort: null,
-      note: `no ${program.chains.join(' or ')} code found in this repo`,
+      note:
+        facts.product && facts.product.tier !== 'product' && (program.any_chain || program.chains.some((c) => facts.chains[c]))
+          ? (missingSignalNote(facts.product) ?? 'not enough signs of a real product yet')
+          : `no ${program.chains.join(' or ')} code found in this repo`,
     };
   return {
     status: v.status,
