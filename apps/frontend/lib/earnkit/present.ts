@@ -374,7 +374,8 @@ type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict };
 
 /**
  * v2.8.1 §B9: the programs the builder already entered (submitted). One confirmed but not submitted
- * yet stays offerable ("keep going"), so the builder finishes it. Pure.
+ * yet stays offerable ("keep going"), so the builder finishes it. Pure. Not the same rule as
+ * projects.ts enteredProgramIds (Ruling 29, "Also qualifies"), which counts any row, submitted or not.
  */
 const enteredIds = (m: Pick<FirstMessage, 'entries'>) =>
   new Set((m.entries ?? []).filter((e) => e.submitted).map((e) => e.program_id));
@@ -418,10 +419,9 @@ const qualifies = (r: Fit) => !r.card.investment && !r.v.missing.includes('new_w
  * (at most 5) plus how many more. Shared with list_programs, so the bonus pools are read once and
  * only for programs on screen. Pure; exported for tests.
  */
-export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>) {
+export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, done = enteredIds(m)) {
   const byId = new Map(m.cards.map((c) => [c.id, c]));
   // v2.8.1 §B9: programs already entered go after the rest.
-  const done = enteredIds(m);
   const enteredLast = (a: Pick<Card, 'id'>, b: Pick<Card, 'id'>) => Number(done.has(a.id)) - Number(done.has(b.id));
   const curated = (id: string) => byId.has(id) && !byId.get(id)!.sponsored;
   const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
@@ -471,8 +471,8 @@ export function presentFirstMessage(m: FirstMessage): string {
     ].join('\n\n');
   }
 
-  const { byId, rows, shown, more } = layout(m);
   const entered = enteredIds(m);
+  const { byId, rows, shown, more } = layout(m, entered);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)
     sections.push(
@@ -554,7 +554,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   // first instead, so the campaign offer stays the last line.
   // Final review M4: an offer whose row says "no builder bonus" (Ruling 25: the repo's token is
   // entered elsewhere) takes the campaign form too, and that program's pool isn't counted as "other".
-  const close = offer(m, byId, rows, ideas.length > 0);
+  const close = offer(m, byId, rows, ideas.length > 0, entered);
   const apart = close.campaign || !!close.noBonusId;
   const bonus = bonusClose([...rows.map((r) => r.card), ...shown].filter((c) => c.id !== close.noBonusId), apart);
   if (!bonus) sections.push(close.text);
@@ -600,9 +600,9 @@ function offer(
   byId: Map<string, Card>,
   rows: Fit[],
   ideasShown: boolean,
+  entered: Set<string>,
 ): Offer {
   // v2.8.1 §B7, §B9: never an investment (it shows only in the table), never a program entered.
-  const entered = enteredIds(m);
   const offerable = (c: Card) => !c.sponsored && !c.investment && !entered.has(c.id);
   // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
   const noBonus = (r: Fit | undefined) =>

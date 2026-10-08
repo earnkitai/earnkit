@@ -170,8 +170,8 @@ apps/frontend/
                                any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
                                refuses optimism.io hosts (Ruling 15); v2.8 Task 12: results { url (https),
                                expected (date) } (optional; programs.results; Arc 2026-10-21)
-    programs.ts(+test)         v2.8.1 §B8 needsRepo (card needs_repo: a required repo, code or
-                               live product link); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
+    programs.ts(+test)         v2.8.1 §B8 card needs_repo (the program file's needs_repo, column
+                               programs.needs_repo; programs:check requires it, needsRepoMissing); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
@@ -390,8 +390,10 @@ apps/frontend/
                                (Ruling 13), else ''
     match-projects.ts          repo matching for list_programs + get_program's eligibility check; v2.8.1 §B6:
                                ReportedRepoInput never fails (reportedChain(s): any chain string, unknown ones
-                               dropped; reportedDate: no timezone = UTC; reportedUrl: bare host gets https://),
-                               LocalReposInput skips an unreadable repo and keeps the first 20;
+                               dropped, chain ids via match.ts chainOfId, truncated at 20; reportedDate: no timezone
+                               = UTC; reportedUrl: bare host gets https://), LocalReposInput skips an unreadable repo
+                               (a bare string is a name; no name takes the GitHub link's) and keeps the first 20;
+                               mcp.ts list_programs' inputSchema is lenient to match (wallet, name, chains: unknown);
                                gh (the authenticated GitHub GET, also used by traction.ts)
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
                                repo-cache.ts); ReportedRepoInput.url (optional, max 300, validated

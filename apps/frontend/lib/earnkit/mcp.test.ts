@@ -267,29 +267,53 @@ test('Ruling 13 (plan): the local_repos item schema accepts a url', async () => 
   assert.ok('url' in localRepos.items.properties, JSON.stringify(localRepos.items.properties));
 });
 
-test('v2.8.1 §B6: the list_programs input schema takes any chain, a bare date and a non-0x wallet', async () => {
-  const server = createMcpServer({ installationId: 1 });
+/** v2.8.1 §B6 (fix round 1, review Critical 1): every odd shape an agent sends to list_programs. */
+const ODD_LIST_INPUTS: Record<string, unknown>[] = [
+  { local_repos: [{ chains: ['base'] }] }, // no name
+  { local_repos: [{ chains: ['base'], url: 'https://github.com/acme/tipjar' }] }, // no name, a GitHub link
+  { wallet: 42 },
+  { wallet: 'vitalik.eth' },
+  { wallet: { address: '0xabc' } },
+  { local_repos: [{ name: 'x', chains: [8453] }] }, // a chain id
+  { local_repos: [{ name: 'x', chains: [{ chain: 8453, mainnet: 'yes' }, '84532', null, true] }] },
+  { local_repos: [{ name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }] }] }, // unknown chain
+  { local_repos: [{ name: 'x', chains: 'base' }] }, // one string, not a list
+  { local_repos: [{ name: 'x', chains: Array(30).fill('base') }] }, // over the limit: truncated
+  { local_repos: [{ name: 'tipjar', chains: ['base'], last_commit_at: '2026-10-01', live_url: 'tipjar.xyz' }] }, // no timezone, no scheme
+  { local_repos: [{ name: 'x', chains: [], last_commit_at: 1759300000, live_url: 42, url: null }] },
+  { local_repos: [{ name: 'x'.repeat(500), chains: [] }] },
+  { local_repos: ['tipjar', 7] },
+  { local_repos: Array.from({ length: 40 }, (_, i) => ({ name: `r${i}`, chains: ['base'] })) },
+];
+
+test('v2.8.1 §B6 (fix round 1): every odd list_programs input passes the MCP schema; with a database, the call succeeds', async () => {
+  const db = Boolean(process.env.DATABASE_URL);
+  const installationId = db
+    ? (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t3fix-${process.pid}-${Date.now()}`}) RETURNING id`)[0].id
+    : 1;
+  const server = createMcpServer({ installationId, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
   const errLog = console.error;
   console.error = () => {};
   try {
-    for (const args of [
-      { local_repos: [{ name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }] }] },
-      { local_repos: [{ name: 'tipjar', chains: ['base', 'solana'], last_commit_at: '2026-10-01', live_url: 'tipjar.xyz' }] },
-      { local_repos: [{ name: 'x', chains: [{ chain: 'base' }] }] },
-      { wallet: 'vitalik.eth' },
-    ]) {
-      // With no database here the tool itself then fails, which is not an input validation error.
+    for (const args of ODD_LIST_INPUTS) {
       const r = await client
         .callTool({ name: 'list_programs', arguments: args })
         .catch((err: unknown) => ({ isError: true, content: String(err) }));
-      assert.doesNotMatch(JSON.stringify(r.content), /Input validation error|Invalid option/, JSON.stringify(args));
+      const text = JSON.stringify(r.content);
+      assert.doesNotMatch(text, /Input validation error|Invalid option|invalid_type/, JSON.stringify(args).slice(0, 200));
+      // With a database the whole call goes through: a reply for the builder, never an error.
+      if (db) {
+        assert.notEqual(r.isError, true, `${JSON.stringify(args).slice(0, 200)}: ${text.slice(0, 300)}`);
+        assert.match(text, /show_to_builder/);
+      }
     }
   } finally {
     console.error = errLog;
     await client.close();
+    if (db) await sql()`DELETE FROM installations WHERE id = ${installationId}`;
   }
 });
 

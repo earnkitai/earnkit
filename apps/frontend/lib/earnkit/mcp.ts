@@ -306,40 +306,39 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .string()
           .optional()
           .describe("The builder's GitHub username"),
+        // v2.8.1 §B6 (fix round 1): anything; a wallet that isn't 0x is ignored with wallet_note.
         wallet: z
-          .string()
+          .unknown()
           .optional()
-          .describe("The builder's wallet, if they named one: its wins show here even from a new connection"),
+          .describe("The builder's 0x wallet, if they named one: its wins show here even from a new connection"),
         repos: z
           .array(z.string())
           .optional()
           .describe('Or specific "owner/repo" or github.com links'),
+        // v2.8.1 §B6 (fix round 1): lenient here, so no report fails the call; tools.ts list_programs
+        // (match-projects.ts LocalReposInput) reads what it can, drops the rest and keeps the limits
+        // (20 repos, 20 chains each, 100-character names, 300-character links).
         local_repos: z
           .array(
-            z.object({
-              name: z.string(),
-              // v2.8.1 §B6: any chain name; EarnKit ignores the ones it doesn't know.
-              chains: z
-                .array(
-                  z.union([
-                    z.string(),
-                    z.object({
-                      chain: z.string(),
-                      mainnet: z.union([z.boolean(), z.string()]).optional(),
-                    }),
-                  ]),
-                )
-                .optional()
-                .describe(
-                  `Chains the code targets, any name (${CHAINS.join(', ')} count; others are ignored); mainnet false = testnet only`,
-                ),
-              live_url: z.string().optional(),
-              last_commit_at: z.string().optional().describe('ISO 8601; a date alone counts as UTC'),
-              url: z
-                .string()
-                .optional()
-                .describe("The repo's GitHub link, if the local remote is on GitHub"),
-            }),
+            // Anything that isn't an object (a bare name) is read as { name } before validation.
+            z.preprocess(
+              (v) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? v : { name: v }),
+              z.object({
+                name: z.unknown().optional().describe("The repo's name"),
+                chains: z
+                  .unknown()
+                  .optional()
+                  .describe(
+                    `Chains the code targets: a list of names, chain ids or { chain, mainnet } (${CHAINS.join(', ')} count; others are ignored); mainnet false = testnet only`,
+                  ),
+                live_url: z.unknown().optional(),
+                last_commit_at: z.unknown().optional().describe('ISO 8601; a date alone counts as UTC'),
+                url: z
+                  .unknown()
+                  .optional()
+                  .describe("The repo's GitHub link, if the local remote is on GitHub"),
+              }),
+            ),
           )
           .optional()
           .describe(

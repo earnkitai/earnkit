@@ -174,6 +174,8 @@ export type ProgramRow = {
   any_chain: boolean;
   /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"), not a prize. */
   investment: boolean;
+  /** v2.8.1 §B8 (fix round 1): entering needs a repo (program file needs_repo); null when unknown. */
+  needs_repo: boolean | null;
   campaign: CampaignConfig | null;
   created_at: Date;
   /** When the program last became active (v2.4 §4); null while it never was. */
@@ -251,6 +253,7 @@ export async function listPrograms() {
       | 'chains'
       | 'any_chain'
       | 'investment'
+      | 'needs_repo'
       | 'rules'
       | 'token_policy'
     > & {
@@ -263,7 +266,7 @@ export async function listPrograms() {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.any_chain, p.investment, p.rules, p.token_policy,
+      p.chains, p.any_chain, p.investment, p.needs_repo, p.rules, p.token_policy,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -288,16 +291,6 @@ export async function listPrograms() {
       tracks.filter((t) => t.program_id === p.id).map((t) => t.name),
       identities[i],
     ),
-  );
-}
-
-/**
- * v2.8.1 §B8: the program can't be entered without code: a required link to a repo, the code, or
- * a live product or deployment. Pure; exported for tests.
- */
-export function needsRepo(reqs: { key: string; kind?: string; type?: string; from: string; required: boolean }[]) {
-  return reqs.some(
-    (r) => r.required && r.from === 'project' && (r.kind === 'links' || r.type === 'url') && /repo|github|code|deploy|live/.test(r.key),
   );
 }
 
@@ -331,6 +324,7 @@ export function programCard(
     | 'chains'
     | 'any_chain'
     | 'investment'
+    | 'needs_repo'
     | 'past_rounds'
     | 'focus'
     | 'best_bet'
@@ -378,8 +372,8 @@ export function programCard(
     opened_at: p.opened_at,
     // v2.4 §6: answers only the builder can give; over 2 never goes first ("fastest").
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
-    // v2.8.1 §B8: no-repo builders see "needs a repo" on it, and it is never their offer.
-    needs_repo: needsRepo(p.submission_requirements),
+    // v2.8.1 §B8: no-repo builders see "needs a repo" on it; only false makes it their offer.
+    needs_repo: p.needs_repo ?? undefined,
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
     // v2.5 §1: curated build ideas for builders with no repo.
@@ -717,6 +711,7 @@ export async function upsertProgram(
       chains: p.chains,
       any_chain: p.any_chain ?? false,
       investment: p.investment ?? false,
+      needs_repo: p.needs_repo ?? null,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,

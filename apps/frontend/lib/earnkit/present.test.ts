@@ -127,6 +127,7 @@ async function committedCards(): Promise<Card[]> {
           max_award_usd: p.max_award_usd == null ? null : String(p.max_award_usd),
           pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
           min_award_usd: p.min_award_usd == null ? null : String(p.min_award_usd),
+          needs_repo: p.needs_repo ?? null,
         },
         [],
       ),
