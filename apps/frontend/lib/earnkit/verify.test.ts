@@ -227,3 +227,15 @@ test('1.8 contractDeployed: 0x is false, code is true, no RPC is null with no ro
   assert.equal(n, 0);
   await cleanup([`getcode:arc:${empty}`, `getcode:arc:${full}`]);
 });
+
+test('Part 1 re-review N2 (no DB): one address with no code and one whose check failed is unchecked, not "no contract"', async () => {
+  const { cache } = memCache();
+  const wallet = `0x${'c'.repeat(40)}`;
+  const contract = `0x${'d'.repeat(40)}`;
+  const getCode = async (_rpc: string, addr: string) => {
+    if (addr === contract) throw new Error('429');
+    return '0x';
+  };
+  const r = await entryVerified({ liveUrl: null, needsContract: 'arc', addresses: [wallet, contract] }, { getCode, cache });
+  assert.equal(r.contract, null);
+});

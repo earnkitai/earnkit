@@ -291,14 +291,18 @@ export async function entryVerified(
   const d = { ...deps, budget: deps.budget ?? new CheckBudget(ENTRY_BUDGET) };
   const live = a.liveUrl ? await liveVerified(a.liveUrl, d) : false;
   if (!a.needsContract) return { live, contract: null, needsContract: null };
-  let contract: boolean | null = a.addresses.length === 0 ? false : null;
+  // True when any address has code; else null when any check couldn't run (not "no contract");
+  // else false.
+  let contract: boolean | null = false;
+  let unchecked = false;
   for (const address of a.addresses.slice(0, GETCODE_PER_REPO)) {
     const r = await contractDeployed(a.needsContract, address, d);
     if (r === true) {
       contract = true;
       break;
     }
-    if (r === false) contract = false;
+    if (r === null) unchecked = true;
   }
+  if (contract !== true && unchecked) contract = null;
   return { live, contract, needsContract: a.needsContract };
 }
