@@ -9,6 +9,7 @@ import {
   TellInput,
   emptyMemory,
   hiddenPrograms,
+  memoryKey,
   mergeSaid,
   readMemory,
   roundLabel,
@@ -138,4 +139,10 @@ test('3.6 tell: outcomes are self-reports on the own newest entry (lost is not_s
     await sql()`DELETE FROM installations WHERE id IN (${mine}, ${other}, ${none})`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${arcId}`;
   }
+});
+
+test('Ruling G6: a shared client has no memory key; an installation of its own does', () => {
+  assert.equal(memoryKey({ installationId: 7, sharedClient: true }), null);
+  assert.equal(memoryKey({ installationId: 7 }), 7);
+  assert.equal(memoryKey({ installationId: 7, sharedClient: false }), 7);
 });

@@ -2434,3 +2434,69 @@ test('3.10 list_programs reads the builder memory once: not interested leaves th
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${id1}`;
   }
 });
+
+test('Ruling G6: on a shared client, one builder\'s statements never reach another; an outcome needs its project_id', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const arcId = `g6-arc-${stamp}`;
+  const baseId = `g6-base-${stamp}`;
+  await upsertProgram(ProgramFile.parse({ ...arc, id: arcId, title: `Arc G6 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+  await upsertProgram(ProgramFile.parse({ ...arc, id: baseId, title: `Base G6 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`g6-shared-${stamp}`}, true) RETURNING id`;
+  const [{ id: entry }] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, installation_id) VALUES (${arcId}, 'TipJar', ${id}) RETURNING id`;
+  let given: { said?: Record<string, unknown> } | undefined;
+  const ctx = {
+    installationId: id,
+    sharedClient: true,
+    roundPoolsWei: async () => new Map(),
+    repoCoins: async () => new Map(),
+    matchProjects: async (input: { said?: Record<string, unknown> }) => {
+      given = input;
+      return { checked: 1, scored: 1, fits: [scoredFit('tipjar', 6, arcId)] };
+    },
+  };
+  type Told = { show_to_builder?: string; saved: string[]; agent_note: string };
+  type Listed = { show_to_builder: string; matches: { program_id: string }[] };
+  try {
+    // Builder A, on the shared agent.
+    const told = (await tools.tell_earnkit(
+      {
+        program_status: [
+          { program_id: arcId, status: 'not_interested' },
+          { program_id: baseId, status: 'applied' },
+        ],
+        repo_facts: [{ repo: 'tipjar', not_mine: true }],
+      },
+      ctx,
+    )) as Told;
+    assert.equal(told.show_to_builder, 'Noted for now.');
+    assert.deepEqual(told.saved, []);
+    assert.doesNotMatch(told.show_to_builder!, /tell_earnkit|list_programs/);
+    const rows = await sql()<{ n: number }[]>`
+      SELECT (SELECT count(*) FROM builder_program_status WHERE installation_id = ${id})::int
+        + (SELECT count(*) FROM builder_repo_facts WHERE installation_id = ${id})::int AS n`;
+    assert.equal(rows[0].n, 0, 'nothing stored for the installation');
+    // Builder B, on the same agent: none of A's statements apply.
+    const b = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    assert.match(b.show_to_builder, new RegExp(`Arc G6 ${stamp}`));
+    assert.doesNotMatch(b.show_to_builder, /applied outside EarnKit/);
+    assert.ok(b.matches.some((m) => m.program_id === arcId));
+    assert.equal(given?.said, undefined);
+    // An outcome without its entry is refused (the newest entry may be another builder's); with it, stored.
+    await assert.rejects(
+      tools.tell_earnkit({ program_status: [{ program_id: arcId, status: 'won' }] }, ctx),
+      (err: Error) => err.constructor.name === 'NotFoundError' && /project_id/.test(err.message),
+    );
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${entry}`)[0].n, 0);
+    const won = (await tools.tell_earnkit({ program_status: [{ program_id: arcId, status: 'won', project_id: entry }] }, ctx)) as Told;
+    assert.equal(won.show_to_builder, 'Noted for now.');
+    assert.equal(won.saved.length, 1);
+    assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${entry}`)[0].n, 1);
+  } finally {
+    await sql()`DELETE FROM projects WHERE installation_id = ${id}`;
+    await sql()`DELETE FROM installations WHERE id = ${id}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${arcId}, ${baseId})`;
+  }
+});
