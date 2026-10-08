@@ -100,7 +100,9 @@ import {
   sponsorDisclosureParts,
 } from './campaign-page-text';
 import type { FetchResult } from './ownership';
-import type { Verdict } from './match';
+import { BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
+import { CHAINS } from './chains';
+import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine } from './placeholder';
 import PolicyPage from '../../app/policy/page';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
@@ -893,7 +895,59 @@ const tokenOfferTexts: [string, string][] = [
   ['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN],
 ];
 
+// v2.9 Task 12 (Part 1 copy sweep): every new builder string Part 1 ships. The link and contract
+// check lines (T1); the matched row notes as matchRepo writes them (T2 product signals, T3 claims,
+// T4 the floor and investments); and a first reply carrying those rows and the token offer (T6).
+const v29Program = (id: string, extra: Partial<ProgramFacts> = {}): ProgramFacts => ({
+  id, title: id, chains: ['arc'], any_chain: false, existing_work: 'allowed', tag: null, starts_at: null, investment: false, min_product_score: 0, ...extra,
+});
+const v29Programs = [
+  v29Program('arc-microgrants'),
+  v29Program('base-builder-grants', { tag: 'needs a live product' }),
+  v29Program('a16z-speedrun', { investment: true, any_chain: true, min_product_score: 5 }),
+  v29Program('floor', { match_floor: 6 }),
+];
+const v29Facts = (o: Partial<RepoFacts>): RepoFacts => ({
+  name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+  chains: { arc: { mainnet: true, testnet: false, evidence: 'the builder said mainnet' } }, commits_in_window: {}, ...o,
+});
+const v29Product = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
+const v29ProjectTier = productScore({ active: true, young: true, original: true, readme: false, deployed: false, owned: true });
+const v29Verdicts = [
+  matchRepo(v29Facts({ product: v29Product, live_verified: false, claims: ['mainnet', 'live', 'users'] }), v29Programs),
+  matchRepo(v29Facts({ product: v29Product, live_verified: true, claims: ['users'] }), v29Programs),
+  matchRepo(v29Facts({ product: v29ProjectTier, live_verified: false }), v29Programs),
+  matchRepo(v29Facts({ product: { ...v29ProjectTier, missing: [], unchecked: ['deployed'] }, live_verified: false }), v29Programs),
+].flat();
+const v29Notes = [...new Set(v29Verdicts.map((x) => x.note).filter((n): n is string => Boolean(n)))];
+const v29FirstReply = presentFirstMessage(
+  msg({
+    cards: [arc, base],
+    repos: { checked: 4, fits: [{ repo: 'tipjar', repo_url: 'https://github.com/alice/tipjar', verdicts: v29Verdicts.filter((x) => ['arc-microgrants', 'base-builder-grants'].includes(x.program_id)).slice(0, 2) }] },
+    tokenOffer: tokenOffer({ ...{ project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } }, hasBonus: true, walletKnown: false }),
+  }),
+);
+const v29Part1Texts: [string, string][] = [
+  ['PLACEHOLDER_LINE', PLACEHOLDER_LINE],
+  ['LIVE_FAILED_LINE', LIVE_FAILED_LINE],
+  ...CHAINS.map((c): [string, string] => [`contractMissingLine(${c})`, contractMissingLine(c)]),
+  ...Object.entries(SIGNAL_WORDS).map(([k, w]): [string, string] => [`SIGNAL_WORDS.${k}`, w]),
+  ['UNCHECKED_NOTE', UNCHECKED_NOTE],
+  ['INVESTMENT_NOTE', INVESTMENT_NOTE],
+  ['BELOW_FLOOR_NOTE', BELOW_FLOOR_NOTE],
+  ...v29Notes.map((n, i): [string, string] => [`matchRepo note[${i}]`, n]),
+  ['presentFirstMessage: v2.9 rows and the token offer', v29FirstReply],
+];
+
+test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and check notes and the offer', () => {
+  for (const n of ['confirm: mainnet and live link', 'confirm: mainnet and users', INVESTMENT_NOTE, BELOW_FLOOR_NOTE, UNCHECKED_NOTE, SIGNAL_WORDS.deployed])
+    assert.ok(v29Notes.includes(n), `${n} in ${JSON.stringify(v29Notes)}`);
+  assert.match(v29FirstReply, /\| tipjar, confirm: mainnet and live link \|/);
+  assert.ok(v29FirstReply.endsWith('Say yes with your wallet address, or skip.'), v29FirstReply);
+});
+
 const builderFacing: [string, string][] = [
+  ...v29Part1Texts,
   ['applied outside EarnKit', appliedOutsideText],
   ...tokenOfferTexts,
   ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],
@@ -1260,6 +1314,10 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
   for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
 });
 
+test('v2.9 Task 12: never an em dash in builder-facing text', async () => {
+  for (const [label, text] of [...builderFacing, ...(await gatherGateReasons())]) assert.doesNotMatch(text, /\u2014/, label);
+});
+
 test('v2.9 A3: the applied line reads "applied outside EarnKit"', () => {
   assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
 });
@@ -1281,6 +1339,7 @@ test('6.9 v2.9 B11: "skip" appears in builder text only in a token offer', () =>
     if (offers.test(label)) continue;
     // A table that carries tokenRow (its "| Token |" row): the skip is only there.
     for (const line of text.split('\n').filter((l) => /\bskip\b/i.test(l)))
-      assert.match(line, /^\| Token \| A token on Base\b/, `${label}: ${line}`);
+      // v2.9 T12: or the first reply's closing token offer line.
+      assert.match(line, /^\| Token \| A token on Base\b|^.+ fits .+: \$[\d,]+\. Launch \$\w+ \(.+\) on Base now\? .*(or skip\.|yes \/ skip)$/, `${label}: ${line}`);
   }
 });
