@@ -275,26 +275,104 @@ export async function mapLimit<T, R>(
 
 const REPO_LIMIT = 30;
 
+/** v2.8.1 §B6: testnet words in a chain an agent names ("base-sepolia", "Avalanche Fuji"). */
+const TESTNET_WORDS = /\b(sepolia|testnet|fuji|moderato|devnet|goerli)\b/;
+/** v2.8.1 §B6: common names agents use for a chain EarnKit knows. */
+const CHAIN_ALIASES: Record<string, Chain> = { avax: 'avalanche', 'c-chain': 'avalanche' };
+
+/**
+ * v2.8.1 §B6: one chain as an agent reports it (`"base"`, `"Base Sepolia"`, or
+ * `{ chain, mainnet }`), or null when EarnKit doesn't know the chain or can't read the item. A plain
+ * string says mainnet only when it names no testnet; an object without `mainnet` counts as testnet
+ * (never a claim EarnKit can't back). Pure; exported for tests.
+ */
+export function reportedChain(item: unknown): { chain: Chain; mainnet: boolean } | null {
+  const obj = item !== null && typeof item === 'object' ? (item as { chain?: unknown; mainnet?: unknown }) : null;
+  const raw = typeof item === 'string' ? item : typeof obj?.chain === 'string' ? obj.chain : null;
+  if (raw === null || raw.length > 60) return null;
+  const words = raw.trim().toLowerCase().replace(/[_\s]+/g, ' ').replace(/-/g, ' ');
+  const first = words.split(' ')[0] ?? '';
+  const chain =
+    (CHAINS as readonly string[]).includes(first)
+      ? (first as Chain)
+      : (CHAIN_ALIASES[raw.trim().toLowerCase()] ?? CHAIN_ALIASES[first] ?? null);
+  if (!chain) return null;
+  const testnet = TESTNET_WORDS.test(words);
+  if (!obj) return { chain, mainnet: !testnet };
+  const m = obj.mainnet;
+  const mainnet = m === true || m === 'true' || (typeof m === 'string' && m.toLowerCase() === 'mainnet');
+  return { chain, mainnet: mainnet && !testnet };
+}
+
+/** v2.8.1 §B6: every known chain once (mainnet wins over testnet for the same chain); unknown ones dropped. Pure. */
+export function reportedChains(items: unknown[]): { chain: Chain; mainnet: boolean }[] {
+  const out = new Map<Chain, boolean>();
+  for (const c of items.map(reportedChain))
+    if (c) out.set(c.chain, (out.get(c.chain) ?? false) || c.mainnet);
+  return [...out].map(([chain, mainnet]) => ({ chain, mainnet }));
+}
+
+/**
+ * v2.8.1 §B6: a commit date as an agent reports it, as ISO 8601 UTC, or undefined (dropped, never an
+ * error). A date or time without a timezone counts as UTC; git's own formats parse too. Pure.
+ */
+export function reportedDate(s: string | undefined): string | undefined {
+  if (s === undefined) return undefined;
+  const t = s.trim();
+  if (t === '' || t.length > 100) return undefined;
+  const noZone = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$/.test(t);
+  const iso = noZone ? (t.length === 10 ? `${t}T00:00:00Z` : `${t.replace(' ', 'T')}Z`) : t;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+}
+
+/** v2.8.1 §B6: a live link with or without its scheme, or undefined (dropped, never an error). Pure. */
+export function reportedUrl(s: string | undefined): string | undefined {
+  if (s === undefined) return undefined;
+  const t = s.trim();
+  if (t === '' || t.length > 300 || /\s/.test(t)) return undefined;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`;
+  if (!URL.canParse(withScheme)) return undefined;
+  const u = new URL(withScheme);
+  return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') ? withScheme : undefined;
+}
+
+/**
+ * v2.8.1 §B6: what an agent reports never fails list_programs. Unknown chains, unreadable dates and
+ * links are dropped per repo; unknown keys are ignored. The size limits stay (20 chains, 100-char
+ * names, 300-char links).
+ */
 export const ReportedRepoInput = z
   .object({
     name: z.string().trim().min(1).max(100),
     /** Chains the code targets, and whether it's on mainnet (else testnet only). */
     chains: z
-      .array(z.object({ chain: z.enum(CHAINS), mainnet: z.boolean() }).strict())
-      .max(CHAINS.length),
-    live_url: z.string().url().optional(),
-    last_commit_at: z.string().datetime({ offset: true }).optional(),
+      .preprocess((v) => (v == null ? [] : Array.isArray(v) ? v : [v]), z.array(z.unknown()).max(20))
+      .transform(reportedChains),
+    live_url: z.unknown().transform((v) => reportedUrl(typeof v === 'string' ? v : undefined)).optional(),
+    last_commit_at: z.unknown().transform((v) => reportedDate(typeof v === 'string' ? v : undefined)).optional(),
     /**
      * Ruling 13 (plan): validated by `githubRepo`, never zod, so a bad url never fails the call.
      * A `.max()` would reject (not drop) an oversize one, so length is dropped the same way:
      * anything over 300 characters becomes undefined instead of a parse error.
      */
-    url: z
-      .string()
-      .optional()
-      .transform((u) => (u === undefined || u.length > 300 ? undefined : u)),
-  })
-  .strict();
+    url: z.unknown().transform((u) => (typeof u !== 'string' || u.length > 300 ? undefined : u)).optional(),
+  });
+
+/**
+ * v2.8.1 §B6: list_programs' local_repos. A repo EarnKit can't read (no name) is skipped, never an
+ * error; past the first 20, repos are ignored (the limit stays).
+ */
+export const LocalReposInput = z
+  .array(z.unknown())
+  .transform((items) =>
+    items
+      .slice(0, 20)
+      .flatMap((i) => {
+        const r = ReportedRepoInput.safeParse(i);
+        return r.success ? [r.data] : [];
+      }),
+  );
 
 export const MatchProjectsInput = z
   .object({

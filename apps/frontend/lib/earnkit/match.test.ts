@@ -7,7 +7,7 @@ import {
   type ProgramFacts,
   type RepoFacts,
 } from './match';
-import { ReportedRepoInput } from './match-projects';
+import { LocalReposInput, ReportedRepoInput, reportedChain, reportedDate, reportedUrl } from './match-projects';
 
 test('detects chains from ids, rpc hosts, and viem imports; ignores stray numbers', () => {
   const d = detectChains([
@@ -263,4 +263,61 @@ test('v2.8 fix round 1: a testnet-only explorer host is not a mainnet signal; vi
   assert.deepEqual([both.avalanche?.mainnet, both.avalanche?.testnet], [true, true]);
   const viem = detectChains([{ path: 'wagmi.ts', text: "import { avalanche, avalancheFuji } from 'viem/chains'" }]);
   assert.deepEqual([viem.avalanche?.mainnet, viem.avalanche?.testnet], [true, true]);
+});
+
+// ---- v2.8.1 §B6: "What can I earn?" never fails on what an agent reports ----
+
+test('v2.8.1 §B6: any chain string is accepted; unknown chains are ignored, known ones kept once', () => {
+  const r = ReportedRepoInput.safeParse({
+    name: 'ethapp',
+    chains: ['ethereum', 'solana', { chain: 'arbitrum', mainnet: true }, 'Base', { chain: 'base-sepolia', mainnet: true }],
+  });
+  assert.equal(r.success, true);
+  assert.deepEqual(r.success && r.data.chains, [{ chain: 'base', mainnet: true }]);
+  // An Ethereum-only repo: no known chain, still a repo.
+  const eth = ReportedRepoInput.safeParse({ name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }] });
+  assert.deepEqual(eth.success && eth.data.chains, []);
+  // A plain string names mainnet unless it names a testnet; an object without mainnet is testnet.
+  assert.deepEqual(reportedChain('Avalanche Fuji'), { chain: 'avalanche', mainnet: false });
+  assert.deepEqual(reportedChain('robinhood chain'), { chain: 'robinhood', mainnet: true });
+  assert.deepEqual(reportedChain({ chain: 'monad' }), { chain: 'monad', mainnet: false });
+  assert.deepEqual(reportedChain({ chain: 'AVAX', mainnet: 'true' }), { chain: 'avalanche', mainnet: true });
+  assert.equal(reportedChain(42), null);
+  assert.equal(reportedChain('b'.repeat(61)), null);
+  // A single string instead of a list, or no chains at all.
+  assert.deepEqual(ReportedRepoInput.parse({ name: 'x', chains: 'base' }).chains, [{ chain: 'base', mainnet: true }]);
+  assert.deepEqual(ReportedRepoInput.parse({ name: 'x' }).chains, []);
+  // The size limit stays.
+  assert.equal(ReportedRepoInput.safeParse({ name: 'x', chains: Array(21).fill('base') }).success, false);
+});
+
+test('v2.8.1 §B6: dates without a timezone count as UTC; unreadable ones are dropped, never an error', () => {
+  assert.equal(reportedDate('2026-10-01'), '2026-10-01T00:00:00.000Z');
+  assert.equal(reportedDate('2026-10-01T12:30:00'), '2026-10-01T12:30:00.000Z');
+  assert.equal(reportedDate('2026-10-01 12:30'), '2026-10-01T12:30:00.000Z');
+  assert.equal(reportedDate('2026-10-01T12:30:00+02:00'), '2026-10-01T10:30:00.000Z');
+  assert.equal(reportedDate('Wed Oct 8 14:20:00 2026 +0200'), '2026-10-08T12:20:00.000Z');
+  assert.equal(reportedDate('last tuesday'), undefined);
+  assert.equal(reportedDate('2'.repeat(101)), undefined);
+  const r = ReportedRepoInput.parse({ name: 'x', chains: [], last_commit_at: 'yesterday' });
+  assert.equal(r.last_commit_at, undefined);
+  assert.equal(ReportedRepoInput.parse({ name: 'x', chains: [], last_commit_at: '2026-10-01' }).last_commit_at, '2026-10-01T00:00:00.000Z');
+});
+
+test('v2.8.1 §B6: a live link without a scheme is kept; a bad one is dropped; extra keys are ignored', () => {
+  assert.equal(reportedUrl('tipjar.xyz'), 'https://tipjar.xyz');
+  assert.equal(reportedUrl('http://tipjar.xyz/app'), 'http://tipjar.xyz/app');
+  for (const bad of ['not a url', 'localhost', 'ftp://x.y', `https://${'a'.repeat(300)}.com`]) assert.equal(reportedUrl(bad), undefined, bad);
+  const r = ReportedRepoInput.safeParse({ name: 'x', chains: [], live_url: 'nope', branch: 'main', url: null });
+  assert.equal(r.success, true);
+  assert.deepEqual(r.success && JSON.parse(JSON.stringify(r.data)), { name: 'x', chains: [] });
+});
+
+test('v2.8.1 §B6: local_repos never fails list_programs: an unreadable repo is skipped; past 20 are ignored', () => {
+  const out = LocalReposInput.parse([{ chains: ['base'] }, { name: 'ok', chains: ['ethereum'] }, 'tipjar']);
+  assert.deepEqual(out, [{ name: 'ok', chains: [] }]);
+  assert.equal(LocalReposInput.parse(Array.from({ length: 25 }, (_, i) => ({ name: `r${i}`, chains: [] }))).length, 20);
+  // What it outputs parses again unchanged (list_programs remembers it and re-reads it later).
+  const once = LocalReposInput.parse([{ name: 'a', chains: ['Base', 'avax'], live_url: 'a.xyz', last_commit_at: '2026-10-01' }]);
+  assert.deepEqual(LocalReposInput.parse(once), once);
 });

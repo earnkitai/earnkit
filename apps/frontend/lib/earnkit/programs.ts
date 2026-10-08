@@ -291,6 +291,16 @@ export async function listPrograms() {
   );
 }
 
+/**
+ * v2.8.1 §B8: the program can't be entered without code: a required link to a repo, the code, or
+ * a live product or deployment. Pure; exported for tests.
+ */
+export function needsRepo(reqs: { key: string; kind?: string; type?: string; from: string; required: boolean }[]) {
+  return reqs.some(
+    (r) => r.required && r.from === 'project' && (r.kind === 'links' || r.type === 'url') && /repo|github|code|deploy|live/.test(r.key),
+  );
+}
+
 /** One program in list_programs. Pure; exported for tests. */
 export function programCard(
   p: Pick<
@@ -368,6 +378,8 @@ export function programCard(
     opened_at: p.opened_at,
     // v2.4 §6: answers only the builder can give; over 2 never goes first ("fastest").
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
+    // v2.8.1 §B8: no-repo builders see "needs a repo" on it, and it is never their offer.
+    needs_repo: needsRepo(p.submission_requirements),
     // Shown in the campaigns table, not as a program card (v2.4 §1).
     earnkit_campaign: p.campaign?.kind === 'earnkit',
     // v2.5 §1: curated build ideas for builders with no repo.

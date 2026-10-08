@@ -266,6 +266,32 @@ test('Ruling 13 (plan): the local_repos item schema accepts a url', async () => 
   assert.ok('url' in localRepos.items.properties, JSON.stringify(localRepos.items.properties));
 });
 
+test('v2.8.1 §B6: the list_programs input schema takes any chain, a bare date and a non-0x wallet', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const errLog = console.error;
+  console.error = () => {};
+  try {
+    for (const args of [
+      { local_repos: [{ name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }] }] },
+      { local_repos: [{ name: 'tipjar', chains: ['base', 'solana'], last_commit_at: '2026-10-01', live_url: 'tipjar.xyz' }] },
+      { local_repos: [{ name: 'x', chains: [{ chain: 'base' }] }] },
+      { wallet: 'vitalik.eth' },
+    ]) {
+      // With no database here the tool itself then fails, which is not an input validation error.
+      const r = await client
+        .callTool({ name: 'list_programs', arguments: args })
+        .catch((err: unknown) => ({ isError: true, content: String(err) }));
+      assert.doesNotMatch(JSON.stringify(r.content), /Input validation error|Invalid option/, JSON.stringify(args));
+    }
+  } finally {
+    console.error = errLog;
+    await client.close();
+  }
+});
+
 test('v2.6: the coin needs one ticker-free line the agent pushes; no wallet line, no live link', async () => {
   assert.ok(OWNERSHIP_FOR_TOKEN.includes('token: <code>'));
   assert.ok(OWNERSHIP_FOR_TOKEN.includes('never ask the builder to edit files'));

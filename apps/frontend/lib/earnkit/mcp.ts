@@ -307,18 +307,23 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .array(
             z.object({
               name: z.string(),
+              // v2.8.1 §B6: any chain name; EarnKit ignores the ones it doesn't know.
               chains: z
                 .array(
-                  z.object({
-                    chain: z.enum(CHAINS),
-                    mainnet: z.boolean(),
-                  }),
+                  z.union([
+                    z.string(),
+                    z.object({
+                      chain: z.string(),
+                      mainnet: z.union([z.boolean(), z.string()]).optional(),
+                    }),
+                  ]),
                 )
+                .optional()
                 .describe(
-                  'Chains the code targets; mainnet false = testnet only',
+                  `Chains the code targets, any name (${CHAINS.join(', ')} count; others are ignored); mainnet false = testnet only`,
                 ),
               live_url: z.string().optional(),
-              last_commit_at: z.string().optional().describe('ISO 8601'),
+              last_commit_at: z.string().optional().describe('ISO 8601; a date alone counts as UTC'),
               url: z
                 .string()
                 .optional()

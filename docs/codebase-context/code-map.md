@@ -170,7 +170,8 @@ apps/frontend/
                                any_chain (default false; chains [] only then, Ruling 13); isOptimismUrl
                                refuses optimism.io hosts (Ruling 15); v2.8 Task 12: results { url (https),
                                expected (date) } (optional; programs.results; Arc 2026-10-21)
-    programs.ts(+test)         list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
+    programs.ts(+test)         v2.8.1 §B8 needsRepo (card needs_repo: a required repo, code or
+                               live product link); list/get/upsert programs (source: 'file' | 'sponsor'); v2.7.1 pool_usd and
                                poolFacts (card pool_usd/pool_plus/pool_line); build_help
                                (kits/starter + one start command), trust() (verified_at: skip
                                re-reading sources within 7 days), trustFor (sponsor programs: an
@@ -190,7 +191,8 @@ apps/frontend/
                                investment (card "up to $1M investment", pool.ts eachLine, Ruling C5);
                                present.ts byEase/byEaseThenPrize sort Easy first in the agent's tables (C4)
     submission.ts(+.test.ts)   prepareSubmission, rememberedWalletQuestion (pure)
-    projects.ts(+test)         v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
+    projects.ts(+test)         v2.8.1 §B9 openEntries (this installation's entries in open,
+                               non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
                                confirmed_at/complete_at set once, "skip" never on a row with a token;
                                proof_line_missed, Ruling C24: the last "go" stopped at the proof line);
                                recordSubmission (campaigns: no self-entry, required fields
@@ -354,7 +356,11 @@ apps/frontend/
     human-text.ts(+test)       v2.8 Ruling 16: humanStrings (string/template/JSX text of a source file, via the TypeScript AST) and humanTextFiles; the test bans the em dash in all human text;
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
-    present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, "EarnKit matches you to $X in
+    present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
+                               (entriesLine, right after any news), "(entered)" / "(needs a repo)" in the
+                               Program cell, $X leaves out investment and new-work rows (qualifies), the offer
+                               is the Easy fit with the most money (easyFit; never an investment or an entered
+                               program; else buildNew for the top Easy program; no repo: needs_repo false only), "EarnKit matches you to $X in
                                top prizes you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
                                repos, else "$X in top prizes is open right now" (youCould/githubGiven, Ruling 11;
@@ -380,7 +386,10 @@ apps/frontend/
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          repo matching for list_programs + get_program's eligibility check;
+    match-projects.ts          repo matching for list_programs + get_program's eligibility check; v2.8.1 §B6:
+                               ReportedRepoInput never fails (reportedChain(s): any chain string, unknown ones
+                               dropped; reportedDate: no timezone = UTC; reportedUrl: bare host gets https://),
+                               LocalReposInput skips an unreadable repo and keeps the first 20;
                                gh (the authenticated GitHub GET, also used by traction.ts)
                                (public GitHub reads, GITHUB_TOKEN; complete reads cached via
                                repo-cache.ts); ReportedRepoInput.url (optional, max 300, validated
