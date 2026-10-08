@@ -1,5 +1,6 @@
 import { githubRepo } from './campaigns';
 import { CHAINS, CHAIN_NAMES, type Chain } from './chains';
+import { EARNKIT_ORGS } from './earnkit-orgs';
 
 /**
  * Matching a builder's public repos to open programs (pure; no network).
@@ -171,6 +172,76 @@ export function pickFiles(paths: { path: string; size: number }[], limit = 12) {
     .map((p) => p.path);
 }
 
+// ---- v2.9 A1, A2: owned repos and the real-product score ----
+
+/** Whether `owner` is one of EarnKit's own GitHub orgs (kits, starters). Pure. */
+export const earnkitOwner = (owner: string): boolean =>
+  (EARNKIT_ORGS as readonly string[]).includes(owner.trim().toLowerCase());
+
+/**
+ * v2.9 A1: whether a repo owned by `owner` counts as the builder's. Never an EarnKit org. The
+ * builder's own; else at least 5 of the builder's commits that are 30% or more of the repo's last
+ * 100 (`contrib`). Pure.
+ */
+export function ownerOk(
+  owner: string,
+  builder: string | null,
+  contrib?: { userCommits: number; recentCommits: number },
+): boolean {
+  if (earnkitOwner(owner)) return false;
+  if (builder && owner.toLowerCase() === builder.toLowerCase()) return true;
+  if (!contrib || contrib.recentCommits === 0) return false;
+  return contrib.userCommits >= 5 && contrib.userCommits / contrib.recentCommits >= 0.3;
+}
+
+/** v2.9 A2: the six signals of a real product (plan Ruling 1 says how each is read). */
+export type ProductFacts = {
+  active: boolean;
+  young: boolean;
+  original: boolean;
+  readme: boolean;
+  deployed: boolean;
+  owned: boolean;
+};
+export type Tier = 'product' | 'project' | 'noise';
+export type Product = { score: number; tier: Tier; missing: (keyof ProductFacts)[] };
+
+/** Names, descriptions or topics of tutorials, course work, starters and docs (Pre-flight P27): not original. */
+export const TUTORIAL =
+  /\b(tutorial|course|bootcamp|exercise|homework|lesson|example|demo|clone|starter|boilerplate|template|learn|practice|udemy|freecodecamp|covid[- ]?19?[- ]?tracker|todo[- ]?app|antivirus|docs?|documentation)\b/i;
+/** The README a framework generates: not the builder's own words. */
+export const DEFAULT_README =
+  /Getting Started with Create React App|This is a \[?Next\.js\]? project bootstrapped|Sample Hardhat Project|This project demonstrates a basic Hardhat use case/i;
+export const INVESTMENT_NOTE = 'apply as a company: needs a full-time team';
+
+/** The signals in score order (Pre-flight P1: not `SIGNALS`, which holds chain signals). */
+const PRODUCT_SIGNALS: (keyof ProductFacts)[] = ['active', 'young', 'original', 'readme', 'deployed', 'owned'];
+
+/** v2.9 A2: the real-product score and tier. Product: 5+ with active, owned and deployed; project: 3+; else noise. Pure. */
+export function productScore(f: ProductFacts): Product {
+  const score = PRODUCT_SIGNALS.filter((s) => f[s]).length;
+  const tier: Tier = score >= 5 && f.active && f.owned && f.deployed ? 'product' : score >= 3 ? 'project' : 'noise';
+  return { score, tier, missing: PRODUCT_SIGNALS.filter((s) => !f[s]) };
+}
+
+/** A missing signal in builder words, for a project-tier row's note. */
+export const SIGNAL_WORDS: Record<keyof ProductFacts, string> = {
+  deployed: 'no live site or contract found',
+  active: 'no commits in 90 days',
+  owned: 'not your repo',
+  original: 'looks like a copy or tutorial',
+  readme: 'needs a README',
+  young: 'no recent work',
+};
+/** Pre-flight P29: the note names the most actionable missing signal first. */
+const NOTE_ORDER: (keyof ProductFacts)[] = ['deployed', 'active', 'readme', 'original', 'young', 'owned'];
+
+/** The note for a project-tier row: its most actionable missing signal, or null when none is missing. Pure. */
+export const missingSignalNote = (p: Product): string | null => {
+  const first = NOTE_ORDER.find((s) => p.missing.includes(s));
+  return first ? SIGNAL_WORDS[first] : null;
+};
+
 // ---- Matching repos to programs ----
 
 /**
@@ -185,6 +256,10 @@ export type RepoFacts = {
   chains: Detection;
   /** Program id -> whether the repo has commits inside that program's build window. */
   commits_in_window: Record<string, boolean>;
+  /** v2.9 A2: the real-product score; absent for callers that don't score (v2.8.1 rules apply). */
+  product?: Product;
+  /** v2.9 A5: the live link loaded from here (a probe passed). */
+  live_verified?: boolean;
 };
 
 export type ProgramFacts = {
@@ -196,6 +271,10 @@ export type ProgramFacts = {
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   tag: string | null;
   starts_at: Date | null;
+  /** v2.8 Ruling C5: the award is an investment in a company, not a prize. */
+  investment: boolean;
+  /** v2.9 A2: the lowest product score a repo needs for a row (a16z: 5); 0: no floor. */
+  min_product_score: number;
 };
 
 /** What still stands between a repo and a program, as keys agents can act on. */
@@ -275,32 +354,46 @@ export function reportedFacts(
   };
 }
 
+/**
+ * Verdicts for one repo. v2.9 A2, when the repo is scored (`product`): noise gets no row; an
+ * any_chain or investment program takes product tier only (at least its `min_product_score`); a
+ * program tagged "needs a live product" is never likely; only product tier is likely (a project row
+ * that would be becomes after_step, naming its most actionable missing signal). Pure.
+ */
 export function matchRepo(
   repo: RepoFacts,
   programs: ProgramFacts[],
 ): Verdict[] {
   const verdicts: Verdict[] = [];
+  const product = repo.product;
+  if (product?.tier === 'noise') return verdicts;
   for (const p of programs) {
     const chain = p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
+    if (product && product.score < (p.min_product_score ?? 0)) continue;
+    if (product && (p.any_chain || p.investment) && product.tier !== 'product') continue;
     const v = (
       status: Verdict['status'],
       note: string | null,
       missing: Missing[] = [],
+      effort?: Effort,
     ) =>
       verdicts.push({
         program_id: p.id,
         program: p.title,
-        status,
+        // v2.9 A2: only a product can be likely.
+        status: status === 'likely' && product && product.tier !== 'product' ? 'after_step' : status,
         missing,
-        effort: missing.reduce<Effort>(
-          (max, m) =>
-            EFFORT_ORDER.indexOf(EFFORT[m]) > EFFORT_ORDER.indexOf(max)
-              ? EFFORT[m]
-              : max,
-          'none',
-        ),
-        note,
+        effort:
+          effort ??
+          missing.reduce<Effort>(
+            (max, m) =>
+              EFFORT_ORDER.indexOf(EFFORT[m]) > EFFORT_ORDER.indexOf(max)
+                ? EFFORT[m]
+                : max,
+            'none',
+          ),
+        note: status === 'likely' && product && product.tier !== 'product' ? missingSignalNote(product) : note,
       });
 
     if (p.existing_work === 'new_work_only') {
@@ -312,8 +405,19 @@ export function matchRepo(
       continue;
     }
 
+    // v2.9 A2: an investment is a company application, at most one step away and weeks of work.
+    if (product && p.investment) {
+      v('after_step', INVESTMENT_NOTE, [], 'weeks');
+      continue;
+    }
+
     if (p.tag === 'needs a live product') {
-      if (!repo.homepage)
+      // v2.9 A2: never likely while users are unproven; a link counts once it loaded from here.
+      if (product)
+        repo.live_verified
+          ? v('after_step', 'needs real users', ['real_users'])
+          : v('after_step', 'needs a live product with real users', ['live_url', 'real_users']);
+      else if (!repo.homepage)
         v('after_step', 'needs a live product with real users', [
           'live_url',
           'real_users',
