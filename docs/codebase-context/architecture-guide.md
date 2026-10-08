@@ -2467,7 +2467,7 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   purpose (`entry`, `pickup`, `host`); 15 minutes (`VERIFY_TTL_MS`), consumed once by one atomic
   `UPDATE ... WHERE used_at IS NULL AND expires_at > now RETURNING` (`takeNonce`).
 - **The browser flow (Ruling G8).** `GET /github/verify?n=` never redirects: it shows a confirm
-  page (`confirmPage`: the repo, the entry's `$TICKER` and fee wallet, `CONFIRM_WARNING`) and sets
+  page (`Referrer-Policy: same-origin`, so the POST carries a real Origin) (`confirmPage`: the repo, the entry's `$TICKER` and fee wallet, `CONFIRM_WARNING`) and sets
   a per-link cookie `__Host-ekv-<16 hex of the nonce hash>` (HttpOnly, Secure, SameSite=Lax, Path=/,
   15 minutes). Its button POSTs to `/github/verify` (`verifyConfirm`: same-origin check, the form's
   csrf must equal the cookie, `timingSafeEqual`), which 303s to GitHub's authorize URL with
@@ -2489,10 +2489,18 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   `tell_earnkit`, `confirm_entry` and `launch_token`. `callerLogin(installation, code)` is the only
   way a shared call gets a login (nothing anyone can claim, such as a GitHub user, names it).
 - **The token gate.** `GateInput.projectId` and `verifiedLogin`; `GateDeps.verified` defaults to
-  `verifiedFor({ projectId, repoKey, login })` while the feature is on. A pass skips the earnkit.txt
-  reads (`ownerProblem`); the repo code check and the wallet screen still run. On a shared client
+  `verifiedFor({ projectId, repoKey, login })` while the feature is on and returns the sign-in's
+  wallet. A pass needs the launch wallet to equal it (Ruling G11), then skips the earnkit.txt reads
+  (`ownerProblem`); the repo code check and the wallet screen still run. On a shared client
   (`verifiedLogin` set by `confirm_entry`/`launch_token` from `signed_in`) only that login's
-  sign-in counts; with no valid code, none does (G8, G9). Elsewhere any sign-in of that entry.
+  sign-in counts, and while the feature is on the proof line is never read there (Ruling G10: the
+  line is the whole agent's): `SIGN_IN_FIRST` (`sign_in: 'needed'`). A sign-in for another wallet
+  gives `WALLET_CHANGED` (`sign_in: 'wallet_changed'`; the reply adds "Sign in again: <link>").
+  Elsewhere any sign-in of that entry, or the proof line. With the OAuth variables absent, the
+  proof line works everywhere as before.
+- **The wallet binding (Ruling G11).** An `entry` link needs the fee wallet (`createVerifyLink`
+  throws without one; the flow asks for the wallet before the gate). The nonce snapshots the wallet
+  and ticker; the confirm page shows them (never "none yet"); the verification copies them.
 - **The confirmation.** `confirmDecision({ signIn })` returns `sign_in` (not `record_only` with
   `CANT_PUSH`) for `canPush: false`; `confirmOffer({ signIn })` shows the normal token offer (P9).
   `confirm_entry` runs the flow for `sign_in` like `launch`; on the proof-line miss it creates an
