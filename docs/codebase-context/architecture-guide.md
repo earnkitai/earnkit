@@ -2613,8 +2613,16 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   - **Can't push:** with `can_push: false` and sign-in off, the reply is `CANT_PUSH`, with no
     entry made.
 - **Declines (`token-offers.ts recordDecline`, `declines`, table `token_declines`).** Declines are
-  counted per installation and `repoKey` (owner/repo, P7). `confirm_entry` "skip" on a token
-  offer also counts one. `offerFacts` reads the count:
+  counted per installation, builder `login` and `repoKey` (owner/repo, P7). `confirm_entry` "skip"
+  on a token offer also counts one. Ruling G12:
+  - **Once per offer shown.** A skip counts once per offer identity (`offerIdentity`: the
+    program plus `token_offers.offered_at`). `offers` keeps the identities already counted, so a
+    retried skip changes nothing.
+  - **Login.** It is '' off shared clients. On a shared client it is the verified login of the
+    pasted code (`memoryKey`). Without a code nothing is recorded or read, so one Grok Bot user's
+    skips never stop another user's offer.
+
+  `offerFacts` reads the count:
   - **One or more (P21):** the next Yes line is `again` (no "40%"), in `prepare_submission`, the
     `confirm_entry` offer and the reoffer.
   - **Two (P23):** the first reply never offers that repo again, and `prepare_submission` and
