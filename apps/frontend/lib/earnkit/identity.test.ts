@@ -349,3 +349,71 @@ test('Ruling F13: a stranger who plants an entry on Alice\'s exact repo is never
   const fresh2 = await install();
   assert.equal(await offerPickup(fresh2.id, { github_users: [user2] }, linesOf(`https://github.com/${user2}/app`, fresh2.id)), null);
 });
+
+// ---- v2.9 B9: identity linking accepts a GitHub sign-in (Pre-flight P8)
+
+async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
+  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
+  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+  try {
+    return await fn();
+  } finally {
+    if (old[0] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_ID;
+    else process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
+    if (old[1] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+    else process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
+  }
+}
+const signedIn = (installationId: number, repoKey: string, purpose: 'entry' | 'pickup', at: Date) =>
+  sql()`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, verified_at, purpose)
+    VALUES (${repoKey}, 'alice', ${installationId}, '2020-01-01', 3, ${at}, ${purpose})`;
+
+test('5.11 v2.9 B9: answerPickup yes passes with a pickup sign-in of the offer\'s repo made after the offer; the reply carries the link until then', db, () =>
+  withSignIn(async () => {
+    const user = `ghv${randomBytes(4).toString('hex')}`;
+    const repo = `https://github.com/${user}/tipjar`;
+    const key = `${user}/tipjar`;
+    const old = await install({ github_user: user });
+    await entry(old.id, repo);
+    const fresh = await install();
+    const before = new Date(Date.now() - 60_000);
+    assert.ok(await offerPickup(fresh.id, { github_users: [user] }, linesOf(repo, old.id)));
+    const [{ pickup }] = await sql()<{ pickup: { at?: string } }[]>`SELECT pickup FROM installations WHERE id = ${fresh.id}`;
+    assert.ok(pickup.at && !Number.isNaN(Date.parse(pickup.at)), 'the offer keeps when it was made');
+    // No sign-in yet: the proof line, and the sign-in link.
+    const needs = await answerPickup(fresh.id, true, linesOf(repo, old.id));
+    assert.equal(needs.status, 'needs_proof');
+    assert.match((needs as { sign_in?: string }).sign_in ?? '', /^https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}$/);
+    // A sign-in from before the offer, or for another purpose, doesn't count.
+    await signedIn(fresh.id, key, 'pickup', before);
+    await signedIn(fresh.id, key, 'entry', new Date());
+    assert.equal((await answerPickup(fresh.id, true, linesOf(repo, old.id))).status, 'needs_proof');
+    // A pickup sign-in after the offer: linked, with no proof line of this agent.
+    await signedIn(fresh.id, key, 'pickup', new Date());
+    assert.deepEqual(await answerPickup(fresh.id, true, linesOf(repo, old.id)), { status: 'linked', entries: 1 });
+  }));
+
+test('P8: an earlier group that signed in with GitHub for the repo counts as having proven it (F13)', db, () =>
+  withSignIn(async () => {
+    const user = `ghw${randomBytes(4).toString('hex')}`;
+    const repo = `https://github.com/${user}/tipjar`;
+    const old = await install({ github_user: user });
+    await entry(old.id, repo);
+    const fresh = await install();
+    // No lines in the repo at all: unproven, never offered.
+    assert.equal(await offerPickup(fresh.id, { github_users: [user] }, fileWith('')), null);
+    await signedIn(old.id, `${user}/tipjar`, 'entry', new Date());
+    assert.deepEqual(await offerPickup(fresh.id, { github_users: [user] }, fileWith('')), { question: 'Pick up your earlier entry?', entries: 1 });
+    await signedIn(fresh.id, `${user}/tipjar`, 'pickup', new Date(Date.now() + 1000));
+    assert.deepEqual(await answerPickup(fresh.id, true, fileWith('')), { status: 'linked', entries: 1 });
+  }));
+
+test('P8, C2: a hosted group never picks up, signed in or not', db, () =>
+  withSignIn(async () => {
+    const user = `ghx${randomBytes(4).toString('hex')}`;
+    const shared = await install({ shared: true });
+    await sql()`UPDATE installations SET pickup = ${sql().json({ offered: [shared.id + 1], repo: `https://github.com/${user}/app`, entries: 1, at: new Date(0).toISOString() })} WHERE id = ${shared.id}`;
+    await signedIn(shared.id, `${user}/app`, 'pickup', new Date());
+    assert.deepEqual(await answerPickup(shared.id, true, fileWith('')), { status: 'none' });
+  }));

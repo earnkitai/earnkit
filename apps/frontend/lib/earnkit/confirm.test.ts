@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CANT_PUSH, NO_WALLET_HINT, SKIP_LINE, confirmDecision, confirmOffer, proofLineWaiting, yesLine } from './confirm';
+import { CANT_PUSH, NO_WALLET_HINT, SKIP_LINE, confirmDecision, confirmOffer, proofLineWaiting, signInLine, yesLine } from './confirm';
 import { COIN_FOOTNOTE } from './entry-text';
 
 const W = '0xAb12' + '0'.repeat(32) + '0123';
@@ -97,4 +97,25 @@ test('v2.8.1 §F19 (T7): the offer again in the same entry names the token witho
   const again = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' }, again: true });
   assert.doesNotMatch(again, /40%/);
   assert.match(confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' } }), /You earn 40%/);
+});
+
+test('5.9 v2.9 B9: with sign-in on, an agent that can\'t push gets sign_in (never record_only) and the normal offer (P9)', () => {
+  const base = { confirmed: true, decision: 'go' as const, coinIn: null, canPush: false, hasRepo: true, policyOff: false, available: true };
+  assert.deepEqual(confirmDecision({ ...base, signIn: true }), { kind: 'sign_in' });
+  assert.deepEqual(confirmDecision({ ...base, signIn: false }), { kind: 'record_only', note: CANT_PUSH });
+  assert.deepEqual(confirmDecision(base), { kind: 'record_only', note: CANT_PUSH });
+  assert.deepEqual(confirmDecision({ ...base, canPush: true, signIn: true }), { kind: 'launch' });
+  // The lasting reasons still come first.
+  assert.equal(confirmDecision({ ...base, signIn: true, hasRepo: false }).kind, 'record_only');
+  assert.equal(confirmDecision({ ...base, signIn: true, available: false }).kind, 'record_only');
+  assert.deepEqual(confirmDecision({ ...base, signIn: true, coinIn: 'Arc' }), { kind: 'record_only', note: '' });
+  assert.equal(
+    signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x'),
+    'One click to prove TipJar is yours, then $TIP launches: https://earnkit.com/github/verify?n=x',
+  );
+  const offer = { hasBonus: true, coinIn: null, canPush: false, wallet: null, remembered: false, proposal: { name: 'TipJar', symbol: 'TIP' } };
+  assert.equal(confirmOffer(offer), `${CANT_PUSH}\nReady to submit?`, 'off: as before');
+  const on = confirmOffer({ ...offer, signIn: true });
+  assert.doesNotMatch(on, /Claude Code|Cursor/);
+  assert.match(on, /^Want the builder bonus\? It comes with a token\.\nYes: launches \$TIP \(TipJar\) on Base\./);
 });
