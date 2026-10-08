@@ -23,6 +23,7 @@ import { proposeToken } from './token-proposal';
 import { LaunchError, NOT_LAUNCHED_YET, STUCK_LAUNCH_MS, deployToken, stuckLaunches } from './tokens';
 import { runCron } from './cron';
 import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './confirm';
+import { completeVerify, createVerifyLink, formatCode } from './github-verify';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
@@ -2645,3 +2646,179 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`;
   }
 });
+
+// ---- v2.9 B9: Sign in with GitHub as ownership proof
+
+async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
+  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
+  process.env.GITHUB_OAUTH_CLIENT_ID = 'test-client';
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'test-secret';
+  try {
+    return await fn();
+  } finally {
+    if (old[0] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_ID;
+    else process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
+    if (old[1] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+    else process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
+  }
+}
+/** A passed sign-in for this entry and repo as `login` (the real callback path, GitHub faked); its code on a shared client. */
+async function signInAs(installationId: number, projectId: number | null, repoUrl: string, login: string) {
+  const repoKey = repoUrl.replace(/^https:\/\/github\.com\//, '').toLowerCase();
+  const link = await createVerifyLink({ installationId, projectId, repoKey, purpose: 'entry' });
+  const out = await completeVerify('code', new URL(link).searchParams.get('n')!, {
+    exchange: async () => 'gho_x',
+    user: async () => ({ login, created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
+    repoPerms: async () => ({ push: true }),
+  });
+  assert.ok(out.ok);
+  return (out as { code?: string }).code ? formatCode((out as { code: string }).code) : null;
+}
+const noProofLine = (t: Awaited<ReturnType<typeof confirmSetup>>) =>
+  ({ ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps });
+
+test("5.10 v2.9 B9: an agent that can't push gets the token offer, then the sign-in line (no kit, never record_only); signed in, go launches", dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('b9');
+      const ctx = noProofLine(t);
+      const agent = { can_push: false };
+      // P9: the normal offer, never "open this in Claude Code or Cursor".
+      const offer = (await tools.confirm_entry({ ...t.input, agent }, ctx)) as Confirmed;
+      assert.doesNotMatch(offer.show_to_builder, /Claude Code|Cursor/);
+      assert.match(offer.show_to_builder, /^Want the builder bonus\? It comes with a token\./);
+      // The first go: the sign-in line only.
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed & { token: { sign_in?: string } };
+      assert.match(
+        first.show_to_builder,
+        new RegExp(`^One click to prove Tip Jar is yours, then \\$${t.offered.symbol} launches: https://earnkit\\.com/github/verify\\?n=[A-Za-z0-9_-]{43}$`),
+      );
+      assert.equal(first.token?.fixable, true);
+      assert.ok(!('kit' in first));
+      assert.equal(first.token.sign_in, first.show_to_builder.split(': ').pop());
+      assert.equal(first.agent_note, "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.");
+      assert.doesNotMatch(first.show_to_builder, new RegExp(CANT_PUSH));
+      assert.equal(t.calls.deploy, 0);
+      // P10: a second go without signing in: the kit plus a fresh link; the launch stays open.
+      const second = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed;
+      assert.ok(second.kit);
+      assert.match(second.show_to_builder, /^One click to prove Tip Jar is yours, then \$\w+ launches: https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}\n\nReady for /);
+      assert.equal(t.calls.deploy, 0);
+      // Signed in: the next go launches, with no proof line in the repo.
+      await signInAs(t.inst, second.project_id!, t.repo, 'alice');
+      const third = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed;
+      assert.equal(third.token?.status, 'launched');
+      assert.equal(t.calls.deploy, 1);
+      assert.ok(third.kit);
+    }),
+  ));
+
+test('v2.9 B9: an agent that can push gets the sign-in link only after a proof-line miss, beside the proof line', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('b9push');
+      const ctx = noProofLine(t);
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+      assert.doesNotMatch(first.show_to_builder, /github\/verify/);
+      const second = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+      assert.ok(second.kit);
+      assert.ok(second.show_to_builder.startsWith(`${proofLineWaiting(null)}\nOne click to prove Tip Jar is yours`), second.show_to_builder);
+    }),
+  ));
+
+test('v2.9 B9: launch_token returns the sign-in link when the proof line is missing', dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('b9lt');
+      const ctx = noProofLine(t);
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
+      const lt = (await tools.launch_token({ project_id: first.project_id!, builder_confirmed: true, creator_wallet: W8 }, ctx)) as {
+        status: string; sign_in?: string; sign_in_line?: string;
+      };
+      assert.equal(lt.status, 'gate_failed');
+      assert.match(lt.sign_in ?? '', /^https:\/\/earnkit\.com\/github\/verify\?n=/);
+      assert.match(lt.sign_in_line ?? '', /^One click to prove Tip Jar is yours, then \$\w+ launches: https:/);
+    }),
+  ));
+
+test('v2.9 B9: with the OAuth variables absent, nothing changes (CANT_PUSH, no link)', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('b9off');
+    const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent: { can_push: false } }, noProofLine(t))) as Confirmed;
+    assert.ok(r.show_to_builder.startsWith(`${CANT_PUSH}\n\nReady for `));
+    assert.doesNotMatch(JSON.stringify(r), /github\/verify/);
+  }));
+
+test("G8/G9: on a shared client, A's sign-in launches only with A's code; B (or no code) can't launch on it", dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('g9gate');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      const ctx = { ...noProofLine(t), sharedClient: true };
+      const agent = { can_push: false };
+      const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent }, ctx)) as Confirmed;
+      assert.match(first.agent_note ?? '', /pass it as signed_in/);
+      const codeA = await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      assert.match(codeA ?? '', /^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{2}$/);
+      // Builder B on the same agent (no code, or B's own code): A's sign-in proves nothing for them.
+      const other = `https://github.com/bob/b9-${Date.now()}`;
+      const codeB = await signInAs(t.inst, null, other, 'bob');
+      for (const signed_in of [undefined, codeB!, 'alice']) {
+        const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent, ...(signed_in && { signed_in }) }, ctx)) as Confirmed;
+        assert.notEqual(r.token?.status, 'launched', String(signed_in));
+      }
+      assert.equal(t.calls.deploy, 0);
+      const mine = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8, agent, signed_in: codeA!.toLowerCase() }, ctx)) as Confirmed;
+      assert.equal(mine.token?.status, 'launched');
+    }),
+  ));
+
+test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a claimed GitHub user gets nothing", dbTest, () =>
+  withSignIn(async () => {
+    const s = await sharedInstall('g9mem');
+    const repo = `https://github.com/alice/g9-${s.stamp}`;
+    const [{ id: entry }] = await sql()<{ id: number }[]>`
+      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${s.programId}, 'AliceApp', ${s.id}, ${repo}) RETURNING id`;
+    await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${s.programId}, 'SecretB', ${s.id})`;
+    try {
+      const codeA = (await signInAs(s.id, entry, repo, 'alice'))!;
+      const codeB = (await signInAs(s.id, null, `https://github.com/bob/b-${s.stamp}`, 'bob'))!;
+      type Told = { show_to_builder?: string; saved: string[] };
+      // With the code: kept under alice, and nothing to show the builder.
+      const told = (await tools.tell_earnkit(
+        { program_status: [{ program_id: s.programId, status: 'not_interested' }], repo_facts: [{ repo: 'tipjar', not_mine: true }], signed_in: codeA },
+        s.ctx(),
+      )) as Told;
+      assert.equal(told.show_to_builder, undefined);
+      assert.equal(told.saved.length, 2);
+      const rows = await sql()<{ login: string }[]>`
+        SELECT login FROM builder_program_status WHERE installation_id = ${s.id}
+        UNION ALL SELECT login FROM builder_repo_facts WHERE installation_id = ${s.id}`;
+      assert.deepEqual(rows.map((r) => r.login), ['alice', 'alice']);
+      const said = () => (s.calls.at(-1) as { said?: Record<string, unknown> }).said;
+      const local = { local_repos: [{ name: 'tipjar', chains: ['arc'] }] };
+      // Claiming alice's GitHub user without the code: nothing of hers.
+      const claim = (await tools.list_programs({ ...local, github_user: 'alice' }, s.ctx())) as G7Listed;
+      assert.equal(said(), undefined, 'her statements are not applied');
+      assert.doesNotMatch(claim.show_to_builder, /Your entries|AliceApp/);
+      assert.ok(!('ask_outcome' in claim));
+      // B's code: B's (empty) memory, never A's.
+      const b = (await tools.list_programs({ ...local, signed_in: codeB }, s.ctx())) as G7Listed;
+      assert.equal(said(), undefined);
+      assert.doesNotMatch(b.show_to_builder, /AliceApp|SecretB/);
+      assert.ok(!('ask_outcome' in b));
+      // A's code: her memory, her entry only, her outcome question.
+      const a = (await tools.list_programs({ ...local, signed_in: codeA }, s.ctx())) as G7Listed & { ask_outcome?: { project_id: number } };
+      assert.deepEqual(said(), { 'name:tipjar': { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: true } });
+      assert.match(a.show_to_builder, /Your entries: .*AliceApp/);
+      assert.doesNotMatch(a.show_to_builder, /SecretB/);
+      assert.equal(a.ask_outcome?.project_id, entry);
+      // An expired code: nothing.
+      await sql()`UPDATE github_verifications SET code_expires_at = now() - interval '1 second' WHERE installation_id = ${s.id} AND login = 'alice'`;
+      const late = (await tools.tell_earnkit({ program_status: [{ program_id: s.programId, status: 'not_interested' }], signed_in: codeA }, s.ctx())) as Told;
+      assert.equal(late.show_to_builder, 'Noted for now.');
+    } finally {
+      await sql()`DELETE FROM github_verifications WHERE installation_id = ${s.id}`;
+      await s.cleanup();
+    }
+  }));
