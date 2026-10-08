@@ -55,8 +55,9 @@ const SIX = [
   'pick_up_entries',
   'prepare_submission',
   'record_submission',
-  // v2.8 Ruling C21: the builder's own answer to "Did it win?", its own tool.
-  'report_outcome',
+  // v2.9 A3: what the builder tells EarnKit (applied, not interested, outcomes, repo facts); it
+  // replaced report_outcome, so the count stays 8.
+  'tell_earnkit',
 ];
 
 test('without escrow config the server offers exactly the 8 builder tools', async () => {
@@ -460,15 +461,20 @@ test('v2.8 Part C: confirm_entry is registered, strict, and says the kit is only
   }
 });
 
-test('v2.8 Ruling C21: list_programs stays read-only; report_outcome is its own tool and says it writes', async () => {
+test('3.9 tell_earnkit replaces report_outcome: 8 tools, it writes, list_programs stays read-only; no description names report_outcome', async () => {
   const { tools } = await listed({});
+  assert.equal(tools.length, 8);
   const list = tools.find((t) => t.name === 'list_programs')!;
   assert.equal(list.annotations?.readOnlyHint, true);
-  assert.ok(!('report_outcome' in ((list.inputSchema as { properties?: object }).properties ?? {})));
-  const report = tools.find((t) => t.name === 'report_outcome')!;
-  assert.deepEqual(report.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
-  assert.deepEqual(Object.keys((report.inputSchema as { properties: object }).properties).sort(), ['prize_usd', 'project_id', 'result']);
-  assert.match(list.description!, /pass their answer to report_outcome/);
+  assert.ok(!tools.some((t) => t.name === 'report_outcome'));
+  const tell = tools.find((t) => t.name === 'tell_earnkit')!;
+  assert.deepEqual(tell.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+  assert.deepEqual(Object.keys((tell.inputSchema as { properties: object }).properties).sort(), ['program_status', 'repo_facts']);
+  assert.match(list.description!, /pass their answer to tell_earnkit/);
+  assert.ok(tell.description!.length < 800, `${tell.description!.length} characters`);
+  assert.match(tell.description!, /Call it only with what the builder said/);
+  for (const t of tools) assert.doesNotMatch(t.description ?? '', /report_outcome/, t.name);
+  for (const d of Object.values(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /report_outcome/);
 });
 
 test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the agent sees a plain message with that id, never the raw error', async () => {
@@ -476,30 +482,30 @@ test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the 
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
-  const original = toolImpls.report_outcome;
+  const original = toolImpls.tell_earnkit;
   const errLog = console.error;
   const logged: unknown[][] = [];
   console.error = (...args: unknown[]) => void logged.push(args);
-  (toolImpls as Record<string, unknown>).report_outcome = async () => {
+  (toolImpls as Record<string, unknown>).tell_earnkit = async () => {
     throw new Error('Connection terminated unexpectedly');
   };
   try {
-    const r = await client.callTool({ name: 'report_outcome', arguments: { project_id: 1, result: 'won' } });
+    const r = await client.callTool({ name: 'tell_earnkit', arguments: { program_status: [{ program_id: 'p', status: 'won' }] } });
     assert.equal(r.isError, true);
     const text = (r.content as { text: string }[])[0].text;
     const id = /error id ([0-9a-f]{8})\.$/.exec(text)?.[1];
     assert.ok(id, text);
     assert.equal(text, unexpectedErrorText(id!));
-    assert.doesNotMatch(text, /Connection terminated|report_outcome/);
+    assert.doesNotMatch(text, /Connection terminated|tell_earnkit/);
     // The server log has the tool, the same id and the error's name, message and stack.
     const line = logged.find((l) => String(l[0]).includes(id!));
     assert.ok(line, JSON.stringify(logged.map((l) => String(l[0]))));
-    assert.match(String(line![0]), /^\[mcp\] report_outcome error [0-9a-f]{8}$/);
+    assert.match(String(line![0]), /^\[mcp\] tell_earnkit error [0-9a-f]{8}$/);
     assert.match((line![1] as { message: string }).message, /Connection terminated unexpectedly/);
     // M6: name, message and stack only.
     assert.deepEqual(Object.keys(line![1] as object).sort(), ['message', 'name', 'stack']);
   } finally {
-    (toolImpls as Record<string, unknown>).report_outcome = original;
+    (toolImpls as Record<string, unknown>).tell_earnkit = original;
     console.error = errLog;
     await client.close();
   }

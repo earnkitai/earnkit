@@ -263,6 +263,7 @@ export async function listPrograms() {
       | 'needs_contract'
       | 'rules'
       | 'token_policy'
+      | 'starts_at'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -273,7 +274,7 @@ export async function listPrograms() {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy,
+      p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -338,7 +339,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy },
+  > & { token_policy?: TokenPolicy; starts_at?: Date | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -377,6 +378,8 @@ export function programCard(
     sponsored,
     tracks,
     opened_at: p.opened_at,
+    // v2.9 A3: the round's start, for hiddenPrograms ("applied outside EarnKit" lapses with the round).
+    starts_at: p.starts_at ?? null,
     // v2.4 §6: answers only the builder can give; over 2 never goes first ("fastest").
     builder_fields: p.submission_requirements.filter((r) => r.required && r.from === 'builder').length,
     // v2.8.1 §B8: no-repo builders see "needs a repo" on it; only false makes it their offer.
@@ -457,11 +460,13 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
       | 'each_time'
       | 'rules'
       | 'investment'
+      | 'starts_at'
+      | 'opened_at'
     >[]
   >`
     SELECT id, title, summary, chains, any_chain, existing_work, tag, ends_at, status, campaign, source, max_award_usd,
       submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules,
-      investment
+      investment, starts_at, opened_at
     FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
   return rows.map((p) => ({
     id: p.id,
@@ -477,6 +482,9 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
     source: p.source,
     // Ruling C23: investment programs never show in Also qualifies.
     investment: p.investment === true,
+    // v2.9 A3: for hiddenPrograms ("applied outside EarnKit" lapses with the round).
+    starts_at: p.starts_at,
+    opened_at: p.opened_at,
     // Review fix round 1, item 1 (C4): these candidates are never campaigns (just filtered above
     // isn't true here — alsoQualifies itself filters !campaign — so perWinnerUsd's campaign branch
     // is dead for this list, but kept for the one shared helper).

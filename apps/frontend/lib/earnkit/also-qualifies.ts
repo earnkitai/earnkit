@@ -33,6 +33,9 @@ export type AlsoProgram = {
    * public, so "Still needed" can't be counted, and it is never shown as a prize.
    */
   investment: boolean;
+  /** v2.9 A3: the round's window and when it opened, for "applied outside EarnKit" (hiddenPrograms). */
+  starts_at?: Date | null;
+  opened_at?: Date | null;
   /** Review fix round 1, item 1 (C4): the top prize per winner, for the sort; null for a campaign or unstated. */
   max_award_usd: number | null;
   /** Review fix round 1, item 1 (C4): null for any campaign, as programCard computes it. */
@@ -56,7 +59,7 @@ const DAY = 86_400_000;
  * Up to MAX_ALSO other curated programs the project already qualifies for. Never the program just
  * entered, and never one already entered by this installation for the same project (Task 8 carry:
  * a confirmed-but-unsubmitted entry counts as entered, so the same program is never offered
- * twice); never a sponsor program, a campaign, `new_work_only`, closed, or ending within 2 days;
+ * twice); never one the builder is not interested in or applied to outside EarnKit (v2.9 A3); never a sponsor program, a campaign, `new_work_only`, closed, or ending within 2 days;
  * needs a chain fit, or `any_chain`. Never an investment program (Ruling C23). A program tagged "needs a live product" (matchRepo's gate)
  * shows only once the project has a live product, or when the live link is the only thing left to
  * answer (then "Still needed" names it). Sorted Easy first (C4), then the larger top prize per
@@ -76,9 +79,12 @@ export function alsoQualifies(a: {
   /** Whether the project has a live product (its live link), for the "needs a live product" gate. */
   hasLiveProduct: boolean;
   now: Date;
+  /** v2.9 A3 (builder-memory.ts hiddenPrograms): not interested, or applied outside EarnKit this round. */
+  hidden?: { notInterested: Set<string>; applied: Set<string> };
 }): AlsoRow[] {
   const rows = a.programs
     .filter((p) => p.id !== a.enteredProgramId && !a.enteredIds.has(p.id))
+    .filter((p) => !a.hidden?.notInterested.has(p.id) && !a.hidden?.applied.has(p.id))
     .filter((p) => p.status === 'active' && p.source === 'file' && !p.campaign && !p.investment && p.existing_work !== 'new_work_only')
     .filter((p) => p.ends_at === null || p.ends_at.getTime() - a.now.getTime() >= 2 * DAY)
     .filter((p) => p.any_chain || p.chains.some((c) => a.chains.includes(c)))

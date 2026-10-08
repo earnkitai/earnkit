@@ -24,7 +24,8 @@ import {
   setFitChains,
   setWorkingOn,
 } from './installations';
-import { ReportOutcome, outcomeQuestion, outcomeToAsk, saveSelfReport } from './outcomes';
+import { outcomeQuestion, outcomeToAsk } from './outcomes';
+import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, readMemory, tell, type BuilderMemory } from './builder-memory';
 import { sinceLine, sinceYouLastChecked } from './alerts';
 import {
   GitHubError,
@@ -407,13 +408,14 @@ async function alsoQualifiesBlock(
   const key = projectKey({ repo_url: repoUrl, name });
   const repoKey = repoUrl ? normalizeRepoUrl(repoUrl) : null;
   const full = repoUrl ? githubRepo(repoUrl) : null;
-  const [program, programs, enteredIds, bank, coins, cached] = await Promise.all([
+  const [program, programs, enteredIds, bank, coins, cached, told] = await Promise.all([
     getProgramRow(parsed.program_id),
     alsoProgramFacts(),
     enteredProgramIds(ctx.installationId, { repoUrl, name }),
     readBank(ctx.installationId, key),
     (ctx.repoCoins ?? repoCoinPrograms)(repoKey ? [repoKey] : []),
     full ? cachedRepoChains(`${full.owner}/${full.repo}`) : Promise.resolve(null),
+    memoryOf(ctx.installationId, 'also_qualifies'),
   ]);
   const rows = alsoQualifies({
     enteredProgramId: parsed.program_id,
@@ -428,6 +430,11 @@ async function alsoQualifiesBlock(
     // v2.9 A5: only a live link that loaded from here (live_verified) counts as a live product.
     hasLiveProduct: liveVerified,
     now: new Date(),
+    // v2.9 A3: never a program the builder is not interested in, or applied to outside EarnKit.
+    hidden: hiddenPrograms(
+      told,
+      programs.map((p) => ({ id: p.id, starts_at: p.starts_at ?? null, ends_at: p.ends_at, opened_at: p.opened_at ?? null })),
+    ),
   });
   // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover.
   const home = (repoKey && coins.get(repoKey)) || null;
@@ -605,13 +612,23 @@ export function yesNo(v: unknown): boolean | null {
   return null;
 }
 
-/** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. */
+/** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. v2.9 A3: the answer goes to tell_earnkit. */
 export const ASK_OUTCOME_NOTE =
   'Results for this entry were due. After showing show_to_builder, ask the builder this question once, as written. ' +
-  "Then call report_outcome with this project_id, their result, and prize_usd if they won money. If they don't know yet, call nothing.";
+  'Then call tell_earnkit with program_status: this program_id and project_id, their result (won, placed or lost), ' +
+  "and prize_usd if they won money. If they don't know yet, call nothing.";
 
-/** v2.8 Ruling C21: report_outcome's note to the agent. */
+/** v2.8 Ruling C21: the note when the builder's own outcome was saved. */
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
+/** v2.9 A3: tell_earnkit's note to the agent. */
+export const TELL_SAVED_NOTE = 'Saved. The next list_programs uses it; nothing to show the builder.';
+
+/** v2.9 A3: the builder's memory; a failed read is an empty memory, never a failed tool. */
+const memoryOf = (installationId: number, where: string): Promise<BuilderMemory> =>
+  readMemory(installationId).catch((err: unknown) => {
+    console.error(`[${where}] builder memory`, err instanceof Error ? err.name : 'error');
+    return emptyMemory();
+  });
 
 const Ref = z.string().regex(/^0x[0-9a-f]{64}$/, 'the ref from create');
 export const SponsorCampaignInput = z.discriminatedUnion('action', [
@@ -687,11 +704,15 @@ export const tools = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
-    const [memory, programs, campaigns] = await Promise.all([
+    const [memory, programs, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
+      // v2.9 A3: what the builder told EarnKit, read once per call.
+      memoryOf(ctx.installationId, 'list_programs'),
     ]);
+    const hidden = hiddenPrograms(told, programs);
+    const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
     // Remembered from an earlier call when not given now.
     const user =
@@ -727,6 +748,8 @@ export const tools = {
             github_user: user,
             repos: repoList,
             local_repos: local,
+            // v2.9 A3: applied before the checks, so a claimed live link is checked (Pre-flight P15).
+            ...(told.repos.size > 0 && { said: Object.fromEntries(told.repos) }),
           }),
         );
       } catch (err) {
@@ -785,6 +808,7 @@ export const tools = {
       now: new Date(),
       repoCoins,
       entries: myEntries,
+      hidden,
     });
 
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
@@ -811,6 +835,7 @@ export const tools = {
       ...(ask && {
         ask_outcome: {
           project_id: ask.project_id,
+          program_id: ask.program_id,
           question: outcomeQuestion(ask.name, ask.program_title),
           agent_note: ASK_OUTCOME_NOTE,
         },
@@ -818,7 +843,9 @@ export const tools = {
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
-          ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id)))
+          ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id))).filter(
+              (r) => !hide.has(r.program_id),
+            )
           : [],
       working_on: memory.working_on,
       programs: programs.map((p) => ({
@@ -1519,12 +1546,13 @@ export const tools = {
     };
   },
 
-  report_outcome: async (input: unknown, ctx: ToolContext) => {
-    await saveSelfReport(ctx.installationId, ReportOutcome.parse(input));
-    return {
-      saved: true,
-      agent_note: OUTCOME_SAVED_NOTE,
-    };
+  // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
+  // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
+  tell_earnkit: async (input: unknown, ctx: ToolContext) => {
+    const parsed = TellInput.parse(input);
+    const { saved } = await tell(ctx.installationId, parsed);
+    const outcome = (parsed.program_status ?? []).some((s) => s.status === 'won' || s.status === 'placed' || s.status === 'lost');
+    return { saved, agent_note: outcome ? `${TELL_SAVED_NOTE} ${OUTCOME_SAVED_NOTE}` : TELL_SAVED_NOTE };
   },
 
   launch_token: async (input: unknown, ctx: ToolContext) =>

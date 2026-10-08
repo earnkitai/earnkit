@@ -123,6 +123,7 @@ async function committedCards(): Promise<Card[]> {
           verified_at: new Date(p.verified_at),
           created_at: new Date(),
           opened_at: null,
+          starts_at: null,
           source: 'file',
           max_award_usd: p.max_award_usd == null ? null : String(p.max_award_usd),
           pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
@@ -830,4 +831,36 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
     noEmoji(t);
     assert.doesNotMatch(t, /—|Clanker|\bcoin\b/);
   }
+});
+
+test('3.7 not interested: in no table, never the offer, not in Also open; applied: out of tables and offer, in "Your entries"', () => {
+  const cards = [easyBase, easyArc, avax];
+  const notInterested = presentFirstMessage(msg({
+    cards,
+    repos: repos(v('arc-microgrants', 'likely', ''), v('base-builder-grants', 'likely', '')),
+    hidden: { notInterested: new Set(['arc-microgrants']), applied: new Set() },
+  }));
+  assert.doesNotMatch(notInterested, /Arc Microgrants/);
+  assert.match(notInterested, /Want me to start on Base Builder Grant Program with tipjar\?/);
+  // Not matched either: never in "Also open".
+  const noRepo = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(['arc-microgrants']), applied: new Set() } }));
+  assert.doesNotMatch(noRepo, /Arc Microgrants/);
+
+  const applied = presentFirstMessage(msg({
+    cards,
+    repos: repos(v('arc-microgrants', 'likely', ''), v('base-builder-grants', 'likely', '')),
+    hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) },
+    entries: [{ program_id: 'arc-microgrants', title: 'Arc Microgrants', name: 'tipjar', submitted: false }],
+  }));
+  assert.ok(
+    applied.startsWith('Your entries: Arc Microgrants (tipjar, not submitted yet); Base Builder Grant Program: applied outside EarnKit.\n\n'),
+    applied,
+  );
+  assert.doesNotMatch(applied.split('\n\n').slice(1).join('\n\n'), /Base Builder Grant Program/);
+  assert.match(applied, /Want me to start on Arc Microgrants with tipjar\?/);
+  // Applied alone still opens with the recap.
+  const only = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) } }));
+  assert.match(only, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
+  noEmoji(applied);
+  assert.doesNotMatch(applied, /—|coin|Clanker|vault/);
 });

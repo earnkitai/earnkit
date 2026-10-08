@@ -258,3 +258,13 @@ test('alsoQualifies (C23): an investment program never shows, even when it fits 
   });
   assert.deepEqual(rows, []);
 });
+
+test('3.8 a program the builder applied to outside EarnKit, or is not interested in, is never in Also qualifies', () => {
+  const programs = [prog('base-mini'), prog('arc-micro'), prog('avax')];
+  const rows = alsoQualifies({
+    ...base,
+    programs,
+    hidden: { notInterested: new Set(['base-mini']), applied: new Set(['arc-micro']) },
+  });
+  assert.deepEqual(rows.map((r) => r.id), ['avax']);
+});
