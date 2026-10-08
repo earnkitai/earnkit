@@ -322,6 +322,8 @@ export const BUILDER_TAIL_MAX = 120;
  */
 export function canonicalBuilderUrl(
   raw: string,
+  /** v2.9 A5: shownUrl displays stored and program links as they are (placeholders included). */
+  opts: { allowPlaceholder?: boolean } = {},
 ): { url: string; problem?: never } | { url?: never; problem: string } {
   if (raw.length > BUILDER_URL_MAX)
     return { problem: `at most ${BUILDER_URL_MAX} characters` };
@@ -340,7 +342,7 @@ export function canonicalBuilderUrl(
   if (!u.hostname.includes('.'))
     return { problem: 'must be a full https:// link' };
   // v2.9 A5: no product lives on a reserved name, an IP address or EarnKit's own site.
-  if (placeholderLink(v)) return { problem: PLACEHOLDER_LINE };
+  if (!opts.allowPlaceholder && placeholderLink(v)) return { problem: PLACEHOLDER_LINE };
   const at = v.search(/[?#]/);
   const tail = at < 0 ? '' : v.slice(at);
   if (!BUILDER_PATH.test(u.pathname) || !BUILDER_TAIL.test(tail))
@@ -370,10 +372,11 @@ export const BuilderUrl = z.string().transform((v, ctx) => {
 
 /**
  * A stored builder link as data for display (status entries, campaign and project pages): its
- * canonical form, or null when it has none (rows stored before the check).
+ * canonical form, or null when it has none (rows stored before the check). Placeholder hosts are
+ * not refused here (v2.9 A5 refuses them when a link is given, not when one is shown).
  */
 export const shownUrl = (v: string | null | undefined) =>
-  (v && canonicalBuilderUrl(v).url) || null;
+  (v && canonicalBuilderUrl(v, { allowPlaceholder: true }).url) || null;
 
 /** A campaign entry's project name and description, cleaned (other fields untouched). */
 export function cleanProject<P extends { name?: string; description?: string }>(

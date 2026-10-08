@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -147,10 +148,10 @@ const entryDeps = (deployer: Record<string, string>) => ({
 });
 const input = (data: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
   program_id: 'earnkit-campaign-1-base',
-  project: { name: 'Tip Jar', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.example' },
+  project: { name: 'Tip Jar', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.xyz' },
   submission_data: {
     project_name: 'Tip Jar', description: 'Tips for creators', repo_url: 'https://github.com/alice/tipjar',
-    live_url: 'https://tipjar.example', contracts: `${C1},${C2}`, payout_wallet: PAY, ...data,
+    live_url: 'https://tipjar.xyz', contracts: `${C1},${C2}`, payout_wallet: PAY, ...data,
   },
   ...extra,
 });
@@ -279,7 +280,7 @@ test('fix minor: a missing repo is reported with the other missing answers', asy
   setSanctionsOracle({ chainId: async () => 8453, isSanctioned: async () => false });
   try {
     const i = input({ repo_url: undefined, description: '' });
-    i.project = { name: 'Tip Jar', live_url: 'https://tipjar.example' } as never;
+    i.project = { name: 'Tip Jar', live_url: 'https://tipjar.xyz' } as never;
     await assert.rejects(
       campaignEntryProblems(campaignProgram(), i as never, 1, null, entryDeps({})),
       (err: unknown) =>
@@ -338,8 +339,8 @@ test('v2.8 Ruling 2 (plan): completeAt is set once, the first time the entry is 
     { key: 'profile', label: 'Profile', type: 'url', required: false, from: 'builder' },
   ];
   const now = new Date('2026-10-09T12:00:00Z');
-  const ready = { project: { live_url: 'https://kit.example' }, answers: { description: 'A kit.' } };
-  const notReady = { project: { live_url: 'https://kit.example' }, answers: {} };
+  const ready = { project: { live_url: 'https://kit.xyz' }, answers: { description: 'A kit.' } };
+  const notReady = { project: { live_url: 'https://kit.xyz' }, answers: {} };
   assert.equal(completeAt(reqs, ready, null, now), now);
   assert.equal(completeAt(reqs, notReady, null, now), null);
   const previous = new Date('2026-10-01T00:00:00Z');
@@ -367,7 +368,7 @@ const proofProject = (n: number) => ({
   name: `Proof Project ${n}`,
   description: 'A tiny app',
   repo_url: `https://github.com/alice/proof-${n}`,
-  live_url: `https://proof-${n}.example`,
+  live_url: `https://proof-${n}.xyz`,
 });
 
 test('record_submission (v2.5 §3): a checked-out proof stores ok_at and no bonus_note', dbTest, async () => {
@@ -827,8 +828,8 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
     recordSubmission(
       {
         program_id: program.id,
-        project: { name: 'X', description: 'x', repo_url: victimRepo, live_url: 'https://x.example' },
-        submission_data: { live_deployment_url: 'https://x.example', repo_url: victimRepo, description: 'x', builder_profile: 'https://github.com/alice' },
+        project: { name: 'X', description: 'x', repo_url: victimRepo, live_url: 'https://x.xyz' },
+        submission_data: { live_deployment_url: 'https://x.xyz', repo_url: victimRepo, description: 'x', builder_profile: 'https://github.com/alice' },
         external_submission_url: 'https://dorahacks.io/buidl/902',
       } as never,
       installationId,
@@ -847,10 +848,10 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
   const [kept] = await sql()<{ repo_url: string; bonus_repo_key: string }[]>`SELECT repo_url, bonus_repo_key FROM projects WHERE id = ${squat.project_id}`;
   assert.equal(kept.repo_url, victimRepo);
   // The live link may still be fixed (launches are off here, so the flow stops before any gate).
-  await launchToken(LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, live_url: 'https://y.example' }), s, { available: () => false });
+  await launchToken(LaunchTokenInput.parse({ project_id: squat.project_id, builder_confirmed: true, live_url: 'https://y.xyz' }), s, { available: () => false });
   const [live] = await sql()<{ live_url: string; repo_url: string }[]>`SELECT live_url, repo_url FROM projects WHERE id = ${squat.project_id}`;
   assert.equal(live.repo_url, victimRepo);
-  assert.match(live.live_url, /^https:\/\/y\.example\/?$/);
+  assert.match(live.live_url, /^https:\/\/y\.xyz\/?$/);
   // A, the repo's builder, enters later and gets a coin: eligible; the squatter's row blocks nothing.
   const a = await record(await freshInstallation());
   await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now() WHERE id = ${a.project_id}`;
@@ -896,12 +897,13 @@ test('v2.8 Ruling C7: completeAtWindow marks deploy-window launches complete onl
   const full = { description: 'A kit.', builder_profile: 'https://github.com/alice' };
   const add = async (
     n: number,
-    o: { launched: Date; data: Record<string, unknown>; live?: string | null; choice?: 'go' | 'skip'; complete_at?: Date },
+    o: { launched: Date; data: Record<string, unknown>; live?: string | null; choice?: 'go' | 'skip'; complete_at?: Date; unverified?: boolean },
   ) => {
+    // v2.9 A5 (Pre-flight P5): a live link counts once a check found it loading (live_verified_at).
     const [{ id }] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, coin_address, coin_launched_at, confirm_choice, complete_at)
-      VALUES (${program.id}, ${`W${n}`}, ${`https://github.com/alice/w${n}`}, ${o.live === undefined ? `https://w${n}.example` : o.live},
-        ${installationId}, ${randomAddress()}, ${o.launched}, ${o.choice ?? null}, ${o.complete_at ?? null})
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, coin_address, coin_launched_at, confirm_choice, complete_at, live_verified_at)
+      VALUES (${program.id}, ${`W${n}`}, ${`https://github.com/alice/w${n}`}, ${o.live === undefined ? `https://w${n}.xyz` : o.live},
+        ${installationId}, ${randomAddress()}, ${o.launched}, ${o.choice ?? null}, ${o.complete_at ?? null}, ${o.unverified ? null : o.launched})
       RETURNING id`;
     await sql()`INSERT INTO submissions (project_id, submission_data) VALUES (${id}, ${sql().json(o.data as never)})`;
     return id;
@@ -912,21 +914,23 @@ test('v2.8 Ruling C7: completeAtWindow marks deploy-window launches complete onl
   const outside = await add(4, { launched: new Date(since.getTime() - 60_000), data: full });
   const earlier = new Date(since.getTime() + 60_000);
   const already = await add(5, { launched: inWindow, data: full, complete_at: earlier });
+  const unverified = await add(6, { launched: inWindow, data: full, unverified: true });
   const completeOf = async (id: number) =>
     (await sql()<{ complete_at: Date | null }[]>`SELECT complete_at FROM projects WHERE id = ${id}`)[0].complete_at;
 
   const dry = await completeAtWindow({ since, until, apply: false });
-  assert.deepEqual(dry, { launched_without_complete: 2, complete: 1, updated: 0 });
+  assert.deepEqual(dry, { launched_without_complete: 3, complete: 1, updated: 0 });
   assert.equal(await completeOf(done), null, 'a dry run writes nothing');
   const applied = await completeAtWindow({ since, until, apply: true });
-  assert.deepEqual(applied, { launched_without_complete: 2, complete: 1, updated: 1 });
+  assert.deepEqual(applied, { launched_without_complete: 3, complete: 1, updated: 1 });
+  assert.equal(await completeOf(unverified), null, 'v2.9 A5: an unverified live link is missing');
   assert.equal((await completeOf(done))?.getTime(), inWindow.getTime(), 'complete_at = coin_launched_at');
   assert.equal(await completeOf(incomplete), null, 'a stored entry missing a required item stays incomplete');
   assert.equal(await completeOf(confirmed), null, 'confirmed through v2.8: not a v2.7 launch, untouched');
   assert.equal(await completeOf(outside), null, 'outside the window: untouched');
   assert.equal((await completeOf(already))?.getTime(), earlier.getTime(), 'a set complete_at never moves');
   // Run again: nothing left to do.
-  assert.deepEqual(await completeAtWindow({ since, until, apply: true }), { launched_without_complete: 1, complete: 0, updated: 0 });
+  assert.deepEqual(await completeAtWindow({ since, until, apply: true }), { launched_without_complete: 2, complete: 0, updated: 0 });
 });
 
 after(async () => {
@@ -1045,7 +1049,7 @@ test('fix round 2 (N1): a re-record reports a coin only for an EarnKit coin, nev
   const program = proofProgramFile(`t5f2-n1-${process.pid}-${Date.now()}`, { submission_proof: null, starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' });
   await upsertProgram(program);
   const installationId = await freshInstallation();
-  const project = { ...proofProject(61), token_url: 'https://example.com/their-own-token' };
+  const project = { ...proofProject(61), token_url: 'https://tipjar.xyz/their-own-token' };
   const data = { description: 'x' };
   const first = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId);
   const late = await recordSubmission({ program_id: program.id, project, submission_data: data, builder_submitted: true } as never, installationId);
@@ -1071,7 +1075,7 @@ test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carrie
   await sql()`
     INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
       status, existing_work, starts_at, ends_at)
-    VALUES (${HOME}, 'X', 'Ended Grants', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+    VALUES (${HOME}, 'X', 'Ended Grants', 'd', 'https://x.xyz', 'https://x.xyz', 'r', 's', 'active', 'allowed',
       '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')`;
   const other = await freshInstallation();
   const installationId = await freshInstallation();

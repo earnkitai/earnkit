@@ -4,12 +4,14 @@ import { join } from 'node:path';
 /**
  * A committed `programs/<name>.json`, parsed, without its `logo`. Tests clone these files under
  * test ids, and a logo path is tied to its program's id (`programs/<id>.svg`, Ruling 23), so a
- * clone keeps every other fact but no logo (v2.7 Task 8 backfilled the real logos).
+ * clone keeps every other fact but no logo (v2.7 Task 8 backfilled the real logos), and no
+ * `needs_contract` (v2.9 A5: a clone tests something else; the contract check has its own tests).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function committedProgram(name: string): any {
   const p = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../../programs', `${name}.json`), 'utf8'));
   delete p.logo;
+  delete p.needs_contract;
   return p;
 }
 
@@ -23,9 +25,9 @@ export function completeAnswers(
 ): Record<string, string> {
   const value = (r: (typeof requirements)[number]) =>
     r.type === 'url'
-      ? `https://example.com/${r.key}`
+      ? `https://tipjar.xyz/${r.key}`
       : r.type === 'email'
-        ? 'builder@example.com'
+        ? 'builder@tipjar.xyz'
         : r.type === 'choice' && r.options?.length
           ? r.options[0]
           : `${r.key} answer`;

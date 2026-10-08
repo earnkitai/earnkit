@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -144,7 +145,8 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     (await tools.prepare_submission(
       {
         program_id: 'arc-microgrants',
-        project,
+        // v2.9 A5: Arc needs a deployed contract (getCode is faked: fixtures/no-network-checks).
+        project: { ...project, contracts: [`0x${'c'.repeat(40)}`] },
         answers: { description: 'Tips on Arc', builder_profile: 'https://github.com/alice' },
       },
       { installationId: id },
@@ -160,7 +162,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
 
     // 6. Every answer: v2.8 Part C, the confirmation offer (a token on Base, with the builder bonus),
     // and no Clanker anywhere in the reply.
-    const ready = await prep({ name: 'TipJar', repo_url, live_url: 'https://tipjar.example' });
+    const ready = await prep({ name: 'TipJar', repo_url, live_url: 'https://tipjar.xyz' });
     assert.equal(ready.ready, true);
     assert.match(ready.show_to_builder, /\nYes: launches \$TIPJAR \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
     assert.doesNotMatch(JSON.stringify(ready), /clanker/i);

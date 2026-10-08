@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -228,7 +229,7 @@ const DRAFT: Record<string, string> = {
   milestones: 'M1 recurring tips (Dec 2026); M2 500 creators (Feb 2027).',
   why_grant: 'Live product with 120 users, solo builder shipping weekly.',
   x_profile: '@alice',
-  project_url: 'https://tipjar.example',
+  project_url: 'https://tipjar.xyz',
 };
 /** What the agent drafts plus what the builder answers, for every field of the program's form. */
 function answersFor(programId: string, over: Record<string, string> = {}) {
@@ -308,7 +309,7 @@ test('J1: no repo, Grok Bot, Arc: never offered, and picking it anyway says so f
   assert.match(list.show_to_builder, /\| Arc Microgrants \(needs a repo\) \|/);
   assert.doesNotMatch(list.show_to_builder, /Want me to start on Arc/);
   assert.doesNotMatch(list.show_to_builder, speedrunOffer);
-  const project = { name: 'TipJar', live_url: 'https://tipjar.example' };
+  const project = { name: 'TipJar', live_url: 'https://tipjar.xyz' };
   const arc = await call(J, 'arc questions', 'prepare_submission', { program_id: 'arc-microgrants', project, agent: GROK }, ctx);
   // The blocker comes with the questions, never only after the builder answered them, and names a
   // program this builder can enter as they are.
@@ -336,7 +337,7 @@ test('J2, J3, J7: a repo in Claude Code, Base then Avalanche then Arc, and the n
       name: 'tipjar',
       url: repo,
       chains: [{ chain: 'base', mainnet: true }, { chain: 'avalanche', mainnet: true }, { chain: 'arc', mainnet: true }],
-      live_url: 'https://tipjar.example',
+      live_url: 'https://tipjar.xyz',
       last_commit_at: new Date().toISOString(),
     },
   ];
@@ -345,7 +346,7 @@ test('J2, J3, J7: a repo in Claude Code, Base then Avalanche then Arc, and the n
   assert.doesNotMatch(list.show_to_builder, speedrunOffer, 'a builder with a repo is never led with speedrun');
   assert.match(list.show_to_builder, /Want me to start on .+ with tipjar\?/);
 
-  const project = { name: 'TipJar', repo_url: repo, live_url: 'https://tipjar.example' };
+  const project = { name: 'TipJar', repo_url: repo, live_url: 'https://tipjar.xyz', contracts: ['0xcccccccccccccccccccccccccccccccccccccccc'] };
   const base = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC });
   // §C11, §C12: one round asks the wallet, the Loom demo and the Builder Code; the confirmation is a single yes.
   assert.match(base.q.show_to_builder, /the wallet for your token's fees/);
@@ -393,7 +394,7 @@ test('J2, J3, J7: a repo in Claude Code, Base then Avalanche then Arc, and the n
 test('J4: no wallet: one wallet ask in the coach round, one line on "yes", then it launches', dbTest, async () => {
   const J = 'J4';
   const ctx = ctxFor(await newInstallation());
-  const project = { name: 'TipJar Pro', repo_url: 'https://github.com/bob/tipjar-nowallet', live_url: 'https://tipjarpro.example' };
+  const project = { name: 'TipJar Pro', repo_url: 'https://github.com/bob/tipjar-nowallet', live_url: 'https://tipjarpro.xyz' };
   await call(J, 'list', 'list_programs', { local_repos: [{ name: 'tipjar-nowallet', url: project.repo_url, chains: [{ chain: 'base', mainnet: true }], live_url: project.live_url }] }, ctx);
   const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, wallet: null, record: false });
   assert.equal(e.c!.show_to_builder, NO_WALLET_HINT);
@@ -407,7 +408,7 @@ test('J4: no wallet: one wallet ask in the coach round, one line on "yes", then 
 test('J5: an edited ticker that is taken: named, and the second offer does not repeat the 40%', dbTest, async () => {
   const J = 'J5';
   const ctx = ctxFor(await newInstallation());
-  const project = { name: 'Tip Jar', repo_url: 'https://github.com/carol/tip-jar', live_url: 'https://tj.example' };
+  const project = { name: 'Tip Jar', repo_url: 'https://github.com/carol/tip-jar', live_url: 'https://tj.xyz' };
   const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, token: { name: 'Tip Jar', symbol: 'TIPJAR' }, record: false });
   assert.match(e.c!.show_to_builder, /^\$TIPJAR is taken\.\n/);
   assert.match(e.c!.show_to_builder, /\nYes: launches \$TIP \(Tip Jar\) on Base\.\n/);
@@ -425,7 +426,7 @@ test('J5: an edited ticker that is taken: named, and the second offer does not r
 test('J6: skip the token: the shortest path, "40%" once (the offer)', dbTest, async () => {
   const J = 'J6';
   const ctx = ctxFor(await newInstallation());
-  const project = { name: 'Skipper', repo_url: 'https://github.com/dave/skipper', live_url: 'https://skipper.example' };
+  const project = { name: 'Skipper', repo_url: 'https://github.com/dave/skipper', live_url: 'https://skipper.xyz' };
   const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, decision: 'skip' });
   assert.match(e.c!.show_to_builder, /^No token, no builder bonus\.\n/);
   assert.equal(e.rec!.show_to_builder, 'Entered in Base Builder Grant Program.');
@@ -440,7 +441,7 @@ test('J8: a repo whose only fit is speedrun: never led with it; its kit says the
   assert.match(list.show_to_builder, /\| a16z speedrun SR008 \|/);
   assert.doesNotMatch(list.show_to_builder, speedrunOffer);
   // J8b: no chains reported.
-  const list2 = await call(J, 'list (no chains)', 'list_programs', { local_repos: [{ name: 'ethapp', url: 'https://github.com/erin/ethapp2', chains: [], live_url: 'https://ethapp.example' }] }, ctx);
+  const list2 = await call(J, 'list (no chains)', 'list_programs', { local_repos: [{ name: 'ethapp', url: 'https://github.com/erin/ethapp2', chains: [], live_url: 'https://ethapp.xyz' }] }, ctx);
   assert.doesNotMatch(list2.show_to_builder, speedrunOffer);
   // The builder asks for it anyway: the kit says the application continues on a16z's site, and the
   // pre-submit check never puts a link in the email answer.
@@ -481,14 +482,14 @@ test('J10: repo problems at the token gate: plain words, the kit, and never "ope
   ];
   for (const k of cases) {
     const ctx = ctxFor(await newInstallation(), { repo: k.gate });
-    const project = { name: 'Thing', repo_url: k.repo, live_url: 'https://thing.example' };
+    const project = { name: 'Thing', repo_url: k.repo, live_url: 'https://thing.xyz' };
     const e = await entry({ journey: k.tag, ctx, program: 'base-builder-grants', project, agent: CC, record: false });
     assert.match(e.c!.show_to_builder, k.reply);
     assert.ok(e.c!.kit, `${k.tag}: never a dead end`);
   }
   // J10c: the proof line not pushed: the launch stays open, never "open this in Claude Code".
   const ctx = ctxFor(await newInstallation());
-  const project = { name: 'Nopush', repo_url: 'https://github.com/ivy/nopush-app', live_url: 'https://nopush.example' };
+  const project = { name: 'Nopush', repo_url: 'https://github.com/ivy/nopush-app', live_url: 'https://nopush.xyz' };
   const e = await entry({ journey: 'J10c', ctx, program: 'base-builder-grants', project, agent: CC, record: false });
   const again = await call('J10c', 'go again', 'confirm_entry', { program_id: 'base-builder-grants', project, answers: e.answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
   assert.match(again.show_to_builder, /^Your entry is saved\. Your token is waiting on a short proof line on your repo's default branch; say go once I've pushed it\./);
@@ -498,7 +499,7 @@ test('J10: repo problems at the token gate: plain words, the kit, and never "ope
 test('J1c: Grok Bot (a hosted agent) with a repo, then Claude Code: no pickup is offered; Claude Code enters on its own', dbTest, async () => {
   const J = 'J1c';
   const repo = 'https://github.com/kim/arcpay';
-  const project = { name: 'ArcPay', repo_url: repo, live_url: 'https://arcpay.example' };
+  const project = { name: 'ArcPay', repo_url: repo, live_url: 'https://arcpay.xyz', contracts: ['0xcccccccccccccccccccccccccccccccccccccccc'] };
   // Grok Bot is a hosted agent: one registration may serve many builders (shared_client).
   const grokId = await newInstallation({ shared: true });
   const grok: Ctx = { ...ctxFor(grokId), sharedClient: true, ...noMatching };
@@ -537,7 +538,7 @@ test('J1c: Grok Bot (a hosted agent) with a repo, then Claude Code: no pickup is
 test('J1d: a reinstall picks up only the groups its proof covers; a stranger naming the same GitHub user stays out', dbTest, async () => {
   const J = 'J1d';
   const repo = 'https://github.com/dana/dapp';
-  const project = { name: 'Dapp', repo_url: repo, live_url: 'https://dapp.example' };
+  const project = { name: 'Dapp', repo_url: repo, live_url: 'https://dapp.xyz' };
   const localRepos = [{ name: 'dapp', url: repo, chains: [{ chain: 'base', mainnet: true }], live_url: project.live_url }];
   // Dana's first install (Claude Code) enters Base with her repo.
   const danaId = await newInstallation();
@@ -554,7 +555,7 @@ test('J1d: a reinstall picks up only the groups its proof covers; a stranger nam
     journey: 'J1d-mallory',
     ctx: mallory,
     program: 'base-builder-grants',
-    project: { name: 'Other', repo_url: 'https://github.com/mallory/other', live_url: 'https://other.example' },
+    project: { name: 'Other', repo_url: 'https://github.com/mallory/other', live_url: 'https://other.xyz' },
     agent: CC,
     record: false,
   });
@@ -582,7 +583,7 @@ test('slow deploy: the reply comes before 50 s ("launching"); the check-back ret
   process.env.EARNKIT_LAUNCH_REPLY_MS = '500';
   try {
     const ctx = ctxFor(await newInstallation(), { delayMs: 2_500 });
-    const project = { name: 'Slowpoke', repo_url: 'https://github.com/lee/slowpoke', live_url: 'https://slow.example' };
+    const project = { name: 'Slowpoke', repo_url: 'https://github.com/lee/slowpoke', live_url: 'https://slow.xyz' };
     const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, record: false });
     const first = said.find((s) => s.journey === J && s.label === 'base-builder-grants go')!;
     assert.equal(e.c!.show_to_builder, LAUNCHING);
@@ -621,7 +622,7 @@ test('slow gate reads: the reply comes in time ("still checking"); the launch fi
   };
   try {
     const ctx = ctxFor(await newInstallation(), { repo: slowRepo });
-    const project = { name: 'Slowgate', repo_url: 'https://github.com/mia/slowgate', live_url: 'https://slowgate.example' };
+    const project = { name: 'Slowgate', repo_url: 'https://github.com/mia/slowgate', live_url: 'https://slowgate.xyz' };
     const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, record: false });
     const first = said.find((s) => s.journey === J && s.label === 'base-builder-grants go')!;
     assert.ok(first.ms < 1_500, `replied in ${first.ms} ms, before the repo check finished`);
