@@ -1969,7 +1969,7 @@ sections above have the details per task; this is how they fit together.
 | Kit | `confirm_entry` only | by host (Ruling 27): prefilled link, agent fills, copy paste (DoraHacks, Questbook), api; proof (Ruling 28) |
 | Record | `record_submission` | updates the confirmed row, no second token flow (Ruling 1) |
 | Also qualifies | `record_submission` | at most 3 rows, the bank fills the rest (Ruling 29) |
-| Outcomes | `programs:sync`, `list_programs`, `report_outcome` | announcements count; self-reports never (Ruling 30, C21, C22) |
+| Outcomes | `programs:sync`, `list_programs`, `tell_earnkit` (v2.9 A3; was `report_outcome`) | announcements count; self-reports never (Ruling 30, C21, C22) |
 
 - **The ordering rule (owner, binding).** The ready-to-submit kit (any mode) comes only from
   `confirm_entry` after the builder's "go" or "skip" (Ruling 4). `prepare_submission` never
@@ -2004,7 +2004,7 @@ sections above have the details per task; this is how they fit together.
     installation with no outcome and `outcome_asked_at` NULL (`outcomeToAsk`, which sets it in the
     same statement), and returns `ask_outcome` (`project_id`, the question `Did TipJar win anything
     in Arc Microgrants?`, `ASK_OUTCOME_NOTE`); it is read last, after the reply is built. The
-    agent passes the answer to the `report_outcome` tool (Ruling C21: its own tool, not read-only,
+    agent passes the answer to the `tell_earnkit` tool (v2.9 A3; it replaced `report_outcome`; Ruling C21: its own tool, not read-only,
     so `list_programs` keeps `readOnlyHint: true` and "What can I earn?" never needs approval);
     `saveSelfReport` stores it as `self_reported` (round label
     `builder report`) for the installation's own entry only (another's is `NotFoundError`).
@@ -2393,3 +2393,46 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   link names another owner gets the 5-commit, 30% read when `github_user` is given (shared cap of
   3 with the contributed and named repos); a repo GitHub won't show is not owned (G5: fail
   closed, as the named-repo path), so it caps at project tier.
+
+## Builder memory: `tell_earnkit` (v2.9 A3, Task 3)
+
+- **The tool.** `tell_earnkit` (`tools.ts`, MCP `readOnlyHint: false`) replaced `report_outcome`,
+  so the server still has 8 builder tools and `list_programs` stays read-only. Input
+  (`builder-memory.ts TellInput`, strict, plan Ruling 3): `program_status: [{ program_id, status:
+  applied | not_interested | won | placed | lost, project_id?, prize_usd? }]` and `repo_facts:
+  [{ repo, mainnet_chains?, testnet_chains?, live_url?, has_users?, not_mine? }]`, at most 20 each;
+  chains read like local_repos (`reportedChains`), the link through `reportedUrl` (a placeholder is
+  dropped). `tell()` checks everything first (an unknown program, or an outcome's entry that isn't
+  this installation's: `NotFoundError`, nothing stored), then writes in one transaction.
+- **Tables.** `builder_program_status (installation_id, program_id)` holds `applied` (with the
+  program's `roundLabel` = `<starts_at ISO>|<ends_at ISO>`) or `not_interested`.
+  `builder_repo_facts (installation_id, repo_key)` holds the merged statements per repo
+  (`saidKey`: `owner/repo`, else `name:<name>`; `mergeSaid`: the latest statement about a chain
+  wins, testnet wins within one statement, unnamed fields are kept). `readMemory` = two reads on
+  the primary keys, once per `list_programs` (and once per `record_submission`'s Also qualifies);
+  a failed read is an empty memory.
+- **Outcomes.** won, placed, lost (stored `not_selected`) are self-reports (`saveSelfReport`,
+  basis `self_reported`) on the `project_id` given, else the installation's newest entry in that
+  program. `ask_outcome` now carries `program_id`; `ASK_OUTCOME_NOTE` names `tell_earnkit`.
+  Self-reports never alert and never count (`readStats`).
+- **Programs hidden.** `hiddenPrograms(memory, programs)` (pure): `not_interested` for good;
+  `applied` while the round label matches and the program hasn't opened again since. They leave
+  every table, the offer, "Also open", `matches` and Also qualifies (`alsoQualifies({ hidden })`);
+  applied ones are listed in "Your entries" as `<title>: applied outside EarnKit`
+  (`present.ts APPLIED_OUTSIDE`, `FirstMessage.hidden`).
+- **Repos (lowering wins, raising is a claim).** `match.ts applyBuilderFacts(facts, said)`:
+  `not_mine` drops the repo (matchProjects skips it before scoring; it still counts in
+  `checked`); testnet clears that chain's mainnet; a mainnet the code doesn't show (evidence
+  `CLAIMED_MAINNET`), a live link when there is none, and users are claims (`RepoFacts.claims`).
+  Plan Ruling 2: a local report's live link or mainnet that GitHub lacks is a claim the same way.
+  `matchRepo` turns a would-be `likely` row whose claim is unverified (a claimed mainnet on the
+  program's chain, a claimed link with `live_verified !== true`, users on a "needs a live product"
+  program) into `after_step` with `confirm: mainnet | live link | users`. `users` clears
+  `real_users` from `missing`.
+- **Pre-flight P15.** `matchProjects` applies the statements (`MatchProjectsInput.said`, by repo
+  key, else by `name:<repo name>`) in `checkRepo`/`checkLocal` before `runChecks`, so a claimed
+  live link is probed from the same `LIST_BUDGET` as a homepage; once it loads the row can be
+  `likely`.
+- **Copy.** `TELL_EARNKIT_DESCRIPTION` (agent text, under 800 characters), `TELL_SAVED_NOTE`, and
+  the applied line are in the copy review; the builder-text tool-name regex
+  (`token-launch.ts`) names `tell_earnkit` and `pick_up_entries` instead of `report_outcome`.
