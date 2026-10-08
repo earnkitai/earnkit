@@ -91,3 +91,10 @@ test('v2.8.1 §A3: a second proof-line miss names the branch, keeps the launch o
   assert.match(proofLineWaiting(null), /your repo's default branch;/);
   assert.doesNotMatch(proofLineWaiting('main'), /Claude Code|Cursor|Codex|—/);
 });
+
+test('v2.8.1 §F19 (T7): the offer again in the same entry names the token without the 40% figure', () => {
+  assert.equal(yesLine({ name: 'Tip Jar', symbol: 'TIP' }, true, true), 'Yes: launches $TIP (Tip Jar) on Base.');
+  const again = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' }, again: true });
+  assert.doesNotMatch(again, /40%/);
+  assert.match(confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: null, remembered: false, proposal: { name: 'Tip Jar', symbol: 'TIP' } }), /You earn 40%/);
+});

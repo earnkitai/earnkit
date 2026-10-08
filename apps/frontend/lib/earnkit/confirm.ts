@@ -19,6 +19,11 @@ export type OfferInput = {
   tokensOff?: boolean;
   /** v2.8.1 §A2: the token that launches on "yes", named in the Yes line. */
   proposal?: { name: string; symbol: string } | null;
+  /**
+   * v2.8.1 §F19 (T7 journey test): the offer again in the same entry (a taken ticker, or a pair the
+   * builder hasn't seen): the Yes line names the token without the earnings figure, said once already.
+   */
+  again?: boolean;
 };
 
 export const NO_WALLET_HINT = 'No wallet? Make one at keys.coinbase.com, then send me the address.';
@@ -60,8 +65,9 @@ export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; sa
  * says "40%": "Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at
  * the builder bonus." Pure; exported for tests.
  */
-export function yesLine(proposal: { name: string; symbol: string } | null, hasBonus: boolean) {
+export function yesLine(proposal: { name: string; symbol: string } | null, hasBonus: boolean, again = false) {
   const what = proposal ? `launches $${proposal.symbol} (${proposal.name}) on Base` : 'your entry gets a token on Base';
+  if (again) return `Yes: ${what}.`;
   return `Yes: ${what}. You earn 40% of its trading fees${hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
 }
 
@@ -76,8 +82,8 @@ export function confirmOffer(a: OfferInput): string {
   if (!a.canPush) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
   const wallet = offerWalletLine(a);
   const lines = a.hasBonus
-    ? ['Want the builder bonus? It comes with a token.', yesLine(a.proposal ?? null, true), SKIP_LINE, wallet]
-    : ['Want a token for your entry?', yesLine(a.proposal ?? null, false), 'Skip: no token.', wallet];
+    ? ['Want the builder bonus? It comes with a token.', yesLine(a.proposal ?? null, true, a.again), SKIP_LINE, wallet]
+    : ['Want a token for your entry?', yesLine(a.proposal ?? null, false, a.again), 'Skip: no token.', wallet];
   return `${lines.join('\n')}\n\n${COIN_FOOTNOTE}`;
 }
 

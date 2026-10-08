@@ -57,7 +57,7 @@ test('Cursor points at ~/.cursor/mcp.json; commands wrap only at spaces', () => 
 
 test('every icon is a local file logoFileProblem accepts, rendered as a decorative 20px img', () => {
   for (const a of AGENTS) {
-    assert.match(a.icon, /^\/images\/agents\/[a-z-]+\.svg$/, a.name);
+    assert.match(a.icon, /^\/images\/agents\/[a-z-]+\.(svg|png)$/, a.name);
     const file = join(PUBLIC, a.icon);
     assert.ok(existsSync(file), `${a.name}: ${file}`);
     assert.equal(logoFileProblem(a.icon, readFileSync(file)), null, a.name);
@@ -65,6 +65,19 @@ test('every icon is a local file logoFileProblem accepts, rendered as a decorati
   }
   // Never fetched from elsewhere at runtime.
   assert.doesNotMatch(html, /<img[^>]*src="https?:/);
+});
+
+test('v2.8.1 (owner): Grok Bot shows its own app icon (not Grok\'s logomark); Muse shows its official logo, not a placeholder', () => {
+  assert.equal(byName('Grok Bot').icon, '/images/agents/grok-bot.png');
+  assert.ok(!existsSync(join(PUBLIC, '/images/agents/grok.svg')), "Grok's logomark is gone");
+  const png = readFileSync(join(PUBLIC, '/images/agents/grok-bot.png'));
+  assert.equal(png.readUInt32BE(16), 64, 'a 64px icon for a 20px tab');
+  const muse = readFileSync(join(PUBLIC, byName('Muse').icon), 'utf8');
+  assert.doesNotMatch(muse, /<text\b/, 'no letter placeholder');
+  assert.match(muse, /<path d="M24\.6257 16\.1214/, "Muse's mark from muse.ai");
+  // The app icon keeps its colors; SVG marks take the tab's color.
+  assert.match(html, /<img src="\/images\/agents\/grok-bot\.png" alt="" width="20" height="20" class="[^"]*rounded-\[5px\]/);
+  assert.doesNotMatch(html, /<img src="\/images\/agents\/grok-bot\.png"[^>]*brightness-0/);
 });
 
 /** Every non-test source file under a directory. */
