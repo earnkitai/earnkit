@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { tools as toolImpls } from './tools';
 import { SAFETY_LINES } from './untrusted-text';
 import { sql } from './db';
 
@@ -420,4 +421,43 @@ test('v2.8 Ruling C21: list_programs stays read-only; report_outcome is its own 
   assert.deepEqual(report.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   assert.deepEqual(Object.keys((report.inputSchema as { properties: object }).properties).sort(), ['prize_usd', 'project_id', 'result']);
   assert.match(list.description!, /pass their answer to report_outcome/);
+});
+
+test('v2.8.1 §C15: an unexpected error is logged on the server with an id; the agent sees a plain message with that id, never the raw error', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const original = toolImpls.report_outcome;
+  const errLog = console.error;
+  const logged: unknown[][] = [];
+  console.error = (...args: unknown[]) => void logged.push(args);
+  (toolImpls as Record<string, unknown>).report_outcome = async () => {
+    throw new Error('Connection terminated unexpectedly');
+  };
+  try {
+    const r = await client.callTool({ name: 'report_outcome', arguments: { project_id: 1, result: 'won' } });
+    assert.equal(r.isError, true);
+    const text = (r.content as { text: string }[])[0].text;
+    const id = /error id ([0-9a-f]{8})\.$/.exec(text)?.[1];
+    assert.ok(id, text);
+    assert.equal(text, unexpectedErrorText(id!));
+    assert.doesNotMatch(text, /Connection terminated|report_outcome/);
+    // The server log has the tool, the same id and the raw error.
+    const line = logged.find((l) => String(l[0]).includes(id!));
+    assert.ok(line, JSON.stringify(logged.map((l) => String(l[0]))));
+    assert.match(String(line![0]), /^\[mcp\] report_outcome error [0-9a-f]{8}$/);
+    assert.match(String(line![1]), /Connection terminated unexpectedly/);
+  } finally {
+    (toolImpls as Record<string, unknown>).report_outcome = original;
+    console.error = errLog;
+    await client.close();
+  }
+});
+
+test('v2.8.1 §C15: the safety line no longer forbids making a repo public; it says a token needs one', () => {
+  const line = SAFETY_LINES.find((l) => l.startsWith('Entering a program never needs'))!;
+  assert.doesNotMatch(line, /visibility/);
+  assert.match(line, /A token needs a public repo; make a repo public only when the builder asks\./);
+  assert.ok(SERVER_INSTRUCTIONS.includes(line));
 });

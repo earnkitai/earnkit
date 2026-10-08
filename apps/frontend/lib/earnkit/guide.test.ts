@@ -97,7 +97,7 @@ const BONUS = { cell: '0.18 ETH so far', board: 'earnkit.com/bonus/arc-microgran
 
 test('v2.7 §2: the full guide, exactly', () => {
   assert.equal(guideText(programGuide(arc, BONUS, NOW)), [
-    'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14',
+    'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET',
     'Difficulty: Medium. 20 of ~160 entries won last round.',
     '',
     'What won last time',
@@ -199,7 +199,7 @@ test('Ruling C12: a round that is not own names its event under the heading; eac
 
 test('empty data: the header and the estimate only, no empty headings, no bonus line', () => {
   const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, null, NOW));
-  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14\nDifficulty: Medium (estimate). No past results yet.');
+  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: Medium (estimate). No past results yet.');
 });
 
 test('Ruling 7: focus.ecosystem names the heading', () => {

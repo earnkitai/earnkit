@@ -197,7 +197,7 @@ test('alsoText: the table, "Still needed", and the builder bonus sentence with c
       '|---|---|---|---|',
       '| Base Builder Grant Program | up to $5,000 | rolling | 1 answer |',
       '| Avalanche Team1 Mini Grants | up to $10,000 | rolling | nothing |',
-      "Say \"enter it here too\" for any of them. Your builder bonus is in Arc Microgrants; these entries don't add to it.",
+      "Say \"enter it here too\" for any of them. Your builder bonus rides on your Arc Microgrants entry.",
     ].join('\n'),
   );
   assert.equal(

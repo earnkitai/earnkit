@@ -18,6 +18,8 @@ import {
   guidanceFor,
   preSubmitCheck,
   questionsFor,
+  WALLET_KEY,
+  walletAsk,
 } from './coach';
 
 const req = (key: string, kind: FieldKind | undefined, o: Partial<SubmissionRequirement> = {}): SubmissionRequirement => ({
@@ -459,4 +461,47 @@ test("9.11 fixesLine: numbered builder fixes, never the agent's; null for none",
   assert.equal(fixesLine([name]), 'Before you submit, 1 quick fix would make it stronger:\n1. Name: add the answer.');
   assert.equal(fixesLine([trim]), null);
   assert.equal(fixesLine([]), null);
+});
+
+test('v2.8.1 §C11: the wallet joins the round: with contact, its own item, or the last one; never a round of its own', () => {
+  const contact = [req('email', 'contact', { label: 'Email' })];
+  // Joined to the contact item (personal details), with the no-wallet hint while it fits.
+  const joined = questionsFor({ reqs: contact, answers: {}, first: true, wallet: { hasBonus: true } });
+  assert.equal(joined.length, 1);
+  assert.deepEqual(joined[0].keys, ['email', WALLET_KEY]);
+  assert.equal(joined[0].text, "Your email? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.");
+  // No contact item: its own numbered item while there is room.
+  const prose = [req('traction', 'traction')];
+  const own = questionsFor({ reqs: prose, answers: {}, first: true, wallet: { hasBonus: false } });
+  assert.deepEqual(own.map((q) => q.keys), [['traction'], [WALLET_KEY]]);
+  assert.equal(own[1].text, `${walletAsk(false)} No wallet yet? Make one at keys.coinbase.com.`);
+  assert.equal(coachIntro('P', own), "P: 2 quick questions, then I'll write your application.\n1. Who has used it so far?\n2. The wallet for your token's fees (0x…)? No wallet yet? Make one at keys.coinbase.com.");
+  // A later program's single question becomes two short bullets.
+  const later = questionsFor({ reqs: prose, answers: {}, first: false, wallet: { hasBonus: true } });
+  assert.ok(later.length === 2 && later.every((q) => q.bullet));
+  // No questions at all: no round just for the wallet (the offer's wallet line asks it).
+  assert.deepEqual(questionsFor({ reqs: prose, answers: { traction: '120 users' }, first: true, wallet: { hasBonus: true } }), []);
+  // Every committed program, first and later: still at most 4 items of at most 25 words, the wallet asked once.
+  const dir = join(import.meta.dirname, '../../../../programs');
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+    const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
+    for (const first of [true, false]) {
+      const q = questionsFor({ reqs: p.submission_requirements, answers: {}, first, project: 'A Long Project Name', wallet: { hasBonus: true } });
+      if (q.length === 0) continue;
+      assert.ok(q.length <= MAX_BULLETS, f);
+      assert.equal(q.filter((x) => x.keys.includes(WALLET_KEY)).length, 1, f);
+      for (const x of q) assert.ok(x.text.split(/\s+/).length <= MAX_QUESTION_WORDS, `${f}: ${x.text}`);
+    }
+  }
+});
+
+test('v2.8.1 §C15: no proof-link fix on a form without a proof field (a16z speedrun: the email only)', () => {
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const speedrun = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'a16z-speedrun.json'), 'utf8')));
+  const fixes = preSubmitCheck({ reqs: speedrun.submission_requirements, answers: { email: 'erin@example.com' }, judging: null, knownLinks: ['https://github.com/erin/ethapp'] });
+  assert.deepEqual(fixes, []);
+  // A form with a proof field still gets it, on that field.
+  const withLink = [req('email', 'contact', { label: 'Email' }), req('demo', 'demo_video', { label: 'Demo video' })];
+  const f = preSubmitCheck({ reqs: withLink, answers: { email: 'a@b.co', demo: 'soon' }, judging: null });
+  assert.deepEqual(f.map((x) => [x.key, x.rule]), [['demo', 'no_proof_link']]);
 });

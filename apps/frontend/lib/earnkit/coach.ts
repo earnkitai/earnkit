@@ -271,6 +271,15 @@ export function bankEntries(reqs: SubmissionRequirement[], answers: Record<strin
   return out;
 }
 
+/**
+ * v2.8.1 §C11: the answer key the coach's wallet question goes under (prepare_submission reads it
+ * as the wallet given, and shows it on the offer's wallet line).
+ */
+export const WALLET_KEY = 'payout_wallet';
+/** v2.8.1 §C11: the wallet question, asked once, in the coach's round. Pure. */
+export const walletAsk = (hasBonus: boolean) => `The wallet for your token's fees${hasBonus ? ' and any bonus' : ''} (0x…)?`;
+const WALLET_HINT = 'No wallet yet? Make one at keys.coinbase.com.';
+
 /** One question. `bullet`: shown as "- text" (C17: a later program's round, or the first program's leftovers). */
 export type Question = { keys: string[]; kind: FieldKind; text: string; bullet?: true; suggested?: Record<string, string> };
 
@@ -350,9 +359,42 @@ const chunks = <T,>(xs: T[], n: number): T[][] => {
  * - money and every other builder-only item, together in their own item, never joined onto contact.
  * A project's first program shows them as at most 3 numbered questions, a 4th as a bullet; a later
  * program's round (more than one item) as short bullets. No builder-only field is ever dropped.
- * `project` names the project in the built-in questions. Pure.
+ * `project` names the project in the built-in questions.
+ * v2.8.1 §C11: `wallet` (the entry gets a token and no wallet is known yet): the wallet is asked in
+ * this same round, never as a round of its own: joined to the contact item (personal details), else
+ * its own item while there is room, else joined to the last one. Pure.
  */
 export function questionsFor(a: {
+  reqs: SubmissionRequirement[];
+  answers: Record<string, string>;
+  first: boolean;
+  project?: string;
+  suggested?: Record<string, string>;
+  wallet?: { hasBonus: boolean } | null;
+}): Question[] {
+  const items = baseQuestions(a);
+  // A form with its own wallet field (an EarnKit campaign) asks it there, never twice.
+  if (!a.wallet || items.length === 0 || a.reqs.some((r) => r.key === WALLET_KEY)) return items;
+  const ask = walletAsk(a.wallet.hasBonus);
+  const fits = (t: string) => t.split(/\s+/).length <= MAX_QUESTION_WORDS;
+  const join = (q: Question): Question => {
+    const text = `${q.text} And ${lowerFirst(ask)}`;
+    return { ...q, keys: [...q.keys, WALLET_KEY], text: fits(`${text} ${WALLET_HINT}`) ? `${text} ${WALLET_HINT}` : text };
+  };
+  const at = items.findIndex((q) => q.kind === 'contact');
+  if (at >= 0) return items.map((q, i) => (i === at ? join(q) : q));
+  if (items.length < MAX_BULLETS) {
+    const own: Question = { keys: [WALLET_KEY], kind: 'contact', text: `${ask} ${WALLET_HINT}` };
+    // The same numbering rule as the other items: past the 3 numbered, a bullet.
+    const bullet = items.some((q) => q.bullet) || (a.first && items.length >= MAX_FIRST_QUESTIONS) || (!a.first && items.length >= MAX_LATER_QUESTIONS);
+    if (!a.first && items.length === MAX_LATER_QUESTIONS && !items[0].bullet)
+      return [...items.map((q) => ({ ...q, bullet: true as const })), { ...own, bullet: true as const }];
+    return [...items, bullet ? { ...own, bullet: true as const } : own];
+  }
+  return items.map((q, i) => (i === items.length - 1 ? join(q) : q));
+}
+
+function baseQuestions(a: {
   reqs: SubmissionRequirement[];
   answers: Record<string, string>;
   first: boolean;
@@ -459,8 +501,10 @@ export function preSubmitCheck(a: {
     }
   }
   const all = a.reqs.map(val).join('\n');
-  if (a.reqs.length > 0 && !LINK.test(all)) {
-    const target = a.reqs.find((r) => PROOF_KINDS.includes(kindOf(r))) ?? a.reqs[0];
+  // v2.8.1 §C15: only a field that holds proof (a link, a demo, how it works) is ever asked for a
+  // link; a form without one (a16z speedrun: just an email) gets no proof-link fix.
+  const target = a.reqs.find((r) => PROOF_KINDS.includes(kindOf(r)));
+  if (target && !LINK.test(all)) {
     const text = `${label(target)}: link the live app or the contract on the explorer.`;
     if (a.knownLinks?.some((l) => LINK.test(l))) agent.push({ key: target.key, rule: 'no_proof_link', for: 'agent', text });
     else builder.push({ key: target.key, rule: 'no_proof_link', for: 'builder', text });

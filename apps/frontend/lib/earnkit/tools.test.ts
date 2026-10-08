@@ -400,13 +400,13 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // v2.8.1 §B8: no repo, and entering needs one: the row says so.
     assert.match(text, new RegExp(`\\| Proof ${run} \\(needs a repo\\) \\|`));
     assert.match(text, new RegExp(`\\| No proof ${run} \\(needs a repo\\) \\|`));
-    assert.match(text, /Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus\. 0\.42 ETH so far\.$/);
+    assert.match(text, /Every entry gets a token that pays you, and its fees fund the builder bonus\. 0\.42 ETH so far\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
     assert.ok(text.includes(`\n- No proof ${run}: ${noProof.ideas[0]}\n- No proof ${run}: ${noProof.ideas[1]}\n`), text);
     // Without injection: no pools yet, so the provable program's bonus sentence is the empty-pool one.
     const plain = (await tools.list_programs({}, { installationId: id })) as { show_to_builder: string };
-    assert.match(plain.show_to_builder, /Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus\.$/);
+    assert.match(plain.show_to_builder, /Every entry gets a token that pays you, and its fees fund the builder bonus\.$/);
     // I2: a program whose round froze (the pool read maps it to null) shows no bonus to win: the
     // 0.42 ETH this test injected for proof.id never surfaces once its round is frozen. (Other test
     // files share this DB and may run concurrently, so a blanket "no bonus sentence at all" isn't
@@ -572,16 +572,16 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(r.token.no_wallet, true);
     // Ruling 29: the round's end is the first message's label for this program (its summary's
     // "closes Oct 14"), never a UTC day computed separately.
-    assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14' });
+    assert.deepEqual(r.bonus_round, { key: `${a.id}:2026-09-16`, ends_at: '2099-01-01T00:00:00.000Z', ends_label: 'Oct 14, 11:59 PM ET' });
     assert.equal(r.bonus_round!.ends_label, endsOf({ summary: a.summary, ends_at: new Date(a.ends_at) }));
     // The agent's note names the tool; the builder's text never does.
     assert.equal(r.token.note, 'No token yet: no wallet was given.');
-    assert.equal((r.token as { agent_note?: string }).agent_note, 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14.');
+    assert.equal((r.token as { agent_note?: string }).agent_note, 'No token yet: no wallet was given. When the builder replies with a wallet, call launch_token with the wallet as creator_wallet by Oct 14, 11:59 PM ET.');
     // v2.8 Task 11: "Also qualifies" (Other Grants, a genuinely open chain-fit sibling) may follow,
     // anchored on the "\n\n" join (review fix round 1, item 4).
     assertEntered(
       r.show_to_builder,
-      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/${a.id}-2026-09-16).`,
+      `Entered in ${a.title}. Reply with a wallet to get your token and join the builder bonus (0.18 ETH so far · ends Oct 14, 11:59 PM ET · earnkit.com/bonus/${a.id}-2026-09-16).`,
     );
     assert.doesNotMatch(r.show_to_builder, /launch_token|vault|\p{Extended_Pictographic}/u);
 
@@ -623,7 +623,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // Ruling 24: a public entry page and no entry link yet: the builder is asked for the link.
     assert.match(
       ok.show_to_builder,
-      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14 · earnkit\.com\/bonus\/.+\)\.(\n\n|$)/,
+      /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nSend me your dorahacks\.io entry link to join the builder bonus \(0\.18 ETH so far · ends Oct 14, 11:59 PM ET · earnkit\.com\/bonus\/.+\)\.(\n\n|$)/,
     );
     assert.doesNotMatch(ok.show_to_builder, /builder_submitted|record_submission|launch_token/);
     // I1: the builder says yes (the site blocks EarnKit): the same entry is updated, its coin kept,
@@ -637,7 +637,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     assert.equal(late.updated, true);
     assert.equal(late.token.status, 'launched');
     assert.equal(deploys.length, 1, 'no second launch');
-    assert.match(late.show_to_builder, /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT · you earn 40% of its fees\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14 · /);
+    assert.match(late.show_to_builder, /^Entered in .*\. Your token: tokens\.fun\/coin\/0xT\.\nBuilder bonus: 0\.18 ETH so far · ends Oct 14, 11:59 PM ET · /);
     assert.equal(await count(), 1, 'one entry, not two');
     const [basis] = await sql()<{ submission_basis: string | null }[]>`SELECT submission_basis FROM projects WHERE id = ${ok.project_id}`;
     assert.equal(basis.submission_basis, 'unverified_page');
@@ -1010,7 +1010,7 @@ test('8.4/8.7/8.11: "go" launches the token and returns the kit; a second "go" l
     const link = r.token!.tokens_fun!.replace('https://', '');
     // Final review M8: the post-launch line names the ticker.
     assert.match(r.token?.symbol ?? '', /^[A-Z0-9]+$/);
-    assert.equal(r.show_to_builder, `Your token $${r.token!.symbol}: ${link}. You earn 40% of its fees.\n\n${r.kit!.show_to_builder}`);
+    assert.equal(r.show_to_builder, `Your token $${r.token!.symbol} is live: ${link}.\n\n${r.kit!.show_to_builder}`);
     assert.ok(r.kit!.show_to_builder.endsWith('After you submit, paste your entry link here.'));
     assert.deepEqual(t.calls.wallets, [W8], 'only the wallet given in this exchange');
     const [row] = await t.rows();
@@ -1026,7 +1026,7 @@ test('8.4/8.7/8.11: "go" launches the token and returns the kit; a second "go" l
     assert.equal(again.token?.status, 'launched');
     // A later "skip" never takes the token's entry out of the bonus (Ruling 3, Task 7's carry).
     const skipLater = (await tools.confirm_entry({ ...t.input, builder_confirmed: true, decision: 'skip' }, t.ctx)) as Confirmed;
-    assert.ok(skipLater.show_to_builder.startsWith('Your token: '));
+    assert.ok(skipLater.show_to_builder.startsWith('Your token is live: '), skipLater.show_to_builder);
     assert.equal((await t.rows())[0].confirm_choice, 'go');
     // 8.11: the builder submitted: record_submission updates the same row, no token flow.
     const rec = (await tools.record_submission(
@@ -1118,14 +1118,16 @@ test('8.9 Ruling 5: a repo whose token is entered in Arc: no offer, "go" records
     const t = await confirmSetup('elsewhere');
     const ctx = { ...t.ctx, repoCoins: async (keys: string[]) => new Map(keys.map((k) => [k, { program_id: 'arc-microgrants', title: 'Arc Microgrants' }] as const)) };
     const offer = (await tools.confirm_entry(t.input, ctx)) as Confirmed;
-    assert.equal(offer.show_to_builder, 'Builder bonus counts in Arc Microgrants.\nReady to submit?');
+    // v2.8.1 §C13: no bonus note in the offer or the confirmation; Also qualifies says it once.
+    assert.equal(offer.show_to_builder, 'Ready to submit?');
     assert.ok(!('shown_wallet' in offer));
     const prep = (await tools.prepare_submission(t.input, ctx)) as { show_to_builder: string };
-    assert.ok(prep.show_to_builder.endsWith('\n\nBuilder bonus counts in Arc Microgrants.\nReady to submit?'), prep.show_to_builder);
+    assert.ok(prep.show_to_builder.endsWith('\n\nReady to submit?'), prep.show_to_builder);
+    assert.doesNotMatch(prep.show_to_builder, /builder bonus/i);
     const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
     assert.equal(t.calls.gate + t.calls.deploy, 0);
     assert.ok(r.kit);
-    assert.ok(r.show_to_builder.startsWith('Builder bonus counts in Arc Microgrants.\n\nReady for '), r.show_to_builder);
+    assert.ok(r.show_to_builder.startsWith('Ready for '), r.show_to_builder);
   }));
 
 test('8.10 C6, v2.8.1 fix round 1: "go" launches exactly the pair shown; another ticker is shown first; a shown ticker taken since gets a new Yes line; nothing deploys unseen', dbTest, () =>
@@ -1208,7 +1210,7 @@ test('C24, v2.8.1 §A3: the proof line still missing on the next "go" returns th
     assert.ok(pushed.kit);
   }));
 
-test('I3: recording Base after Arc (the repo\'s token is in Arc): "Builder bonus counts in Arc", never "isn\'t launched yet"', dbTest, () =>
+test('I3, v2.8.1 §C13: recording Base after Arc (the repo\'s token is in Arc): the bonus note once, positively, never "isn\'t launched yet"', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('i3');
     const ctx = { ...t.ctx, repoCoins: undefined };
@@ -1221,15 +1223,20 @@ test('I3: recording Base after Arc (the repo\'s token is in Arc): "Builder bonus
     await upsertProgram(ProgramFile.parse({ ...baseFile, id: baseId, status: 'active' }));
     const confirm = (await tools.confirm_entry({ ...t.input, program_id: baseId, ...go, wallet: W8 }, ctx)) as Confirmed;
     assert.ok(confirm.kit);
-    assert.ok(confirm.show_to_builder.startsWith(`Builder bonus counts in ${t.p.title}.\n\n`), confirm.show_to_builder);
+    // The kit alone: no bonus note before it.
+    assert.equal(confirm.show_to_builder, confirm.kit!.show_to_builder);
+    assert.doesNotMatch(confirm.show_to_builder, /builder bonus/i);
     const rec = (await tools.record_submission(
       { program_id: baseId, project: t.project, submission_data: t.answers, builder_submitted: true },
       ctx,
     )) as { show_to_builder: string; token: { status: string; note?: string } };
-    assert.ok(rec.show_to_builder.startsWith(`Entered in ${baseFile.title}. Builder bonus counts in ${t.p.title}.`), rec.show_to_builder);
+    // Once: in Also qualifies when it shows, else right after "Entered in…".
+    assert.ok(rec.show_to_builder.startsWith(`Entered in ${baseFile.title}.`), rec.show_to_builder);
+    assert.equal(rec.show_to_builder.split(`Your builder bonus rides on your ${t.p.title} entry.`).length, 2, rec.show_to_builder);
+    assert.doesNotMatch(rec.show_to_builder, /no builder bonus|don't add|counts in/i);
     assert.doesNotMatch(rec.show_to_builder, /isn't launched/);
     assert.equal(rec.token.status, 'skipped');
-    assert.equal(rec.token.note, `Builder bonus counts in ${t.p.title}.`);
+    assert.equal(rec.token.note, `Your builder bonus rides on your ${t.p.title} entry.`);
     assert.equal(t.calls.deploy, 1);
   }));
 
@@ -1283,7 +1290,7 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
     const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(t.calls.deploy, 1);
     assert.equal(r.token?.status, 'launched');
-    assert.match(r.show_to_builder, /^Your token \$[A-Z0-9]+: tokens\.fun\/coin\/0x/, r.show_to_builder);
+    assert.match(r.show_to_builder, /^Your token \$[A-Z0-9]+ is live: tokens\.fun\/coin\/0x/, r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /mytoken/);
     assert.equal((await t.rows()).length, 1, 'the same entry');
     // Ruling C11: the builder's own link is kept, never as EarnKit's token.
@@ -1485,7 +1492,7 @@ test('9 coach: confirm_entry "go" stores the application and banks the answers; 
     assert.deepEqual(r3.coach?.from_bank, {});
   }));
 
-test('C15/C17: Base Builder Grants, first program: 3 questions and one bullet cover every builder-only field; the answers make it ready (no second round)', dbTest, () =>
+test('C15/C17, v2.8.1 §C12: Base Builder Grants, first program: 3 questions and one bullet cover every builder-only field, the Loom and the Builder Code included; the answers make it ready (no second round)', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('base15', { remembered: W8 });
     const base = { ...committedProgram('base-builder-grants'), id: `${t.p.id}-base`, status: 'active', starts_at: '2026-01-01T00:00:00Z', ends_at: '2099-01-01T00:00:00Z' };
@@ -1493,14 +1500,17 @@ test('C15/C17: Base Builder Grants, first program: 3 questions and one bullet co
     const draft = {
       project_name_description: 'TipJar: tips for creators in USDC.',
       live_product_url: 'https://tipjar.example',
-      demo_loom: 'https://loom.com/share/abc',
       contract_address: '0x' + '1'.repeat(40),
       track: 'Trading',
-      builder_code: 'abc',
     };
     const r = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers: draft }, t.ctx)) as Coached;
     // 3 numbered questions and the leftovers as one short bullet (C17).
     assert.equal(r.questions?.length, 4);
+    // v2.8.1 §C12: the Loom demo and the Base Builder Code are in this first round, never a surprise second one.
+    assert.match(r.show_to_builder, /a Loom product demo/i, r.show_to_builder);
+    assert.match(r.show_to_builder, /your Base Builder Code/);
+    // A remembered wallet: no wallet question (the offer shows it).
+    assert.ok(!r.questions!.some((q) => q.keys.includes('payout_wallet')));
     assert.equal(r.show_to_builder.split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
     assert.equal(r.show_to_builder.split('\n').filter((l) => l.startsWith('- ')).length, 1);
     const asked = new Set(r.questions!.flatMap((q) => q.keys));
@@ -1508,11 +1518,58 @@ test('C15/C17: Base Builder Grants, first program: 3 questions and one bullet co
     for (const k of builderOnly) assert.ok(asked.has(k), k);
     assert.match(r.agent_note ?? '', /Never answer a field marked builder_only yourself/);
     // The builder's answers under the questions' keys: ready, straight to the draft and the offer.
-    const answers = { ...draft, ...Object.fromEntries(builderOnly.map((k) => [k, k === 'email' ? 'alice@example.com' : `${k} 120 by March`])) };
+    const answers = { ...draft, ...Object.fromEntries(builderOnly.map((k) => [k, k === 'email' ? 'alice@example.com' : k === 'demo_loom' ? 'https://loom.com/share/abc' : `${k} 120 by March`])) };
     const done = (await tools.prepare_submission({ program_id: base.id, project: t.project, answers, coach_asked: true }, t.ctx)) as Coached;
     assert.equal(done.ready, true);
     assert.match(done.show_to_builder, /Ready\. Want the builder bonus\?/);
     assert.doesNotMatch(done.show_to_builder, /^Before you submit: /);
+  }));
+
+test('v2.8.1 §C11: the wallet is asked once, in the coach round; confirming is a single yes; only the wallet passed with "go" launches', dbTest, () =>
+  withTokenEnv(async () => {
+    // No remembered wallet: Arc's one question (the builder profile) carries the wallet ask.
+    const t = await confirmSetup('c11');
+    const asked = (await tools.prepare_submission({ ...t.input, answers: { description: t.answers.description } }, t.ctx)) as Coached;
+    assert.equal(asked.questions?.length, 1);
+    const q = asked.questions![0];
+    assert.deepEqual(q.keys, ['builder_profile', 'payout_wallet']);
+    assert.equal(
+      asked.show_to_builder,
+      "Arc Microgrants: 1 quick question, then I'll write your application.\n" +
+        "1. Your public builder profile? And the wallet for your token's fees and any bonus (0x…)? No wallet yet? Make one at keys.coinbase.com.",
+    );
+    assert.match(asked.agent_note ?? '', /answers\.payout_wallet/);
+    // The answers come back with the wallet: the offer names it (not "used last time") and returns it as shown_wallet.
+    const answers = { ...t.answers, payout_wallet: W8 };
+    const ready = (await tools.prepare_submission({ ...t.input, answers, coach_asked: true }, t.ctx)) as Coached & { shown_wallet?: string };
+    assert.equal(ready.ready, true);
+    assert.match(ready.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3, or tell me another\./);
+    assert.doesNotMatch(ready.show_to_builder, /used last time|keys\.coinbase\.com/);
+    assert.equal(ready.shown_wallet, W8);
+    // Money safety (Ruling C12): a "go" without the wallet launches nothing; the coach's wallet is only asked about.
+    const bare = (await tools.confirm_entry({ ...t.input, answers, ...go }, t.ctx)) as Confirmed;
+    assert.equal(t.calls.deploy, 0);
+    assert.equal(bare.show_to_builder, 'Use 0x1581…b9a3 for fees and any bonus, or tell me another?');
+    assert.equal(bare.shown_wallet, W8);
+    // The single yes: the agent echoes shown_wallet with "go".
+    const yes = (await tools.confirm_entry({ ...t.input, answers, ...go, wallet: ready.shown_wallet }, t.ctx)) as Confirmed;
+    assert.equal(yes.token?.status, 'launched');
+    assert.deepEqual(t.calls.wallets, [W8]);
+    // No wallet question when a wallet is already known (remembered), or the agent can't push.
+    const known = await confirmSetup('c11-known', { remembered: W8 });
+    const k = (await tools.prepare_submission({ ...known.input, answers: { description: known.answers.description } }, known.ctx)) as Coached;
+    assert.deepEqual(k.questions?.flatMap((x) => x.keys), ['builder_profile']);
+    const nopush = (await tools.prepare_submission({ ...t.input, answers: { description: t.answers.description }, agent: { can_push: false } }, { ...t.ctx, installationId: (await confirmSetup('c11-np')).inst })) as Coached;
+    assert.ok(!nopush.questions?.some((x) => x.keys.includes('payout_wallet')));
+    // A repo whose token is entered elsewhere gets no token here: no wallet question.
+    const other = await confirmSetup('c11-elsewhere');
+    const elsewhere = (await tools.prepare_submission({ ...other.input, answers: { description: other.answers.description } }, {
+      ...other.ctx,
+      repoCoins: async (keys: string[]) => new Map(keys.map((key) => [key, { program_id: 'base-builder-grants', title: 'Base Builder Grant Program' }] as const)),
+    })) as Coached;
+    assert.ok(!elsewhere.questions?.some((x) => x.keys.includes('payout_wallet')));
+    // A wallet answer that isn't an address fails the call plainly (Ruling 22), never dropped.
+    await assert.rejects(tools.prepare_submission({ ...t.input, answers: { ...t.answers, payout_wallet: 'my wallet' }, coach_asked: true }, t.ctx), /isn't valid/);
   }));
 
 test('10.9 Ruling 4, Part E: Base (its Google form in the file): prepare_submission never has the link; confirm_entry go and skip return the prefilled_link kit', dbTest, () =>

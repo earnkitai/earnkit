@@ -737,7 +737,7 @@ let retryRepo = '';
   check(
     r.kit?.mode === 'copy_paste' &&
       // Final review M8: the post-launch line names the ticker.
-      r.show_to_builder.startsWith(`Your token $${r.token?.symbol}: tokens.fun/coin/${TOKEN_ADDRESS}. You earn 40% of its fees.\n\nReady for Token e2e (encouraged).`) &&
+      r.show_to_builder.startsWith(`Your token $${r.token?.symbol} is live: tokens.fun/coin/${TOKEN_ADDRESS}.\n\nReady for Token e2e (encouraged).`) &&
       /^[A-Z0-9]+$/.test(r.token?.symbol ?? '') &&
       r.show_to_builder.endsWith('After you submit, send me the confirmation screenshot or email.'),
     '(w) the kit comes with the token line',

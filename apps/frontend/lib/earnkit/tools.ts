@@ -68,9 +68,10 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { READY_TO_SUBMIT, bonusCountsIn, confirmDecision, confirmOffer, proofLineWaiting, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
+  WALLET_KEY,
   applicationOf,
   bankFill,
   coachFields,
@@ -304,7 +305,8 @@ const TOKEN_LINE_NOTE = 'Commit this line to earnkit.txt at the repo root with y
 function tokenLine(token: TokenOutcome | null, fallback: string) {
   // Final review M8: the ticker, when known, so the builder recognizes and shares their token.
   if (token?.status === 'launched' && token.tokens_fun)
-    return `Your token${token.symbol ? ` $${token.symbol}` : ''}: ${token.tokens_fun.replace(/^https?:\/\//, '')}. You earn 40% of its fees.`;
+    // v2.8.1 §F19: no "40%" after the launch; the Yes line said it.
+    return `Your token${token.symbol ? ` $${token.symbol}` : ''} is live: ${token.tokens_fun.replace(/^https?:\/\//, '')}.`;
   if (token?.status === 'pending') return token.note ?? LAUNCHING;
   return token?.note ?? fallback;
 }
@@ -354,8 +356,46 @@ const AGENT_FIXES_NOTE =
   'Before showing show_to_builder, make every agent_fixes change yourself (trim to the limit, add the link you know) and call again.';
 const FIXES_NOTE = 'If the builder gives what a fix asks for, add it to that answer and call again.';
 
+/** v2.8.1 §C11: what the agent does with the wallet answer from the coach's round. */
+const WALLET_ANSWER_NOTE =
+  `Put the wallet the builder gives under answers.${WALLET_KEY} (a 0x address); if they have none yet, leave it out. ` +
+  'When they say yes to the offer, pass shown_wallet as wallet.';
+
 /** Every coach note for the agent (the copy review scans them). */
-export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES_NOTE, FIXES_NOTE };
+export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES_NOTE, FIXES_NOTE, WALLET_ANSWER_NOTE };
+
+/**
+ * v2.8.1 §C11: whether the coach's round asks for the wallet: only when this entry would get a
+ * token (a repo, an agent that can push, tokens on for the program and available, the repo's
+ * token not entered elsewhere) and no wallet is known: none given, none on this entry, none
+ * remembered. Returns what the question says (the builder bonus or not), or null. A failed read
+ * never fails the tool (no wallet question).
+ */
+async function walletToAsk(
+  program: ProgramRow,
+  repoUrl: string | null | undefined,
+  canPush: boolean,
+  given: string | null,
+  remembered: string | null,
+  name: string | undefined,
+  ctx: ToolContext,
+): Promise<{ hasBonus: boolean } | null> {
+  if (program.campaign || !repoUrl || !canPush || given || remembered) return null;
+  try {
+    const facts = await offerFacts(program, repoUrl, ctx);
+    if (facts.coinIn || facts.policyOff || !facts.available) return null;
+    const stored = await ownEntryWallet({
+      programId: program.id,
+      installationId: ctx.installationId,
+      repoUrl,
+      name: name?.trim() || titleCase(repoNameOf(repoUrl) ?? ''),
+    });
+    return stored ? null : { hasBonus: facts.hasBonus };
+  } catch (err) {
+    console.error('[coach] wallet ask', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
 
 const ListProgramsInput = z
   .object({
@@ -737,15 +777,21 @@ export const tools = {
       judging: (program.judging?.criteria ?? []).map((c) => c.text),
       from_bank: banked?.from_bank ?? {},
     };
-    const questions = open && !coach_asked
-      ? questionsFor({
-          reqs: program.submission_requirements,
-          answers: values,
-          first: banked?.first ?? true,
-          project: banked?.name,
-          suggested: banked?.suggested,
-        })
-      : [];
+    const coachQuestions = (wallet: { hasBonus: boolean } | null) =>
+      questionsFor({
+        reqs: program.submission_requirements,
+        answers: values,
+        first: banked?.first ?? true,
+        project: banked?.name,
+        suggested: banked?.suggested,
+        wallet,
+      });
+    let questions = open && !coach_asked ? coachQuestions(null) : [];
+    // v2.8.1 §C11: with a round to ask anyway, the wallet is asked in it, so the confirmation is a
+    // single yes; only when this entry would get a token and no wallet is known (given, this entry's
+    // own, or remembered). The answer comes back as answers.payout_wallet (the wallet given).
+    const askWallet = questions.length > 0 ? await walletToAsk(program, repoUrl, agent?.can_push !== false, given, remembered, known.project?.name, ctx) : null;
+    if (askWallet) questions = coachQuestions(askWallet);
     const intro = coachIntro(program.title, questions);
     if (intro)
       return withAlerts(ctx.installationId, {
@@ -755,7 +801,7 @@ export const tools = {
         coach,
         ready: false,
         missing: prep.missing,
-        agent_note: QUESTIONS_NOTE,
+        agent_note: askWallet ? `${QUESTIONS_NOTE} ${WALLET_ANSWER_NOTE}` : QUESTIONS_NOTE,
       });
 
     // v2.8 Part C, Ruling 4 (plan): other programs. Once ready, the draft, the check's fixes and the
@@ -864,6 +910,9 @@ export const tools = {
     if (!isOpen(program)) throw new EntryError('This program is closed or past its deadline.');
     // Ruling 22: a wallet given is valid or the call fails (a typo never falls back to another).
     const given = givenWallet(i.wallet);
+    // v2.8.1 §C11: the wallet from the coach's round, only ever shown (the offer's wallet line, the
+    // wallet question): a "go" launches to the wallet passed with it (Ruling C12), never to this.
+    const answered = givenWallet(i.answers[WALLET_KEY]);
     const repoUrl = i.project.repo_url ?? i.answers.repo_url ?? null;
     // v2.8 Part D: the bank fills what the draft showed from it, so the kit and the snapshot match it.
     const banked = await bankedAnswers(ctx.installationId, program, i.project, repoUrl, i.answers);
@@ -897,10 +946,10 @@ export const tools = {
     if (decision.kind === 'offer') {
       // Fix round 1 (item 1): the entry's own wallet first (a "go" without a wallet uses it), then
       // the remembered one; whichever is shown comes back as shown_wallet.
-      const stored = given
+      const stored = given ?? answered
         ? null
         : await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
-      const wallet = given ?? stored ?? (await rememberedWallet(ctx.installationId));
+      const wallet = given ?? answered ?? stored ?? (await rememberedWallet(ctx.installationId));
       // v2.8.1 §A2: the Yes line names the token that launches: the builder's own edit, else EarnKit's proposal.
       const key = offerKey(repoUrl, i.project.name);
       const shown = offersToken ? await readOffer(ctx.installationId, program.id, key).catch(() => null) : null;
@@ -910,7 +959,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && wallet !== null, tokensOff, proposal: pair }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -953,9 +1002,10 @@ export const tools = {
     const reoffer = async (projectId: number, proposal: Offered, taken: string | null) => {
       const wallet =
         given ??
+        answered ??
         (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await rememberedWallet(ctx.installationId));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && wallet !== null, proposal });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
@@ -1021,7 +1071,8 @@ export const tools = {
         // Fix round 2: no wallet passed with this "go": nothing launched. The entry's stored wallet,
         // else the remembered one, is suggested as a question, never used unseen.
         const remembered = token.no_wallet
-          ? ((await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
+          ? (answered ??
+            (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
             (await rememberedWallet(ctx.installationId)))
           : null;
         const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;
@@ -1067,7 +1118,8 @@ export const tools = {
       project_id: entry.id,
       ...(token && { token }),
       kit,
-      show_to_builder: `${first}\n\n${kit.show_to_builder}`,
+      // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
+      show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
       // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
       agent_note:
         `Show show_to_builder as written. ${kitAgentNote(kit, program)} ` +
@@ -1121,7 +1173,7 @@ export const tools = {
       : confirmed
         ? {
             status: 'skipped',
-            note: confirmed === 'skip' ? SKIPPED_ENTRY : countsIn ? bonusCountsIn(countsIn) : "This entry's token isn't launched.",
+            note: confirmed === 'skip' ? SKIPPED_ENTRY : countsIn ? bonusRidesOn(countsIn) : "This entry's token isn't launched.",
           }
         : await submissionToken(
       {
@@ -1190,8 +1242,10 @@ export const tools = {
       console.error('[also_qualifies]', err instanceof Error ? err.name : 'error');
       return null;
     });
+    // v2.8.1 §C13: the bonus note once: in Also qualifies, else after "Entered in…".
+    const ridesOn = countsIn && !also?.text ? ` ${bonusRidesOn(countsIn)}` : '';
     const show_to_builder =
-      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + (also?.text ? `\n\n${also.text}` : '');
+      enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + ridesOn + (also?.text ? `\n\n${also.text}` : '');
     return withAlerts(ctx.installationId, {
       ...result,
       token: tokenOut,

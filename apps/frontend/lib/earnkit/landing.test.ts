@@ -251,7 +251,7 @@ test('readGuidePage: a curated program\'s guide, plain JSON (unstable_cache seri
   assert.equal(page.title, 'Arc Microgrants');
   assert.equal(page.open, true);
   assert.equal(page.source_url, 'https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq');
-  assert.match(page.guide.header, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14$/);
+  assert.match(page.guide.header, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET$/);
   assert.equal(page.board_path, '/bonus/arc-microgrants-2026-09-16');
   assert.equal(page.guide.bonus?.board.endsWith(page.board_path!), true);
   assert.equal(page.ecosystem, page.guide.wants?.ecosystem ?? 'Arc');

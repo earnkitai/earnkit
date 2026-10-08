@@ -73,14 +73,21 @@ export const COIN_FOOTNOTE = `Fees in WETH; tokens.fun pays gas. Terms: ${TOKEN_
 
 const DAY_MS = 86_400_000;
 
-/** "Oct 14" from a program summary's "closes Oct 14, …" part, or null. Pure; exported for tests. */
+/**
+ * v2.8.1 §C15: the deadline as the organizer states it, in the program's own time zone ("Oct 14,
+ * 11:59 PM ET"), from a program summary's "closes Oct 14, 11:59 PM ET" part, or null. Pure; exported
+ * for tests.
+ */
 export function summaryCloses(summary: string): string | null {
   for (const part of summary.split(' · ').slice(1)) {
-    const m = /^closes (\w{3} \d{1,2})\b/.exec(part);
-    if (m) return m[1];
+    const m = /^closes (\w{3} \d{1,2}\b.*)$/.exec(part.trim());
+    if (m) return m[1].trim();
   }
   return null;
 }
+
+/** "Oct 14" from summaryCloses' "Oct 14, 11:59 PM ET". Pure. */
+const closesDay = (closes: string) => /^\w{3} \d{1,2}/.exec(closes)![0];
 
 /**
  * The prize part of a program's summary ("500 USDC × 20 grants"). Ruling C23: an investment
@@ -92,22 +99,23 @@ export const prizeOf = (c: { summary: string; investment?: boolean }) => {
 };
 
 /**
- * "Oct 14" from the summary's "closes Oct 14, …", "rolling", else ends_at's last day (deadlineDay). Ruling 29:
- * roundEndLabel gives a round ending at the deadline this same day. Pure; exported for tests.
+ * "Oct 14, 11:59 PM ET" from the summary's "closes Oct 14, 11:59 PM ET" (v2.8.1 §C15: the program's
+ * own time zone), "rolling", else ends_at as deadlineLabel shows it. Ruling 29: roundEndLabel gives a
+ * round ending at the deadline the same text. Pure; exported for tests.
  */
 export function endsOf(c: { summary: string; ends_at?: Date | null }) {
   const closes = summaryCloses(c.summary);
   if (closes) return closes;
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
-  return c.ends_at ? deadlineDay(c.ends_at) : 'rolling';
+  return c.ends_at ? deadlineLabel(c.ends_at) : 'rolling';
 }
 
 /**
- * Ruling 29: a round's end as the builder sees it everywhere, the same day as the first message
- * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14"
- * (the program's real local deadline), else deadlineDay, as the first message does. Any other round
- * (a rolling program's month, ending 00:00 UTC, exclusive) shows its last day ("Oct 31" for a month
- * ending Nov 1). Pure.
+ * Ruling 29: a round's end as the builder sees it everywhere, the same text as the first message
+ * (present.ts endsOf). A window ending at the program's deadline takes the summary's "closes Oct 14,
+ * 11:59 PM ET" (the program's real local deadline, v2.8.1 §C15), else deadlineLabel, as the first
+ * message does. Any other round (a rolling program's month, ending 00:00 UTC, exclusive) shows its
+ * last day ("Oct 31" for a month ending Nov 1). Pure.
  */
 export function roundEndLabel(program: { summary: string; ends_at: Date | null }, ends: Date) {
   const closes = summaryCloses(program.summary);
@@ -115,13 +123,14 @@ export function roundEndLabel(program: { summary: string; ends_at: Date | null }
     if (program.ends_at.getTime() === ends.getTime()) return closes;
     // Re-review Minor 1: a stored window whose program deadline later moved keeps the same local
     // clock time: shift its UTC day the way the summary's local day differs from the deadline's.
+    const day = closesDay(closes);
     const sameClock = (program.ends_at.getTime() - ends.getTime()) % DAY_MS === 0;
     if (sameClock)
       for (const shift of [0, -1, 1])
-        if (shortDate(new Date(program.ends_at.getTime() + shift * DAY_MS)) === closes)
-          return shortDate(new Date(ends.getTime() + shift * DAY_MS));
+        if (shortDate(new Date(program.ends_at.getTime() + shift * DAY_MS)) === day)
+          return `${shortDate(new Date(ends.getTime() + shift * DAY_MS))}${closes.slice(day.length)}`;
   }
-  if (program.ends_at && program.ends_at.getTime() === ends.getTime()) return closes ?? deadlineDay(ends);
+  if (program.ends_at && program.ends_at.getTime() === ends.getTime()) return closes ?? deadlineLabel(ends);
   return deadlineDay(ends);
 }
 
@@ -131,6 +140,17 @@ export function roundEndLabel(program: { summary: string; ends_at: Date | null }
  */
 export const deadlineDay = (ends: Date) =>
   shortDate(ends.getTime() % DAY_MS === 0 ? new Date(ends.getTime() - 1) : ends);
+
+/**
+ * v2.8.1 §C15: a program deadline with no stated time zone: its time in UTC ("Oct 15, 3:59 AM UTC");
+ * an end at 00:00 UTC (exclusive) stays its last day (deadlineDay). Pure.
+ */
+export function deadlineLabel(ends: Date) {
+  if (ends.getTime() % DAY_MS === 0) return deadlineDay(ends);
+  const h = ends.getUTCHours();
+  const clock = `${h % 12 || 12}:${String(ends.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  return `${shortDate(ends)}, ${clock} UTC`;
+}
 
 /**
  * Ruling 18 (plan), Ruling 22: the AGENT's note for an entry recorded without a wallet (never
@@ -143,8 +163,12 @@ export const noCoinYet = (endsLabel: string | null) =>
 /** Final review M1: the one line for an entry whose repo another entry already holds here. */
 export const REPO_HELD = 'Another entry of this repo already holds its token and builder bonus here.';
 
-/** Ruling 5 (plan): the repo's one token is entered in another program. Pure. */
-export const bonusCountsIn = (program: string) => `Builder bonus counts in ${program}.`;
+/**
+ * Ruling 5 (plan), v2.8.1 §C13: the repo's one token is entered in this program, so its builder
+ * bonus rides on that entry. Said once, positively, in the Also qualifies block (or after "Entered
+ * in…" when there is no such block); never in the offer or the confirmation. Pure.
+ */
+export const bonusRidesOn = (program: string) => `Your builder bonus rides on your ${program} entry.`;
 
 export type EnteredText = {
   programTitle: string;
@@ -180,7 +204,8 @@ export type EnteredText = {
   repoHeld?: boolean;
   /**
    * Final review I3: the repo's one token is entered in this other program (Ruling 5 (plan)), so
-   * this entry has none by design; said as the confirmation said it.
+   * this entry has none by design. v2.8.1 §C13: no bonus line here; the Also qualifies block (or
+   * the caller, without one) says bonusRidesOn once.
    */
   countsIn?: string | null;
 };
@@ -193,7 +218,7 @@ export function enteredText(a: EnteredText) {
   const entered = `Entered in ${a.programTitle}.`;
   // M1: no coin and no bonus to offer here; one plain line, never a wallet ask or a bonus line.
   if (a.repoHeld) return `${entered} ${REPO_HELD}`;
-  if (a.countsIn) return `${entered} ${bonusCountsIn(a.countsIn)}`;
+  if (a.countsIn) return entered;
   const round = a.bonus && `${a.bonus.cell} · ends ${a.bonus.ends} · ${a.bonus.board}`;
   if (a.coin.status === 'no_wallet')
     return round
@@ -201,7 +226,8 @@ export function enteredText(a: EnteredText) {
       : `${entered} Reply with a wallet to get your token.`;
   const coin =
     a.coin.status === 'launched'
-      ? ` Your token: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
+      ? // v2.8.1 §F19: no "40%" here; the Yes line said it.
+        ` Your token: ${a.coin.url.replace(/^https?:\/\//, '')}.`
       : a.coin.status === 'pending'
         ? a.coin.stuck
           ? " Your token didn't launch yet; EarnKit is checking what happened."

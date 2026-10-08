@@ -29,7 +29,8 @@ test('v2.8 Part C: no wallet known: the wallet line carries the no-wallet hint',
 });
 
 test('Ruling 5 (plan): a repo whose token is entered elsewhere: no offer, just where the bonus counts', () => {
-  assert.equal(confirmOffer({ ...base, coinIn: 'Arc Microgrants' }), 'Builder bonus counts in Arc Microgrants.\nReady to submit?');
+  // v2.8.1 §C13: no bonus note in the offer; it is said once, in Also qualifies.
+  assert.equal(confirmOffer({ ...base, coinIn: 'Arc Microgrants' }), 'Ready to submit?');
 });
 
 test("Ruling 7 (plan): an agent that can't push: one line, then Ready to submit?; no skip line", () => {
@@ -63,7 +64,7 @@ test('Ruling 4 (plan): confirmDecision', () => {
   assert.deepEqual(confirmDecision({ ...ok, decision: 'skip' }), { kind: 'skip' });
   // skip wins over every lasting reason.
   assert.deepEqual(confirmDecision({ ...ok, decision: 'skip', canPush: false, coinIn: 'Arc Microgrants' }), { kind: 'skip' });
-  assert.deepEqual(confirmDecision({ ...ok, coinIn: 'Arc Microgrants' }), { kind: 'record_only', note: 'Builder bonus counts in Arc Microgrants.' });
+  assert.deepEqual(confirmDecision({ ...ok, coinIn: 'Arc Microgrants' }), { kind: 'record_only', note: '' });
   assert.deepEqual(confirmDecision({ ...ok, canPush: false }), { kind: 'record_only', note: CANT_PUSH });
   assert.deepEqual(confirmDecision({ ...ok, hasRepo: false }), { kind: 'record_only', note: 'Your token needs a public repo.' });
   assert.equal(confirmDecision({ ...ok, policyOff: true }).kind, 'record_only');

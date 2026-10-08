@@ -185,11 +185,13 @@ export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
  */
 export const BONUS_TOP = 10;
 
-/** v2.8 Ruling 25 (plan): the first message's token line, before the bonus total. */
-export const TOKEN_LINE =
-  'Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus.';
+/**
+ * v2.8 Ruling 25 (plan): the first message's token line, before the bonus total. v2.8.1 §F19: no
+ * "40%" here; the figure is said once per entry, in the confirmation's Yes line (confirm.ts yesLine).
+ */
+export const TOKEN_LINE = 'Every entry gets a token that pays you, and its fees fund the builder bonus.';
 /** The token line when no program on screen has a builder bonus. */
-export const TOKEN_LINE_NO_BONUS = 'Every entry gets a token: you earn 40% of its trading fees.';
+export const TOKEN_LINE_NO_BONUS = 'Every entry gets a token that pays you.';
 
 /**
  * v2.7 §3, Ruling 11 (plan); v2.8 Ruling 25 (plan): the token and builder bonus sentence that
@@ -214,8 +216,8 @@ export function bonusClose(onScreen: Card[], others = false): string | null {
 
 /**
  * Ruling 25: a matched row whose repo already has its coin entered in another program can't earn
- * this program's builder bonus (one coin per repo); Ruling 13 (plan): the note now shows in the
- * row's repo cell instead of a bonus column. Null otherwise. Pure.
+ * this program's builder bonus (one coin per repo). v2.8.1 §C13: no longer shown in the row; it
+ * only moves the closing bonus sentence apart from the offer (final review M4). Null otherwise. Pure.
  */
 function repoCoinElsewhere(m: Pick<FirstMessage, 'repoCoins'>, card: Card, repoUrl: string | null) {
   if (card.builder_bonus === false || !repoUrl || !m.repoCoins) return null;
@@ -485,14 +487,13 @@ export function presentFirstMessage(m: FirstMessage): string {
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, repo_url, v }) => {
-            const base = v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`;
-            const elsewhere = repoCoinElsewhere(m, card, repo_url);
+            // v2.8.1 §C13: no "(no builder bonus: …)" per row; the bonus note is said once, in Also qualifies.
             return [
               programCell(card, entered, false),
               prizeOf(card),
               difficultyCell(card),
               endsOf(card),
-              elsewhere ? `${base} (${elsewhere})` : base,
+              v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`,
             ];
           }),
         ),

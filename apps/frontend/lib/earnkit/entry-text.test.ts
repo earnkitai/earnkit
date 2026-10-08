@@ -173,7 +173,7 @@ test('v2.6 §3, Ruling 22: the after-submission reply never names a tool', () =>
   const bonus = { cell: '0.18 ETH so far', ends: 'Oct 14', board: 'earnkit.com/bonus/arc-microgrants-2026-09-16' };
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'launched', url: 'https://tokens.fun/coin/0xabc' }, bonus }),
-    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc.\n' +
       'Builder bonus: 0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16',
   );
   assert.equal(enteredText({ programTitle: 'Base Builder Grant Program', coin: { status: 'skipped' }, bonus: null }), 'Entered in Base Builder Grant Program.');
@@ -227,24 +227,24 @@ test('fix round 1 (I3): an entry that does not count yet is told plainly what jo
   const coin = { status: 'launched' as const, url: 'https://tokens.fun/coin/0xabc' };
   assert.equal(
     enteredText({ programTitle: 'Base Batches', coin, bonus: { ...base, join: { kind: 'confirm', site: 'base.org' } } }),
-    'Entered in Base Batches. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Base Batches. Your token: tokens.fun/coin/0xabc.\n' +
       "Tell me once you've submitted on base.org to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).",
   );
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io' } } }),
-    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc.\n' +
       'Add your repo link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // N2: an entry without a repo is asked for its live site link, never a repo link.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'page', site: 'dorahacks.io', missing: 'live site' } } }),
-    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc.\n' +
       'Add your live site link to your dorahacks.io entry page to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Ruling 24: a public entry page, no entry link given yet.
   assert.equal(
     enteredText({ programTitle: 'Arc Microgrants', coin, bonus: { ...base, join: { kind: 'link', site: 'dorahacks.io' } } }),
-    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc · you earn 40% of its fees.\n' +
+    'Entered in Arc Microgrants. Your token: tokens.fun/coin/0xabc.\n' +
       'Send me your dorahacks.io entry link to join the builder bonus (0.18 ETH so far · ends Oct 14 · earnkit.com/bonus/arc-microgrants-2026-09-16).',
   );
   // Counting (join null): the current line.
@@ -256,34 +256,39 @@ test('fix round 1 (I3): an entry that does not count yet is told plainly what jo
     );
 });
 
-test('Ruling 29 (final I2): the round end is the first message\'s day, the real local deadline', async () => {
+test('Ruling 29 (final I2), v2.8.1 §C15: the round end is the first message\'s deadline, in the program\'s own time zone', async () => {
   const { endsOf } = await import('./present');
-  // Arc: closes Oct 14, 11:59 PM ET = 2026-10-15T03:59Z. The first message says "Oct 14"; so does every reply.
+  // Arc: closes Oct 14, 11:59 PM ET = 2026-10-15T03:59Z. The first message says "Oct 14, 11:59 PM ET"; so does every reply.
   const arc = { summary: '500 USDC × 20 grants · closes Oct 14, 11:59 PM ET', ends_at: new Date('2026-10-15T03:59:00Z') };
   const card = { id: 'arc', title: 'Arc', tag: null, each_time: [], ...arc };
-  assert.equal(endsOf(card), 'Oct 14');
+  assert.equal(endsOf(card), 'Oct 14, 11:59 PM ET');
   assert.equal(roundEndLabel(arc, arc.ends_at), endsOf(card));
   // Monad and Colosseum: the same, never the next UTC day.
   const monad = { summary: '$250K+ prize pool · closes Oct 13, 11:59 PM ET', ends_at: new Date('2026-10-14T03:59:00Z') };
-  assert.equal(roundEndLabel(monad, monad.ends_at), 'Oct 13');
+  assert.equal(roundEndLabel(monad, monad.ends_at), 'Oct 13, 11:59 PM ET');
   const colosseum = { summary: '$840K+ in prizes · closes Oct 12, 11:59 PM PT', ends_at: new Date('2026-10-13T06:59:00Z') };
-  assert.equal(roundEndLabel(colosseum, colosseum.ends_at), 'Oct 12');
-  // No "closes" in the summary: the deadline's UTC day, as endsOf shows it.
+  assert.equal(roundEndLabel(colosseum, colosseum.ends_at), 'Oct 12, 11:59 PM PT');
+  // No "closes" in the summary: the deadline in UTC, as endsOf shows it.
   const plain = { summary: 'up to $5,000', ends_at: new Date('2026-10-15T03:59:00Z') };
   assert.equal(roundEndLabel(plain, plain.ends_at), endsOf({ ...card, ...plain }));
+  assert.equal(endsOf({ ...card, ...plain }), 'Oct 15, 3:59 AM UTC');
+  assert.equal(endsOf({ ...card, summary: 'x', ends_at: new Date('2026-10-15T15:00:00Z') }), 'Oct 15, 3:00 PM UTC');
+  assert.equal(endsOf({ ...card, summary: 'x', ends_at: new Date('2026-11-01T00:00:00Z') }), 'Oct 31');
+  // A summary with a day only (an EarnKit campaign) stays a day.
+  assert.equal(summaryCloses('$100 each to top 5 (in MINI) · closes Oct 14'), 'Oct 14');
   // A rolling program's month ends Nov 1 00:00 UTC (exclusive): its last day.
   assert.equal(roundEndLabel({ summary: 'up to $5,000 · rolling', ends_at: null }, new Date('2026-11-01T00:00:00Z')), 'Oct 31');
   assert.equal(summaryCloses('up to $5,000 · rolling'), null);
   // Re-review Minor 1: Arc's earlier window (stored, ending a week before the moved deadline, same
   // ET clock time) still reads its local day, not the next UTC day.
-  assert.equal(roundEndLabel(arc, new Date('2026-10-08T03:59:00Z')), 'Oct 7');
+  assert.equal(roundEndLabel(arc, new Date('2026-10-08T03:59:00Z')), 'Oct 7, 11:59 PM ET');
   // A stored end at another clock time falls back to its own last UTC day.
   assert.equal(roundEndLabel(arc, new Date('2026-10-01T00:00:00Z')), 'Sep 30');
   // The reply and the agent note carry that same day.
   const label = roundEndLabel(arc, arc.ends_at);
   const reply = enteredText({ programTitle: 'Arc Microgrants', coin: { status: 'no_wallet' }, bonus: { cell: 'new pool', ends: label, board: 'b' } });
-  assert.match(reply, /ends Oct 14 /);
-  assert.match(noCoinYet(label), /by Oct 14\.$/);
+  assert.match(reply, /ends Oct 14, 11:59 PM ET /);
+  assert.match(noCoinYet(label), /by Oct 14, 11:59 PM ET\.$/);
 });
 
 test('final M1: an entry whose repo another entry holds here gets one plain line, no bonus or wallet ask', () => {

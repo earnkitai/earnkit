@@ -71,7 +71,23 @@ export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_require
   submit_host?: string | null;
   submit_api?: boolean;
   form?: ProgramForm | null;
+  /** v2.8.1 §C14: an investment program (a16z speedrun): its form goes on past what EarnKit lists. */
+  investment?: boolean;
+  organizer?: string;
 };
+
+/**
+ * v2.8.1 §C14: an investment program's public form is only its first step (a16z speedrun: the
+ * email); the rest of the application isn't public, so the kit says where it goes on: "After the
+ * email step, the application continues on a16z's site." Null for every other program. Pure.
+ */
+export function continuesLine(p: Pick<KitProgram, 'investment' | 'organizer' | 'submission_requirements'>): string | null {
+  if (!p.investment) return null;
+  const org = p.organizer?.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+  const steps = p.submission_requirements.filter((r) => r.required);
+  const step = steps.length === 1 ? `the ${steps[0].label.trim().replace(/[?:.]+$/, '').toLowerCase()} step` : 'these steps';
+  return `After ${step}, the application continues on ${org ? `${org}'s` : 'their'} site.`;
+}
 
 /** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */
 export const MAX_PREFILL_URL = 8000;
@@ -223,7 +239,8 @@ export function submitKit(
   const proof = proofFor(host);
   const title = program.title;
   const before = missing.length ? [`Before you submit: ${missing.join(', ')}.\n`] : [];
-  const done = (lines: string[]) => [...before, ...lines, `\n${proof.ask}`].join('\n');
+  const continues = continuesLine(program);
+  const done = (lines: string[]) => [...before, ...lines, ...(continues ? [`\n${continues}`] : []), `\n${proof.ask}`].join('\n');
   const base = { url: program.submission_url, fields, proof, missing };
 
   let mode = submitModeFor(program, agent);

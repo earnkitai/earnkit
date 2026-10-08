@@ -2,7 +2,7 @@ import type { Chain } from './match';
 import type { FieldKind, SubmissionRequirement } from './program-file';
 import { bankFill } from './coach';
 import { prepareSubmission, type ProjectInfo } from './submission';
-import { endsOf, prizeOf } from './entry-text';
+import { bonusRidesOn, endsOf, prizeOf } from './entry-text';
 import { table } from './present';
 import type { Difficulty } from './guide';
 
@@ -123,12 +123,12 @@ const needs = (r: AlsoRow) => (r.needsLive ? 'a live link' : r.left === 0 ? 'not
 
 /**
  * The builder's "Also qualifies" message, or null with no rows. `coinIn` (Ruling 5 (plan)): the
- * program this repo's one token is already entered in, so these other entries know they get none.
- * Pure.
+ * program this repo's one token is entered in. v2.8.1 §C13: the bonus note is said here, once, and
+ * positively ("Your builder bonus rides on your Arc Microgrants entry."). Pure.
  */
 export function alsoText(rows: AlsoRow[], coinIn: string | null): string | null {
   if (rows.length === 0) return null;
   const body = rows.map((r) => [r.title, r.prize, r.ends, needs(r)]);
-  const tail = `Say "enter it here too" for any of them.${coinIn ? ` Your builder bonus is in ${coinIn}; these entries don't add to it.` : ''}`;
+  const tail = `Say "enter it here too" for any of them.${coinIn ? ` ${bonusRidesOn(coinIn)}` : ''}`;
   return `You also qualify for:\n${table(['Program', 'Prize', 'Ends', 'Still needed'], body)}\n${tail}`;
 }

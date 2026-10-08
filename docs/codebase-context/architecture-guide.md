@@ -468,6 +468,20 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   F5), and "build something new" for the Easy program with the most money only when no repo fits;
   with no repo, the best program known not to need one.
   "$X in prizes you qualify for" leaves out investments and rows that still need new work.
+- **Applying, v2.8.1 §C and §F.** The coach's one round also asks for the wallet (`questionsFor`'s
+  `wallet`, key `payout_wallet`) when the entry would get a token and no wallet is known (given,
+  the entry's own, remembered); it joins the contact item, else is its own item. The answer comes
+  back as `answers.payout_wallet`: the offer's wallet line and `shown_wallet` show it, so the
+  confirmation is one yes; "go" still launches only to the wallet passed with it (Ruling C12).
+  Base's Loom demo and Builder Code are `from: builder`, so they are asked in the first round.
+  The bonus note for a repo whose token is in another program is said once, in Also qualifies
+  ("Your builder bonus rides on your Arc Microgrants entry."), or after "Entered in…" without that
+  block; never in the offer, the confirmation or the first message's rows. An investment
+  program's kit says where the application goes on (`continuesLine`). Program deadlines show in
+  the program's own time zone, from the summary ("Oct 14, 11:59 PM ET"). The proof-link fix
+  targets only a proof field. Unexpected tool errors are logged with an id; the agent gets a
+  plain message with that id. "40%" appears once per entry flow, in the Yes line; the first
+  message, the reply after launch and "Entered in…" don't say it (policy and docs keep it).
 - Human-facing dates use one format (`dates.ts` `formatDeadline`, "Oct 6, 2026, 06:51 UTC");
   machine fields (`ends_at`, `deadline`) stay ISO.
 - "Fastest" and per-repo ordering in list_programs: quickest first; between equally quick fits,
