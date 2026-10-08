@@ -20,7 +20,7 @@ const REPO = 'https://github.com/acme/kit';
 // The line EarnKit gives installation 1 for acme/kit, any ticker.
 const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
-  verified: async () => false,
+  verified: async () => null,
   repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   owner: async () => ({ status: 'ok', text: LINE }),
   latest: async () => null,
@@ -95,7 +95,7 @@ test('each failure has its own reason, checked in order', async () => {
 test('order: repo, then earnkit.txt, then the screen; stops at the first failure', async () => {
   const seen: string[] = [];
   const trace: Required<GateDeps> = {
-    verified: async () => false,
+    verified: async () => null,
     repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
     owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
     latest: async () => { seen.push('latest'); return null; },
@@ -228,20 +228,23 @@ test('5.8 v2.9 B9: a passing GitHub sign-in for the entry stands in for the proo
     ...ok,
     owner: async () => { seen.push('owner'); return { status: 'missing' }; },
     screen: async () => { seen.push('screen'); },
-    verified: async (id, key) => { seen.push(`verified ${id} ${key}`); return true; },
+    verified: async (id, key) => { seen.push(`verified ${id} ${key}`); return { wallet: W.toLowerCase() }; },
   };
   assert.deepEqual(await tokenGate({ ...input, projectId: 7 }, missing), { ok: true });
   assert.deepEqual(seen, ['verified 7 acme/kit', 'screen'], 'no earnkit.txt read');
-  const notYet = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => false });
+  const notYet = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => null });
   assert.equal(notYet.ok, false);
   assert.match((notYet as { reason: string }).reason, /^I need to add a short proof line to your repo/);
   // No entry id (record_submission's older paths): never asked.
   let asked = false;
-  await tokenGate(input, { ...missing, verified: async () => { asked = true; return true; } });
+  await tokenGate(input, { ...missing, verified: async () => { asked = true; return { wallet: W.toLowerCase() }; } });
   assert.equal(asked, false);
   // The repo's code is still checked first.
   const empty = await tokenGate({ ...input, projectId: 7 }, { ...missing, repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) });
   assert.match((empty as { reason: string }).reason, /no commits/);
+  // Ruling G11: a sign-in made for another fee wallet proves nothing for this one.
+  const swapped = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => ({ wallet: `0x${'9'.repeat(40)}` }) });
+  assert.deepEqual(swapped, { ok: false, reason: 'Your wallet changed since you signed in.', fixable: true, sign_in: 'wallet_changed' });
   // A failed read is no verification.
   const broken = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => { throw new Error('db'); } });
   assert.equal(broken.ok, false);

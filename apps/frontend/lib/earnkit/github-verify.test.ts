@@ -29,7 +29,7 @@ import {
   verifyStart,
   type GitHubOAuthDeps,
 } from './github-verify';
-import { tokenGate, type GateDeps } from './token-gate';
+import { SIGN_IN_FIRST, WALLET_CHANGED, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'github-verify-test-secret';
 
@@ -209,8 +209,13 @@ async function fixture(tag: string, o: { shared?: boolean; inst?: number; owner?
     VALUES (${programId}, 'Tip Jar', ${inst}, ${`https://github.com/${repoKey}`}) RETURNING id`;
   return { inst, project, repoKey, programId };
 }
-const linkNonce = async (f: Fixture, purpose: 'entry' | 'pickup' | 'host' = 'entry', now = new Date()) => {
-  const link = await createVerifyLink({ installationId: f.inst, projectId: purpose === 'pickup' ? null : f.project, repoKey: f.repoKey, purpose }, now);
+/** The fee wallet entry links are made for (Ruling G11), and the gate tests launch to. */
+const WF = `0x${'1'.repeat(40)}`;
+const linkNonce = async (f: Fixture, purpose: 'entry' | 'pickup' | 'host' = 'entry', now = new Date(), wallet = WF) => {
+  const link = await createVerifyLink(
+    { installationId: f.inst, projectId: purpose === 'pickup' ? null : f.project, repoKey: f.repoKey, purpose, ...(purpose === 'entry' && { wallet, symbol: 'tip' }) },
+    now,
+  );
   return new URL(link).searchParams.get('n')!;
 };
 const github = (login: string, perms: { push?: boolean; admin?: boolean } | null = null, calls: string[] = []): GitHubOAuthDeps => ({
@@ -230,7 +235,9 @@ const github = (login: string, perms: { push?: boolean; admin?: boolean } | null
 
 test('the link: siteUrl origin, a 43-character nonce, only its sha256 stored', db, async () => {
   const f = await fixture('link');
-  const link = await createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'entry' });
+  // Ruling G11: never an entry link without the fee wallet.
+  await assert.rejects(createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'entry' }));
+  const link = await createVerifyLink({ installationId: f.inst, projectId: f.project, repoKey: f.repoKey, purpose: 'entry', wallet: WF });
   assert.match(link, /^https:\/\/earnkit\.com\/github\/verify\?n=[A-Za-z0-9_-]{43}$/);
   const nonce = new URL(link).searchParams.get('n')!;
   const rows = await sql()<{ nonce_hash: string }[]>`SELECT nonce_hash FROM github_verify_nonces WHERE project_id = ${f.project}`;
@@ -244,7 +251,7 @@ test('5.3 a nonce is single-use, also under two concurrent callbacks', db, async
   const f = await fixture('once');
   const nonce = await linkNonce(f);
   const first = await takeNonce(nonce);
-  assert.deepEqual(first, { installation_id: f.inst, project_id: f.project, repo_key: f.repoKey, purpose: 'entry' });
+  assert.deepEqual(first, { installation_id: f.inst, project_id: f.project, repo_key: f.repoKey, purpose: 'entry', wallet: WF, symbol: 'TIP' });
   assert.equal(await takeNonce(nonce), null);
   const race = await linkNonce(f);
   const both = await Promise.all([takeNonce(race), takeNonce(race)]);
@@ -268,9 +275,9 @@ test('5.5 a login that can\'t push: notYours, no verification, the nonce used; a
   assert.deepEqual(await completeVerify('code', nonce, github('mallory', { push: false })), { ok: false, reason: VERIFY_PAGE.notYours });
   assert.equal((await sql()`SELECT 1 FROM github_verifications WHERE installation_id = ${f.inst}`).length, 0);
   assert.equal(await peekNonce(nonce), false, 'used');
-  // An org repo the scopeless token sees no permissions on: notYours (the proof line stays the way).
+  // An org repo the scopeless token sees no permissions on: the proof line is the way (review Minor 2).
   const org = await fixture('org', { owner: 'acme-org' });
-  assert.deepEqual(await completeVerify('code', await linkNonce(org), github('alice', null)), { ok: false, reason: VERIFY_PAGE.notYours });
+  assert.deepEqual(await completeVerify('code', await linkNonce(org), github('alice', null)), { ok: false, reason: VERIFY_PAGE.orgRepo });
   // The owner: no repo read, and the verification names the nonce's own repo and entry only.
   const calls: string[] = [];
   const ok = await completeVerify('code', await linkNonce(f), github('Alice', null, calls));
@@ -340,8 +347,9 @@ test('G8: the link shows a confirm page (repo, token, wallet, warning), never a 
   await withEnv(ON, async () => {
     const f = await fixture('confirm');
     const wallet = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-    await sql()`UPDATE projects SET token_symbol = 'TIP', creator_wallet = ${wallet.toLowerCase()} WHERE id = ${f.project}`;
-    const nonce = await linkNonce(f);
+    // Ruling G11: the page shows the wallet and ticker the link was made for, whatever the entry holds later.
+    const nonce = await linkNonce(f, 'entry', new Date(), wallet);
+    await sql()`UPDATE projects SET token_symbol = 'XXX', creator_wallet = ${`0x${'9'.repeat(40)}`} WHERE id = ${f.project}`;
     const limit = { limit: async () => {} };
     const page = await verifyStart(new Request(`https://evil.example/github/verify?n=${nonce}`), limit);
     assert.equal(page.status, 200);
@@ -352,7 +360,9 @@ test('G8: the link shows a confirm page (repo, token, wallet, warning), never a 
     assert.match(html, new RegExp(`Wallet for fees: ${wallet.toLowerCase()}`));
     assert.ok(html.includes(CONFIRM_WARNING));
     assert.match(html, /<form method="post" action="https:\/\/earnkit\.com\/github\/verify">/, 'siteUrl, never the request host');
-    assert.doesNotMatch(html, /evil\.example|<script/);
+    assert.doesNotMatch(html, /evil\.example|<script|none yet|0x9{40}|XXX/);
+    // Review Minor 1: same-origin, never no-referrer, so the browser's POST carries a real Origin.
+    assert.equal(page.headers.get('referrer-policy'), 'same-origin');
     const cookie = page.headers.get('set-cookie') ?? '';
     assert.match(cookie, new RegExp(`^${csrfCookieName(nonce)}=[A-Za-z0-9_-]{43}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax$`));
     const csrf = cookie.split(';')[0].split('=')[1];
@@ -417,23 +427,40 @@ test('G9: on a shared client the sign-in page shows a one-time code; only that c
   assert.deepEqual(outOwn, { ok: true, repoKey: own.repoKey });
 });
 
-test('G8/G9: on a shared client, A\'s sign-in launches only for A\'s code; B (or no code) still needs the proof', db, async () => {
+test('G8 to G11: on a shared client only the caller\'s own sign-in proves a launch, never the shared proof line, and only to the wallet it was made for', db, async () => {
   const a = await fixture('gateA', { shared: true });
   await completeVerify('code', await linkNonce(a), github('alice'));
+  let lineReads = 0;
+  // The repo's earnkit.txt carries the installation's own line (pushed by user A): it proves for anyone on the agent.
   const deps: GateDeps = {
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-    owner: async () => ({ status: 'missing' }),
+    owner: async (r) => {
+      lineReads++;
+      return { status: 'ok', text: tokenLineFor(a.inst, `https://github.com/${r.owner}/${r.repo}`)! };
+    },
     screen: async () => {},
   };
-  const gate = (verifiedLogin: string | null | undefined) =>
+  const gate = (verifiedLogin: string | null | undefined, wallet = WF) =>
     tokenGate(
-      { policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: a.inst, projectId: a.project, verifiedLogin },
+      { policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet, symbol: 'TIP', installationId: a.inst, projectId: a.project, verifiedLogin },
       deps,
     );
+  const needed = { ok: false, reason: SIGN_IN_FIRST, fixable: true, sign_in: 'needed' };
   await withEnv(ON, async () => {
     assert.deepEqual(await gate('alice'), { ok: true });
-    assert.equal((await gate('bob')).ok, false);
-    assert.equal((await gate(null)).ok, false, 'a shared caller without a code');
-    assert.deepEqual(await gate(undefined), { ok: true }, 'not a shared client: the entry\'s sign-in');
+    // G10: user B (another code, or none) can't launch on A's sign-in nor on the line A pushed.
+    assert.deepEqual(await gate('bob'), needed);
+    assert.deepEqual(await gate(null), needed, 'a shared caller without a code');
+    assert.equal(lineReads, 0, 'the proof line is never read on a shared client');
+    // G11: A's own code, but another fee wallet than the one the confirm page showed.
+    assert.deepEqual(await gate('alice', `0x${'2'.repeat(40)}`), { ok: false, reason: WALLET_CHANGED, fixable: true, sign_in: 'wallet_changed' });
+    // Not a shared client: the entry's sign-in, or the proof line, as before.
+    assert.deepEqual(await gate(undefined), { ok: true });
+    assert.deepEqual(await gate(undefined, `0x${'2'.repeat(40)}`), { ok: true }, 'the proof line still proves there');
+  });
+  // With the OAuth variables absent, nothing changes: the shared proof line proves the launch.
+  await withEnv({ GITHUB_OAUTH_CLIENT_ID: undefined, GITHUB_OAUTH_CLIENT_SECRET: undefined }, async () => {
+    assert.deepEqual(await gate(null), { ok: true });
+    assert.deepEqual(await gate('bob'), { ok: true });
   });
 });

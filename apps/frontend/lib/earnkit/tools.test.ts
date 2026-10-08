@@ -2663,9 +2663,9 @@ async function withSignIn<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 /** A passed sign-in for this entry and repo as `login` (the real callback path, GitHub faked); its code on a shared client. */
-async function signInAs(installationId: number, projectId: number | null, repoUrl: string, login: string) {
+async function signInAs(installationId: number, projectId: number | null, repoUrl: string, login: string, wallet: string = W8) {
   const repoKey = repoUrl.replace(/^https:\/\/github\.com\//, '').toLowerCase();
-  const link = await createVerifyLink({ installationId, projectId, repoKey, purpose: 'entry' });
+  const link = await createVerifyLink({ installationId, projectId, repoKey, purpose: projectId ? 'entry' : 'pickup', wallet });
   const out = await completeVerify('code', new URL(link).searchParams.get('n')!, {
     exchange: async () => 'gho_x',
     user: async () => ({ login, created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
