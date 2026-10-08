@@ -1019,7 +1019,9 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
       missing: [],
       effort: null,
       note:
-        facts.product && facts.product.tier !== 'product' && (program.any_chain || program.chains.some((c) => facts.chains[c]))
+        facts.product && program.any_chain && facts.product.tier === 'product' && (facts.product.missing ?? []).includes('original')
+          ? 'looks like a copy or tutorial'
+          : facts.product && facts.product.tier !== 'product' && (program.any_chain || program.chains.some((c) => facts.chains[c]))
           ? (missingSignalNote(facts.product) ?? 'not enough signs of a real product yet')
           : `no ${program.chains.join(' or ')} code found in this repo`,
     };
