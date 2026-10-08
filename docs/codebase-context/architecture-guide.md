@@ -315,13 +315,21 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   - **Released** only when tokens.fun said in a parsed JSON body, with no `txHash` and no
     `tokenAddress`, that it stopped before minting: any 4xx (refusals; a 429 says "Try again after
     HH:MM UTC" from tokens.fun's `retry_after` ISO time or seconds, `retry_after_seconds`, the older
-    `retryAfter`, or the `Retry-After` header, else "in a few hours"); a 503 with tokens.fun's own
-    `error` (every 503 of its deploy route comes before the deploy transaction: "Pending
-    transactions detected", fee split or wallet not configured, a price read); a 500 whose words say
-    it reverted (a reverted transaction mints nothing); an explicit `minted: false`.
-  - The 503/revert/`minted: false` releases are **retried once at once** (3 s pause), under the same
-    claim; a second such answer releases the claim with "Your token didn't launch yet; say go to try
-    again." (`NOT_LAUNCHED_YET`; confirm_entry turns "say 'launch the token'" into "say go").
+    `retryAfter`, or the `Retry-After` header, else "in a few hours"; tokens.fun T1 sends
+    `retry_after: { at, seconds }`); an explicit `minted: false` (Ruling F3); or a 503 whose `error`
+    is exactly one of tokens.fun's pre-mint texts (`knownPreMint503`: "Pending transactions
+    detected. …", "Server configuration error", "EarnKit fee split isn't configured", "Server wallet
+    configuration incomplete (…)", "Cannot price … right now …"), until F3 covers every 503. A
+    revert 500 is released only with `minted: false`.
+  - Those 5xx releases are **retried once** (10 s pause after "Pending transactions", else 3 s),
+    under the same claim; a second such answer releases the claim with "Your token didn't launch
+    yet; say go to try again." (`NOT_LAUNCHED_YET`; confirm_entry turns "say 'launch the token'" into
+    "say go"). A release after the tool already replied "launching" is stamped `token_released_at`.
+  - **Check-back is a read** (fix round 1). The "launching" agent note says to call the same tool
+    again with `check_back: true` (confirm_entry, launch_token, record_submission): it reports the
+    row (link, "launching", or the stored note) and never starts a launch. Any call within 2 minutes
+    of an unseen release is read the same way; reading it clears `token_released_at`, so the
+    builder's next "go" relaunches.
   - **Kept** (never retried): no answer, tokens.fun's 502 "Deployment status unknown", its catch-all
     500 "Internal server error" (thrown anywhere, even after a broadcast), any other 5xx, an unparsed
     body, any body with a tx hash or a token address. The builder reads `LAUNCH_STUCK` ("Your token
@@ -336,8 +344,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     deploy is still running (no `token_note`, under 10 minutes) is "launching"; one whose deploy
     answered without a result, or older than 10 minutes, is `LAUNCH_STUCK` (with the kit).
   - **Owner alert.** The hourly cron (`runCron`) lists every claim pending for over 10 minutes
-    (`tokens.ts stuckLaunches`; a claim from before v2.8.1 has no time and counts) as
-    `token-pending:<project id>` in `needs_owner`, so the run answers 503 and GitHub emails the owner.
+    (`tokens.ts stuckLaunches`) as `token-pending:<project id>` in `needs_owner`, so the run answers
+    503 and GitHub emails the owner within the hour. Claims from before v2.8.1 got the migration's
+    time (schema.sql backfill), so they alert at the first cron run 10+ minutes after the deploy.
+    **Go-live step:** settle every existing `token_url = 'pending'` row with the runbook below.
   - Ticker checks for a proposal run in parallel batches of 4 (3 s each), so a proposal costs at
     most about 9 s.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
@@ -1701,9 +1711,13 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
   `Ready. ` + `confirm.ts confirmOffer` (the spec's four lines and `COIN_FOOTNOTE`; the wallet short,
   Ruling 17's form). v2.8.1 §A2: the Yes line names the token that launches and is the entry's one
   "40%": "Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at the
-  builder bonus." (`yesLine`; prepare_submission passes its `token.proposed`, confirm_entry's offer
-  the agent's `token` edit or `proposeToken`, returned as `token.proposed` for the agent to echo on
-  "go"). Fallback names (`token-proposal.ts nameCandidates`): the project name, "<name> Token", the
+  builder bonus." (`yesLine`). Fix round 1: the pair shown is stored per entry (`token_offers`:
+  installation, program, normalized repo or "name:<name>"; `token-offers.ts`), by prepare_submission
+  and the offer (the pair shown before wins; the agent's partial edits merge over it, `editsOf`; an
+  edited ticker already used is replaced by the next suggestion, "$X is taken."). On "go" EarnKit
+  launches exactly the stored pair; with none stored, or an agent asking for another name or ticker,
+  the Yes line is shown (again) and nothing launches; a stored ticker taken since (C6) gets
+  "$X is taken." and a new Yes line (`TokenOutcome.ticker_taken`). Nothing launches unseen. Fallback names (`token-proposal.ts nameCandidates`): the project name, "<name> Token", the
   repo name, then the name without its brand words ("ArcPay" → "Pay Token", ticker $PAY), and only
   then "<TICKER> Token". `confirmTable` no longer renders a Token row outside campaigns. With a repo it
   returns `token_line` (`tokenLineFor`) and an `agent_note` to push it before the builder confirms

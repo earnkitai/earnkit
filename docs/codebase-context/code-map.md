@@ -426,7 +426,8 @@ apps/frontend/
                                the repo has a token: repoTokenUrl/repoHasTokenNote; v2.8.1
                                token_claimed_at), released only when tokens.fun said, in JSON with
                                no tx hash or token address, it stopped before minting (outcomeOf: a
-                               4xx, a 503 with its error, a revert, minted:false); the 503/revert
+                               4xx, minted:false, or a 503 with one of tokens.fun's exact pre-mint texts,
+                               knownPreMint503); the 503/revert
                                ones retried once (RETRY_PAUSE_MS) under the same claim, then
                                NOT_LAUNCHED_YET; unknown outcomes kept (LAUNCH_STUCK +
                                launchStuckAgent); a 429 says when (retryAtOf: retry_after ISO or
@@ -448,6 +449,8 @@ apps/frontend/
                                Token"; tickers: a fallback name's first, then project, repo, initialsCandidates, ENTRY…; ≤12
                                checks in parallel batches of 4 (v2.8.1), a taken ticker never
                                proposed (C6), else "ticker not checked for duplicates"; titleCase
+    token-offers.ts            v2.8.1 fix round 1 (§A2): the pair the Yes line showed (token_offers:
+                               offerKey, saveOffer, readOffer); confirm_entry's "go" launches exactly it
     token-gate.ts(+test)       tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
                                match-projects.ts repoCodeFacts: commits, a fork only when ahead of
                                its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via

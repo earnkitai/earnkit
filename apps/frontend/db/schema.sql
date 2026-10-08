@@ -623,3 +623,21 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS fit_chains text[] NOT NULL DE
 -- can alert the owner about a launch still pending after 10 minutes. Additive; NULL on claims taken
 -- before v2.8.1 (the cron counts those as old).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_claimed_at timestamptz;
+-- v2.8.1 fix round 1: claims from before v2.8.1 take the migration's time (so they count as stuck
+-- 10 minutes after it, once, instead of at once). Only rows still without a time; a no-op after.
+UPDATE projects SET token_claimed_at = now() WHERE token_url = 'pending' AND token_claimed_at IS NULL;
+-- v2.8.1 fix round 1: set when a launch was released after the tool had already replied
+-- "launching" (the builder hasn't seen it): the next call reads it instead of relaunching, and clears it.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_released_at timestamptz;
+-- v2.8.1 fix round 1 (§A2): the exact name and ticker the confirmation's Yes line showed, per entry
+-- (this agent, program and project: the normalized repo, else "name:<name>"; the entry row may not
+-- exist yet). "go" launches exactly this pair; anything else is shown again first. Additive.
+CREATE TABLE IF NOT EXISTS token_offers (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  program_id      text NOT NULL,
+  entry_key       text NOT NULL,
+  offered_name    text NOT NULL,
+  offered_ticker  text NOT NULL,
+  offered_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, program_id, entry_key)
+);

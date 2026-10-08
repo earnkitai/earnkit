@@ -166,6 +166,10 @@ const prepareSubmissionDescription = (campaignOpen: boolean) =>
     : '') +
   `${OWNERSHIP_FOR_TOKEN}`;
 
+/** v2.8.1 fix round 1: the check-back flag, on every tool that launches. */
+const CHECK_BACK =
+  'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
+
 /** v2.8 Part C, Rulings 1, 4 and 7 (plan): confirm_entry's description, agent-facing. */
 const CONFIRM_ENTRY_DESCRIPTION =
   'The confirmation step, once prepare_submission says ready (not for EarnKit campaigns). Pass the same program_id, project and answers. ' +
@@ -401,6 +405,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .optional()
             .describe("The wallet the builder confirmed: shown_wallet, or the one they named instead"),
           agent: AGENT.optional(),
+          check_back: z.boolean().optional().describe(CHECK_BACK),
         })
         .strict(),
     },
@@ -453,6 +458,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .boolean()
           .optional()
           .describe('true once the builder confirmed the entry is submitted on the program site'),
+        check_back: z.boolean().optional().describe(CHECK_BACK),
         deployer_signature: z
           .string()
           .optional()
@@ -538,6 +544,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           builder_confirmed: z
             .literal(true)
             .describe('The builder explicitly said yes to this launch'),
+          check_back: z.boolean().optional().describe(CHECK_BACK),
         })
         .strict(),
     },
