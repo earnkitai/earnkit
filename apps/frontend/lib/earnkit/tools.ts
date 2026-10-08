@@ -1599,6 +1599,8 @@ export const tools = {
         // read here (the agent echoes prepare_submission's shown_wallet). None: no coin yet.
         givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
         checkBack: parsed.check_back === true,
+        // Rulings G9, G10: on a shared client only the sign-in of the code this builder pasted counts.
+        verifiedLogin: ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'record_submission') : undefined,
       },
       ctx.tokenDeps,
       deadline,

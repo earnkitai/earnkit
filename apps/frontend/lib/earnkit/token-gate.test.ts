@@ -21,6 +21,7 @@ const REPO = 'https://github.com/acme/kit';
 const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
   verified: async () => null,
+  shared: async () => false,
   repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   owner: async () => ({ status: 'ok', text: LINE }),
   latest: async () => null,
@@ -96,6 +97,7 @@ test('order: repo, then earnkit.txt, then the screen; stops at the first failure
   const seen: string[] = [];
   const trace: Required<GateDeps> = {
     verified: async () => null,
+  shared: async () => false,
     repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
     owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
     latest: async () => { seen.push('latest'); return null; },

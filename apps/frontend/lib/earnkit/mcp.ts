@@ -516,6 +516,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .optional()
           .describe('true once the builder confirmed the entry is submitted on the program site'),
         check_back: z.boolean().optional().describe(CHECK_BACK),
+        signed_in: SIGNED_IN,
         deployer_signature: z
           .string()
           .optional()
