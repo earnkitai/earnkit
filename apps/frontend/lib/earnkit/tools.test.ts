@@ -2500,3 +2500,92 @@ test('Ruling G6: on a shared client, one builder\'s statements never reach anoth
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${arcId}, ${baseId})`;
   }
 });
+
+// ---- Ruling G7: a shared client shows nothing the installation remembers ----
+
+/** One shared installation with an Arc clone open (results due), for builders A and B. */
+async function sharedInstall(tag: string) {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const programId = `g7-${tag}-${stamp}`;
+  await upsertProgram(ProgramFile.parse({
+    ...arc, id: programId, title: `Arc G7 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z',
+    results: { url: arc.source_url, expected: '2026-01-01' },
+  }));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`g7-${tag}-${stamp}`}, true) RETURNING id`;
+  const calls: unknown[] = [];
+  const ctx = (shared = true) => ({
+    installationId: id,
+    sharedClient: shared,
+    roundPoolsWei: async () => new Map(),
+    repoCoins: async () => new Map(),
+    matchProjects: async (input: unknown) => {
+      calls.push(input);
+      return { checked: 1, scored: 1, fits: [] };
+    },
+  });
+  const cleanup = async () => {
+    await sql()`DELETE FROM projects WHERE installation_id = ${id}`;
+    await sql()`DELETE FROM installations WHERE id = ${id}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${programId}`;
+  };
+  return { id, programId, stamp, ctx, calls, cleanup };
+}
+type G7Listed = { show_to_builder: string; note: string; ask_outcome?: unknown; since_you_last_checked?: string };
+
+test("Ruling G7 (1): on a shared client, builder A's reported repos are never matched for builder B", dbTest, async () => {
+  const s = await sharedInstall('repos');
+  try {
+    await tools.list_programs({ local_repos: [{ name: 'secret-a-app', chains: ['arc'] }] }, s.ctx());
+    assert.equal(s.calls.length, 1);
+    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    assert.equal(s.calls.length, 1, "B's call matched nothing (A's repos aren't B's)");
+    assert.doesNotMatch(JSON.stringify(b), /secret-a-app/);
+    assert.doesNotMatch(b.show_to_builder, /remember|shared|many builders/i);
+    // Control: the same installation, not shared, does remember them.
+    await tools.list_programs({}, s.ctx(false));
+    assert.equal(s.calls.length, 2);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("Ruling G7 (2): on a shared client, builder B is never asked about builder A's entry", dbTest, async () => {
+  const s = await sharedInstall('ask');
+  const [{ id: entry }] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, installation_id) VALUES (${s.programId}, 'SecretA', ${s.id}) RETURNING id`;
+  try {
+    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    assert.ok(!('ask_outcome' in b));
+    assert.doesNotMatch(JSON.stringify(b), /SecretA/);
+    const [row] = await sql()<{ outcome_asked_at: Date | null }[]>`SELECT outcome_asked_at FROM projects WHERE id = ${entry}`;
+    assert.equal(row.outcome_asked_at, null, 'not marked asked');
+    // Control: not shared, the question is asked.
+    const own = (await tools.list_programs({}, s.ctx(false))) as G7Listed;
+    assert.ok(own.ask_outcome);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("Ruling G7 (3): on a shared client, builder B never sees A's entries, standing or alerts", dbTest, async () => {
+  const s = await sharedInstall('entries');
+  const [{ id: entry }] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, installation_id) VALUES (${s.programId}, 'SecretA', ${s.id}) RETURNING id`;
+  await sql()`
+    INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, source_url, captured_at, basis)
+    VALUES (${entry}, ${s.programId}, 'r1', 'won', 500, 'https://example.org/winners', now(), 'announcement')`;
+  try {
+    const b = (await tools.list_programs({}, s.ctx())) as G7Listed;
+    assert.doesNotMatch(b.show_to_builder, /Your entries|Since you last checked|SecretA|you won/);
+    const program = (await tools.get_program({ program_id: s.programId }, s.ctx())) as { since_you_last_checked?: string };
+    assert.ok(!('since_you_last_checked' in program));
+    // Control: not shared, A's entry and win show.
+    const own = (await tools.list_programs({}, s.ctx(false))) as G7Listed;
+    assert.match(own.show_to_builder, /Your entries: .*SecretA/);
+    assert.match(own.show_to_builder, /you won/);
+  } finally {
+    await s.cleanup();
+  }
+});
