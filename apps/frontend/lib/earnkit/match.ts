@@ -413,10 +413,8 @@ export function matchRepo(
 
     if (p.tag === 'needs a live product') {
       // v2.9 A2: never likely while users are unproven; a link counts once it loaded from here.
-      if (product)
-        repo.live_verified
-          ? v('after_step', 'needs real users', ['real_users'])
-          : v('after_step', 'needs a live product with real users', ['live_url', 'real_users']);
+      if (product && repo.live_verified) v('after_step', 'needs real users', ['real_users']);
+      else if (product) v('after_step', 'needs a live product with real users', ['live_url', 'real_users']);
       else if (!repo.homepage)
         v('after_step', 'needs a live product with real users', [
           'live_url',

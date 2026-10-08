@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, tools } from './tools';
+import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools } from './tools';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
 import { EntryError } from './campaigns';
@@ -2361,3 +2361,31 @@ test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSub
     const [downRow] = await cols(down.t.inst);
     assert.deepEqual([downRow.complete_at, downRow.live_verified_at], [null, null]);
   }));
+
+// ---- v2.9 A2: at most 3 repos per program in matches ----
+
+const scoredFit = (repo: string, score: number, program_id: string) => ({
+  repo,
+  repo_url: `https://github.com/alice/${repo}`,
+  verdicts: [{ program_id, program: program_id, status: 'after_step' as const, missing: [], effort: 'none' as const, note: null }],
+  product: { score, tier: (score >= 5 ? 'product' : 'project') as 'product' | 'project', missing: [] },
+});
+const fiveOnBase = [3, 6, 4, 5, 3].map((s, i) => scoredFit(`r${i}`, s, 'base-builder-grants'));
+
+test('2.12 matches: at most 3 repos per program, highest product score first; an any_chain program shows one', () => {
+  const rows = matchRows(fiveOnBase, new Set());
+  assert.deepEqual(rows.map((r) => [r.repo, r.product_score]), [['r1', 6], ['r3', 5], ['r2', 4]]);
+  const a16z = matchRows([5, 6].map((s, i) => scoredFit(`a${i}`, s, 'a16z-speedrun')), new Set(['a16z-speedrun']));
+  assert.deepEqual(a16z.map((r) => r.repo), ['a1']);
+});
+
+test('2.12 list_programs: 5 repos fitting Base give 3 Base rows in matches, best score first', dbTest, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t2-matches-${process.pid}-${Date.now()}`}) RETURNING id`;
+  const r = (await tools.list_programs(
+    { local_repos: [{ name: 'r0', chains: ['base'] }] },
+    { installationId: id, matchProjects: async () => ({ checked: 5, scored: 5, fits: fiveOnBase }) },
+  )) as { matches: { repo: string; program_id: string }[] };
+  const base = r.matches.filter((m) => m.program_id === 'base-builder-grants');
+  assert.deepEqual(base.map((m) => m.repo), ['r1', 'r3', 'r2']);
+});
