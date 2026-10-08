@@ -47,6 +47,8 @@ export const LIMITS = {
    * may serve many builders; the per-wallet limit (10) stays the real one.
    */
   tokenLaunchShared: { limit: 500, windowSeconds: 86_400 },
+  /** v2.9 B9: GET /github/verify and its callback, per client IP. */
+  githubVerify: { limit: 30, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */

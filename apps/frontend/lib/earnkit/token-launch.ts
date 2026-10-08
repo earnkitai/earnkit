@@ -716,6 +716,7 @@ async function runTokenFlow(
       wallet: wallet!,
       symbol,
       installationId: a.installationId,
+      projectId: project.id,
     },
     deps.gate,
   );
