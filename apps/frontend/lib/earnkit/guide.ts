@@ -1,5 +1,5 @@
 import { endsOf, prizeOf } from './entry-text';
-import { CHAIN_NAMES } from './match';
+import { CHAIN_NAMES, effortOf, type Verdict } from './match';
 import type { PastRound } from './program-file';
 import type { ProgramRow } from './programs';
 
@@ -29,7 +29,13 @@ export type GuideFacts = Pick<
   | 'submission_requirements'
   | 'rules'
   | 'chains'
->;
+> & {
+  /** v2.9 A4 (Pre-flight P30): an investment program is Hard at program level. Absent: not one. */
+  investment?: boolean;
+};
+
+/** v2.9 A4: the tag whose programs are at least Medium at program level, even with an EarnKit rating. */
+export const NEEDS_LIVE_PRODUCT = 'needs a live product';
 
 const VIDEO = /\b(video|loom)\b/i;
 const MAINNET = /\bmainnet\b/i;
@@ -50,6 +56,15 @@ const when = (p: GuideFacts, r: PastRound) => (lastOwn(p, r) ? 'last round' : `i
  * selection for difficultyOf and guideSources, so the cited source always matches the basis. Pure.
  */
 function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: Difficulty; source_url: string | null } {
+  const from = difficultyBase(p);
+  const d = from.difficulty;
+  // v2.9 A4, Pre-flight P30: one program level for the landing, guides and rows. An investment is
+  // Hard; a program that needs a live product is at least Medium, even with an EarnKit rating.
+  const level: Level = p.investment ? 'Hard' : p.tag === NEEDS_LIVE_PRODUCT ? maxLevel(d.level, 'Medium') : d.level;
+  return level === d.level ? from : { ...from, difficulty: { ...d, level } };
+}
+
+function difficultyBase(p: GuideFacts & { source_url?: string }): { difficulty: Difficulty; source_url: string | null } {
   const o = p.difficulty_override;
   // v2.8 Ruling 12 (plan): the EarnKit rating, just "Easy"; its source is the program page.
   if (o && 'rated_by' in o)
@@ -99,6 +114,54 @@ function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: 
 
 /** v2.7 §2, Rulings 2-5 (plan): the program's difficulty from its own data. Pure. */
 export const difficultyOf = (p: GuideFacts): Difficulty => difficultyFrom(p).difficulty;
+
+const ORDER: Level[] = ['Easy', 'Medium', 'Hard'];
+/** v2.9 A4: the harder of the levels. Pure. */
+const maxLevel = (...ls: Level[]): Level => ORDER[Math.max(...ls.map((l) => ORDER.indexOf(l)))];
+/** v2.9 A4: one step harder (Hard stays Hard). Pure. */
+export const harder = (l: Level): Level => ORDER[Math.min(2, ORDER.indexOf(l) + 1)];
+/** v2.9 A4: Easy first, for sorting by level. Pure. */
+export const levelRank = (l: Level): number => ORDER.indexOf(l);
+
+/**
+ * v2.9 A4: what a row's difficulty reads from its program. `difficulty` is the program level
+ * (difficultyOf: odds, the `needs a live product` floor, investment); `match_precision` is the
+ * outcome loop's figure (match-loop.ts), null until 30 labelled entries. Pre-flight P30: the tag,
+ * investment and odds rules live in difficultyOf only, so the other fields are not read here.
+ */
+export type RowProgram = {
+  difficulty: Difficulty;
+  tag?: string | null;
+  investment?: boolean;
+  past_rounds?: PastRound[];
+  match_precision?: number | null;
+};
+
+/** v2.9 A8: under this share of `likely` entries winning, a program reads one step harder. */
+export const LOW_PRECISION = 0.05;
+
+/**
+ * v2.9 A4 (Pre-flight P30): a matched row's difficulty = max(program level, distance), one step
+ * harder when the program's match precision is under 5% (A8). The program level is difficultyOf
+ * (odds, the `needs a live product` floor, investment), never recomputed here. Distance: none or
+ * minutes is Easy, hours or days Medium, weeks Hard. Pre-flight P2: distance comes from the missing
+ * items other than `real_users`; `real_users` missing is then Hard while unverified, Medium after a
+ * verified live link or a users claim, never Easy. `estimate` only while the program's level decides. Pure.
+ */
+export function rowDifficulty(
+  p: RowProgram,
+  v: Pick<Verdict, 'missing' | 'effort'>,
+  o: { liveVerified: boolean; hasUsersClaim: boolean },
+): { level: Level; estimate: boolean } {
+  const prog = p.difficulty;
+  const users = v.missing.includes('real_users');
+  const effort = users ? effortOf(v.missing.filter((m) => m !== 'real_users')) : v.effort;
+  const distance: Level = effort === 'weeks' ? 'Hard' : effort === 'hours' || effort === 'days' ? 'Medium' : 'Easy';
+  let level = maxLevel(prog.level, distance);
+  if (users) level = maxLevel(level, o.liveVerified || o.hasUsersClaim ? 'Medium' : 'Hard');
+  if (p.match_precision != null && p.match_precision < LOW_PRECISION) level = harder(level);
+  return { level, estimate: prog.estimate && level === prog.level };
+}
 
 /** The Difficulty cell: "Medium", "Hard (estimate)". Pure. */
 export const difficultyLabel = (d: Difficulty) => (d.estimate ? `${d.level} (estimate)` : d.level);

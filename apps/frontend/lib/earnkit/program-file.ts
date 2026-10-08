@@ -549,6 +549,9 @@ export const ProgramFile = z
     if (p.needs_contract && !p.any_chain && !p.chains.includes(p.needs_contract)) issue('needs_contract must be one of the chains');
     // v2.9 A2 (Pre-flight P24): a program open to any chain matches products only.
     if (p.any_chain && p.min_product_score < 5) issue('any_chain programs need min_product_score of 5 or more');
+    // v2.9 A4, A6 (Pre-flight P24): a program that needs a live product is never Easy.
+    if (p.tag === 'needs a live product' && p.difficulty_override?.level === 'Easy')
+      issue('a "needs a live product" program is never Easy: remove the Easy difficulty_override');
 
     // v2.8 Ruling 15 (plan): Optimism is not listed (owner, 2026-10-07).
     if (isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url)) issue('Optimism programs are not listed');

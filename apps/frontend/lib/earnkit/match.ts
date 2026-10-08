@@ -385,6 +385,9 @@ const EFFORT: Record<Missing, Effort> = {
   new_work: 'days',
   real_users: 'weeks',
 };
+/** v2.9 A4: the slowest of these missing pieces ('none' for none). Pure. */
+export const effortOf = (missing: Missing[]): Effort =>
+  missing.reduce<Effort>((max, m) => (EFFORT_ORDER.indexOf(EFFORT[m]) > EFFORT_ORDER.indexOf(max) ? EFFORT[m] : max), 'none');
 export const EFFORT_ORDER: Effort[] = [
   'none',
   'minutes',

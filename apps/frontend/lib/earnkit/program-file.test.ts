@@ -750,3 +750,18 @@ test('2.13 min_product_score: 0 to 6; an any_chain program needs 5 or more (prog
   // The committed a16z file holds the floor.
   assert.equal(ProgramFile.parse(programJson('a16z-speedrun')).min_product_score, 5);
 });
+
+test('4.6 programs:check refuses an EarnKit Easy rating on a "needs a live product" program', () => {
+  const base = baseProgram();
+  const rating = { level: 'Easy', rated_by: 'earnkit', source_url: 'https://docs.base.org/get-started/builders' };
+  const bad = ProgramFile.safeParse({ ...base, tag: 'needs a live product', difficulty_override: rating });
+  assert.equal(bad.success, false);
+  assert.match(JSON.stringify(bad.error!.issues), /needs a live product.*never Easy/);
+  // A stated Easy is refused too; Medium is fine, and the rating alone (no tag) is fine.
+  const stated = { level: 'Easy', basis: 'most entries win', source_url: 'https://e.example/x' };
+  assert.equal(ProgramFile.safeParse({ ...base, tag: 'needs a live product', difficulty_override: stated }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, tag: 'needs a live product', difficulty_override: { ...stated, level: 'Medium' } }).success, true);
+  assert.equal(ProgramFile.safeParse({ ...base, difficulty_override: rating }).success, true);
+  // The committed Base file no longer carries the rating.
+  assert.equal(ProgramFile.parse(programJson('base-builder-grants')).difficulty_override, null);
+});
