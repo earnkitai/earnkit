@@ -333,9 +333,15 @@ export async function bookDeposit(
       VALUES (${lower(dep.txHash)}, ${dep.logIndex}, ${dep.coin}, ${roundKey}, ${destination}, ${dep.amount.toString()},
         ${dep.blockNumber.toString()}, ${dep.blockTime})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
-    if (inserted.length > 0 && destination === 'safe')
+    if (inserted.length === 0) {
+      // T5 fix round 1 (Minor 9): a concurrent run booked it first: answer the stored booking.
+      const [stored] = await tx<{ round_key: string | null; destination: 'round' | 'safe' }[]>`
+        SELECT round_key, destination FROM bonus_ledger WHERE tx_hash = ${lower(dep.txHash)} AND log_index = ${dep.logIndex}`;
+      return { destination: stored.destination, roundKey: stored.round_key, inserted: false };
+    }
+    if (destination === 'safe')
       log(`[bonus] ${dep.txHash}:${dep.logIndex} (${dep.amount} wei) booked to the Safe: ${reason}`);
-    return { destination, roundKey, inserted: inserted.length > 0 };
+    return { destination, roundKey, inserted: true };
   });
 }
 
@@ -534,7 +540,7 @@ async function tradedSince(coin: Hex, since: Date, deadline: number) {
 /**
  * Step 2 (Ruling 5): EarnKit sends `collectRewards(coin)` itself only for an EarnKit coin whose
  * current round (its program's, or, v2.8.1 §D, the round its fees rolled over to) ends within
- * COLLECT_WINDOW_MS, and only when no deposit from it was booked, and
+ * COLLECT_WINDOW_MS (prefiltered in SQL, newest coins first), and only when no deposit from it was booked, and
  * EarnKit didn't collect it, in the last COLLECT_QUIET_MS. The locker is the first that simulates
  * cleanly (tokens.fun `pickLocker`); a coin whose split doesn't pay the bonus wallet (launched
  * before the v2.5 split) is skipped. Its deposits are booked by the next index run. One coin's
@@ -543,6 +549,17 @@ async function tradedSince(coin: Hex, since: Date, deadline: number) {
 export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
   const now = d.now ?? new Date();
   const quiet = new Date(now.getTime() - COLLECT_QUIET_MS);
+  const soon = new Date(now.getTime() + COLLECT_WINDOW_MS);
+  // A rolling program's round is the UTC month: it ends soon when the month does.
+  const monthEndsSoon = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) <= soon.getTime();
+  /** Program `a` has the builder bonus and its round open now ends within COLLECT_WINDOW_MS. */
+  const endsSoon = (a: 'g' | 'x') => {
+    const x = sql()(a);
+    return sql()`(${x}.status = 'active' AND ${x}.builder_bonus AND ${x}.campaign IS NULL
+      AND (${x}.starts_at IS NULL OR ${x}.starts_at <= ${now})
+      AND ((${x}.ends_at IS NOT NULL AND ${x}.starts_at IS NOT NULL AND ${x}.ends_at > ${now} AND ${x}.ends_at <= ${soon})
+        OR (${x}.ends_at IS NULL AND ${monthEndsSoon})))`;
+  };
   const coins = await sql()<
     { project: number; coin: Hex; repo_key: string | null; id: string; title: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]
   >`
@@ -551,16 +568,22 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
     WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched'
       AND (p.coin_collected_at IS NULL OR p.coin_collected_at < ${quiet})
       AND NOT EXISTS (SELECT 1 FROM bonus_ledger l WHERE l.coin = p.coin_address AND l.block_time >= ${quiet})
-    ORDER BY p.id`;
+      -- T5 fix round 1: only coins that may have a round ending within the window: their own
+      -- program's, or (v2.8.1 §D) a program where the repo has a submitted, complete entry, so the
+      -- rollover read below stays bounded.
+      AND (${endsSoon('g')} OR EXISTS (
+        SELECT 1 FROM projects e JOIN programs x ON x.id = e.program_id
+        WHERE e.bonus_repo_key = p.token_repo_key AND e.program_id <> p.program_id
+          AND e.submission_proof_ok_at <= ${now} AND e.complete_at <= ${now}
+          AND e.confirm_choice IS DISTINCT FROM 'skip' AND ${endsSoon('x')}))
+    ORDER BY p.id DESC`;
   const out: { coin: string; result: string }[] = [];
   const active = d.active ?? ((coin: Hex, since: Date) => tradedSince(coin, since, toDeadline(d)));
   for (const c of coins) {
     if (Date.now() >= toDeadline(d)) break;
-    // v2.8.1 §D: the round the coin's fees book to now: its own program's, or, once that program
-    // is over, the round they roll over to (currentBonusRound, read only for those coins).
-    const b = bookingFor(c, now);
-    let round = b.destination === 'round' ? b.round : null;
-    if (!round && rollsOver(c, now)) round = (await currentBonusRound(c, now))?.round ?? null;
+    // v2.8.1 §D: the round the coin's fees book to now (currentBonusRound): its own program's while
+    // that round is open, or the round they roll over to (also when the home round froze, Minor 5).
+    const round = (await currentBonusRound(c, now))?.round ?? null;
     if (!round || round.ends.getTime() - now.getTime() > COLLECT_WINDOW_MS) continue;
     try {
       // Only a coin that traded in the last 24 h has new fees worth the gas (fix round 1, a).

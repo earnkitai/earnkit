@@ -360,7 +360,7 @@ ok(
 );
 const { eligibleSql } = await import('../lib/earnkit/traction');
 const eligibleAfter = new Set(
-  (await db<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = 'v28-elig' AND ${eligibleSql(ENDS)}`).map((r) => r.id),
+  (await db<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = 'v28-elig' AND ${eligibleSql(ENDS, null)}`).map((r) => r.id),
 );
 const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((id) => b.has(id));
 // On the same migrated rows (the v2.5 backfill above can only add launch times), the pre-v2.8 rule

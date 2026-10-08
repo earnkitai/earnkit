@@ -23,6 +23,7 @@ import { EntryError } from './campaigns';
 import { setSanctionsOracle } from './sanctions';
 import { entryMessage } from './entry-proof';
 import { upsertProgram } from './programs';
+import { bookDeposit } from './bonus-ledger';
 import { sql } from './db';
 import { rememberedWallet } from './installations';
 import { roundFor } from './bonus-rounds';
@@ -855,7 +856,7 @@ test('repo squat (Ruling 16): S records A\'s repo, then cannot swap in its own r
   await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now() WHERE id = ${a.project_id}`;
   const ends = new Date(Date.now() + 86_400_000);
   const eligible = await sql()<{ id: number }[]>`
-    SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends)}`;
+    SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends, null)}`;
   assert.deepEqual(eligible.map((r) => r.id), [a.project_id]);
 });
 
@@ -1011,7 +1012,7 @@ test('fix round 1 (I1): a late confirmation updates the entry with the coin (sam
   await sql()`UPDATE projects SET coin_address = ${randomAddress()}, coin_launched_at = now(), token_url = 'https://tokens.fun/coin/0x1' WHERE id = ${first.project_id}`;
   const ends = new Date('2099-01-01T00:00:00Z');
   const eligible = async () =>
-    (await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends)}`).map((r) => r.id);
+    (await sql()<{ id: number }[]>`SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND ${eligibleSql(ends, null)}`).map((r) => r.id);
   assert.deepEqual(await eligible(), []);
   // The builder says yes: the same row, not a second one, and not charged as a new entry.
   const late = await recordSubmission(
@@ -1060,7 +1061,7 @@ test('fix round 2 (N1): a re-record reports a coin only for an EarnKit coin, nev
   assert.equal((pending as { coin_url?: string | null }).coin_url, 'pending');
 });
 
-test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carried token is named, and the note names the round the fees roll to', dbTest, async () => {
+test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carried token (a rolled deposit in this round) is named; no rides-on line beside it', dbTest, async () => {
   const tag = `t5-roll-${process.pid}-${Date.now()}`;
   const HOME = `${tag}-home`;
   const repoKey = `github.com/alice/${tag}`;
@@ -1085,7 +1086,15 @@ test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carrie
     INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
     VALUES (${program.id}, 'Earlier', ${project.repo_url}, ${other}, ${repoKey}, '2026-01-10T00:00:00Z', '2026-01-10T00:00:00Z', 'go')
     RETURNING id`;
+  const coin = `0x${'5'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`;
   try {
+    // T5 fix round 1: the carried token holds the repo only in a round that received a rolled
+    // deposit of it: one rolls into this program's round now.
+    const booked = await bookDeposit(
+      { txHash: `0x${tag}`, logIndex: 0, amount: 3n, coin, blockNumber: 1n, blockTime: new Date() },
+      () => {},
+    );
+    assert.equal(booked.destination, 'round');
     const result = await recordSubmission(
       {
         program_id: program.id,
@@ -1099,9 +1108,12 @@ test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carrie
     assert.equal(result.recorded, true);
     const note = (result as { bonus_note?: string }).bonus_note ?? '';
     assert.match(note, new RegExp(`entry #${earlier.id} already holds this repo`), note);
-    assert.match(note, new RegExp(`Your builder bonus rides on your ${program.title} entry\\.`), note);
+    // Minor 4: never "rides on your entry" next to "another entry already holds this repo".
+    assert.doesNotMatch(note, /rides on/, note);
     assert.doesNotMatch(note, /Ended Grants/, note);
   } finally {
+    await sql()`DELETE FROM bonus_ledger WHERE coin = ${coin}`;
+    await sql()`DELETE FROM bonus_rounds WHERE program_id = ${program.id}`;
     await sql()`DELETE FROM projects WHERE program_id IN (${program.id}, ${HOME})`;
     await sql()`DELETE FROM programs WHERE id = ${HOME}`;
   }

@@ -338,7 +338,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       WHERE bs.rank IS NOT NULL AND ${mineBonus()}
         -- Final review M3: only an entry that is eligible now (never an owner test installation's,
         -- which eligibleSql excludes): a stale rank never alerts.
-        AND ${eligibleSql(db`r.ends_at`)}
+        AND ${eligibleSql(db`r.ends_at`, db`r.round_key`)}
       ORDER BY bs.project_id, bs.day DESC`,
     paidBonusWins(installationId, db),
     // v2.8 Ruling 10 (plan): every open curated program (a handful); newProgramLines picks the new

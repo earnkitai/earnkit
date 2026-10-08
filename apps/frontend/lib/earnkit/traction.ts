@@ -553,24 +553,28 @@ export async function signalsFor(
 }
 
 /**
- * v2.8.1 §D (option B): the entry `e` has a token for a round ending `endsAt`: its own, launched
- * before the end; or, with none of its own, its repo's one EarnKit token (`token_repo_key` =
- * its `bonus_repo_key`), launched before the end and entered in another program with the builder
- * bonus whose round is over before this one ends (its window ended, or it closed). That token's
- * later fees roll over to the repo's next open entry (bonus-ledger.ts rolloverRound), so that entry
- * competes for them. SQL twin of bonus-rounds.ts rollsOver for eligibility.
+ * v2.8.1 §D (option B), T5 fix round 1: the entry `e` has a token for the round `roundKey` ending
+ * `endsAt`: its own, launched before the end; or, with none of its own, its repo's one EarnKit
+ * token (`token_repo_key` = its `bonus_repo_key`, from another program, launched before the end,
+ * never an owner test installation's) that actually rolled a deposit into THIS round
+ * (`bonus_ledger`, booked by bonus-ledger.ts rolloverRound). Tied to the ledger, so one token
+ * competes in one round at a time (Ruling F6), whatever its home program does later. With no
+ * round key (null), only an own token counts.
  */
-export const coinSql = (e: 'p' | 'q', endsAt: Date | postgres.Fragment) => {
+export const coinSql = (e: 'p' | 'q', endsAt: Date | postgres.Fragment, roundKey: string | postgres.Fragment | null) => {
   const x = sql()(e);
+  const own = sql()`(${x}.coin_address IS NOT NULL AND ${x}.coin_launched_at < ${endsAt})`;
+  if (roundKey === null) return own;
   return sql()`(
-    (${x}.coin_address IS NOT NULL AND ${x}.coin_launched_at < ${endsAt})
+    ${own}
     OR (${x}.coin_address IS NULL AND ${x}.bonus_repo_key IS NOT NULL AND EXISTS (
-      SELECT 1 FROM projects tk JOIN programs hg ON hg.id = tk.program_id
+      SELECT 1 FROM projects tk
       WHERE tk.token_repo_key = ${x}.bonus_repo_key AND tk.token_url IS NOT NULL
         AND tk.coin_address IS NOT NULL AND tk.coin_launched_at < ${endsAt}
         AND tk.program_id <> ${x}.program_id
-        AND hg.builder_bonus AND hg.campaign IS NULL
-        AND (hg.status <> 'active' OR hg.ends_at < ${endsAt}))))`;
+        AND NOT COALESCE(tk.installation_id = ANY(${testInstallationIds()}::int[]), false)
+        AND EXISTS (SELECT 1 FROM bonus_ledger l
+          WHERE l.coin = tk.coin_address AND l.round_key = ${roundKey} AND l.destination = 'round'))))`;
 };
 
 /**
@@ -597,15 +601,16 @@ export const scoredCoinSql = () => sql()`COALESCE(p.coin_address, (
  * and a confirmation never skipped (`confirm_choice` 'skip' is final, even if a token launches
  * later; NULL is an older agent's entry that never saw the step). Both for `p` and for the earlier
  * same-repo entry `q`.
- * v2.8.1 §D (option B): the token may also be the repo's one token carried from another program
- * whose round is over (coinSql), so the entry its fees roll over to can win them.
- * Task 7 picks winners with this (finalRanking), never from a stored rank. `endsAt` may be a SQL
- * fragment (a joined round's `r.ends_at`, alerts.ts).
+ * v2.8.1 §D (option B): the token may also be the repo's one token carried from another program,
+ * only in the round `roundKey` its fees rolled into (coinSql), so that entry can win them.
+ * Task 7 picks winners with this (finalRanking), never from a stored rank. `endsAt` and `roundKey`
+ * may be SQL fragments (a joined round's `r.ends_at`, `r.round_key`, alerts.ts); a null round key
+ * counts only an entry's own token.
  */
-export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
+export const eligibleSql = (endsAt: Date | postgres.Fragment, roundKey: string | postgres.Fragment | null) => {
   const testIds = testInstallationIds();
   return sql()`
-  ${coinSql('p', endsAt)}
+  ${coinSql('p', endsAt, roundKey)}
   AND p.complete_at IS NOT NULL AND p.complete_at < ${endsAt}
   AND p.confirm_choice IS DISTINCT FROM 'skip'
   AND p.submission_proof_ok_at IS NOT NULL AND p.submission_proof_ok_at < ${endsAt}
@@ -614,7 +619,7 @@ export const eligibleSql = (endsAt: Date | postgres.Fragment) => {
   AND NOT EXISTS (
     SELECT 1 FROM projects q
     WHERE q.program_id = p.program_id AND q.bonus_repo_key IS NOT NULL AND q.bonus_repo_key = p.bonus_repo_key
-      AND ${coinSql('q', endsAt)}
+      AND ${coinSql('q', endsAt, roundKey)}
       AND q.complete_at IS NOT NULL AND q.complete_at < ${endsAt}
       AND q.confirm_choice IS DISTINCT FROM 'skip'
       AND q.submission_proof_ok_at IS NOT NULL AND q.submission_proof_ok_at < ${endsAt}
@@ -668,7 +673,7 @@ export async function scoreRound(roundKey: string, deps: TractionDeps = {}) {
     SELECT p.id, p.contracts, p.repo_url, p.live_url, ${scoredCoinSql()} AS coin_address, p.creator_wallet, p.payout_wallet, p.deployers,
       p.submitted_at, i.github_user AS builder_login
     FROM projects p LEFT JOIN installations i ON i.id = p.installation_id
-    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(round.ends)}
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(round.ends, roundKey)}
     ORDER BY p.id`;
   const today = day(now);
   const latest = new Map<number, Cached>();
@@ -816,7 +821,7 @@ export async function readyToFreeze(roundKey: string, now = new Date()) {
       WHERE s.round_key = ${roundKey} AND s.project_id = p.id AND s.through >= ${r.ends_at}
       ORDER BY s.day DESC LIMIT 1) AS failed
     FROM projects p
-    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at)}
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at, roundKey)}
     ORDER BY p.id`;
   const escaped = now.getTime() > r.ends_at.getTime() + FREEZE_ESCAPE_MS;
   const pending: number[] = [];
@@ -858,7 +863,7 @@ export async function finalRanking(roundKey: string) {
       SELECT signals, failed, review_flags FROM bonus_scores b
       WHERE b.round_key = ${roundKey} AND b.project_id = p.id AND b.through >= ${r.ends_at}
       ORDER BY b.day DESC LIMIT 1) s ON true
-    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at)}`;
+    WHERE p.program_id = ${r.program_id} AND ${eligibleSql(r.ends_at, roundKey)}`;
   const read = rows.filter((x) => x.signals !== null);
   const unread = rows
     .filter((x) => x.signals === null)

@@ -180,10 +180,11 @@ async function scenario() {
   assert.equal(await pc.getTransactionCount({ address: PAYOUT.address }), nonce);
 
   // In the round's last 24 h with no deposit for 12 h, EarnKit collects A and C itself, each through
-  // the locker that simulates; B's round is over, so it isn't collected.
+  // the locker that simulates; B's round is over, so it isn't collected. T5 fix round 1: newest
+  // coins first (C's entry was recorded after A's).
   await call(newLocker, 'MockLpLocker', 'accrue', [COIN_A, 1n * E18]);
   const r3 = (await runBonusLedger({ ...deps, now: h(14) })) as unknown as Run;
-  assert.deepEqual(r3.collect.map((c: { coin: string }) => c.coin), [COIN_A, COIN_C], why(r3));
+  assert.deepEqual(r3.collect.map((c: { coin: string }) => c.coin), [COIN_C, COIN_A], why(r3));
   assert.ok(r3.collect.every((c: { result: string }) => c.result.startsWith('collect success')), JSON.stringify(r3.collect));
   await rpc('anvil_mine', [toHex(CONFIRMATIONS)]);
   const r4 = (await runBonusLedger({ ...deps, now: h(15) })) as unknown as Run;

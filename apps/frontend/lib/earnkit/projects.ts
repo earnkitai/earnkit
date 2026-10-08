@@ -309,7 +309,9 @@ export async function campaignEntryProblems(
 }
 
 /**
- * The builder bonus eligibility rule (v2.5 spec §3): a coin launched through EarnKit for this
+ * The builder bonus eligibility rule (v2.5 spec §3), for an entry's OWN token only (v2.8.1 §D: a
+ * token carried from another program counts in SQL only, traction.ts coinSql, against the ledger;
+ * this twin doesn't model it): a coin launched through EarnKit for this
  * entry (ownership was already proven by the token gate to launch it) and a submission that counts
  * (`submission_proof_ok_at`: since when, on any v2.6 basis; a v2.5 row with it set and no basis
  * counted on its page). Derived, never stored separately, so it can never go stale against either
@@ -681,19 +683,15 @@ export async function recordSubmission(
   let coinElsewhere = false;
   // Final review M1: the repo's coin is already on an entry in this same program (Ruling 13b's case).
   let coinHere = false;
+  // The program the repo's token is entered in, when it is another one (its note is made after the
+  // entry commits, v2.8.1 §D T5 fix round 1).
+  let tokenHome: { program_id: string; title: string } | null = null;
   if (bonusRepoKey && bonusOn(program)) {
     const coin = (await repoCoinPrograms([bonusRepoKey]).catch(() => new Map<string, { program_id: string; title: string }>())).get(bonusRepoKey);
     // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
     if (coin && coin.program_id !== program.id) {
       coinElsewhere = true;
-      // v2.8.1 §D: once the token's program is over, its fees roll over; the note names the round
-      // they book to now (bonusEntryProgram, the booking rule), else the token's own program.
-      const booked = await bonusEntryProgram(bonusRepoKey).catch(() => undefined);
-      if (booked && booked.program_id !== coin.program_id) notes.push(bonusRidesOn(booked.title));
-      else {
-        const line = repoCoinNote(coin.title);
-        notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
-      }
+      tokenHome = coin;
     } else if (coin) coinHere = true;
   }
   // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
@@ -705,7 +703,8 @@ export async function recordSubmission(
   // M12: the entry-time notes judge earlier entries by the eligibility rule of the round open now
   // (traction.ts eligibleSql: coin, proof and, v2.8 Ruling 2 (plan), a complete entry before the
   // round's end, never skipped), like scoring does.
-  const roundEnd = roundFor(program, new Date())?.ends ?? null;
+  const roundNow = roundFor(program, new Date());
+  const roundEnd = roundNow?.ends ?? null;
   // The token's launch time is coinSql's (an own coin before the end, or the carried one's).
   const beforeEnd = (tx: postgres.TransactionSql, a: 'p') =>
     roundEnd
@@ -789,7 +788,7 @@ export async function recordSubmission(
         const [earlier] = await tx<{ id: number }[]>`
           SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND p.bonus_repo_key = ${bonusRepoKey}
             AND p.id <> ${existing?.id ?? 0}
-            AND ${coinSql('p', roundEnd ?? new Date())} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
+            AND ${coinSql('p', roundEnd ?? new Date(), roundNow?.key ?? null)} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
             AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
             AND NOT COALESCE(p.installation_id = ANY(${testInstallationIds()}::int[]), false)
           ORDER BY p.submitted_at, p.id LIMIT 1`;
@@ -810,7 +809,7 @@ export async function recordSubmission(
           SELECT p.id, p.contracts FROM projects p
           WHERE p.program_id = ${program.id} AND p.contracts && ${bonusContracts}::text[]
             AND p.id <> ${existing?.id ?? 0}
-            AND ${coinSql('p', roundEnd ?? new Date())} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
+            AND ${coinSql('p', roundEnd ?? new Date(), roundNow?.key ?? null)} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
             AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
           ORDER BY p.submitted_at, p.id`;
         const taken = bonusContracts
@@ -936,6 +935,24 @@ export async function recordSubmission(
         if (same) throw alreadyEntered(same);
       }
       throw err;
+    })
+    .then(async (res) => {
+      if (!tokenHome || !bonusRepoKey) return res;
+      // v2.8.1 §D, T5 fix round 1: read after the entry commits, so the rollover rule sees this
+      // entry, and the note agrees with record_submission's builder text and token note (tools.ts
+      // bonusNoteTitle reads the same bonusEntryProgram). It names the round the token's fees book
+      // to now: rolled over, "rides on your <program> entry" (never when another entry already
+      // holds the repo in this program, Minor 4); else the token's own program.
+      const booked = await bonusEntryProgram(bonusRepoKey).catch(() => undefined);
+      let note: string | null;
+      if (booked && booked.program_id !== tokenHome.program_id)
+        note = booked.program_id === program.id && repoHeld ? null : bonusRidesOn(booked.title);
+      else {
+        const line = repoCoinNote(tokenHome.title);
+        note = `${line[0].toUpperCase()}${line.slice(1)}.`;
+      }
+      const bonusNote = [note, 'bonus_note' in res ? res.bonus_note : undefined].filter(Boolean).join(' ');
+      return { ...res, ...(bonusNote && { bonus_note: bonusNote }) };
     });
 }
 
