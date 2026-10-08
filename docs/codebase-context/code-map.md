@@ -718,7 +718,9 @@ apps/frontend/
                                identifiers/URLs/stablecoin exempt) over builder, agent (SERVER_INSTRUCTIONS, descriptions,
                                notes), landing, guide and campaign-page text; never "Clanker" (Ruling 18);
                                v2.7.1: v271Texts (header, install modal, /programs figure, pills, steps,
-                               statsLine, poolLine, bonusClose forms)
+                               statsLine, poolLine, bonusClose forms); v2.9 T12: the Part 1 strings (check
+                               lines, product-signal, claim, floor and investment notes, a first reply
+                               with the token offer) and never an em dash in builder text
     v281-journey.test.ts       v2.8.1 Task 7: the friction audit's 10 builder journeys plus the agent switch
                                (Grok Bot, then Claude Code with pick_up_entries) through the real tools, in
                                its own throwaway database; mocked tokens.fun (check-ticker, the deploy API
@@ -728,6 +730,12 @@ apps/frontend/
                                on the slow deploy, then the check-back), a repo is never led with speedrun,
                                no Arc dead end without a repo, the returning recap with no re-offer, and
                                no "open this in Claude Code or Cursor" for an agent that can push
+    v29-journey.test.ts        v2.9 Task 12 (Part 1) DB-gated journeys in their own throwaway database: owned
+                               repos and noise, Arc Easy and the first-reply token offer, Grok Bot with
+                               GitHub sign-in on (the real verify routes, GitHub OAuth mocked) and off,
+                               tell_earnkit lowering and raising, placeholders and links that don't load,
+                               offer then skip then confirm ("40%" once), cron claims for creator and MINI;
+                               the cross-reply copy scan
     v28-journey.test.ts        v2.8 Task 12 DB-gated journey in its own throwaway database: no repo,
                                Arc's coach question, the draft and offer, confirm_entry "go" (fake
                                deploy) and the copy-paste kit, record_submission with Also qualifies
