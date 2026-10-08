@@ -2328,3 +2328,50 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
 - **GitHub matching cache:** repo facts (detected chains; commits since each program's start) are
   cached for an hour per (repo, `pushed_at`) in `github_repo_facts`; a new push is a new key, and
   incomplete reads (a failed tree, file or commits call) aren't cached.
+
+## Owned repos and the real-product score (v2.9 A1, A2, Task 2)
+
+- **Owned repos only.** `match.ts ownerOk(owner, builder, contrib?)` (pure): never an owner in
+  `EARNKIT_ORGS` (`earnkit-orgs.ts`, import-free, re-exported by `programs.ts` next to `KITS`),
+  owner test installs included; the builder's own; else 5+ of the builder's commits that are 30%+
+  of the repo's last 100. `match-projects.ts userRepos` drops forks, templates (`is_template`),
+  archived repos, `TUTORIAL` names, descriptions or topics, EarnKit's repos, and repos neither
+  created nor pushed in 365 days before any per-repo call (`droppedRepo`). Repos owned by others
+  come from the commit search: only those with 5+ hits, at most 3, get `GET /repos/{r}` (where
+  `template_repository` is checked, P49) and one `commits?per_page=100` read for `ownerOk`. A
+  `repos` list without `github_user` counts as owned unless EarnKit's (P28); with one, a repo
+  owned by someone else gets the same 100-commit read (at most 3). Local repos whose GitHub link
+  names an EarnKit org are dropped.
+- **One key per repo.** `answer-bank.ts repoKey({ url, name })` = `projectKey` without its
+  leading `github.com/` (lowercased `owner/repo`, else `name:<name>`; P7), re-exported by
+  match-projects. A local report of a GitHub repo merges into it: GitHub facts win, the local
+  report only adds a live link (when GitHub has no homepage), chains GitHub lacks, and contracts.
+- **The score.** `productScore(ProductFacts)` (pure): six signals; product = 5+ with active,
+  owned and deployed; project = 3 to 4; noise = 2 or less. Inputs (plan Ruling 1): `active` = a
+  builder commit in 90 days (one `commits?author=&since=&per_page=1` read; no known builder: a
+  push in 90 days; local: `last_commit_at`), `young` = created in 365 days or active,
+  `original` = not a fork or template and no `TUTORIAL` match (docs repos included, P27),
+  `readme` = a root README of 1,536+ bytes (tree size) whose first 2 KB (one raw read) isn't
+  `DEFAULT_README` (local repos: false), `deployed` = the live link loads (`liveVerified`) or one
+  of up to 2 contract candidates from the files already read has code on a detected mainnet,
+  `owned` as above. At most `SCORE_LIMIT` = 8 repos (most recent first) are scored per call,
+  under one `CheckBudget(LIST_BUDGET)` (5 probes, 6 getCode).
+- **Cache (P6).** `github_repo_facts.product` (jsonb) holds only the repo's own signals for that
+  version: `{ young, original, readme, addresses }`. owned, active and deployed are worked out on
+  every call. A pre-v2.9 row (product NULL) re-reads the files. `cachedRepoAddresses(repoUrl)`
+  hands the file candidates to `tools.ts entryChecks` after the project's and local_repos'
+  contracts (P4).
+- **Verdicts.** `matchRepo` with `repo.product` set: noise gets no row; a program's
+  `min_product_score` (program file, 0 to 6; `programs:check` requires 5+ on `any_chain`, a16z:
+  5) is a floor; an `any_chain` or `investment` program takes product tier only, and an
+  investment row is `after_step`, `INVESTMENT_NOTE`, effort weeks; "needs a live product" is
+  never likely (`['live_url', 'real_users']`, or `['real_users']` once `live_verified`); a
+  project row that would be likely is `after_step` with its most actionable missing signal
+  (`SIGNAL_WORDS` in `deployed, active, readme, original, young, owned` order, P29). Without
+  `product` (callers that don't score) the v2.8.1 rules hold.
+- **Output.** `matchProjects(input, deps?)` returns `checked` (every repo found, dropped ones
+  included, so a builder with only clones reads "None of your N repos fits", P12), `scored`, and
+  `fits[]` with `key`, `product`, `live_verified` and `facts` (the merged RepoFacts, P13), likely
+  first then by score. `MatchDeps` (programs, repo cache, checks, now) is the test seam.
+  `tools.ts matchRows` caps list_programs' `matches` at 3 repos per program (1 for an
+  `any_chain` program), best `product_score` first.
