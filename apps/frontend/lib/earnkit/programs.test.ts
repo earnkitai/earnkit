@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  needsRepo,
   perWinnerUsd,
   programCard,
   programDetails,
@@ -9,6 +10,7 @@ import {
   type ProgramRow,
 } from './programs';
 import { presentFirstMessage } from './present';
+import { committedProgram } from './fixtures/program-file';
 import { trackRecordOf } from './sponsor-identity';
 import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
 
@@ -371,4 +373,13 @@ test('v2.8 Ruling 13: an any_chain row lists no chains; its landing tile reads "
   assert.equal(tile.chain, 'Any chain');
   const [baseTile] = landingFrom([programCard(fileRow(null), [])], new Map(), stats, new Date('2026-10-07T12:00:00Z')).tiles;
   assert.equal(baseTile.chain, 'Base');
+});
+
+test('v2.8.1 §B8: needsRepo: a required repo, code or live product link; idea-stage and email-only programs need none', () => {
+  const needs = (id: string) => needsRepo(committedProgram(id).submission_requirements);
+  for (const id of ['arc-microgrants', 'base-builder-grants', 'colosseum-worlds-fair', 'monad-metropolis']) assert.equal(needs(id), true, id);
+  for (const id of ['avalanche-team1-mini-grants', 'circle-developer-grants', 'a16z-speedrun']) assert.equal(needs(id), false, id);
+  // An optional link never counts; a builder's own link never counts.
+  assert.equal(needsRepo([{ key: 'repo_url', kind: 'links', from: 'project', required: false }]), false);
+  assert.equal(needsRepo([{ key: 'github_profile', kind: 'links', from: 'builder', required: true }]), false);
 });

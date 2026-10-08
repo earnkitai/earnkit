@@ -11,6 +11,7 @@ import {
   closesInDays,
   difficultyCell,
   endsOf,
+  entriesLine,
   fieldText,
   openMoneyUsd,
   presentFirstMessage,
@@ -97,6 +98,41 @@ const NO_POOL_YET = 'Every entry gets a token: you earn 40% of its trading fees,
 /** Fix round 1, Minor 3: escape once for reuse inside `new RegExp(...)`, instead of inline each time. */
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NO_POOL_RE = esc(NO_POOL_YET);
+
+/** Every committed curated program file as a list_programs card (open, no pools). */
+async function committedCards(): Promise<Card[]> {
+  const { readdirSync } = await import('node:fs');
+  const { ProgramFile } = await import('./program-file');
+  const { programCard } = await import('./programs');
+  const dir = join(import.meta.dirname, '../../../../programs');
+  const cards = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8'))))
+    .filter((p) => !p.campaign)
+    .map((p) =>
+      programCard(
+        {
+          ...p,
+          logo: p.logo ?? null,
+          focus: p.focus ?? null,
+          best_bet: p.best_bet ?? null,
+          winners_per_round: p.winners_per_round ?? null,
+          tag: p.tag ?? null,
+          campaign: null,
+          ends_at: new Date('2099-01-01T00:00:00Z'),
+          verified_at: new Date(p.verified_at),
+          created_at: new Date(),
+          opened_at: null,
+          source: 'file',
+          max_award_usd: p.max_award_usd == null ? null : String(p.max_award_usd),
+          pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
+          min_award_usd: p.min_award_usd == null ? null : String(p.min_award_usd),
+        },
+        [],
+      ),
+    );
+  return cards;
+}
 
 test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficulty column, one offer closed by the bonus', () => {
   const text = presentFirstMessage(msg({
@@ -630,37 +666,8 @@ test('v2.8 Task 5 fix round 1: no token sentence when no program on screen gives
 // ---- v2.8 Task 6 fix round 1: Ruling C4 ----
 
 test('v2.8 Ruling C4: with the committed curated programs, Easy ones sort first and Arc stays in the no-repo table', async () => {
-  const { readdirSync } = await import('node:fs');
-  const { ProgramFile } = await import('./program-file');
-  const { programCard } = await import('./programs');
+  const cards = await committedCards();
   const { layout } = await import('./present');
-  const dir = join(import.meta.dirname, '../../../../programs');
-  const cards = readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8'))))
-    .filter((p) => !p.campaign)
-    .map((p) =>
-      programCard(
-        {
-          ...p,
-          logo: p.logo ?? null,
-          focus: p.focus ?? null,
-          best_bet: p.best_bet ?? null,
-          winners_per_round: p.winners_per_round ?? null,
-          tag: p.tag ?? null,
-          campaign: null,
-          ends_at: new Date('2099-01-01T00:00:00Z'),
-          verified_at: new Date(p.verified_at),
-          created_at: new Date(),
-          opened_at: null,
-          source: 'file',
-          max_award_usd: p.max_award_usd == null ? null : String(p.max_award_usd),
-          pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
-          min_award_usd: p.min_award_usd == null ? null : String(p.min_award_usd),
-        },
-        [],
-      ),
-    );
   assert.ok(cards.length >= 7, `${cards.length} curated files`);
   const { shown } = layout({ cards, repos: null });
   const ids = shown.map((c) => c.id);
@@ -681,4 +688,140 @@ test('Ruling C23: the agent table reads "up to $1M investment" for an investment
   const text = presentFirstMessage(msg({ cards: [arc, speedrun] }));
   assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
   assert.doesNotMatch(text, /\| up to \$1M \|/);
+});
+
+// ---- v2.8.1 §B: first message and discovery ----
+
+const easy = { level: 'Easy', estimate: false, rated: true, basis: 'x' } as const;
+const hard = { level: 'Hard', estimate: false, rated: true, basis: 'x' } as const;
+const speedrunCard: Card = {
+  id: 'a16z-speedrun', title: 'a16z speedrun SR008', summary: 'up to $1M', tag: 'long shot', each_time: [], ends_at: null,
+  max_award_usd: 1_000_000, builder_fields: 1, investment: true, any_chain: true, difficulty: hard, needs_repo: false,
+};
+const avax: Card = {
+  id: 'avalanche-team1-mini-grants', title: 'Avalanche Team1 Mini Grants', summary: 'up to $10,000', tag: null,
+  each_time: ['a summary, milestones and why you deserve a grant'], ends_at: null, max_award_usd: 10_000, builder_fields: 5,
+  difficulty: easy, needs_repo: false,
+};
+const easyBase: Card = { ...base, difficulty: easy, needs_repo: true };
+const easyArc: Card = { ...arc, difficulty: easy, needs_repo: true };
+const withNew = (program_id: string): Verdict => ({ ...v(program_id, 'after_step', 'only new work since Sep 14 counts', 'days'), missing: ['new_work'] });
+
+test('v2.8.1 §B7: an investment program never leads; the offer is the Easy program with the most money', () => {
+  const text = presentFirstMessage(msg({
+    cards: [speedrunCard, easyBase, easyArc],
+    repos: repos(
+      v('a16z-speedrun', 'likely', 'looks eligible'),
+      v('arc-microgrants', 'likely', 'looks eligible'),
+      v('base-builder-grants', 'after_step', 'needs a live link', 'minutes'),
+    ),
+  }));
+  // Speedrun is in the table, never the offer; Base ($5,000, Easy) beats Arc ($500, Easy).
+  assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
+  assert.match(text, /Want me to start on Base Builder Grant Program with tipjar\? It needs a short Loom from you\./);
+  assert.doesNotMatch(text, /start on a16z/);
+  // A repo whose only fit is speedrun: build something new for the top Easy program instead.
+  const only = presentFirstMessage(msg({ cards: [speedrunCard, avax, easyArc], repos: repos(v('a16z-speedrun', 'likely', 'looks eligible')) }));
+  assert.match(only, /Want me to build something new for Avalanche Team1 Mini Grants \(up to \$10,000\)\? It needs a summary, milestones and why you deserve a grant from you\./);
+  assert.doesNotMatch(only, /(start on|new for) a16z/);
+  // Only a harder fit: an Easy program to build something new for comes first; with no Easy
+  // program open, the harder fit is offered.
+  const colo: Card = { ...colosseum, difficulty: hard };
+  const hardFit = repos(withNew('colosseum-worlds-fair'));
+  assert.match(presentFirstMessage(msg({ cards: [colo, avax], repos: hardFit })), /Want me to build something new for Avalanche Team1 Mini Grants/);
+  assert.match(presentFirstMessage(msg({ cards: [colo], repos: hardFit })), /Want me to start on Crypto World's Fair Hackathon with tipjar\?/);
+  // Chat-only agents: same pick, named before the chat-only sentence.
+  const chat = presentFirstMessage(msg({ cards: [speedrunCard, easyArc], repos: repos(v('a16z-speedrun', 'likely', ''), v('arc-microgrants', 'likely', '')), agentCanBuild: false }));
+  assert.match(chat, /Want me to start on Arc Microgrants with tipjar\? I can't build or deploy from here/);
+});
+
+test('v2.8.1 §B8: no repo: rows that need one say so; the offer is a program they can enter as they are', () => {
+  const cards = [speedrunCard, easyBase, easyArc, avax];
+  const text = presentFirstMessage(msg({ cards }));
+  assert.match(text, /\| Base Builder Grant Program \(needs a repo\) \|/);
+  assert.match(text, /\| Arc Microgrants \(needs a repo\) \|/);
+  assert.match(text, /\| Avalanche Team1 Mini Grants \| up to \$10,000 \|/);
+  assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
+  assert.match(text, /Want me to start on Avalanche Team1 Mini Grants\? It needs a summary, milestones and why you deserve a grant from you\./);
+  const chat = presentFirstMessage(msg({ cards, agentCanBuild: false }));
+  assert.match(chat, /\| Arc Microgrants \(needs a repo\) \|/);
+  assert.match(chat, /Want me to start on Avalanche Team1 Mini Grants\? I can't build or deploy from here, but I can plan it/);
+  // With a repo, no row says "needs a repo".
+  assert.doesNotMatch(presentFirstMessage(msg({ cards, repos: repos(v('arc-microgrants', 'likely', '')) })), /needs a repo/);
+  // Nothing they can enter as they are (only investment or repo programs): the v2.6 close.
+  assert.match(presentFirstMessage(msg({ cards: [speedrunCard, easyArc] })), /Pick one and I'll start\./);
+});
+
+test('v2.8.1 §B9: a returning builder sees "Your entries" first; entered programs are marked and never offered', () => {
+  const entries = [
+    { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', name: 'tipjar', submitted: true },
+    { program_id: 'arc-microgrants', title: 'Arc Microgrants', name: 'tipjar', submitted: false },
+  ];
+  const text = presentFirstMessage(msg({
+    cards: [easyBase, easyArc, avax, speedrunCard],
+    repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', ''), v('a16z-speedrun', 'likely', '')),
+    entries,
+  }));
+  assert.ok(
+    text.startsWith('Your entries: Base Builder Grant Program (tipjar, submitted); Arc Microgrants (tipjar, not submitted yet).\n\n'),
+    text,
+  );
+  assert.match(text, /\| Base Builder Grant Program \(entered\) \|/);
+  // Entered rows go last; the offer is never an entered program (nor speedrun). Arc, confirmed but
+  // not submitted yet, is not entered: finishing it is the offer.
+  assert.match(text, /\| Arc Microgrants \| 500 USDC/);
+  assert.match(text, /\| Base Builder Grant Program \(entered\) \|[^\n]*\n\n/);
+  assert.doesNotMatch(text, /start on (Base|a16z)/);
+  assert.match(text, /Want me to start on Arc Microgrants with tipjar\?/);
+  const allIn = presentFirstMessage(msg({
+    cards: [easyBase, easyArc, avax, speedrunCard],
+    repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', ''), v('a16z-speedrun', 'likely', '')),
+    entries: entries.map((e) => ({ ...e, submitted: true })),
+  }));
+  assert.match(allIn, /\| Arc Microgrants \(entered\) \|/);
+  assert.match(allIn, /Want me to build something new for Avalanche Team1 Mini Grants/);
+  // News still opens the reply (the daily check needs it first); the recap comes right after.
+  const news = presentFirstMessage(msg({ alerts: ['you won $500'], cards: [easyBase], entries }));
+  assert.match(news, /^Since you last checked: you won \$500\.\n\nYour entries: /);
+  // "keep going" is never offered on a program already entered.
+  const resume = presentFirstMessage(msg({ cards: [easyBase, avax], workingOn: ['base-builder-grants'], entries: entries.slice(0, 1) }));
+  assert.doesNotMatch(resume, /keep going on Base/);
+  // At most 3 named, then a count.
+  const many = Array.from({ length: 5 }, (_, i) => ({ program_id: `p${i}`, title: `P${i}`, name: 'x', submitted: true }));
+  assert.equal(entriesLine({ entries: many, cards: [] }), 'Your entries: P0 (x, submitted); P1 (x, submitted); P2 (x, submitted); 2 more.');
+  assert.equal(entriesLine({ entries: [], cards: [] }), null);
+  noEmoji(text);
+  assert.doesNotMatch(text, /—|coin|Clanker/);
+});
+
+test('v2.8.1 §B10: "$X you qualify for" leaves out new-work-only programs for an existing repo, and investments', () => {
+  const colo: Card = { ...colosseum, pool_usd: 30000, difficulty: null };
+  const text = presentFirstMessage(msg({
+    cards: [easyArc, colo, { ...speedrunCard, pool_usd: 1_000_000 }],
+    repos: repos(v('arc-microgrants', 'likely', ''), withNew('colosseum-worlds-fair'), v('a16z-speedrun', 'likely', '')),
+  }));
+  assert.match(text, /^EarnKit matches you to \$10K in prizes you qualify for\./);
+  // Only rows like that: the plain fit line, never "qualify".
+  const none = presentFirstMessage(msg({ cards: [colo], repos: repos(withNew('colosseum-worlds-fair')) }));
+  assert.match(none, /^Your repos fit these open programs:/);
+});
+
+test('v2.8.1 §B: with the committed programs, the four first messages', async () => {
+  const cards = await committedCards();
+  const noRepo = presentFirstMessage(msg({ cards }));
+  assert.match(noRepo, /Arc Microgrants \(needs a repo\)/);
+  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
+  const oneRepo = presentFirstMessage(msg({
+    cards,
+    repos: repos(v('base-builder-grants', 'likely', ''), v('a16z-speedrun', 'likely', ''), withNew('colosseum-worlds-fair')),
+  }));
+  assert.match(oneRepo, /Want me to start on Base Builder Grant Program with tipjar\?/);
+  const ethOnly = presentFirstMessage(msg({ cards, repos: repos(v('a16z-speedrun', 'after_step', 'needs a live link', 'minutes')) }));
+  assert.match(ethOnly, /\| a16z speedrun SR008 \|/);
+  assert.doesNotMatch(ethOnly, /(start on|new for) a16z/);
+  assert.match(ethOnly, /Want me to build something new for Avalanche Team1 Mini Grants/);
+  for (const t of [noRepo, oneRepo, ethOnly]) {
+    noEmoji(t);
+    assert.doesNotMatch(t, /—|Clanker|\bcoin\b/);
+  }
 });

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SponsorCampaignInput, tools } from './tools';
+import { SponsorCampaignInput, WALLET_IGNORED, listProgramsInput, tools } from './tools';
 import { sql } from './db';
 import { EntryError } from './campaigns';
 import { earnkitTexts } from './campaign-text';
@@ -93,6 +93,35 @@ test('SponsorCampaignInput rejects an award whose winners is a number', () => {
     winners: 3,
   });
   assert.equal(result.success, false);
+});
+
+// ---- v2.8.1 §B6: list_programs' input never fails on what an agent reports ----
+test('v2.8.1 §B6: a wallet that is not 0x is ignored with a note; a 0x one is kept', () => {
+  const W = '0x' + 'ab'.repeat(20);
+  const kept = listProgramsInput({ wallet: ` ${W} ` });
+  assert.deepEqual({ wallet: kept.wallet, walletNote: kept.walletNote }, { wallet: W, walletNote: null });
+  for (const bad of ['vitalik.eth', '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', '0x123', 42])
+    assert.deepEqual(
+      (({ wallet, walletNote }) => ({ wallet, walletNote }))(listProgramsInput({ wallet: bad })),
+      { wallet: undefined, walletNote: WALLET_IGNORED },
+      String(bad),
+    );
+  assert.equal(listProgramsInput({}).walletNote, null);
+  assert.equal(listProgramsInput({ wallet: '' }).walletNote, null);
+  assert.doesNotMatch(WALLET_IGNORED, /—|coin|Clanker/);
+});
+
+test('v2.8.1 §B6: list_programs input with any chain, dates without a timezone and a bare live link parses', () => {
+  const i = listProgramsInput({
+    local_repos: [
+      { name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }], last_commit_at: '2026-10-01', live_url: 'ethapp.xyz' },
+      { name: 'tipjar', chains: ['base', 'optimism'], last_commit_at: '2026-10-01 09:00' },
+    ],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(i.local_repos)), [
+    { name: 'ethapp', chains: [], last_commit_at: '2026-10-01T00:00:00.000Z', live_url: 'https://ethapp.xyz' },
+    { name: 'tipjar', chains: [{ chain: 'base', mainnet: true }], last_commit_at: '2026-10-01T09:00:00.000Z' },
+  ]);
 });
 
 // Against the local database when configured.
@@ -368,8 +397,9 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     assert.ok(calls[0].includes(proof.id) && !calls[0].includes(noProof.id), calls[0].join());
     // v2.7 §3: no per-row bonus column or note; the bonus closes the message instead.
     assert.match(text, /\| Program \| (Prize|You could win) \| Difficulty \| Ends \|/);
-    assert.match(text, new RegExp(`\\| Proof ${run} \\|`));
-    assert.match(text, new RegExp(`\\| No proof ${run} \\|`));
+    // v2.8.1 §B8: no repo, and entering needs one: the row says so.
+    assert.match(text, new RegExp(`\\| Proof ${run} \\(needs a repo\\) \\|`));
+    assert.match(text, new RegExp(`\\| No proof ${run} \\(needs a repo\\) \\|`));
     assert.match(text, /Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus\. 0\.42 ETH so far\.$/);
     assert.match(text, /\n\nIdeas I can build:\n- /);
     assert.ok(text.includes(`\n- Proof ${run}: ${proof.ideas[0]}\n- Proof ${run}: ${proof.ideas[1]}\n`), text);
@@ -1662,6 +1692,44 @@ test('12 list_programs: ask_outcome once after results are due; the report_outco
     await sql()`DELETE FROM projects WHERE program_id IN (${due.id}, ${later.id})`;
     await sql()`DELETE FROM installations WHERE id IN (${mine}, ${other})`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id IN (${due.id}, ${later.id})`;
+  }
+});
+
+// ---- v2.8.1 §B6, §B9: list_programs on real rows: odd agent input, and a returning builder.
+test('v2.8.1 §B: list_programs takes any chain, a bare date and a non-0x wallet; a returning builder sees their entries first', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = { ...arc, id: `t3b-${stamp}`, title: `Arc Entered ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t3b-${stamp}`}) RETURNING id`;
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
+  type Listed = { show_to_builder: string; wallet_note?: string };
+  try {
+    await withOnlyPrograms([p.id], async () => {
+    const first = (await tools.list_programs(
+      {
+        wallet: 'builder.eth',
+        local_repos: [
+          { name: 'ethapp', chains: [{ chain: 'ethereum', mainnet: true }], last_commit_at: '2026-10-01', live_url: 'ethapp.xyz' },
+          { name: 'tipjar', chains: ['Base', 'optimism'], last_commit_at: '2026-10-01 09:00' },
+        ],
+      },
+      ctx,
+    )) as Listed;
+    assert.equal(first.wallet_note, WALLET_IGNORED);
+    assert.doesNotMatch(first.show_to_builder, /Your entries/);
+    // A submitted entry (made by record_submission, no confirmation step): "Your entries" first, "entered".
+    await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES (${p.id}, 'TipJar', ${inst})`;
+    const back = (await tools.list_programs({}, ctx)) as Listed;
+    assert.ok(back.show_to_builder.startsWith(`Your entries: ${p.title} (TipJar, submitted).\n\n`), back.show_to_builder);
+    assert.match(back.show_to_builder, new RegExp(`\\| ${p.title} \\(entered\\) \\|`));
+    assert.doesNotMatch(back.show_to_builder, new RegExp(`(start on|keep going on|new for) ${p.title}`));
+    assert.ok(!('wallet_note' in back));
+    });
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id = ${p.id}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
   }
 });
 

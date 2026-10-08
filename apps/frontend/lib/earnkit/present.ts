@@ -48,6 +48,11 @@ export type Card = {
   sponsored?: boolean;
   /** Required answers only the builder can give (personal info, forms). */
   builder_fields?: number;
+  /**
+   * v2.8.1 §B8 (programs.ts needsRepo): entering needs a repo or a live product. A no-repo builder
+   * sees "needs a repo" on it; only `false` (known) makes it a no-repo builder's offer.
+   */
+  needs_repo?: boolean;
   /** v2.8 Ruling 13 (plan): the program fits any chain (its tile reads "Any chain"). */
   any_chain?: boolean;
   /** v2.8 Ruling C5: the award is an investment ("up to $1M investment"). */
@@ -124,6 +129,11 @@ export type FirstMessage = {
    * that repo shows no builder bonus.
    */
   repoCoins?: Map<string, { program_id: string; title: string }>;
+  /**
+   * v2.8.1 §B9 (projects.ts openEntries): the builder's entries in open programs, newest first. They
+   * open the message ("Your entries"), mark their programs "entered", and are never offered again.
+   */
+  entries?: { program_id: string; title: string; name: string; submitted: boolean }[];
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -361,13 +371,56 @@ const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in 
 type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict };
 
 /**
+ * v2.8.1 §B9: the programs the builder already entered (submitted). One confirmed but not submitted
+ * yet stays offerable ("keep going"), so the builder finishes it. Pure.
+ */
+const enteredIds = (m: Pick<FirstMessage, 'entries'>) =>
+  new Set((m.entries ?? []).filter((e) => e.submitted).map((e) => e.program_id));
+
+/** "Your entries" shows at most this many, then "N more". */
+const MAX_ENTRIES = 3;
+
+/**
+ * v2.8.1 §B9: the returning builder's short recap, or null with no entry in an open program:
+ * "Your entries: Base Builder Grant Program (tipjar, submitted); Arc Microgrants (tipjar, not
+ * submitted yet)." Pure; exported for tests.
+ */
+export function entriesLine(m: Pick<FirstMessage, 'entries' | 'cards'>): string | null {
+  const entries = m.entries ?? [];
+  if (entries.length === 0) return null;
+  const titles = new Map(m.cards.map((c) => [c.id, c.title]));
+  const shown = entries
+    .slice(0, MAX_ENTRIES)
+    .map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`);
+  const more = entries.length - MAX_ENTRIES;
+  return `Your entries: ${shown.join('; ')}${more > 0 ? `; ${more} more` : ''}.`;
+}
+
+/**
+ * v2.8.1 §B8, §B9: a table's Program cell: "(entered)" once the builder has an entry in it, else
+ * "(needs a repo)" for a no-repo builder when entering needs one. Pure.
+ */
+const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
+  entered.has(c.id) ? `${c.title} (entered)` : noRepoYet && c.needs_repo ? `${c.title} (needs a repo)` : c.title;
+
+/**
+ * v2.8.1 §B10: a matched row that counts toward "$X in prizes you qualify for": never an
+ * investment, and never a program that counts only new work when the repo is existing work (its
+ * verdict still needs new work). Pure.
+ */
+const qualifies = (r: Fit) => !r.card.investment && !r.v.missing.includes('new_work');
+
+/**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
  * under the repo that fits it best, by prize per winner), and the other curated programs shown
  * (at most 5) plus how many more. Shared with list_programs, so the bonus pools are read once and
  * only for programs on screen. Pure; exported for tests.
  */
-export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
+export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>) {
   const byId = new Map(m.cards.map((c) => [c.id, c]));
+  // v2.8.1 §B9: programs already entered go after the rest.
+  const done = enteredIds(m);
+  const enteredLast = (a: Pick<Card, 'id'>, b: Pick<Card, 'id'>) => Number(done.has(a.id)) - Number(done.has(b.id));
   const curated = (id: string) => byId.has(id) && !byId.get(id)!.sponsored;
   const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
   const matched = new Map<string, Fit>();
@@ -376,8 +429,10 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos'>) {
       if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
         matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v });
   // v2.8 Ruling C4: Easy programs first, then by prize.
-  const rows = [...matched.values()].sort((a, b) => byEaseThenPrize(a.card, b.card));
-  const rest = m.cards.filter((c) => !c.sponsored && !matched.has(c.id)).sort(byEaseThenPrize);
+  const rows = [...matched.values()].sort((a, b) => enteredLast(a.card, b.card) || byEaseThenPrize(a.card, b.card));
+  const rest = m.cards
+    .filter((c) => !c.sponsored && !matched.has(c.id))
+    .sort((a, b) => enteredLast(a, b) || byEaseThenPrize(a, b));
   const shown = rest.slice(0, MAX_OTHERS);
   return { byId, rows, shown, more: rest.length - shown.length };
 }
@@ -400,6 +455,10 @@ const openHeadline = (fig: string | null) =>
 export function presentFirstMessage(m: FirstMessage): string {
   const sections: string[] = [];
   if (m.alerts.length) sections.push(`Since you last checked: ${m.alerts.join('; ')}.`);
+  // v2.8.1 §B9: the returning builder's entries come first, right after any news (the daily check
+  // messages the builder only when the reply starts with news).
+  const recap = entriesLine(m);
+  if (recap) sections.push(recap);
   // Only open EarnKit campaigns get a table (Campaign #1 is closed: none).
   const campaigns = m.campaigns.filter((r) => r.open).sort(byCampaignPrize);
   if (campaigns.length === 0 && m.cards.length === 0) {
@@ -411,6 +470,7 @@ export function presentFirstMessage(m: FirstMessage): string {
   }
 
   const { byId, rows, shown, more } = layout(m);
+  const entered = enteredIds(m);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
   else if (m.repos && !noRepo(m.repos) && rows.length === 0)
     sections.push(
@@ -418,7 +478,8 @@ export function presentFirstMessage(m: FirstMessage): string {
     );
   else if (rows.length > 0) {
     // v2.8 Ruling 24 (plan): the matched programs' pools, the same figure the site uses.
-    const fig = openFigure(rows.map((r) => r.card));
+    // v2.8.1 §B10: only rows the builder qualifies for now count toward $X.
+    const fig = openFigure(rows.filter(qualifies).map((r) => r.card));
     sections.push(
       `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : 'Your repos fit these open programs:'}\n\n` +
         table(
@@ -427,7 +488,7 @@ export function presentFirstMessage(m: FirstMessage): string {
             const base = v.status === 'likely' || !v.note ? repo : `${repo}, ${v.note}`;
             const elsewhere = repoCoinElsewhere(m, card, repo_url);
             return [
-              card.title,
+              programCell(card, entered, false),
               prizeOf(card),
               difficultyCell(card),
               endsOf(card),
@@ -467,7 +528,7 @@ export function presentFirstMessage(m: FirstMessage): string {
       }\n\n` +
         table(
           ['Program', couldWin ? 'You could win' : 'Prize', 'Difficulty', 'Ends'],
-          shown.map((c) => [c.title, prizeOf(c), difficultyCell(c), endsOf(c)]),
+          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), prizeOf(c), difficultyCell(c), endsOf(c)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );
@@ -501,6 +562,30 @@ export function presentFirstMessage(m: FirstMessage): string {
   return sections.join('\n\n');
 }
 
+const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
+
+/** Ruling 28: "build something new" for a program, saying what only the builder can give. Pure. */
+const buildNew = (c: Card): Offer => ({
+  text: `Want me to build something new for ${c.title} (${prizeOf(c)})?${needsForms(c) ? needsText(c) : ''}`,
+  campaign: false,
+});
+
+/** v2.8.1 §B7: the Easy fit with the most money (then the quicker fit), if any. Pure. */
+const easyFit = (rows: Fit[]): Fit | undefined =>
+  rows.filter((r) => isEasy(r.card)).sort((a, b) => byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
+
+/** v2.4's fastest fit (prize per hour), programs needing forms last. Pure. */
+function fastestFit(rows: Fit[]): Fit | undefined {
+  const byHour = [...rows].sort(
+    (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
+  );
+  return byHour.find((r) => !needsForms(r.card)) ?? byHour[0];
+}
+
+/** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
+const bestCard = (cards: Card[]): Card | undefined =>
+  [...cards].sort((a, b) => Number(isEasy(b)) - Number(isEasy(a)) || (isEasy(a) ? 0 : Number(needsForms(a)) - Number(needsForms(b))) || byPrize(a, b))[0];
+
 /**
  * One closing offer (offer's text), and whether it's an EarnKit campaign entry (Ruling 10 (plan)).
  * `noBonusId` (final review M4): the offered program, when its row carries Ruling 25's "no builder
@@ -523,17 +608,30 @@ function offer(
   rows: Fit[],
   ideasShown: boolean,
 ): Offer {
-  if (!m.agentCanBuild) return { text: CHAT_ONLY, campaign: false };
+  // v2.8.1 §B7, §B9: never an investment (it shows only in the table), never a program entered.
+  const entered = enteredIds(m);
+  const offerable = (c: Card) => !c.sponsored && !c.investment && !entered.has(c.id);
+  // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
+  const noBonus = (r: Fit | undefined) =>
+    r && repoCoinElsewhere(m, r.card, r.repo_url) ? { noBonusId: r.card.id } : {};
+  const fits = rows.filter((r) => offerable(r.card));
+  // v2.8.1 §B7: the Easy fit with the most money; with none, an Easy program to build something new
+  // for comes before a harder fit (still offered when no Easy program is open).
+  const easyNew = easyFit(fits) ? undefined : bestCard(m.cards.filter((c) => offerable(c) && isEasy(c)));
+  const pick = easyFit(fits) ?? (fits.length > 0 && !easyNew ? fastestFit(fits) : undefined);
+  // v2.8.1 §B8: with no repo, the program the builder can enter as they are (known not to need one).
+  const asTheyAre = noMatch(m.repos) ? bestCard(m.cards.filter((c) => offerable(c) && c.needs_repo === false)) : undefined;
+  if (!m.agentCanBuild) {
+    const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
+    return { text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY, campaign: false, ...noBonus(pick) };
+  }
   const titleOf = (id: string): Offer | undefined => {
     const c = byId.get(id);
     if (c) return c.sponsored ? undefined : { text: c.title, campaign: false };
     const camp = m.campaigns.find((r) => r.id === id && r.open);
     return camp ? { text: camp.title, campaign: true } : undefined;
   };
-  // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
-  const noBonus = (r: Fit | undefined) =>
-    r && repoCoinElsewhere(m, r.card, r.repo_url) ? { noBonusId: r.card.id } : {};
-  const resumeId = m.workingOn.find((id) => titleOf(id));
+  const resumeId = m.workingOn.find((id) => !entered.has(id) && titleOf(id));
   const resume = resumeId && titleOf(resumeId);
   if (resume)
     return {
@@ -543,21 +641,18 @@ function offer(
     };
   const campaign = [...m.campaigns].sort(byCampaignPrize).find((r) => r.open && r.you === null);
   if (campaign) return { text: `Want me to build your entry for the ${usd(campaign.prize_usd_each)}?`, campaign: true };
-  const byHour = [...rows].sort(
-    (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
-  );
-  const fastest = byHour.find((r) => !needsForms(r.card));
-  if (fastest)
-    return { text: `Want me to start on ${fastest.card.title} with ${fastest.repo}?`, campaign: false, ...noBonus(fastest) };
-  const forms = byHour[0];
-  if (forms)
+  if (pick)
     return {
-      text: `Want me to start on ${forms.card.title} with ${forms.repo}?${needsText(forms.card)}`,
+      text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`,
       campaign: false,
-      ...noBonus(forms),
+      ...noBonus(pick),
     };
+  if (asTheyAre)
+    return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
+  if (fits.length > 0 && easyNew) return buildNew(easyNew);
   if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
+  const fresh = curated.filter(offerable);
   // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no
   // ideas doesn't mean no choice); never fall back to "check your repos" when there's nothing to
   // check (repos === null) and no open campaign took priority above.
@@ -570,12 +665,8 @@ function offer(
   if (anyOpen && !buildOffer && (!m.repos || 'error' in m.repos))
     return { text: 'Want me to check which of your repos already qualify?', campaign: false };
   // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.
-  const top = [...curated].sort((a, b) => Number(needsForms(a)) - Number(needsForms(b)) || byPrize(a, b))[0];
-  if (top)
-    return {
-      text: `Want me to build something new for ${top.title} (${prizeOf(top)})?${needsForms(top) ? needsText(top) : ''}`,
-      campaign: false,
-    };
+  const top = bestCard(fresh);
+  if (top) return buildNew(top);
   // Only sponsor campaigns open: never offered by name.
   if (m.cards.length > 0) return { text: "Pick one and I'll start.", campaign: false };
   if (m.campaigns.some((r) => r.you === 'in review'))

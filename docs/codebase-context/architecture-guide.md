@@ -457,6 +457,16 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   once some entry is scored, and "Your campaign entries" never says "#N of M" for an unscored
   sponsor entry (it joins `sponsor_campaigns.state`). A closed EarnKit campaign with no entries
   (Campaign #1) has no public page.
+- **First message, v2.8.1 §B.** `list_programs` never fails on what an agent reports: any chain
+  string (unknown chains dropped), dates without a timezone (UTC), bare live links, extra keys;
+  an unreadable repo is skipped, and a wallet that isn't 0x is ignored with `wallet_note`. After
+  any news, a returning builder sees "Your entries: <program> (<repo>, submitted)" (open, non-
+  campaign programs; `openEntries`). A submitted entry marks its program "(entered)", sorts it
+  last and is never offered or resumed; one confirmed but not submitted stays offerable. With no
+  repo, rows whose program needs one (`needsRepo`) say "(needs a repo)". The offer is never an
+  investment program: the Easy fit with the most money, else "build something new" for the top
+  Easy program, else the v2.4 fastest fit; with no repo, the best program known not to need one.
+  "$X in prizes you qualify for" leaves out investments and rows that still need new work.
 - Human-facing dates use one format (`dates.ts` `formatDeadline`, "Oct 6, 2026, 06:51 UTC");
   machine fields (`ends_at`, `deadline`) stay ISO.
 - "Fastest" and per-repo ordering in list_programs: quickest first; between equally quick fits,

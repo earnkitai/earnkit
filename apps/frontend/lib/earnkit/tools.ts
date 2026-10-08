@@ -5,6 +5,7 @@ import {
   recordSubmission,
   answersOf,
   enteredProgramIds,
+  openEntries,
   ownEntryWallet,
   startEntry,
   type EntryDeps,
@@ -27,7 +28,7 @@ import { sinceLine, sinceYouLastChecked } from './alerts';
 import {
   GitHubError,
   MatchProjectsInput,
-  ReportedRepoInput,
+  LocalReposInput,
   cachedRepoChains,
   checkEligibility,
   matchProjects,
@@ -361,13 +362,26 @@ const ListProgramsInput = z
     agent_can_build: z.boolean().default(true),
     github_user: z.string().optional(),
     repos: z.array(z.string()).optional(),
-    local_repos: z.array(ReportedRepoInput).max(20).optional(),
-    wallet: z
-      .string()
-      .regex(/^0x[0-9a-fA-F]{40}$/, 'wallet must be a 0x address of 40 hex characters; pass the builder wallet or leave it out.')
-      .optional(),
+    local_repos: LocalReposInput.optional(),
+    // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
+    wallet: z.unknown().optional(),
   })
   .strict();
+
+/** v2.8.1 §B6: list_programs' note when the wallet given isn't a 0x address. */
+export const WALLET_IGNORED =
+  'The wallet given is not a 0x address, so it was ignored. Pass a 0x wallet (40 hex characters) to show its wins, or leave it out.';
+
+/**
+ * v2.8.1 §B6: list_programs' input. Never fails on what an agent reports about the builder's repos
+ * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
+ */
+export function listProgramsInput(input: unknown) {
+  const { wallet, ...rest } = ListProgramsInput.parse(input ?? {});
+  const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
+  const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
+  return { ...rest, wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null };
+}
 
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. */
 export const ASK_OUTCOME_NOTE =
@@ -422,8 +436,7 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet } =
-      ListProgramsInput.parse(input ?? {});
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote } = listProgramsInput(input);
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
     const [memory, programs, campaigns] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
@@ -504,6 +517,11 @@ export const tools = {
       bonus_closed: pools.has(c.id) && pools.get(c.id) === null,
     }));
     const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
+    // v2.8.1 §B9: "Your entries" and the "entered" marks; never fails the tool (none on an error).
+    const myEntries = await openEntries(ctx.installationId).catch((err: unknown) => {
+      console.error('[list_programs] entries', err instanceof Error ? err.name : 'error');
+      return [];
+    });
 
     const show_to_builder = presentFirstMessage({
       alerts: alerts.lines,
@@ -517,6 +535,7 @@ export const tools = {
       sponsorEntries: entries.section,
       now: new Date(),
       repoCoins,
+      entries: myEntries,
     });
 
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
@@ -537,6 +556,7 @@ export const tools = {
             ? 'EarnKit remembers the repos you reported for next time. '
             : "Next time, pass local_repos: read the builder's local git remotes (git remote -v in their project folders) and report each repo. Never ask for a GitHub username first. ") +
         'Program facts were checked against their sources on verified_at; within 7 days, no need to re-read them.',
+      ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
       ...(ask && {
         ask_outcome: {
