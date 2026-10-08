@@ -469,7 +469,7 @@ test('3.9 tell_earnkit replaces report_outcome: 8 tools, it writes, list_program
   assert.ok(!tools.some((t) => t.name === 'report_outcome'));
   const tell = tools.find((t) => t.name === 'tell_earnkit')!;
   assert.deepEqual(tell.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
-  assert.deepEqual(Object.keys((tell.inputSchema as { properties: object }).properties).sort(), ['program_status', 'repo_facts']);
+  assert.deepEqual(Object.keys((tell.inputSchema as { properties: object }).properties).sort(), ['program_status', 'repo_facts', 'signed_in']);
   assert.match(list.description!, /pass their answer to tell_earnkit/);
   assert.ok(tell.description!.length < 800, `${tell.description!.length} characters`);
   assert.match(tell.description!, /Call it only with what the builder said/);

@@ -486,5 +486,34 @@ ok(floors.set === 0, 'existing programs get match_floor and match_precision = NU
 const [scoreCol] = await db<{ n: number }[]>`SELECT count(product_score)::int AS n FROM projects`;
 ok(scoreCol.n === 0, 'existing entries get product_score = NULL');
 
+// v2.9 B9: builder memory keyed by login ('' = the installation's own); a database made before the
+// column gets it and the wider primary key; sign-in nonces and verifications survive the schema again.
+const [memLogin] = await db<{ login: string }[]>`SELECT login FROM builder_program_status WHERE installation_id = ${memInst}`;
+ok(memLogin?.login === '', "existing builder memory gets login = ''");
+await db`INSERT INTO builder_program_status (installation_id, login, program_id, status) VALUES (${memInst}, 'alice', 'arc-microgrants', 'applied')`;
+const [twoLogins] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_program_status WHERE installation_id = ${memInst}`;
+ok(twoLogins.n === 2, 'one program status per (installation, login, program)');
+await db.unsafe(`ALTER TABLE builder_repo_facts DROP COLUMN login CASCADE; ALTER TABLE builder_repo_facts ADD PRIMARY KEY (installation_id, repo_key);`);
+await db.unsafe(now);
+const pk = await db<{ attname: string }[]>`
+  SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+  WHERE i.indrelid = 'builder_repo_facts'::regclass AND i.indisprimary`;
+ok(pk.map((r) => r.attname).sort().join(',') === 'installation_id,login,repo_key', 'an old builder_repo_facts gets login in its primary key');
+const [keptFacts] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_repo_facts WHERE installation_id = ${memInst} AND login = ''`;
+ok(keptFacts.n === 1, 'builder_repo_facts rows survive the key change');
+await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at)
+  VALUES ('h1', ${memInst}, 'alice/tipjar', 'pickup', now() + interval '15 minutes')`;
+const badPurpose = await db`INSERT INTO github_verify_nonces (nonce_hash, installation_id, repo_key, purpose, expires_at)
+  VALUES ('h2', ${memInst}, 'alice/tipjar', 'login', now())`.then(() => false, () => true);
+ok(badPurpose, "github_verify_nonces only takes 'entry', 'pickup' or 'host'");
+await db`INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos)
+  VALUES ('alice/tipjar', 'alice', ${memInst}, now(), 1)`;
+await db.unsafe(now);
+const [ver] = await db<{ purpose: string; used_at: Date | null; code_hash: string | null; n: number }[]>`
+  SELECT purpose, used_at, code_hash, (SELECT count(*)::int FROM github_verify_nonces WHERE installation_id = ${memInst}) AS n
+  FROM github_verifications WHERE installation_id = ${memInst}`;
+ok(ver && ver.purpose === 'entry' && ver.used_at === null && ver.code_hash === null && ver.n === 1,
+  "sign-in rows survive the schema running again; verifications default to purpose 'entry', unused, no code");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
