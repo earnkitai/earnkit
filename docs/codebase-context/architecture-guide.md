@@ -966,22 +966,11 @@ during the build); plan: `v2.4-money-first-plan.md`.
      counts as traded), through the first locker that simulates cleanly, and only if the coin's
      `rewardRecipients` include the bonus wallet. Only a revert means "this locker doesn't hold
      the coin" (`isRevert`); an RPC error makes that coin `failed` and unstamped, retried next run.
-  3. *Claim.* `claim(owner, WETH)` for each of `claimOwners` (v2.9 D16, Task 9): the bonus
-     wallet, the Safe, every launched EarnKit token's creator (slot 1; test installations' too)
-     and MINI (slot 2), each address once, first role wins. Each goes only when `availableFees`
-     is at least 10x the estimated gas cost (`worthIt`). The FeeLocker always pays the owner, so
-     EarnKit never holds a creator's or MINI's WETH. The bonus wallet's claim also goes when the
-     sweep waits on it (M10: the unswept Safe bookings are worth 10x gas and the wallet can't
-     send them without leaving a round short). Recipients come from `feeRecipients`: the first
-     locker whose `tokenRewards(coin)` knows the coin (Base's lockers return an empty split for an
-     unknown coin, the anvil mocks revert; both pass to the next locker), cached on
-     `projects.fee_recipients`, at most `RECIPIENT_READS_PER_RUN` (20) reads a run, newest tokens
-     first. A failed read (an RPC error or no locker) caches nothing, claims no creator, and MINI
-     falls back to `MINI_FEE_RECIPIENT` (policy.ts, Ruling 17, confirmed read-only on Base); one
-     log line per run names the unread tokens. A MINI address read from a locker wins over the
-     fallback. D18: every sent claim inserts a `fee_claims` row (tx_hash, owner, role, weth,
-     gas_wei = estimate x maxFeePerGas, an upper bound). It is an ops log only: no revenue figure
-     and no public stat reads it (`fees_to_safe_eth` is unchanged; buyback is not revenue).
+  3. *Claim.* `claimFees`: EarnKit's own claims, `claim(bonus wallet, WETH)` then `claim(Safe,
+     WETH)`, when `availableFees` is at least 10x the estimated gas cost (`worthIt`). The bonus
+     wallet's claim also goes when the sweep waits on it (M10: the unswept Safe bookings are worth
+     10x gas and the wallet can't send them without leaving a round short). No recipient read runs
+     before them (v2.9 fix round 1).
   4. *Sweep.* Safe-booked, unswept WETH goes from the bonus wallet to the Safe when it is at
      least 10x the gas, the wallet holds it, and it never leaves a round short: `wallet − amount ≥
      Σ(round bookings of rounds not 'paid' or 'empty') − Σ(their winners already paid) −
@@ -992,6 +981,27 @@ during the build); plan: `v2.4-money-first-plan.md`.
      stored before broadcast, the same bytes resent after a crash, `MANUAL_CHECK` when it can't
      be proven dead. Paid, every reserved row gets `swept_tx`. A `MANUAL_CHECK` sweep adds
      `bonus-ledger` to the cron's `needs_owner` (503).
+  5. *Creator and MINI claims (v2.9 D16, Task 9; fix round 1).* `claimForOthers`, step
+     `claim_others`, runs last, after the rounds and the sweep, and only when no stored send waits.
+     It has its own slice of the run: at most `OTHERS_CLAIM_MS` (20 s, `BonusDeps.othersMs`), so a
+     slow RPC or many creators never takes time from the builder bonus payouts or the sweep. It
+     claims `claim(owner, WETH)` for MINI (slot 2) first, then every launched EarnKit token's
+     creator (slot 1; test installations' too), newest tokens first, each address once
+     (`claimOwners`: an owner that is also the bonus wallet or the Safe is left to `claimFees`),
+     each at 10x gas. Owners the slice doesn't reach read `next run`. The FeeLocker always pays the
+     owner, so EarnKit never holds a creator's or MINI's WETH. Recipients come from `feeRecipients`:
+     the first locker whose `tokenRewards(coin)` knows the coin (Base's lockers return an empty
+     split for an unknown coin, the anvil mocks revert; both pass to the next locker), read by slot
+     only when its bps are EarnKit's split (`EARNKIT_SPLIT_BPS` = [3000, 4000, 1000, 2000], kept
+     equal to `FEE_SPLIT_BPS` by a test), cached on `projects.fee_recipients` (a failed cache write
+     keeps the read), at most `RECIPIENT_READS_PER_RUN` (20) reads a run, newest first. A failed
+     read (an RPC error, no locker, another split) caches nothing, claims no creator, and MINI falls
+     back to `MINI_FEE_RECIPIENT` (policy.ts, Ruling 17, confirmed read-only on Base); one log line
+     per run names the unread tokens. A MINI address read from a locker wins over the fallback.
+  - *Claims log (v2.9 D18).* Every claim that mines successfully (own or others') inserts a
+     `fee_claims` row (tx_hash, owner, role, weth = available at the claim, gas_wei = estimate x
+     maxFeePerGas; the signed limit is 1.5x the estimate). It is an ops log only: no revenue figure
+     and no public stat reads it (`fees_to_safe_eth` is unchanged; buyback is not revenue).
   - *Gas check (v2.9 D17, Task 9).* Before any step, `runBonusLedger` reads the payout wallet's
      ETH (`BonusRpc.ethBalance`). Under `gasMinWei()` (`GAS_WALLET_MIN_WEI`, default
      `GAS_WALLET_MIN_WEI_DEFAULT` = 0.002 ETH; a malformed value is the default, logged once
@@ -999,7 +1009,7 @@ during the build); plan: `v2.4-money-first-plan.md`.
      (ends with `TOP_UP`). A failed read is `gas: { low: false, note: 'unread' }` and never blocks
      the run. The cron's `bonusWaitsOnOwner` adds `bonus-ledger` to `needs_owner` (503, the
      GitHub Actions email) once when the gas is low, when a claim or collect result contains
-     `NEEDS_GAS` ("the payout wallet needs ETH for gas"), when the sweep's note does (its gas-out
+     `NEEDS_GAS` ("the payout wallet needs ETH for gas", also in `claim_others`), when the sweep's note does (its gas-out
      note now ends with `TOP_UP`), or after `INDEX_FAILED_RUNS` failed index steps. No new service.
 - **Round lifecycle and WETH payouts (Task 7, `bonus-payout.ts`).** The cron scores every run
   (`scoreOpenRounds`, at most half the run's budget, under the `bonus-scoring` lease), then the

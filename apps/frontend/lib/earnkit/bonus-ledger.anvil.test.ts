@@ -44,6 +44,7 @@ const E18 = 10n ** 18n;
 type Run = {
   index: { round: number; safe: number };
   claim: { role: string; result: string }[];
+  claim_others: { role: string; result: string }[];
   collect: { coin: string; result: string }[];
   sweep: { result: string; status?: string };
 };
@@ -162,10 +163,13 @@ async function scenario() {
   // other files' coins whose fee recipients no anvil locker knows).
   assert.equal(lines.filter((l) => !l.includes('fee recipients unread')).length, 2);
 
-  // Claimed every bucket (v2.9 D16: the creator's and MINI's too, read from the lockers), then swept
+  // Claimed every bucket (v2.9 D16: the creator's and MINI's too, read from the lockers), and swept
   // exactly the Safe's bookings from the bonus wallet.
-  assert.deepEqual(r1.claim.map((c) => c.role), ['bonus', 'safe', 'creator', 'mini']);
+  assert.deepEqual(r1.claim.map((c) => c.role), ['bonus', 'safe']);
   assert.ok(r1.claim.every((c: { result: string }) => c.result.startsWith('claim success')), JSON.stringify(r1.claim));
+  // Fix round 1: the creator and MINI claims run last, after the sweep (MINI first).
+  assert.deepEqual(r1.claim_others.map((c) => c.role), ['mini', 'creator']);
+  assert.ok(r1.claim_others.every((c) => c.result.startsWith('claim success')), JSON.stringify(r1.claim_others));
   assert.equal(r1.sweep.status, 'paid', JSON.stringify(r1.sweep));
   const bal = (who: string) => pc.readContract({ address: weth, abi: erc20Abi, functionName: 'balanceOf', args: [who as Hex] });
   const safeShare = ((1n + 2n + 4n) * E18 * 3000n) / 10_000n;

@@ -36,7 +36,7 @@ import {
   type PayoutRpc,
   type PayoutStore,
 } from './payout';
-import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
+import { EARNKIT_SPLIT_BPS, GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
 import { withScoringLock } from './sponsor';
 
@@ -50,10 +50,12 @@ import { withScoringLock } from './sponsor';
  *    to that coin's program's open round at the block's time, or to the Safe;
  * 2. collect: sends `collectRewards(coin)` itself only for an EarnKit coin in its round's last 24 h
  *    with no deposit seen from it in 12 h (so its pending fees count before the round freezes);
- * 3. claim: `claim(owner, WETH)` for the bonus wallet, the Safe, each EarnKit token's creator and
- *    MINI (v2.9 D16) when worth ≥ 10× its gas; the FeeLocker always pays the owner;
+ * 3. claim: `claim(bonus wallet, WETH)` and `claim(Safe, WETH)` when worth ≥ 10× their gas;
  * 4. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
  *    worth ≥ 10× its gas (the v2.4 idempotent payout: signed and stored before it is broadcast).
+ * 5. claim_others (v2.9 D16): after the rounds and the sweep, in at most OTHERS_CLAIM_MS,
+ *    `claim(owner, WETH)` for MINI and each EarnKit token's creator when worth ≥ 10× its gas; the
+ *    FeeLocker always pays the owner.
  */
 
 /** The contracts the ledger reads (lowercase). Injectable for the anvil test. */
@@ -227,6 +229,8 @@ export type BonusDeps = {
   startBlock?: bigint;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
+  /** v2.9: the creator and MINI claim step's time slice, ms (default OTHERS_CLAIM_MS). */
+  othersMs?: number;
   /** Receipt reads per run (default RECEIPTS_PER_RUN). */
   maxReceipts?: number;
   /** Whether the coin had token transfers since `since` (default: Base Blockscout). */
@@ -669,7 +673,8 @@ export const RECIPIENT_READS_PER_RUN = 20;
 
 /**
  * v2.9 D16: a token's creator (slot 1) and MINI (slot 2) fee recipients, from the first locker that
- * knows it, cached on `projects.fee_recipients`. A failed read (an RPC error, or no locker knows
+ * knows it, cached on `projects.fee_recipients` only when its split is EarnKit's
+ * (EARNKIT_SPLIT_BPS: Safe, creator, MINI, bonus wallet). A failed read (an RPC error, or no locker knows
  * the coin): the creator unknown, MINI the policy.ts fallback (Ruling 17), nothing cached, so the
  * next run reads again; the coin is added to `d.unread` (claimFees logs them once per run).
  */
@@ -678,13 +683,21 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
     for (const locker of d.chain.lockers) {
       // A locker that doesn't know the coin returns an empty split (Base's lockers) or reverts; a
       // transport error throws, so the read fails and is retried next run.
-      const { recipients } = await d.rpc.rewardInfo(locker, coin).catch((err: unknown) => {
-        if (isRevert(err)) return { recipients: [] as string[] };
+      const { recipients, bps } = await d.rpc.rewardInfo(locker, coin).catch((err: unknown) => {
+        if (isRevert(err)) return { recipients: [] as string[], bps: [] as number[] };
         throw err;
       });
       if (recipients.length === 0) continue;
-      const r: FeeRecipients = { creator: (recipients[1] as Hex | undefined) ?? null, mini: (recipients[2] as Hex | undefined) ?? null };
-      await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`;
+      // Only EarnKit's split says which slot is whose; any other split is unread (never cached).
+      if (bps.length !== EARNKIT_SPLIT_BPS.length || bps.some((b, i) => b !== EARNKIT_SPLIT_BPS[i])) {
+        console.error('[bonus] fee recipients of', coin, 'not read: its split is', bps.join('/'), 'not EarnKit\'s');
+        break;
+      }
+      const r: FeeRecipients = { creator: recipients[1] as Hex, mini: recipients[2] as Hex };
+      // A failed cache write keeps the good read (it is read again next run).
+      await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`.catch((err: unknown) =>
+        console.error('[bonus] fee recipients cache of', coin, err),
+      );
       return r;
     }
   } catch (err) {
@@ -694,17 +707,75 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
   return { creator: null, mini: lower(MINI_FEE_RECIPIENT) as Hex };
 }
 
+/** v2.9 fix round 1: the creator and MINI claim step's share of a run (after the sweep), at most. */
+export const OTHERS_CLAIM_MS = 20_000;
+
 /**
- * Step 3 (v2.9 D16): `claim(owner, WETH)` on the FeeLocker for the bonus wallet, the Safe, each
- * launched EarnKit token's creator (test installations' too: their fees are real) and MINI, each
- * owner once (claimOwners). Anyone may call it and it always pays the owner, so EarnKit never holds
- * the creator's or MINI's money. Each is sent only when its available WETH is at least 10× the
- * estimated gas cost, or (the bonus wallet's, M10) when the sweep to the Safe waits on it. D18:
- * every sent claim is logged in `fee_claims` (an ops log, never revenue); `gas_wei` is the
- * estimate times maxFeePerGas, an upper bound on what the claim cost.
+ * One `claim(owner, WETH)` on the FeeLocker (anyone may call it; it always pays the owner) when its
+ * available WETH is at least 10× the estimated gas cost, or `force()` says so (M10). D18: a claim
+ * that mined successfully is logged in `fee_claims` (an ops log, never revenue); `gas_wei` is the
+ * estimated gas times maxFeePerGas (the signed gas limit is 1.5× the estimate).
+ */
+async function claimOne(
+  account: LocalAccount,
+  d: BonusDeps & { rpc: BonusRpc; chain: BonusChain },
+  owner: Hex,
+  role: ClaimRole,
+  deadline: number,
+  force?: (gas: bigint, maxFeePerGas: bigint) => Promise<boolean>,
+) {
+  try {
+    const available = await d.rpc.availableFees(owner, d.chain.weth);
+    if (available === 0n) return { owner, role, result: 'nothing to claim' };
+    const data = encodeFunctionData({ abi: FEE_LOCKER_ABI, functionName: 'claim', args: [owner, d.chain.weth] });
+    const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data }), d.rpc.fees()]);
+    if (!worthIt(available, gas, fees.maxFeePerGas) && !(force && (await force(gas, fees.maxFeePerGas))))
+      return { owner, role, result: `${available} wei: under 10x gas` };
+    const sent = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, deadline, d.nonces);
+    // Only a mined success claimed the WETH; a failed log write never turns the claim into a failure.
+    if (sent.status === 'success')
+      await sql()`
+        INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei)
+        VALUES (${sent.hash}, ${owner}, ${role}, ${available.toString()}, ${(gas * fees.maxFeePerGas).toString()})
+        ON CONFLICT DO NOTHING`.catch((err: unknown) => console.error('[bonus] fee_claims insert', sent.hash, err));
+    return { owner, role, result: `claim ${sent.status} ${sent.hash}` };
+  } catch (err) {
+    console.error('[bonus] claim', owner, err);
+    return { owner, role, result: outOfGas(err) ? NEEDS_GAS : 'failed' };
+  }
+}
+
+/**
+ * Step 3: EarnKit's own claims, `claim(bonus wallet, WETH)` then `claim(Safe, WETH)`, each only when
+ * its available WETH is at least 10× the estimated gas cost, or (the bonus wallet's, M10) when the
+ * sweep to the Safe waits on it. No recipient read runs before them (v2.9 fix round 1): creators and
+ * MINI are claimed by claimForOthers, after the sweep.
  */
 export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
-  // Newest first, so a new token's recipients are read before older uncached ones.
+  const out: { owner: string; role: ClaimRole; result: string }[] = [];
+  const owners = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: [], mini: null });
+  for (const { owner, role } of owners) {
+    if (Date.now() >= toDeadline(d)) break;
+    // M10: the bonus wallet's claim is also worth it when it unblocks a sweep worth 10x gas
+    // (the Safe's own deposits sit unclaimed behind a small balance).
+    const force = role === 'bonus' ? (gas: bigint, fee: bigint) => sweepWaitsOnClaim(account, d, gas, fee) : undefined;
+    out.push(await claimOne(account, d, owner, role, toDeadline(d), force));
+  }
+  return out;
+}
+
+/**
+ * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for MINI and each launched EarnKit token's
+ * creator (test installations' too: their fees are real), after the rounds and the sweep, within at
+ * most OTHERS_CLAIM_MS (`othersMs`) of the run, so it never takes time from EarnKit's own payouts.
+ * The FeeLocker always pays the owner, so EarnKit never holds the creator's or MINI's money; each
+ * claim needs 10× its gas. Recipients: cached, else read (feeRecipients, at most
+ * RECIPIENT_READS_PER_RUN), newest tokens first; MINI goes first, then the creators newest first.
+ * What the slice doesn't reach is 'next run'. An owner that is also the bonus wallet or the Safe is
+ * claimed by claimFees (claimOwners: the first role wins).
+ */
+export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
+  const deadline = Math.min(toDeadline(d), Date.now() + (d.othersMs ?? OTHERS_CLAIM_MS));
   const tokens = await sql()<{ coin: Hex; fee_recipients: FeeRecipients | null }[]>`
     SELECT coin_address AS coin, fee_recipients FROM projects
     WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id DESC`;
@@ -713,7 +784,7 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
   let reads = 0;
   for (const t of tokens) {
     if (t.fee_recipients) known.push(t.fee_recipients);
-    else if (reads < RECIPIENT_READS_PER_RUN && Date.now() < toDeadline(d)) {
+    else if (reads < RECIPIENT_READS_PER_RUN && Date.now() < deadline) {
       reads++;
       known.push(await feeRecipients(t.coin, { ...d, unread }));
     }
@@ -723,41 +794,12 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
   // A read MINI recipient wins over the policy.ts fallback a failed read gives.
   const fallback = lower(MINI_FEE_RECIPIENT);
   const mini = known.find((r) => r.mini && r.mini !== fallback)?.mini ?? known.find((r) => r.mini)?.mini ?? null;
-  const owners = claimOwners({
-    bonus: lower(account.address) as Hex,
-    safe: d.chain.safe,
-    creators: known.map((r) => r.creator),
-    mini,
-  });
+  const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini });
+  const others = [...all.filter((o) => o.role === 'mini'), ...all.filter((o) => o.role === 'creator')];
   const out: { owner: string; role: ClaimRole; result: string }[] = [];
-  for (const { owner, role } of owners) {
-    if (Date.now() >= toDeadline(d)) break;
-    try {
-      const available = await d.rpc.availableFees(owner, d.chain.weth);
-      if (available === 0n) {
-        out.push({ owner, role, result: 'nothing to claim' });
-        continue;
-      }
-      const data = encodeFunctionData({ abi: FEE_LOCKER_ABI, functionName: 'claim', args: [owner, d.chain.weth] });
-      const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data }), d.rpc.fees()]);
-      // M10: the bonus wallet's claim is also worth it when it unblocks a sweep worth 10x gas
-      // (the Safe's own deposits sit unclaimed behind a small balance).
-      const unblocks = () => role === 'bonus' && sweepWaitsOnClaim(account, d, gas, fees.maxFeePerGas);
-      if (!worthIt(available, gas, fees.maxFeePerGas) && !(await unblocks())) {
-        out.push({ owner, role, result: `${available} wei: under 10x gas` });
-        continue;
-      }
-      const sent = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, toDeadline(d), d.nonces);
-      out.push({ owner, role, result: `claim ${sent.status} ${sent.hash}` });
-      // The claim is sent: a failed log write never turns it into a failure.
-      await sql()`
-        INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei)
-        VALUES (${sent.hash}, ${owner}, ${role}, ${available.toString()}, ${(gas * fees.maxFeePerGas).toString()})
-        ON CONFLICT DO NOTHING`.catch((err: unknown) => console.error('[bonus] fee_claims insert', sent.hash, err));
-    } catch (err) {
-      console.error('[bonus] claim', owner, err);
-      out.push({ owner, role, result: outOfGas(err) ? NEEDS_GAS : 'failed' });
-    }
+  for (const { owner, role } of others) {
+    if (Date.now() >= deadline) out.push({ owner, role, result: 'next run' });
+    else out.push(await claimOne(account, d, owner, role, deadline));
   }
   return out;
 }
@@ -991,6 +1033,10 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     const settled = out.claim !== 'waiting on a stored send';
     if (deps.rounds) await step('rounds', () => deps.rounds!(account, { ...d, followOnly: !settled }));
     await step('sweep', () => sweepToSafe(account, d));
+    // v2.9 D16 (fix round 1): creator and MINI claims last, in their own bounded slice, so they
+    // never take time from the bonus payouts or the sweep; only when no stored send waits.
+    if (settled) await step('claim_others', () => claimForOthers(account, d));
+    else out.claim_others = 'waiting on a stored send';
     return out;
   }, leaseMs);
   return r === 'busy' ? { skipped: 'busy' } : r;

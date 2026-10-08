@@ -109,6 +109,9 @@ const COINS = [...Object.entries(BUILDERS), ...Object.entries(BUILDERS2)].filter
 
 async function cleanup() {
   await sql()`DELETE FROM bonus_ledger`;
+  // v2.9 D18: anvil_reset replays the same hashes, so the claims log of these wallets starts empty.
+  const owners = [...Object.values(BUILDERS), ...Object.values(BUILDERS2)].map((b) => b.wallet.toLowerCase());
+  await sql()`DELETE FROM fee_claims WHERE owner IN ${sql()(owners)}`;
   await sql()`DELETE FROM bonus_sweeps`;
   await sql()`DELETE FROM bonus_cursor`;
   for (const id of [PROG, PROG2]) {
@@ -271,6 +274,13 @@ async function scenario(mock: Mock) {
   for (const n of ['alpha', 'beta'] as const)
     await call(locker, 'register', [BUILDERS[n].coin, [SAFE, BUILDERS[n].wallet, MINI, PAYOUT.address], [3000, 4000, 1000, 2000]]);
   const bal = (who: string) => pc.readContract({ address: weth, abi: erc20Abi, functionName: 'balanceOf', args: [who as Hex] });
+  // v2.9 D16: a builder's wallet is also its coin's creator recipient, so the cron claims its 40% of
+  // the fees to it (fee_claims, role 'creator'). The builder bonus paid to it is the rest.
+  const creatorFees = async (who: string) =>
+    BigInt(
+      (await sql()<{ s: string }[]>`SELECT coalesce(sum(weth), 0)::text AS s FROM fee_claims WHERE owner = ${who.toLowerCase()} AND role = 'creator'`)[0].s,
+    );
+  const bonusPaid = async (who: string) => (await bal(who)) - (await creatorFees(who));
 
   // Simulated time: hour offsets from the chain's start (anvil starts at the real time, so rows
   // written with the database's now() at submission fall inside the round too).
@@ -317,8 +327,8 @@ async function scenario(mock: Mock) {
     const r = (await tools.record_submission(
       {
         program_id: PROG,
-        project: { name: `${n} app`, description: 'A tiny app on Arc', repo_url: repoOf(n), live_url: `https://${n}-app.example` },
-        submission_data: { live_deployment_url: `https://${n}-app.example`, repo_url: repoOf(n), description: 'A tiny app on Arc', builder_profile: `https://github.com/${b.login}` },
+        project: { name: `${n} app`, description: 'A tiny app on Arc', repo_url: repoOf(n), live_url: `https://${n}-app.xyz` },
+        submission_data: { live_deployment_url: `https://${n}-app.xyz`, repo_url: repoOf(n), description: 'A tiny app on Arc', builder_profile: `https://github.com/${b.login}` },
         external_submission_url: `https://dorahacks.io/buidl/${b.buidl}`,
         payout_wallet: b.wallet,
         token: b.symbol ? { name: `${n} app`, symbol: b.symbol } : 'skip',
@@ -477,7 +487,7 @@ async function scenario(mock: Mock) {
   await assert.rejects(vetoBonusEntry(ROUND, ids.gamma, 'not ranked'), VetoError);
   const wait = await cron(hour(60));
   assert.equal(wait.body.bonus.rounds.rounds[0].step, 'wait', 'nothing is paid during the 48 h review');
-  assert.equal(await bal(BUILDERS.beta.wallet), 0n);
+  assert.equal(await bonusPaid(BUILDERS.beta.wallet), 0n);
 
   // After the review: Beta moves up into first place's frozen amount; second place's goes to the Safe.
   const safeBefore = await bal(SAFE);
@@ -485,9 +495,10 @@ async function scenario(mock: Mock) {
   assert.equal(pay.status, 200, JSON.stringify(pay.body));
   assert.equal(pay.body.bonus.rounds.rounds[0].done, true, JSON.stringify(pay.body.bonus.rounds));
   assert.equal(pay.body.bonus.rounds.rounds[0].to_safe, amounts[1].toString());
-  assert.equal(await bal(BUILDERS.beta.wallet), amounts[0], 'Beta (creator wallet) gets first place: 2500/4300 of the pool');
-  assert.equal(await bal(BUILDERS.alpha.wallet), 0n, 'the vetoed entry gets nothing');
-  assert.equal(await bal(BUILDERS.gamma.wallet), 0n);
+  assert.equal(await bonusPaid(BUILDERS.beta.wallet), amounts[0], 'Beta (creator wallet) gets first place: 2500/4300 of the pool');
+  assert.ok((await creatorFees(BUILDERS.beta.wallet)) > 0n, "v2.9 D16: the creator's own share is claimed to its wallet");
+  assert.equal(await bonusPaid(BUILDERS.alpha.wallet), 0n, 'the vetoed entry gets nothing');
+  assert.equal(await bonusPaid(BUILDERS.gamma.wallet), 0n);
   assert.equal(pay.body.bonus.sweep.status, 'paid', `the unpaid place is swept to the Safe: ${pay.body.bonus.sweep.result}`);
   assert.equal((await bal(SAFE)) - safeBefore, amounts[1]);
   assert.equal(await bal(PAYOUT.address), 0n, 'the bonus wallet keeps nothing');
@@ -553,12 +564,12 @@ async function scenario(mock: Mock) {
     (await tools.record_submission(
       {
         program_id: PROG2,
-        project: { name: `${n} app`, description: 'A tiny app on Base', repo_url: repo2(n), live_url: `https://${n}-app.example` },
+        project: { name: `${n} app`, description: 'A tiny app on Base', repo_url: repo2(n), live_url: `https://${n}-app.xyz` },
         // C7: every required answer, so the entry is ready and its token launches.
         submission_data: completeAnswers(baseFile.submission_requirements, {
           full_name: n,
           project_name_description: `${n} app: a tiny app on Base`,
-          live_product_url: `https://${n}-app.example`,
+          live_product_url: `https://${n}-app.xyz`,
         }),
         payout_wallet: BUILDERS2[n].wallet,
         token: { name: `${n} app`, symbol: BUILDERS2[n].symbol },
@@ -686,8 +697,8 @@ async function scenario(mock: Mock) {
   assert.equal(toBuilders.length, 1, 'one WETH transfer');
   assert.equal(toBuilders[0].args.to!.toLowerCase(), BUILDERS2.delta.wallet, "to the confirmed entry's creator wallet");
   assert.equal(toBuilders[0].args.value, POOL2, 'the whole pool (splitPool(pool, 1))');
-  assert.equal(await bal(BUILDERS2.echo.wallet), 0n);
-  assert.equal(await bal(BUILDERS2.foxtrot.wallet), 0n, 'a test entry is never paid');
+  assert.equal(await bonusPaid(BUILDERS2.echo.wallet), 0n);
+  assert.equal(await bonusPaid(BUILDERS2.foxtrot.wallet), 0n, 'a test entry is never paid');
   assert.equal((await bal(SAFE)) - safe2Before, (3n * E18) / 10n, "the Safe gets its 30% of the fees only: no bonus money");
 
   // ---- v2.6 6. Echo confirms late: the same entry is updated (Ruling 23) ----
@@ -724,7 +735,7 @@ async function scenario(mock: Mock) {
     assert.deepEqual(again.body.bonus.rounds.rounds, []);
   }
   assert.equal(await pc.getTransactionCount({ address: PAYOUT.address }), nonce2, 'no new transaction');
-  assert.equal(await bal(BUILDERS2.delta.wallet), POOL2);
+  assert.equal(await bonusPaid(BUILDERS2.delta.wallet), POOL2);
 }
 
 type CronBody = {
