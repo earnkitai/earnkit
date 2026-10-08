@@ -637,6 +637,8 @@ export type TokenOfferFacts = {
   project: string;
   program: string;
   prize_usd: number;
+  /** Ruling G15 (M2): the row is one step away (after_step), not likely: "is one step from", never "fits". */
+  oneStep?: boolean;
   proposal: { name: string; symbol: string };
   hasBonus: boolean;
   walletKnown: boolean;
@@ -668,7 +670,7 @@ export function tokenOfferAgain(t: Pick<TokenOfferFacts, 'proposal' | 'walletKno
  * at the builder bonus. yes / skip". The wallet is asked in the same line only when none is known. Pure.
  */
 export function tokenOffer(t: TokenOfferFacts): string {
-  const head = `${t.project} fits ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
+  const head = `${t.project} ${t.oneStep ? 'is one step from' : 'fits'} ${t.program}: $${t.prize_usd.toLocaleString('en-US')}.`;
   const ask = `Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now?`;
   const why = `You earn 40% of its trading fees${t.hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
   return t.again ? `${head} ${ask} ${offerAnswer(t)}` : `${head} ${ask} ${why} ${offerAnswer(t)}`;
@@ -678,7 +680,8 @@ export function tokenOffer(t: TokenOfferFacts): string {
 const QUICK_EFFORTS = new Set<Effort>(['none', 'minutes', 'hours']);
 
 /**
- * v2.9 B10 (Ruling 12): the matched row the first reply's token offer is for, in table order: its
+ * v2.9 B10 (Ruling 12): the matched row the first reply's token offer is for, a likely row first,
+ * then table order: its
  * repo is a public repo the builder owns, at product tier; the verdict is likely or after one step,
  * with effort of hours or less; the program is offerable (curated, not an investment, no entry yet,
  * not hidden), gives tokens, has a known prize; the repo has no token yet and is not in `blocked`
@@ -690,7 +693,7 @@ export function tokenOfferFit(given: FirstMessage, blocked: Set<string> = new Se
   const anyEntry = new Set((m.entries ?? []).map((e) => e.program_id));
   const fits = m.repos && 'fits' in m.repos ? m.repos.fits : [];
   const product = (url: string) => fits.find((f) => f.repo_url === url)?.product;
-  return layout(m).rows.find((r) => {
+  const ok = (r: Fit) => {
     if (!r.repo_url) return false;
     const p = product(r.repo_url);
     const key = normalizeRepoUrl(r.repo_url);
@@ -708,7 +711,10 @@ export function tokenOfferFit(given: FirstMessage, blocked: Set<string> = new Se
       !m.repoCoins?.has(key) &&
       !blocked.has(key)
     );
-  });
+  };
+  // Review M2: a likely row is offered before one a step away; table order otherwise.
+  const rows = layout(m).rows.filter(ok);
+  return rows.find((r) => r.v.status === 'likely') ?? rows[0];
 }
 
 const isEasy = (c: Card) => c.difficulty?.level === 'Easy';

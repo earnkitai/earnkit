@@ -957,6 +957,23 @@ test('6.4 (pure) tokenOfferFit: an owned, product-tier, quick fit in table order
   assert.equal(tokenOfferFit(one({}), new Set(['github.com/alice/tipjar'])), undefined);
 });
 
+test('G15 M2 (pure): a likely row is offered before one a step away; a step-away offer says "is one step from"', () => {
+  const url = 'https://github.com/alice/tipjar';
+  const two = (arcStatus: Verdict['status'], baseStatus: Verdict['status']) =>
+    msg({
+      cards: [arc, base],
+      repos: {
+        checked: 1,
+        fits: [{ repo: 'tipjar', repo_url: url, verdicts: [v('arc-microgrants', arcStatus, '', 'hours'), v('base-builder-grants', baseStatus, '', 'hours')], product: { score: 6, tier: 'product', missing: [] } }],
+      },
+    });
+  assert.equal(tokenOfferFit(two('likely', 'after_step'))?.card.id, 'arc-microgrants');
+  assert.equal(tokenOfferFit(two('after_step', 'likely'))?.card.id, 'base-builder-grants');
+  assert.equal(tokenOfferFit(two('after_step', 'after_step'))?.v.status, 'after_step');
+  assert.ok(tokenOffer({ ...OFFER_FACTS, oneStep: true }).startsWith('TipJar is one step from Arc Microgrants: $500. Launch $TIP'));
+  assert.ok(tokenOffer(OFFER_FACTS).startsWith('TipJar fits Arc Microgrants: $500.'));
+});
+
 test('G13 (I1): a remembered wallet is named short with "yes / skip"; the reoffer line has no "40%"', () => {
   const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
   assert.ok(tokenOffer({ ...OFFER_FACTS, wallet: W }).endsWith(' builder bonus. Wallet: 0x1581…b9a3 (used last time). yes / skip'));

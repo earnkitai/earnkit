@@ -102,7 +102,7 @@ import {
 import type { FetchResult } from './ownership';
 import { BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { CHAINS } from './chains';
-import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine } from './placeholder';
+import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';
 import PolicyPage from '../../app/policy/page';
 import BoardView from '../../app/bonus/[round]/BoardView';
 import type { Board } from './bonus-board';
@@ -931,12 +931,17 @@ const v29Part1Texts: [string, string][] = [
   ['PLACEHOLDER_LINE', PLACEHOLDER_LINE],
   ['LIVE_FAILED_LINE', LIVE_FAILED_LINE],
   ...CHAINS.map((c): [string, string] => [`contractMissingLine(${c})`, contractMissingLine(c)]),
+  ...CHAINS.map((c): [string, string] => [`contractUncheckedLine(${c})`, contractUncheckedLine(c)]),
   ...Object.entries(SIGNAL_WORDS).map(([k, w]): [string, string] => [`SIGNAL_WORDS.${k}`, w]),
   ['UNCHECKED_NOTE', UNCHECKED_NOTE],
   ['INVESTMENT_NOTE', INVESTMENT_NOTE],
   ['BELOW_FLOOR_NOTE', BELOW_FLOOR_NOTE],
   ...v29Notes.map((n, i): [string, string] => [`matchRepo note[${i}]`, n]),
   ['presentFirstMessage: v2.9 rows and the token offer', v29FirstReply],
+  [
+    'tokenOffer: one step away (G15 M2)',
+    tokenOffer({ project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, oneStep: true, proposal: { name: 'TipJar', symbol: 'TIP' }, hasBonus: true, walletKnown: false }),
+  ],
 ];
 
 test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and check notes and the offer', () => {

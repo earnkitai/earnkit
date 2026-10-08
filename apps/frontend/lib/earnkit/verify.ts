@@ -10,12 +10,14 @@ import { canonicalBuilderUrl } from './untrusted-text';
  * v2.9 A5: link and contract checks. A builder's live link is probed (safeProbe: a 2xx), and a
  * contract on the program chain's mainnet must have code (eth_getCode). Results are cached in
  * `url_checks`: a pass for 24 h, a failure for 1 h. Every check is bounded by a CheckBudget, and
- * none ever throws: an error is a failure. The pure link rules live in placeholder.ts (P48).
+ * none ever throws: an error is a failure, except an RPC error on getCode, which is "couldn't check"
+ * (null, never cached; Ruling G15). The pure link rules live in placeholder.ts (P48).
  */
 export {
   LIVE_FAILED_LINE,
   PLACEHOLDER_LINE,
   contractMissingLine,
+  contractUncheckedLine,
   placeholderHost,
   placeholderLink,
 } from './placeholder';
@@ -138,7 +140,9 @@ const viemGetCode = async (rpc: string, address: string): Promise<string> => {
 
 /**
  * The cached answer for `key`, else one budgeted check (`take`), cached. No budget left: `spent`,
- * nothing written. Never throws: a failed check, cache read or write is logged by class only.
+ * nothing written. Never throws: a failed check, cache read or write is logged by class only. A
+ * check that throws is false and cached, unless `errorIsUnchecked`: then it is `spent` and nothing
+ * is written (Ruling G15: an RPC error, timeout or 429 is "couldn't check", never "no code").
  */
 async function cachedCheck<T>(a: {
   kind: 'live' | 'getcode';
@@ -147,6 +151,7 @@ async function cachedCheck<T>(a: {
   take: (b: CheckBudget) => boolean;
   spent: T;
   run: () => Promise<boolean>;
+  errorIsUnchecked?: boolean;
 }): Promise<boolean | T> {
   const cache = a.deps.cache ?? checkDefaults.cache ?? dbCache;
   const now = a.deps.now ?? new Date();
@@ -161,6 +166,7 @@ async function cachedCheck<T>(a: {
     ok = await a.run();
   } catch (err) {
     console.error(`[verify] ${a.kind} ${errorClass(err)}`);
+    if (a.errorIsUnchecked) return a.spent;
     ok = false;
   }
   await cache.set(a.key, ok, now).catch((err: unknown) => console.error(`[verify] ${a.kind} cache write ${errorClass(err)}`));
@@ -220,8 +226,9 @@ export async function liveChecked(url: string, deps: CheckDeps = {}): Promise<bo
 }
 
 /**
- * v2.9 A5: `address` has code on `chain`'s mainnet. null: no RPC for the chain, or no budget left
- * ("couldn't check", never a pass). Cache key `getcode:<chain>:<lowercase address>`.
+ * v2.9 A5: `address` has code on `chain`'s mainnet. null: no RPC for the chain, no budget left, or
+ * the RPC call failed (an error, timeout or 429; Ruling G15): "couldn't check", never a pass and
+ * never cached. Only a real answer is cached. Cache key `getcode:<chain>:<lowercase address>`.
  */
 export async function contractDeployed(chain: Chain, address: string, deps: CheckDeps = {}): Promise<boolean | null> {
   const rpc = rpcFor(chain);
@@ -236,6 +243,7 @@ export async function contractDeployed(chain: Chain, address: string, deps: Chec
     take: (b) => b.takeGetCode(),
     spent: null,
     run: async () => hasCode(await getCode(rpc, addr)),
+    errorIsUnchecked: true,
   });
 }
 

@@ -240,12 +240,12 @@ test('2.8 twenty qualifying repos: 8 scored, probes at most 5, getCode at most 6
   );
 });
 
-test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a template, an archived repo and a tutorial: nothing fits, nothing read', async () => {
+test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a template and an archived repo: nothing fits, nothing read', async () => {
+  // Ruling G15: a tutorial-like name is scored (G15 I2 below), so none is listed here.
   const own = [
     ghRepo('alice', 'forked', { fork: true }),
     ghRepo('alice', 'tmpl', { is_template: true }),
     ghRepo('alice', 'old', { archived: true }),
-    ghRepo('alice', 'todo-app'),
   ];
   const items = [
     ...Array.from({ length: 12 }, () => ({ repository: { full_name: 'earnkitai/chain-kits' } })),
@@ -264,13 +264,13 @@ test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a te
       );
       assert.deepEqual(r.fits, []);
       assert.equal(r.scored, 0);
-      assert.equal(r.checked, 7);
+      assert.equal(r.checked, 6);
       assert.deepEqual(calls.map((c) => c.split('?')[0]), ['api.github.com/users/alice/repos', 'api.github.com/search/commits']);
       const card = { id: 'base-x', title: 'Base X', summary: 'up to $5,000', tag: null, each_time: [], ends_at: null, builder_fields: 0 };
       const text = presentFirstMessage({
         alerts: [], campaigns: [], cards: [card], repos: r, githubGiven: true, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: T_NOW,
       });
-      assert.match(text, /None of your 7 repos fits an open program yet\./);
+      assert.match(text, /None of your 6 repos fits an open program yet\./);
       assert.doesNotMatch(text, /launch/i);
     },
   );
@@ -653,4 +653,88 @@ test('3.F1 a claimed Monad mainnet is verified by a contract with code there, ev
   const empty = await run('0x');
   assert.equal(empty.r.fits[0].verdicts[0].status, 'after_step');
   assert.equal(empty.r.fits[0].verdicts[0].note, 'confirm: mainnet');
+});
+
+// ---- Ruling G15 (Part 1 final fix wave) ----
+
+test('G15 I1: a getCode that throws is "not checked yet": no cached "no code", never named missing; the next call deploys it', async (t) => {
+  const log = console.error;
+  console.error = () => {};
+  t.after(() => {
+    console.error = log;
+  });
+  const { n, deps } = checkDeps();
+  deps.checks!.getCode = async () => {
+    n.getCodes++;
+    throw new Error('HTTP request failed. Status: 429');
+  };
+  const input = MatchProjectsInput.parse({ local_repos: [{ name: 'tipjar', chains: ['base'], contracts: [ADDR] }] });
+  const first = await matchProjects(input, deps);
+  assert.equal(n.getCodes, 1);
+  const p = first.fits[0].product;
+  assert.ok(!p.missing.includes('deployed'), 'an RPC error is never "no live site or contract found"');
+  assert.ok(p.unchecked?.includes('deployed'));
+  assert.notEqual(first.fits[0].verdicts[0].note, SIGNAL_WORDS.deployed);
+  // Nothing cached: the next call checks again, and a real answer makes it a product.
+  deps.checks!.getCode = async () => (n.getCodes++, '0x6080');
+  const second = await matchProjects(input, deps);
+  assert.equal(n.getCodes, 2);
+  assert.equal(second.fits[0].product.tier, 'product');
+  assert.ok(!second.fits[0].product.missing.includes('deployed'));
+});
+
+test('G15 I2: tutorial-like names and topics are scored (they only lose original); a docs repo or a COVID tracker never gets an a16z row', async () => {
+  const a16z: ProgramFacts = { ...baseProgram, id: 'a16z', title: 'a16z speedrun', chains: [], any_chain: true, investment: true, min_product_score: 5 };
+  const names = ['arc-pay-demo', 'doc-signer', 'exercise-tracker', 'uniswap-clone'];
+  const own = [
+    ...names.map((n, i) => ghRepo('alice', n, { homepage: `https://${n}.xyz`, pushed_at: daysAgo(i + 1) })),
+    ghRepo('alice', 'tipjar', { homepage: 'https://tipjar.xyz', topics: ['demo'], pushed_at: daysAgo(5) }),
+    // The newest three get the probes (5 per call), so they are deployed products.
+    ghRepo('alice', 'docs', { homepage: 'https://docs-alice.xyz', pushed_at: daysAgo(0.2) }),
+    ghRepo('alice', 'covid-19-tracker', { homepage: 'https://covid-alice.xyz', pushed_at: daysAgo(0.3) }),
+    ghRepo('alice', 'paylink', { homepage: 'https://paylink.xyz', pushed_at: daysAgo(0.1) }),
+  ];
+  const { deps } = checkDeps({ probeOk: true });
+  deps.programs = [baseProgram, a16z];
+  await withFetch(
+    (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : repoFiles(u)),
+    async () => {
+      const r = await matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps);
+      assert.equal(r.scored, 8);
+      const fit = (repo: string) => r.fits.find((f) => f.repo === repo);
+      for (const repo of [...names, 'tipjar', 'docs', 'covid-19-tracker']) {
+        const f = fit(repo);
+        assert.ok(f, `${repo} gets a row`);
+        assert.ok(f.product.missing.includes('original'), repo);
+        assert.ok(f.verdicts.some((v) => v.program_id === 'base-x'), `${repo} matches Base X`);
+        assert.ok(!f.verdicts.some((v) => v.program_id === 'a16z'), `${repo} never gets an a16z row`);
+      }
+      assert.equal(fit('docs')!.product.tier, 'product');
+      assert.equal(fit('covid-19-tracker')!.product.tier, 'product');
+      // The control: an original product still gets its a16z row.
+      assert.ok(fit('paylink')!.verdicts.some((v) => v.program_id === 'a16z'));
+    },
+  );
+  for (const name of [...names, 'docs']) assert.equal(droppedRepo(ghRepo('alice', name) as never, T_NOW), false, name);
+  assert.equal(droppedRepo(ghRepo('alice', 'tipjar', { topics: ['demo'] }) as never, T_NOW), false);
+  assert.equal(droppedRepo(ghRepo('earnkitai', 'chain-kits') as never, T_NOW), true);
+});
+
+test('G15 I2: a tutorial-like repo named explicitly or reported locally is scored too', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  await withFetch(
+    (u) => (u.pathname === '/repos/alice/arc-pay-demo' ? body(ghRepo('alice', 'arc-pay-demo')) : repoFiles(u)),
+    async () => {
+      const named = await matchProjects(MatchProjectsInput.parse({ repos: ['alice/arc-pay-demo'] }), deps);
+      assert.deepEqual(named.fits.map((f) => f.key), ['alice/arc-pay-demo']);
+    },
+  );
+  const local = await matchProjects(
+    MatchProjectsInput.parse({ local_repos: [{ name: 'uniswap-clone', chains: ['base'], live_url: 'https://uniswap-clone.xyz' }] }),
+    checkDeps({ probeOk: true }).deps,
+  );
+  assert.equal(local.fits.length, 1);
+  // Review M9: a local repo's README is never read, so it is never the row's note.
+  assert.ok(!local.fits[0].product.missing.includes('readme'));
+  assert.equal(local.fits[0].verdicts[0].note, SIGNAL_WORDS.original);
 });

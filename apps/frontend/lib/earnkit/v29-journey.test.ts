@@ -560,29 +560,27 @@ test('12.2 Grok Bot (shared client), GitHub sign-in on: the offer asks the walle
   }),
 );
 
-test('12.2b Grok Bot (shared client), GitHub sign-in off: "can\'t push" says so with no entry; once the proof line is pushed, $TIP launches', dbTest, async () => {
+test('12.2b Grok Bot (shared client), GitHub sign-in off: no first-reply token offer it could not accept (Ruling G15 I3); the usual close instead', dbTest, async () => {
   const J = '12.2b';
   publicTipJar('lee');
   const ctx = ctxFor(await newInstallation({ shared: true }), { shared: true });
   const list = await call(J, 'list', 'list_programs', { agent_can_build: false, repos: ['lee/TipJar'] }, ctx);
-  const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string };
-  assert.ok(offer, list.show_to_builder);
-  const yes = { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'go', builder_confirmed: true, creator_wallet: W2 };
+  // A hosted agent can't push the proof line, so with sign-in off a "yes" could never launch.
+  assert.ok(!list.token_offer, list.show_to_builder);
+  assert.doesNotMatch(list.show_to_builder!, /Launch \$|40%/);
+  assert.match(list.show_to_builder!, /Want me to start on .+\?/, list.show_to_builder);
+  // An offer the builder never saw launches nothing and makes no entry.
   const before = deployed.length;
-  // Sign-in off: an agent that can't push hears the one line meant for it; no entry, nothing launched.
-  const cant = await call(J, 'yes (can\'t push)', 'launch_token', { ...yes, agent: { can_push: false } }, ctx);
-  assert.ok(builderText(cant).includes(CANT_PUSH), JSON.stringify(cant));
-  assert.ok(!cant.project_id && !cant.sign_in, JSON.stringify(cant));
-  // The proof line: missing first (its plain words, fixable), then pushed: the next yes launches.
-  const waiting = await call(J, 'yes (no proof line yet)', 'launch_token', yes, ctx);
-  assert.equal(waiting.status, 'gate_failed', JSON.stringify(waiting));
-  assert.ok(!waiting.sign_in, 'no sign-in link while sign-in is off');
+  const guessed = await call(J, 'yes (never offered)', 'launch_token', {
+    offer: { program_id: 'arc-microgrants', repo_url: 'https://github.com/lee/TipJar', project_name: 'TipJar' },
+    decision: 'go',
+    builder_confirmed: true,
+    creator_wallet: W2,
+  }, ctx);
+  assert.ok(!guessed.project_id, JSON.stringify(guessed));
+  assert.notEqual(guessed.status, 'launched');
   assert.equal(deployed.length, before);
-  PUSHED.add('lee/tipjar');
-  const launched = await call(J, 'yes (proof line pushed)', 'launch_token', yes, ctx);
-  assert.equal(launched.status, 'launched', JSON.stringify(launched));
-  assert.deepEqual(deployed.slice(before).map((d) => [d.symbol, d.wallet]), [['TIP', W2]]);
-  assert.equal(forty(J), 1, dump(J));
+  assert.equal(forty(J), 0, dump(J));
 });
 
 test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async () => {
@@ -799,8 +797,8 @@ test('every journey reply: under 50 s; no emoji, em dash, "coin", "vault", "Clan
     assert.doesNotMatch(s.text, toolName, `${where}: ${s.text}`);
     assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
     for (const line of s.text.split('\n').filter((l) => /\bskip\b/i.test(l))) assert.match(line, offerSkip, `${where}: ${line}`);
-    // "Open this in Claude Code or Cursor" only where it belongs: sign-in off and an agent that can't push.
-    if (s.journey !== '12.2b') assert.ok(!s.text.includes(CANT_PUSH), where);
+    // Ruling G15 (I3): no journey reaches "Open this in Claude Code or Cursor" any more.
+    assert.ok(!s.text.includes(CANT_PUSH), where);
   }
   // Nothing tried the network but the alerts' soft WETH price read (cached, fails soft).
   assert.deepEqual(blocked.filter((u) => !u.startsWith('https://coins.llama.fi/')), []);

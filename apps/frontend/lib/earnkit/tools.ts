@@ -170,7 +170,8 @@ async function entryChecks(
     // Stored contracts: the project info's, the ones local_repos reported for this repo, then the
     // candidates matching found in the repo's files (Pre-flight P4, cache only).
     const repoUrl = project?.repo_url ?? answers.repo_url;
-    const reported = needsContract ? await localRepoContracts(ctx.installationId, repoUrl) : [];
+    // Review M4 (G7): on a shared client local_repos is whoever reported last, so it is never read.
+    const reported = needsContract && !ctx.sharedClient ? await localRepoContracts(ctx.installationId, repoUrl) : [];
     const inFiles = needsContract ? await cachedRepoAddresses(repoUrl) : [];
     const stored = [...(project?.contracts ?? []), ...reported, ...inFiles];
     const addresses = needsContract ? addressesFrom({ answers, liveUrl, chain: needsContract, stored }) : [];
@@ -191,7 +192,8 @@ function entryLiveUrl(program: ProgramRow, project: { live_url?: string } | unde
 function checkFix(v: Verified | undefined, liveGiven: boolean): Fix | null {
   if (!v || !liveGiven) return null;
   if (!v.live) return { key: 'live_url', rule: 'unverified', for: 'builder', text: LIVE_FAILED_LINE };
-  if (v.needsContract && v.contract !== true)
+  // Ruling G15: only a real "no code" answer says not found; a check that couldn't run says nothing.
+  if (v.needsContract && v.contract === false)
     return { key: 'live_url', rule: 'unverified', for: 'builder', text: contractMissingLine(v.needsContract) };
   return null;
 }
@@ -789,12 +791,16 @@ export const TOKEN_OFFER_NOTE =
 
 /**
  * v2.9 B10, Ruling 12: the first reply's token offer, or null: the fit (present.ts tokenOfferFit),
- * launches configured, the repo not declined twice; the pair shown before for this repo and program,
+ * launches configured, never on a shared client while sign-in is off (Ruling G15), the repo not
+ * declined; the pair shown before for this repo and program,
  * else EarnKit's proposal, stored (token_offers) so a later offer names the same token. The wallet
  * is "known" only when remembered on a non-shared client. Never fails the reply (null on any error).
  */
 async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string | null) {
   if (!(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)()) return null;
+  // Ruling G15 (I3): a hosted agent can't add the proof line, so with sign-in off a "yes" could
+  // never launch; the reply keeps its usual closing offer instead.
+  if (ctx.sharedClient && !githubVerifyEnabled()) return null;
   try {
     const urls = m.repos && 'fits' in m.repos ? m.repos.fits.flatMap((f) => (f.repo_url ? [f.repo_url] : [])) : [];
     if (urls.length === 0) return null;
@@ -824,6 +830,8 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
         project,
         program: fit.card.title,
         prize_usd: fit.card.max_award_usd ?? 0,
+        // Ruling G15 (M2): "fits" only for a likely row, else "is one step from".
+        oneStep: fit.v.status !== 'likely',
         proposal: proposed,
         // Review Minor 5: an opted-out program or a frozen round has no bonus to win.
         hasBonus: bonusCell(fit.card) !== NO_CELL,
