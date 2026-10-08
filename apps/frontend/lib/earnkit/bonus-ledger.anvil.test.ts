@@ -43,12 +43,13 @@ const PROG_ENDED = 't4-anvil-ended';
 const E18 = 10n ** 18n;
 type Run = {
   index: { round: number; safe: number };
-  claim: { result: string }[];
+  claim: { role: string; result: string }[];
   collect: { coin: string; result: string }[];
   sweep: { result: string; status?: string };
 };
 
 async function cleanup() {
+  await sql()`DELETE FROM fee_claims WHERE owner IN (${CREATOR}, ${MINI}, ${SAFE}, ${PAYOUT.address.toLowerCase()})`;
   await sql()`DELETE FROM bonus_ledger`;
   await sql()`DELETE FROM bonus_sweeps`;
   await sql()`DELETE FROM bonus_cursor`;
@@ -157,9 +158,13 @@ async function scenario() {
   );
   assert.equal(ledger[0].tx_hash, both.transactionHash.toLowerCase());
   assert.equal(ledger[1].tx_hash, both.transactionHash.toLowerCase());
-  assert.equal(lines.length, 2);
+  // The two Safe bookings (a database shared with other test files may add v2.9's line about
+  // other files' coins whose fee recipients no anvil locker knows).
+  assert.equal(lines.filter((l) => !l.includes('fee recipients unread')).length, 2);
 
-  // Claimed both buckets, then swept exactly the Safe's bookings from the bonus wallet.
+  // Claimed every bucket (v2.9 D16: the creator's and MINI's too, read from the lockers), then swept
+  // exactly the Safe's bookings from the bonus wallet.
+  assert.deepEqual(r1.claim.map((c) => c.role), ['bonus', 'safe', 'creator', 'mini']);
   assert.ok(r1.claim.every((c: { result: string }) => c.result.startsWith('claim success')), JSON.stringify(r1.claim));
   assert.equal(r1.sweep.status, 'paid', JSON.stringify(r1.sweep));
   const bal = (who: string) => pc.readContract({ address: weth, abi: erc20Abi, functionName: 'balanceOf', args: [who as Hex] });
@@ -167,6 +172,11 @@ async function scenario() {
   const sweptAmount = (4n * E18) / 5n + E18 / 10n;
   assert.equal(await bal(SAFE), safeShare + sweptAmount);
   assert.equal(await bal(PAYOUT.address), (3n * E18) / 5n, 'the bonus wallet keeps exactly the round pools');
+  // claim(owner, WETH) pays the owner: the creator and MINI get their whole share, EarnKit none of it.
+  assert.equal(await bal(CREATOR), ((1n + 2n + 4n) * E18 * 4000n) / 10_000n);
+  assert.equal(await bal(MINI), ((1n + 2n + 4n) * E18 * 1000n) / 10_000n);
+  const logged = await sql()<{ role: string }[]>`SELECT role FROM fee_claims WHERE owner IN (${CREATOR}, ${MINI}) ORDER BY role`;
+  assert.deepEqual(logged.map((l) => l.role), ['creator', 'mini']);
   const [sweep] = await sql()<{ tx_hash: string; status: string }[]>`SELECT tx_hash, status FROM bonus_sweeps`;
   const swept = await sql()<{ swept_tx: string | null; destination: string }[]>`SELECT swept_tx, destination FROM bonus_ledger`;
   assert.ok(swept.every((s) => (s.destination === 'safe') === (s.swept_tx === sweep.tx_hash)));
