@@ -19,6 +19,7 @@ import {
   table,
   TOKEN_LINE,
   tokenOffer,
+  tokenOfferAgain,
   tokenOfferFit,
   youCould,
   type Card,
@@ -954,4 +955,17 @@ test('6.4 (pure) tokenOfferFit: an owned, product-tier, quick fit in table order
   assert.equal(tokenOfferFit({ ...one({}), hidden: { notInterested: new Set(['arc-microgrants']), applied: new Set() } }), undefined);
   assert.equal(tokenOfferFit({ ...one({}), repoCoins: new Map([['github.com/alice/tipjar', { program_id: 'other', title: 'Other' }]]) }), undefined);
   assert.equal(tokenOfferFit(one({}), new Set(['github.com/alice/tipjar'])), undefined);
+});
+
+test('G13 (I1): a remembered wallet is named short with "yes / skip"; the reoffer line has no "40%"', () => {
+  const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+  assert.ok(tokenOffer({ ...OFFER_FACTS, wallet: W }).endsWith(' builder bonus. Wallet: 0x1581…b9a3 (used last time). yes / skip'));
+  assert.equal(
+    tokenOfferAgain({ proposal: { name: 'TipJar', symbol: 'TJ' }, walletKnown: true, wallet: W, remembered: false }, 'TIP'),
+    '$TIP is taken. Launch $TJ (TipJar) on Base now? Wallet: 0x1581…b9a3. yes / skip',
+  );
+  assert.equal(
+    tokenOfferAgain({ proposal: { name: 'TipJar', symbol: 'TJ' }, walletKnown: false }),
+    'Launch $TJ (TipJar) on Base now? Say yes with your wallet address, or skip.',
+  );
 });

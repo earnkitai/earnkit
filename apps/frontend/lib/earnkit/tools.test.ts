@@ -2987,8 +2987,20 @@ test('6.4 list_programs: an owned, product-tier Arc fit ends the reply with the 
 test('6.5 launch_token with the offer and "go": one draft entry (go) and one launch; a retry reuses it and never launches twice', dbTest, () =>
   withTokenEnv(async () => {
     const t = await offerSetup('t6go');
-    const offer = t.offerOf(await t.list());
-    const call = () => tools.launch_token({ offer, decision: 'go', builder_confirmed: true, creator_wallet: W8 }, t.ctx) as Promise<OfferLaunch>;
+    // Ruling G13 (I1): a remembered wallet is named in the line and carried as shown_wallet.
+    await sql()`UPDATE installations SET payout_wallet = ${W8} WHERE id = ${t.inst}`;
+    const listed = await t.list();
+    const offer = t.offerOf(listed);
+    const shownWallet = (listed.token_offer as { shown_wallet?: string }).shown_wallet;
+    assert.equal(shownWallet, W8);
+    assert.ok(listed.show_to_builder.endsWith(`Wallet: ${W8.slice(0, 6).toLowerCase()}…${W8.slice(-4).toLowerCase()} (used last time). yes / skip`), listed.show_to_builder);
+    // A yes with no creator_wallet passed: the wallet is asked for; no entry, nothing launched.
+    const bare = (await tools.launch_token({ offer, decision: 'go', builder_confirmed: true }, t.ctx)) as OfferLaunch & { no_wallet?: boolean };
+    assert.deepEqual([bare.status, bare.no_wallet, bare.fixable], ['skipped', true, true]);
+    assert.equal((await t.rows()).length, 0);
+    assert.equal(t.calls.deploy, 0);
+    // The agent passes the wallet shown with the yes: it launches to that wallet.
+    const call = () => tools.launch_token({ offer, decision: 'go', builder_confirmed: true, creator_wallet: shownWallet }, t.ctx) as Promise<OfferLaunch>;
     const first = await call();
     assert.equal(first.status, 'launched', JSON.stringify(first));
     assert.equal(t.calls.deploy, 1);
@@ -3004,6 +3016,7 @@ test('6.5 launch_token with the offer and "go": one draft entry (go) and one lau
     // The launch used the pair the offer showed.
     const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE id = ${rows[0].id}`;
     assert.equal(token_symbol, (await readOffer(t.inst, t.p.id, offerKey(t.repo, offer.project_name)))!.symbol);
+    assert.deepEqual(t.calls.wallets, [W8]);
   }));
 
 test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%"; a skip there makes two and the offer is gone', dbTest, () =>
@@ -3039,7 +3052,7 @@ test('6.6 "skip": one decline, no entry; the confirmation offer then has no "40%
     assert.equal(t.calls.deploy, 0);
   }));
 
-test("6.7 launch_token with the offer from an agent that can't push: the sign-in line and the draft entry; signed in, it launches", dbTest, () =>
+test("6.7 launch_token with the offer from an agent that can't push: the sign-in line and no entry (G13); signed in, the entry is made and it launches", dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await offerSetup('t6sign');
@@ -3049,14 +3062,28 @@ test("6.7 launch_token with the offer from an agent that can't push: the sign-in
       const first = (await tools.launch_token(input, ctx)) as OfferLaunch;
       assert.equal(first.fixable, true);
       assert.match(first.sign_in_line ?? '', /^One click to prove .+ is yours, then \$\w+ launches: https:\/\/earnkit\.com\/github\/verify\?n=/);
-      assert.ok(first.project_id);
-      assert.equal((await t.rows()).length, 1);
+      // Ruling G13 (I2): a failed gate leaves no entry.
+      assert.ok(!first.project_id);
+      assert.equal((await t.rows()).length, 0);
       assert.equal(t.calls.deploy, 0);
-      await signInAs(t.inst, first.project_id!, t.repo, 'alice');
+      // The builder signs in from that link (GitHub faked): the sign-in is bound to the repo and W8.
+      const done = await completeVerify('code', new URL(first.sign_in!).searchParams.get('n')!, {
+        exchange: async () => 'gho_x',
+        user: async () => ({ login: 'alice', created_at: '2020-01-01T00:00:00Z', public_repos: 3 }),
+        repoPerms: async () => ({ push: true }),
+      });
+      assert.ok(done.ok);
+      // Another wallet is not proven by it: still no entry.
+      const other = (await tools.launch_token({ ...input, creator_wallet: `0x${'9'.repeat(40)}` }, ctx)) as OfferLaunch;
+      assert.equal(other.status, 'gate_failed');
+      assert.equal((await t.rows()).length, 0);
       const second = (await tools.launch_token(input, ctx)) as OfferLaunch;
       assert.equal(second.status, 'launched', JSON.stringify(second));
       assert.equal(t.calls.deploy, 1);
-      assert.equal((await t.rows()).length, 1);
+      const rows = await t.rows();
+      assert.equal(rows.length, 1);
+      const [v] = await sql()<{ project_id: number | null }[]>`SELECT project_id FROM github_verifications WHERE installation_id = ${t.inst}`;
+      assert.equal(v.project_id, rows[0].id);
     }),
   ));
 
@@ -3124,3 +3151,53 @@ test("G12 (b): on one Grok install, user A's two skips never stop user B's offer
       assert.ok((await list()).token_offer);
     }),
   ));
+
+test('G13 (I2): the offer path launches only an offer shown, re-checks the program, and leaves no entry on a failed gate', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('g13');
+    const go = (o: object, ctx: typeof t.ctx = t.ctx) =>
+      tools.launch_token({ decision: 'go', builder_confirmed: true, creator_wallet: W8, ...o }, ctx) as Promise<OfferLaunch & { show_to_builder?: string; proposed?: { symbol: string } }>;
+    const noEntry = async () => {
+      assert.equal((await t.rows()).length, 0);
+      assert.equal(t.calls.deploy, 0);
+    };
+    // Never offered (no token_offers row): refused.
+    const project_name = 'Tipjar';
+    const unseen = await go({ offer: { program_id: t.p.id, repo_url: t.repo, project_name } });
+    assert.deepEqual([unseen.status, unseen.note], ['failed', 'Nothing launched: this token was not offered yet.']);
+    await noEntry();
+    const offer = t.offerOf(await t.list());
+    // An edited ticker: offered again (no "40%"), never launched.
+    const edited = await go({ offer, symbol: 'MYTIP' });
+    assert.equal(edited.status, 'skipped');
+    const pair = (await readOffer(t.inst, t.p.id, offerKey(t.repo, offer.project_name)))!;
+    assert.equal(pair.symbol, 'MYTIP');
+    assert.equal(edited.show_to_builder, `Launch $MYTIP (${pair.name}) on Base now? Wallet: ${W8.slice(0, 6).toLowerCase()}…${W8.slice(-4).toLowerCase()}. yes / skip`);
+    assert.doesNotMatch(edited.show_to_builder ?? '', /40%/);
+    await noEntry();
+    // A failed gate (no proof line, sign-in off): its words, no entry.
+    const failed = await go({ offer }, noProofLine(t) as typeof t.ctx);
+    assert.equal(failed.status, 'gate_failed');
+    assert.ok(!failed.project_id);
+    await noEntry();
+    // The program filters again: an investment, a sponsor's or one without a prize gets no token.
+    const changes = [
+      () => sql()`UPDATE programs SET investment = true WHERE id = ${t.p.id}`,
+      () => sql()`UPDATE programs SET source = 'sponsor' WHERE id = ${t.p.id}`,
+      () => sql()`UPDATE programs SET max_award_usd = NULL WHERE id = ${t.p.id}`,
+    ];
+    for (const change of changes) {
+      const [old] = await sql()<{ investment: boolean; source: string; max_award_usd: string | null }[]>`
+        SELECT investment, source, max_award_usd FROM programs WHERE id = ${t.p.id}`;
+      await change();
+      const out = await go({ offer });
+      assert.deepEqual([out.status, out.note], ['skipped', 'No token for this entry.']);
+      await noEntry();
+      await sql()`UPDATE programs SET investment = ${old.investment}, source = ${old.source}, max_award_usd = ${old.max_award_usd} WHERE id = ${t.p.id}`;
+    }
+    // Then a yes on the edited pair (shown above) launches exactly it.
+    const launched = await go({ offer });
+    assert.equal(launched.status, 'launched', JSON.stringify(launched));
+    const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE installation_id = ${t.inst}`;
+    assert.equal(token_symbol, 'MYTIP');
+  }));

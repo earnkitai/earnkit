@@ -899,7 +899,7 @@ async function launchFromOffer(
       status: 'skipped' as const,
       fixable: true,
       proposed: pair,
-      show_to_builder: tokenOfferAgain({ proposal: pair, walletKnown: wallet !== null, wallet }, proposal?.taken ?? null),
+      show_to_builder: tokenOfferAgain({ proposal: pair, walletKnown: wallet !== null, wallet, remembered: !parsed.creator_wallet }, proposal?.taken ?? null),
       ...(wallet && { shown_wallet: wallet }),
       agent_note:
         'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; on yes, call launch_token again ' +

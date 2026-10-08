@@ -642,19 +642,21 @@ export type TokenOfferFacts = {
   walletKnown: boolean;
   /** Ruling G13 (I1): the remembered wallet (non-shared clients only), named short so "yes" launches to the wallet shown. */
   wallet?: string | null;
+  /** The wallet came from memory (default), not with this answer: "(used last time)". */
+  remembered?: boolean;
 };
 
 /** Ruling G13 (I1): the answer part of a token offer: the wallet shown with "yes / skip", else asked for. Pure. */
-const offerAnswer = (t: Pick<TokenOfferFacts, 'walletKnown' | 'wallet'>) =>
+const offerAnswer = (t: Pick<TokenOfferFacts, 'walletKnown' | 'wallet' | 'remembered'>) =>
   t.walletKnown
-    ? `${t.wallet ? `Wallet: ${shortWallet(t.wallet.toLowerCase())} (used last time). ` : ''}yes / skip`
+    ? `${t.wallet ? `Wallet: ${shortWallet(t.wallet.toLowerCase())}${t.remembered === false ? '' : ' (used last time)'}. ` : ''}yes / skip`
     : 'Say yes with your wallet address, or skip.';
 
 /**
  * Ruling G13 (I2): the offer again when the agent asked for another name or ticker: names the token
  * that launches on "yes", without the earnings figure (said once already). Pure.
  */
-export function tokenOfferAgain(t: Pick<TokenOfferFacts, 'proposal' | 'walletKnown' | 'wallet'>, taken: string | null = null): string {
+export function tokenOfferAgain(t: Pick<TokenOfferFacts, 'proposal' | 'walletKnown' | 'wallet' | 'remembered'>, taken: string | null = null): string {
   return `${taken ? `$${taken} is taken. ` : ''}Launch $${t.proposal.symbol} (${t.proposal.name}) on Base now? ${offerAnswer(t)}`;
 }
 
