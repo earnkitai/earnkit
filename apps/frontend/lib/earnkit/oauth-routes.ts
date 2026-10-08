@@ -1,7 +1,7 @@
 import { json, readParams } from './http';
 import { installationExists, saveInstallation } from './installations';
 import { OAuthError, authorize, clientLimitKey, exchangeCode, registerClient } from './oauth';
-import { RateLimitError, clientIp, enforce } from './rate-limit';
+import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
 
 // The OAuth register, token and authorize endpoints; app/oauth/{register,token,authorize}/route.ts re-export them.
 const TOO_MANY = 'Too many new EarnKit connections from this address.';
@@ -16,12 +16,20 @@ export function logLimited(route: string, limit: string, key: string | null) {
   console.warn(`[oauth] ${route} refused by ${limit} (${host})`);
 }
 
+const LIMITS_HOST = LIMITS.oauthRegisterHost.limit;
+
+/** Ruling F11: the register ceiling is near (REGISTER_HOST_WARN), logged once a day per agent app. */
+export function logNearCeiling(key: string) {
+  const host = key.startsWith('host:') ? key.slice(5) : 'per-registration client';
+  console.warn(`[oauth] register near the daily ceiling of ${LIMITS_HOST} (${host})`);
+}
+
 export async function tokenPost(request: Request) {
   try {
     const { token, clientKey, shared, limitKey } = exchangeCode(await readParams(request));
     // Only a client's first token counts (v2.2 §5): a replayed code, or re-authorizing a known
-    // client (v2.4 §5), is free. v2.8.1 §E17: 500 a day per agent client (a hosted agent's users all
-    // come from its servers), and 50 an hour per IP as the abuse floor.
+    // client (v2.4 §5), is free. v2.8.1 §E17, Ruling F11: 500 a day per registration (client id; a
+    // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor.
     if (!(await installationExists(token, clientKey))) {
       const ip = clientIp(request.headers);
       try {
@@ -85,13 +93,14 @@ export async function registerPost(request: Request) {
     const metadata = (await request.json().catch(() => null)) ?? {};
     const uris: unknown = metadata?.redirect_uris;
     key = clientLimitKey(Array.isArray(uris) ? uris.filter((u): u is string => typeof u === 'string') : []);
-    // v2.8.1 §E17: keyed like new installations. 50 an hour per IP (the abuse floor: client ids are
-    // free, but each is a signed record), and 500 a day per agent client (its https redirect host;
-    // a desktop agent with a loopback redirect has only the IP floor).
+    // v2.8.1 §E17, Ruling F11: 50 an hour per IP (the abuse floor: client ids are free, but each is
+    // a signed record), and a 10,000 a day ceiling per agent app (its https redirect host), logged at
+    // 8,000 so the owner sees it before it refuses. A desktop agent (loopback redirect) has only the IP floor.
     await enforce('oauthRegister', clientIp(request.headers), 'Too many client registrations from this address.');
     if (key) {
-      limit = 'oauthRegisterClient';
-      await enforce('oauthRegisterClient', key, 'Too many client registrations from this agent today.');
+      limit = 'oauthRegisterHost';
+      const r = await enforce('oauthRegisterHost', key, 'Too many client registrations from this agent today.');
+      if (r.remaining === LIMITS_HOST - REGISTER_HOST_WARN) logNearCeiling(key);
     }
     return json(registerClient(metadata), 201);
   } catch (err) {

@@ -18,16 +18,20 @@ export const LIMITS = {
   entryChecks: { limit: 60, windowSeconds: 3_600 },
   /** POST /oauth/register, per client IP: the abuse floor (v2.8.1 §E17). */
   oauthRegister: { limit: 50, windowSeconds: 3_600 },
-  /** POST /oauth/register, per agent client (oauth.ts clientLimitKey: its https redirect host), v2.8.1 §E17. */
-  oauthRegisterClient: { limit: 500, windowSeconds: 86_400 },
+  /**
+   * POST /oauth/register, per agent app (oauth.ts clientLimitKey: its https redirect host). Ruling F11:
+   * a high ceiling, never the working limit (anyone can register with any host); a warning is logged
+   * at REGISTER_HOST_WARN, before it refuses. The IP floor (oauthRegister) is the abuse control.
+   */
+  oauthRegisterHost: { limit: 10_000, windowSeconds: 86_400 },
   /** list_programs with GitHub matching (a user or repos), per installation. */
   githubMatching: { limit: 30, windowSeconds: 3_600 },
   /** Chain reads: POST /api/sponsor/[ref]/check per IP, sponsor_campaign status per installation. */
   chainChecks: { limit: 60, windowSeconds: 60 },
   /**
-   * v2.8.1 §E17: new installations (POST /oauth/token that creates one), per agent client
-   * (oauth.ts clientLimitKey), so a hosted agent's users don't share one IP's bucket; and per client
-   * IP as the abuse floor.
+   * v2.8.1 §E17, Ruling F11: new installations (POST /oauth/token that creates one), per registration
+   * (oauth.ts registrationLimitKey: the client id), so a hosted agent's users share neither one IP's
+   * bucket nor one host's; and per client IP as the abuse floor.
    */
   installClient: { limit: 500, windowSeconds: 86_400 },
   installHour: { limit: 50, windowSeconds: 3_600 },
@@ -50,6 +54,9 @@ export const LIMITS = {
   /** The owner's review page and POST /api/admin/veto, per client IP (v2.4 §8, ruling 13). */
   veto: { limit: 30, windowSeconds: 3_600 },
 } as const;
+
+/** The register ceiling's count at which the owner is warned in the log (80%, before it refuses). */
+export const REGISTER_HOST_WARN = 8_000;
 
 /** Campaign entries one installation may record in one campaign (checked in recordSubmission). */
 export const ENTRIES_PER_CAMPAIGN = 3;
