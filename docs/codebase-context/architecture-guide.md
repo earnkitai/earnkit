@@ -2433,6 +2433,16 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   key, else by `name:<repo name>`) in `checkRepo`/`checkLocal` before `runChecks`, so a claimed
   live link is probed from the same `LIST_BUDGET` as a homepage; once it loads the row can be
   `likely`.
+- **Shared clients (Ruling G6).** `builder-memory.ts memoryKey(ctx)` is the one seam: the
+  installation id, or null on a `sharedClient` install (one hosted agent serves many builders;
+  T5's GitHub sign-in gives a verified builder a key). With null, `list_programs` and Also
+  qualifies read no memory, `tell` stores no program or repo statement, an outcome needs its
+  `project_id` (else `NotFoundError`), and the builder sees `Noted for now.` (`NOTED_FOR_NOW`).
+- **Claims verified (Ruling G6).** `runChecks` checks the contracts on a repo's claimed mainnets
+  (`claimedMainnets`, their pairs first within `GETCODE_PER_REPO`) even when the live link loads,
+  within `LIST_BUDGET` and recency order; `Deployed.withCode` lists the chains with code, and
+  `confirmMainnets` turns those claims into facts, so the row can be `likely`. A mainnet claim the
+  builder takes back (testnet) leaves `claims`.
 - **Copy.** `TELL_EARNKIT_DESCRIPTION` (agent text, under 800 characters), `TELL_SAVED_NOTE`, and
   the applied line are in the copy review; the builder-text tool-name regex
   (`token-launch.ts`) names `tell_earnkit` and `pick_up_entries` instead of `report_outcome`.
