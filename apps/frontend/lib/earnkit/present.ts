@@ -570,17 +570,9 @@ const buildNew = (c: Card): Offer => ({
   campaign: false,
 });
 
-/** v2.8.1 §B7: the Easy fit with the most money (then the quicker fit), if any. Pure. */
-const easyFit = (rows: Fit[]): Fit | undefined =>
-  rows.filter((r) => isEasy(r.card)).sort((a, b) => byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
-
-/** v2.4's fastest fit (prize per hour), programs needing forms last. Pure. */
-function fastestFit(rows: Fit[]): Fit | undefined {
-  const byHour = [...rows].sort(
-    (a, b) => prizePerHour(b.card, b.v) - prizePerHour(a.card, a.v) || quickness(a.v) - quickness(b.v),
-  );
-  return byHour.find((r) => !needsForms(r.card)) ?? byHour[0];
-}
+/** v2.8.1 §B7, Ruling F5: the fit to offer: Easy first, then the top prize, then the quicker fit. Pure. */
+const bestFit = (rows: Fit[]): Fit | undefined =>
+  [...rows].sort((a, b) => byEaseThenPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
 
 /** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
 const bestCard = (cards: Card[]): Card | undefined =>
@@ -614,11 +606,9 @@ function offer(
   // M4: the program offered, when its matched row says the repo's token is entered elsewhere.
   const noBonus = (r: Fit | undefined) =>
     r && repoCoinElsewhere(m, r.card, r.repo_url) ? { noBonusId: r.card.id } : {};
-  const fits = rows.filter((r) => offerable(r.card));
-  // v2.8.1 §B7: the Easy fit with the most money; with none, an Easy program to build something new
-  // for comes before a harder fit (still offered when no Easy program is open).
-  const easyNew = easyFit(fits) ? undefined : bestCard(m.cards.filter((c) => offerable(c) && isEasy(c)));
-  const pick = easyFit(fits) ?? (fits.length > 0 && !easyNew ? fastestFit(fits) : undefined);
+  // v2.8.1 §B7, Ruling F5: a fit for the builder's repo always comes first (Easy first, then the
+  // top prize); building something new is offered only when no repo fits.
+  const pick = bestFit(rows.filter((r) => offerable(r.card)));
   // v2.8.1 §B8: with no repo, the program the builder can enter as they are (known not to need one).
   const asTheyAre = noMatch(m.repos) ? bestCard(m.cards.filter((c) => offerable(c) && c.needs_repo === false)) : undefined;
   if (!m.agentCanBuild) {
@@ -649,7 +639,6 @@ function offer(
     };
   if (asTheyAre)
     return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
-  if (fits.length > 0 && easyNew) return buildNew(easyNew);
   if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   const fresh = curated.filter(offerable);

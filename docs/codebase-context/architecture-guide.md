@@ -464,8 +464,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   campaign programs; `openEntries`). A submitted entry marks its program "(entered)", sorts it
   last and is never offered or resumed; one confirmed but not submitted stays offerable. With no
   repo, rows whose program needs one (`needsRepo`) say "(needs a repo)". The offer is never an
-  investment program: the Easy fit with the most money, else "build something new" for the top
-  Easy program, else the v2.4 fastest fit; with no repo, the best program known not to need one.
+  investment program: a fit for the builder's repo first (Easy first, then the top prize; Ruling
+  F5), and "build something new" for the Easy program with the most money only when no repo fits;
+  with no repo, the best program known not to need one.
   "$X in prizes you qualify for" leaves out investments and rows that still need new work.
 - Human-facing dates use one format (`dates.ts` `formatDeadline`, "Oct 6, 2026, 06:51 UTC");
   machine fields (`ends_at`, `deadline`) stay ISO.

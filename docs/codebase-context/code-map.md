@@ -359,8 +359,8 @@ apps/frontend/
     present.ts(+test)          presentFirstMessage (v2.7 §3): alerts, v2.8.1 §B: "Your entries"
                                (entriesLine, right after any news), "(entered)" / "(needs a repo)" in the
                                Program cell, $X leaves out investment and new-work rows (qualifies), the offer
-                               is the Easy fit with the most money (easyFit; never an investment or an entered
-                               program; else buildNew for the top Easy program; no repo: needs_repo false only), "EarnKit matches you to $X in
+                               is the best repo fit (bestFit: Easy first, then top prize, Ruling F5; never an investment
+                               or an entered program); buildNew only when no repo fits; no repo: needs_repo false only), "EarnKit matches you to $X in
                                top prizes you qualify for" (openMoneyUsd: per-winner prizes of
                                fitted programs; $0 keeps "Your repos fit these open programs:") with
                                repos, else "$X in top prizes is open right now" (youCould/githubGiven, Ruling 11;
