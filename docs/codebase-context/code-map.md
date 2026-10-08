@@ -377,9 +377,9 @@ apps/frontend/
                                names a tool; v2.7: SERVER_INSTRUCTIONS exported (scanned by
                                copy-review), list_programs' description leads with "What can I earn?", all say "token", never name Clanker
                                (Ruling 18), get_program describes the guide
-    guide.ts(+test)            v2.9 A4: rowDifficulty (row = max(program level, distance), real_users rule,
-                               match_precision under 5% one step harder), harder, levelRank; difficultyFrom
-                               floors (investment Hard, "needs a live product" at least Medium)
+    guide.ts(+test)            v2.9 A4: rowDifficulty (row = max(program level, distance), real_users rule),
+                               harder, levelRank; difficultyFrom floors (investment Hard, "needs a live
+                               product" at least Medium, then match_precision under 5% one step harder)
                                v2.7 §2 (pure): difficultyOf/difficultyFrom (Rulings 2–5: odds from the
                                newest round with both counts, ODDS_BANDS Easy ≥0.25 / Medium ≥0.08 / Hard; else an
                                estimate, never Easy; the override wins), difficultyLabel, programGuide → Guide (Ruling 9
