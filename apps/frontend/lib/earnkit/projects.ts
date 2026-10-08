@@ -529,17 +529,20 @@ export async function enteredProgramIds(installationId: number, k: { repoUrl: st
  * v2.8.1 §B9: this installation's entries in open programs that aren't campaigns, newest first, for
  * list_programs' "Your entries" line and its "entered" marks. Submitted: the builder confirmed it, the
  * entry page was checked, or the row came from record_submission without a confirmation step (before v2.8).
+ * `onlyIds` (v2.9 B9, Ruling G7): only these entries (a verified login's, on a shared client).
  */
 export type OpenEntry = { program_id: string; title: string; name: string; submitted: boolean };
 
-export async function openEntries(installationId: number): Promise<OpenEntry[]> {
+export async function openEntries(installationId: number, onlyIds?: number[]): Promise<OpenEntry[]> {
+  const db = sql();
   return [
-    ...(await sql()<OpenEntry[]>`
+    ...(await db<OpenEntry[]>`
       SELECT p.program_id, pr.title, p.name,
         (p.confirmed_at IS NULL OR p.submission_confirmed_at IS NOT NULL OR p.submission_proof_ok_at IS NOT NULL) AS submitted
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${installationId} AND pr.campaign IS NULL AND pr.status = 'active'
         AND (pr.ends_at IS NULL OR pr.ends_at > now())
+        ${onlyIds ? db`AND p.id = ANY(${onlyIds}::int[])` : db``}
       ORDER BY p.submitted_at DESC, p.id DESC
       LIMIT 20`),
   ];
