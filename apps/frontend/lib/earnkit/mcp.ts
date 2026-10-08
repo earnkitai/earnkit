@@ -209,6 +209,12 @@ const prepareSubmissionDescription = (campaignOpen: boolean) =>
   `${OWNERSHIP_FOR_TOKEN}`;
 
 /** v2.8.1 fix round 1: the check-back flag, on every tool that launches. */
+/** v2.9 B9 (Ruling G9): the sign-in code, on the tools that read who the builder is. */
+const SIGNED_IN = z
+  .string()
+  .max(40)
+  .optional()
+  .describe('The code the builder pasted after signing in with GitHub (shared agents only), if they gave one');
 const CHECK_BACK =
   'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
 
@@ -384,6 +390,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .describe(
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
           ),
+        signed_in: SIGNED_IN,
       },
       annotations: { readOnlyHint: true },
     },
@@ -455,6 +462,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .describe("The wallet the builder confirmed: shown_wallet, or the one they named instead"),
           agent: AGENT.optional(),
           check_back: z.boolean().optional().describe(CHECK_BACK),
+          signed_in: SIGNED_IN,
         })
         .strict(),
     },
@@ -594,6 +602,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .literal(true)
             .describe('The builder explicitly said yes to this launch'),
           check_back: z.boolean().optional().describe(CHECK_BACK),
+          signed_in: SIGNED_IN,
         })
         .strict(),
     },
@@ -636,6 +645,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             )
             .max(20)
             .optional(),
+          signed_in: SIGNED_IN,
         })
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

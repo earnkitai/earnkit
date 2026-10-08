@@ -573,6 +573,8 @@ async function runTokenFlow(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: the agent checking back after "launching": a read, never a launch. */
     checkBack?: boolean;
+    /** Rulings G8, G9: whose GitHub sign-in proves the repo (token-gate.ts GateInput.verifiedLogin). */
+    verifiedLogin?: string | null;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -717,6 +719,7 @@ async function runTokenFlow(
       symbol,
       installationId: a.installationId,
       projectId: project.id,
+      verifiedLogin: a.verifiedLogin,
     },
     deps.gate,
   );
@@ -939,6 +942,8 @@ export async function confirmToken(
     deadline?: number;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
+    /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
+    verifiedLogin?: string | null;
   },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
@@ -965,7 +970,7 @@ export async function confirmToken(
       }
       return await runTokenFlow(
         project,
-        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack },
+        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack, verifiedLogin: a.verifiedLogin },
         deps,
         progress,
       );
@@ -1044,6 +1049,8 @@ export const LaunchTokenInput = TokenChoice.extend({
   repo_url: z.string().optional(),
   /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
   check_back: z.boolean().optional(),
+  /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
+  signed_in: z.string().max(40).optional(),
 }).strict();
 
 /**
@@ -1057,8 +1064,10 @@ export async function launchToken(
   deps: TokenFlowDeps = {},
   /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
   deadline?: number,
+  /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
+  verifiedLogin?: string | null,
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, ...choice } = input;
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, ...choice } = input;
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, project_id, installationId);
   // v2.8 Ruling 3 (plan): refused before anything is checked, changed or launched.
@@ -1099,7 +1108,7 @@ export async function launchToken(
   if (entryMissing(project).length === 0) await store.markComplete(project.id);
   const progress: Progress = { deploying: false };
   const out = await withinReply(
-    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true }, deps, progress),
+    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true, verifiedLogin }, deps, progress),
     progress,
     deadline,
   );

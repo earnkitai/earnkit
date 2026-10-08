@@ -306,6 +306,8 @@ const ConfirmEntryInput = z
     agent: AgentInput.optional(),
     /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
     check_back: z.boolean().optional(),
+    /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
+    signed_in: z.string().max(40).optional(),
   })
   .strict();
 
@@ -562,6 +564,8 @@ const ListProgramsInput = z
     local_repos: LocalReposInput.optional(),
     // v2.8.1 §B6: anything else than a 0x address is ignored with WALLET_IGNORED, never an error.
     wallet: z.unknown().optional(),
+    // v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in; never refused.
+    signed_in: z.unknown().optional(),
   })
   .strict();
 
@@ -586,7 +590,7 @@ export const WALLET_IGNORED =
  * (match-projects.ts ReportedRepoInput) or a wallet that isn't 0x (dropped, with a note). Exported for tests.
  */
 export function listProgramsInput(input: unknown) {
-  const { wallet, agent_can_build, github_user, repos, ...rest } = ListProgramsInput.parse(input ?? {});
+  const { wallet, agent_can_build, github_user, repos, signed_in, ...rest } = ListProgramsInput.parse(input ?? {});
   const repoList = reportedRepos(repos);
   const given = typeof wallet === 'string' && wallet.trim() !== '' ? wallet.trim() : null;
   const valid = given && /^0x[0-9a-fA-F]{40}$/.test(given) ? given : null;
@@ -595,7 +599,8 @@ export function listProgramsInput(input: unknown) {
     agent_can_build: canBuild(agent_can_build),
     github_user: reportedGithubUser(github_user),
     repos: repoList.length ? repoList : undefined,
-    wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null };
+    wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null,
+    signed_in: typeof signed_in === 'string' ? signed_in : undefined };
 }
 
 /** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
@@ -635,6 +640,9 @@ export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never s
 /** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
 export const SIGN_IN_NOTE =
   "Show the line. When the builder says they signed in, call confirm_entry again with decision 'go'.";
+/** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
+export const SIGN_IN_CODE_NOTE =
+  'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, tell_earnkit, launch_token).';
 /** v2.9 B9: after a proof-line miss, the sign-in is the other way. */
 export const SIGN_IN_OR_NOTE =
   "Or show the sign-in line; when the builder says they signed in, call confirm_entry again with decision 'go'.";
@@ -694,12 +702,12 @@ async function alertsFor(
 const remembers = (ctx: Pick<ToolContext, 'sharedClient'>) => !ctx.sharedClient;
 
 /**
- * v2.9 B9, Rulings G6/G7: on a shared client with GitHub sign-in on, the verified login this call
- * names (callerLogin), else null. Never fails the tool.
+ * v2.9 B9, Rulings G6, G7, G9: on a shared client with GitHub sign-in on, the verified login of the
+ * code the builder pasted (`signed_in`, callerLogin), else null. Never fails the tool.
  */
-async function sharedLogin(ctx: ToolContext, names: Parameters<typeof callerLogin>[1], where: string): Promise<string | null> {
-  if (!ctx.sharedClient || !githubVerifyEnabled()) return null;
-  return callerLogin(ctx.installationId, names).catch((err: unknown) => {
+async function sharedLogin(ctx: ToolContext, signedIn: string | undefined, where: string): Promise<string | null> {
+  if (!ctx.sharedClient || !githubVerifyEnabled() || !signedIn) return null;
+  return callerLogin(ctx.installationId, signedIn).catch((err: unknown) => {
     console.error(`[${where}] verified login`, err instanceof Error ? err.name : 'error');
     return null;
   });
@@ -735,7 +743,7 @@ export const tools = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote } = listProgramsInput(input);
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in } = listProgramsInput(input);
     // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
     // of the repos it reports, its wallet), never what this installation remembers; read before this
     // call's details are saved. Never fails the tool.
@@ -754,12 +762,8 @@ export const tools = {
           })
         : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
-    // v2.9 B9, Rulings G6/G7: on a shared client, the GitHub-verified login this call names.
-    const login = await sharedLogin(
-      ctx,
-      { github_user, repo_keys: (repos ?? []).map((r) => saidKey(r)) },
-      'list_programs',
-    );
+    // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
+    const login = await sharedLogin(ctx, signed_in, 'list_programs');
     const [memory, programs, campaigns, told] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
@@ -1395,6 +1399,8 @@ export const tools = {
           wallet: given,
           deadline,
           checkBack: i.check_back === true,
+          // Rulings G8, G9: on a shared client only the sign-in of the code this builder pasted counts.
+          verifiedLogin: ctx.sharedClient ? await sharedLogin(ctx, i.signed_in, 'confirm_entry') : undefined,
         },
         ctx.tokenDeps,
       );
@@ -1417,12 +1423,13 @@ export const tools = {
           : null;
       const signLine = link && signInLine(i.project.name, token.symbol ?? shown?.symbol ?? null, link);
       // The first "go" of an agent that can't push: the sign-in line, no kit yet.
+      const signNote = ctx.sharedClient ? `${SIGN_IN_NOTE} ${SIGN_IN_CODE_NOTE}` : SIGN_IN_NOTE;
       if (signLine && !entry.proof_line_missed)
         return {
           project_id: entry.id,
-          token: { ...token, fixable: true, sign_in: link, agent_note: SIGN_IN_NOTE },
+          token: { ...token, fixable: true, sign_in: link, agent_note: signNote },
           show_to_builder: signLine,
-          agent_note: SIGN_IN_NOTE,
+          agent_note: signNote,
         };
       // Ruling C24, v2.8.1 §A3: never a dead end. The proof line still isn't on the repo after an
       // earlier "go" stopped on it: the entry records without a token, the kit comes back, and the
@@ -1431,7 +1438,7 @@ export const tools = {
       // on, the link comes too (alone for an agent that can't push).
       if (token.fixable && token.proof_line && entry.proof_line_missed) {
         const pushNote = token.agent_note?.replace(CANT_PUSH_RETRY_NOTE, '').trim();
-        const agentNote = signLine ? (canPush ? `${pushNote ? `${pushNote} ` : ''}${SIGN_IN_OR_NOTE}` : SIGN_IN_NOTE) : pushNote;
+        const agentNote = signLine ? (canPush ? `${pushNote ? `${pushNote} ` : ''}${SIGN_IN_OR_NOTE}` : signNote) : pushNote;
         token = {
           status: 'skipped',
           note: signLine
@@ -1680,19 +1687,10 @@ export const tools = {
   // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
   // Ruling G6: on a shared client nothing about programs or repos is kept (memoryKey null).
   tell_earnkit: async (input: unknown, ctx: ToolContext) => {
-    // v2.9 B9 (G6): on a shared client, statements are kept only under the verified login this
-    // call names (an entry or a repo it signed in for).
+    // v2.9 B9 (G6, G9): on a shared client, statements are kept only under the verified login of
+    // the code the builder pasted.
     const told = TellInput.safeParse(input);
-    const login = told.success
-      ? await sharedLogin(
-          ctx,
-          {
-            project_ids: (told.data.program_status ?? []).flatMap((p) => (p.project_id ? [p.project_id] : [])),
-            repo_keys: (told.data.repo_facts ?? []).map((f) => saidKey(f.repo)),
-          },
-          'tell_earnkit',
-        )
-      : null;
+    const login = told.success ? await sharedLogin(ctx, told.data.signed_in, 'tell_earnkit') : null;
     const key = memoryKey({ ...ctx, verifiedLogin: login });
     const { saved, outcomes } = await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
     const note = key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
@@ -1711,6 +1709,8 @@ export const tools = {
       ctx.tokenDeps,
       // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
       Date.now() + launchReplyMs(),
+      // Rulings G8, G9: on a shared client only the sign-in of the code this builder pasted counts.
+      ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined,
     );
     // v2.9 B9: the proof line isn't there: with sign-in on, the one-time link proves the repo instead.
     const signIn =
@@ -1726,7 +1726,8 @@ export const tools = {
             sign_in_line: signInLine(signIn.name, out.symbol ?? null, signIn.link),
             agent_note:
               `${out.agent_note ? `${out.agent_note} ` : ''}If you can't push, show sign_in_line instead; ` +
-              "when the builder says they signed in, call launch_token again.",
+              'when the builder says they signed in, call launch_token again' +
+              (ctx.sharedClient ? ' with signed_in: the code the sign-in page gave them.' : '.'),
           }
         : out,
     );

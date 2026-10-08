@@ -28,6 +28,11 @@ export type GateInput = {
   installationId: number;
   /** v2.9 B9: the entry launching; a GitHub sign-in verified for it proves the repo instead of the line. */
   projectId?: number;
+  /**
+   * Rulings G8, G9: whose sign-in counts. Undefined (not a shared client): any for this entry. On a
+   * shared client: only this login's (the caller's, from its pasted code); null: none.
+   */
+  verifiedLogin?: string | null;
 };
 export type GateDeps = {
   /** The repo's code facts (Ruling 3 (plan)); throws GitHub's error for a missing/private repo. */
@@ -44,7 +49,7 @@ export type GateDeps = {
    * v2.9 B9: whether a GitHub sign-in proved this entry's repo (owner/repo); defaults to the
    * github_verifications row, and is false while the feature is off.
    */
-  verified?: (projectId: number, repoKey: string) => Promise<boolean>;
+  verified?: (projectId: number, repoKey: string, login?: string) => Promise<boolean>;
 };
 /**
  * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
@@ -75,8 +80,8 @@ const defaults: Required<GateDeps> = {
   latest: (r, defaultBranch) =>
     process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, defaultBranch),
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
-  verified: async (projectId, repoKey) =>
-    githubVerifyEnabled() && (await verifiedFor({ projectId, repoKey })) !== null,
+  verified: async (projectId, repoKey, login) =>
+    githubVerifyEnabled() && (await verifiedFor({ projectId, repoKey, login })) !== null,
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -242,7 +247,8 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   // repo's code above and the wallet screen below still run). A failed read is no verification.
   const signedIn =
     input.projectId !== undefined &&
-    (await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase()).catch(() => false));
+    input.verifiedLogin !== null &&
+    (await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), input.verifiedLogin).catch(() => false));
   if (!signedIn) {
     const legacyCode = legacyTokenLineCode(input.installationId, input.repoUrl, input.symbol);
     const legacy = legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null;

@@ -776,3 +776,7 @@ CREATE INDEX IF NOT EXISTS github_verifications_repo ON github_verifications (re
 -- v2.9 B9 (Pre-flight P11): the nonce's purpose, and when a single-use (shared client host) check was used.
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'entry';
 ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS used_at timestamptz;
+-- v2.9 B9 (Ruling G9): on a shared client, the sha256 of the one-time code the builder pastes to the agent.
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS code_hash text;
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS code_expires_at timestamptz;
+CREATE INDEX IF NOT EXISTS github_verifications_code ON github_verifications (code_hash) WHERE code_hash IS NOT NULL;

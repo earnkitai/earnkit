@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { githubRepo } from './campaigns';
 import { sql } from './db';
+import { sharedGroup } from './installations';
 import { siteUrl } from './entry-text';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 
@@ -28,6 +29,8 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
  */
 
 export const VERIFY_TTL_MS = 15 * 60_000;
+/** Ruling G9: how long the sign-in code a shared client's builder pastes stays valid. */
+export const CODE_TTL_MS = 24 * 60 * 60_000;
 
 /** What the builder reads in the browser after the callback. */
 export const VERIFY_PAGE = {
@@ -43,6 +46,19 @@ export function githubVerifyEnabled(env: Record<string, string | undefined> = pr
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+/** Ruling G9: 10 random base32 characters (32 divides 256, so unbiased). */
+const newCode = () => [...randomBytes(10)].map((b) => BASE32[b % 32]).join('');
+/** "ABCDEFGHJK" as the builder reads it: "ABCD-EFGH-JK". Pure. */
+export const formatCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8)}`;
+/** A pasted code, any case, dashes or spaces; null unless it is 10 base32 characters. Pure. */
+export function normalizeCode(input: string | null | undefined): string | null {
+  const c = (input ?? '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  return c.length === 10 ? c : null;
+}
+/** Ruling G9: the success page on a shared client. Pure. */
+export const codeLine = (code: string) => `Done. Paste this code to your agent: ${formatCode(code)}`;
 
 export type VerifyPurpose = 'entry' | 'pickup' | 'host';
 export type NonceRow = { installation_id: number; project_id: number | null; repo_key: string; purpose: VerifyPurpose };
@@ -176,7 +192,7 @@ export async function completeVerify(
   nonce: string,
   deps: GitHubOAuthDeps = githubOAuth,
   now = new Date(),
-): Promise<{ ok: true; repoKey: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; repoKey: string; code?: string } | { ok: false; reason: string }> {
   const row = await takeNonce(nonce, now);
   if (!row) return { ok: false, reason: VERIFY_PAGE.expired };
   const [owner, repo] = row.repo_key.split('/');
@@ -187,11 +203,16 @@ export async function completeVerify(
     // Only when the login isn't the owner: the repo read (with the user's scopeless token).
     const perms = user.login.toLowerCase() === owner.toLowerCase() ? null : await deps.repoPerms(token, owner, repo);
     if (!ownershipPasses(user.login, { owner, repo }, perms)) return { ok: false, reason: VERIFY_PAGE.notYours };
+    // Ruling G9: on a shared (hosted) client the builder gets a one-time code to paste to the agent;
+    // only its sha256 is kept. It is how later calls there know who they are from.
+    const paste = (await sharedGroup(row.installation_id)) ? newCode() : null;
     await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose)
+      INSERT INTO github_verifications (repo_key, login, installation_id, project_id, account_created_at, public_repos, verified_at, purpose,
+        code_hash, code_expires_at)
       VALUES (${row.repo_key}, ${user.login.toLowerCase()}, ${row.installation_id}, ${row.project_id},
-        ${new Date(user.created_at)}, ${user.public_repos}, ${now}, ${row.purpose})`;
-    return { ok: true, repoKey: row.repo_key };
+        ${new Date(user.created_at)}, ${user.public_repos}, ${now}, ${row.purpose},
+        ${paste && sha256(paste)}, ${paste && new Date(now.getTime() + CODE_TTL_MS)})`;
+    return { ok: true, repoKey: row.repo_key, ...(paste && { code: paste }) };
   } catch (err) {
     console.error('[github-verify] callback', err instanceof Error ? err.name : 'error');
     return { ok: false, reason: VERIFY_PAGE.failed };
@@ -212,6 +233,8 @@ export async function verifiedFor(a: {
   since?: Date;
   /** Only this purpose's verifications (identity linking reads `pickup`, Pre-flight P8). */
   purpose?: VerifyPurpose;
+  /** Rulings G8, G9: only this login's (a shared client's caller, from its code). */
+  login?: string;
 }): Promise<Verification | null> {
   if (a.projectId === undefined && a.installationId === undefined) return null;
   const db = sql();
@@ -222,6 +245,7 @@ export async function verifiedFor(a: {
       ${a.installationId !== undefined ? db`AND installation_id = ${a.installationId}` : db``}
       ${a.since ? db`AND verified_at >= ${a.since}` : db``}
       ${a.purpose ? db`AND purpose = ${a.purpose}` : db``}
+      ${a.login !== undefined ? db`AND login = ${a.login.toLowerCase()}` : db``}
     ORDER BY verified_at DESC, id DESC LIMIT 1`;
   return row ?? null;
 }
@@ -249,25 +273,19 @@ export async function takeHostVerification(
 }
 
 /**
- * Rulings G6, G7: on a shared (hosted) client, the GitHub login this call is from: a verification
- * on this installation from the last 15 minutes that matches what the call names (the GitHub user
- * it states, an entry it names, or a repo it names). Null when none match, or when they name more
- * than one login (never a guess). The caller decides it only runs on shared clients.
+ * Rulings G6, G7, G9: on a shared (hosted) client, the GitHub login this call is from: the login of
+ * the sign-in whose one-time code the builder pasted (`signed_in`), on this installation, within 24
+ * hours. Nothing anyone can claim (a GitHub user, an entry, a repo) names it. Null without a valid
+ * code. The caller decides it only runs on shared clients.
  */
-export async function callerLogin(
-  installationId: number,
-  names: { github_user?: string | null; project_ids?: number[]; repo_keys?: string[] },
-  now = new Date(),
-): Promise<string | null> {
-  const user = names.github_user?.trim().toLowerCase() || null;
-  const ids = (names.project_ids ?? []).filter((n) => Number.isInteger(n));
-  const repos = (names.repo_keys ?? []).map((k) => k.toLowerCase()).filter((k) => k.includes('/'));
-  if (!user && ids.length === 0 && repos.length === 0) return null;
-  const rows = await sql()<{ login: string }[]>`
-    SELECT DISTINCT login FROM github_verifications
-    WHERE installation_id = ${installationId} AND verified_at > ${new Date(now.getTime() - VERIFY_TTL_MS)}
-      AND (login = ${user} OR project_id = ANY(${ids}::int[]) OR repo_key = ANY(${repos}::text[]))`;
-  return rows.length === 1 ? rows[0].login : null;
+export async function callerLogin(installationId: number, signedIn: string | null | undefined, now = new Date()): Promise<string | null> {
+  const code = normalizeCode(signedIn);
+  if (!code) return null;
+  const [row] = await sql()<{ login: string }[]>`
+    SELECT login FROM github_verifications
+    WHERE installation_id = ${installationId} AND code_hash = ${sha256(code)} AND code_expires_at > ${now}
+    ORDER BY verified_at DESC LIMIT 1`;
+  return row?.login ?? null;
 }
 
 /** Ruling G7: the entries of this installation a login verified (a shared client shows only these). */
@@ -438,6 +456,6 @@ export async function verifyCallback(
   if (!cookie || !sameSecret(cookie, csrf)) return verifyPage(VERIFY_PAGE.failed, 403);
   const clear = { 'Set-Cookie': clearCsrf(nonce) };
   const out = await complete(code, nonce);
-  if (out.ok) return verifyPage(VERIFY_PAGE.done, 200, clear);
+  if (out.ok) return verifyPage(out.code ? codeLine(out.code) : VERIFY_PAGE.done, 200, clear);
   return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }
