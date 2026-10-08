@@ -52,7 +52,7 @@ All open programs: https://earnkit.com/programs
   local git remotes); a GitHub username is optional. Every reply of every
   tool opens with "Since you last checked" when there is news: a win, a
   payout, a rank change, token fees to claim, or a newly listed program the
-  builder's repos fit (or an Easy one)
+  builder's repos fit
 - get_program: full details, rules, submission requirements, links, and tested
   build help for the program's chains (with a one-line start command). Pass a
   repo to check whether it is eligible and what it is missing
@@ -72,20 +72,33 @@ All open programs: https://earnkit.com/programs
   program's own site (it updates the confirmed entry). Every problem with an
   entry comes back at once
 - launch_token: launches or retries the entry's token on tokens.fun for a
-  recorded project, only after the builder said yes
+  recorded project, only after the builder said yes. When list_programs ends
+  with a token offer (token_offer), pass that offer and the builder's answer:
+  decision 'go' with the wallet on yes, 'skip' on skip
 - tell_earnkit: what the builder told you: a program they applied to outside
   EarnKit, one they are not interested in, their own result ("Did it win?",
   list_programs' ask_outcome), and per repo the chains it is live on, testnet
   only, its live link, real users, or not theirs. What lowers a match counts
   at once; what raises one waits until EarnKit can check it. Results they
   report are never public, never counted, never alerted
+- pick_up_entries: the builder's yes or no when list_programs asks to pick
+  up entries from an earlier install
 - sponsor_campaign (opens once EarnKit's escrow is live; until then the
-  server lists only the seven tools above): for sponsors. Create a builder
+  server lists only the eight tools above): for sponsors. Create a builder
   campaign (returns a funding link; the pool sits in an escrow on Base), check
   entries, and award winners. 90% goes to winners the sponsor picks; EarnKit
   takes 10% only when prizes are paid, and refunds everything if nobody
   qualifies. Each reply has show_to_sponsor (show it to the sponsor as
   written) and next_step
+
+## Proving a repo is the builder's
+
+A token launches only for a repo the builder owns. An agent that can push
+adds a one-line proof file to the repo. An agent that can't push (a hosted
+agent) shows the builder a one-click "Sign in with GitHub" link instead;
+EarnKit asks GitHub for no permissions and never writes to the repo. On a
+hosted agent the sign-in page shows a short code: pass it as signed_in on
+the next call, so EarnKit knows which builder is asking.
 
 ## The token and the builder bonus
 

@@ -2682,3 +2682,86 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   (6.10, a regression guard, P34).
 - **v2.8.1 journey (P22).** J1's fixtures stay below product tier, so the first reply keeps the
   v2.8.1 close and the first "40%" stays in the Base draft.
+
+## v2.9 Needed, Part 1: what ships, settings, runbooks and the journeys (Task 12, Ruling G1)
+
+Spec: `docs/design-docs-and-implementation-plans/v2.9-needed.md`. Ruling G1 ships it in two parts.
+Part 1 (this section) is T1 to T6, T9 and the Part 1 slice of T12. Part 2 (hosting, the weekly
+email, one money figure, `/terms`, the G0 minors) is not built yet. Each piece is documented in its
+own section above; this is the map.
+
+**Matching (what "What can I earn?" shows).**
+- Ownership and the score: only the builder's own repos are scored (never EarnKit's kits, forks,
+  templates, archived repos or tutorials; a contributed repo needs 30% of its last 100 commits),
+  at most 8, newest first. Each gets the 6-signal real-product score and a tier (product, project,
+  noise). See "Owned repos and the real-product score".
+- Statements and claims: `tell_earnkit` stores what the builder said. What lowers a match (applied
+  outside EarnKit, not interested, testnet only, not mine) counts at once; what raises it (mainnet,
+  a live link, users) is a claim, shown as "confirm: ..." until a check clears it. See "Builder
+  memory: `tell_earnkit`".
+- Row difficulty: a row is never easier than its program and is harder when the repo still needs
+  something. Base is no longer Easy; a "needs a live product" program is at least Medium. See "Row
+  difficulty, alert precision and the outcome loop".
+- Verification and its cache: live links are probed and contracts read with getCode under small
+  budgets, cached in `url_checks`. A placeholder link is refused; a link that doesn't load leaves
+  the entry not complete. See "Link and contract checks".
+- Alert precision and the outcome floor: new program alerts fire only for an owned, scored repo
+  that could win (`fit_repos`); `match_shown` and the announced outcomes set each program's
+  `match_floor` and `match_precision` in `programs:sync`.
+
+**The GitHub sign-in.** A one-time nonce link (15 minutes, sha256 stored), a confirm page bound to
+the browser by a cookie, no scopes asked. It replaces the proof line for agents that can't push. On
+a shared (hosted) client the page shows a one-time code (24 hours) that the agent passes as
+`signed_in`; only that login's sign-in counts there, and the sign-in names the payout wallet.
+See "Sign in with GitHub".
+
+**The token offer.** The first reply ends with one token offer for the best owned, product-tier
+fit. A yes launches it (one entry, one launch); one skip ends the first-reply offer for that repo
+and the confirmation offers it once more. "40%" shows once per entry flow. See "The token offer
+right after the match".
+
+**Claims and the gas alert.** The hourly cron claims creator (40%) and MINI (10%) fees to their own
+addresses after EarnKit's own payouts, at 10x gas or more, and logs each claim in `fee_claims`.
+`fee_claims` is an ops log, never revenue: no stat reads it. A payout wallet under
+`GAS_WALLET_MIN_WEI` puts `bonus-ledger` in `needs_owner`. See the bonus ledger's "Claim" and "Gas
+check" steps.
+
+**Settings. Each feature is off while its variables are absent.**
+
+| Variable | Feature | When absent |
+|---|---|---|
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Sign in with GitHub | The routes answer 404; the proof line is the only proof; a can't-push agent hears "open this in Claude Code or Cursor" |
+| `GAS_WALLET_MIN_WEI` | The gas alert's floor | 0.002 ETH |
+| `ARC_RPC_URL`, `BASE_RPC_URL`, `MONAD_RPC_URL`, `TEMPO_RPC_URL`, `AVALANCHE_RPC_URL`, `ROBINHOOD_RPC_URL` | getCode for contract checks | Each chain's public RPC from its docs |
+
+**Runbooks (Part 1).**
+- **A 503 from `/api/cron` with `bonus-ledger` and "is low on ETH for gas".** The payout wallet
+  holds less than `GAS_WALLET_MIN_WEI`. Send ETH on Base to the address named in the note. The
+  note ends with "Payouts resume once it is topped up." and the next run clears it.
+- **A 503 with a claim result "the payout wallet needs ETH for gas".** Same fix.
+- **A builder says the sign-in link failed.** Links last 15 minutes and work once: have the agent
+  ask again for a fresh one. A sign-in only counts for the repo, ticker and wallet it named; a new
+  wallet needs a new sign-in.
+
+**The journeys (`v29-journey.test.ts`).** DB-gated, in a throwaway database of its own, every real
+program file. Only the outside world is mocked: GitHub (REST, raw files and the OAuth endpoints,
+through the real verify routes), tokens.fun (behind the real `deployToken`), the link probe and
+getCode (`verify.ts checkDefaults`, with the real `url_checks`), and the chain under the cron's
+claims. Every other fetch gets a 503.
+- 12.1: a Claude Code builder with a real product on Arc, plus a fork, a tutorial, an archived repo
+  and an EarnKit kit. Only TipJar shows; Arc is Easy; the first reply ends with the token offer; the
+  yes launches once; the entry completes. 12.1b: noise only, so no row and no offer.
+- 12.2: Grok Bot (shared client) with sign-in on. The offer asks for the wallet; the yes gives the
+  sign-in line; the browser sign-in returns a code; without it nothing launches; with it `$TIP`
+  launches. 12.2b: sign-in off, so can't-push says so, and the pushed proof line launches.
+- 12.4: statements lower (applied, not interested, testnet only) and raise (a mainnet claim cleared
+  by a contract with code; users stays "confirm"); Base returns once its round changes.
+- 12.5: placeholders are refused or dropped and never probed; a link that doesn't load keeps the
+  entry not complete.
+- 12.6: the offer, a skip, then the confirmation: "40%" once, "skip" only in offers.
+- 12.7: a cron run claims every launched token's creator and MINI to themselves, logged in
+  `fee_claims`, and no stat moves.
+- Across every reply: no emoji, em dash, "coin", "vault", "Clanker" or tool name in builder text,
+  every reply under 50 s, and no other network use.
+
+The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.

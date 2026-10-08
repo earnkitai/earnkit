@@ -66,7 +66,15 @@ program is never closed under it either.
    - `any_chain` (optional): `true` only when the program isn't tied to one chain (e.g. an
      accelerator that funds any startup). Then `chains` is `[]`, the program fits any repo (the
      chain and mainnet checks are skipped; existing work, the tag and the live link still apply),
-     and its guide page says "Any chain".
+     and its guide page says "Any chain". An `any_chain` program needs `min_product_score` of 5
+     or more (`pnpm programs:check` refuses less).
+   - `needs_contract` (optional): one chain (`base`, `arc`, `tempo`, `monad`, `robinhood`,
+     `avalanche`) when the rules say the project must be deployed on that chain's mainnet (Arc
+     Microgrants: `"arc"`). An entry is complete only once a contract EarnKit finds has code there.
+     Leave it out otherwise.
+   - `min_product_score` (optional, 0 to 6, default 0): the real-product score a repo needs for any
+     row of this program (owned, active, young, original, a README, deployed). Set it only when
+     the program funds companies or shipped products (a16z speedrun: `5`).
    - `setup`: one-time steps only the builder can do, a few words each
      (e.g. `"log in to DoraHacks"`, `"send about $1 of USDC on Arc to a deploy wallet"`).
    - `each_time`: what the builder must provide for every entry (e.g. `"a 2-3 min pitch video"`).
@@ -184,6 +192,9 @@ program is never closed under it either.
       `{ "level": "Easy", "rated_by": "earnkit", "source_url": "<the file's source_url>" }`. Only
       the owner gives this rating, and only `Easy`. Builders see just "Easy": no basis, no stat,
       no "rated by" label. Never add a `basis` to it.
+      The Easy rule: a `"needs a live product"` program is never Easy, rated or stated
+      (`pnpm programs:check` refuses it), and shows at least Medium. A builder's row can be harder
+      than the program (what their repo still needs), never easier.
 5. Do not add starters. The owner decides those.
 6. Run `pnpm programs:check`, then push.
 
