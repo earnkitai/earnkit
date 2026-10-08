@@ -2433,13 +2433,15 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   key, else by `name:<repo name>`) in `checkRepo`/`checkLocal` before `runChecks`, so a claimed
   live link is probed from the same `LIST_BUDGET` as a homepage; once it loads the row can be
   `likely`.
-- **Shared clients (Ruling G6).** `builder-memory.ts memoryKey(ctx)` is the one seam: the
-  installation id, or null on a `sharedClient` install (one hosted agent serves many builders;
-  T5's GitHub sign-in gives a verified builder a key). With null, `list_programs` and Also
+- **Shared clients (Ruling G6).** `builder-memory.ts memoryKey(ctx)` is the one seam: `{
+  installationId, login: '' }` for an installation's own memory, `{ installationId, login }` on a
+  `sharedClient` install whose call carries a valid sign-in code (`ctx.verifiedLogin`, see
+  "Sign in with GitHub" below), else null (one hosted agent serves many builders). Both memory
+  tables are keyed `(installation_id, login, ...)`. With null, `list_programs` and Also
   qualifies read no memory, `tell` stores no program or repo statement, an outcome needs its
   `project_id` (else `NotFoundError`), and the builder sees `Noted for now.` (`NOTED_FOR_NOW`).
 - **Shared clients show nothing remembered (Ruling G7).** `tools.ts remembers(ctx)`
-  (`memoryKey(ctx) !== null`) gates, on a shared client: the remembered `github_user`, `repos`
+  (`!ctx.sharedClient`) gates, on a shared client: the remembered `github_user`, `repos`
   and `local_repos` fallback and `working_on` in `list_programs`; `outcomeToAsk`/`ask_outcome`;
   `openEntries` ("Your entries"), `yourCampaignEntries` (standing) and alerts, including
   `withAlerts` (now `withAlerts(ctx, result)`) on every tool. Entries are still recorded; the
@@ -2452,6 +2454,72 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
 - **Copy.** `TELL_EARNKIT_DESCRIPTION` (agent text, under 800 characters), `TELL_SAVED_NOTE`, and
   the applied line are in the copy review; the builder-text tool-name regex
   (`token-launch.ts`) names `tell_earnkit` and `pick_up_entries` instead of `report_outcome`.
+
+## Sign in with GitHub (v2.9 B9, Task 5; Rulings G6 to G9)
+
+Ownership proof for agents that can't push (Grok Bot). Off, with the v2.8.1 behaviour everywhere,
+unless `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` are both set (`githubVerifyEnabled`).
+A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/verify/callback`.
+
+- **The link** (`github-verify.ts createVerifyLink`): `<siteUrl()>/github/verify?n=<nonce>`, 32
+  random bytes base64url. Table `github_verify_nonces` keeps only `sha256(nonce)`, bound to the
+  installation, the entry (`project_id`, null for `pickup`), the repo (`owner/repo`) and the
+  purpose (`entry`, `pickup`, `host`); 15 minutes (`VERIFY_TTL_MS`), consumed once by one atomic
+  `UPDATE ... WHERE used_at IS NULL AND expires_at > now RETURNING` (`takeNonce`).
+- **The browser flow (Ruling G8).** `GET /github/verify?n=` never redirects: it shows a confirm
+  page (`confirmPage`: the repo, the entry's `$TICKER` and fee wallet, `CONFIRM_WARNING`) and sets
+  a per-link cookie `__Host-ekv-<16 hex of the nonce hash>` (HttpOnly, Secure, SameSite=Lax, Path=/,
+  15 minutes). Its button POSTs to `/github/verify` (`verifyConfirm`: same-origin check, the form's
+  csrf must equal the cookie, `timingSafeEqual`), which 303s to GitHub's authorize URL with
+  `redirect_uri` from `siteUrl()` (never the request Host, P47), `state = <nonce>.<csrf>`,
+  `allow_signup=false` and no `scope`. `GET /github/verify/callback` (`verifyCallback`) reads only
+  `code` and `state` plus that cookie; a missing or mismatched cookie is refused before the nonce
+  is used or the code exchanged. Every page is `text/html`, `no-store`, `no-referrer`, no script.
+  Per IP: `LIMITS.githubVerify` (30 an hour) on all three.
+- **The check** (`completeVerify`): the nonce first (used whatever happens next), then GitHub's
+  code exchange, `GET /user`, and only when the login isn't the owner `GET /repos/{o}/{r}` with the
+  user's token. `ownershipPasses`: the login is the owner, or `permissions.push`/`admin`. An org
+  repo without `permissions` fails (`notYours`): the proof line stays the way. A pass writes
+  `github_verifications` (repo, lowercase login, installation, entry, `account_created_at`,
+  `public_repos`, purpose) for the nonce's own repo and entry only. The token is never stored or
+  logged; errors log the class only. The page says `VERIFY_PAGE.done`.
+- **Shared clients: the sign-in code (Ruling G9).** On a shared (hosted) install the success page
+  instead shows `Done. Paste this code to your agent: ABCD-EFGH-JK` (10 random base32 characters;
+  only `code_hash` is kept, 24 hours). The agent passes it as `signed_in` on `list_programs`,
+  `tell_earnkit`, `confirm_entry` and `launch_token`. `callerLogin(installation, code)` is the only
+  way a shared call gets a login (nothing anyone can claim, such as a GitHub user, names it).
+- **The token gate.** `GateInput.projectId` and `verifiedLogin`; `GateDeps.verified` defaults to
+  `verifiedFor({ projectId, repoKey, login })` while the feature is on. A pass skips the earnkit.txt
+  reads (`ownerProblem`); the repo code check and the wallet screen still run. On a shared client
+  (`verifiedLogin` set by `confirm_entry`/`launch_token` from `signed_in`) only that login's
+  sign-in counts; with no valid code, none does (G8, G9). Elsewhere any sign-in of that entry.
+- **The confirmation.** `confirmDecision({ signIn })` returns `sign_in` (not `record_only` with
+  `CANT_PUSH`) for `canPush: false`; `confirmOffer({ signIn })` shows the normal token offer (P9).
+  `confirm_entry` runs the flow for `sign_in` like `launch`; on the proof-line miss it creates an
+  `entry` link and shows `signInLine` ("One click to prove TipJar is yours, then $TIP launches:
+  <link>"), `token.fixable`, `token.sign_in`, no kit, `SIGN_IN_NOTE` (plus `SIGN_IN_CODE_NOTE` on a
+  shared client). A second "go" still unproven (`proof_line_missed`) returns the kit plus a fresh
+  link and the launch stays open (P10). An agent that can push gets the link only after a
+  proof-line miss, beside `proofLineWaiting`. `prepare_submission` and the wallet question treat a
+  can't-push agent as able to launch while the feature is on. `launch_token` adds `sign_in` and
+  `sign_in_line` to a proof-line `gate_failed` (`entryVerifyLink`).
+- **Identity linking (P8).** `offerPickup` stores `at` in `PickupState`. `answerPickup` accepts a
+  `pickup` verification of the offer's repo by its own installation made after `at` in place of
+  its proof line; its `needs_proof` reply carries `sign_in` (the pick_up_entries reply shows
+  `PICKUP_TEXT.signIn` and the link). `provenRoots` (F13) also counts a group with a
+  `github_verifications` row for the repo. C2 holds: hosted groups never pick up.
+- **Hosting (P11, for T8).** `takeHostVerification`: on a shared client a `host` verification is
+  single-use (`used_at`) and lasts 15 minutes; elsewhere the installation-plus-repo binding holds.
+  `verifiedFor` never counts a used one and is never unscoped.
+- **Memory and entries on shared clients (G6, G7).** `list_programs` and `tell_earnkit` resolve
+  `signed_in` (`sharedLogin`) into `memoryKey({ ...ctx, verifiedLogin })`: statements are stored
+  and read under that login. "Your entries", campaign standing and the outcome question show only
+  the entries that login signed in for (`verifiedEntryIds`; `openEntries`, `yourCampaignEntries`
+  and `outcomeToAsk` take `onlyIds`). The remembered `github_user` fallback is the login itself.
+  Alerts, `working_on`, fit repos and match_shown stay off on shared clients (installation-wide
+  state). Outcomes on a shared client still need their `project_id`.
+- **Cookies (Ruling 7).** The sign-in cookie is the only one EarnKit sets, and it is `__Host-`
+  (a source scan in `security-headers.test.ts`); HSTS keeps no `includeSubDomains`.
 
 ## Row difficulty, alert precision and the outcome loop (v2.9 A4, A6, A7, A8, Task 4)
 
