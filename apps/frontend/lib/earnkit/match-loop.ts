@@ -43,7 +43,9 @@ export async function recordShown(installationId: number, rows: ShownRow[], day:
  * One program's floor and precision from its labelled entries (an announced result other than
  * 'unknown'; the SQL never passes a self-report). Null both under WIN_RATE_MIN_LABELLED entries.
  * `floor`: the lowest product score among won or placed entries (null when none has a score).
- * `precision`: won or placed among entries shown as `likely`, over those entries (null with none). Pure.
+ * `precision`: won or placed among entries shown as `likely`, over those entries (null with none). The
+ * 30-entry minimum is on labelled entries, as spec A8 states, not on `likely` ones: with only a few
+ * `likely` entries the figure can swing (one loss is 0%). Pure.
  */
 export function matchStats(rows: { result: string; product_score: number | null; shown_status: string | null }[]): {
   floor: number | null;
@@ -83,10 +85,11 @@ export async function updateMatchFloors(): Promise<{ updated: number }> {
     ) eo ON true
     WHERE NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)`;
   const installs = [...new Set(entries.map((e) => e.installation_id).filter((i): i is number => i !== null))];
+  const programs = [...new Set(entries.map((e) => e.program_id))];
   const shown = installs.length
     ? await db<{ installation_id: number; program_id: string; repo_key: string; status: string; day: string }[]>`
         SELECT installation_id, program_id, repo_key, status, day::text AS day FROM match_shown
-        WHERE installation_id = ANY(${installs}::int[])
+        WHERE installation_id = ANY(${installs}::int[]) AND program_id = ANY(${programs}::text[])
         ORDER BY day DESC`
     : [];
   // What the entry's repo was last shown as in its program, on or before the day it was entered.
