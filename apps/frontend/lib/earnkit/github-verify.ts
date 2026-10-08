@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { githubRepo } from './campaigns';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
@@ -11,8 +11,13 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
  * - The link carries a one-time nonce (32 random bytes, base64url). Only its sha256 is stored, bound
  *   to the installation, the entry (project_id) and the repo, and the purpose (Ruling 5). It expires
  *   after 15 minutes and is consumed once, atomically, by the callback.
- * - The callback reads only `code` and `state` (the nonce). The repo comes from the nonce's row,
- *   never from the request. The scopeless GitHub token is used for at most three reads and is never
+ * - Ruling G8: the link never goes straight to GitHub. It shows a confirm page naming the repo, the
+ *   token and the fee wallet, with a warning, and sets a per-link `__Host-` cookie (HttpOnly, Secure,
+ *   SameSite=Lax, 15 minutes); its button POSTs, and GitHub gets state = `<nonce>.<csrf>`. The
+ *   callback refuses a missing or mismatched cookie before it uses the nonce or exchanges the code,
+ *   so the sign-in finishes only in the browser that confirmed it.
+ * - The callback reads only `code` and `state` (and the cookie). The repo comes from the nonce's
+ *   row, never from the request. The scopeless GitHub token is used for at most three reads and is never
  *   stored or logged.
  * - Ownership passes when the login is the repo owner, or GitHub's repo read says the user can push
  *   (or admin) it. Without `permissions` (an org repo a scopeless token can't see), it fails, and the
@@ -275,24 +280,87 @@ export async function verifiedEntryIds(installationId: number, login: string): P
 
 // ---- The two routes
 
+/**
+ * Ruling G8: what the confirm page names before anyone signs in: the repo, and for an entry its
+ * token and the wallet its fees go to. Null when the nonce is unusable (used, expired, unknown).
+ */
+export async function nonceDetails(
+  nonce: string,
+  now = new Date(),
+): Promise<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null } | null> {
+  if (!nonce) return null;
+  const [row] = await sql()<{ repo_key: string; purpose: VerifyPurpose; name: string | null; symbol: string | null; wallet: string | null }[]>`
+    SELECT n.repo_key, n.purpose, p.name, p.token_symbol AS symbol, COALESCE(p.creator_wallet, p.payout_wallet) AS wallet
+    FROM github_verify_nonces n LEFT JOIN projects p ON p.id = n.project_id
+    WHERE n.nonce_hash = ${sha256(nonce)} AND n.used_at IS NULL AND n.expires_at > ${now}`;
+  return row ?? null;
+}
+
+/** Ruling G8: the confirm page's warning, above the button. */
+export const CONFIRM_WARNING = 'This links your GitHub to this EarnKit entry. Only continue if you started this from your own agent.';
+
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-/** The tiny page the builder sees. No cookie, no script, nothing cached. Pure. */
-export function verifyPage(line: string, status = 200): Response {
-  const html =
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-    '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-    `<p>${escapeHtml(line)}</p></body></html>`;
-  return new Response(html, {
-    status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
-  });
+const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+const html = (body: string) =>
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+  '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
+  `${body}</body></html>`;
+
+/** The tiny page the builder sees. No script, nothing cached. Pure. */
+export function verifyPage(line: string, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(html(`<p>${escapeHtml(line)}</p>`), { status, headers: { ...PAGE_HEADERS, ...headers } });
 }
 
-async function limited(request: Request): Promise<Response | null> {
+/**
+ * Ruling G8 (Ruling 7's prefix): the browser binding. One cookie per link (named from the nonce's
+ * hash, so two open links don't clash), HttpOnly, Secure, SameSite=Lax, 15 minutes. `__Host-`
+ * requires Path=/, so it can't be scoped to the verify path. Pure.
+ */
+export const csrfCookieName = (nonce: string) => `__Host-ekv-${sha256(nonce).slice(0, 16)}`;
+const setCsrf = (nonce: string, csrf: string) =>
+  `${csrfCookieName(nonce)}=${csrf}; Path=/; Max-Age=${VERIFY_TTL_MS / 1000}; HttpOnly; Secure; SameSite=Lax`;
+const clearCsrf = (nonce: string) => `${csrfCookieName(nonce)}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+function cookieValue(request: Request, name: string): string | null {
+  for (const part of (request.headers.get('cookie') ?? '').split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return v.join('=');
+  }
+  return null;
+}
+const sameSecret = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+};
+
+/** The confirm page (Ruling G8): what is being linked, the warning, and one POST button. Pure. */
+export function confirmPage(
+  d: { repo_key: string; purpose: VerifyPurpose; symbol: string | null; wallet: string | null },
+  nonce: string,
+  csrf: string,
+): string {
+  const rows = [
+    `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
+    d.purpose === 'entry' && d.symbol ? `<li>Token: $${escapeHtml(d.symbol)}</li>` : '',
+    d.purpose === 'entry' ? `<li>Wallet for fees: ${d.wallet ? escapeHtml(d.wallet) : 'none yet'}</li>` : '',
+  ].join('');
+  return html(
+    `<p>Sign in with GitHub to prove this repo is yours.</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
+      `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
+      `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
+      '<button type="submit">Continue with GitHub</button></form>',
+  );
+}
+
+/** The routes' per-IP limit (tests inject `limit`). */
+export type RouteDeps = { limit?: (request: Request) => Promise<unknown> };
+const ipLimit = (request: Request) => enforce('githubVerify', clientIp(request.headers), VERIFY_PAGE.busy);
+
+async function limited(request: Request, deps: RouteDeps): Promise<Response | null> {
   try {
-    await enforce('githubVerify', clientIp(request.headers), VERIFY_PAGE.busy);
+    await (deps.limit ?? ipLimit)(request);
     return null;
   } catch (err) {
     if (err instanceof RateLimitError) return verifyPage(VERIFY_PAGE.busy, 429);
@@ -300,37 +368,76 @@ async function limited(request: Request): Promise<Response | null> {
   }
 }
 
-/** GET /github/verify?n=: checks the nonce (without using it) and sends the builder to GitHub. */
-export async function verifyStart(request: Request): Promise<Response> {
-  if (!githubVerifyEnabled()) return new Response('Not found', { status: 404 });
-  const busy = await limited(request);
+const notFound = () => new Response('Not found', { status: 404 });
+
+/**
+ * GET /github/verify?n=: never straight to GitHub (Ruling G8). Checks the nonce (without using it)
+ * and shows the confirm page, setting this link's browser cookie.
+ */
+export async function verifyStart(request: Request, deps: RouteDeps = {}): Promise<Response> {
+  if (!githubVerifyEnabled()) return notFound();
+  const busy = await limited(request, deps);
   if (busy) return busy;
   const nonce = new URL(request.url).searchParams.get('n') ?? '';
-  if (!(await peekNonce(nonce))) return verifyPage(VERIFY_PAGE.expired, 410);
+  const d = await nonceDetails(nonce);
+  if (!d) return verifyPage(VERIFY_PAGE.expired, 410);
+  const csrf = randomBytes(32).toString('base64url');
+  return new Response(confirmPage(d, nonce, csrf), {
+    status: 200,
+    headers: { ...PAGE_HEADERS, 'Set-Cookie': setCsrf(nonce, csrf) },
+  });
+}
+
+/**
+ * POST /github/verify (the confirm page's button): the form's csrf must match this browser's
+ * cookie, then 302 to GitHub with state = `<nonce>.<csrf>`. The redirect comes from siteUrl().
+ */
+export async function verifyConfirm(request: Request, deps: RouteDeps = {}): Promise<Response> {
+  if (!githubVerifyEnabled()) return notFound();
+  const busy = await limited(request, deps);
+  if (busy) return busy;
+  const origin = request.headers.get('origin');
+  if (origin && origin !== new URL(siteUrl()).origin) return verifyPage(VERIFY_PAGE.failed, 403);
+  const form = await request.formData().catch(() => null);
+  const nonce = String(form?.get('n') ?? '');
+  const csrf = String(form?.get('csrf') ?? '');
+  const cookie = nonce ? cookieValue(request, csrfCookieName(nonce)) : null;
+  if (!cookie || !sameSecret(cookie, csrf)) return verifyPage(VERIFY_PAGE.failed, 403);
+  if (!(await peekNonce(nonce))) return verifyPage(VERIFY_PAGE.expired, 410, { 'Set-Cookie': clearCsrf(nonce) });
   const to = new URL('https://github.com/login/oauth/authorize');
   to.searchParams.set('client_id', process.env.GITHUB_OAUTH_CLIENT_ID!.trim());
   to.searchParams.set('redirect_uri', callbackUrl());
-  to.searchParams.set('state', nonce);
+  to.searchParams.set('state', `${nonce}.${csrf}`);
   to.searchParams.set('allow_signup', 'false');
   return new Response(null, {
-    status: 302,
+    status: 303,
     headers: { Location: to.toString(), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
   });
 }
 
 /**
- * GET /github/verify/callback?code&state: only these two parameters are read (the repo is the
- * nonce's). Renders the VERIFY_PAGE line.
+ * GET /github/verify/callback?code&state: reads only these two parameters (the repo is the
+ * nonce's) and this link's cookie. A missing or mismatched cookie is refused before the nonce is
+ * used or the code exchanged (Ruling G8). Renders the VERIFY_PAGE line and clears the cookie.
  */
 export async function verifyCallback(
   request: Request,
   complete: (code: string, nonce: string) => ReturnType<typeof completeVerify> = (c, n) => completeVerify(c, n),
+  deps: RouteDeps = {},
 ): Promise<Response> {
-  if (!githubVerifyEnabled()) return new Response('Not found', { status: 404 });
-  const busy = await limited(request);
+  if (!githubVerifyEnabled()) return notFound();
+  const busy = await limited(request, deps);
   if (busy) return busy;
   const q = new URL(request.url).searchParams;
-  const out = await complete(q.get('code') ?? '', q.get('state') ?? '');
-  if (out.ok) return verifyPage(VERIFY_PAGE.done);
-  return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403);
+  const code = q.get('code') ?? '';
+  const state = q.get('state') ?? '';
+  const dot = state.lastIndexOf('.');
+  const nonce = dot > 0 ? state.slice(0, dot) : '';
+  const csrf = dot > 0 ? state.slice(dot + 1) : '';
+  const cookie = nonce ? cookieValue(request, csrfCookieName(nonce)) : null;
+  if (!cookie || !sameSecret(cookie, csrf)) return verifyPage(VERIFY_PAGE.failed, 403);
+  const clear = { 'Set-Cookie': clearCsrf(nonce) };
+  const out = await complete(code, nonce);
+  if (out.ok) return verifyPage(VERIFY_PAGE.done, 200, clear);
+  return verifyPage(out.reason, out.reason === VERIFY_PAGE.expired ? 410 : 403, clear);
 }
