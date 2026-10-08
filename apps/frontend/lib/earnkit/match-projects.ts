@@ -20,6 +20,7 @@ import {
   type ProgramFacts,
   type RepoFacts,
   type ReportedRepo,
+  type Verdict,
 } from './match';
 import { openProgramFacts } from './programs';
 import { loadRepoFacts, saveRepoFacts, type CachedProduct } from './repo-cache';
@@ -27,7 +28,17 @@ import { sql } from './db';
 import { placeholderLink } from './placeholder';
 import { githubRepo } from './campaigns';
 import { repoKey } from './answer-bank';
-import { CheckBudget, GETCODE_PER_REPO, LIST_BUDGET, contractDeployed, liveChecked, type CheckDeps } from './verify';
+import {
+  CheckBudget,
+  GETCODE_PER_REPO,
+  LIST_BUDGET,
+  contractDeployed,
+  liveChecked,
+  peekContract,
+  peekLive,
+  rpcFor,
+  type CheckDeps,
+} from './verify';
 
 export { repoKey } from './answer-bank';
 
@@ -627,33 +638,7 @@ type ScoreCtx = {
   cache: NonNullable<MatchDeps['cache']>;
   /** v2.9 plan Ruling 2: the local report of the same repo (it adds a live link or chains GitHub lacks). */
   local?: ReportedRepo;
-  /** Ruling G4: the checks run in recency order (the budget goes to the newest repos first). */
-  turn?: Turn;
 };
-
-/** One repo's place in the check order: wait for the previous repo's checks, then release the next. */
-type Turn = { wait: Promise<void>; done: () => void };
-const turns = (n: number): Turn[] => {
-  const out: Turn[] = [];
-  let prev: Promise<void> = Promise.resolve();
-  for (let i = 0; i < n; i++) {
-    let done!: () => void;
-    const next = new Promise<void>((resolve) => (done = resolve));
-    out.push({ wait: prev, done });
-    prev = next;
-  }
-  return out;
-};
-
-/** deployedCheck in this repo's turn. */
-async function inTurn<T>(turn: Turn | undefined, run: () => Promise<T>): Promise<T> {
-  await turn?.wait;
-  try {
-    return await run();
-  } finally {
-    turn?.done();
-  }
-}
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
   Boolean(iso) && now.getTime() - Date.parse(iso!) <= days * DAY_MS;
@@ -664,22 +649,56 @@ const mainnetChains = (d: Detection) =>
     .filter(([, v]) => v?.mainnet)
     .map(([c]) => c as Chain);
 
+type Deployed = { live: boolean; deployed: boolean; unchecked: boolean };
+
+/** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
+type Prepared = {
+  homepage: string | null;
+  /** Up to GETCODE_PER_REPO (chain, address) pairs, on mainnets with an RPC. */
+  pairs: (readonly [Chain, string])[];
+  finish: (d: Deployed) => { repo: RepoFacts; verdicts: Verdict[] };
+};
+
+const contractPairs = (addresses: string[], chains: Chain[]) =>
+  addresses
+    .flatMap((a) => chains.filter((c) => rpcFor(c)).map((c) => [c, a] as const))
+    .slice(0, GETCODE_PER_REPO);
+
 /**
- * v2.9 A2: deployed means the live link loads from here, or one of the repo's contract candidates
- * has code on a detected mainnet (at most GETCODE_PER_REPO checks). Never throws.
+ * v2.9 A2, Ruling G5: deployed means the live link loads from here, or one of the repo's contract
+ * candidates has code on a detected mainnet. `list` is in recency order. The probe slots, then the
+ * getCode slots, go to the newest repos first, deterministically (cached answers take none); then
+ * the checks run in parallel, each repo on its own slots. A check with no slot is `unchecked`,
+ * never a failure. Never throws.
  */
-async function deployedCheck(homepage: string | null, addresses: string[], chains: Chain[], checks: CheckDeps) {
-  const probed = homepage ? await liveChecked(homepage, checks) : false;
-  if (probed === true) return { live: true, deployed: true, unchecked: false };
-  // Ruling G4: a check with no budget left is "unchecked", never a failure.
-  let unchecked = probed === null;
-  const pairs = addresses.flatMap((a) => chains.map((c) => [c, a] as const)).slice(0, GETCODE_PER_REPO);
-  for (const [chain, address] of pairs) {
-    const r = await contractDeployed(chain, address, checks);
-    if (r === true) return { live: false, deployed: true, unchecked: false };
-    if (r === null) unchecked = true;
-  }
-  return { live: false, deployed: false, unchecked };
+async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[]> {
+  const items = list.map((p, i) => ({ p, i }));
+  const livePeek = await mapLimit(items, 6, ({ p }) => (p.homepage ? peekLive(p.homepage, checks) : Promise.resolve(false)));
+  let probes = LIST_BUDGET.probes;
+  const probeSlots = items.map(({ p, i }) => (p.homepage && livePeek[i] === null && probes > 0 ? (probes--, 1) : 0));
+  const live = await mapLimit(items, 6, ({ p, i }) =>
+    p.homepage
+      ? liveChecked(p.homepage, { ...checks, budget: new CheckBudget({ probes: probeSlots[i], getCodes: 0 }) })
+      : Promise.resolve(false as boolean | null),
+  );
+  const codePeek = await mapLimit(items, 6, ({ p, i }) =>
+    live[i] === true ? Promise.resolve([]) : Promise.all(p.pairs.map(([c, a]) => peekContract(c, a, checks))),
+  );
+  let getCodes = LIST_BUDGET.getCodes;
+  const codeSlots = codePeek.map((peeks) =>
+    peeks.reduce((n, v) => (v === null && getCodes > 0 ? (getCodes--, n + 1) : n), 0),
+  );
+  return mapLimit(items, 6, async ({ p, i }): Promise<Deployed> => {
+    if (live[i] === true) return { live: true, deployed: true, unchecked: false };
+    const budget = new CheckBudget({ probes: 0, getCodes: codeSlots[i] });
+    let unchecked = live[i] === null;
+    for (const [chain, address] of p.pairs) {
+      const r = await contractDeployed(chain, address, { ...checks, budget });
+      if (r === true) return { live: false, deployed: true, unchecked: false };
+      if (r === null) unchecked = true;
+    }
+    return { live: false, deployed: false, unchecked };
+  });
 }
 
 /** Whether the builder committed to the repo in the last 90 days (one read); null when GitHub couldn't say. */
@@ -709,7 +728,7 @@ function withReportedChains(chains: Detection, local?: ReportedRepo): Detection 
  * present; only complete reads are cached. owned, active and deployed are worked out on every call
  * (Pre-flight P6): one commits read for active, and the link and contract checks (url_checks).
  */
-async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx) {
+async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): Promise<Prepared> {
   const cached = await ctx.cache.load(repo.full_name, repo.pushed_at);
   let changed = false;
   let cacheable = true;
@@ -764,36 +783,25 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx) {
   const active = ctx.builder
     ? ((await builderActive(repo, ctx.builder, ctx.now)) ?? within(repo.pushed_at, 90, ctx.now))
     : within(repo.pushed_at, 90, ctx.now);
-  const { live, deployed, unchecked } = await inTurn(ctx.turn, () =>
-    deployedCheck(
-      homepage,
-      [...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])],
-      mainnetChains(allChains),
-      ctx.checks,
-    ),
-  );
-  const product = productScore(
-    {
-      active,
-      young: own.young || active,
-      original: own.original,
-      readme: own.readme,
-      deployed,
-      owned: ctx.owned,
-    },
-    unchecked ? ['deployed'] : [],
-  );
-  const facts: RepoFacts = {
-    name: repo.name,
-    url: repo.html_url,
+  const signals = { active, young: own.young || active, original: own.original, readme: own.readme, owned: ctx.owned };
+  return {
     homepage,
-    created_at: repo.created_at,
-    chains: allChains,
-    commits_in_window,
-    product,
-    live_verified: live,
+    pairs: contractPairs([...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains)),
+    finish: ({ live, deployed, unchecked }) => {
+      const product = productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []);
+      const facts: RepoFacts = {
+        name: repo.name,
+        url: repo.html_url,
+        homepage,
+        created_at: repo.created_at,
+        chains: allChains,
+        commits_in_window,
+        product,
+        live_verified: live,
+      };
+      return { repo: facts, verdicts: matchRepo(facts, programs) };
+    },
   };
-  return { repo: facts, verdicts: matchRepo(facts, programs) };
 }
 
 /**
@@ -801,19 +809,22 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx) {
  * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
  * reads the name only.
  */
-async function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: ScoreCtx) {
+function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now'>): Prepared {
   const facts = reportedFacts(r, programs);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
   const active = r.last_commit_at === undefined || within(r.last_commit_at, 90, ctx.now);
-  const { live, deployed, unchecked } = await inTurn(ctx.turn, () =>
-    deployedCheck(facts.homepage, r.contracts ?? [], mainnetChains(facts.chains), ctx.checks),
-  );
-  const product = productScore(
-    { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
-    unchecked ? ['deployed'] : [],
-  );
-  const scored: RepoFacts = { ...facts, product, live_verified: live };
-  return { repo: scored, verdicts: matchRepo(scored, programs) };
+  return {
+    homepage: facts.homepage,
+    pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains)),
+    finish: ({ live, deployed, unchecked }) => {
+      const product = productScore(
+        { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
+        unchecked ? ['deployed'] : [],
+      );
+      const scored: RepoFacts = { ...facts, product, live_verified: live };
+      return { repo: scored, verdicts: matchRepo(scored, programs) };
+    },
+  };
 }
 
 /** A repo to score: from GitHub (with any local report of the same repo), or local only. */
@@ -881,28 +892,26 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
       continue;
     }
     // Plan Ruling 1: a local repo is the builder's unless its GitHub link names another owner. Ruling
-    // G4 (I3): then it gets the same 100-commit read (within the shared cap of 3); a repo GitHub
-    // won't show (private) counts as the builder's, as P28 (the token proof still gates a launch).
+    // G4 (I3): then it gets the same 100-commit read (within the shared cap of 3). Ruling G5: fail
+    // closed, so a repo GitHub won't show (private) is not owned and caps at project tier.
     let owned = !gh || !builder || gh.owner.toLowerCase() === builder.toLowerCase();
     if (gh && builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
       const c = await contribution(`${gh.owner}/${gh.repo}`, builder);
-      owned = c === null || ownerOk(gh.owner, builder, c);
+      owned = c !== null && ownerOk(gh.owner, builder, c);
     }
     candidates.set(key, { key, owned, local: r });
   }
   const toScore = [...candidates.values()].sort((a, b) => recency(b) - recency(a)).slice(0, SCORE_LIMIT);
 
-  const checks: CheckDeps = { ...deps.checks, now, budget: new CheckBudget(LIST_BUDGET) };
+  const checks: CheckDeps = { ...deps.checks, now };
   const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
-  const order = turns(toScore.length);
-  const results = await mapLimit(toScore.map((c, i) => ({ c, turn: order[i] })), 6, async ({ c, turn }) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, turn };
-    try {
-      return { key: c.key, ...(c.github ? await checkRepo(c.github, programs, ctx) : await checkLocal(c.local, programs, ctx)) };
-    } finally {
-      turn.done(); // a repo that failed before its checks never holds up the next one
-    }
+  // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
+  const prepared = await mapLimit(toScore, 6, async (c) => {
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local };
+    return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
+  const deployed = await runChecks(prepared, checks);
+  const results = prepared.map((p, i) => ({ key: toScore[i].key, ...p.finish(deployed[i]) }));
   // Builders want what can earn: "no" verdicts and repos with only those are left out.
   const fits = results
     .map((r) => ({
@@ -933,13 +942,15 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
   if (!program) return null;
   const repo = await repoByName(fullName(ref));
   const now = deps.now ?? new Date();
-  const { repo: facts, verdicts } = await checkRepo(repo, [program], {
+  const checks: CheckDeps = { ...deps.checks, now };
+  const prepared = await checkRepo(repo, [program], {
     builder: null,
     owned: !earnkitOwner(ownerOf(repo)),
-    checks: { ...deps.checks, now, budget: new CheckBudget(LIST_BUDGET) },
+    checks,
     now,
     cache: deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts },
   });
+  const { repo: facts, verdicts } = prepared.finish((await runChecks([prepared], checks))[0]);
   const [v] = verdicts;
   if (!v)
     return {

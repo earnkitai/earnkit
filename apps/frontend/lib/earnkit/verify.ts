@@ -167,6 +167,32 @@ async function cachedCheck<T>(a: {
   return ok;
 }
 
+/** A fresh cached answer for `key`, else null (never a check, never a budget slot). */
+async function peek(kind: 'live' | 'getcode', key: string, deps: CheckDeps): Promise<boolean | null> {
+  const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
+  const row = await cache.get(key).catch((err: unknown) => {
+    console.error(`[verify] ${kind} cache read ${errorClass(err)}`);
+    return null;
+  });
+  return row && cacheFresh(row, deps.now ?? new Date()) ? row.ok : null;
+}
+
+/**
+ * Ruling G5: what a live check would answer without a probe: a placeholder is false, a fresh
+ * cached result is itself, else null (needs a probe slot).
+ */
+export async function peekLive(url: string, deps: CheckDeps = {}): Promise<boolean | null> {
+  const canonical = canonicalBuilderUrl(url).url;
+  if (!canonical || placeholderLink(canonical)) return false;
+  return peek('live', `url:${canonical}`, deps);
+}
+
+/** Ruling G5: a contract check's fresh cached answer, else null (needs a getCode slot). */
+export async function peekContract(chain: Chain, address: string, deps: CheckDeps = {}): Promise<boolean | null> {
+  if (!isAddress(address, { strict: false })) return false;
+  return peek('getcode', `getcode:${chain}:${address.toLowerCase()}`, deps);
+}
+
 /**
  * v2.9 A5: the live link loads from here (safeProbe: a 2xx, on a public address). A placeholder
  * link is false without a probe. Cache key `url:<canonical url>`.
