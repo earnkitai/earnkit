@@ -44,6 +44,10 @@ import { join } from 'node:path';
  *   w. v2.8 confirm_entry: the offer; yes launches and returns the kit; a second yes deploys nothing;
  *      record_submission updates that entry; skip; no wallet, a taken ticker and a missing proof line
  *      are fixable (no kit); an agent that can't push gets the kit with no launch
+ *   x. v2.8.1 §A: the offer names $TICKER (Name); a 503 "Pending transactions" is retried once and
+ *      launches; nothing minted twice releases the claim ("say go") and go launches; tokens.fun's
+ *      wallet limit says "Try again after HH:MM UTC"; a slow deploy replies "launching" (no kit)
+ *      within the reply time and the next call returns the token and the kit
  */
 function guardFail(message: string): never {
   console.error(`FAIL: ${message}`);
@@ -86,6 +90,9 @@ const pushed = new Set<string>();
 const deploys: Record<string, unknown>[] = [];
 let authFailures = 0;
 const hanging = new Set<IncomingMessage>();
+// v2.8.1 §A1: how many 503 "Pending transactions" answers each ticker still gets before it deploys.
+const busyLeft = new Map<string, number>([['BUSYA', 1], ['BUSYB', 2]]);
+const LIMIT_AT = new Date(Math.ceil((Date.now() + 2 * 3_600_000) / 60_000) * 60_000);
 const readBody = (req: IncomingMessage) =>
   new Promise<string>((resolve) => {
     let body = '';
@@ -130,6 +137,19 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (body.symbol === 'UNKN6') return json(502, { error: 'Deployment status unknown' });
+    // v2.8.1 §A1: tokens.fun's gas wallet busy ("Pending transactions detected", nothing minted).
+    const busy = (busyLeft.get(String(body.symbol)) ?? 0);
+    if (busy > 0) {
+      busyLeft.set(String(body.symbol), busy - 1);
+      return json(503, { error: 'Pending transactions detected. Try again in a few minutes.', pendingCount: 1 });
+    }
+    // v2.8.1 §A4: the EarnKit-key wallet limit, with tokens.fun's retry_after.
+    if (body.symbol === 'LIMW') {
+      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '7200' });
+      return res.end(JSON.stringify({ error: 'Daily token limit reached', retry_after: LIMIT_AT.toISOString(), retry_after_seconds: 7200 }));
+    }
+    // v2.8.1 §A5: a deploy slower than the reply time.
+    if (body.symbol === 'SLOW') await new Promise((r) => setTimeout(r, 1_500));
     return json(200, {
       success: true,
       tokenAddress: TOKEN_ADDRESS,
@@ -153,7 +173,7 @@ const { tools } = await import('../lib/earnkit/tools');
 const { createMcpServer } = await import('../lib/earnkit/mcp');
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
-const { LINKS_CHANGED } = await import('../lib/earnkit/tokens');
+const { LINKS_CHANGED, LAUNCH_STUCK } = await import('../lib/earnkit/tokens');
 type Ctx = import('../lib/earnkit/tools').ToolContext;
 type GateDeps = import('../lib/earnkit/token-gate').GateDeps;
 type TokenOutcome = import('../lib/earnkit/tokens').TokenOutcome;
@@ -453,7 +473,8 @@ let retryRepo = '';
   check(saved.token_url === 'pending' && saved.token_status === 'pending', '(j) claim kept (token_url = pending)', saved);
   const before = deploys.length;
   const again = await launch({ project_id: r.project_id });
-  check(again.status === 'failed' && /in progress or unconfirmed/.test(again.note ?? ''), '(j) later launch_token is refused', again);
+  // v2.8.1 §A1: the deploy answered without a result, so it is said plainly, never retried.
+  check(again.status === 'pending' && again.note === LAUNCH_STUCK, '(j) later launch_token is refused (unconfirmed, said plainly)', again);
   check(deploys.length === before, '(j) no second deploy');
 }
 
@@ -476,12 +497,12 @@ let retryRepo = '';
 // (l) tokens.fun unsure (502): pending, the claim kept.
 {
   const r = await submit({ project: project('Unknown Case'), token: { name: 'Unknown Case', symbol: 'UNKN6' }, confirmed: true });
-  check(r.token.status === 'pending' && /502/.test(r.token.note ?? ''), '(l) 502 → pending', r.token);
+  check(r.token.status === 'pending' && r.token.note === LAUNCH_STUCK && /502/.test(r.token.agent_note ?? ''), '(l) 502 → pending', r.token);
   const saved = await row(r.project_id);
   check(saved.token_url === 'pending', '(l) claim kept (token_url = pending)', saved);
   const before = deploys.length;
   const again = await launch({ project_id: r.project_id, symbol: 'UNKN7' });
-  check(again.status === 'failed' && /in progress or unconfirmed/.test(again.note ?? ''), '(l) later launch_token is refused', again);
+  check(again.status === 'pending' && again.note === LAUNCH_STUCK, '(l) later launch_token is refused', again);
   check(deploys.length === before, '(l) no second deploy');
 }
 
@@ -541,18 +562,24 @@ let retryRepo = '';
   check(dup === 'projects_token_repo_key', '(o) the unique index refuses a second token on the repo', dup);
 }
 
-// (p) the per-installation limit: 3 launches a day, the real counter.
+// (p) v2.8.1 §A4: the per-wallet limit: 10 launches a UTC day, the real counter (a fresh wallet).
 {
   const fresh = await newInstallation();
   OWNERS.add(fresh.id);
   const c: Ctx = { installationId: fresh.id, tokenDeps: { gate: passGate } };
+  const wallet = '0x' + [...Array(40)].map(() => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
   const before = deploys.length;
   const results: TokenOutcome[] = [];
-  for (const sym of ['LIMA', 'LIMB', 'LIMC', 'LIMD'])
-    results.push((await submit({ project: project(`Limit ${sym}`), token: { name: `Limit ${sym}`, symbol: sym }, confirmed: true }, undefined, c)).token);
-  check(results.slice(0, 3).every((t) => t.status === 'launched'), '(p) three launches go through', results);
-  check(results[3].status === 'failed' && /^This agent has launched 3 tokens today, the daily limit\./.test(results[3].note ?? ''), '(p) the fourth is failed (daily limit)', results[3]);
-  check(deploys.length === before + 3, '(p) only three deploys sent');
+  for (const sym of ['LIMA', 'LIMB', 'LIMC', 'LIMD', 'LIME', 'LIMF', 'LIMG', 'LIMH', 'LIMI', 'LIMJ', 'LIMK'])
+    results.push((await submit({ project: project(`Limit ${sym}`), token: { name: `Limit ${sym}`, symbol: sym }, confirmed: true, wallet }, undefined, c)).token);
+  check(results.slice(0, 10).every((t) => t.status === 'launched'), '(p) ten launches go through', results);
+  check(
+    results[10].status === 'failed' &&
+      results[10].note === "Your token didn't launch: this wallet reached today's launch limit of 10. Try again after 00:00 UTC.",
+    '(p) the eleventh is failed (daily wallet limit) and says when to retry',
+    results[10],
+  );
+  check(deploys.length === before + 10, '(p) only ten deploys sent');
 }
 
 // (q) no deploy key: nothing is offered, checked or sent.
@@ -600,7 +627,8 @@ let retryRepo = '';
   check(
     r.token.status === 'gate_failed' &&
       r.token.note === "I need to add a short proof line to your repo first, then say 'launch the token'." &&
-      r.token.agent_note === `Write earnkit.txt at the root of ${p.repo_url.replace(/^https:\/\//, '')} (default branch) with the line "${lineFor(inst.id, p.repo_url)}" and push it yourself; never ask the builder to edit files. Then call launch_token.`,
+      // v2.8.1 §A3: exactly what was found, then the line and where it goes.
+      r.token.agent_note === `earnkit.txt on the default branch has no token line. Write the line "${lineFor(inst.id, p.repo_url)}" to earnkit.txt at the root of ${p.repo_url.replace(/^https:\/\//, '')} on the default branch and push it yourself; never ask the builder to edit files. Then call launch_token.`,
     '(s) no token line → gate_failed with the line to add',
     r.token,
   );
@@ -754,6 +782,59 @@ let retryRepo = '';
   const deploys2 = deploys.length;
   const np = await confirm({ project: project('Confirm No Push'), ...yes, wallet: WALLET, agent: { can_push: false } });
   check(np.kit !== undefined && np.show_to_builder.startsWith('To launch your token, open this in Claude Code or Cursor.\n\n') && deploys.length === deploys2 && ownershipReads.length === reads2, "(w) can't push: the kit, no launch", np);
+}
+
+// (x) v2.8.1 §A: the token launch is never stuck, names itself, says when to retry, and replies in time.
+{
+  const agent = await newInstallation();
+  OWNERS.add(agent.id);
+  const c: Ctx = { installationId: agent.id, tokenDeps: { gate: passGate, limit: async () => {} } };
+  type Confirmed = { show_to_builder: string; token?: TokenOutcome; kit?: unknown; agent_note?: string };
+  const confirm = (a: Record<string, unknown>) =>
+    tools.confirm_entry({ program_id: ON, answers: { notes: 'e2e' }, ...a }, c) as Promise<Confirmed>;
+  const yes = { builder_confirmed: true, decision: 'go', wallet: WALLET };
+
+  // §A2: the offer names the token that launches.
+  const offer = await confirm({ project: project('Busy Alpha') });
+  check(/\nYes: launches \$BUSY \(Busy Alpha\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/.test(offer.show_to_builder), '(x) the Yes line names $TICKER (Name)', offer);
+
+  // §A1: one 503 "Pending transactions", then it deploys: one automatic retry.
+  const before = deploys.length;
+  const a = await confirm({ project: project('Busy Alpha'), ...yes, token: { name: 'Busy Alpha', symbol: 'BUSYA' } });
+  check(a.token?.status === 'launched' && deploys.length === before + 2 && a.kit !== undefined, '(x) a 503 before minting is retried once and launches', a);
+
+  // §A1: nothing minted twice: released, "say go", the kit; go again launches.
+  const bp = project('Busy Beta');
+  const b = await confirm({ project: bp, ...yes, token: { name: 'Busy Beta', symbol: 'BUSYB' } });
+  check(
+    b.token?.status === 'failed' && b.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n") && b.kit !== undefined && deploys.length === before + 4,
+    '(x) released after the retry: the builder says go',
+    b,
+  );
+  const bRow = await db<{ token_url: string | null }[]>`SELECT token_url FROM projects WHERE installation_id = ${agent.id} AND name = 'Busy Beta'`;
+  check(bRow[0]?.token_url === null, '(x) the claim is released', bRow);
+  const b2 = await confirm({ project: bp, ...yes, token: { name: 'Busy Beta', symbol: 'BUSYB' } });
+  check(b2.token?.status === 'launched' && deploys.length === before + 5, '(x) go again launches', b2);
+
+  // §A4: tokens.fun's wallet limit: when to retry, from its retry_after.
+  const l = await confirm({ project: project('Limit Wallet'), ...yes, token: { name: 'Limit Wallet', symbol: 'LIMW' } });
+  check(
+    l.show_to_builder.startsWith(`Your token didn't launch: this wallet reached today's launch limit. Try again after ${LIMIT_AT.toISOString().slice(11, 16)} UTC.\n\n`) && l.kit !== undefined,
+    '(x) the wallet limit says "Try again after HH:MM UTC"',
+    l,
+  );
+
+  // §A5: a deploy slower than the reply time: "launching", no kit; then the token and the kit.
+  process.env.EARNKIT_LAUNCH_REPLY_MS = '500';
+  const sp = project('Slow Gamma');
+  const t0 = Date.now();
+  const s1 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' } });
+  const took = Date.now() - t0;
+  delete process.env.EARNKIT_LAUNCH_REPLY_MS;
+  check(s1.show_to_builder === 'Your token is launching. Ask me again in a minute for its link.' && s1.kit === undefined && took < 1_400, `(x) slow deploy: "launching" in ${took} ms, no kit`, s1);
+  await new Promise((r) => setTimeout(r, 1_800));
+  const s2 = await confirm({ project: sp, ...yes, token: { name: 'Slow Gamma', symbol: 'SLOW' } });
+  check(s2.token?.status === 'launched' && s2.kit !== undefined && deploys.filter((d) => d.symbol === 'SLOW').length === 1, '(x) the next call returns the token and the kit, one deploy', s2);
 }
 
 check(authFailures === 0, 'every mock call carried the deploy key');

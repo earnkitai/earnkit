@@ -150,7 +150,7 @@ export type EnteredText = {
   programTitle: string;
   coin:
     | { status: 'launched'; url: string }
-    | { status: 'pending' }
+    | { status: 'pending'; /** v2.8.1 §A1: pending past 10 minutes (the owner is alerted). */ stuck?: boolean }
     | { status: 'no_wallet' }
     | { status: 'skipped' }
     | {
@@ -201,7 +201,9 @@ export function enteredText(a: EnteredText) {
     a.coin.status === 'launched'
       ? ` Your token: ${a.coin.url.replace(/^https?:\/\//, '')} · you earn 40% of its fees.`
       : a.coin.status === 'pending'
-        ? ' Your token is launching.'
+        ? a.coin.stuck
+          ? " Your token didn't launch yet; EarnKit is checking what happened."
+          : ' Your token is launching.'
         : a.coin.status === 'other'
           ? a.coin.needs
             ? ` Your token isn't launched yet: the entry still needs ${a.coin.needs}.`

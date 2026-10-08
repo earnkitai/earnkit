@@ -1,7 +1,9 @@
 import { test } from 'node:test';
+import type { FetchResult } from './ownership';
 import assert from 'node:assert/strict';
 import { ForkCheckError } from './match-projects';
 import {
+  PROOF_LINE_PREFIX,
   codeProblem,
   legacyTokenLineCode,
   ownerProblem,
@@ -20,6 +22,7 @@ const LINE = tokenLineFor(1, REPO)!;
 const ok: Required<GateDeps> = {
   repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
   owner: async () => ({ status: 'ok', text: LINE }),
+  latest: async () => null,
   screen: async () => {},
 };
 const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: W, symbol: 'KIT', installationId: 1 };
@@ -93,6 +96,7 @@ test('order: repo, then earnkit.txt, then the screen; stops at the first failure
   const trace: Required<GateDeps> = {
     repo: async () => { seen.push('repo'); return { fork: false, hasCommits: true, aheadOfParent: null }; },
     owner: async () => { seen.push('owner'); return { status: 'ok', text: LINE.toUpperCase().replace('TOKEN', 'token') }; },
+    latest: async () => { seen.push('latest'); return null; },
     screen: async () => { seen.push('screen'); },
   };
   assert.deepEqual(await tokenGate(input, trace), { ok: true }, 'an uppercased code still matches');
@@ -114,8 +118,12 @@ test('ownerProblem: only the token line counts; wallet lines and their problems 
   for (const p of [mismatch, missing]) {
     assert.equal(p.reason, "I need to add a short proof line to your repo first, then say 'launch the token'.");
     assert.doesNotMatch(p.reason, /\b(add|edit|create) (a |the )?file\b|\bpush it\b|earnkit\.txt|token:/i);
-    assert.equal(p.agent_note, `Write earnkit.txt at the root of ${repo} (default branch) with the line "${LINE}" and push it yourself; never ask the builder to edit files. Then call launch_token.`);
+    assert.ok(p.agent_note!.endsWith(`Write the line "${LINE}" to earnkit.txt at the root of ${repo} on the default branch and push it yourself; never ask the builder to edit files. Then call launch_token.`), p.agent_note);
   }
+  // v2.8.1 §A3: exactly what was found.
+  assert.match(missing.agent_note!, /^earnkit\.txt isn't on the default branch\. /);
+  assert.match(mismatch.agent_note!, /^earnkit\.txt on the default branch has a token line, but not this agent's code for this repo/);
+  assert.match(ownerProblem(repo, file(`payout_wallet: ${W}`), code, null)!.agent_note!, /^earnkit\.txt on the default branch has no token line\. /);
   const err = ownerProblem(repo, { status: 'error', message: "GitHub didn't answer" }, code, null)!;
   assert.doesNotMatch(err.reason, /earnkit\.txt/);
   assert.match(err.agent_note!, /earnkit\.txt in github\.com\/acme\/kit: GitHub didn't answer/);
@@ -173,4 +181,41 @@ test('fix round 1: every reason is plain, uses one retry form, and never shows a
     // bare "A token needs" start (which the renamed, correct reason now legitimately has).
     assert.doesNotMatch(r, /call launch_token|\b[2-5]\d\d\b|A token needs the project's public GitHub repo: call/, r);
   }
+});
+
+test('v2.8.1 §A3: the default branch first; else the most recently pushed branch proves it; the guidance names both', async () => {
+  const seen: string[] = [];
+  const deps = (def: FetchResult, latest: { branch: string; file: FetchResult } | null): Required<GateDeps> => ({
+    ...ok,
+    repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' }),
+    owner: async () => { seen.push('owner'); return def; },
+    latest: async (_r, branch) => { seen.push(`latest:${branch}`); return latest; },
+  });
+  // On the default branch: the branch read never runs.
+  assert.deepEqual(await tokenGate(input, deps({ status: 'ok', text: LINE }, null)), { ok: true });
+  assert.deepEqual(seen, ['owner']);
+  // Only on the feature branch the agent pushed: it proves the launch (one more read).
+  seen.length = 0;
+  assert.deepEqual(await tokenGate(input, deps({ status: 'missing' }, { branch: 'feat/x', file: { status: 'ok', text: LINE } })), { ok: true });
+  assert.deepEqual(seen, ['owner', 'latest:main']);
+  // Neither: the builder hears the branch; the agent hears what was found where.
+  const no = (await tokenGate(input, deps({ status: 'missing' }, { branch: 'feat/x', file: { status: 'ok', text: 'token: KIT 0123456789' } }))) as {
+    ok: false; reason: string; agent_note: string; branch?: string; fixable?: true;
+  };
+  assert.equal(no.ok, false);
+  assert.equal(no.fixable, true);
+  assert.equal(no.branch, 'main');
+  assert.equal(no.reason, "I need to add a short proof line to your repo's main branch first, then say 'launch the token'.");
+  assert.ok(no.reason.startsWith(PROOF_LINE_PREFIX));
+  assert.equal(
+    no.agent_note,
+    "earnkit.txt isn't on the default branch (main); earnkit.txt on the most recently pushed branch (feat/x) has a token line, but not this agent's code for this repo (another agent's, or an old one). " +
+      `Write the line "${LINE}" to earnkit.txt at the root of github.com/acme/kit on the default branch (main) and push it yourself; never ask the builder to edit files. Then call launch_token.`,
+  );
+  // A default-branch read error with no other branch stays the "try again" error.
+  const err = (await tokenGate(input, deps({ status: 'error', message: "GitHub didn't answer" }, null))) as { ok: false; reason: string };
+  assert.match(err.reason, /couldn't read your repo's proof line on GitHub right now/);
+  // A branch name that isn't plain is never echoed.
+  const odd = (await tokenGate(input, deps({ status: 'missing' }, { branch: 'x"; rm', file: { status: 'missing' } }))) as { agent_note: string };
+  assert.match(odd.agent_note, /most recently pushed branch \(another branch\)/);
 });

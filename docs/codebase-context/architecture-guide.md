@@ -167,8 +167,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   the same `token_repo_key` and a token or claim); the gate (`tokenGate`, v2.6 §3: see "Coin gate
   (v2.6)" below: policy not off; a public GitHub repo with real code; **ownership** — its
   `earnkit.txt` carries this agent's ticker-free `token: <code>` line for the repo; the creator
-  wallet passes the sanctions screen; no live-link check; never cached); the per-installation limit
-  (`LIMITS.tokenLaunch`, 3 a day, counted only right before a deploy); then `deployToken`.
+  wallet passes the sanctions screen; no live-link check; never cached); the launch limits (v2.8.1
+  §A4: `LIMITS.tokenLaunchWallet`, 10 per creator wallet per UTC day, plus `LIMITS.tokenLaunch`, 10
+  per installation as an abuse floor; counted only right before a deploy; over either, the note says
+  "Try again after 00:00 UTC."); then `deployToken`.
   **Policy:** `encouraged | allowed | off` on programs (program files, sponsor campaigns via
   `sponsor_campaign create`, default `encouraged`); encouraged and allowed both launch by default,
   off never launches; the policy is never displayed (v2.4: tokens are only the one default row in
@@ -193,7 +195,8 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   answer, any 5xx (e.g. tokens.fun's 502 "Deployment status unknown") or an unparsed body keeps it
   pending, so a retry can never mint a second token. Only EarnKit's own claims count for "one per
   repo": a `token_url` a builder typed into `record_submission` is unproven and has no
-  `token_repo_key`. The deploy is bounded by `EARNKIT_TOKENSFUN_TIMEOUT_MS` (default 120 s).
+  `token_repo_key`. The deploy is bounded by `EARNKIT_TOKENSFUN_TIMEOUT_MS` (default 120 s);
+  v2.8.1: the tool replies after `EARNKIT_LAUNCH_REPLY_MS` (40 s) with "launching" while it runs on.
   **Key:** `TOKENSFUN_DEPLOY_API_KEY` stays server-side (EarnKit's own key on tokens.fun, which
   skips tokens.fun's per-IP limits — hence the ownership proof, one token per repo, and the
   per-installation cap; the 2-a-day per creator wallet cap stays). The image is the agent's upload
@@ -282,6 +285,21 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     is "missing" (no raw read); a redirect, another status or a network failure is a retryable
     error. The token and the `Authorization` header are never logged. With
     `EARNKIT_OWNERSHIP_BASE_URL` set (dev/test only), the override is read instead.
+  - *Other branches* (v2.8.1 §A3). When the default branch's file doesn't prove the launch, the
+    most recently pushed other branch is read: one GitHub API call (`/repos/<o>/<r>/activity?
+    activity_type=push&per_page=10`, newest first; GitHub's branch list has no push dates), then
+    `earnkit.txt` at that push's commit from raw.githubusercontent.com (commit-addressed: no cache
+    delay, no API quota) (`ownership.ts fetchOwnershipLatestBranch`). A push to any branch needs the
+    same access, so it proves the same thing. Not with the dev/test override, or with an injected
+    reader (a test double). When neither proves it, the builder hears "I need to add a short proof
+    line to your repo's <default> branch first, then say go." (the default branch from the repo
+    read, `RepoCode.defaultBranch`, shown only when plain), and the agent note says what was found
+    where ("earnkit.txt isn't on the default branch (main); … on the most recently pushed branch
+    (feat/x) has a token line, but not this agent's code …") and where to push. A second "go" with
+    the line still missing returns the kit with "Your entry is saved. Your token is waiting on a
+    short proof line on your repo's main branch; say go once I've pushed it." (`proofLineWaiting`;
+    never "open this in Claude Code or Cursor", which stays only for an agent that said
+    `can_push: false`); the launch stays open.
   - *Repo with code* (Ruling 3 (plan); `match-projects.ts` `repoCodeFacts`, `codeProblem`). A coin
     needs a public GitHub repo (a private one EarnKit's token can see is refused as "not public")
     that has at least one commit (`/commits?per_page=1`; 409 = empty) and is either not a fork or
@@ -292,9 +310,40 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   - *Cost* (Ruling P2). The spec's "at most one call per launch" is the ownership-file fetch: one
     contents-API read (the raw read only under a rate limit). The repo and commits reads existed
     before v2.6; the compare is new and runs for forks only. All on the one existing `GITHUB_TOKEN`.
+- **Launch claims, retries and timeouts (v2.8.1 §A).** `deployToken` claims the row
+  (`token_url = 'pending'`, `token_claimed_at = now()`), then POSTs. `outcomeOf` decides:
+  - **Released** only when tokens.fun said in a parsed JSON body, with no `txHash` and no
+    `tokenAddress`, that it stopped before minting: any 4xx (refusals; a 429 says "Try again after
+    HH:MM UTC" from tokens.fun's `retry_after` ISO time or seconds, `retry_after_seconds`, the older
+    `retryAfter`, or the `Retry-After` header, else "in a few hours"); a 503 with tokens.fun's own
+    `error` (every 503 of its deploy route comes before the deploy transaction: "Pending
+    transactions detected", fee split or wallet not configured, a price read); a 500 whose words say
+    it reverted (a reverted transaction mints nothing); an explicit `minted: false`.
+  - The 503/revert/`minted: false` releases are **retried once at once** (3 s pause), under the same
+    claim; a second such answer releases the claim with "Your token didn't launch yet; say go to try
+    again." (`NOT_LAUNCHED_YET`; confirm_entry turns "say 'launch the token'" into "say go").
+  - **Kept** (never retried): no answer, tokens.fun's 502 "Deployment status unknown", its catch-all
+    500 "Internal server error" (thrown anywhere, even after a broadcast), any other 5xx, an unparsed
+    body, any body with a tx hash or a token address. The builder reads `LAUNCH_STUCK` ("Your token
+    didn't launch yet; EarnKit is checking what happened with tokens.fun. Ask me again later."); the
+    agent note says it is never retried.
+  - **Reply time.** confirm_entry, launch_token and record_submission give the token flow
+    `launchReplyMs()` (40 s; `EARNKIT_LAUNCH_REPLY_MS` overrides) from the tool's start, so the
+    reply comes within 50 s. Past it (`withinReply`), the flow runs on in the background and writes
+    its own result; the reply is "Your token is launching. Ask me again in a minute for its link."
+    (`LAUNCHING`, `launching: true`; confirm_entry returns no kit yet) once the deploy was sent, else
+    "still checking your repo" (confirm: fixable, no kit). The next call reads the row: a claim whose
+    deploy is still running (no `token_note`, under 10 minutes) is "launching"; one whose deploy
+    answered without a result, or older than 10 minutes, is `LAUNCH_STUCK` (with the kit).
+  - **Owner alert.** The hourly cron (`runCron`) lists every claim pending for over 10 minutes
+    (`tokens.ts stuckLaunches`; a claim from before v2.8.1 has no time and counts) as
+    `token-pending:<project id>` in `needs_owner`, so the run answers 503 and GitHub emails the owner.
+  - Ticker checks for a proposal run in parallel batches of 4 (3 s each), so a proposal costs at
+    most about 9 s.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
-  deploy and never learned the outcome (no answer, a 5xx, or an unparsed body); EarnKit never
-  retries it on its own, and `launch_token` refuses it (as does any other entry of the same repo).
+  deploy and never learned the outcome (no answer, a 5xx that may have minted, or an unparsed body);
+  EarnKit never retries it on its own, and `launch_token` refuses it (as does any other entry of the
+  same repo). v2.8.1: the cron's `needs_owner` names it (`token-pending:<id>`) after 10 minutes.
   1. Find it: `SELECT id, name, repo_url, token_name, token_symbol, token_note, payout_wallet,
      installation_id FROM projects WHERE token_url = 'pending';`
   2. Check tokens.fun for a token with that ticker and creator wallet (the creator's tokens on
@@ -1650,7 +1699,13 @@ Outside EarnKit campaigns (which keep v2.4's one-step entry) the flow is now
 - **prepare_submission** never returns a kit, a submission link, a prefilled link, a paste list or
   agent fill steps (Ruling 4 (plan)). Once ready, `show_to_builder` is the Entry/Prize table, then
   `Ready. ` + `confirm.ts confirmOffer` (the spec's four lines and `COIN_FOOTNOTE`; the wallet short,
-  Ruling 17's form). `confirmTable` no longer renders a Token row outside campaigns. With a repo it
+  Ruling 17's form). v2.8.1 §A2: the Yes line names the token that launches and is the entry's one
+  "40%": "Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at the
+  builder bonus." (`yesLine`; prepare_submission passes its `token.proposed`, confirm_entry's offer
+  the agent's `token` edit or `proposeToken`, returned as `token.proposed` for the agent to echo on
+  "go"). Fallback names (`token-proposal.ts nameCandidates`): the project name, "<name> Token", the
+  repo name, then the name without its brand words ("ArcPay" → "Pay Token", ticker $PAY), and only
+  then "<TICKER> Token". `confirmTable` no longer renders a Token row outside campaigns. With a repo it
   returns `token_line` (`tokenLineFor`) and an `agent_note` to push it before the builder confirms
   (none with `agent.can_push: false`). `shown_wallet` is the wallet on the offer's line.
 - **confirm_entry** (`tools.ts`): refuses campaigns and closed programs. Without

@@ -1,7 +1,9 @@
 import {
   OWNERSHIP_FILE,
   fetchOwnershipFile,
+  fetchOwnershipLatestBranch,
   fetchOwnershipViaApi,
+  shownBranch,
   githubRepo,
   ownershipBaseUrl,
   ownershipFileUrl,
@@ -29,6 +31,11 @@ export type GateDeps = {
   repo?: (owner: string, repo: string) => Promise<RepoCode>;
   /** Reads the repo's earnkit.txt (GitHub contents API, or the dev/test override). */
   owner?: (r: { owner: string; repo: string }) => Promise<FetchResult>;
+  /**
+   * v2.8.1 §A3: earnkit.txt on the most recently pushed branch other than the default one, read only
+   * when the default branch doesn't prove the launch; null when there is none.
+   */
+  latest?: (r: { owner: string; repo: string }, defaultBranch: string | undefined) => Promise<{ branch: string; file: FetchResult } | null>;
   screen?: (wallet: string) => Promise<void>;
 };
 /**
@@ -37,7 +44,16 @@ export type GateDeps = {
  * pushed or not readable yet, a transient GitHub read, a wallet the screen refused); absent for a
  * lasting problem (no public repo, no real code, launches not configured, tokens off).
  */
-export type GateResult = { ok: true } | { ok: false; reason: string; agent_note?: string; fixable?: true };
+export type GateResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: string;
+      agent_note?: string;
+      fixable?: true;
+      /** v2.8.1 §A3: the proof line is missing; the repo's default branch, when known. */
+      branch?: string;
+    };
 
 const defaults: Required<GateDeps> = {
   repo: (o, r) => repoCodeFacts(`${o}/${r}`),
@@ -47,6 +63,9 @@ const defaults: Required<GateDeps> = {
     process.env.EARNKIT_OWNERSHIP_BASE_URL
       ? fetchOwnershipFile(ownershipFileUrl(r, ownershipBaseUrl()))
       : fetchOwnershipViaApi(r),
+  // The dev/test override serves the default branch only.
+  latest: (r, defaultBranch) =>
+    process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, defaultBranch),
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
 };
 
@@ -58,7 +77,7 @@ const AGAIN = `Try again in a minute: ${SAY}.`;
  * Ruling C24: how the proof-line failure's reason starts (stored as the entry's token_note), so a
  * second "go" whose proof line still can't be confirmed returns the kit instead of looping.
  */
-export const PROOF_LINE_PREFIX = 'I need to add a short proof line to your repo first';
+export const PROOF_LINE_PREFIX = 'I need to add a short proof line to your repo';
 
 export const TOKENS_NOT_CONFIGURED = "Token launches aren't configured right now.";
 export const TOKEN_CODE_LENGTH = 16;
@@ -108,42 +127,70 @@ export function legacyTokenLineCode(
 const sameCode = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+/** Whether an earnkit.txt answer proves this launch (the agent's code, or a v2.5 line for this ticker). Pure. */
+function proves(got: FetchResult, code: string, legacy: { symbol: string; code: string } | null) {
+  const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
+  const sym = legacy?.symbol.toUpperCase();
+  return (
+    file !== null &&
+    (file.codes.some((c) => sameCode(c, code)) ||
+      (legacy !== null &&
+        file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code))))
+  );
+}
+
+/** v2.8.1 §A3: what an earnkit.txt answer that doesn't prove the launch holds, for the agent. Pure. */
+function foundText(got: FetchResult, where: string) {
+  if (got.status === 'missing') return `${OWNERSHIP_FILE} isn't on ${where}`;
+  if (got.status === 'error') return `${OWNERSHIP_FILE} on ${where} couldn't be read (${got.message})`;
+  const file = parseOwnershipFile(got.text);
+  return file.codes.length > 0 || file.tokens.length > 0
+    ? `${OWNERSHIP_FILE} on ${where} has a token line, but not this agent's code for this repo (another agent's, or an old one)`
+    : `${OWNERSHIP_FILE} on ${where} has no token line`;
+}
+
 /**
  * Why the repo's earnkit.txt doesn't prove this launch, or null (v2.6 §3). The file must carry
  * `token: <code>` with the launching agent's code for this repo (`code`, from tokenCode): a line only
  * someone who can push to the repo can add, and only for the agent EarnKit showed it to. A v2.5
  * `token: <SYMBOL> <code>` line for the ticker being launched also counts (`legacy`, Ruling 1
  * (plan)). Wallet lines are campaign business (checkOwnership), never needed for a coin. Codes are
- * compared timing-safely. Pure; exported for tests.
+ * compared timing-safely. v2.8.1 §A3: `latest`, the most recently pushed other branch's file, also
+ * proves it (a push to any branch needs the same access); `defaultBranch` names where the line goes,
+ * and the agent note says exactly what was found where. Pure; exported for tests.
  */
 export function ownerProblem(
   repo: string,
   got: FetchResult,
   code: string,
   legacy: { symbol: string; code: string } | null,
-): { reason: string; agent_note?: string } | null {
+  more: { defaultBranch?: string; latest?: { branch: string; file: FetchResult } | null } = {},
+): { reason: string; agent_note?: string; branch?: string } | null {
+  if (proves(got, code, legacy) || (more.latest && proves(more.latest.file, code, legacy))) return null;
   const line = `token: ${code}`;
   // Final review M7: the reason is relayed to the builder, so it never names the file or the line
   // (and never asks the builder to edit anything); the exact line goes in the agent-only note, for
   // the coding agent that writes and pushes it.
+  // The default branch couldn't be read (and no other branch proved it): a retry, not a missing line.
   if (got.status === 'error')
     return {
       reason: `EarnKit couldn't read your repo's proof line on GitHub right now. ${AGAIN}`,
       agent_note: `${OWNERSHIP_FILE} in ${repo}: ${got.message}`,
     };
-  const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
-  const sym = legacy?.symbol.toUpperCase();
-  const ok =
-    file !== null &&
-    (file.codes.some((c) => sameCode(c, code)) ||
-      (legacy !== null &&
-        file.tokens.some((t) => t.symbol === sym && t.code !== null && sameCode(t.code, legacy.code))));
-  return ok
-    ? null
-    : {
-        reason: `${PROOF_LINE_PREFIX}, then ${SAY}.`,
-        agent_note: `Write ${OWNERSHIP_FILE} at the root of ${repo} (default branch) with the line "${line}" and push it yourself; never ask the builder to edit files. Then call launch_token.`,
-      };
+  const branch = shownBranch(more.defaultBranch);
+  const onDefault = branch ? `the default branch (${branch})` : 'the default branch';
+  const found = [
+    foundText(got, onDefault),
+    more.latest &&
+      foundText(more.latest.file, `the most recently pushed branch (${shownBranch(more.latest.branch) ?? 'another branch'})`),
+  ].filter(Boolean);
+  return {
+    reason: `${PROOF_LINE_PREFIX}${branch ? `'s ${branch} branch` : ''} first, then ${SAY}.`,
+    agent_note:
+      `${found.join('; ')}. Write the line "${line}" to ${OWNERSHIP_FILE} at the root of ${repo} on ${onDefault} ` +
+      'and push it yourself; never ask the builder to edit files. Then call launch_token.',
+    ...(branch && { branch }),
+  };
 }
 
 /** Ruling 3 (plan): a public repo with real code, or why not. Pure. */
@@ -161,7 +208,8 @@ export function codeProblem(f: RepoCode): string | null {
  * is no longer required. Stops at the first failure; never cached.
  */
 export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<GateResult> {
-  const d = { ...defaults, ...deps };
+  // An injected earnkit.txt reader (a test double) never pairs with the real branch read.
+  const d = { ...defaults, ...(deps.owner && { latest: async () => null }), ...deps };
   if (input.policy === 'off') return { ok: false, reason: "This program doesn't allow tokens for entries." };
   const gh = input.repoUrl ? githubRepo(input.repoUrl) : null;
   if (!gh || !input.repoUrl)
@@ -181,12 +229,17 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   const code = tokenCode(input.installationId, input.repoUrl);
   if (!code) return { ok: false, reason: TOKENS_NOT_CONFIGURED };
   const legacyCode = legacyTokenLineCode(input.installationId, input.repoUrl, input.symbol);
-  const problem = ownerProblem(
-    `github.com/${gh.owner}/${gh.repo}`,
-    await d.owner(gh),
-    code,
-    legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null,
-  );
+  const legacy = legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null;
+  const onDefault = await d.owner(gh);
+  // v2.8.1 §A3: the default branch first; only when it doesn't prove the launch, the most recently
+  // pushed other branch (one more GitHub call).
+  const latest = proves(onDefault, code, legacy)
+    ? null
+    : await d.latest(gh, facts.defaultBranch).catch(() => null);
+  const problem = ownerProblem(`github.com/${gh.owner}/${gh.repo}`, onDefault, code, legacy, {
+    defaultBranch: facts.defaultBranch,
+    latest,
+  });
   if (problem) return { ok: false, ...problem, fixable: true };
   try {
     await d.screen(input.wallet);

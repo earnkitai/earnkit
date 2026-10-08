@@ -2,9 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EARNINGS_LINE,
+  LAUNCH_STUCK,
   LaunchError,
+  NOT_LAUNCHED_YET,
   decodeImage,
   outcomeOf,
+  retryAtOf,
+  tryAgainAfter,
   xProfileUrl,
 } from './tokens';
 
@@ -78,19 +82,20 @@ test('deploy outcomes: success, refusal (released), rate limit, no answer (kept 
   assert.equal(refused.release, true);
   assert.match(refused.note!, /symbol/);
 
+  // v2.8.1 §A4: the limit says when to retry, never "later" and never tokens.fun's raw words.
   const limited = outcomeOf({ ok: false, status: 429 }, { error: 'Daily limit' }, 'base');
   assert.equal(limited.status, 'failed');
   assert.equal(limited.release, true);
-  assert.equal(limited.note, "tokens.fun's launch limit was reached (Daily limit). Say 'launch the token' later.");
-  // tokens.fun's own words and retryAfter, when it sends them.
-  const timed = outcomeOf({ ok: false, status: 429 }, { message: '5 launches an hour', retryAfter: 1800 }, 'base');
+  assert.equal(limited.note, "Your token didn't launch: this wallet reached today's launch limit. Try again in a few hours.");
+  const timed = outcomeOf({ ok: false, status: 429 }, { message: '10/day' }, 'base', new Date('2026-10-08T14:19:30Z'));
   assert.equal(timed.release, true);
-  assert.equal(timed.note, "tokens.fun's launch limit was reached (5 launches an hour). Say 'launch the token' in 30 minutes.");
+  assert.equal(timed.note, "Your token didn't launch: this wallet reached today's launch limit. Try again after 14:20 UTC.");
 
   const lost = outcomeOf(null, null, 'base');
   assert.equal(lost.status, 'pending');
   assert.equal(lost.release, false);
-  assert.match(lost.note!, /check tokens\.fun/);
+  assert.equal(lost.note, LAUNCH_STUCK);
+  assert.match(lost.agent_note!, /No answer from tokens\.fun\. The launch may have happened, so it is never retried/);
 });
 
 test("deploy outcomes: unminted-or-unknown responses stay pending, not released", () => {
@@ -102,7 +107,27 @@ test("deploy outcomes: unminted-or-unknown responses stay pending, not released"
   );
   assert.equal(statusUnknown.status, 'pending');
   assert.equal(statusUnknown.release, false);
-  assert.match(statusUnknown.note!, /check tokens\.fun/);
+  assert.equal(statusUnknown.note, LAUNCH_STUCK);
+  assert.match(statusUnknown.agent_note!, /it returned 502/);
+
+  // tokens.fun's catch-all 500 can be thrown after a broadcast: kept.
+  const catchAll = outcomeOf({ ok: false, status: 500 }, { error: 'Internal server error', message: 'An unexpected error occurred.' }, 'base');
+  assert.equal(catchAll.status, 'pending');
+  assert.equal(catchAll.release, false);
+  // An edge proxy's 503 (no JSON error from tokens.fun) is kept.
+  assert.equal(outcomeOf({ ok: false, status: 503 }, null, 'base').release, false);
+  assert.equal(outcomeOf({ ok: false, status: 503 }, {}, 'base').release, false);
+  // Any tx hash or token address: never released, whatever the status.
+  for (const [status, body] of [
+    [503, { error: 'Pending transactions detected.', txHash: '0xt' }],
+    [500, { error: 'Deployment failed', message: 'Contract execution reverted.', tokenAddress: '0xabc' }],
+    [400, { error: 'bad', txHash: '0xt' }],
+    [500, { minted: false, txHash: '0xt' }],
+  ] as const) {
+    const o = outcomeOf({ ok: false, status }, body, 'base');
+    assert.equal(o.release, false, JSON.stringify(body));
+    assert.equal(o.status, 'pending');
+  }
 
   // A 500 whose body didn't parse.
   const serverErrorNoBody = outcomeOf({ ok: false, status: 500 }, null, 'base');
@@ -128,6 +153,45 @@ test("deploy outcomes: unminted-or-unknown responses stay pending, not released"
   assert.equal(unauthorized.status, 'failed');
   assert.equal(unauthorized.release, true);
   assert.match(unauthorized.note!, /Unauthorized/);
+});
+
+test('v2.8.1 §A1: tokens.fun said nothing was minted: released, retried once, and the builder says go', () => {
+  for (const [status, body] of [
+    [503, { error: 'Pending transactions detected. Try again in a few minutes.' }],
+    [503, { error: "EarnKit fee split isn't configured" }],
+    [500, { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.' }],
+    [502, { error: 'x', minted: false }],
+  ] as const) {
+    const o = outcomeOf({ ok: false, status }, body, 'base');
+    assert.equal(o.status, 'failed', JSON.stringify(body));
+    assert.equal(o.release, true);
+    assert.equal(o.retry, true);
+    assert.equal(o.note, NOT_LAUNCHED_YET);
+  }
+  assert.equal(NOT_LAUNCHED_YET, "Your token didn't launch yet; say 'launch the token' to try again.");
+  // A 4xx is the builder's or the limit's: released, never retried at once.
+  assert.equal(outcomeOf({ ok: false, status: 400 }, { error: 'bad' }, 'base').retry, undefined);
+});
+
+test('v2.8.1 §A4: retryAtOf reads retry_after (ISO or seconds), retry_after_seconds, retryAfter, then Retry-After', () => {
+  const now = new Date('2026-10-08T10:00:00Z');
+  const iso = '2026-10-08T14:20:00.000Z';
+  assert.equal(retryAtOf({ retry_after: iso }, null, now)?.toISOString(), iso);
+  assert.equal(retryAtOf({ retry_after: 600 }, null, now)?.toISOString(), '2026-10-08T10:10:00.000Z');
+  assert.equal(retryAtOf({ retry_after: '600' }, null, now)?.toISOString(), '2026-10-08T10:10:00.000Z');
+  assert.equal(retryAtOf({ retry_after_seconds: 60 }, null, now)?.toISOString(), '2026-10-08T10:01:00.000Z');
+  assert.equal(retryAtOf({ retryAfter: 3600 }, null, now)?.toISOString(), '2026-10-08T11:00:00.000Z');
+  assert.equal(retryAtOf(null, '120', now)?.toISOString(), '2026-10-08T10:02:00.000Z');
+  assert.equal(retryAtOf(null, 'Thu, 08 Oct 2026 15:00:00 GMT', now)?.toISOString(), '2026-10-08T15:00:00.000Z');
+  // The JSON field wins over the header; junk and past times are ignored.
+  assert.equal(retryAtOf({ retry_after: iso }, '5', now)?.toISOString(), iso);
+  assert.equal(retryAtOf({ retry_after: 'soon' }, null, now), null);
+  assert.equal(retryAtOf({ retry_after: '2026-10-07T00:00:00Z' }, null, now), null);
+  assert.equal(retryAtOf({ retry_after: -5 }, '', now), null);
+  assert.equal(tryAgainAfter(new Date('2026-10-08T14:20:00Z')), 'Try again after 14:20 UTC.');
+  assert.equal(tryAgainAfter(new Date('2026-10-08T14:19:01Z')), 'Try again after 14:20 UTC.');
+  assert.equal(tryAgainAfter(new Date('2026-10-09T00:00:00Z')), 'Try again after 00:00 UTC.');
+  assert.equal(tryAgainAfter(null), 'Try again in a few hours.');
 });
 
 test('earnings line is the spec text (v2.7 Ruling 18: no launch protocol named)', () => {

@@ -225,6 +225,57 @@ export async function fetchOwnershipViaApi(
     return fetchFailed(signal);
   }
 }
+/** A git branch name safe to show in text (GitHub lets the repo's owner pick it), else null. Pure. */
+export const shownBranch = (name: string | null | undefined) =>
+  name && /^[A-Za-z0-9._/-]{1,100}$/.test(name) ? name : null;
+
+/**
+ * v2.8.1 §A3: earnkit.txt on the repo's most recently pushed branch other than the default one, for
+ * an agent that pushed the proof line to a feature branch. One GitHub API call (the repo's push
+ * activity, newest first), then the file at that push's commit from raw.githubusercontent.com: a
+ * commit-addressed read, so no cache delay and no API quota. Null when there is no such branch or
+ * the activity can't be read (the default branch's answer then stands). Never throws.
+ */
+export async function fetchOwnershipLatestBranch(
+  r: { owner: string; repo: string },
+  defaultBranch: string | undefined,
+  deps: { fetch?: typeof fetch; raw?: OwnershipFetcher; token?: string } = {},
+): Promise<{ branch: string; file: FetchResult } | null> {
+  const token = deps.token ?? process.env.GITHUB_TOKEN;
+  try {
+    const res = await (deps.fetch ?? fetch)(
+      `https://api.github.com/repos/${r.owner}/${r.repo}/activity?activity_type=push&per_page=10`,
+      {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'earnkit',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      },
+    );
+    if (res.status !== 200) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const pushes = (await res.json()) as unknown;
+    if (!Array.isArray(pushes)) return null;
+    for (const p of pushes as { ref?: unknown; after?: unknown }[]) {
+      const ref = typeof p?.ref === 'string' ? p.ref : '';
+      const sha = typeof p?.after === 'string' ? p.after : '';
+      if (!ref.startsWith('refs/heads/') || !/^[0-9a-f]{40}$/.test(sha) || /^0+$/.test(sha)) continue;
+      const branch = ref.slice('refs/heads/'.length);
+      if (branch === defaultBranch) continue;
+      const file = await (deps.raw ?? fetchOwnershipFile)(`${RAW_GITHUB}/${r.owner}/${r.repo}/${sha}/${OWNERSHIP_FILE}`);
+      return { branch, file };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether a GitHub API answer is a rate limit (Ruling 14 (plan), fix round 1): 429; a 403 with
  * x-ratelimit-remaining 0 (primary); or a 403 with retry-after or GitHub's "secondary rate limit" /

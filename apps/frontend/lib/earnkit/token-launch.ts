@@ -9,7 +9,7 @@ import { answersOf } from './projects';
 import { prepareSubmission, type KnownInfo } from './submission';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
-import { RateLimitError, enforce } from './rate-limit';
+import { LIMITS, RateLimitError, enforce, windowStart } from './rate-limit';
 import { PROOF_LINE_PREFIX, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
 
 /**
@@ -48,7 +48,13 @@ import {
   repoHasTokenNote,
   repoTokenUrl,
   setTokenStatus,
+  LAUNCHING,
+  LAUNCHING_AGENT,
+  LAUNCH_STUCK,
+  launchStuck,
+  launchStuckAgent,
   tokenLaunchesAvailable,
+  tryAgainAfter,
   xProfileUrl,
   type TokenOutcome,
   type TokenStatus,
@@ -319,6 +325,10 @@ export type FlowProject = {
   token_url: string | null;
   token_name: string | null;
   token_symbol: string | null;
+  /** v2.8.1 §A1: when the launch claim was taken (token_url 'pending'); null before v2.8.1. */
+  token_claimed_at?: Date | null;
+  /** The stored token note: on a pending claim, set once the deploy answered without a clear result. */
+  token_note?: string | null;
   installation_id: number | null;
   token_policy: TokenPolicy;
   /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
@@ -394,8 +404,8 @@ export type TokenFlowDeps = {
   check?: TickerCheck;
   deploy?: typeof deployToken;
   store?: FlowStore;
-  /** Counts one launch for the installation; throws RateLimitError over LIMITS.tokenLaunch. */
-  limit?: (installationId: number) => Promise<unknown>;
+  /** Counts one launch for the wallet and the installation; throws over LIMITS.tokenLaunchWallet / tokenLaunch. */
+  limit?: (installationId: number, wallet: string) => Promise<unknown>;
   /** Whether launches are configured (default: the tokens.fun deploy key is set). */
   available?: () => boolean;
 };
@@ -404,7 +414,7 @@ const dbStore: FlowStore = {
   load: async (projectId) => {
     const [row] = await sql()<FlowProject[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
-        p.token_symbol, p.installation_id, pr.token_policy, p.confirm_choice,
+        p.token_symbol, p.token_claimed_at, p.token_note, p.installation_id, pr.token_policy, p.confirm_choice,
         (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
@@ -453,8 +463,25 @@ const dbStore: FlowStore = {
   },
 };
 
-const LIMITED = 'This agent has launched 3 tokens today, the daily limit.';
-const defaultLimit = (installationId: number) => enforce('tokenLaunch', installationId, LIMITED);
+/**
+ * v2.8.1 §A4: 10 launches per creator wallet per UTC day (and, as an abuse floor, per agent). Over
+ * either, a LaunchError whose words say when the builder can retry ("Try again after 00:00 UTC.").
+ */
+export const WALLET_LIMITED = "Your token didn't launch: this wallet reached today's launch limit of 10.";
+export const AGENT_LIMITED = "Your token didn't launch: this agent reached today's launch limit of 10.";
+export const launchLimit = async (installationId: number, wallet: string) => {
+  try {
+    await enforce('tokenLaunchWallet', wallet.toLowerCase(), WALLET_LIMITED);
+    await enforce('tokenLaunch', installationId, AGENT_LIMITED);
+  } catch (err) {
+    if (!(err instanceof RateLimitError)) throw err;
+    const wallet = err.message.startsWith(WALLET_LIMITED);
+    // The fixed window's end, exactly (the error's whole seconds would round a minute past it).
+    const windowMs = LIMITS[wallet ? 'tokenLaunchWallet' : 'tokenLaunch'].windowSeconds * 1000;
+    const end = new Date(windowStart(new Date(), windowMs).getTime() + windowMs);
+    throw new LaunchError(`${wallet ? WALLET_LIMITED : AGENT_LIMITED} ${tryAgainAfter(end)}`);
+  }
+};
 
 /** A stored name and ticker that still pass the rules, else null. */
 function storedProposal(p: FlowProject) {
@@ -518,6 +545,10 @@ async function runTokenFlow(
     return project.token_url
       ? { status: 'skipped', note: TOKENS_UNAVAILABLE }
       : record('skipped', TOKENS_UNAVAILABLE);
+
+  // v2.8.1 §A1, §A5: this entry's own launch is in progress: "launching" (the next call has the
+  // result), or, past 10 minutes, said plainly (the cron has alerted the owner). Nothing is written.
+  if (project.token_url === 'pending') return pendingOutcome(project.token_claimed_at, Boolean(project.token_note));
 
   // A confirm-mode problem the agent fixes and retries (v2.8 Ruling 4 (plan)).
   const fix = (o: TokenOutcome): TokenOutcome => (a.mode === 'confirm' ? { ...o, fixable: true } : o);
@@ -629,7 +660,11 @@ async function runTokenFlow(
   );
   if (!gate.ok) {
     const out = await record('gate_failed', gate.reason, name, symbol);
-    const withNote = gate.agent_note ? { ...out, agent_note: gate.agent_note } : out;
+    const withNote = {
+      ...out,
+      ...(gate.agent_note && { agent_note: gate.agent_note }),
+      ...(gate.branch && { proof_branch: gate.branch }),
+    };
     return gate.fixable ? fix(withNote) : withNote;
   }
 
@@ -638,7 +673,7 @@ async function runTokenFlow(
     image = choice?.image_data ? decodeImage(choice.image_data) : null;
     if (choice?.builder_x) xProfileUrl(choice.builder_x);
     // Counted only for a launch actually sent: never for skips or gate failures.
-    await (deps.limit ?? defaultLimit)(a.installationId);
+    await (deps.limit ?? launchLimit)(a.installationId, wallet!);
   } catch (err) {
     const out = notLaunched(err);
     if (!out) throw err;
@@ -739,18 +774,81 @@ const TOKEN_ERROR = 'EarnKit hit an error launching the token; say "launch the t
 const TOKEN_ERROR_DEPLOYING =
   'EarnKit hit an error while launching the token, which may have launched: check tokens.fun before retrying.';
 
+/**
+ * v2.8.1 §A5: how long a launch may run before the tool replies. The whole tool must answer within
+ * 50 s (clients time out at 60 s); this leaves room for the reads before the flow and the kit
+ * after it. EARNKIT_LAUNCH_REPLY_MS overrides it (tests, the e2e); only a positive integer counts.
+ */
+export function launchReplyMs(env: Record<string, string | undefined> = process.env) {
+  const raw = Number(env.EARNKIT_LAUNCH_REPLY_MS);
+  return Number.isInteger(raw) && raw > 0 ? raw : 40_000;
+}
+
+export { LAUNCHING, LAUNCHING_AGENT };
+/** v2.8.1 §A5: the reply time ran out before the deploy started (the repo checks were slow). */
+export const STILL_CHECKING = "EarnKit is still checking your repo for the token; say go again in a minute.";
+/** STILL_CHECKING for launch_token, whose retry words are "launch the token". */
+export const STILL_CHECKING_LAUNCH = "EarnKit is still checking your repo for the token; say 'launch the token' again in a minute.";
+export { LAUNCH_STUCK };
+
+/**
+ * v2.8.1 §A1, §A5: an entry whose launch claim is pending: "launching" while its deploy runs, else
+ * (the deploy answered without a clear result, `settled`, or the claim is over 10 minutes old) said
+ * plainly; the cron alerts the owner. Pure.
+ */
+export function pendingOutcome(
+  claimedAt: Date | string | null | undefined,
+  settled = false,
+  now = new Date(),
+): TokenOutcome {
+  return settled || launchStuck(claimedAt, now)
+    ? { status: 'pending', note: LAUNCH_STUCK, agent_note: launchStuckAgent('The launch is unconfirmed.') }
+    : { status: 'pending', note: LAUNCHING, agent_note: LAUNCHING_AGENT, launching: true };
+}
+
+/**
+ * v2.8.1 §A5: the flow's outcome, or, once `deadline` passes, a stand-in while the flow runs on in
+ * the background (its own writes record the result; the next call reads it): "launching" when the
+ * deploy was sent (the claim is pending), else "still checking". The flow's own errors still
+ * surface when it ends in time; after the deadline they are logged, never unhandled.
+ */
+async function withinReply(
+  flow: Promise<TokenOutcome>,
+  progress: Progress,
+  deadline: number | undefined,
+  mode: 'confirm' | 'launch' = 'launch',
+): Promise<TokenOutcome> {
+  if (deadline === undefined) return flow;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now()));
+  });
+  const out = await Promise.race([flow, late]).finally(() => clearTimeout(timer));
+  if (out) return out;
+  flow.catch((err: unknown) => console.error('[token] background', err instanceof Error ? err.name : 'error'));
+  if (progress.deploying) return { status: 'pending', note: LAUNCHING, agent_note: LAUNCHING_AGENT, launching: true };
+  // Nothing sent yet: confirm_entry's "go" (fixable: no kit yet), else "launch the token".
+  return mode === 'confirm'
+    ? { status: 'skipped', note: STILL_CHECKING, agent_note: LAUNCHING_AGENT, fixable: true }
+    : { status: 'skipped', note: STILL_CHECKING_LAUNCH, agent_note: LAUNCHING_AGENT };
+}
+
 /** tokenAfterSubmission that never throws: record_submission must return even if the token part fails. */
 export async function submissionToken(
   a: Parameters<typeof tokenAfterSubmission>[0],
   deps: TokenFlowDeps = {},
+  deadline?: number,
 ): Promise<TokenOutcome> {
   const progress: Progress = { deploying: false };
-  try {
-    return await tokenAfterSubmission(a, deps, progress);
-  } catch (err) {
-    console.error('[token]', err);
-    return { status: 'failed', note: progress.deploying ? TOKEN_ERROR_DEPLOYING : TOKEN_ERROR };
-  }
+  const flow = (async (): Promise<TokenOutcome> => {
+    try {
+      return await tokenAfterSubmission(a, deps, progress);
+    } catch (err) {
+      console.error('[token]', err);
+      return { status: 'failed', note: progress.deploying ? TOKEN_ERROR_DEPLOYING : TOKEN_ERROR };
+    }
+  })();
+  return withinReply(flow, progress, deadline);
 }
 
 /**
@@ -762,47 +860,71 @@ export async function submissionToken(
  * for a token problem.
  */
 export async function confirmToken(
-  a: { projectId: number; installationId: number; token?: { name?: string; symbol?: string }; wallet: string | null },
+  a: {
+    projectId: number;
+    installationId: number;
+    token?: { name?: string; symbol?: string };
+    wallet: string | null;
+    /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
+    deadline?: number;
+  },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
   const store = deps.store ?? dbStore;
   const progress: Progress = { deploying: false };
+  // Not this installation's project: thrown at once, before any check or launch.
+  let project: FlowProject;
   try {
-    const project = await ownProject(store, a.projectId, a.installationId);
-    const parsed = TokenChoice.safeParse({
-      ...(a.token?.name !== undefined && { name: a.token.name }),
-      ...(a.token?.symbol !== undefined && { symbol: a.token.symbol }),
-      ...(a.wallet && { creator_wallet: a.wallet }),
-    });
-    if (!parsed.success) {
-      return { status: 'skipped', ...plainProblem(issuesText(parsed.error.issues)), fixable: true };
-    }
-    const out = await runTokenFlow(
-      project,
-      { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base' },
-      deps,
-      progress,
-    );
-    if (!out.fixable) return out;
-    // Ruling C24: an agent that can't push is never stuck on the proof line; it says so and the
-    // entry records without a token, with the kit.
-    const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
-    const agentNote = out.agent_note?.replace(/call launch_token/g, 'call confirm_entry again');
-    return {
-      ...out,
-      ...(out.note && { note: out.note.replace(/say 'launch the token'/g, 'say go') }),
-      ...((agentNote || proofLine) && {
-        agent_note: [agentNote, proofLine && CANT_PUSH_RETRY_NOTE].filter(Boolean).join(' '),
-      }),
-      ...(proofLine && { proof_line: true as const }),
-    };
+    project = await ownProject(store, a.projectId, a.installationId);
   } catch (err) {
     if (err instanceof LaunchError) throw err;
     console.error('[token] confirm', err instanceof Error ? err.name : 'error');
-    return progress.deploying
-      ? { status: 'failed', note: TOKEN_ERROR_DEPLOYING }
-      : { status: 'failed', note: TOKEN_ERROR_CONFIRM, fixable: true };
+    return { status: 'failed', note: TOKEN_ERROR_CONFIRM, fixable: true };
   }
+  const flow = (async (): Promise<TokenOutcome> => {
+    try {
+      const parsed = TokenChoice.safeParse({
+        ...(a.token?.name !== undefined && { name: a.token.name }),
+        ...(a.token?.symbol !== undefined && { symbol: a.token.symbol }),
+        ...(a.wallet && { creator_wallet: a.wallet }),
+      });
+      if (!parsed.success) {
+        return { status: 'skipped', ...plainProblem(issuesText(parsed.error.issues)), fixable: true };
+      }
+      return await runTokenFlow(
+        project,
+        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base' },
+        deps,
+        progress,
+      );
+    } catch (err) {
+      console.error('[token] confirm', err instanceof Error ? err.name : 'error');
+      return progress.deploying
+        ? { status: 'failed', note: TOKEN_ERROR_DEPLOYING }
+        : { status: 'failed', note: TOKEN_ERROR_CONFIRM, fixable: true };
+    }
+  })();
+  return toConfirmWords(await withinReply(flow, progress, a.deadline, 'confirm'));
+}
+
+/**
+ * confirm_entry's words for a flow outcome: the builder says "go" (never "launch the token"), and the
+ * agent's notes name confirm_entry. Ruling C24: a proof-line miss also tells an agent that can't push
+ * how to get the kit. Pure.
+ */
+function toConfirmWords(out: TokenOutcome): TokenOutcome {
+  const note = out.note?.replace(/say 'launch the token'/g, 'say go');
+  if (!out.fixable) return { ...out, ...(note && { note }) };
+  const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
+  const agentNote = out.agent_note?.replace(/call launch_token/g, 'call confirm_entry again');
+  return {
+    ...out,
+    ...(note && { note }),
+    ...((agentNote || proofLine) && {
+      agent_note: [agentNote, proofLine && CANT_PUSH_RETRY_NOTE].filter(Boolean).join(' '),
+    }),
+    ...(proofLine && { proof_line: true as const }),
+  };
 }
 
 /**
@@ -854,6 +976,8 @@ export async function launchToken(
   input: z.infer<typeof LaunchTokenInput>,
   installationId: number,
   deps: TokenFlowDeps = {},
+  /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
+  deadline?: number,
 ): Promise<TokenOutcome> {
   const { project_id, builder_confirmed: _c, chain, live_url, repo_url, ...choice } = input;
   const store = deps.store ?? dbStore;
@@ -894,7 +1018,13 @@ export async function launchToken(
   // v2.8 Ruling 2 (plan), Ruling C8: an entry whose stored answers and links are complete (one
   // from before v2.8 that never re-recorded, or a link fixed just now) is marked complete, once.
   if (entryMissing(project).length === 0) await store.markComplete(project.id);
-  const out = await runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps);
+  const progress: Progress = { deploying: false };
+  const out = await withinReply(
+    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain }, deps, progress),
+    progress,
+    deadline,
+  );
+  if (out.launching || out.note === STILL_CHECKING_LAUNCH) return out;
   // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
   if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
   return out;

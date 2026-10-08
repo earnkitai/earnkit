@@ -143,7 +143,15 @@ export async function proposeToken(
 ): Promise<Proposal> {
   const trimmed = projectName.trim().slice(0, 50);
   const repo = repoNameOf(repoUrl);
+  // The name first (v2.8.1 §A2): the project name, "<name> Token", the repo name, then the name with
+  // its brand words dropped ("ArcPay" → "Pay Token"); "<TICKER> Token" only when none of them pass.
+  const readable = nameCandidates(trimmed, repo)
+    .map((n) => cleanTokenName(n))
+    .find((r): r is { name: string } => 'name' in r)?.name;
+  // A fallback name leads the tickers too ("Pay Token" → $PAY, never $ARCPA2).
+  const lead = readable && readable !== trimmed ? [tickerCandidates(readable), initialsCandidates(readable)] : [];
   const groups = [
+    ...lead,
     tickerCandidates(trimmed),
     repo ? tickerCandidates(repo) : [],
     initialsCandidates(trimmed),
@@ -157,18 +165,52 @@ export async function proposeToken(
   const candidates = [...new Set([...bases, ...groups.flat(), ...OVERFLOW])];
   let symbol = candidates[MAX_CHECKS];
   let note: string | undefined = UNCHECKED;
-  for (const c of candidates.slice(0, MAX_CHECKS)) {
-    const free = await check(c);
-    if (free === false) continue;
-    symbol = c;
-    note = free === null ? UNCHECKED : undefined;
-    break;
+  // v2.8.1 §A5: checked in parallel batches (each check waits up to 3 s), first free in order wins.
+  checking: for (let i = 0; i < MAX_CHECKS; i += CHECK_BATCH) {
+    const batch = candidates.slice(i, Math.min(i + CHECK_BATCH, MAX_CHECKS));
+    const answers = await Promise.all(batch.map((c) => check(c)));
+    for (const [j, free] of answers.entries()) {
+      if (free === false) continue;
+      symbol = batch[j];
+      note = free === null ? UNCHECKED : undefined;
+      break checking;
+    }
   }
   // "<TICKER> Token" always passes cleanTokenName (the ticker passed tickerProblem).
-  const named = [trimmed, trimmed ? `${trimmed.slice(0, 44)} Token` : '', repo ? titleCase(repo) : '', `${symbol} Token`]
-    .map((n) => (n.trim() ? cleanTokenName(n) : { problem: 'empty' }))
-    .find((r): r is { name: string } => 'name' in r);
-  return { name: named?.name ?? `${symbol} Token`, symbol, ...(note && { note }) };
+  return { name: readable ?? `${symbol} Token`, symbol, ...(note && { note }) };
+}
+
+/** Candidates checked together (v2.8.1 §A5): at most 3 rounds of tokens.fun's 3 s check. */
+const CHECK_BATCH = 4;
+
+/**
+ * v2.8.1 §A2: the readable token names to try, in order: the project name, "<name> Token", the repo
+ * name, then the project and repo names without their brand words (unbranded; a one-word rest
+ * shorter than 4 letters gets " Token"). Pure; exported for tests.
+ */
+export function nameCandidates(projectName: string, repo: string | null): string[] {
+  const repoTitle = repo ? titleCase(repo) : '';
+  const rest = (n: string) => {
+    const u = unbranded(n);
+    return u ? (u.length < 4 ? [`${u} Token`] : [u, `${u} Token`]) : [];
+  };
+  return [
+    projectName,
+    projectName ? `${projectName.slice(0, 44)} Token` : '',
+    repoTitle,
+    ...rest(projectName),
+    ...(repoTitle ? rest(repoTitle) : []),
+  ].filter((n) => n.trim());
+}
+
+/**
+ * "Pay" from "ArcPay" or "Arc Pay": the name's words (camel case split too) without the ones that
+ * read as a brand on their own; null when no word is a brand, or every word is. Pure; exported for tests.
+ */
+export function unbranded(name: string): string | null {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[\s_-]+/).filter(Boolean);
+  const kept = words.filter((w) => reservedBrands(w).length === 0);
+  return kept.length === words.length || kept.length === 0 ? null : kept.join(' ');
 }
 
 /** 12 colours with enough contrast for white letters. */

@@ -162,7 +162,7 @@ test('v2.7 journey: what can I earn, the guide, then the token step', dbTest, as
     // and no Clanker anywhere in the reply.
     const ready = await prep({ name: 'TipJar', repo_url, live_url: 'https://tipjar.example' });
     assert.equal(ready.ready, true);
-    assert.match(ready.show_to_builder, /\nYes: your entry gets a token on Base\. /);
+    assert.match(ready.show_to_builder, /\nYes: launches \$TIPJAR \(TipJar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
     assert.doesNotMatch(JSON.stringify(ready), /clanker/i);
     assert.deepEqual(coinWords(ready.show_to_builder), []);
   } finally {

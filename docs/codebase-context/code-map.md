@@ -249,6 +249,8 @@ apps/frontend/
                                v2.6 fetchOwnershipViaApi (the coin gate's read: GitHub contents API
                                with GITHUB_TOKEN, raw only when rate-limited: 429, 403 + remaining 0,
                                secondary limit; 404 missing; the token never logged, Rulings 14, 20);
+                               v2.8.1 fetchOwnershipLatestBranch (push activity, newest first, then
+                               the file at that commit from raw; null on any failure), shownBranch;
                                parseOwnershipFile (payout_wallet; plus creator_wallet and token lines
                                for token launches, v2.6 `codes`: ticker-free 16-hex token lines,
                                malformed ones ignored), githubRepo (moved to
@@ -305,8 +307,9 @@ apps/frontend/
     rate-limit.ts(+test)       Postgres fixed-window counter (rate_windows; atomic upsert) + clientIp
                                (X-Real-IP from Railway's edge, else rightmost x-forwarded-for;
                                IPv6 keyed on its /64). LIMITS (v2.2 §5): sponsor create 5/day
-                               (replacements 10/day), record_submission 20/day and token launches
-                               (tokenLaunch) 3/day per installation, OAuth register
+                               (replacements 10/day), record_submission 20/day, token launches
+                               (v2.8.1: tokenLaunchWallet 10/day per creator wallet, tokenLaunch
+                               10/day per installation), OAuth register
                                20/hour, authorize 60/hour and new installations 10/hour + 30/day
                                per IP (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
@@ -420,9 +423,17 @@ apps/frontend/
     tokens.ts(+test)           deployToken via tokens.fun /api/v1/deploy (TOKENSFUN_DEPLOY_API_KEY;
                                EARNKIT_TOKENSFUN_TIMEOUT_MS, default 120000): atomic claim
                                (token_url='pending', token_repo_key; refused when another project on
-                               the repo has a token: repoTokenUrl/repoHasTokenNote), released only
-                               on a 4xx with a JSON body
-                               (outcomeOf; a 429 quotes tokens.fun and its retryAfter);
+                               the repo has a token: repoTokenUrl/repoHasTokenNote; v2.8.1
+                               token_claimed_at), released only when tokens.fun said, in JSON with
+                               no tx hash or token address, it stopped before minting (outcomeOf: a
+                               4xx, a 503 with its error, a revert, minted:false); the 503/revert
+                               ones retried once (RETRY_PAUSE_MS) under the same claim, then
+                               NOT_LAUNCHED_YET; unknown outcomes kept (LAUNCH_STUCK +
+                               launchStuckAgent); a 429 says when (retryAtOf: retry_after ISO or
+                               seconds, retry_after_seconds, retryAfter, Retry-After; tryAgainAfter,
+                               walletLimitNote); LAUNCHING/LAUNCHING_AGENT; v2.8.1 stuckLaunches
+                               (claims pending > STUCK_LAUNCH_MS, for the cron's needs_owner),
+                               launchStuck, launchClaimedAt;
                                tokenLaunchesAvailable (deploy key set); TokenStatus/TokenOutcome,
                                setTokenStatus (only rows with token_url IS NULL), EARNINGS_LINE,
                                TOKEN_TERMS, decodeImage, xProfileUrl; v2.5: coin_address written
@@ -432,8 +443,10 @@ apps/frontend/
                                (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
-                               check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), "<TICKER>
-                               Token"; tickers: project, repo, initialsCandidates, ENTRY…; ≤12 checks, a taken ticker never
+                               check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), v2.8.1
+                               the name without brand words (nameCandidates, unbranded: "ArcPay" → "Pay Token"), "<TICKER>
+                               Token"; tickers: a fallback name's first, then project, repo, initialsCandidates, ENTRY…; ≤12
+                               checks in parallel batches of 4 (v2.8.1), a taken ticker never
                                proposed (C6), else "ticker not checked for duplicates"; titleCase
     token-gate.ts(+test)       tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
                                match-projects.ts repoCodeFacts: commits, a fork only when ahead of
@@ -449,8 +462,19 @@ apps/frontend/
                                check; first failure as a reason in plain builder words (never the
                                file or the line) plus agent_note with the technical detail (final
                                review M7: the exact line to write and push); repo/owner/screen
-                               injectable (GateDeps)
-    token-launch.ts(+test)     v2.8 Task 8: confirmToken (runTokenFlow mode 'confirm'; fixable outcomes:
+                               injectable (GateDeps); v2.8.1 §A3: GateDeps.latest (the most recently
+                               pushed other branch, ownership.ts fetchOwnershipLatestBranch; off with
+                               an injected owner or the dev/test override), ownerProblem's agent note
+                               says what was found where, the reason names the default branch
+                               (GateResult.branch → TokenOutcome.proof_branch)
+    token-launch.ts(+test)     v2.8.1 §A: launchReplyMs (EARNKIT_LAUNCH_REPLY_MS, 40 s), withinReply
+                               (past it: LAUNCHING once deploying, else STILL_CHECKING /
+                               STILL_CHECKING_LAUNCH; the flow runs on), pendingOutcome (an own
+                               pending claim: launching, or LAUNCH_STUCK when settled or > 10 min),
+                               launchLimit (10/wallet + 10/agent a UTC day, "Try again after HH:MM
+                               UTC"), WALLET_LIMITED/AGENT_LIMITED; confirmToken, launchToken and
+                               submissionToken take a deadline.
+                               v2.8 Task 8: confirmToken (runTokenFlow mode 'confirm'; fixable outcomes:
                                no kit, "say go", the agent note names confirm_entry; a proof-line miss adds
                                CANT_PUSH_RETRY_NOTE and proof_line, Ruling C24; a launch returns name and symbol, M8);
                                the token flow: tokenProposalBlock (prepare_submission's token;
@@ -507,7 +531,9 @@ apps/frontend/
     confirm.ts(+test)          v2.8 Task 8: the confirmation offer (confirmOffer: the builder bonus
                                comes with a token; no-bonus, no-wallet (NO_WALLET_HINT), token
                                elsewhere (Ruling 5) and can't-push (CANT_PUSH) variants) and
-                               confirmDecision (offer | skip | record_only | launch). Pure
+                               confirmDecision (offer | skip | record_only | launch). Pure. v2.8.1:
+                               yesLine ("Yes: launches $TIP (TipJar) on Base. You earn 40% …",
+                               OfferInput.proposal), proofLineWaiting (a second proof-line miss)
     submit-kit.ts(+test)       v2.8 Tasks 8, 10: submitKit (the submit kit, returned only by
                                confirm_entry, in four modes), submitModeFor, hostOf, proofFor
                                (Ruling 28), googlePrefill/airtablePrefill/tallyPrefill
@@ -617,7 +643,8 @@ apps/frontend/
                                refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
                                and a MANUAL_CHECK bonus sweep; BONUS_WALLET_UNSET when the ledger is
                                skipped (key missing or malformed, off mainnet) while bonusLive,
-                               Rulings 19-20; an ended round's scoring failure once, Ruling 23), cronPost
+                               Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
+                               token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
     bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
                                UTC-month rounds), bookingFor (round or Safe, with the reason; v2.6:
                                the Safe only when !bonusOn, no open round or not active),
@@ -864,7 +891,9 @@ Railway runs `pnpm predeploy` (= `db:migrate` + `programs:sync`) before every de
 Env: `DATABASE_URL`, `EARNKIT_AUTH_SECRET`, `EARNKIT_URL` (public origin, prod only),
 `GITHUB_TOKEN` (one server-side read-only token for repo matching), `TOKENSFUN_DEPLOY_API_KEY`
 (tokens.fun deploy key for token launches; `TOKENSFUN_API_URL` overrides the host for tests;
-`EARNKIT_TOKENSFUN_TIMEOUT_MS` bounds the deploy call, default 120000),
+`EARNKIT_TOKENSFUN_TIMEOUT_MS` bounds the deploy call, default 120000; v2.8.1
+`EARNKIT_LAUNCH_REPLY_MS` is how long a launching tool waits before it answers "launching", default
+40000),
 `BASE_RPC_URL` (optional; default public Base RPC; must serve historic state for scoring),
 `CRON_SECRET` (32+ characters; also the GitHub Actions secret), `ADMIN_VETO_SECRET` (32+
 characters; also in the owner's shell for veto-link), `CAMPAIGN_PAYOUT_PRIVATE_KEY` (the campaign

@@ -25,8 +25,13 @@ export const LIMITS = {
   /** New installations (POST /oauth/token that creates one), per client IP: hourly and daily. */
   installHour: { limit: 10, windowSeconds: 3_600 },
   installDay: { limit: 30, windowSeconds: 86_400 },
-  /** Token launches sent to tokens.fun (record_submission, launch_token), per installation. */
-  tokenLaunch: { limit: 3, windowSeconds: 86_400 },
+  /**
+   * v2.8.1 §A4: token launches sent to tokens.fun, per creator wallet per UTC day (the EarnKit limit;
+   * tokens.fun allows the same 10 for EarnKit-key launches). One token per repo still applies.
+   */
+  tokenLaunchWallet: { limit: 10, windowSeconds: 86_400 },
+  /** Token launches sent to tokens.fun, per installation per UTC day: an abuse floor, as high as the wallet limit. */
+  tokenLaunch: { limit: 10, windowSeconds: 86_400 },
   /** GET /oauth/authorize, per client IP. */
   oauthAuthorize: { limit: 60, windowSeconds: 3_600 },
   /** POST /api/cron, per client IP (v2.4 §8). */

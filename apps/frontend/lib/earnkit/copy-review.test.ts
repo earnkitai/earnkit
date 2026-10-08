@@ -36,6 +36,8 @@ import {
   walletQuestion,
   confirmOffer,
   offerWalletLine,
+  proofLineWaiting,
+  yesLine,
 } from './confirm';
 import { AGENT_FILL_STEPS, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
 import {
@@ -47,10 +49,27 @@ import {
   SKIPPED_ENTRY,
   TECHNICAL_TERMS,
   notReadyAgentNote,
+  AGENT_LIMITED,
+  STILL_CHECKING,
+  STILL_CHECKING_LAUNCH,
+  WALLET_LIMITED,
   type FlowProject,
   type TokenFlowDeps,
 } from './token-launch';
-import { LINKS_CHANGED, STATE_CHANGED, LaunchError, repoHasTokenNote, TOKENS_UNAVAILABLE, type TokenOutcome } from './tokens';
+import {
+  LAUNCHING,
+  LAUNCHING_AGENT,
+  LAUNCH_STUCK,
+  launchStuckAgent,
+  LINKS_CHANGED,
+  NOT_LAUNCHED_YET,
+  STATE_CHANGED,
+  LaunchError,
+  repoHasTokenNote,
+  TOKENS_UNAVAILABLE,
+  walletLimitNote,
+  type TokenOutcome,
+} from './tokens';
 import { RateLimitError } from './rate-limit';
 import { openRows, type OpenEntry } from './bonus-board';
 import { STATS_LABELS } from './stats';
@@ -350,6 +369,7 @@ async function gatherGateReasons(): Promise<[string, string][]> {
   const okDeps: Required<GateDeps> = {
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
+    latest: async () => null,
     screen: async () => {},
   };
   const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
@@ -392,6 +412,7 @@ async function gatherGateAgentNotes(): Promise<[string, string][]> {
   const okDeps: Required<GateDeps> = {
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
     owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
+    latest: async () => null,
     screen: async () => {},
   };
   const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
@@ -590,6 +611,20 @@ const confirmTexts: [string, string][] = [
   ['walletQuestion', walletQuestion(OFFER_WALLET, true)],
   ['walletQuestion: no bonus', walletQuestion(OFFER_WALLET, false)],
   ['TOKEN_ERROR_CONFIRM', TOKEN_ERROR_CONFIRM],
+  // v2.8.1 §A: the launch's builder lines.
+  ['confirmOffer: with the proposal', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' } })],
+  ['yesLine: no bonus', yesLine({ name: 'TipJar', symbol: 'TIP' }, false)],
+  ['proofLineWaiting', proofLineWaiting('main')],
+  ['proofLineWaiting: no branch', proofLineWaiting(null)],
+  ['NOT_LAUNCHED_YET', NOT_LAUNCHED_YET],
+  ['LAUNCHING', LAUNCHING],
+  ['LAUNCH_STUCK', LAUNCH_STUCK],
+  ['STILL_CHECKING', STILL_CHECKING],
+  ['STILL_CHECKING_LAUNCH', STILL_CHECKING_LAUNCH],
+  ['WALLET_LIMITED', WALLET_LIMITED],
+  ['AGENT_LIMITED', AGENT_LIMITED],
+  ['walletLimitNote', walletLimitNote(new Date('2026-10-08T14:20:00Z'))],
+  ['walletLimitNote: no time', walletLimitNote(null)],
   [
     'submitKit: missing answers (C9)',
     submitKit(
@@ -829,6 +864,8 @@ const builderFacing: [string, string][] = [
 // noCoinYet is the AGENT's note (never shown to the builder as written; see entry-text.ts), so it
 // may name launch_token — same bucket as OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS and the tool descriptions.
 const agentFacing: [string, string][] = [
+  ['LAUNCHING_AGENT', LAUNCHING_AGENT],
+  ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
   ['serverInstructions(false)', serverInstructions(false)],
   ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
@@ -961,6 +998,7 @@ async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
       gate: {
         repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
         owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
+        latest: async () => null,
         screen: async () => {},
         ...gate,
       },
@@ -1056,6 +1094,7 @@ async function gatherConfirmNotes(): Promise<[string, TokenOutcome][]> {
       gate: {
         repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
         owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
+        latest: async () => null,
         screen: async () => {},
         ...gate,
       },

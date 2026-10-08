@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CANT_PUSH, NO_WALLET_HINT, SKIP_LINE, confirmDecision, confirmOffer } from './confirm';
+import { CANT_PUSH, NO_WALLET_HINT, SKIP_LINE, confirmDecision, confirmOffer, proofLineWaiting, yesLine } from './confirm';
 import { COIN_FOOTNOTE } from './entry-text';
 
 const W = '0xAb12' + '0'.repeat(32) + '0123';
@@ -11,7 +11,7 @@ test('v2.8 Part C: the offer is the spec four lines, the wallet short, then the 
     confirmOffer(base),
     [
       'Want the builder bonus? It comes with a token.',
-      'Yes: your entry gets a token on Base. You earn 40% of its trading fees and compete for the builder bonus (top 10 on each program, paid in ETH).',
+      'Yes: your entry gets a token on Base. You earn 40% of its trading fees, plus a shot at the builder bonus.',
       'Skip: no token, no builder bonus.',
       'Wallet for fees and any bonus: 0xab12…0123 (used last time), or tell me another.',
       '',
@@ -44,8 +44,8 @@ test('Ruling 31 (plan): the no-bonus variant', () => {
   assert.equal(
     t,
     [
-      'Want a token for your entry? It earns you 40% of its trading fees.',
-      'Yes: your entry gets a token on Base.',
+      'Want a token for your entry?',
+      'Yes: your entry gets a token on Base. You earn 40% of its trading fees.',
       'Skip: no token.',
       'Wallet for fees: 0xab12…0123, or tell me another.',
       '',
@@ -69,4 +69,24 @@ test('Ruling 4 (plan): confirmDecision', () => {
   assert.equal(confirmDecision({ ...ok, policyOff: true }).kind, 'record_only');
   assert.equal(confirmDecision({ ...ok, available: false }).kind, 'record_only');
   assert.deepEqual(confirmDecision(ok), { kind: 'launch' });
+});
+
+test('v2.8.1 §A2: the Yes line names the ticker and the name, and is the only "40%" in the offer', () => {
+  const tip = { name: 'TipJar', symbol: 'TIP' };
+  assert.equal(yesLine(tip, true), 'Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at the builder bonus.');
+  assert.equal(yesLine(tip, false), 'Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees.');
+  for (const hasBonus of [true, false]) {
+    const t = confirmOffer({ ...base, hasBonus, proposal: tip });
+    assert.ok(t.split('\n').includes(yesLine(tip, hasBonus)), t);
+    assert.equal(t.match(/40%/g)?.length, 1, t);
+  }
+});
+
+test('v2.8.1 §A3: a second proof-line miss names the branch, keeps the launch open, never another agent', () => {
+  assert.equal(
+    proofLineWaiting('main'),
+    "Your entry is saved. Your token is waiting on a short proof line on your repo's main branch; say go once I've pushed it.",
+  );
+  assert.match(proofLineWaiting(null), /your repo's default branch;/);
+  assert.doesNotMatch(proofLineWaiting('main'), /Claude Code|Cursor|Codex|—/);
 });

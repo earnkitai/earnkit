@@ -29,14 +29,14 @@ const fork = repo({ fork: true, parent: { full_name: 'acme/kit', default_branch:
 
 test('repoCodeFacts: a public non-fork is two reads, no compare', async () => {
   await withGitHub({ '/repos/bob/kit': repo(), [COMMITS]: json([{ sha: 'a' }]) }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: false, hasCommits: true, aheadOfParent: null });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' });
     assert.deepEqual(calls.sort(), ['/repos/bob/kit', COMMITS].sort());
   });
 });
 
 test('repoCodeFacts: a fork with commits is compared with its parent (per_page=1)', async () => {
   await withGitHub({ '/repos/bob/kit': fork, [COMMITS]: json([{ sha: 'a' }]), [COMPARE]: json({ ahead_by: 3 }) }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: true, aheadOfParent: 3 });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: true, aheadOfParent: 3, defaultBranch: 'main' });
     assert.equal(calls.length, 3);
     assert.equal(calls.at(-1), COMPARE);
   });
@@ -45,7 +45,7 @@ test('repoCodeFacts: a fork with commits is compared with its parent (per_page=1
 test('repoCodeFacts: an empty repo (409) is no commits, and an empty fork is never compared', async () => {
   const empty = json({ message: 'Git Repository is empty.' }, 409);
   await withGitHub({ '/repos/bob/kit': fork, [COMMITS]: empty }, async (calls) => {
-    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: false, aheadOfParent: null });
+    assert.deepEqual(await repoCodeFacts('bob/kit'), { fork: true, hasCommits: false, aheadOfParent: null, defaultBranch: 'main' });
     assert.equal(calls.length, 2);
   });
 });

@@ -11,6 +11,8 @@ import {
   ownershipProblems,
   parseOwnershipFile,
   fetchOwnershipViaApi,
+  fetchOwnershipLatestBranch,
+  shownBranch,
   deployerOf,
   type DeployerLookup,
   type FetchResult,
@@ -508,4 +510,35 @@ test('v2.4: a contract deployed by the wallet that signed the entry is proven; e
     entryMessage('earnkit-campaign-1-base', 'github.com/alice/tipjar', PAYOUT, [C2, C1]),
     `EarnKit entry: earnkit-campaign-1-base github.com/alice/tipjar ${PAYOUT} ${C1},${C2}`,
   );
+});
+
+test('v2.8.1 §A3: the most recently pushed other branch: one API call (push activity), then the file at that commit from raw', async () => {
+  const r = { owner: 'acme', repo: 'kit' };
+  const sha = (c: string) => c.repeat(40);
+  const urls: string[] = [];
+  const activity = (items: unknown, status = 200) => async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify(items), { status });
+  };
+  const rawUrls: string[] = [];
+  const raw = async (url: string) => { rawUrls.push(url); return { status: 'ok' as const, text: 'token: x' }; };
+  const pushes = [
+    { ref: 'refs/heads/main', after: sha('a') },
+    { ref: 'refs/tags/v1', after: sha('b') },
+    { ref: 'refs/heads/gone', after: sha('0') },
+    { ref: 'refs/heads/feat/proof', after: sha('c') },
+    { ref: 'refs/heads/older', after: sha('d') },
+  ];
+  const got = await fetchOwnershipLatestBranch(r, 'main', { fetch: activity(pushes) as typeof fetch, raw, token: 't' });
+  assert.deepEqual(got, { branch: 'feat/proof', file: { status: 'ok', text: 'token: x' } });
+  assert.deepEqual(urls, ['https://api.github.com/repos/acme/kit/activity?activity_type=push&per_page=10']);
+  assert.deepEqual(rawUrls, [`https://raw.githubusercontent.com/acme/kit/${sha('c')}/earnkit.txt`]);
+  // Nothing but the default branch, an API error, junk, or a network failure: null (the default answer stands).
+  assert.equal(await fetchOwnershipLatestBranch(r, 'main', { fetch: activity([pushes[0]]) as typeof fetch, raw }), null);
+  assert.equal(await fetchOwnershipLatestBranch(r, 'main', { fetch: activity({ message: 'x' }, 403) as typeof fetch, raw }), null);
+  assert.equal(await fetchOwnershipLatestBranch(r, 'main', { fetch: activity({ not: 'a list' }) as typeof fetch, raw }), null);
+  assert.equal(await fetchOwnershipLatestBranch(r, 'main', { fetch: (async () => { throw new TypeError('down'); }) as typeof fetch, raw }), null);
+  assert.equal(rawUrls.length, 1);
+  assert.equal(shownBranch('feat/proof-1.2'), 'feat/proof-1.2');
+  assert.equal(shownBranch('x"; rm -rf'), null);
 });
