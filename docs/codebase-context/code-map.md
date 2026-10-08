@@ -336,7 +336,8 @@ apps/frontend/
                                routes answer 429 + Retry-After. ENTRIES_PER_CAMPAIGN = 3
                                (recordSubmission counts under the campaign's entry lock)
     repo-cache.ts(+test)       GitHub repo facts for matching (chains, commits since each window
-                               start) in github_repo_facts, 1 h per (repo, pushed_at)
+                               start, v2.9 A2 product: the repo's own signals and contract
+                               candidates) in github_repo_facts, 1 h per (repo, pushed_at)
     installations.ts(+test)    save / touch installation by token hash or (v2.4) OAuth client key
                                (client_key); memory (GitHub, working_on, last payout wallet);
                                rememberWallets, installationWallets (installation_wallets);
@@ -410,11 +411,17 @@ apps/frontend/
                                sponsor campaigns never offered; no per-row bonus column or
                                affiliation note any more (BONUS_NOTE removed, Ruling 14 (plan); the
                                policy page keeps that text, linked from the footer and the guide page)
+    earnkit-orgs.ts            v2.9 A1: EARNKIT_ORGS (import-free; programs.ts re-exports it)
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
+                               v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
+                               SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
                                RepoFacts, keeping url only when campaigns.ts githubRepo parses it
                                (Ruling 13), else ''
-    match-projects.ts          repo matching for list_programs + get_program's eligibility check; v2.8.1 §B6:
+    match-projects.ts          repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
+                               droppedRepo pre-filter, contributed repos by ownerOk share, repoKey merge,
+                               SCORE_LIMIT 8 scored under one LIST_BUDGET, MatchDeps seam,
+                               cachedRepoAddresses (file contracts for entry checks); v2.8.1 §B6:
                                ReportedRepoInput never fails (reportedChain(s): any chain string, unknown ones
                                dropped, chain ids via match.ts chainOfId, truncated at 20; reportedDate: no timezone
                                = UTC; reportedUrl: bare host gets https://), LocalReposInput skips an unreadable repo
@@ -606,7 +613,7 @@ apps/frontend/
                                v2.8.1 §C11: questionsFor's `wallet` (WALLET_KEY payout_wallet,
                                walletAsk: joined to contact, else its own item, else the last);
                                §C15: the proof-link fix only on a proof field (links, demo, how it works)
-    answer-bank.ts(+test)      v2.8 Task 9: projectKey, readBank, saveBank (table answer_bank,
+    answer-bank.ts(+test)      v2.8 Task 9: projectKey, v2.9 repoKey (owner/repo), readBank, saveBank (table answer_bank,
                                Ruling 6: per installation, never public), saveApplication
                                (projects.application); final review M6: bankKeepsContact, contact
                                never banked or read under a name: key
