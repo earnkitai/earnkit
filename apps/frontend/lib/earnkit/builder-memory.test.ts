@@ -143,6 +143,13 @@ test('3.6 tell: outcomes are self-reports on the own newest entry (lost is not_s
 
 test('Ruling G6: a shared client has no memory key; an installation of its own does', () => {
   assert.equal(memoryKey({ installationId: 7, sharedClient: true }), null);
-  assert.equal(memoryKey({ installationId: 7 }), 7);
-  assert.equal(memoryKey({ installationId: 7, sharedClient: false }), 7);
+  assert.deepEqual(memoryKey({ installationId: 7 }), { installationId: 7, login: '' });
+  assert.deepEqual(memoryKey({ installationId: 7, sharedClient: false }), { installationId: 7, login: '' });
+});
+
+test('v2.9 B9 (G6, G9): a shared client keys memory by the verified login of its pasted code; never on its own installation', () => {
+  assert.deepEqual(memoryKey({ installationId: 7, sharedClient: true, verifiedLogin: 'Alice' }), { installationId: 7, login: 'alice' });
+  assert.equal(memoryKey({ installationId: 7, sharedClient: true, verifiedLogin: null }), null);
+  // Not shared: the installation is the identity, whatever login is passed.
+  assert.deepEqual(memoryKey({ installationId: 7, verifiedLogin: 'alice' }), { installationId: 7, login: '' });
 });

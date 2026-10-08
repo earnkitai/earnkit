@@ -2720,6 +2720,7 @@ test('v2.9 B9: an agent that can push gets the sign-in link only after a proof-l
       const ctx = noProofLine(t);
       const first = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
       assert.doesNotMatch(first.show_to_builder, /github\/verify/);
+      assert.match(first.agent_note ?? '', /agent: \{ can_push: false \}: the builder gets a one-click GitHub sign-in instead\./);
       const second = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, ctx)) as Confirmed;
       assert.ok(second.kit);
       assert.ok(second.show_to_builder.startsWith(`${proofLineWaiting(null)}\nOne click to prove Tip Jar is yours`), second.show_to_builder);

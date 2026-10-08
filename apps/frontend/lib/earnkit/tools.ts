@@ -27,7 +27,7 @@ import {
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
-import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
+import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory, type MemoryKey } from './builder-memory';
 import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
   GitHubError,
@@ -643,6 +643,9 @@ export const SIGN_IN_NOTE =
 /** v2.9 B9 (Ruling G9): on a shared client the sign-in page gives the builder a code for the agent. */
 export const SIGN_IN_CODE_NOTE =
   'The page gives the builder a code: pass it as signed_in on this and later calls (list_programs, tell_earnkit, launch_token).';
+/** v2.9 B9: the proof-line miss's way out for an agent that can't push, with sign-in on. */
+export const CANT_PUSH_SIGN_IN_NOTE =
+  "If you can't push to this repo, call confirm_entry again with agent: { can_push: false }: the builder gets a one-click GitHub sign-in instead.";
 /** v2.9 B9: after a proof-line miss, the sign-in is the other way. */
 export const SIGN_IN_OR_NOTE =
   "Or show the sign-in line; when the builder says they signed in, call confirm_entry again with decision 'go'.";
@@ -1459,7 +1462,9 @@ export const tools = {
             (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
             (await walletMemory(ctx)))
           : null;
-        const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;
+        // v2.9 B9: with sign-in on, an agent that can't push gets the sign-in line, not a record without a token.
+        const pushNote = signIn && token.proof_line ? token.agent_note?.replace(CANT_PUSH_RETRY_NOTE, CANT_PUSH_SIGN_IN_NOTE) : token.agent_note;
+        const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : pushNote;
         return {
           project_id: entry.id,
           token,
