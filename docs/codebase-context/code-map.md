@@ -755,7 +755,8 @@ apps/frontend/
                                campaign under its lease, then builder bonus scoring (scoreOpenRounds),
                                the ledger with its rounds step (bonus-payout advanceRounds), then the fee
                                refresh; needs_owner incl. PAY_FAILED_RUNS failed pay steps in a row
-                               and a MANUAL_CHECK bonus sweep; BONUS_WALLET_UNSET when the ledger is
+                               and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
+                               index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
                                skipped (key missing or malformed, off mainnet) while bonusLive,
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
@@ -779,10 +780,13 @@ apps/frontend/
                                the program window; v2.8.1 §D: once the coin's program is over, the
                                repo's next open entry via rolloverRound, else the Safe; a booked
                                deposit is never moved), lockRound, collectNearEnd (isRevert: only a revert skips a
-                               locker), claimFees (M10: also when the sweep waits on it),
+                               locker), claimFees (M10: also when the sweep waits on it; v2.9 D16:
+                               claimOwners = bonus, Safe, creators, MINI once each; feeRecipients
+                               cached on projects.fee_recipients; D18 fee_claims ops log),
+                               v2.9 D17: GAS_LOW, gasMinWei, NEEDS_GAS, BonusRpc.rewardInfo/ethBalance,
                                sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
                                indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
-                               runBonusLedger (the cron step; a malformed key is a skip, Ruling 19;
+                               runBonusLedger (the cron step; v2.9: `gas` check first; a malformed key is a skip, Ruling 19;
                                one `nonces` floor per run; `rounds` hook after the claims, before
                                the sweep)
     bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
@@ -806,7 +810,11 @@ apps/frontend/
                                paid line, a re-run that signs nothing. Skips without
                                BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
-                               WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy
+                               WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy; v2.9 re-exports
+                               MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT
+    policy-constants.ts        v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
+                               GAS_WALLET_MIN_WEI_DEFAULT; a leaf so bonus-ledger.ts can import them
+                               (policy.ts imports bonus-payout/traction, which import bonus-ledger)
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
@@ -939,7 +947,8 @@ apps/frontend/
                                submit_api, form, results; projects.confirmed_at, confirm_choice,
                                complete_at (one backfill, DO block), own_token_url, application,
                                outcome_asked_at; installations.fit_chains; answer_bank; entry_outcomes
-                               (UNIQUE project_id, round_label, basis; basis announcement | self_reported))
+                               (UNIQUE project_id, round_label, basis; basis announcement | self_reported);
+                               v2.9 Task 9: projects.fee_recipients (jsonb), fee_claims (ops log, never revenue))
   scripts/                     db-migrate.mts, programs-sync.mts (load .env.local); v2.7: programs-sync
                                writes the guide columns; --check (pnpm programs:check) also checks each logo file
                                (logo-check.ts) and the required items' todo; v2.8 Task 12: also validates
@@ -954,7 +963,9 @@ apps/frontend/
                                 and guide facts, builder_bonus unchanged; v2.8: the complete_at backfill
                                 over f4923fb rows (eligible set unchanged, runs once), the kit and bank
                                 columns, and (Task 12) results/outcome_asked_at/fit_chains defaults and
-                                entry_outcomes' unique key, CHECKs, re-run survival and cascade
+                                entry_outcomes' unique key, CHECKs, re-run survival and cascade;
+                                v2.9 Task 9: fee_recipients NULL on old rows, fee_claims role CHECK and
+                                re-run survival
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate
