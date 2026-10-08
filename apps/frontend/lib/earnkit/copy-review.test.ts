@@ -19,8 +19,8 @@ import {
   BONUS_MOVES,
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
-import { bonusClose, presentFirstMessage, tokenOffer, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, TOKEN_OFFER_NOTE, tools } from './tools';
+import { bonusClose, presentFirstMessage, tokenOffer, tokenOfferAgain, type Card, type FirstMessage } from './present';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, OFFER_NOT_SHOWN, TOKEN_OFFER_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -883,9 +883,14 @@ const signInTexts: [string, string][] = [
 
 // v2.9 B10: the first reply's token offer (each wallet and bonus form) and launch_token's skip line.
 const offerFacts = { project: 'TipJar', program: 'Arc Microgrants', prize_usd: 500, proposal: { name: 'TipJar', symbol: 'TIP' } };
-const tokenOfferTexts: [string, string][] = [true, false].flatMap((hasBonus) =>
-  [true, false].map((walletKnown): [string, string] => [`tokenOffer(${hasBonus}, ${walletKnown})`, tokenOffer({ ...offerFacts, hasBonus, walletKnown })]),
-);
+const tokenOfferTexts: [string, string][] = [
+  ...[true, false].flatMap((hasBonus) =>
+    [true, false].map((walletKnown): [string, string] => [`tokenOffer(${hasBonus}, ${walletKnown})`, tokenOffer({ ...offerFacts, hasBonus, walletKnown })]),
+  ),
+  ['tokenOffer (wallet)', tokenOffer({ ...offerFacts, hasBonus: true, walletKnown: true, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' })],
+  ['tokenOfferAgain', tokenOfferAgain({ proposal: offerFacts.proposal, walletKnown: false }, 'TIPJ')],
+  ['OFFER_NOT_SHOWN', OFFER_NOT_SHOWN],
+];
 
 const builderFacing: [string, string][] = [
   ['applied outside EarnKit', appliedOutsideText],

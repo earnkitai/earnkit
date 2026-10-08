@@ -2597,21 +2597,26 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   - **Wallet:** "known" only when remembered on a non-shared client (`walletMemory`, G7).
   - **Reply:** `token_offer: { program_id, repo_url, project_name, proposed, agent_note }`.
   - **Errors:** any error drops the offer, never the reply.
-- **`launch_token` with `offer` (`tools.ts launchFromOffer`).** `LaunchTokenInput` takes exactly
-  one of `project_id` or `offer`, plus `decision` (default `go`) and `agent: { can_push }`.
+- **`launch_token` with `offer` (`tools.ts launchFromOffer`, Ruling G13).** `LaunchTokenInput` takes
+  exactly one of `project_id` or `offer`, plus `decision` (default `go`) and `agent: { can_push }`.
   `builder_confirmed` is required for `go` only. `mcp.ts` registers the same fields (P45).
-  - **`skip`:** `recordDecline` returns the decline count. The builder sees "No token for now.",
-    and no entry is made.
-  - **`go`:** the program must be open and not a campaign. `startEntry` (choice `go`, no answers)
-    makes or finds the draft entry; the 20 a day is charged only for a new row. An entry that
-    already has a token returns it, and nothing launches twice.
-  - **The launch:** `launchToken` runs through the usual flow and gate, using the pair from
-    `token_offers`. The agent's name or ticker edits win.
-  - **Sign-in:** if the gate stops on the proof line, `SIGN_IN_FIRST` or `WALLET_CHANGED`, and
-    sign-in is on, the reply carries `sign_in`, `sign_in_line` and `fixable: true`. The link is
-    bound to the entry and this call's `creator_wallet` (G11).
-  - **Can't push:** with `can_push: false` and sign-in off, the reply is `CANT_PUSH`, with no
-    entry made.
+  - **`skip`:** a decline (G12), and no entry is made.
+  - **Program check:** the program filters are checked again (open, not a campaign, sponsor's or
+    investment, a known prize, tokens on); otherwise "No token for this entry."
+  - **The pair:** only an offer stored in `token_offers` launches ("Nothing launched: this token was
+    not offered yet." otherwise). A name or ticker other than the one shown is offered again
+    (`present.ts tokenOfferAgain`, no "40%") and stored; nothing launches.
+  - **The wallet:** a wallet is needed. It is the remembered one the line named (G13 I1:
+    `token_offer.shown_wallet`, non-shared only, G7), or one given with the yes. Without it the
+    wallet is asked for, and no entry is made.
+  - **The gate first:** `tokenGate` runs before any entry is made. A failure returns its words and
+    leaves no row. With sign-in on, a sign-in stop also returns an `entry` link with no project,
+    bound to the repo, this wallet and the ticker (G11).
+  - **After a sign-in:** such a sign-in (`github-verify.ts offerVerification`: this installation,
+    repo and wallet, and the caller's login on a shared client) stands in for that first gate.
+  - **Once proven:** `startEntry` makes the draft (choice `go`, the 20 a day only for a new row).
+    `claimOfferVerification` binds the sign-in to it, and the usual `launchToken` runs, with the
+    gate, one token per repo and the limits. A retry returns the existing token.
 - **Declines (`token-offers.ts recordDecline`, `declines`, table `token_declines`).** Declines are
   counted per installation, builder `login` and `repoKey` (owner/repo, P7). `confirm_entry` "skip"
   on a token offer also counts one. Ruling G12:
