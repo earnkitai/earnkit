@@ -20,7 +20,7 @@ import {
 } from './entry-text';
 import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -39,8 +39,10 @@ import {
   confirmOffer,
   offerWalletLine,
   proofLineWaiting,
+  signInLine,
   yesLine,
 } from './confirm';
+import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitAgentNote, submitKit, type KitProgram } from './submit-kit';
 import {
   confirmToken,
@@ -864,8 +866,20 @@ const appliedOutsideText = presentFirstMessage({
   hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) },
 });
 
+// v2.9 B9: the sign-in line, the browser pages and the pickup's sign-in words.
+const signInTexts: [string, string][] = [
+  ['signInLine', signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x')],
+  ['signInLine (no ticker)', signInLine('TipJar', null, 'https://earnkit.com/github/verify?n=x')],
+  ...Object.entries(VERIFY_PAGE).map(([k, v]): [string, string] => [`VERIFY_PAGE.${k}`, v]),
+  ['CONFIRM_WARNING', CONFIRM_WARNING],
+  ['codeLine', codeLine('ABCDEFGHJK')],
+  ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', purpose: 'entry', symbol: 'TIP', wallet: null }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
+  ['PICKUP_TEXT.signIn', PICKUP_TEXT.signIn],
+];
+
 const builderFacing: [string, string][] = [
   ['applied outside EarnKit', appliedOutsideText],
+  ...signInTexts,
   ['NOTED_FOR_NOW', NOTED_FOR_NOW],
   ...coachTexts,
   ...outcomeTexts,
@@ -933,6 +947,9 @@ const agentFacing: [string, string][] = [
   ['OUTCOME_SAVED_NOTE', OUTCOME_SAVED_NOTE],
   ['TELL_SAVED_NOTE', TELL_SAVED_NOTE],
   ['TELL_SHARED_NOTE', TELL_SHARED_NOTE],
+  ['SIGN_IN_NOTE', SIGN_IN_NOTE],
+  ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
+  ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
   ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
@@ -1225,4 +1242,12 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
 
 test('v2.9 A3: the applied line reads "applied outside EarnKit"', () => {
   assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
+});
+
+test('v2.9 B9: the sign-in copy: money first, short, no em dashes, the spec line verbatim', () => {
+  assert.equal(signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x'), 'One click to prove TipJar is yours, then $TIP launches: https://earnkit.com/github/verify?n=x');
+  for (const [label, text] of signInTexts) {
+    assert.doesNotMatch(text, /—/, label);
+    assert.doesNotMatch(text, toolNameRe, label);
+  }
 });
