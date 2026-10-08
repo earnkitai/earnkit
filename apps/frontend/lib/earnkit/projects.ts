@@ -568,6 +568,11 @@ export async function recordSubmission(
     verified?: KnownInfo['verified'];
     /** The program row, when the caller already read it (record_submission); else read here. */
     program?: ProgramRow;
+    /**
+     * v2.9 B9 (fix round 2): false on a shared client: the wallet given is not kept on the entry
+     * here (the entry may be another builder's); the token flow keeps it once its gate passed.
+     */
+    keepWallet?: boolean;
   } = {},
 ) {
   const program = deps.program ?? (await getProgramRow(input.program_id));
@@ -689,7 +694,8 @@ export async function recordSubmission(
   let bonusWallet: string | null = null;
   const notes: string[] = bonusNote ? [bonusNote] : [];
   if (bonusOn(program)) {
-    if (input.payout_wallet && isWalletAddress(input.payout_wallet)) bonusWallet = input.payout_wallet.toLowerCase();
+    if (input.payout_wallet && isWalletAddress(input.payout_wallet) && deps.keepWallet !== false)
+      bonusWallet = input.payout_wallet.toLowerCase();
     if (input.contracts?.length) {
       const v = await verifiedBonusContracts(program.id, repo_url, input.payout_wallet, input.contracts, input.deployer_signature, deps);
       if (v.contracts.length) {

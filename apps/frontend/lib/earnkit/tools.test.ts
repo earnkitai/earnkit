@@ -2872,3 +2872,40 @@ test("G6/G7/G9: on a shared client, memory and entries follow the pasted code; a
       await s.cleanup();
     }
   }));
+
+test("G10 (fix round 2): on Grok Bot, user B's record_submission never launches on A's proven repo; no wallet is kept on the entry; A's code launches", dbTest, () =>
+  withTokenEnv(() =>
+    withSignIn(async () => {
+      const t = await confirmSetup('g10rec');
+      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
+      // The repo carries the agent's own proof line (A pushed it): confirmSetup's default reader.
+      const ctx = { ...t.ctx, sharedClient: true };
+      const WB = '0x3333333333333333333333333333333333333333';
+      const rec = (wallet: string, signed_in?: string) =>
+        tools.record_submission(
+          {
+            program_id: t.p.id,
+            project: { ...t.project, description: 'Tips for creators on Arc' },
+            submission_data: t.answers,
+            payout_wallet: wallet,
+            token: { name: t.offered.name, symbol: t.offered.symbol },
+            builder_confirmed: true,
+            ...(signed_in && { signed_in }),
+          },
+          ctx,
+        ) as Promise<{ project_id: number; token?: { status: string } }>;
+      const b = await rec(WB);
+      assert.notEqual(b.token?.status, 'launched');
+      assert.equal(t.calls.deploy, 0);
+      const [row] = await sql()<{ creator_wallet: string | null }[]>`SELECT creator_wallet FROM projects WHERE id = ${b.project_id}`;
+      assert.equal(row.creator_wallet, null, 'B\'s wallet is not kept on the entry');
+      // A signs in for this entry (with W8); B, without A's code, still gets nothing.
+      const codeA = await signInAs(t.inst, b.project_id, t.repo, 'alice');
+      assert.notEqual((await rec(WB)).token?.status, 'launched');
+      assert.notEqual((await rec(W8)).token?.status, 'launched', 'the right wallet but no code');
+      assert.equal(t.calls.deploy, 0);
+      // A, with the code and the wallet the sign-in was made for: launched.
+      assert.equal((await rec(W8, codeA!)).token?.status, 'launched');
+      assert.deepEqual(t.calls.wallets, [W8]);
+    }),
+  ));

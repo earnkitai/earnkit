@@ -1544,6 +1544,8 @@ export const tools = {
     const result = await recordSubmission(parsed, ctx.installationId, {
       program,
       verified,
+      // v2.9 B9 (fix round 2): a shared client keeps a wallet on an entry only once the gate passed.
+      keepWallet: !ctx.sharedClient,
       ...ctx.entryDeps,
       charge: () =>
         enforce(
