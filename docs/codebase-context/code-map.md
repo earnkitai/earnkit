@@ -150,6 +150,8 @@ apps/frontend/
                                the link carries ?s=SYMBOL and 404s unless it matches the stored ticker
   app/mcp/route.ts             hosted MCP server (Streamable HTTP, stateless, Bearer token)
   app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
+  app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
+                                             GitHub's callback; re-export github-verify.ts handlers
   app/.well-known/             OAuth discovery metadata
   lib/earnkit/
     db.ts                      postgres.js pool (DATABASE_URL)
@@ -684,7 +686,15 @@ apps/frontend/
     match-loop.ts(+test)       v2.9 A8: recordShown (match_shown, one row per day), saveEntryScore
                                (projects.product_score at confirmation), matchStats (pure, 30 labelled
                                minimum), updateMatchFloors (programs:sync: match_floor, match_precision)
-    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts), BuilderMemory,
+    github-verify.ts(+test)    v2.9 B9: Sign in with GitHub. githubVerifyEnabled (both OAuth vars), createVerifyLink
+                               (github_verify_nonces, sha256 only, 15 min), peekNonce/takeNonce (atomic, single use),
+                               nonceDetails, ownershipPasses, githubOAuth (exchange, user, repoPerms), completeVerify,
+                               verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
+                               entryVerifyLink, entryLinkShown, VERIFY_PAGE, CONFIRM_WARNING, codeLine; route handlers
+                               verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
+                               verifyCallback (code + state + cookie only)
+    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in), BuilderMemory, MemoryKey
+                               (memoryKey: own installation login '', a shared client's verified login, else null),
                                SaidRepo, readMemory (builder_program_status, builder_repo_facts),
                                tell (all checks first, then one transaction; outcomes via
                                saveSelfReport, lost = not_selected), roundLabel, hiddenPrograms,
