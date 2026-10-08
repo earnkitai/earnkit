@@ -1,6 +1,7 @@
 import { githubRepo } from './campaigns';
 import { CHAINS, CHAIN_NAMES, type Chain } from './chains';
 import { EARNKIT_ORGS } from './earnkit-orgs';
+import type { SaidRepo } from './builder-memory';
 
 /**
  * Matching a builder's public repos to open programs (pure; no network).
@@ -304,7 +305,40 @@ export type RepoFacts = {
   product?: Product;
   /** v2.9 A5: the live link loaded from here (a probe passed). */
   live_verified?: boolean;
+  /** v2.9 A3: what the builder said that raises eligibility; unverified until a check backs it. */
+  claims?: Claim[];
 };
+
+/** v2.9 A3: a statement that raises eligibility: a mainnet deploy, a live link, real users. */
+export type Claim = 'mainnet' | 'live' | 'users';
+/** v2.9 A3: the evidence on a chain whose mainnet only the builder (or their agent's report) vouches for. */
+export const CLAIMED_MAINNET = 'the builder said mainnet';
+const CLAIM_WORDS: Record<Claim, string> = { mainnet: 'mainnet', live: 'live link', users: 'users' };
+
+/**
+ * v2.9 A3: the builder's statements over a repo's facts. A statement that lowers eligibility always
+ * wins (testnet only clears that chain's mainnet; not_mine drops the repo: null); one that raises it
+ * is a claim (a mainnet chain the code doesn't show, a live link when there is none, users). Pure.
+ */
+export function applyBuilderFacts(f: RepoFacts, said: SaidRepo | undefined): (RepoFacts & { claims: Claim[] }) | null {
+  if (!said) return { ...f, claims: f.claims ?? [] };
+  if (said.not_mine) return null;
+  const chains: Detection = structuredClone(f.chains);
+  const claims = new Set<Claim>(f.claims ?? []);
+  for (const c of said.testnet) chains[c] = { mainnet: false, testnet: true, evidence: chains[c]?.evidence ?? 'the builder said testnet only' };
+  for (const c of said.mainnet) {
+    if (said.testnet.includes(c) || chains[c]?.mainnet) continue;
+    chains[c] = { mainnet: true, testnet: chains[c]?.testnet ?? false, evidence: CLAIMED_MAINNET };
+    claims.add('mainnet');
+  }
+  let homepage = f.homepage;
+  if (!homepage && said.live_url) {
+    homepage = said.live_url;
+    claims.add('live');
+  }
+  if (said.has_users) claims.add('users');
+  return { ...f, chains, homepage, claims: [...claims] };
+}
 
 export type ProgramFacts = {
   id: string;
@@ -410,23 +444,31 @@ export function matchRepo(
 ): Verdict[] {
   const verdicts: Verdict[] = [];
   const product = repo.product;
+  const claims = repo.claims ?? [];
   if (product?.tier === 'noise') return verdicts;
   for (const p of programs) {
     const chain = p.chains.find((c) => repo.chains[c]);
     if (!chain && !p.any_chain) continue;
     if (product && product.score < (p.min_product_score ?? 0)) continue;
     if (product && (p.any_chain || p.investment) && product.tier !== 'product') continue;
+    // v2.9 A3: the builder's claims this program's verdict relies on that no check backs yet.
+    const open: Claim[] = [];
+    if (chain && !p.any_chain && repo.chains[chain]?.mainnet && repo.chains[chain]?.evidence === CLAIMED_MAINNET) open.push('mainnet');
+    if (claims.includes('live') && repo.live_verified !== true) open.push('live');
+    if (claims.includes('users') && p.tag === 'needs a live product') open.push('users');
     const v = (
       status: Verdict['status'],
       note: string | null,
       missing: Missing[] = [],
       effort?: Effort,
-    ) =>
+    ) => {
+      // v2.9 A2: only a product can be likely. v2.9 A3: never on an unverified claim ("confirm").
+      const project = status === 'likely' && product && product.tier !== 'product';
+      const unconfirmed = status === 'likely' && !project && open.length > 0;
       verdicts.push({
         program_id: p.id,
         program: p.title,
-        // v2.9 A2: only a product can be likely.
-        status: status === 'likely' && product && product.tier !== 'product' ? 'after_step' : status,
+        status: project || unconfirmed ? 'after_step' : status,
         missing,
         effort:
           effort ??
@@ -437,8 +479,13 @@ export function matchRepo(
                 : max,
             'none',
           ),
-        note: status === 'likely' && product && product.tier !== 'product' ? missingSignalNote(product) : note,
+        note: project
+          ? missingSignalNote(product!)
+          : unconfirmed
+            ? `confirm: ${open.map((c) => CLAIM_WORDS[c]).join(' and ')}`
+            : note,
       });
+    };
 
     if (p.existing_work === 'new_work_only') {
       // Existing code doesn't count here; an active repo can only enter with new work.
@@ -456,6 +503,12 @@ export function matchRepo(
     }
 
     if (p.tag === 'needs a live product') {
+      // v2.9 A3: a users claim clears real_users; the row then waits on "confirm: users".
+      if (claims.includes('users')) {
+        if ((product && !repo.live_verified) || (!product && !repo.homepage)) v('after_step', 'needs a live link', ['live_url']);
+        else v('likely', 'looks eligible');
+        continue;
+      }
       // v2.9 A2: never likely while users are unproven; a link counts once it loaded from here.
       if (product && repo.live_verified) v('after_step', 'needs real users', ['real_users']);
       else if (product) v('after_step', 'needs a live product with real users', ['live_url', 'real_users']);

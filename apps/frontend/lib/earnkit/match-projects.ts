@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
   CHAINS,
+  CLAIMED_MAINNET,
   DEFAULT_README,
+  applyBuilderFacts,
   KNOWN_TOKEN_ADDRESSES,
   TUTORIAL,
   TUTORIAL_DESCRIPTION,
@@ -15,6 +17,7 @@ import {
   reportedFacts,
   pickFiles,
   type Chain,
+  type Claim,
   type Detection,
   type Product,
   type ProgramFacts,
@@ -28,6 +31,7 @@ import { sql } from './db';
 import { placeholderLink } from './placeholder';
 import { githubRepo } from './campaigns';
 import { repoKey } from './answer-bank';
+import type { SaidRepo } from './builder-memory';
 import {
   CheckBudget,
   GETCODE_PER_REPO,
@@ -594,6 +598,8 @@ export const MatchProjectsInput = z
     repos: z.array(z.string()).max(REPO_LIMIT).optional(),
     /** Private or local repos, as the agent sees them. */
     local_repos: z.array(ReportedRepoInput).max(20).optional(),
+    /** v2.9 A3: what the builder told EarnKit about their repos (builder-memory.ts), by repo key. Never from an agent's input. */
+    said: z.record(z.string(), z.custom<SaidRepo>()).optional(),
   })
   .strict()
   .refine((i) => i.github_user || i.repos?.length || i.local_repos?.length, {
@@ -638,6 +644,8 @@ type ScoreCtx = {
   cache: NonNullable<MatchDeps['cache']>;
   /** v2.9 plan Ruling 2: the local report of the same repo (it adds a live link or chains GitHub lacks). */
   local?: ReportedRepo;
+  /** v2.9 A3: what the builder said about this repo, applied before the link and contract checks (Pre-flight P15). */
+  said?: SaidRepo;
 };
 
 const within = (iso: string | undefined | null, days: number, now: Date) =>
@@ -712,13 +720,25 @@ async function builderActive(repo: Repo, builder: string, now: Date) {
   );
 }
 
-/** Adds the chains a local report names that GitHub's files don't show (claims; plan Ruling 2). */
+/**
+ * Adds the chains a local report names that GitHub's files don't show. Plan Ruling 2: a mainnet
+ * GitHub's files don't show is a claim (CLAIMED_MAINNET), like the builder's own word.
+ */
 function withReportedChains(chains: Detection, local?: ReportedRepo): Detection {
   if (!local) return chains;
   const out: Detection = { ...chains };
   for (const c of local.chains)
-    out[c.chain] ??= { mainnet: c.mainnet, testnet: !c.mainnet, evidence: 'reported by the agent' };
+    out[c.chain] ??= { mainnet: c.mainnet, testnet: !c.mainnet, evidence: c.mainnet ? CLAIMED_MAINNET : 'reported by the agent' };
   return out;
+}
+
+/**
+ * v2.9 A3, Pre-flight P15: the builder's statements over a repo's facts, before the link and
+ * contract checks, so a claimed live link is probed like a homepage (one LIST_BUDGET). A repo the
+ * builder said isn't theirs never gets here (matchProjects drops it). Pure.
+ */
+function said(f: RepoFacts, s: SaidRepo | undefined): RepoFacts & { claims: Claim[] } {
+  return applyBuilderFacts(f, s ? { ...s, not_mine: false } : undefined)!;
 }
 
 /**
@@ -776,9 +796,27 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
       cached?.product ? cached.fetched_at : undefined,
     );
 
-  const allChains = withReportedChains(chains, ctx.local);
-  // v2.9 A5: a placeholder homepage is no homepage. Plan Ruling 2: GitHub's wins, else the local link.
-  const homepage = (repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null) ?? ctx.local?.live_url ?? null;
+  // v2.9 A5: a placeholder homepage is no homepage. Plan Ruling 2: GitHub's wins, else the local
+  // link, which is a claim (like a mainnet only the local report names).
+  const ownHomepage = repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null;
+  const reported = withReportedChains(chains, ctx.local);
+  const claims: Claim[] = [
+    ...(!ownHomepage && ctx.local?.live_url ? (['live'] as const) : []),
+    ...(Object.values(reported).some((c) => c?.mainnet && c.evidence === CLAIMED_MAINNET) ? (['mainnet'] as const) : []),
+  ];
+  const base = said(
+    {
+      name: repo.name,
+      url: repo.html_url,
+      homepage: ownHomepage ?? ctx.local?.live_url ?? null,
+      created_at: repo.created_at,
+      chains: reported,
+      commits_in_window,
+      claims,
+    },
+    ctx.said,
+  );
+  const { homepage, chains: allChains } = base;
   // Plan Ruling 1: a commit by the builder in 90 days; without a known builder, a push in 90 days.
   const active = ctx.builder
     ? ((await builderActive(repo, ctx.builder, ctx.now)) ?? within(repo.pushed_at, 90, ctx.now))
@@ -789,16 +827,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     pairs: contractPairs([...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains)),
     finish: ({ live, deployed, unchecked }) => {
       const product = productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []);
-      const facts: RepoFacts = {
-        name: repo.name,
-        url: repo.html_url,
-        homepage,
-        created_at: repo.created_at,
-        chains: allChains,
-        commits_in_window,
-        product,
-        live_verified: live,
-      };
+      const facts: RepoFacts = { ...base, product, live_verified: live };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
@@ -809,8 +838,8 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  * active is a last commit within 90 days, or no date given (Ruling G3; young follows it); original
  * reads the name only.
  */
-function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now'>): Prepared {
-  const facts = reportedFacts(r, programs);
+function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said'>): Prepared {
+  const facts = said(reportedFacts(r, programs), ctx.said);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
   const active = r.last_commit_at === undefined || within(r.last_commit_at, 90, ctx.now);
   return {
@@ -901,13 +930,22 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     }
     candidates.set(key, { key, owned, local: r });
   }
-  const toScore = [...candidates.values()].sort((a, b) => recency(b) - recency(a)).slice(0, SCORE_LIMIT);
+  // v2.9 A3: what the builder said, by repo key (else by the repo's name); a repo they said isn't
+  // theirs is never scored (it still counts in `checked`).
+  const saidOf = (c: Candidate) => {
+    const name = c.github?.name ?? c.local?.name ?? '';
+    return input.said?.[c.key] ?? input.said?.[repoKey({ name })];
+  };
+  const toScore = [...candidates.values()]
+    .filter((c) => !saidOf(c)?.not_mine)
+    .sort((a, b) => recency(b) - recency(a))
+    .slice(0, SCORE_LIMIT);
 
   const checks: CheckDeps = { ...deps.checks, now };
   const cache = deps.cache ?? { load: loadRepoFacts, save: saveRepoFacts };
   // The reads run in parallel; then one LIST_BUDGET of checks, newest repos first (Ruling G5).
   const prepared = await mapLimit(toScore, 6, async (c) => {
-    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local };
+    const ctx: ScoreCtx = { builder, owned: c.owned, checks, now, cache, local: c.local, said: saidOf(c) };
     return c.github ? checkRepo(c.github, programs, ctx) : checkLocal(c.local, programs, ctx);
   });
   const deployed = await runChecks(prepared, checks);

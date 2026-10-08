@@ -687,3 +687,25 @@ ALTER TABLE github_repo_facts ADD COLUMN IF NOT EXISTS product jsonb;
 -- v2.9 A2: the lowest product score a repo needs for a matched row (program file
 -- min_product_score; a16z: 5). 0: no floor.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_product_score int NOT NULL DEFAULT 0;
+
+-- v2.9 A3: what the builder told EarnKit about programs (lowers eligibility only).
+CREATE TABLE IF NOT EXISTS builder_program_status (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  program_id      text NOT NULL,
+  status          text NOT NULL CHECK (status IN ('applied', 'not_interested')),
+  round_label     text,
+  at              timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, program_id)
+);
+-- v2.9 A3: what the builder told EarnKit about a repo (repo_key: owner/repo or name:<name>).
+CREATE TABLE IF NOT EXISTS builder_repo_facts (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  repo_key        text NOT NULL,
+  mainnet_chains  text[] NOT NULL DEFAULT '{}',
+  testnet_chains  text[] NOT NULL DEFAULT '{}',
+  live_url        text,
+  has_users       boolean,
+  not_mine        boolean NOT NULL DEFAULT false,
+  at              timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, repo_key)
+);
