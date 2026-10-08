@@ -363,12 +363,6 @@ export async function runCron(
 }
 
 /**
- * POST /api/cron (app/api/cron/route.ts calls it): rate limited per IP, then Bearer CRON_SECRET
- * compared in constant time, then the jobs. 200 normally; 503 (same body) when a campaign's payout
- * waits on the owner (`needs_owner`), so the GitHub Actions run fails and GitHub emails the owner.
- * `deps` for tests.
- */
-/**
  * Whether the bonus ledger's run waits on the owner (the cron answers 503): its sweep's note does
  * (needsOwner), its index failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
  * low on ETH for gas, or a claim or collect result says it needs ETH for gas. Pure.
@@ -385,6 +379,12 @@ export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
   );
 }
 
+/**
+ * POST /api/cron (app/api/cron/route.ts calls it): rate limited per IP, then Bearer CRON_SECRET
+ * compared in constant time, then the jobs. 200 normally; 503 (same body) when a campaign's payout
+ * waits on the owner (`needs_owner`), so the GitHub Actions run fails and GitHub emails the owner.
+ * `deps` for tests.
+ */
 export async function cronPost(
   request: Request,
   deps: { limit?: (ip: string) => Promise<unknown>; run?: () => Promise<unknown> } = {},
