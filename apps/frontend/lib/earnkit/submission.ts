@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { ProjectField, SubmissionRequirement } from './program-file';
+import type { Chain } from './chains';
+import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine } from './placeholder';
 import { BuilderUrl, RAW_CAP, builderUrlProblem } from './untrusted-text';
 
 export const ProjectInfo = z
@@ -12,6 +14,8 @@ export const ProjectInfo = z
     live_url: BuilderUrl.optional(),
     demo_url: BuilderUrl.optional(),
     token_url: BuilderUrl.optional(),
+    // v2.9 A5 (Pre-flight P4): up to 2 mainnet contracts the project deployed, for the contract check.
+    contracts: z.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x contract address')).max(2).optional(),
   })
   .strict();
 export type ProjectInfo = z.infer<typeof ProjectInfo>;
@@ -20,10 +24,26 @@ export type KnownInfo = {
   project?: ProjectInfo;
   /** Answers to program questions, by submission requirement key. */
   answers?: Record<string, string>;
+  /**
+   * v2.9 A5: this entry's link and contract checks (verify.ts entryVerified). When given, a required
+   * item filled from live_url is missing unless the live link loaded, and, when the program needs a
+   * contract on a chain, unless one has code there. Absent: v2.8.1's rules.
+   */
+  verified?: { live: boolean; contract: boolean | null; needsContract: Chain | null };
 };
+
+/** v2.9 A5: why a required live link doesn't count yet (`verified`), or null. Pure. */
+function unverifiedProblem(req: SubmissionRequirement, verified: KnownInfo['verified']): string | null {
+  if (!verified || !req.required || req.project_field !== 'live_url') return null;
+  if (!verified.live) return LIVE_FAILED_LINE;
+  if (verified.needsContract && verified.contract !== true) return contractMissingLine(verified.needsContract);
+  return null;
+}
 
 function problemWith(req: SubmissionRequirement, value: string): string | null {
   const urlProblem = req.type === 'url' ? builderUrlProblem(value) : null;
+  // v2.9 A5: a placeholder link is said as the builder reads it.
+  if (urlProblem === PLACEHOLDER_LINE) return PLACEHOLDER_LINE;
   if (urlProblem) return `Not a valid link: ${urlProblem}.`;
   if (req.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
     return 'Not a valid email.';
@@ -68,7 +88,7 @@ export function prepareSubmission(
       ? project[req.project_field]?.trim()
       : undefined;
     const value = fromAnswer || fromProject;
-    const problem = value ? problemWith(req, value) : null;
+    const problem = value ? (problemWith(req, value) ?? unverifiedProblem(req, known.verified)) : null;
 
     if (value && !problem) {
       complete.push({

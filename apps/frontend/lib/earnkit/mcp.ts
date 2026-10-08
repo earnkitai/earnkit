@@ -26,6 +26,11 @@ const project = z
     live_url: z.string().optional(),
     demo_url: z.string().optional(),
     token_url: z.string().optional(),
+    contracts: z
+      .array(z.string())
+      .max(2)
+      .optional()
+      .describe("Up to 2 of the project's contract addresses on the program's chain (mainnet), when it needs a deployed contract"),
   })
   .describe('What you know about the project so far.');
 
@@ -349,6 +354,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                     `Chains the code targets: a list of names, chain ids or { chain, mainnet } (${CHAINS.join(', ')} count; others are ignored); mainnet false = testnet only`,
                   ),
                 live_url: z.unknown().optional(),
+                contracts: z.unknown().optional().describe('Up to 2 mainnet contract addresses the repo deployed, if you see them'),
                 last_commit_at: z.unknown().optional().describe('ISO 8601; a date alone counts as UTC'),
                 url: z
                   .unknown()

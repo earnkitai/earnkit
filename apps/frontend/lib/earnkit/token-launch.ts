@@ -4,6 +4,7 @@ import { sql } from './db';
 import { rememberWallet, sharedGroup } from './installations';
 import { OWNERSHIP_FILE } from './ownership';
 import { bonusOn } from './bonus-rounds';
+import type { Chain } from './chains';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
 import { answersOf } from './projects';
 import { prepareSubmission, type KnownInfo } from './submission';
@@ -345,6 +346,12 @@ export type FlowProject = {
   description?: string | null;
   demo_url?: string | null;
   submission_data?: Record<string, unknown> | null;
+  /**
+   * v2.9 A5 (Pre-flight P5): the stored link and contract checks (live_verified_at,
+   * contract_verified_at; null reads false) for a program whose requirements use live_url; absent
+   * otherwise. entryMissing reads it when `known` carries none.
+   */
+  verified?: KnownInfo['verified'];
 };
 
 /**
@@ -356,7 +363,8 @@ export type FlowProject = {
 export function entryMissing(project: FlowProject, known?: KnownInfo): { key: string; todo: string }[] {
   if (project.campaign || !project.requirements?.length) return [];
   const opt = (v: string | null | undefined) => v ?? undefined;
-  const info: KnownInfo = known ?? {
+  const info: KnownInfo = known ? { ...known, verified: known.verified ?? project.verified } : {
+    verified: project.verified,
     project: {
       name: project.name,
       description: opt(project.description),
@@ -379,6 +387,21 @@ export const notReadyAgentNote = (keys: string[]) =>
   `Required items are missing (${keys.join(', ')}), so no token was launched. Once the builder has them, ` +
   'call record_submission again with every answer (it updates this entry and launches the token), or ' +
   'launch_token with live_url or repo_url when only a link was missing.';
+
+/** v2.9 A5: an entry's stored checks and its program's contract chain. */
+type StoredChecks = { live_verified_at: Date | null; contract_verified_at: Date | null; needs_contract: Chain | null };
+
+/**
+ * v2.9 A5 (Pre-flight P5): `verified` from the stored checks, for a program whose requirements
+ * fill an item from live_url (null columns read false); others are left as they are. Pure.
+ */
+export function withStoredChecks(project: FlowProject, c: StoredChecks): FlowProject {
+  if (!project.requirements?.some((r) => r.project_field === 'live_url')) return project;
+  return {
+    ...project,
+    verified: { live: c.live_verified_at !== null, contract: c.contract_verified_at !== null, needsContract: c.needs_contract },
+  };
+}
 
 /** The flow's reads and writes, injectable so tests need no database. */
 type FlowStore = {
@@ -413,16 +436,19 @@ export type TokenFlowDeps = {
 
 const dbStore: FlowStore = {
   load: async (projectId) => {
-    const [row] = await sql()<FlowProject[]>`
+    const [row] = await sql()<(FlowProject & StoredChecks)[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.token_claimed_at, p.token_note, p.token_status, p.token_released_at, p.installation_id, pr.token_policy, p.confirm_choice,
         (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
-        (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data
+        (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data,
+        p.live_verified_at, p.contract_verified_at, pr.needs_contract
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.id = ${projectId}`;
-    return row ?? null;
+    if (!row) return null;
+    const { live_verified_at, contract_verified_at, needs_contract, ...project } = row;
+    return withStoredChecks(project, { live_verified_at, contract_verified_at, needs_contract });
   },
   setStatus: setTokenStatus,
   repoToken: repoTokenUrl,
@@ -446,6 +472,8 @@ const dbStore: FlowStore = {
           THEN NULL ELSE submission_basis END,
         submission_proof_checked_at = CASE WHEN repo_url IS NULL AND ${repo}::text IS NOT NULL AND submission_proof_url IS NOT NULL
           THEN NULL ELSE submission_proof_checked_at END,
+        -- v2.9 A5: a new live link is unverified until an entry step checks it.
+        live_verified_at = CASE WHEN ${live}::text IS NOT NULL AND ${live} IS DISTINCT FROM live_url THEN NULL ELSE live_verified_at END,
         live_url = COALESCE(${live}, live_url),
         live_key = CASE WHEN payout_wallet IS NOT NULL AND ${live}::text IS NOT NULL
           THEN ${live && normalizeLiveUrl(live)} ELSE live_key END
@@ -978,15 +1006,20 @@ function toConfirmWords(out: TokenOutcome): TokenOutcome {
  * complete_at is still NULL), so re-running changes nothing. Dry run unless `apply`. Returns counts.
  */
 export async function completeAtWindow(a: { since: Date; until: Date; apply: boolean }) {
-  const rows = await sql()<FlowProject[]>`
+  const rows = await sql()<(FlowProject & StoredChecks)[]>`
     SELECT p.id, p.name, p.repo_url, p.live_url, p.description, p.demo_url,
       pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
-      (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data
+      (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data,
+      p.live_verified_at, p.contract_verified_at, pr.needs_contract
     FROM projects p JOIN programs pr ON pr.id = p.program_id
     WHERE p.complete_at IS NULL AND p.coin_launched_at IS NOT NULL AND p.confirm_choice IS NULL
       AND p.coin_launched_at >= ${a.since} AND p.coin_launched_at <= ${a.until}
     ORDER BY p.id`;
-  const complete = rows.filter((r) => entryMissing(r).length === 0).map((r) => r.id);
+  // v2.9 A5 (Pre-flight P5): an unverified live link is missing here too.
+  const complete = rows
+    .filter(({ live_verified_at, contract_verified_at, needs_contract, ...r }) =>
+      entryMissing(withStoredChecks(r, { live_verified_at, contract_verified_at, needs_contract })).length === 0)
+    .map((r) => r.id);
   let updated = 0;
   if (a.apply && complete.length)
     updated = (

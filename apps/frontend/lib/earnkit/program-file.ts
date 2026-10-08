@@ -413,6 +413,11 @@ export const ProgramFile = z
      * `pnpm programs:check` requires it on every file.
      */
     needs_repo: z.boolean().optional(),
+    /**
+     * v2.9 A5: the live link counts only with a deployed contract on this chain's mainnet (Arc
+     * Microgrants: arc). One of the file's chains, unless any_chain.
+     */
+    needs_contract: z.enum(CHAINS).optional(),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /**
@@ -536,6 +541,7 @@ export const ProgramFile = z
     // v2.8 Ruling 13 (plan): one chain at least, unless the program fits any chain (then none).
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');
     if (!p.any_chain && p.chains.length === 0) issue('chains needs at least one chain (or any_chain: true)');
+    if (p.needs_contract && !p.any_chain && !p.chains.includes(p.needs_contract)) issue('needs_contract must be one of the chains');
 
     // v2.8 Ruling 15 (plan): Optimism is not listed (owner, 2026-10-07).
     if (isOptimismUrl(p.source_url) || isOptimismUrl(p.submission_url)) issue('Optimism programs are not listed');

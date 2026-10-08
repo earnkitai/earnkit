@@ -344,6 +344,18 @@ export function bonusEligible(project: {
 }
 
 /**
+ * v2.9 A5: the verified columns an entry step writes from its checks (`verified`): now where a
+ * check passed, NULL where it didn't; null (write nothing) when no checks ran. Pure.
+ */
+export function verifiedAt(
+  verified: KnownInfo['verified'],
+  now: Date,
+): { live_verified_at: Date | null; contract_verified_at: Date | null } | null {
+  if (!verified) return null;
+  return { live_verified_at: verified.live ? now : null, contract_verified_at: verified.contract === true ? now : null };
+}
+
+/**
  * v2.8 Ruling 2 (plan): when the entry became complete. Set once, the first time its answers and
  * links pass prepareSubmission(...).ready, and never cleared or moved (`previous` is kept even when
  * the entry is no longer ready). Pure.
@@ -545,7 +557,11 @@ export async function recordSubmission(
    * Chain, explorer and GitHub reads (injectable for tests and the e2e), and `charge`: the daily
    * limit, counted right before the insert.
    */
-  deps: EntryDeps & { charge?: () => Promise<unknown> } = {},
+  deps: EntryDeps & {
+    charge?: () => Promise<unknown>;
+    /** v2.9 A5: this step's link and contract checks (completeness, and the verified columns). */
+    verified?: KnownInfo['verified'];
+  } = {},
 ) {
   const program = await getProgramRow(input.program_id);
   const tooLarge = submissionDataProblem(
@@ -728,10 +744,11 @@ export async function recordSubmission(
   // with COALESCE, so it is set once and never cleared (completeAt's rule, in SQL).
   const completeNow = completeAt(
     program.submission_requirements,
-    { project: { ...cleaned, repo_url }, answers: answersOf(input.submission_data) },
+    { project: { ...cleaned, repo_url }, answers: answersOf(input.submission_data), verified: deps.verified },
     null,
     new Date(),
   );
+  const checked = verifiedAt(deps.verified, new Date());
 
   // M1: set in the transaction when another entry of this repo holds its coin or bonus here.
   let repoHeld = false;
@@ -831,7 +848,9 @@ export async function recordSubmission(
             contracts = COALESCE(${bonusContracts}::text[], contracts),
             deployers = COALESCE(${bonusDeployers}::text[], deployers),
             creator_wallet = CASE WHEN token_url IS NULL AND ${bonusWallet}::text IS NOT NULL THEN ${bonusWallet} ELSE creator_wallet END,
-            complete_at = COALESCE(complete_at, ${completeNow})
+            complete_at = COALESCE(complete_at, ${completeNow}),
+            live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
+            contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
           WHERE id = ${own.id} RETURNING id, submitted_at`
         : await tx<{ id: number; submitted_at: Date }[]>`
       INSERT INTO projects ${tx({
@@ -858,6 +877,7 @@ export async function recordSubmission(
         submission_basis: submissionBasisValue,
         submission_confirmed_at: submissionConfirmedAt,
         complete_at: completeNow,
+        ...checked,
       })} RETURNING id, submitted_at`;
       // Remembered for this installation's next entry (prepare_submission asks the builder to confirm it).
       if (entry)
@@ -991,6 +1011,8 @@ export async function startEntry(a: {
   choice: 'go' | 'skip';
   now: Date;
   charge?: () => Promise<unknown>;
+  /** v2.9 A5: this step's link and contract checks; stored as live_verified_at / contract_verified_at. */
+  verified?: KnownInfo['verified'];
 }): Promise<{
   id: number;
   created: boolean;
@@ -1007,7 +1029,8 @@ export async function startEntry(a: {
   const tooLarge = submissionDataProblem(answers, OTHER_VALUE_MAX);
   if (tooLarge) throw new EntryError(tooLarge);
   const repoUrl = entryRepoUrl(project.repo_url, answers) ?? null;
-  const completeNow = completeAt(program.submission_requirements, { project: { ...project, repo_url: repoUrl ?? undefined }, answers }, null, now);
+  const completeNow = completeAt(program.submission_requirements, { project: { ...project, repo_url: repoUrl ?? undefined }, answers, verified: a.verified }, null, now);
+  const checked = verifiedAt(a.verified, now);
   const key = { programId: program.id, installationId, repoUrl, name: project.name };
   return sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`own-entry:${program.id}:${installationId}`}))`;
@@ -1035,7 +1058,9 @@ export async function startEntry(a: {
             WHEN ${choice} = 'go' AND token_url IS NOT NULL AND NOT ${earnkit()}
               AND NOT (confirm_choice IS NOT DISTINCT FROM 'skip' AND ${locked()}) THEN NULL
             ELSE token_url END,
-          complete_at = COALESCE(complete_at, ${completeNow})
+          complete_at = COALESCE(complete_at, ${completeNow}),
+          live_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.live_verified_at ?? null}::timestamptz ELSE live_verified_at END,
+          contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
         WHERE id = ${own.id}
         RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
           COALESCE(token_status = 'gate_failed' AND starts_with(token_note, ${PROOF_LINE_PREFIX}), false) AS proof_line_missed,
@@ -1055,6 +1080,7 @@ export async function startEntry(a: {
           confirmed_at: now,
           confirm_choice: choice,
           complete_at: completeNow,
+          ...checked,
         })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed, NULL::timestamptz AS token_claimed_at, false AS token_settled`;
     }
     return {

@@ -1,0 +1,258 @@
+import { createPublicClient, http, isAddress } from 'viem';
+import type { Chain } from './chains';
+import { sql } from './db';
+import { mainnetExplorerHosts } from './match';
+import { placeholderLink } from './placeholder';
+import { safeProbe } from './safe-fetch';
+import { canonicalBuilderUrl } from './untrusted-text';
+
+/**
+ * v2.9 A5: link and contract checks. A builder's live link is probed (safeProbe: a 2xx), and a
+ * contract on the program chain's mainnet must have code (eth_getCode). Results are cached in
+ * `url_checks`: a pass for 24 h, a failure for 1 h. Every check is bounded by a CheckBudget, and
+ * none ever throws: an error is a failure. The pure link rules live in placeholder.ts (P48).
+ */
+export {
+  LIVE_FAILED_LINE,
+  PLACEHOLDER_LINE,
+  contractMissingLine,
+  placeholderHost,
+  placeholderLink,
+} from './placeholder';
+
+/** Deployed code: not empty, not `0x`, and not an EIP-7702 delegation (`0xef0100` + an address). Pure. */
+export const hasCode = (code: string): boolean => {
+  const c = (code ?? '').toLowerCase();
+  return c.length > 2 && c !== '0x' && !c.startsWith('0xef0100');
+};
+
+/** A cached check still answers: a pass for 24 h, a failure for 1 h. Pure. */
+export const cacheFresh = (row: { ok: boolean; checked_at: Date }, now: Date): boolean =>
+  now.getTime() - row.checked_at.getTime() < (row.ok ? 24 : 1) * 3_600_000;
+
+const RPC_ENV: Record<Chain, string> = {
+  base: 'BASE_RPC_URL',
+  arc: 'ARC_RPC_URL',
+  monad: 'MONAD_RPC_URL',
+  tempo: 'TEMPO_RPC_URL',
+  avalanche: 'AVALANCHE_RPC_URL',
+  robinhood: 'ROBINHOOD_RPC_URL',
+};
+
+/**
+ * Public mainnet RPCs from each chain's official docs (checked 2026-10-08). All are rate-limited;
+ * the owner can set the chain's variable instead.
+ */
+const RPC_DEFAULTS: Partial<Record<Chain, string>> = {
+  // https://docs.base.org/base-chain/quickstart/connecting-to-base
+  base: 'https://mainnet.base.org',
+  // https://docs.arc.io/arc/references/connect-to-arc
+  arc: 'https://rpc.mainnet.arc.io',
+  // https://docs.monad.xyz/developer-essentials/network-information
+  monad: 'https://rpc.monad.xyz',
+  // https://tempo.xyz/developers/docs/quickstart/connection-details
+  tempo: 'https://rpc.tempo.xyz',
+  // https://build.avax.network/docs/primary-network
+  avalanche: 'https://api.avax.network/ext/bc/C/rpc',
+  // https://docs.robinhood.com/chain/connecting/
+  robinhood: 'https://rpc.mainnet.chain.robinhood.com',
+};
+
+/**
+ * Plan Ruling 18: the chain's mainnet RPC: its variable, else the public default, else null (then
+ * contract checks read "couldn't check", never a pass). Pure given `env`.
+ */
+export function rpcFor(chain: Chain, env: Record<string, string | undefined> = process.env): string | null {
+  const name = RPC_ENV[chain];
+  const set = name ? env[name]?.trim() : undefined;
+  return set || RPC_DEFAULTS[chain] || null;
+}
+
+/** How many live link probes and getCode calls one tool call may make (Pre-flight P25). */
+export class CheckBudget {
+  private probes: number;
+  private getCodes: number;
+  constructor(limits: { probes: number; getCodes: number }) {
+    this.probes = limits.probes;
+    this.getCodes = limits.getCodes;
+  }
+  takeProbe(): boolean {
+    if (this.probes <= 0) return false;
+    this.probes--;
+    return true;
+  }
+  takeGetCode(): boolean {
+    if (this.getCodes <= 0) return false;
+    this.getCodes--;
+    return true;
+  }
+}
+
+/** list_programs: at most 5 probes and 6 getCode calls per call. */
+export const LIST_BUDGET = { probes: 5, getCodes: 6 };
+/** One entry step (prepare_submission, confirm_entry, record_submission). */
+export const ENTRY_BUDGET = { probes: 1, getCodes: 2 };
+/** At most 2 contracts are checked per repo. */
+export const GETCODE_PER_REPO = 2;
+
+/** Where checks are cached (default: the url_checks table; Pre-flight P26 lets tests use a map). */
+export type CheckCache = {
+  get: (key: string) => Promise<{ ok: boolean; checked_at: Date } | null>;
+  set: (key: string, ok: boolean, now: Date) => Promise<void>;
+};
+
+export type CheckDeps = {
+  probe?: (url: string) => Promise<void>;
+  getCode?: (rpc: string, address: string) => Promise<string>;
+  now?: Date;
+  budget?: CheckBudget;
+  cache?: CheckCache;
+};
+
+const dbCache: CheckCache = {
+  get: async (key) => {
+    const [row] = await sql()<{ ok: boolean; checked_at: Date }[]>`
+      SELECT ok, checked_at FROM url_checks WHERE key = ${key}`;
+    return row ?? null;
+  },
+  set: async (key, ok, now) => {
+    await sql()`
+      INSERT INTO url_checks (key, ok, checked_at) VALUES (${key}, ${ok}, ${now})
+      ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at`;
+  },
+};
+
+const errorClass = (err: unknown) => (err instanceof Error ? err.name : 'error');
+
+const viemGetCode = async (rpc: string, address: string): Promise<string> => {
+  const client = createPublicClient({ transport: http(rpc, { timeout: 5_000, retryCount: 0 }) });
+  return (await client.getCode({ address: address as `0x${string}` })) ?? '';
+};
+
+/**
+ * The cached answer for `key`, else one budgeted check (`take`), cached. No budget left: `spent`,
+ * nothing written. Never throws: a failed check, cache read or write is logged by class only.
+ */
+async function cachedCheck<T>(a: {
+  kind: 'live' | 'getcode';
+  key: string;
+  deps: CheckDeps;
+  take: (b: CheckBudget) => boolean;
+  spent: T;
+  run: () => Promise<boolean>;
+}): Promise<boolean | T> {
+  const cache = a.deps.cache ?? dbCache;
+  const now = a.deps.now ?? new Date();
+  const row = await cache.get(a.key).catch((err: unknown) => {
+    console.error(`[verify] ${a.kind} cache read ${errorClass(err)}`);
+    return null;
+  });
+  if (row && cacheFresh(row, now)) return row.ok;
+  if (a.deps.budget && !a.take(a.deps.budget)) return a.spent;
+  let ok: boolean;
+  try {
+    ok = await a.run();
+  } catch (err) {
+    console.error(`[verify] ${a.kind} ${errorClass(err)}`);
+    ok = false;
+  }
+  await cache.set(a.key, ok, now).catch((err: unknown) => console.error(`[verify] ${a.kind} cache write ${errorClass(err)}`));
+  return ok;
+}
+
+/**
+ * v2.9 A5: the live link loads from here (safeProbe: a 2xx, on a public address). A placeholder
+ * link is false without a probe. Cache key `url:<canonical url>`.
+ */
+export async function liveVerified(url: string, deps: CheckDeps = {}): Promise<boolean> {
+  const canonical = canonicalBuilderUrl(url).url;
+  if (!canonical || placeholderLink(canonical)) return false;
+  const probe = deps.probe ?? ((u: string) => safeProbe(u));
+  return cachedCheck({
+    kind: 'live',
+    key: `url:${canonical}`,
+    deps,
+    take: (b) => b.takeProbe(),
+    spent: false,
+    run: async () => {
+      await probe(canonical);
+      return true;
+    },
+  });
+}
+
+/**
+ * v2.9 A5: `address` has code on `chain`'s mainnet. null: no RPC for the chain, or no budget left
+ * ("couldn't check", never a pass). Cache key `getcode:<chain>:<lowercase address>`.
+ */
+export async function contractDeployed(chain: Chain, address: string, deps: CheckDeps = {}): Promise<boolean | null> {
+  const rpc = rpcFor(chain);
+  if (!rpc) return null;
+  if (!isAddress(address, { strict: false })) return false;
+  const addr = address.toLowerCase();
+  const getCode = deps.getCode ?? viemGetCode;
+  return cachedCheck({
+    kind: 'getcode',
+    key: `getcode:${chain}:${addr}`,
+    deps,
+    take: (b) => b.takeGetCode(),
+    spent: null,
+    run: async () => hasCode(await getCode(rpc, addr)),
+  });
+}
+
+const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
+
+/** The address an explorer link on `chain`'s mainnet explorer points to (`/address/0x...`), or null. */
+function explorerAddress(liveUrl: string, chain: Chain): string | null {
+  if (!URL.canParse(liveUrl)) return null;
+  const u = new URL(liveUrl);
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (!mainnetExplorerHosts(chain).includes(host)) return null;
+  return u.pathname.match(/^\/address\/(0x[0-9a-fA-F]{40})\/?$/)?.[1] ?? null;
+}
+
+/**
+ * v2.9 A5: the contracts to check for an entry, at most GETCODE_PER_REPO, lowercase: the
+ * `contracts` or `contract_address` answers, an explorer `/address/0x...` live link on that
+ * chain's mainnet explorer, then stored contracts (the project info, the entry, local_repos). Pure.
+ */
+export function addressesFrom(a: {
+  answers: Record<string, string>;
+  liveUrl?: string | null;
+  chain: Chain;
+  stored?: string[] | null;
+}): string[] {
+  const fromAnswers = [a.answers.contracts, a.answers.contract_address]
+    .filter((v): v is string => typeof v === 'string')
+    .flatMap((v) => v.match(ADDRESS) ?? []);
+  const fromLink = a.liveUrl ? explorerAddress(a.liveUrl, a.chain) : null;
+  const all = [...fromAnswers, ...(fromLink ? [fromLink] : []), ...(a.stored ?? []).filter((s) => isAddress(s, { strict: false }))];
+  return [...new Set(all.map((x) => x.toLowerCase()))].slice(0, GETCODE_PER_REPO);
+}
+
+export type Verified = { live: boolean; contract: boolean | null; needsContract: Chain | null };
+
+/**
+ * v2.9 A5: one entry step's checks (one ENTRY_BUDGET unless `deps.budget` is given): the live
+ * link, then, when the program needs a contract, up to 2 addresses on its chain. `contract`: true
+ * when one has code, false when none named or none has code, null when none could be checked.
+ */
+export async function entryVerified(
+  a: { liveUrl: string | null; needsContract: Chain | null; addresses: string[] },
+  deps: CheckDeps = {},
+): Promise<Verified> {
+  const d = { ...deps, budget: deps.budget ?? new CheckBudget(ENTRY_BUDGET) };
+  const live = a.liveUrl ? await liveVerified(a.liveUrl, d) : false;
+  if (!a.needsContract) return { live, contract: null, needsContract: null };
+  let contract: boolean | null = a.addresses.length === 0 ? false : null;
+  for (const address of a.addresses.slice(0, GETCODE_PER_REPO)) {
+    const r = await contractDeployed(a.needsContract, address, d);
+    if (r === true) {
+      contract = true;
+      break;
+    }
+    if (r === false) contract = false;
+  }
+  return { live, contract, needsContract: a.needsContract };
+}

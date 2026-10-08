@@ -256,3 +256,30 @@ test('builder links are stored canonical: https, plain path, query and fragment,
   );
   assert.equal(shownUrl('https://paylink.app/?a=<b>'), null);
 });
+
+test('1.10 verified: an unverified live link or a missing contract is missing (v2.9 A5)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { LIVE_FAILED_LINE } = await import('./placeholder');
+  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8')) as {
+    submission_requirements: SubmissionRequirement[];
+  };
+  const known = {
+    project: { name: 'Tip Jar', live_url: 'https://tipjar.xyz', repo_url: 'https://github.com/alice/tipjar' },
+    answers: { description: 'A tip jar paid in USDC on Arc.', builder_profile: 'https://x.com/alice' },
+  };
+  const r = arc.submission_requirements;
+  assert.equal(prepareSubmission(r, known).ready, true, 'without verified: v2.8.1');
+  const failed = prepareSubmission(r, { ...known, verified: { live: false, contract: null, needsContract: 'arc' } });
+  assert.equal(failed.ready, false);
+  assert.deepEqual(
+    failed.missing.map((m) => [m.key, m.problem]),
+    [['live_deployment_url', LIVE_FAILED_LINE]],
+  );
+  const noContract = prepareSubmission(r, { ...known, verified: { live: true, contract: false, needsContract: 'arc' } });
+  assert.equal(noContract.ready, false);
+  assert.equal(noContract.missing[0].problem, 'No contract found on Arc mainnet yet.');
+  assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: null, needsContract: 'arc' } }).ready, false);
+  assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: true, needsContract: 'arc' } }).ready, true);
+  assert.equal(prepareSubmission(r, { ...known, verified: { live: true, contract: null, needsContract: null } }).ready, true);
+});

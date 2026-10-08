@@ -428,5 +428,16 @@ const [linked] = await db<{ shared_client: boolean; builder_id: number | null }[
   SELECT shared_client, builder_id FROM installations WHERE token_hash = 'v281-linked'`;
 ok(linked.shared_client === true && linked.builder_id === rootInst, 'a link and the hosted flag survive the schema running again');
 
+// v2.9 A5: the check cache and the verified columns; existing rows read as not verified.
+const [v29] = await db<{ live_verified_at: Date | null; contract_verified_at: Date | null }[]>`
+  SELECT live_verified_at, contract_verified_at FROM projects ORDER BY id LIMIT 1`;
+ok(v29 && v29.live_verified_at === null && v29.contract_verified_at === null, 'existing entries get live_verified_at and contract_verified_at = NULL');
+const [needs] = await db<{ needs_contract: string | null }[]>`SELECT needs_contract FROM programs WHERE id = 'old-active'`;
+ok(needs.needs_contract === null, 'existing programs get needs_contract = NULL');
+await db`INSERT INTO url_checks (key, ok) VALUES ('url:https://tipjar.xyz', true)`;
+await db.unsafe(now);
+const [check] = await db<{ ok: boolean; checked_at: Date }[]>`SELECT ok, checked_at FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;
+ok(check?.ok === true && check.checked_at instanceof Date, 'url_checks rows survive the schema running again, checked_at defaults to now()');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
