@@ -397,7 +397,8 @@ const noMatch = (r: YourRepos | null) => noRepo(r) || (r !== null && 'error' in 
 
 /** v2.9 A4: a matched row's difficulty (guide.ts rowDifficulty), or null when the program has none. */
 type RowLevel = { level: Level; estimate: boolean } | null;
-type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel };
+/** `key`, `product_score`: the repo's key and score (match-loop.ts recordShown), when matching gave them. */
+type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel; key: string | null; product_score: number | null };
 
 /**
  * v2.9 A4: a matched row's difficulty, from its program (difficulty and match precision) and the
@@ -477,7 +478,15 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
   for (const f of fits)
     for (const v of [...f.verdicts].sort((a, b) => quickness(a) - quickness(b)))
       if (v.status !== 'no' && curated(v.program_id) && !matched.has(v.program_id))
-        matched.set(v.program_id, { card: byId.get(v.program_id)!, repo: f.repo, repo_url: f.repo_url, v, row: rowLevel(byId.get(v.program_id)!, f, v) });
+        matched.set(v.program_id, {
+          card: byId.get(v.program_id)!,
+          repo: f.repo,
+          repo_url: f.repo_url,
+          v,
+          row: rowLevel(byId.get(v.program_id)!, f, v),
+          key: f.key ?? null,
+          product_score: f.product?.score ?? null,
+        });
   // v2.9 A4: by the row's difficulty (Easy first), then prize, then the quicker fit.
   const rows = [...matched.values()].sort((a, b) => enteredLast(a.card, b.card) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v));
   const rest = m.cards

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { Chain, ReportedRepo } from './match';
+import type { ReportedRepo } from './match';
+import type { FitRepo } from './alerts';
 import { isWalletAddress, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 
@@ -34,13 +35,24 @@ export function testInstallationIds(
   return [...ids].sort((a, b) => a - b);
 }
 
+/** v2.9 A7: at most this many fit repos are remembered per installation. */
+export const MAX_FIT_REPOS = 5;
+
+/** v2.9 A7: the repos worth remembering: owned, project tier or better, the highest score first, at most 5. Pure. */
+export const bestFitRepos = (repos: FitRepo[]): FitRepo[] =>
+  repos
+    .filter((r) => r.product.tier !== 'noise' && !r.product.missing.includes('owned'))
+    .sort((a, b) => b.product.score - a.product.score)
+    .slice(0, MAX_FIT_REPOS);
+
 /**
- * v2.8 Ruling 10 (plan): the chains of the builder's repos that last matched (at least one program
- * they fit), written by list_programs after matching. New program alerts read it.
+ * v2.9 A7: the builder's best owned repos as they last matched (bestFitRepos: owned,
+ * project tier or better, the highest score first, at most 5), written by list_programs after
+ * matching. New program alerts read them and make no GitHub call. Replaces v2.8's fit_chains.
  */
-export async function setFitChains(installationId: number, chains: Chain[]) {
-  const unique = [...new Set(chains)].sort();
-  await sql()`UPDATE installations SET fit_chains = ${unique} WHERE id = ${installationId}`;
+export async function setFitRepos(installationId: number, repos: FitRepo[]): Promise<void> {
+  const best = bestFitRepos(repos);
+  await sql()`UPDATE installations SET fit_repos = ${sql().json(best as never)} WHERE id = ${installationId}`;
 }
 
 /** True when this token, or (v2.4) this OAuth client, already has an installation. */

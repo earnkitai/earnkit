@@ -8,8 +8,11 @@ import {
   MAX_NEW_PROGRAM_LINES,
   MAX_OUTCOME_WIN_LINES,
   SCHEDULE_NOTE,
+  NO_SKIP,
+  alertable,
   newProgramLines,
   newProgramOf,
+  type FitRepo,
   type NewProgram,
   type OutcomeWin,
   alertFacts,
@@ -26,7 +29,7 @@ import { rememberWallets } from './installations';
 import { tools } from './tools';
 
 const empty: AlertFacts = {
-  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitChains: [], outcomeWins: [],
+  newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [], newPrograms: [], fitRepos: [], skip: NO_SKIP, outcomeWins: [],
 };
 const t = (h: number) => new Date(Date.UTC(2026, 9, 10, h));
 
@@ -136,7 +139,8 @@ test('v2.6 §3 fix round 1 (Ruling 25 supersedes P1): alert wording, money first
     ],
     bonusStandings: [{ project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' }],
     newPrograms: [],
-    fitChains: [],
+    fitRepos: [],
+    skip: NO_SKIP,
     outcomeWins: [],
   });
   assert.deepEqual(lines, [
@@ -573,49 +577,97 @@ test('M15: the bonus_payouts table check runs until it first finds the table, th
 });
 
 // ---- v2.8 Task 12, Ruling 10 (plan): new program alerts; Part G: win alerts from announced outcomes.
+const EASY = { level: 'Easy' as const, estimate: false, rated: true, basis: '' };
+const HARD = { level: 'Hard' as const, estimate: false, rated: false, basis: '3 of ~400 entries won last round' };
 const prog = (id: string, h: number, over: Partial<NewProgram> = {}): NewProgram => ({
-  id, title: id, prize: 'up to $5,000', easy: false, chains: ['base'], any_chain: false, opened_at: t(h), ...over,
+  id, title: id, prize: 'up to $5,000', chains: ['base'], any_chain: false, opened_at: t(h), ends_at: null, max_award_usd: 5000,
+  investment: false, min_product_score: 0, tag: null, existing_work: 'allowed', starts_at: null, difficulty: EASY, past_rounds: [],
+  match_floor: null, match_precision: null, ...over,
 });
+/** v2.9 A7: an owned product-tier repo, live on Base mainnet with a link that loaded. */
+const tipjar = (over: Partial<FitRepo> = {}): FitRepo => ({
+  key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
+  created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x' } },
+  product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null, ...over,
+});
+const PROJECT_TIER = { score: 4, tier: 'project' as const, missing: ['readme' as const, 'young' as const] };
+const NOW_ALERT = t(4);
+const lines = (prev: Parameters<typeof newProgramLines>[0], programs: NewProgram[], repos: FitRepo[] = [tipjar()]) =>
+  newProgramLines(prev, programs, repos, NO_SKIP, NOW_ALERT);
 
 test('newProgramLines: five new fitting programs show 3, newest first; the other two show on the next check', () => {
   assert.equal(MAX_NEW_PROGRAM_LINES, 3);
   const programs = [
     prog('p1', 5), prog('p2', 6), prog('p3', 7),
-    prog('avalanche', 9, { title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', easy: true, chains: ['avalanche'] }),
+    prog('avalanche', 9, { title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', chains: ['avalanche', 'base'] }),
     prog('p5', 8, { chains: ['arc', 'base'] }),
   ];
-  const first = newProgramLines({ checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null }, programs, ['base']);
-  assert.deepEqual(first.lines, ['new: Avalanche Team1 Mini Grants (up to $10,000, Easy)', 'new: p5 (up to $5,000)', 'new: p3 (up to $5,000)']);
+  const first = lines({ checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null }, programs);
+  assert.deepEqual(first.lines, ['new: Avalanche Team1 Mini Grants (up to $10,000)', 'new: p5 (up to $5,000)', 'new: p3 (up to $5,000)']);
   assert.ok(!first.seen.includes('p1') && !first.seen.includes('p2'), 'over the cap: not seen');
-  const next = newProgramLines({ checkedAt: t(10), state: { top: {}, newPrograms: first.seen }, feeAlertedUsd: null }, programs, ['base']);
+  const next = lines({ checkedAt: t(10), state: { top: {}, newPrograms: first.seen }, feeAlertedUsd: null }, programs);
   assert.deepEqual(next.lines, ['new: p2 (up to $5,000)', 'new: p1 (up to $5,000)']);
-  assert.deepEqual(newProgramLines({ checkedAt: t(11), state: { top: {}, newPrograms: next.seen }, feeAlertedUsd: null }, programs, ['base']).lines, []);
+  assert.deepEqual(lines({ checkedAt: t(11), state: { top: {}, newPrograms: next.seen }, feeAlertedUsd: null }, programs).lines, []);
 });
 
-test('newProgramLines: Easy is announced without a chain fit; a non-Easy program without one is not; any_chain fits any non-empty fit', () => {
+test('4.9 an Easy program no repo fits is never alerted; any_chain fits a product; with no repos, nothing', () => {
   const memory = { checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null };
-  const easy = prog('easy', 5, { easy: true, chains: ['monad'] });
-  const hard = prog('hard', 6, { chains: ['monad'] });
-  const any = prog('any', 7, { chains: [], any_chain: true });
-  assert.deepEqual(newProgramLines(memory, [easy, hard, any], ['base']).lines, ['new: any (up to $5,000)', 'new: easy (up to $5,000, Easy)']);
-  // No repos matched yet: only Easy programs, any_chain doesn't fit an empty list.
-  assert.deepEqual(newProgramLines(memory, [easy, hard, any], []).lines, ['new: easy (up to $5,000, Easy)']);
+  const easy = prog('easy', 5, { chains: ['monad'] });
+  const any = prog('any', 7, { chains: [], any_chain: true, min_product_score: 5 });
+  assert.deepEqual(lines(memory, [easy, any]).lines, ['new: any (up to $5,000)']);
+  assert.deepEqual(lines(memory, [easy, any], []).lines, []);
   // A program that didn't fit when it was new is marked seen: a later repo never makes it "new".
-  const r = newProgramLines(memory, [hard], ['base']);
-  assert.ok(r.seen.includes('hard'));
-  assert.deepEqual(newProgramLines({ checkedAt: t(8), state: { top: {}, newPrograms: r.seen }, feeAlertedUsd: null }, [hard], ['monad']).lines, []);
+  const r = lines(memory, [easy]);
+  assert.ok(r.seen.includes('easy'));
+  const monadRepo = tipjar({ chains: { monad: { mainnet: true, testnet: false, evidence: 'x' } } });
+  assert.deepEqual(lines({ checkedAt: t(8), state: { top: {}, newPrograms: r.seen }, feeAlertedUsd: null }, [easy], [monadRepo]).lines, []);
 });
 
 test('newProgramLines: the first-ever check is quiet and marks every open program seen; rows from before v2.8 use opened_at', () => {
-  const programs = [prog('a', 5), prog('b', 6, { easy: true })];
-  const first = newProgramLines({ checkedAt: null, state: null, feeAlertedUsd: null }, programs, ['base']);
+  const programs = [prog('a', 5), prog('b', 6)];
+  const first = lines({ checkedAt: null, state: null, feeAlertedUsd: null }, programs);
   assert.deepEqual(first.lines, []);
   assert.deepEqual(first.seen, ['a', 'b']);
-  assert.deepEqual(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, newPrograms: programs, fitChains: ['base'] }).lines, []);
+  assert.deepEqual(alertLines({ checkedAt: null, state: null, feeAlertedUsd: null }, { ...empty, newPrograms: programs, fitRepos: [tipjar()] }, [], NOW_ALERT).lines, []);
   // A pre-v2.8 memory (no newPrograms list): opened by the last check counts as seen.
-  const legacy = newProgramLines({ checkedAt: t(5), state: { top: {} }, feeAlertedUsd: null }, programs, ['base']);
-  assert.deepEqual(legacy.lines, ['new: b (up to $5,000, Easy)']);
+  const legacy = lines({ checkedAt: t(5), state: { top: {} }, feeAlertedUsd: null }, programs);
+  assert.deepEqual(legacy.lines, ['new: b (up to $5,000)']);
   assert.deepEqual(legacy.seen.sort(), ['a', 'b']);
+});
+
+test('4.8 alertable: only when the builder could really win it', () => {
+  const avaxRepo = tipjar({ chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x' } } });
+  const avax = prog('avalanche', 5, { chains: ['avalanche'], max_award_usd: 10_000 });
+  const ok = (p: NewProgram, r: FitRepo, skip = NO_SKIP, now = NOW_ALERT) => alertable(p, [r], skip, now);
+  assert.equal(ok(avax, avaxRepo), true);
+  // any_chain (or investment) takes product tier only.
+  const any = prog('any', 5, { chains: [], any_chain: true, min_product_score: 0 });
+  assert.equal(ok(any, tipjar()), true);
+  assert.equal(ok(any, tipjar({ product: PROJECT_TIER })), false);
+  // A project-tier repo is fine for a chain program when the row is close (after_step, minutes).
+  assert.equal(ok(prog('base', 5), tipjar({ product: PROJECT_TIER })), true);
+  // Effort: a mainnet deploy (hours) is close; new work (days) is not.
+  const testnetOnly = tipjar({ chains: { base: { mainnet: false, testnet: true, evidence: 'x' } } });
+  assert.equal(ok(prog('base', 5), testnetOnly), true);
+  assert.equal(ok(prog('fresh', 5, { existing_work: 'new_work_only' }), tipjar()), false);
+  // real_users missing: never alerted.
+  assert.equal(ok(prog('live', 5, { tag: 'needs a live product', difficulty: { ...EASY, level: 'Medium' } }), tipjar()), false);
+  // A Hard row: only at $10,000+ per winner and product tier.
+  assert.equal(ok(prog('hard', 5, { difficulty: HARD, max_award_usd: 5000 }), tipjar()), false);
+  assert.equal(ok(prog('hard', 5, { difficulty: HARD, max_award_usd: 10_000 }), tipjar()), true);
+  assert.equal(ok(prog('hard', 5, { difficulty: HARD, max_award_usd: 10_000 }), tipjar({ product: PROJECT_TIER })), false);
+  // Entered, applied or not interested: never.
+  assert.equal(ok(avax, avaxRepo, { entered: new Set(['avalanche']), hidden: new Set() }), false);
+  assert.equal(ok(avax, avaxRepo, { entered: new Set(), hidden: new Set(['avalanche']) }), false);
+  // Under 3 days left: never; 3 days: yes.
+  const day = 86_400_000;
+  assert.equal(ok({ ...avax, ends_at: new Date(NOW_ALERT.getTime() + 2 * day) }, avaxRepo), false);
+  assert.equal(ok({ ...avax, ends_at: new Date(NOW_ALERT.getTime() + 3 * day) }, avaxRepo), true);
+  // What the builder said wins: not theirs, or testnet only on the program's chain.
+  const said = { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: false };
+  assert.equal(ok(avax, { ...avaxRepo, said: { ...said, not_mine: true } }), false);
+  // A noise repo is never alerted.
+  assert.equal(ok(avax, tipjar({ ...avaxRepo, product: { score: 2, tier: 'noise', missing: [] } })), false);
 });
 
 test('alertLines: new program lines go where campaign lines go, and are remembered', () => {
@@ -623,12 +675,12 @@ test('alertLines: new program lines go where campaign lines go, and are remember
     ...empty,
     newCampaigns: [{ id: 'c1', title: 'EarnKit Campaign', prize: '$100 each', opened_at: t(5) }],
     newPrograms: [prog('p1', 5)],
-    fitChains: ['base'],
+    fitRepos: [tipjar()],
   };
-  const r = alertLines({ checkedAt: t(4), state: { top: {}, campaigns: [], newPrograms: [] }, feeAlertedUsd: null }, f);
+  const r = alertLines({ checkedAt: t(4), state: { top: {}, campaigns: [], newPrograms: [] }, feeAlertedUsd: null }, f, [], NOW_ALERT);
   assert.deepEqual(r.lines, ['new: EarnKit Campaign ($100 each)', 'new: p1 (up to $5,000)']);
   assert.deepEqual(r.state.newPrograms, ['p1']);
-  assert.deepEqual(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, f).lines, []);
+  assert.deepEqual(alertLines({ checkedAt: t(6), state: r.state, feeAlertedUsd: null }, f, [], NOW_ALERT).lines, []);
 });
 
 const win = (id: number, h: number, over: Partial<OutcomeWin> = {}): OutcomeWin => ({
@@ -678,14 +730,21 @@ test('alertFacts: announced wins only; a self-reported win never alerts; new pro
         (${a}, ${tag}, 'R1', 'won', 700, 'announcement'),
         (${s}, ${tag}, 'R1', 'won', 900, 'self_reported'),
         (${n}, ${tag}, 'R1', 'not_selected', NULL, 'announcement')`;
-    await sql()`UPDATE installations SET fit_chains = '{base}' WHERE id = ${inst.id}`;
+    await sql()`UPDATE installations SET fit_repos = ${sql().json([tipjar()] as never)} WHERE id = ${inst.id}`;
+    await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${inst.id}, ${tag}, 'not_interested')`;
+    await sql()`INSERT INTO builder_repo_facts (installation_id, repo_key, not_mine) VALUES (${inst.id}, 'alice/tipjar', true)`;
     const f = await alertFacts(inst.id);
     assert.deepEqual(f.outcomeWins.map((o) => [o.name, o.prize_usd, o.program_title]), [['Announced', 700, 'Outcome Program']]);
-    assert.deepEqual(f.fitChains, ['base']);
+    // v2.9 A7: the remembered repos, with what the builder says now; entered and hidden programs.
+    assert.deepEqual(f.fitRepos.map((r) => [r.key, r.said?.not_mine]), [['alice/tipjar', true]]);
+    assert.ok(f.skip.entered.has(tag));
+    assert.ok(f.skip.hidden.has(tag));
     const mine = f.newPrograms.find((p) => p.id === tag);
     assert.ok(mine);
     assert.equal(mine.prize, 'up to $7,000');
-    assert.equal(mine.easy, false);
+    assert.equal(mine.difficulty.level, 'Medium');
+    assert.equal(mine.ends_at, null);
+    assert.equal(mine.match_floor, null);
     assert.deepEqual(mine.chains, ['base']);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${tag}`;
@@ -698,7 +757,8 @@ test('Ruling C23: a new investment program alert reads "up to $1M investment", n
   const f = ProgramFile.parse(JSON.parse(readFileSync(join(__dirname, '../../../../programs/a16z-speedrun.json'), 'utf8')));
   const p = newProgramOf({ ...f, investment: f.investment, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]);
   assert.equal(p.prize, 'up to $1M investment');
-  const { lines } = newProgramLines({ checkedAt: t(4), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null }, [p], ['base']);
-  assert.deepEqual(lines, ['new: a16z speedrun SR008 (up to $1M investment)']);
+  // v2.9 A7: an investment is a company application, weeks away (matchRepo), so it is never alerted.
+  assert.equal(p.investment, true);
+  assert.equal(alertable(p, [tipjar()], NO_SKIP, NOW_ALERT), false);
   assert.equal(newProgramOf({ ...f, investment: false, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]).prize, 'up to $1M');
 });

@@ -99,4 +99,8 @@ for (const { f, result } of outcomes) {
   const { matched, unmatched, others } = await syncOutcomeFile(result.data!);
   console.log(`Outcomes ${f}: ${matched} matched, ${unmatched} unmatched, ${others} others labelled`);
 }
+// v2.9 A8: the outcome feedback loop (match floors and precision), after the announced results.
+const { updateMatchFloors } = await import('../lib/earnkit/match-loop');
+const { updated } = await updateMatchFloors();
+console.log(`Match floors: ${updated} program${updated === 1 ? '' : 's'} with 30 or more labelled entries`);
 await sql().end();

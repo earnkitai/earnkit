@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { alertLines, sinceLine, type AlertFacts } from './alerts';
+import { NO_SKIP, alertLines, sinceLine, type AlertFacts, type NewProgram } from './alerts';
 import { WALLET_INVALID, type CampaignConfig } from './campaigns';
 import {
   COIN_FOOTNOTE,
@@ -223,7 +223,8 @@ const alertFacts: AlertFacts = {
     { project_id: 7, program_title: 'Arc Microgrants', inTop: true, round_key: 'arc-microgrants:2026-09-16' },
   ],
   newPrograms: [],
-  fitChains: [],
+  fitRepos: [],
+  skip: NO_SKIP,
   outcomeWins: [],
 };
 const movedPrev = { checkedAt: new Date('2026-10-01T00:00:00Z'), state: { top: {}, bonusTop: { '7': false } }, feeAlertedUsd: 0 };
@@ -808,13 +809,26 @@ const alsoQualifiesTexts: [string, string][] = [
 ];
 
 // v2.8 Task 12, Part G and Ruling 10 (plan): the outcome question and the new alert lines.
+/** v2.9 A7: an open Easy program as new program alerts read it. */
+const newAlertProgram = (id: string, title: string, prize: string, chains: NewProgram['chains'], opened: string): NewProgram => ({
+  id, title, prize, chains, any_chain: false, opened_at: new Date(opened), ends_at: null, max_award_usd: 10_000, investment: false,
+  min_product_score: 0, tag: null, existing_work: 'allowed', starts_at: null,
+  difficulty: { level: 'Easy', estimate: false, rated: true, basis: '' }, past_rounds: [], match_floor: null, match_precision: null,
+});
 const outcomeAlertFacts: AlertFacts = {
   newCampaigns: [], standings: [], prizes: [], fees: null, bonusWins: [], bonusStandings: [],
   newPrograms: [
-    { id: 'a', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10,000', easy: true, chains: ['avalanche'], any_chain: false, opened_at: new Date('2026-10-09T00:00:00Z') },
-    { id: 'b', title: 'Base Builder Grant Program', prize: 'up to $5,000', easy: false, chains: ['base'], any_chain: false, opened_at: new Date('2026-10-09T01:00:00Z') },
+    newAlertProgram('a', 'Avalanche Team1 Mini Grants', 'up to $10,000', ['avalanche'], '2026-10-09T00:00:00Z'),
+    newAlertProgram('b', 'Arc Microgrants', '500 USDC × 20 grants', ['arc'], '2026-10-09T01:00:00Z'),
   ],
-  fitChains: ['base'],
+  fitRepos: [
+    {
+      key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+      chains: { avalanche: { mainnet: true, testnet: false, evidence: 'x' }, arc: { mainnet: true, testnet: false, evidence: 'x' } },
+      product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+    },
+  ],
+  skip: NO_SKIP,
   outcomeWins: [
     { id: 1, project_id: 1, name: 'TipJar', program_title: 'Arc Microgrants', prize_usd: 500, captured_at: new Date('2026-10-23T00:00:00Z') },
     { id: 2, project_id: 2, name: 'NanoCrawl', program_title: 'Arc Microgrants', prize_usd: null, captured_at: new Date('2026-10-22T00:00:00Z') },
@@ -823,6 +837,8 @@ const outcomeAlertFacts: AlertFacts = {
 const outcomeAlertLines = alertLines(
   { checkedAt: new Date('2026-10-08T00:00:00Z'), state: { top: {}, newPrograms: [] }, feeAlertedUsd: null },
   outcomeAlertFacts,
+  [],
+  new Date('2026-10-09T12:00:00Z'),
 ).lines;
 const outcomeTexts: [string, string][] = [
   ['outcomeQuestion', outcomeQuestion('TipJar', 'Arc Microgrants')],
@@ -834,8 +850,8 @@ test('v2.8 Task 12: the outcome and new program alert lines render as expected',
   assert.deepEqual(outcomeAlertLines, [
     'you won $500 in Arc Microgrants with TipJar',
     'NanoCrawl won in Arc Microgrants',
-    'new: Base Builder Grant Program (up to $5,000)',
-    'new: Avalanche Team1 Mini Grants (up to $10,000, Easy)',
+    'new: Arc Microgrants (500 USDC × 20 grants)',
+    'new: Avalanche Team1 Mini Grants (up to $10,000)',
   ]);
 });
 

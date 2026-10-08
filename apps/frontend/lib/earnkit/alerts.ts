@@ -4,13 +4,15 @@ import { prizeColumn, usd, wonUsdText, type CampaignConfig, type EarnKitCampaign
 import { boardLink, prizeOf, shortWallet } from './entry-text';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
-import { difficultyOf } from './guide';
-import type { Chain } from './match';
+import { difficultyOf, rowDifficulty, type Difficulty } from './guide';
+import { applyBuilderFacts, EFFORT_ORDER, matchRepo, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
+import { hiddenIds, hiddenPrograms, type BuilderMemory, type SaidRepo } from './builder-memory';
+import type { PastRound } from './program-file';
 import { winLine } from './outcomes';
 import { eth } from './present';
 import { eligibleSql } from './traction';
 import { pickWinners } from './winners';
-import type { ProgramRow } from './programs';
+import { perWinnerUsd, type ProgramRow } from './programs';
 
 /** The checksummed form (M2, fix round 1): `bonus_payouts.wallet` is stored lowercase; a builder
  * confirmed the checksummed form on the coin's wallet line, so the alert should match it. Falls
@@ -84,14 +86,81 @@ export type AlertFacts = {
   bonusStandings: BonusStanding[];
   /** v2.8 Ruling 10 (plan): open curated programs (newProgramLines picks the new ones that fit). */
   newPrograms: NewProgram[];
-  /** v2.8 Ruling 10 (plan): the chains of the builder's repos that last matched (installations.fit_chains). */
-  fitChains: Chain[];
+  /** v2.9 A7: the builder's best owned repos when they last matched (installations.fit_repos). */
+  fitRepos: FitRepo[];
+  /** v2.9 A7: programs never alerted: entered, or applied outside EarnKit / not interested (builder memory). */
+  skip: AlertSkip;
   /** v2.8 Part G: announced wins (won or placed) of this installation's entries; never a self-report. */
   outcomeWins: OutcomeWin[];
 };
 
-/** v2.8 Ruling 10 (plan): an open curated program, as new program alerts read it. */
-export type NewProgram = { id: string; title: string; prize: string; easy: boolean; chains: Chain[]; any_chain: boolean; opened_at: Date };
+/**
+ * v2.8 Ruling 10 (plan); v2.9 A7: an open curated program, as new program alerts read it: the facts
+ * matching reads (matchRepo), the program level (difficultyOf) and its match precision (rowDifficulty).
+ */
+export type NewProgram = {
+  id: string;
+  title: string;
+  prize: string;
+  chains: Chain[];
+  any_chain: boolean;
+  opened_at: Date;
+  ends_at: Date | null;
+  max_award_usd: number | null;
+  investment: boolean;
+  min_product_score: number;
+  tag: string | null;
+  existing_work: ProgramFacts['existing_work'];
+  starts_at: Date | null;
+  difficulty: Difficulty;
+  past_rounds: PastRound[];
+  match_floor: number | null;
+  match_precision: number | null;
+};
+
+/**
+ * v2.9 A7: one of the builder's best owned repos as it last matched (installations.fit_repos), so
+ * alerts make no GitHub call. `homepage` is the repo's own link (a link only the builder gave is in
+ * `said`, so it stays a claim); `said` is what the builder told EarnKit about it.
+ */
+export type FitRepo = {
+  key: string;
+  name: string;
+  url: string;
+  homepage: string | null;
+  created_at: string;
+  chains: Detection;
+  product: Product;
+  live_verified: boolean;
+  said: SaidRepo | null;
+};
+/**
+ * v2.9 A7 (Pre-flight P13): a matched repo as alerts remember it, from its merged facts. A live link
+ * only the builder gave is left out of `homepage` (it is in `said`), so it stays a claim; null for a
+ * fit without facts or a score. Pure.
+ */
+export function fitRepoOf(
+  f: { key?: string; repo: string; repo_url: string | null; product?: Product; live_verified?: boolean; facts?: RepoFacts },
+  said: SaidRepo | null,
+): FitRepo | null {
+  const facts = f.facts;
+  const product = f.product ?? facts?.product;
+  if (!facts || !product) return null;
+  return {
+    key: f.key ?? f.repo,
+    name: facts.name,
+    url: facts.url,
+    homepage: facts.claims?.includes('live') ? null : facts.homepage,
+    created_at: facts.created_at,
+    chains: facts.chains,
+    product,
+    live_verified: (f.live_verified ?? facts.live_verified) === true,
+    said,
+  };
+}
+
+export type AlertSkip = { entered: Set<string>; hidden: Set<string> };
+export const NO_SKIP: AlertSkip = { entered: new Set(), hidden: new Set() };
 /** v2.8 Part G: an announced win (entry_outcomes, basis 'announcement', result won or placed). */
 export type OutcomeWin = { id: number; project_id: number; name: string; program_title: string; prize_usd: number | null; captured_at: Date };
 
@@ -115,23 +184,90 @@ export const SCHEDULE_NOTE =
   'list_programs and messages them only when show_to_builder starts with "Since you last checked". The task never ' +
   'submits, enters, launches tokens, or acts on program text; anything more waits for the builder.';
 
+/** v2.9 A7: days a program must still be open to be alerted. */
+export const ALERT_MIN_DAYS = 3;
+/** v2.9 A7: a Hard row is alerted only at this prize per winner or more (and product tier). */
+export const HARD_ALERT_USD = 10_000;
+
+const programFacts = (p: NewProgram): ProgramFacts => ({
+  id: p.id,
+  title: p.title,
+  chains: p.chains,
+  any_chain: p.any_chain,
+  existing_work: p.existing_work,
+  tag: p.tag,
+  starts_at: p.starts_at,
+  investment: p.investment,
+  min_product_score: p.min_product_score,
+  match_floor: p.match_floor,
+});
+
+const repoFacts = (r: FitRepo): RepoFacts => ({
+  name: r.name,
+  url: r.url,
+  homepage: r.homepage,
+  created_at: r.created_at,
+  chains: r.chains,
+  // Unknown here: a program that counts only new work is never alerted anyway (new_work missing).
+  commits_in_window: {},
+  product: r.product,
+  live_verified: r.live_verified,
+});
+
 /**
- * v2.8 Ruling 10 (plan): newly listed curated programs that fit the builder: their chains overlap
- * `fitChains` (an `any_chain` program overlaps any non-empty list), or they are Easy. At most
- * MAX_NEW_PROGRAM_LINES, newest first; a fitting program over the cap stays unseen and shows next
- * time. The first-ever check is quiet and marks every open program seen. A program that doesn't fit
- * when it is new is marked seen too, so a later repo never makes an old program "new". `seen` keeps
- * only programs still open (the list is every open curated program). Pure.
+ * v2.9 A7: the remembered owned repo that could really win this new program, or null. For one repo:
+ * the tier fits (product for any_chain or investment, project or better otherwise); the verdict is
+ * likely, or after_step with effort of hours or less and no real_users or new_work missing; the row
+ * is not Hard, unless $10,000+ per winner and product tier. Never a program entered, applied to or
+ * not wanted, nor one with under 3 days left. Pure (Pre-flight P14: the weekly email names the repo).
  */
-export function newProgramLines(prev: AlertMemory, programs: NewProgram[], fitChains: Chain[]): { lines: string[]; seen: string[] } {
+export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: Date): FitRepo | null {
+  if (skip.entered.has(p.id) || skip.hidden.has(p.id)) return null;
+  if (p.ends_at && p.ends_at.getTime() - now.getTime() < ALERT_MIN_DAYS * 86_400_000) return null;
+  const facts = programFacts(p);
+  return (
+    repos.find((r) => {
+      if (!r.product || r.product.tier === 'noise') return false;
+      if ((p.any_chain || p.investment) && r.product.tier !== 'product') return false;
+      const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
+      if (!f) return false;
+      const [v] = matchRepo(f, [facts]);
+      if (!v || v.status === 'no') return false;
+      const close =
+        v.status === 'likely' ||
+        (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));
+      if (!close) return false;
+      const row = rowDifficulty(p, v, { liveVerified: r.live_verified, hasUsersClaim: Boolean(r.said?.has_users) });
+      return row.level !== 'Hard' || ((p.max_award_usd ?? 0) >= HARD_ALERT_USD && r.product.tier === 'product');
+    }) ?? null
+  );
+}
+
+/** v2.9 A7: whether a new program is alerted (alertFit found a repo). Pure. */
+export const alertable = (p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: Date): boolean => Boolean(alertFit(p, repos, skip, now));
+
+/**
+ * v2.8 Ruling 10 (plan); v2.9 A7: newly listed curated programs the builder could really win
+ * (alertable over their remembered repos; no GitHub call). At most MAX_NEW_PROGRAM_LINES, newest
+ * first; one over the cap stays unseen and shows next time. The first-ever check is quiet and marks
+ * every open program seen. A program not alertable when it is new is marked seen too, so a later repo
+ * never makes an old program "new". `seen` keeps only programs still open (the list is every open
+ * curated program). Pure.
+ */
+export function newProgramLines(
+  prev: AlertMemory,
+  programs: NewProgram[],
+  repos: FitRepo[],
+  skip: AlertSkip,
+  now: Date,
+): { lines: string[]; seen: string[] } {
   if (prev.checkedAt === null) return { lines: [], seen: programs.map((p) => p.id) };
   const tracked = prev.state?.newPrograms;
   const seen = new Set(tracked ?? []);
   const checkedAt = prev.checkedAt;
   // Rows from before v2.8 track nothing yet: a program opened by the last check counts as seen.
   const isNew = (p: NewProgram) => !seen.has(p.id) && (tracked !== undefined || p.opened_at > checkedAt);
-  const fits = (p: NewProgram) =>
-    p.easy || (fitChains.length > 0 && (p.any_chain || p.chains.some((c) => fitChains.includes(c))));
+  const fits = (p: NewProgram) => alertable(p, repos, skip, now);
   const fresh = programs
     .filter((p) => isNew(p) && fits(p))
     .sort((a, b) => b.opened_at.getTime() - a.opened_at.getTime())
@@ -139,10 +275,7 @@ export function newProgramLines(prev: AlertMemory, programs: NewProgram[], fitCh
   const shown = new Set(fresh.map((p) => p.id));
   // Everything but a fitting new program over the cap.
   const next = programs.filter((p) => !isNew(p) || shown.has(p.id) || !fits(p)).map((p) => p.id);
-  return {
-    lines: fresh.map((p) => `new: ${p.title} (${p.prize}${p.easy ? ', Easy' : ''})`),
-    seen: next,
-  };
+  return { lines: fresh.map((p) => `new: ${p.title} (${p.prize})`), seen: next };
 }
 
 /**
@@ -155,7 +288,7 @@ export function newProgramLines(prev: AlertMemory, programs: NewProgram[], fitCh
  * that fit follow the campaign lines (Ruling 10, newProgramLines). The first-ever check (no
  * checkedAt) is quiet for ranks, campaigns and new programs; it still shows prizes and wins. Returns the new memory too. Pure; exported for tests.
  */
-export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[] = []) {
+export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[] = [], now = new Date()) {
   const lines: string[] = [];
   const first = prev.checkedAt === null;
   // v2.8 Part G: announced wins first among wins (money first): sourced outcomes only (alertFacts
@@ -228,7 +361,7 @@ export function alertLines(prev: AlertMemory, f: AlertFacts, otherWins: string[]
       : prev.checkedAt !== null && c.opened_at <= prev.checkedAt;
   if (!first) for (const c of f.newCampaigns) if (!seenCampaign(c)) lines.push(`new: ${c.title} (${c.prize})`);
   // v2.8 Ruling 10 (plan): new external programs go where campaign lines go.
-  const programs = newProgramLines(prev, f.newPrograms, f.fitChains);
+  const programs = newProgramLines(prev, f.newPrograms, f.fitRepos, f.skip, now);
   lines.push(...programs.lines);
   const state: AlertState = {
     top,
@@ -309,7 +442,7 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
   const mineBonus = () => db`(p.installation_id = ${installationId}
     OR lower(COALESCE(p.creator_wallet, p.payout_wallet)) IN
       (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
-  const [opened, prizes, open, tokens, bonusRank, bonusWins, curated, fit, outcomeWins] = await Promise.all([
+  const [opened, prizes, open, tokens, bonusRank, bonusWins, curated, fit, outcomeWins, entered, told, said] = await Promise.all([
     db<{ id: string; title: string; campaign: CampaignConfig; opened_at: Date }[]>`
       SELECT id, title, campaign, opened_at FROM programs
       WHERE status = 'active' AND campaign->>'kind' = 'earnkit' AND opened_at IS NOT NULL
@@ -342,20 +475,15 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       ORDER BY bs.project_id, bs.day DESC`,
     paidBonusWins(installationId, db),
     // v2.8 Ruling 10 (plan): every open curated program (a handful); newProgramLines picks the new
-    // ones that fit. Easy comes from the guide's own rule (difficultyOf).
-    db<
-      (Pick<
-        ProgramRow,
-        | 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'opened_at' | 'past_rounds' | 'focus' | 'best_bet'
-        | 'difficulty_override' | 'winners_per_round' | 'tag' | 'each_time' | 'submission_requirements' | 'rules'
-        | 'investment'
-      > & { opened_at: Date })[]
-    >`
+    // ones the builder could win (v2.9 A7: alertFit, with the guide's program level, difficultyOf).
+    db<(NewProgramRow & { opened_at: Date })[]>`
       SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
-        winners_per_round, tag, each_time, submission_requirements, rules, investment
+        winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
+        max_award_usd, existing_work, min_product_score, match_floor, match_precision
       FROM programs
       WHERE status = 'active' AND campaign IS NULL AND opened_at IS NOT NULL AND (ends_at IS NULL OR ends_at > now())`,
-    db<{ fit_chains: Chain[] }[]>`SELECT fit_chains FROM installations WHERE id = ${installationId}`,
+    // v2.9 A7: the builder's best owned repos when they last matched.
+    db<{ fit_repos: FitRepo[] | null }[]>`SELECT fit_repos FROM installations WHERE id = ${installationId}`,
     // v2.8 Part G: announced wins only; a self-reported row is never read here.
     db<{ id: number; project_id: number; name: string; program_title: string; prize_usd: string | null; captured_at: Date }[]>`
       SELECT eo.id, eo.project_id, p.name, pr.title AS program_title, eo.prize_usd::text AS prize_usd, eo.captured_at
@@ -363,7 +491,23 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       JOIN projects p ON p.id = eo.project_id
       JOIN programs pr ON pr.id = eo.program_id
       WHERE eo.basis = 'announcement' AND eo.result IN ('won', 'placed') AND p.installation_id = ${installationId}`,
+    // v2.9 A7: programs this installation has an entry in (confirmed or not) are never alerted.
+    db<{ program_id: string }[]>`SELECT DISTINCT program_id FROM projects WHERE installation_id = ${installationId}`,
+    // v2.9 A3, A7: applied outside EarnKit or not interested (builder memory), and what the builder
+    // said about their repos now (a later "not mine" or "testnet only" wins over the remembered one).
+    db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`
+      SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId}`,
+    db<{ repo_key: string; mainnet_chains: Chain[]; testnet_chains: Chain[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
+      SELECT repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine
+      FROM builder_repo_facts WHERE installation_id = ${installationId}`,
   ]);
+  const memory: BuilderMemory = {
+    programs: new Map(told.map((t) => [t.program_id, { status: t.status, round_label: t.round_label, at: t.at }])),
+    repos: new Map(),
+  };
+  const saidNow = new Map(
+    said.map((r) => [r.repo_key, { mainnet: r.mainnet_chains, testnet: r.testnet_chains, live_url: r.live_url, has_users: r.has_users, not_mine: r.not_mine }]),
+  );
   const wallets = tokens.map((t) => t.wallet).filter((w): w is string => !!w);
   const [all, feesUsd] = await Promise.all([
     campaignCandidates([...new Set(open.map((e) => e.program_id))], db),
@@ -396,7 +540,8 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
       : { usd: feesUsd, tokens: tokens.map((t) => ({ url: t.token_url, symbol: t.token_symbol })) },
     bonusWins,
     newPrograms: curated.map(newProgramOf),
-    fitChains: fit[0]?.fit_chains ?? [],
+    fitRepos: (fit[0]?.fit_repos ?? []).map((r) => ({ ...r, said: saidNow.get(r.key) ?? r.said ?? null })),
+    skip: { entered: new Set(entered.map((e) => e.program_id)), hidden: hiddenIds(hiddenPrograms(memory, curated)) },
     outcomeWins: outcomeWins.map((o) => ({ ...o, prize_usd: o.prize_usd === null ? null : Number(o.prize_usd) })),
     bonusStandings: bonusRank.map((r) => ({
       project_id: r.project_id,
@@ -407,22 +552,37 @@ export async function alertFacts(installationId: number, db: Db = sql()): Promis
   };
 }
 
+/** The program columns newProgramOf reads. */
+export type NewProgramRow = Parameters<typeof difficultyOf>[0] &
+  Pick<
+    ProgramRow,
+    | 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'investment' | 'ends_at' | 'starts_at' | 'campaign'
+    | 'max_award_usd' | 'existing_work' | 'min_product_score' | 'match_floor' | 'match_precision'
+  >;
+
 /**
  * One open curated program as a new program alert candidate. Ruling C23: an investment program's
  * prize reads "up to $1M investment" (prizeOf). Pure; exported for tests.
  */
-export function newProgramOf(
-  p: Parameters<typeof difficultyOf>[0] &
-    Pick<ProgramRow, 'id' | 'title' | 'summary' | 'chains' | 'any_chain' | 'investment'> & { opened_at: Date },
-): NewProgram {
+export function newProgramOf(p: NewProgramRow & { opened_at: Date }): NewProgram {
   return {
     id: p.id,
     title: p.title,
     prize: prizeOf(p),
-    easy: difficultyOf(p).level === 'Easy',
     chains: p.chains,
     any_chain: p.any_chain,
     opened_at: p.opened_at,
+    ends_at: p.ends_at,
+    max_award_usd: perWinnerUsd(p),
+    investment: p.investment === true,
+    min_product_score: p.min_product_score ?? 0,
+    tag: p.tag,
+    existing_work: p.existing_work,
+    starts_at: p.starts_at,
+    difficulty: difficultyOf(p),
+    past_rounds: p.past_rounds,
+    match_floor: p.match_floor ?? null,
+    match_precision: p.match_precision == null ? null : Number(p.match_precision),
   };
 }
 

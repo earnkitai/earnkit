@@ -335,6 +335,7 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
           payout_wallet = COALESCE(r.payout_wallet, o.payout_wallet),
           working_on = ARRAY(SELECT DISTINCT unnest(r.working_on || o.working_on)),
           fit_chains = ARRAY(SELECT DISTINCT unnest(r.fit_chains || o.fit_chains) ORDER BY 1),
+          fit_repos = CASE WHEN jsonb_array_length(r.fit_repos) > 0 THEN r.fit_repos ELSE o.fit_repos END,
           alert_state = COALESCE(o.alert_state, '{}'::jsonb) || COALESCE(r.alert_state, '{}'::jsonb)
         FROM installations o WHERE r.id = ${root} AND o.id = ${other}`;
       await tx`UPDATE installations SET builder_id = ${root} WHERE id = ${other} OR builder_id = ${other}`;
