@@ -9,7 +9,7 @@ import { upsertProgram } from './programs';
 import { tools } from './tools';
 import { tokenLineFor } from './token-gate';
 import { deployToken, LAUNCHING } from './tokens';
-import { TECHNICAL_TERMS, launchReplyMs, type TokenFlowDeps } from './token-launch';
+import { STILL_CHECKING, TECHNICAL_TERMS, launchReplyMs, type TokenFlowDeps } from './token-launch';
 import { CANT_PUSH, NO_WALLET_HINT } from './confirm';
 import { GitHubError } from './match-projects';
 import { rootOf } from './identity';
@@ -147,9 +147,11 @@ const earnkitTxt = async (r: { owner: string; repo: string }): Promise<FetchResu
 type RepoCode = { fork: boolean; hasCommits: boolean; aheadOfParent: number | null };
 const goodRepo = async (): Promise<RepoCode> => ({ fork: false, hasCommits: true, aheadOfParent: null });
 
-async function newInstallation() {
+/** `shared`: a hosted agent's installation (shared_client), as the OAuth token route flags Grok Bot's. */
+async function newInstallation(o: { shared?: boolean } = {}) {
   const [{ id }] = await sql()<{ id: number }[]>`
-    INSERT INTO installations (token_hash) VALUES (${`v281-${process.pid}-${Date.now()}-${Math.random()}`}) RETURNING id`;
+    INSERT INTO installations (token_hash, shared_client)
+    VALUES (${`v281-${process.pid}-${Date.now()}-${Math.random()}`}, ${o.shared ?? false}) RETURNING id`;
   OWNERS.add(id);
   return id;
 }
@@ -171,7 +173,9 @@ function ctxFor(id: number, o: { repo?: (owner: string, repo: string) => Promise
     entryDeps: { fetchProof: async (u: string) => `<html><a href="https://github.com/alice/tipjar">${u}</a><a href="https://github.com/kim/arcpay">x</a></html>` },
   };
 }
-type Ctx = ReturnType<typeof ctxFor> & { ownInstallationId?: number };
+type Ctx = ReturnType<typeof ctxFor> & { ownInstallationId?: number; sharedClient?: boolean; matchProjects?: unknown };
+/** GitHub matching for a stated GitHub user (never the network). */
+const noMatching = { matchProjects: async () => ({ checked: 0, fits: [] }) };
 
 // ---- The recorder ------------------------------------------------------------------------------
 
@@ -457,7 +461,9 @@ test('J9: an incomplete entry: the missing items first; confirming anyway shows 
   const d = await call(J, 'draft', 'prepare_submission', { program_id: 'base-builder-grants', project, agent: CC, answers, coach_asked: true }, ctx);
   assert.match(d.show_to_builder, /^Before you submit: /);
   await call(J, 'confirm anyway', 'confirm_entry', { program_id: 'base-builder-grants', project, answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC }, ctx);
-  assert.ok(forty(J) <= 1, dump(J));
+  // The offer shows, exactly once (final fix wave, M8: `<= 1` passed with no offer at all).
+  assert.equal(forty(J), 1, dump(J));
+  assert.equal(said.filter((s) => s.journey === J && /\nYes: launches \$\w+ \(Half Done\) on Base\./.test(s.text)).length, 1, dump(J));
 });
 
 test('J10: repo problems at the token gate: plain words, the kit, and never "open this in Claude Code"', dbTest, async () => {
@@ -489,42 +495,83 @@ test('J10: repo problems at the token gate: plain words, the kit, and never "ope
   for (const j of ['J10a', 'J10b', 'J10c', 'J10d']) assert.equal(forty(j), 1, dump(j));
 });
 
-test('J1c: Grok Bot with a repo, then Claude Code: the pickup links the earlier entry; one Arc entry, one token', dbTest, async () => {
+test('J1c: Grok Bot (a hosted agent) with a repo, then Claude Code: no pickup is offered; Claude Code enters on its own', dbTest, async () => {
   const J = 'J1c';
   const repo = 'https://github.com/kim/arcpay';
   const project = { name: 'ArcPay', repo_url: repo, live_url: 'https://arcpay.example' };
-  const grokId = await newInstallation();
-  const grok = ctxFor(grokId);
+  // Grok Bot is a hosted agent: one registration may serve many builders (shared_client).
+  const grokId = await newInstallation({ shared: true });
+  const grok: Ctx = { ...ctxFor(grokId), sharedClient: true, ...noMatching };
   const G = 'J1c-grok';
   await call(G, 'grok list', 'list_programs', { agent_can_build: false }, grok);
   const g = await entry({ journey: G, ctx: grok, program: 'arc-microgrants', project, agent: GROK, record: false });
   // An agent that can't push: the one place the "open this in Claude Code" line belongs.
   assert.ok(g.c!.show_to_builder.startsWith(`${CANT_PUSH}\n`), g.c!.show_to_builder);
+  // A hosted agent is never offered a pickup, even naming the repo's owner.
+  const grokAgain = await call(G, 'grok list (repo)', 'list_programs', { github_user: 'kim', repos: [repo] }, grok);
+  assert.doesNotMatch(grokAgain.show_to_builder, /Pick up/);
+  assert.ok(!('pick_up' in grokAgain));
 
-  // The builder installs EarnKit in Claude Code: a new installation, the same repo.
+  // The builder installs EarnKit in Claude Code: a new installation, the same repo. Final fix wave
+  // (C2): the Grok Bot installation is hosted, so it is never offered or linked.
   const ccId = await newInstallation();
-  const cc: Ctx = ctxFor(ccId);
+  const cc: Ctx = { ...ctxFor(ccId), ownInstallationId: ccId };
   const localRepos = [{ name: 'arcpay', url: repo, chains: [{ chain: 'arc', mainnet: true }], live_url: project.live_url }];
   const first = await call(J, 'cc list', 'list_programs', { local_repos: localRepos }, cc);
-  assert.match(first.show_to_builder, /^Pick up your earlier entr(y|ies)\?/);
-  assert.ok(first.pick_up, 'the agent gets the pickup question');
+  assert.doesNotMatch(first.show_to_builder, /Pick up/);
+  assert.ok(!('pick_up' in first), 'no pickup question for the agent');
   const picked = await call(J, 'cc pick up', 'pick_up_entries', { answer: 'yes' }, cc);
-  assert.match(picked.show_to_builder, /^Done\. Your earlier entries, saved answers and alerts are here now\./);
-  // The MCP route then acts as the group's root.
-  const linked: Ctx = { ...ctxFor(ccId), installationId: await rootOf(ccId), ownInstallationId: ccId };
-  const again = await call(J, 'cc list again', 'list_programs', { local_repos: localRepos }, linked);
-  assert.match(again.show_to_builder, /Your entries: Arc Microgrants \(ArcPay, not submitted yet\)/);
-  assert.doesNotMatch(again.show_to_builder, /^Pick up your earlier/);
+  assert.doesNotMatch(picked.show_to_builder, /^Done\./);
+  assert.equal(await rootOf(ccId), ccId, 'not linked');
+  assert.equal(await rootOf(grokId), grokId);
 
-  // Arc in Claude Code: the saved answers carry over (no question asked again), the same entry, its token.
-  const q = await call(J, 'cc arc questions', 'prepare_submission', { program_id: 'arc-microgrants', project, agent: CC }, linked);
-  assert.doesNotMatch(q.show_to_builder, /public builder profile\?/, 'the profile is not asked twice');
-  const e = await entry({ journey: J, ctx: linked, program: 'arc-microgrants', project, agent: CC });
+  // Arc in Claude Code: its own entry, and the repo's one token.
+  const e = await entry({ journey: J, ctx: cc, program: 'arc-microgrants', project, agent: CC });
   assert.equal((e.c!.token as { status: string }).status, 'launched', e.c!.show_to_builder);
-  const rows = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE program_id = 'arc-microgrants' AND repo_url = ${repo}`;
-  assert.equal(rows[0].n, 1, 'one Arc entry for the repo, across both agents');
+  const rows = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM projects WHERE repo_url = ${repo} AND token_url IS NOT NULL AND token_url <> 'pending'`;
+  assert.equal(rows[0].n, 1, 'one token for the repo');
   assert.equal(forty(J), 1, dump(J));
   assert.equal(forty(G), 0, dump(G));
+});
+
+test('J1d: a reinstall picks up only the groups its proof covers; a stranger naming the same GitHub user stays out', dbTest, async () => {
+  const J = 'J1d';
+  const repo = 'https://github.com/dana/dapp';
+  const project = { name: 'Dapp', repo_url: repo, live_url: 'https://dapp.example' };
+  const localRepos = [{ name: 'dapp', url: repo, chains: [{ chain: 'base', mainnet: true }], live_url: project.live_url }];
+  // Dana's first install (Claude Code) enters Base with her repo.
+  const danaId = await newInstallation();
+  const dana: Ctx = { ...ctxFor(danaId), ownInstallationId: danaId };
+  await call('J1d-dana', 'list', 'list_programs', { local_repos: localRepos }, dana);
+  await entry({ journey: 'J1d-dana', ctx: dana, program: 'base-builder-grants', project, agent: CC, record: false });
+  // A stranger's install claims Dana's GitHub user and enters from another repo.
+  const malloryId = await newInstallation();
+  const mallory: Ctx = { ...ctxFor(malloryId), ownInstallationId: malloryId, ...noMatching };
+  await call('J1d-mallory', 'list', 'list_programs', { github_user: 'dana' }, mallory);
+  const [m] = await sql()<{ github_user: string | null }[]>`SELECT github_user FROM installations WHERE id = ${malloryId}`;
+  assert.equal(m.github_user?.toLowerCase(), 'dana', 'the stranger matches by GitHub user');
+  await entry({
+    journey: 'J1d-mallory',
+    ctx: mallory,
+    program: 'base-builder-grants',
+    project: { name: 'Other', repo_url: 'https://github.com/mallory/other', live_url: 'https://other.example' },
+    agent: CC,
+    record: false,
+  });
+
+  // Dana reinstalls (Cursor): the offer counts only her entry, and the yes links only her group.
+  const freshId = await newInstallation();
+  const fresh: Ctx = { ...ctxFor(freshId), ownInstallationId: freshId };
+  const first = await call(J, 'list', 'list_programs', { local_repos: localRepos }, fresh);
+  assert.match(first.show_to_builder, /^Pick up your earlier entry\?\n/, 'one entry, never the stranger\'s');
+  const picked = await call(J, 'pick up', 'pick_up_entries', { answer: 'yes' }, fresh);
+  assert.match(picked.show_to_builder, /^Done\./);
+  assert.equal(await rootOf(freshId), danaId);
+  assert.equal(await rootOf(malloryId), malloryId, 'the stranger is never linked');
+  const linked: Ctx = { ...ctxFor(freshId), installationId: danaId, ownInstallationId: freshId };
+  const again = await call(J, 'list again', 'list_programs', { local_repos: localRepos }, linked);
+  assert.match(again.show_to_builder, /Your entries: Base Builder Grant Program \(Dapp, not submitted yet\)/);
+  assert.doesNotMatch(again.show_to_builder, /Other/);
 });
 
 test('slow deploy: the reply comes before 50 s ("launching"); the check-back returns the token and the kit', dbTest, async () => {
@@ -558,7 +605,47 @@ test('slow deploy: the reply comes before 50 s ("launching"); the check-back ret
   }
 });
 
-test('every journey reply: under 50 s, the bonus note at most once, no em dash, no Clanker, never "coin", no tool names', dbTest, () => {
+test('slow gate reads: the reply comes in time ("still checking"); the launch finishes and the check-back has it', dbTest, async () => {
+  const J = 'slow-gate';
+  const prev = process.env.EARNKIT_LAUNCH_REPLY_MS;
+  // The repo check takes 1.5 s; the reply time is lowered to 0.5 s, so the reply comes before the deploy starts.
+  process.env.EARNKIT_LAUNCH_REPLY_MS = '500';
+  let gateDone: Promise<unknown> = Promise.resolve();
+  const slowRepo = (o: string, r: string) => {
+    const p = new Promise<void>((res) => setTimeout(res, 1_500)).then(() => goodRepo());
+    gateDone = p;
+    pendingDeploys.push(p);
+    void o;
+    void r;
+    return p;
+  };
+  try {
+    const ctx = ctxFor(await newInstallation(), { repo: slowRepo });
+    const project = { name: 'Slowgate', repo_url: 'https://github.com/mia/slowgate', live_url: 'https://slowgate.example' };
+    const e = await entry({ journey: J, ctx, program: 'base-builder-grants', project, agent: CC, record: false });
+    const first = said.find((s) => s.journey === J && s.label === 'base-builder-grants go')!;
+    assert.ok(first.ms < 1_500, `replied in ${first.ms} ms, before the repo check finished`);
+    assert.ok(e.c!.show_to_builder.includes(STILL_CHECKING), e.c!.show_to_builder);
+    await gateDone;
+    await Promise.all(pendingDeploys);
+    await new Promise((r) => setTimeout(r, 300));
+    const back = await call(
+      J,
+      'check back',
+      'confirm_entry',
+      { program_id: 'base-builder-grants', project, answers: e.answers, builder_confirmed: true, decision: 'go', wallet: W, agent: CC, check_back: true },
+      ctx,
+    );
+    assert.equal((back.token as { status: string }).status, 'launched', back.show_to_builder);
+    assert.ok(back.kit);
+    assert.equal(forty(J), 1, dump(J));
+  } finally {
+    if (prev === undefined) delete process.env.EARNKIT_LAUNCH_REPLY_MS;
+    else process.env.EARNKIT_LAUNCH_REPLY_MS = prev;
+  }
+});
+
+test('every journey reply: under 50 s, the bonus note at most once, no em dash, no Clanker or vault, never "coin", no tool names', dbTest, () => {
   assert.ok(said.length > 50, `${said.length} replies`);
   const coinWords = (text: string) =>
     text
@@ -572,6 +659,7 @@ test('every journey reply: under 50 s, the bonus note at most once, no em dash, 
     assert.doesNotMatch(s.text, NO_BONUS_NOTE, where);
     assert.doesNotMatch(JSON.stringify(s.reply), /—/, where);
     assert.doesNotMatch(JSON.stringify(s.reply), /clanker/i, where);
+    assert.doesNotMatch(s.text, /\bvaults?\b/i, where);
     assert.deepEqual(coinWords(s.text), [], where);
     assert.doesNotMatch(s.reply.show_to_builder ?? '', TECHNICAL_TERMS, where);
     // An agent that can push never hears the line meant for one that can't.
