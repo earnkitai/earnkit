@@ -143,6 +143,8 @@ const GITHUB = {
   repos: new Map<string, GhRepo>(),
   /** OAuth: the login each one-time code signs in as (GitHub's authorize step, done in the browser). */
   oauthCodes: new Map<string, string>(),
+  /** A repo's hardhat.config.ts (chain ids, RPC hosts and contract addresses matching reads). */
+  configs: new Map<string, string>(),
 };
 function addRepos(owner: string, repos: GhRepo[]) {
   GITHUB.users.set(owner, [...(GITHUB.users.get(owner) ?? []), ...repos]);
@@ -175,7 +177,9 @@ function github(u: URL, init?: RequestInit): Response {
   if (u.host === 'raw.githubusercontent.com') {
     const [, owner, repo] = p.split('/');
     if (!GITHUB.repos.has(`${owner}/${repo}`.toLowerCase())) return notFound();
-    return p.toLowerCase().endsWith('/readme.md') ? new Response(README) : notFound();
+    if (p.toLowerCase().endsWith('/readme.md')) return new Response(README);
+    const config = GITHUB.configs.get(`${owner}/${repo}`.toLowerCase());
+    return p.endsWith('/hardhat.config.ts') && config ? new Response(config) : notFound();
   }
   // The OAuth token's own reads (github-verify.ts githubOAuth).
   if (auth?.startsWith('Bearer gho_')) {
@@ -197,7 +201,13 @@ function github(u: URL, init?: RequestInit): Response {
     const rest = m[3] ?? '';
     if (rest === '') return json(r);
     if (rest.startsWith('/git/trees/'))
-      return json({ tree: [{ path: 'README.md', type: 'blob', size: README.length }, { path: 'src/index.ts', type: 'blob', size: 900 }] });
+      return json({
+        tree: [
+          { path: 'README.md', type: 'blob', size: README.length },
+          { path: 'src/index.ts', type: 'blob', size: 900 },
+          ...(GITHUB.configs.has(r.full_name.toLowerCase()) ? [{ path: 'hardhat.config.ts', type: 'blob', size: 300 }] : []),
+        ],
+      });
     if (rest === '/commits') {
       // The builder's commit in the last 90 days (active); the repo's last 100 commits, all the owner's.
       const owner = (r.owner as { login: string }).login;
@@ -479,4 +489,137 @@ test('12.1b noise only: a fork, a template, a tutorial and an EarnKit kit: no ro
   assert.ok(!probed.some((u) => /viemfork|kits\.xyz/.test(u)), 'noise is never probed');
   const [{ fit_repos }] = await sql()<{ fit_repos: unknown[] }[]>`SELECT fit_repos FROM installations WHERE id = ${ctx.installationId}`;
   assert.deepEqual(fit_repos, [], 'and never alerted on');
+});
+
+const W2 = '0x2222222222222222222222222222222222222abc';
+/** A public GitHub TipJar on Arc mainnet (homepage, an Arc config naming its contract), as Grok Bot's builders have it. */
+function publicTipJar(owner: string) {
+  if (GITHUB.repos.has(`${owner}/tipjar`)) return;
+  addRepos(owner, [ghRepo(owner, 'TipJar', { homepage: `https://tipjar-${owner}.xyz`, description: 'Tips for creators in USDC' })]);
+  const contract = `0x${Buffer.from(owner).toString('hex').padEnd(40, '4').slice(0, 40)}`;
+  GITHUB.configs.set(`${owner}/tipjar`, `networks: { arc: { url: 'https://rpc.mainnet.arc.io', chainId: 5042 } } // TipJar at ${contract}`);
+}
+
+test('12.2 Grok Bot (shared client), GitHub sign-in on: the offer asks the wallet, yes gives the sign-in line, the code launches $TIP', dbTest, () =>
+  withSignIn(async () => {
+    const J = '12.2';
+    publicTipJar('kim');
+    const ctx = ctxFor(await newInstallation({ shared: true }), { shared: true });
+    const list = await call(J, 'list', 'list_programs', { agent_can_build: false, repos: ['kim/TipJar'] }, ctx);
+    // No wallet is remembered on a shared client: the offer asks for it in the same line.
+    assert.ok(
+      list.show_to_builder!.endsWith('TipJar fits Arc Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a shot at the builder bonus. Say yes with your wallet address, or skip.'),
+      list.show_to_builder,
+    );
+    assert.match(rowOf(list.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \|/);
+    const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string; shown_wallet?: string };
+    assert.equal(offer.shown_wallet, undefined, 'no wallet suggested on a shared client');
+    // Yes, with the wallet: Grok Bot can't push, so the sign-in line; no entry, nothing launched.
+    const yes = { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'go', builder_confirmed: true, creator_wallet: W2, agent: { can_push: false } };
+    const before = deployed.length;
+    const first = await call(J, 'yes', 'launch_token', yes, ctx);
+    assert.equal(first.fixable, true);
+    assert.match(first.sign_in_line as string, /^One click to prove TipJar is yours, then \$TIP launches: https:\/\/earnkit\.com\/github\/verify\?n=[\w-]{43}$/);
+    assert.ok(!first.project_id, 'no entry before the sign-in');
+    assert.equal(deployed.length, before);
+    // The builder opens the link, confirms, and GitHub sends them back: the page shows the code.
+    const page = await browserSignIn(first.sign_in as string, 'kim');
+    const code = page.match(/^Done\. Paste this code to your agent: ([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{2})$/)?.[1];
+    assert.ok(code, page);
+    // Without the code (another Grok Bot user, or the agent forgot it): still nothing launches (G10).
+    const noCode = await call(J, 'yes again, no code', 'launch_token', yes, ctx);
+    assert.notEqual(noCode.status, 'launched');
+    assert.equal(deployed.length, before);
+    // With the code: the entry is made and $TIP launches to the wallet the sign-in named (G11).
+    const launched = await call(J, 'yes again, signed in', 'launch_token', { ...yes, signed_in: code }, ctx);
+    assert.equal(launched.status, 'launched', JSON.stringify(launched));
+    assert.deepEqual(deployed.slice(before).map((d) => [d.symbol, d.wallet]), [['TIP', W2]]);
+    // The confirmation: the kit, the token, and never "open this in Claude Code or Cursor".
+    const program = 'arc-microgrants';
+    const project = { name: 'TipJar', repo_url: 'https://github.com/kim/TipJar', live_url: 'https://tipjar-kim.xyz' };
+    const answers = { ...answersFor(program, { builder_profile: 'https://github.com/kim' }), payout_wallet: W2 };
+    await call(J, 'coach', 'prepare_submission', { program_id: program, project, agent: GROK }, ctx);
+    await call(J, 'draft', 'prepare_submission', { program_id: program, project, agent: GROK, answers, coach_asked: true }, ctx);
+    const c = await call(J, 'go', 'confirm_entry', { program_id: program, project, answers, builder_confirmed: true, decision: 'go', wallet: W2, agent: GROK, signed_in: code }, ctx);
+    assert.ok(c.kit, c.show_to_builder);
+    assert.equal(c.project_id, launched.project_id);
+    assert.equal((c.token as { status: string }).status, 'launched');
+    assert.equal(deployed.length, before + 1, 'one launch');
+    for (const s of said.filter((x) => x.journey === J)) assert.ok(!s.text.includes(CANT_PUSH), `${s.label}: ${s.text}`);
+    const [row] = await sql()<{ complete_at: Date | null; contract_verified_at: Date | null }[]>`SELECT complete_at, contract_verified_at FROM projects WHERE id = ${c.project_id as number}`;
+    assert.ok(row.complete_at && row.contract_verified_at, 'complete: the Arc contract matching found has code');
+    assert.equal(forty(J), 1, dump(J));
+  }),
+);
+
+test('12.2b Grok Bot (shared client), GitHub sign-in off: "can\'t push" says so with no entry; once the proof line is pushed, $TIP launches', dbTest, async () => {
+  const J = '12.2b';
+  publicTipJar('lee');
+  const ctx = ctxFor(await newInstallation({ shared: true }), { shared: true });
+  const list = await call(J, 'list', 'list_programs', { agent_can_build: false, repos: ['lee/TipJar'] }, ctx);
+  const offer = list.token_offer as { program_id: string; repo_url: string; project_name: string };
+  assert.ok(offer, list.show_to_builder);
+  const yes = { offer: { program_id: offer.program_id, repo_url: offer.repo_url, project_name: offer.project_name }, decision: 'go', builder_confirmed: true, creator_wallet: W2 };
+  const before = deployed.length;
+  // Sign-in off: an agent that can't push hears the one line meant for it; no entry, nothing launched.
+  const cant = await call(J, 'yes (can\'t push)', 'launch_token', { ...yes, agent: { can_push: false } }, ctx);
+  assert.ok(builderText(cant).includes(CANT_PUSH), JSON.stringify(cant));
+  assert.ok(!cant.project_id && !cant.sign_in, JSON.stringify(cant));
+  // The proof line: missing first (its plain words, fixable), then pushed: the next yes launches.
+  const waiting = await call(J, 'yes (no proof line yet)', 'launch_token', yes, ctx);
+  assert.equal(waiting.status, 'gate_failed', JSON.stringify(waiting));
+  assert.ok(!waiting.sign_in, 'no sign-in link while sign-in is off');
+  assert.equal(deployed.length, before);
+  PUSHED.add('lee/tipjar');
+  const launched = await call(J, 'yes (proof line pushed)', 'launch_token', yes, ctx);
+  assert.equal(launched.status, 'launched', JSON.stringify(launched));
+  assert.deepEqual(deployed.slice(before).map((d) => [d.symbol, d.wallet]), [['TIP', W2]]);
+  assert.equal(forty(J), 1, dump(J));
+});
+
+test('12.4 statements: applied Base, not interested in a16z, testnet only on Arc lower the reply; a mainnet claim raises it back once checked', dbTest, async () => {
+  const J = '12.4';
+  const ctx = ctxFor(await newInstallation());
+  const local_repos = [
+    { name: 'paylink', url: 'https://github.com/maya/paylink', chains: [{ chain: 'base', mainnet: true }, { chain: 'arc', mainnet: true }], live_url: 'https://paylink.xyz', contracts: ['0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a'], last_commit_at: daysAgo(1) },
+  ];
+  const first = await call(J, 'list', 'list_programs', { local_repos }, ctx);
+  for (const t of ['Base Builder Grant Program', 'a16z speedrun SR008']) assert.ok(rowOf(first.show_to_builder!, t)?.includes('paylink'), `${t} matched first`);
+  assert.match(rowOf(first.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \| .+ \| paylink \|$/);
+
+  // Lowering: the builder applied to Base outside EarnKit, isn't interested in a16z, and is only on Arc testnet.
+  const told = await call(J, 'tell', 'tell_earnkit', {
+    program_status: [{ program_id: 'base-builder-grants', status: 'applied' }, { program_id: 'a16z-speedrun', status: 'not_interested' }],
+    repo_facts: [{ repo: 'maya/paylink', testnet_chains: ['arc'] }],
+  }, ctx);
+  assert.equal(told.show_to_builder, undefined, 'nothing to show the builder');
+  const lowered = await call(J, 'list (lowered)', 'list_programs', { local_repos }, ctx);
+  const low = lowered.show_to_builder!;
+  assert.match(low, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
+  for (const t of ['Base Builder Grant Program', 'a16z speedrun SR008']) assert.equal(rowOf(low, t), undefined, `${t}: no row, in no table`);
+  assert.ok(!(lowered.matches as { program_id: string }[]).some((m) => ['base-builder-grants', 'a16z-speedrun'].includes(m.program_id)));
+  assert.match(rowOf(low, 'Arc Microgrants') ?? '', /^\| Arc Microgrants \| .+ \| Medium \| .+ \| paylink, needs a deploy on Arc mainnet \|$/, low);
+
+  // Raising: mainnet on Arc and real users are claims; the Arc contract has code, so Arc is Easy
+  // again; the users claim stays a "confirm" until EarnKit can check it.
+  await call(J, 'tell (raise)', 'tell_earnkit', { repo_facts: [{ repo: 'maya/paylink', mainnet_chains: ['arc'], has_users: true }] }, ctx);
+  const raised = await call(J, 'list (raised)', 'list_programs', { local_repos }, ctx);
+  assert.match(rowOf(raised.show_to_builder!, 'Arc Microgrants') ?? '', /\| Easy \| .+ \| paylink \|$/, raised.show_to_builder);
+  assert.match(rowOf(raised.show_to_builder!, 'Circle Developer Grants') ?? '', /\| paylink, confirm: users \|$/, raised.show_to_builder);
+  assert.equal(rowOf(raised.show_to_builder!, 'a16z speedrun SR008'), undefined, 'not interested is for good');
+
+  // Base's round changes (it opened again after the statement): Base is back.
+  const [{ opened_at }] = await sql()<{ opened_at: Date | null }[]>`SELECT opened_at FROM programs WHERE id = 'base-builder-grants'`;
+  try {
+    await sql()`UPDATE programs SET opened_at = now() + interval '1 second' WHERE id = 'base-builder-grants'`;
+    await new Promise((r) => setTimeout(r, 1_100));
+    const reopened = await call(J, 'list (Base reopened)', 'list_programs', { local_repos }, ctx);
+    assert.ok(rowOf(reopened.show_to_builder!, 'Base Builder Grant Program')?.includes('paylink'), reopened.show_to_builder);
+    assert.doesNotMatch(reopened.show_to_builder!, /applied outside EarnKit/);
+    assert.equal(rowOf(reopened.show_to_builder!, 'a16z speedrun SR008'), undefined);
+  } finally {
+    await sql()`UPDATE programs SET opened_at = ${opened_at} WHERE id = 'base-builder-grants'`;
+  }
+  // The offer was shown once with "40%"; the repeats leave it out (G14).
+  assert.equal(forty(J), 1, dump(J));
 });
