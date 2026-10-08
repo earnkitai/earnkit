@@ -629,3 +629,28 @@ test('3.P15b a repo the builder said is not theirs is never scored; testnet only
   assert.deepEqual(r.fits[0].verdicts[0].missing, ['mainnet_deploy']);
   assert.equal(r.fits[0].verdicts[0].status, 'after_step');
 });
+
+test('3.F1 a claimed Monad mainnet is verified by a contract with code there, even when the live link loads', async () => {
+  const monadProgram: ProgramFacts = { ...baseProgram, id: 'monad-x', title: 'Monad X', chains: ['monad'] };
+  const said = { 'name:tipjar': { mainnet: ['monad' as const], testnet: [], live_url: null, has_users: null, not_mine: false } };
+  const local = { name: 'tipjar', chains: [], live_url: 'https://tipjar.xyz', contracts: [ADDR] };
+  const run = async (code: string) => {
+    const { n, deps } = checkDeps({ probeOk: true });
+    const asked: string[] = [];
+    deps.checks!.getCode = async (rpc) => {
+      n.getCodes++;
+      asked.push(rpc);
+      return code;
+    };
+    deps.programs = [monadProgram];
+    const r = await matchProjects(MatchProjectsInput.parse({ local_repos: [local], said }), deps);
+    return { r, n, asked };
+  };
+  const deployed = await run('0x6080');
+  assert.deepEqual(deployed.asked, ['https://rpc.monad.xyz'], 'one getCode on the claimed chain, though the link loaded');
+  assert.equal(deployed.r.fits[0].verdicts[0].status, 'likely');
+  assert.deepEqual(deployed.r.fits[0].facts.claims, []);
+  const empty = await run('0x');
+  assert.equal(empty.r.fits[0].verdicts[0].status, 'after_step');
+  assert.equal(empty.r.fits[0].verdicts[0].note, 'confirm: mainnet');
+});

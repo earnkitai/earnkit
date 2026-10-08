@@ -5,7 +5,9 @@ import {
   DEFAULT_README,
   INVESTMENT_NOTE,
   TUTORIAL,
+  CLAIMED_MAINNET,
   applyBuilderFacts,
+  confirmMainnets,
   matchRepo,
   ownerOk,
   productScore,
@@ -509,4 +511,15 @@ test('3.4 users on a "needs a live product" program: real_users leaves missing, 
   assert.equal(unverified.status, 'after_step');
   // Users don't matter where the program doesn't ask for them.
   assert.equal(matchRepo({ ...f, chains: arcMain }, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
+});
+
+test('3.F2 a mainnet claim taken back is no claim; code on the claimed chain clears it', () => {
+  const claimedArc = { arc: { mainnet: true, testnet: false, evidence: CLAIMED_MAINNET } };
+  const back = applyBuilderFacts(repo({ chains: claimedArc, claims: ['mainnet'] }), said({ testnet: ['arc'] }))!;
+  assert.deepEqual(back.claims, []);
+  const f = applyBuilderFacts(repo({ homepage: 'https://app.x', product: product(), live_verified: true }), said({ mainnet: ['arc', 'monad'] }))!;
+  const arcOnly = confirmMainnets(f, ['arc']);
+  assert.deepEqual(arcOnly.claims, ['mainnet'], 'Monad is still a claim');
+  assert.equal(matchRepo(arcOnly, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
+  assert.deepEqual(confirmMainnets(f, ['arc', 'monad']).claims, []);
 });

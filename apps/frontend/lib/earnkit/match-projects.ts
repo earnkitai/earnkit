@@ -4,6 +4,8 @@ import {
   CLAIMED_MAINNET,
   DEFAULT_README,
   applyBuilderFacts,
+  claimedMainnets,
+  confirmMainnets,
   KNOWN_TOKEN_ADDRESSES,
   TUTORIAL,
   TUTORIAL_DESCRIPTION,
@@ -657,19 +659,24 @@ const mainnetChains = (d: Detection) =>
     .filter(([, v]) => v?.mainnet)
     .map(([c]) => c as Chain);
 
-type Deployed = { live: boolean; deployed: boolean; unchecked: boolean };
+/** `withCode` (v2.9 A3): the mainnets where a contract candidate has code (it verifies a mainnet claim). */
+type Deployed = { live: boolean; deployed: boolean; unchecked: boolean; withCode: Chain[] };
 
 /** One repo ready for its link and contract checks, and how to finish its facts with their answers. */
 type Prepared = {
   homepage: string | null;
-  /** Up to GETCODE_PER_REPO (chain, address) pairs, on mainnets with an RPC. */
+  /** Up to GETCODE_PER_REPO (chain, address) pairs, on mainnets with an RPC; claimed chains first. */
   pairs: (readonly [Chain, string])[];
+  /** v2.9 A3: mainnets only a claim backs; their contracts are checked even when the live link loads. */
+  claimed: Chain[];
   finish: (d: Deployed) => { repo: RepoFacts; verdicts: Verdict[] };
 };
 
-const contractPairs = (addresses: string[], chains: Chain[]) =>
+const contractPairs = (addresses: string[], chains: Chain[], claimed: Chain[] = []) =>
   addresses
     .flatMap((a) => chains.filter((c) => rpcFor(c)).map((c) => [c, a] as const))
+    // v2.9 A3: a claimed chain's pairs first, so its claim can be verified within GETCODE_PER_REPO.
+    .sort(([a], [b]) => Number(claimed.includes(b)) - Number(claimed.includes(a)))
     .slice(0, GETCODE_PER_REPO);
 
 /**
@@ -680,6 +687,8 @@ const contractPairs = (addresses: string[], chains: Chain[]) =>
  * never a failure. Never throws.
  */
 async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[]> {
+  // v2.9 A3: once the live link loads, only a claimed chain's contracts are still worth a check.
+  const pairsOf = (p: Prepared, live: boolean | null) => (live === true ? p.pairs.filter(([c]) => p.claimed.includes(c)) : p.pairs);
   const items = list.map((p, i) => ({ p, i }));
   const livePeek = await mapLimit(items, 6, ({ p }) => (p.homepage ? peekLive(p.homepage, checks) : Promise.resolve(false)));
   let probes = LIST_BUDGET.probes;
@@ -689,23 +698,26 @@ async function runChecks(list: Prepared[], checks: CheckDeps): Promise<Deployed[
       ? liveChecked(p.homepage, { ...checks, budget: new CheckBudget({ probes: probeSlots[i], getCodes: 0 }) })
       : Promise.resolve(false as boolean | null),
   );
-  const codePeek = await mapLimit(items, 6, ({ p, i }) =>
-    live[i] === true ? Promise.resolve([]) : Promise.all(p.pairs.map(([c, a]) => peekContract(c, a, checks))),
-  );
+  const codePeek = await mapLimit(items, 6, ({ p, i }) => Promise.all(pairsOf(p, live[i]).map(([c, a]) => peekContract(c, a, checks))));
   let getCodes = LIST_BUDGET.getCodes;
   const codeSlots = codePeek.map((peeks) =>
     peeks.reduce((n, v) => (v === null && getCodes > 0 ? (getCodes--, n + 1) : n), 0),
   );
   return mapLimit(items, 6, async ({ p, i }): Promise<Deployed> => {
-    if (live[i] === true) return { live: true, deployed: true, unchecked: false };
     const budget = new CheckBudget({ probes: 0, getCodes: codeSlots[i] });
+    const withCode: Chain[] = [];
+    let deployed = live[i] === true;
     let unchecked = live[i] === null;
-    for (const [chain, address] of p.pairs) {
+    for (const [chain, address] of pairsOf(p, live[i])) {
+      // Deployed already: only an unverified claimed chain is still worth a check.
+      if (deployed && (!p.claimed.includes(chain) || withCode.includes(chain))) continue;
       const r = await contractDeployed(chain, address, { ...checks, budget });
-      if (r === true) return { live: false, deployed: true, unchecked: false };
-      if (r === null) unchecked = true;
+      if (r === true) {
+        deployed = true;
+        withCode.push(chain);
+      } else if (r === null) unchecked = true;
     }
-    return { live: false, deployed: false, unchecked };
+    return { live: live[i] === true, deployed, unchecked: !deployed && unchecked, withCode };
   });
 }
 
@@ -817,6 +829,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     ctx.said,
   );
   const { homepage, chains: allChains } = base;
+  const claimed = claimedMainnets(allChains);
   // Plan Ruling 1: a commit by the builder in 90 days; without a known builder, a push in 90 days.
   const active = ctx.builder
     ? ((await builderActive(repo, ctx.builder, ctx.now)) ?? within(repo.pushed_at, 90, ctx.now))
@@ -824,10 +837,11 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
   const signals = { active, young: own.young || active, original: own.original, readme: own.readme, owned: ctx.owned };
   return {
     homepage,
-    pairs: contractPairs([...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains)),
-    finish: ({ live, deployed, unchecked }) => {
+    pairs: contractPairs([...new Set([...own.addresses, ...(ctx.local?.contracts ?? [])])], mainnetChains(allChains), claimed),
+    claimed,
+    finish: ({ live, deployed, unchecked, withCode }) => {
       const product = productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []);
-      const facts: RepoFacts = { ...base, product, live_verified: live };
+      const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
     },
   };
@@ -840,17 +854,19 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  */
 function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCtx, 'owned' | 'now' | 'said'>): Prepared {
   const facts = said(reportedFacts(r, programs), ctx.said);
+  const claimed = claimedMainnets(facts.chains);
   // Ruling G3: an unknown last commit counts as active (the agent is asked to send it).
   const active = r.last_commit_at === undefined || within(r.last_commit_at, 90, ctx.now);
   return {
     homepage: facts.homepage,
-    pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains)),
-    finish: ({ live, deployed, unchecked }) => {
+    pairs: contractPairs(r.contracts ?? [], mainnetChains(facts.chains), claimed),
+    claimed,
+    finish: ({ live, deployed, unchecked, withCode }) => {
       const product = productScore(
         { active, young: active, original: !TUTORIAL.test(r.name), readme: false, deployed, owned: ctx.owned },
         unchecked ? ['deployed'] : [],
       );
-      const scored: RepoFacts = { ...facts, product, live_verified: live };
+      const scored: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live };
       return { repo: scored, verdicts: matchRepo(scored, programs) };
     },
   };
