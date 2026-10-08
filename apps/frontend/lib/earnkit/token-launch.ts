@@ -1071,8 +1071,12 @@ export const LaunchTokenInput = TokenChoice.extend({
     .optional(),
   /** v2.9 B10: the builder's answer to that offer: 'go' launches, 'skip' records a decline. */
   decision: z.enum(['go', 'skip']).default('go'),
-  /** v2.9 B10: what the agent can do (can_push: false, the builder signs in with GitHub instead). */
-  agent: z.object({ can_push: z.boolean().optional() }).strict().optional(),
+  /**
+   * v2.9 B10: what the agent can do (can_push: false, the builder signs in with GitHub instead). The
+   * same shape every other tool takes (T12 journey 12.1: an agent passing its usual { browser,
+   * can_push } got a ZodError on the yes).
+   */
+  agent: z.object({ browser: z.boolean().optional(), can_push: z.boolean().optional() }).strict().optional(),
 })
   .strict()
   .superRefine((v, c) => {

@@ -560,11 +560,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .enum(['go', 'skip'])
             .optional()
             .describe("With offer: 'go' when the builder said yes (default), 'skip' when they said skip"),
-          agent: z
-            .object({ can_push: z.boolean().optional() })
-            .strict()
-            .optional()
-            .describe("can_push: false when you can't push to the repo (the builder signs in with GitHub instead)"),
+          agent: AGENT.optional().describe("can_push: false when you can't push to the repo (the builder signs in with GitHub instead)"),
           name: z
             .string()
             .optional()

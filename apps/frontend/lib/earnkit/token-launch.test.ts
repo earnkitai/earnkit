@@ -635,6 +635,14 @@ test('v2.9 B10: LaunchTokenInput takes offer, decision and agent; exactly one of
   assert.throws(() => LaunchTokenInput.parse({ offer: { ...offer, extra: 1 }, builder_confirmed: true }));
 });
 
+test('v2.9 T12 journey 12.1 (regression): launch_token takes the agent object every other tool takes ({ browser, can_push })', () => {
+  const offer = { program_id: 'arc-microgrants', repo_url: 'https://github.com/alice/tipjar', project_name: 'TipJar' };
+  // The journey's Claude Code agent passed its usual agent object with the yes and got a ZodError.
+  const go = LaunchTokenInput.parse({ offer, builder_confirmed: true, creator_wallet: WALLET, agent: { browser: true, can_push: true } });
+  assert.deepEqual(go.agent, { browser: true, can_push: true });
+  assert.throws(() => LaunchTokenInput.parse({ offer, builder_confirmed: true, agent: { can_push: true, other: 1 } }));
+});
+
 test('launchToken: not your project throws', async () => {
   const h = harness({ installation_id: 2 });
   await assert.rejects(launchToken(launchInput(), 1, h.deps), (e: unknown) => e instanceof LaunchError && /No project 7 recorded by you/.test(e.message));
