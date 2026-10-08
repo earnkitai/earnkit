@@ -2018,9 +2018,9 @@ sections above have the details per task; this is how they fit together.
     without a stated prize), newest first, at most `MAX_OUTCOME_WIN_LINES` (3), each once
     (`AlertState.outcomes`).
   - New program lines where campaign lines go: `newProgramLines` over every open curated program.
-    A program is news when it opened since tracking began and it fits: its chains overlap
-    `installations.fit_chains` (written by `list_programs` from the matched repos' chains,
-    `setFitChains`, mainnet chains only; `any_chain` overlaps any non-empty list) or it is Easy (`difficultyOf`).
+    A program is news when it opened since tracking began and the builder could win it
+    (v2.9 A7: `alertable`, see "Row difficulty, alert precision and the outcome loop" below; the
+    v2.8 chain overlap and "or it is Easy" rule are gone).
     An investment program reads `new: a16z speedrun SR008 (up to $1M investment)` (`newProgramOf`,
     `entry-text.ts prizeOf`, Ruling C23: every builder and agent table too). At
     most `MAX_NEW_PROGRAM_LINES` (3), newest first: `new: Avalanche Team1 Mini Grants (up to
@@ -2452,3 +2452,47 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
 - **Copy.** `TELL_EARNKIT_DESCRIPTION` (agent text, under 800 characters), `TELL_SAVED_NOTE`, and
   the applied line are in the copy review; the builder-text tool-name regex
   (`token-launch.ts`) names `tell_earnkit` and `pick_up_entries` instead of `report_outcome`.
+
+## Row difficulty, alert precision and the outcome loop (v2.9 A4, A6, A7, A8, Task 4)
+
+- **Program level (`guide.ts difficultyOf`, Pre-flight P30).** Still odds, override or estimate,
+  then two floors in `difficultyFrom`: an `investment` program is Hard; a `needs a live product`
+  program (`NEEDS_LIVE_PRODUCT`) is at least Medium, even with an EarnKit rating. The landing page,
+  guides, "Also open" and Also qualifies show this level. `programs:check` refuses an Easy
+  `difficulty_override` (rated or stated) on a `needs a live product` program
+  (`program-file.ts` superRefine). Base lost its EarnKit Easy rating (A6): Medium (estimate).
+- **Row level (`rowDifficulty`, pure).** A matched row = max(program level, distance). Distance
+  from the verdict's effort: none/minutes Easy, hours/days Medium, weeks Hard; with `real_users`
+  missing, distance comes from the other missing items (`match.ts effortOf`, Pre-flight P2), then
+  `real_users` makes the row Hard while unverified, Medium after a verified link or a users claim.
+  A program with `match_precision` under 5% (`LOW_PRECISION`) reads one step harder (`harder`).
+  `present.ts rowLevel(card, fit, v)` computes it per matched row (`Fit.row`); the matched table's
+  Difficulty cell, the row sort and the closing offer (`bestFit`) use it: easiest first, then
+  prize, then the quicker fit.
+- **Alerts (`alerts.ts alertFit` / `alertable`, pure).** A new curated program is alerted only when
+  one remembered repo could win it: tier fits (product for any_chain or investment, project or
+  better otherwise); `matchRepo` gives `likely`, or `after_step` with effort hours or less and no
+  `real_users`/`new_work` missing; the row is not Hard unless $10,000+ per winner
+  (`HARD_ALERT_USD`) and product tier; not entered (any `projects` row of the installation), not
+  applied or not interested (`builder_program_status` via `hiddenPrograms`); 3 or more days left
+  (`ALERT_MIN_DAYS`). `alertFit` returns the repo (Pre-flight P14, for the weekly email).
+  Investment programs are always weeks away, so they are never alerted.
+- **Fit repos (`installations.fit_repos`, replaces `fit_chains`).** `list_programs` builds a
+  `FitRepo` per matched fit (`alerts.ts fitRepoOf`, from the merged facts, P13; a live link only
+  the builder gave stays in `said`, so it remains a claim) and `setFitRepos` keeps the 5 best
+  (`bestFitRepos`: owned, project tier or better, highest score). Not written on a shared client
+  (Ruling G7). `alertFacts` refreshes each repo's `said` from `builder_repo_facts`, so a later
+  "not mine" or "testnet only" wins. A linked installation keeps the root's list, else the other's.
+  Only repos that fit some program are remembered (as `fit_chains` before).
+- **Outcome loop (`match-loop.ts`, inside `programs:sync`).** `list_programs` records the matched
+  rows on screen in `match_shown` (`recordShown`, one row per installation, program, repo key and
+  UTC day; the latest wins). `confirm_entry` stores `projects.product_score` from the latest
+  `match_shown` score for that repo (`saveEntryScore`; the GitHub cache keeps no builder-dependent
+  signal). `updateMatchFloors` (after the outcome files) takes each entry's latest announced result
+  other than `unknown` (never a self-report, never an owner test installation), the status its repo
+  was last shown with on or before entry, and per program `matchStats`: `match_floor` = lowest
+  winning product score, `match_precision` = wins or places among `likely` rows / `likely` rows.
+  Written only at `WIN_RATE_MIN_LABELLED` (30) labelled entries; others are set back to null.
+  `matchRepo` caps a repo below `match_floor` at `after_step` (`BELOW_FLOOR_NOTE`: "winners so far
+  had a live product and recent commits"), said before the project-tier note.
+

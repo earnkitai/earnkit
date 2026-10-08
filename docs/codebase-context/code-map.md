@@ -377,7 +377,10 @@ apps/frontend/
                                names a tool; v2.7: SERVER_INSTRUCTIONS exported (scanned by
                                copy-review), list_programs' description leads with "What can I earn?", all say "token", never name Clanker
                                (Ruling 18), get_program describes the guide
-    guide.ts(+test)            v2.7 §2 (pure): difficultyOf/difficultyFrom (Rulings 2–5: odds from the
+    guide.ts(+test)            v2.9 A4: rowDifficulty (row = max(program level, distance), real_users rule,
+                               match_precision under 5% one step harder), harder, levelRank; difficultyFrom
+                               floors (investment Hard, "needs a live product" at least Medium)
+                               v2.7 §2 (pure): difficultyOf/difficultyFrom (Rulings 2–5: odds from the
                                newest round with both counts, ODDS_BANDS Easy ≥0.25 / Medium ≥0.08 / Hard; else an
                                estimate, never Easy; the override wins), difficultyLabel, programGuide → Guide (Ruling 9
                                header, difficulty, "What won last time/before" + event C3/C12, ecosystem focus, best bet,
@@ -659,7 +662,10 @@ apps/frontend/
                                feeAlert (>= $100, per $100 step), refreshFees, launchedCreatorWallets
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
-    alerts.ts(+test)           alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
+    alerts.ts(+test)           v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
+                               remembered repo could win), NewProgram (matching facts, difficulty,
+                               match floor/precision); installations.ts setFitRepos/bestFitRepos (fit_repos)
+                               alertLines (pure, money first; v2.5 §3 Task 8 adds builder bonus
                                wins and its own top-10 tracking), alertFacts, sinceYouLastChecked
                                (seen ids in alert_state, one transaction, 1.5 s budget),
                                sinceLine, SCHEDULE_NOTE, paidBonusWins (paid bonus_payouts rows;
@@ -675,6 +681,9 @@ apps/frontend/
                                (Ruling 10: open curated programs that fit fit_chains or are Easy,
                                MAX_NEW_PROGRAM_LINES = 3, newest first, AlertState.newPrograms),
                                newProgramOf (C23: "up to $1M investment")
+    match-loop.ts(+test)       v2.9 A8: recordShown (match_shown, one row per day), saveEntryScore
+                               (projects.product_score at confirmation), matchStats (pure, 30 labelled
+                               minimum), updateMatchFloors (programs:sync: match_floor, match_precision)
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts), BuilderMemory,
                                SaidRepo, readMemory (builder_program_status, builder_repo_facts),
                                tell (all checks first, then one transaction; outcomes via
