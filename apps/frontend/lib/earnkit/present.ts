@@ -69,8 +69,6 @@ export type Card = {
   bonus_closed?: boolean;
   /** v2.7 §2 (guide.ts difficultyOf): the program's difficulty; null for any campaign. */
   difficulty?: Difficulty | null;
-  /** v2.9 A8 (match-loop.ts): wins or places per entry from `likely` rows; null until 30 labelled entries. */
-  match_precision?: number | null;
   /** An EarnKit campaign (programs.ts programCard): its own table, never a program card. */
   earnkit_campaign?: boolean;
   /** v2.7 Ruling 23 (plan): the logo file's path under public/ ("programs/<id>.svg"), or null. */
@@ -401,12 +399,12 @@ type RowLevel = { level: Level; estimate: boolean } | null;
 type Fit = { card: Card; repo: string; repo_url: string | null; v: Verdict; row: RowLevel; key: string | null; product_score: number | null };
 
 /**
- * v2.9 A4: a matched row's difficulty, from its program (difficulty and match precision) and the
+ * v2.9 A4: a matched row's difficulty, from its program level (difficultyOf) and the
  * repo's fit (the verdict, the checked link, a users claim). Null when the card has no difficulty. Pure.
  */
-export function rowLevel(card: Pick<Card, 'difficulty' | 'match_precision'>, fit: Pick<RepoFit, 'live_verified' | 'facts'>, v: Verdict): RowLevel {
+export function rowLevel(card: Pick<Card, 'difficulty'>, fit: Pick<RepoFit, 'live_verified' | 'facts'>, v: Verdict): RowLevel {
   if (!card.difficulty) return null;
-  return rowDifficulty({ difficulty: card.difficulty, match_precision: card.match_precision ?? null }, v, {
+  return rowDifficulty({ difficulty: card.difficulty }, v, {
     liveVerified: fit.live_verified === true,
     hasUsersClaim: fit.facts?.claims?.includes('users') ?? false,
   });

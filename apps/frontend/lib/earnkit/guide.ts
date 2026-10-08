@@ -32,6 +32,11 @@ export type GuideFacts = Pick<
 > & {
   /** v2.9 A4 (Pre-flight P30): an investment program is Hard at program level. Absent: not one. */
   investment?: boolean;
+  /**
+   * v2.9 A8 (match-loop.ts, Pre-flight P30): wins or places per entry from `likely` rows; a program
+   * under 5% reads one step harder. Null or absent under 30 labelled entries (numeric: a string from SQL).
+   */
+  match_precision?: number | string | null;
 };
 
 /** v2.9 A4: the tag whose programs are at least Medium at program level, even with an EarnKit rating. */
@@ -60,8 +65,14 @@ function difficultyFrom(p: GuideFacts & { source_url?: string }): { difficulty: 
   const d = from.difficulty;
   // v2.9 A4, Pre-flight P30: one program level for the landing, guides and rows. An investment is
   // Hard; a program that needs a live product is at least Medium, even with an EarnKit rating.
-  const level: Level = p.investment ? 'Hard' : p.tag === NEEDS_LIVE_PRODUCT ? maxLevel(d.level, 'Medium') : d.level;
-  return level === d.level ? from : { ...from, difficulty: { ...d, level } };
+  const floored: Level = p.investment ? 'Hard' : p.tag === NEEDS_LIVE_PRODUCT ? maxLevel(d.level, 'Medium') : d.level;
+  // v2.9 A8: under 5% of `likely` entries won: one step harder, from real outcomes (not an estimate).
+  const low = p.match_precision != null && Number(p.match_precision) < LOW_PRECISION;
+  const level = low ? harder(floored) : floored;
+  if (level === d.level) return from;
+  return low
+    ? { ...from, difficulty: { ...d, level, estimate: false, basis: d.basis && `${d.basis}; under 5% of strong matches won` } }
+    : { ...from, difficulty: { ...d, level } };
 }
 
 function difficultyBase(p: GuideFacts & { source_url?: string }): { difficulty: Difficulty; source_url: string | null } {
@@ -120,14 +131,15 @@ const ORDER: Level[] = ['Easy', 'Medium', 'Hard'];
 const maxLevel = (...ls: Level[]): Level => ORDER[Math.max(...ls.map((l) => ORDER.indexOf(l)))];
 /** v2.9 A4: one step harder (Hard stays Hard). Pure. */
 export const harder = (l: Level): Level => ORDER[Math.min(2, ORDER.indexOf(l) + 1)];
+/** v2.9 A8: under this share of `likely` entries winning, a program reads one step harder. */
+export const LOW_PRECISION = 0.05;
 /** v2.9 A4: Easy first, for sorting by level. Pure. */
 export const levelRank = (l: Level): number => ORDER.indexOf(l);
 
 /**
- * v2.9 A4: what a row's difficulty reads from its program. `difficulty` is the program level
- * (difficultyOf: odds, the `needs a live product` floor, investment); `match_precision` is the
- * outcome loop's figure (match-loop.ts), null until 30 labelled entries. Pre-flight P30: the tag,
- * investment and odds rules live in difficultyOf only, so the other fields are not read here.
+ * v2.9 A4: what a row's difficulty reads from its program: `difficulty`, the program level
+ * (difficultyOf: odds, the `needs a live product` floor, investment, match precision). Pre-flight
+ * P30: those rules live in difficultyOf only, so the other fields are accepted but not read here.
  */
 export type RowProgram = {
   difficulty: Difficulty;
@@ -137,13 +149,10 @@ export type RowProgram = {
   match_precision?: number | null;
 };
 
-/** v2.9 A8: under this share of `likely` entries winning, a program reads one step harder. */
-export const LOW_PRECISION = 0.05;
-
 /**
- * v2.9 A4 (Pre-flight P30): a matched row's difficulty = max(program level, distance), one step
- * harder when the program's match precision is under 5% (A8). The program level is difficultyOf
- * (odds, the `needs a live product` floor, investment), never recomputed here. Distance: none or
+ * v2.9 A4 (Pre-flight P30): a matched row's difficulty = max(program level, distance). The program
+ * level is difficultyOf (odds, the `needs a live product` floor, investment, match precision under
+ * 5%), never recomputed here. Distance: none or
  * minutes is Easy, hours or days Medium, weeks Hard. Pre-flight P2: distance comes from the missing
  * items other than `real_users`; `real_users` missing is then Hard while unverified, Medium after a
  * verified live link or a users claim, never Easy. `estimate` only while the program's level decides. Pure.
@@ -159,7 +168,6 @@ export function rowDifficulty(
   const distance: Level = effort === 'weeks' ? 'Hard' : effort === 'hours' || effort === 'days' ? 'Medium' : 'Easy';
   let level = maxLevel(prog.level, distance);
   if (users) level = maxLevel(level, o.liveVerified || o.hasUsersClaim ? 'Medium' : 'Hard');
-  if (p.match_precision != null && p.match_precision < LOW_PRECISION) level = harder(level);
   return { level, estimate: prog.estimate && level === prog.level };
 }
 

@@ -349,11 +349,19 @@ test('4.3 program level: the live-product floor beats an EarnKit Easy rating; in
   assert.equal(difficultyOf({ ...base, past_rounds: [round(400, 3)] }).level, 'Hard');
 });
 
-test('4.4 match precision under 5% makes a row one step harder; 5% leaves it', () => {
-  const at = (match_precision: number | null) => rowDifficulty({ ...easyProgram, match_precision }, verdict('hours'), plain).level;
-  assert.equal(at(null), 'Medium');
-  assert.equal(at(0.04), 'Hard');
-  assert.equal(at(0.05), 'Medium');
+test('4.4 match precision under 5% makes the program one step harder (landing, guides, rows); 5% or none leaves it', () => {
+  const medium = { ...base, past_rounds: [round(100, 20)] };
+  assert.equal(difficultyOf(medium).level, 'Medium');
+  const at = (match_precision: number | string | null) => difficultyOf({ ...medium, match_precision });
+  assert.deepEqual(at(0.04), { level: 'Hard', estimate: false, rated: false, basis: '20 of ~100 entries won last round; under 5% of strong matches won' });
+  assert.equal(at('0.04').level, 'Hard'); // numeric comes back from SQL as a string
+  assert.equal(at(0.05).level, 'Medium');
+  assert.equal(at(null).level, 'Medium');
+  // The row inherits it through max(program level, distance): a Medium row turns Hard.
+  assert.equal(rowDifficulty({ difficulty: at(null) }, verdict('none'), plain).level, 'Medium');
+  assert.equal(rowDifficulty({ difficulty: at(0.04) }, verdict('none'), plain).level, 'Hard');
+  // An estimate made harder by real outcomes is no longer an estimate.
+  assert.equal(difficultyOf({ ...base, match_precision: 0.01 }).estimate, false);
 });
 
 test('4.5 Base after the file edit is Medium (estimate), not Easy', () => {

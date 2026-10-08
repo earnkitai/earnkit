@@ -406,8 +406,6 @@ export function programCard(
     investment: p.investment === true,
     // v2.7 §2, Ruling 12 (plan): campaigns (EarnKit or sponsor) have no difficulty.
     difficulty: p.campaign ? null : difficultyOf(p),
-    // v2.9 A8: a matched row reads one step harder under 5% (guide.ts rowDifficulty).
-    match_precision: p.match_precision == null ? null : Number(p.match_precision),
     // v2.8 Task 5 fix round 1: whether entries get a token at all (the first message's token line).
     token_policy: p.token_policy,
   };
@@ -470,11 +468,12 @@ export async function alsoProgramFacts(): Promise<AlsoProgram[]> {
       | 'investment'
       | 'starts_at'
       | 'opened_at'
+      | 'match_precision'
     >[]
   >`
     SELECT id, title, summary, chains, any_chain, existing_work, tag, ends_at, status, campaign, source, max_award_usd,
       submission_requirements, past_rounds, focus, best_bet, difficulty_override, winners_per_round, each_time, rules,
-      investment, starts_at, opened_at
+      investment, starts_at, opened_at, match_precision
     FROM programs WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())`;
   return rows.map((p) => ({
     id: p.id,
