@@ -11,13 +11,29 @@ export type Offered = { name: string; symbol: string };
 export const offerKey = (repoUrl: string | null | undefined, name: string) =>
   repoUrl ? normalizeRepoUrl(repoUrl) : `name:${name.trim().toLowerCase()}`;
 
-/** Stores (or replaces) the pair shown. */
-export async function saveOffer(installationId: number, programId: string, key: string, o: Offered): Promise<void> {
+/**
+ * Stores (or replaces) the pair shown. v2.9 Ruling G14: `firstReply` marks the first reply's token
+ * offer (list_programs); the mark stays when a later offer replaces the pair.
+ */
+export async function saveOffer(installationId: number, programId: string, key: string, o: Offered, firstReply = false): Promise<void> {
+  const mark = firstReply ? new Date() : null;
   await sql()`
-    INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker)
-    VALUES (${installationId}, ${programId}, ${key}, ${o.name}, ${o.symbol})
+    INSERT INTO token_offers (installation_id, program_id, entry_key, offered_name, offered_ticker, first_reply_at)
+    VALUES (${installationId}, ${programId}, ${key}, ${o.name}, ${o.symbol}, ${mark})
     ON CONFLICT (installation_id, program_id, entry_key) DO UPDATE SET
-      offered_name = EXCLUDED.offered_name, offered_ticker = EXCLUDED.offered_ticker, offered_at = now()`;
+      offered_name = EXCLUDED.offered_name, offered_ticker = EXCLUDED.offered_ticker, offered_at = now(),
+      first_reply_at = COALESCE(token_offers.first_reply_at, EXCLUDED.first_reply_at)`;
+}
+
+/**
+ * v2.9 Ruling G14 (M1): the first reply offered this repo's token for this program, so the entry
+ * flow has said "40%": later offers in it use the repeat wording.
+ */
+export async function firstReplyShown(installationId: number, programId: string, key: string): Promise<boolean> {
+  const [row] = await sql()<{ ok: number }[]>`
+    SELECT 1 AS ok FROM token_offers
+    WHERE installation_id = ${installationId} AND program_id = ${programId} AND entry_key = ${key} AND first_reply_at IS NOT NULL`;
+  return Boolean(row);
 }
 
 /** The pair last shown for this entry, or null. */

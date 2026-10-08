@@ -522,7 +522,8 @@ apps/frontend/
     token-offers.ts            v2.8.1 fix round 1 (§A2): the pair the Yes line showed (token_offers:
                                offerKey, saveOffer, readOffer); confirm_entry's "go" launches exactly it.
                                v2.9 B10: recordDecline, declines (token_declines, per login and
-                               owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2
+                               owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
+                               saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
     token-gate.ts(+test)       tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
                                match-projects.ts repoCodeFacts: commits, a fork only when ahead of
                                its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via

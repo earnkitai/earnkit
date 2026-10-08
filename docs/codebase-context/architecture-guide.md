@@ -2627,6 +2627,14 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
     pasted code (`memoryKey`). Without a code nothing is recorded or read, so one Grok Bot user's
     skips never stop another user's offer.
 
+  Ruling G14 (M2): after one skip, the first reply never offers that repo again; only the
+  confirmation offers it once more.
+
+  Ruling G14 (M1): `token_offers.first_reply_at` marks an offer shown by the first reply. It stays
+  when a later offer replaces the pair. When set (`firstReplyShown`, `offerFacts.firstShown`), the
+  `prepare_submission` and `confirm_entry` offers use the repeat Yes line, so an unanswered first
+  offer keeps "40%" at once per flow.
+
   `offerFacts` reads the count:
   - **One or more (P21):** the next Yes line is `again` (no "40%"), in `prepare_submission`, the
     `confirm_entry` offer and the reoffer.
