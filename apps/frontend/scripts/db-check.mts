@@ -469,5 +469,22 @@ const badStatus = await db`INSERT INTO builder_program_status (installation_id, 
 );
 ok(badStatus, "builder_program_status only takes 'applied' or 'not_interested'");
 
+// v2.9 A7, A8: fit_repos defaults to [], match_shown keeps one row per day, the floor columns start NULL.
+const [fitRepos] = await db<{ fit_repos: unknown }[]>`SELECT fit_repos FROM installations WHERE id = ${memInst}`;
+ok(Array.isArray(fitRepos?.fit_repos) && (fitRepos.fit_repos as unknown[]).length === 0, 'existing installations get fit_repos = []');
+await db`INSERT INTO match_shown (installation_id, program_id, repo_key, status, product_score, row_level, day)
+  VALUES (${memInst}, 'arc-microgrants', 'alice/tipjar', 'likely', 6, 'Easy', '2026-10-08')`;
+const dupShown = await db`INSERT INTO match_shown (installation_id, program_id, repo_key, status, product_score, row_level, day)
+  VALUES (${memInst}, 'arc-microgrants', 'alice/tipjar', 'likely', 6, 'Easy', '2026-10-08')`.then(() => false, () => true);
+ok(dupShown, 'match_shown takes one row per (installation, program, repo, day)');
+await db.unsafe(now);
+const [shown] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM match_shown WHERE installation_id = ${memInst}`;
+ok(shown.n === 1, 'match_shown rows survive the schema running again');
+const [floors] = await db<{ set: number }[]>`
+  SELECT count(*) FILTER (WHERE match_floor IS NOT NULL OR match_precision IS NOT NULL)::int AS set FROM programs`;
+ok(floors.set === 0, 'existing programs get match_floor and match_precision = NULL');
+const [scoreCol] = await db<{ n: number }[]>`SELECT count(product_score)::int AS n FROM projects`;
+ok(scoreCol.n === 0, 'existing entries get product_score = NULL');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
