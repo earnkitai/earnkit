@@ -286,6 +286,14 @@ apps/frontend/
                                FUND_WARNING / AWARD_PROVENANCE scam copy, awardWarnings: red flags
                                for a winner that is the sponsor or a repeated wallet) and the
                                10-minute deadline margin (used by sponsor.ts and FundClient)
+    placeholder.ts             v2.9 A5, pure: placeholderHost / placeholderLink (reserved names,
+                               short list, IPs, earnkit.com, github.com/earnkitai) and the builder
+                               lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, contractMissingLine
+    verify.ts(+test)           v2.9 A5: liveVerified (safeProbe) and contractDeployed (getCode via
+                               rpcFor), cached in url_checks (pass 24 h, failure 1 h), bounded by
+                               CheckBudget (ENTRY_BUDGET, LIST_BUDGET); addressesFrom, entryVerified,
+                               checkDefaults (tests: fixtures/no-network-checks.ts)
+    chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
     safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText): https on 443, domain names only, DNS
                                resolved once via a cancellable c-ares Resolver (not dns.lookup) and every address public (isPublicAddress: IPv4
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so

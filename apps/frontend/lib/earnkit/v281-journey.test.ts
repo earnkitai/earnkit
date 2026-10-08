@@ -252,7 +252,7 @@ async function entry(o: {
   journey: string;
   ctx: Ctx;
   program: string;
-  project: Record<string, string>;
+  project: Record<string, string | string[]>;
   agent: typeof CC;
   decision?: 'go' | 'skip';
   /** The wallet the builder gives in the coach round; null: none. */

@@ -167,6 +167,8 @@ const mockPort = (server.address() as AddressInfo).port;
 process.env.TOKENSFUN_API_URL = `http://127.0.0.1:${mockPort}`;
 process.env.EARNKIT_OWNERSHIP_BASE_URL = `http://127.0.0.1:${mockPort}`;
 
+// v2.9 A5: link and contract checks stay offline here (every link loads, every address has code).
+await import('../lib/earnkit/fixtures/no-network-checks');
 const { sql } = await import('../lib/earnkit/db');
 const { upsertProgram } = await import('../lib/earnkit/programs');
 const { ProgramFile } = await import('../lib/earnkit/program-file');

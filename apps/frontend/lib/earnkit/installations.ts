@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Chain, ReportedRepo } from './match';
-import { isWalletAddress } from './campaigns';
+import { isWalletAddress, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 
 const hash = (token: string) =>
@@ -222,4 +222,19 @@ export async function rememberWallet(installationId: number, wallet: string) {
   const w = wallet.toLowerCase();
   await sql()`UPDATE installations SET payout_wallet = ${w} WHERE id = ${installationId}`;
   await rememberWallets(installationId, [w]);
+}
+
+/**
+ * v2.9 A5 (Pre-flight P4): the contracts the agent reported in local_repos for this repo (by its
+ * normalized GitHub link), lowercase, at most 2; [] when none or unreadable.
+ */
+export async function localRepoContracts(installationId: number, repoUrl: string | null | undefined): Promise<string[]> {
+  if (!repoUrl) return [];
+  const key = normalizeRepoUrl(repoUrl);
+  const [row] = await sql()<{ local_repos: ReportedRepo[] | null }[]>`
+    SELECT local_repos FROM installations WHERE id = ${installationId}`;
+  const found = (row?.local_repos ?? [])
+    .filter((r) => r.url && normalizeRepoUrl(r.url) === key)
+    .flatMap((r) => r.contracts ?? []);
+  return [...new Set(found.map((c) => c.toLowerCase()))].slice(0, 2);
 }

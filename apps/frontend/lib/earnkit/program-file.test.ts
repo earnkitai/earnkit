@@ -733,6 +733,6 @@ test('ProgramFile: needs_contract is one of the chains (v2.9 A5)', () => {
   assert.equal(ProgramFile.parse(arc).needs_contract, 'arc');
   assert.throws(() => ProgramFile.parse({ ...arc, needs_contract: 'base' }), /needs_contract must be one of the chains/);
   assert.throws(() => ProgramFile.parse({ ...arc, needs_contract: 'solana' }));
-  const { needs_contract: _, ...none } = arc;
-  assert.equal(ProgramFile.parse(none).needs_contract, undefined);
+  delete arc.needs_contract;
+  assert.equal(ProgramFile.parse(arc).needs_contract, undefined);
 });

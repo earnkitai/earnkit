@@ -950,6 +950,24 @@ test('C7: entryMissing: no gate for campaign entries or without requirements; in
   assert.deepEqual(entryMissing({ ...p, live_url: 'http://kit', submission_data: COMPLETE }).map((m) => m.todo), ['a live link on Arc mainnet (check it)']);
 });
 
+test('v2.9 A5 (P5): entryMissing reads the stored checks; withStoredChecks only for live_url programs', async () => {
+  const { withStoredChecks } = await import('./token-launch');
+  const p = { ...harness({ requirements: ARC_REQS }).project, live_url: 'https://kit.acme.dev', submission_data: COMPLETE };
+  const at = new Date();
+  const unverified = withStoredChecks(p, { live_verified_at: null, contract_verified_at: null, needs_contract: 'arc' });
+  assert.deepEqual(unverified.verified, { live: false, contract: false, needsContract: 'arc' });
+  assert.deepEqual(entryMissing(unverified).map((m) => m.key), ['live_deployment_url']);
+  const noContract = withStoredChecks(p, { live_verified_at: at, contract_verified_at: null, needs_contract: 'arc' });
+  assert.deepEqual(entryMissing(noContract).map((m) => m.key), ['live_deployment_url']);
+  assert.deepEqual(entryMissing(withStoredChecks(p, { live_verified_at: at, contract_verified_at: at, needs_contract: 'arc' })), []);
+  assert.deepEqual(entryMissing(withStoredChecks(p, { live_verified_at: at, contract_verified_at: null, needs_contract: null })), []);
+  // A program without a live_url requirement is left as it is (v2.8.1).
+  const noLive = { ...p, requirements: ARC_REQS.filter((r) => r.project_field !== 'live_url') };
+  assert.equal(withStoredChecks(noLive, { live_verified_at: null, contract_verified_at: null, needs_contract: 'arc' }).verified, undefined);
+  // `known` without checks falls back to the stored ones.
+  assert.deepEqual(entryMissing(unverified, { project: { live_url: 'https://kit.acme.dev', name: 'Kit' }, answers: { description: 'A kit.' } }).map((m) => m.key).includes('live_deployment_url'), true);
+});
+
 test('C7: a "no token" on an entry that is not ready says no token, not the missing items', async () => {
   const h = harness({ requirements: ARC_REQS, live_url: null });
   const out = await tokenAfterSubmission({ projectId: 7, installationId: 1, choice: 'skip', confirmed: true }, h.deps);
