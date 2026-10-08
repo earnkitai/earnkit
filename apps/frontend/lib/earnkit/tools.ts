@@ -21,12 +21,14 @@ import {
   rememberWallets,
   rememberedWallet,
   localRepoContracts,
-  setFitChains,
+  setFitRepos,
   setWorkingOn,
 } from './installations';
+import { recordShown, saveEntryScore } from './match-loop';
+import { repoKey } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, tell, type BuilderMemory } from './builder-memory';
-import { sinceLine, sinceYouLastChecked } from './alerts';
+import { fitRepoOf, sinceLine, sinceYouLastChecked, type FitRepo } from './alerts';
 import {
   GitHubError,
   MatchProjectsInput,
@@ -44,6 +46,7 @@ import {
   bonusProgramIds,
   closesInDays,
   enterableWithoutRepo,
+  layout,
   presentFirstMessage,
   programUpdates,
   type RepoFit,
@@ -782,12 +785,15 @@ export const tools = {
         else console.error('[list_programs] matching failed:', err);
       }
     }
-    // v2.8 Ruling 10 (plan): the chains of the repos that fit something, for new program alerts.
-    // Never fails the tool; a failed match leaves the last ones.
-    if (yourRepos && 'fits' in yourRepos) {
-      const fit = yourRepos.fits;
-      await setFitChains(ctx.installationId, fit.flatMap((f) => f.chains ?? [])).catch((err: unknown) =>
-        console.error('[list_programs] fit chains', err instanceof Error ? err.name : 'error'),
+    // v2.9 A7: the builder's best owned repos that fit something, for new program alerts (no GitHub
+    // call there). Never fails the tool; a failed match leaves the last ones. Ruling G7: not on a
+    // shared client (one installation serves many builders, and its alerts are off).
+    if (own && yourRepos && 'fits' in yourRepos) {
+      const fitRepos = yourRepos.fits
+        .map((f) => fitRepoOf(f, (f.key && told.repos.get(f.key)) || null))
+        .filter((r): r is FitRepo => r !== null);
+      await setFitRepos(ctx.installationId, fitRepos).catch((err: unknown) =>
+        console.error('[list_programs] fit repos', err instanceof Error ? err.name : 'error'),
       );
     }
 
@@ -836,6 +842,17 @@ export const tools = {
       entries: myEntries,
       hidden,
     });
+    // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
+    // loop. Never fails the tool.
+    const onScreen = layout({ cards: withPools.filter((c) => !hide.has(c.id)), repos: yourRepos, entries: myEntries }).rows;
+    await recordShown(
+      ctx.installationId,
+      onScreen.flatMap((r) =>
+        r.key && r.row
+          ? [{ program_id: r.card.id, repo_key: r.key, status: r.v.status, product_score: r.product_score, row_level: r.row.level }]
+          : [],
+      ),
+    ).catch((err: unknown) => console.error('[list_programs] match shown', err instanceof Error ? err.name : 'error'));
 
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // last (review minor 11), so nothing after marking it asked can lose the question. Never fails
@@ -1259,6 +1276,10 @@ export const tools = {
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
+    // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never fails the confirmation.
+    await saveEntryScore(entry.id, ctx.installationId, repoKey({ url: repoUrl, name: i.project.name })).catch((err: unknown) =>
+      console.error('[confirm_entry] product score', entry.id, err instanceof Error ? err.name : 'error'),
+    );
 
     // Part D.5, Ruling 6 (plan): the final answers and the check on the entry, and the answer bank
     // for this project's next program. Neither ever fails the confirmation; errors log the class only.

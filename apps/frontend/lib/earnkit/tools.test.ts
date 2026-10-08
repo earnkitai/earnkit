@@ -393,6 +393,11 @@ test('v2.5 §1: list_programs reads the builder bonus pools once, only where ent
     // neither a submission_proof pattern nor, now, a builder bonus).
     id: `v25-noproof-${run}`, title: `No proof ${run}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', max_award_usd: 9_999_998,
     builder_bonus: false,
+    // v2.9 A6: Base is no longer Easy. This fixture keeps an Easy rating (without the live-product
+    // tag, which programs:check refuses with Easy), so it stays among the 5 rows when other tests
+    // leave Easy programs open in the shared DB.
+    tag: undefined,
+    difficulty_override: { level: 'Easy', rated_by: 'earnkit', source_url: 'https://docs.base.org/get-started/builders' },
   });
   assert.ok(proof.submission_proof && noProof.submission_proof === null);
   // Other dbTests leave stray active EarnKit campaigns behind (never closed); an open one changes
@@ -1919,15 +1924,20 @@ test('12 list_programs: a new fitting program shows exactly once (the alert), ne
   const [{ id: inst }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t12-new-${stamp}`}) RETURNING id`;
   const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
   const base = committedProgram('base-builder-grants');
-  const p = { ...base, id: `t12-new-${stamp}`, title: `Fresh Base ${stamp}`, status: 'active', form: undefined };
+  // v2.9 A7: without the live-product tag, so a live, verified product repo could win it.
+  const p = { ...base, id: `t12-new-${stamp}`, title: `Fresh Base ${stamp}`, status: 'active', form: undefined, tag: undefined };
+  const repo = {
+    key: 'alice/tipjar', name: 'tipjar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+    chains: { base: { mainnet: true, testnet: false, evidence: 'x' } }, product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+  };
   try {
     await tools.list_programs({}, ctx); // the first check: quiet, marks every open program seen
-    await sql()`UPDATE installations SET fit_chains = '{base}' WHERE id = ${inst}`;
+    await sql()`UPDATE installations SET fit_repos = ${sql().json([repo] as never)} WHERE id = ${inst}`;
     await upsertProgram(ProgramFile.parse(p));
     const r = (await tools.list_programs({}, ctx)) as { show_to_builder: string };
     const count = r.show_to_builder.split(`new: ${p.title}`).length - 1;
     assert.equal(count, 1, r.show_to_builder);
-    assert.match(r.show_to_builder, new RegExp(`^Since you last checked: .*new: ${p.title} \\(up to \\$5,000, Easy\\)`));
+    assert.match(r.show_to_builder, new RegExp(`^Since you last checked: .*new: ${p.title} \\(up to \\$5,000\\)`));
   } finally {
     await sql()`DELETE FROM installations WHERE id = ${inst}`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
@@ -2587,5 +2597,49 @@ test("Ruling G7 (3): on a shared client, builder B never sees A's entries, stand
     assert.match(own.show_to_builder, /you won/);
   } finally {
     await s.cleanup();
+  }
+});
+
+test('4.A7/A8 list_programs remembers the best owned fit repos and records the rows shown; not on a shared client', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const pid = `t4-arc-${stamp}`;
+  await upsertProgram(ProgramFile.parse({ ...arc, id: pid, title: `Arc T4 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+  const facts = (name: string) => ({
+    name, url: `https://github.com/alice/${name}`, homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
+    chains: { arc: { mainnet: true, testnet: false, evidence: 'x' } }, commits_in_window: {}, live_verified: true,
+  });
+  const fit = (name: string, score: number, missing: string[] = []) => ({
+    ...scoredFit(name, score, pid),
+    key: `alice/${name}`,
+    product: { score, tier: score >= 5 ? 'product' : score >= 3 ? 'project' : 'noise', missing },
+    live_verified: true,
+    facts: facts(name),
+  });
+  const fits = [fit('tipjar', 6), fit('other', 6, ['owned']), fit('side', 4)];
+  const ctxOf = (id: number, sharedClient = false) => ({
+    installationId: id, sharedClient, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(),
+    matchProjects: async () => ({ checked: 3, scored: 3, fits }),
+  });
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-fit-${stamp}`}) RETURNING id`;
+  const [{ id: shared }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`t4-shared-${stamp}`}, true) RETURNING id`;
+  try {
+    await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(id));
+    const [row] = await sql()<{ fit_repos: { key: string }[] }[]>`SELECT fit_repos FROM installations WHERE id = ${id}`;
+    // Owned only, the highest score first.
+    assert.deepEqual(row.fit_repos.map((r) => r.key), ['alice/tipjar', 'alice/side']);
+    const shown = await sql()<{ program_id: string; repo_key: string; product_score: number; row_level: string }[]>`
+      SELECT program_id, repo_key, product_score, row_level FROM match_shown WHERE installation_id = ${id}`;
+    assert.equal(shown.length, 1);
+    assert.equal(shown[0].program_id, pid);
+    assert.equal(shown[0].product_score, 6);
+    // Ruling G7: a shared client keeps no fit repos (its alerts are off), but what was shown is recorded.
+    await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctxOf(shared, true));
+    const [s] = await sql()<{ fit_repos: unknown[] }[]>`SELECT fit_repos FROM installations WHERE id = ${shared}`;
+    assert.deepEqual(s.fit_repos, []);
+  } finally {
+    await sql()`DELETE FROM installations WHERE id IN (${id}, ${shared})`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`;
   }
 });
