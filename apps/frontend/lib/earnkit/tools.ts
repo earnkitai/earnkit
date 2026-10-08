@@ -1081,7 +1081,8 @@ export const tools = {
     let yourRepos: YourRepos | null = null;
     if (user || repoList?.length || local?.length) {
       try {
-        // Reading GitHub is limited per installation; reported local repos alone read nothing.
+        // Reading GitHub is limited per installation. Reported local repos alone read no GitHub, but
+        // their links and contracts are still checked under LIST_BUDGET (review M3: no per-install limit yet).
         if (user || repoList?.length)
           await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
         yourRepos = await (ctx.matchProjects ?? matchProjects)(

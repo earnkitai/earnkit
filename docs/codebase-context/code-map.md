@@ -290,9 +290,11 @@ apps/frontend/
                                10-minute deadline margin (used by sponsor.ts and FundClient)
     placeholder.ts             v2.9 A5, pure: placeholderHost / placeholderLink (reserved names,
                                short list, IPs, earnkit.com, github.com/earnkitai) and the builder
-                               lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, contractMissingLine
+                               lines PLACEHOLDER_LINE, LIVE_FAILED_LINE, contractMissingLine,
+                               contractUncheckedLine (G15: a contract check that couldn't run)
     verify.ts(+test)           v2.9 A5: liveVerified (safeProbe) and contractDeployed (getCode via
-                               rpcFor), cached in url_checks (pass 24 h, failure 1 h), bounded by
+                               rpcFor), cached in url_checks (pass 24 h, failure 1 h; a getCode
+                               error is null and never cached, G15), bounded by
                                CheckBudget (ENTRY_BUDGET, LIST_BUDGET); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
     chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
@@ -424,6 +426,7 @@ apps/frontend/
     match.ts(+test)            pure: chain detection (IDs + RPC hosts), repo x program verdicts;
                                v2.9 A1, A2: ownerOk, productScore (tiers), TUTORIAL, DEFAULT_README,
                                SIGNAL_WORDS, INVESTMENT_NOTE; matchRepo applies the tiers when scored;
+                               fitsWideProgram (G15: any_chain/investment need an original product);
                                v2.9 A3: applyBuilderFacts (lowering wins; claims), Claim, CLAIMED_MAINNET;
                                matchRepo: an unverified claim keeps a row at after_step "confirm: ...";
                                reportedFacts(ReportedRepo) turns an agent's local_repos report into
@@ -431,7 +434,8 @@ apps/frontend/
                                (Ruling 13), else ''
     match-projects.ts          v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
                                repo matching for list_programs + get_program's eligibility check; v2.9 A1, A2:
-                               droppedRepo pre-filter, contributed repos by ownerOk share, repoKey merge,
+                               droppedRepo pre-filter (forks, templates, archived, EarnKit; a tutorial name only
+                               costs original, G15), contributed repos by ownerOk share, repoKey merge,
                                SCORE_LIMIT 8 scored under one LIST_BUDGET, MatchDeps seam,
                                cachedRepoAddresses (file contracts for entry checks); v2.8.1 §B6:
                                ReportedRepoInput never fails (reportedChain(s): any chain string, unknown ones

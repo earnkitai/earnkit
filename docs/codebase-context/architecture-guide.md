@@ -2309,7 +2309,11 @@ speedrun, no dead end for a no-repo builder on Arc, the returning recap with no 
   cached in `url_checks` (`url:<canonical url>`, `getcode:<chain>:<address>`): a pass 24 h, a
   failure 1 h (`cacheFresh`). Every check takes from a `CheckBudget({ probes, getCodes })`
   (`ENTRY_BUDGET` 1 + 2 per entry step, `LIST_BUDGET` 5 + 6 for list_programs, T2); no budget
-  left reads false/null and writes nothing. Errors are failures, logged `[verify] <kind> <class>`.
+  left reads false/null and writes nothing. Errors are failures, logged `[verify] <kind> <class>`,
+  except a getCode error (an RPC error, timeout or 429): that is null ("couldn't check") and is
+  never cached (Ruling G15, `cachedCheck({ errorIsUnchecked })`). An entry says "No contract found
+  on <Chain> mainnet yet." only on a real `0x` (or no address named); an unchecked contract keeps
+  the item missing with `contractUncheckedLine` and is checked again at the next step.
   `CheckDeps.cache` (P26) and `checkDefaults` let tests run without the network or the table
   (`fixtures/no-network-checks.ts`, imported by the suites that run the entry tools).
 - **Where they run.** `prepare_submission` (once the draft is ready), `confirm_entry` and
@@ -2366,8 +2370,9 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   `EARNKIT_ORGS` (`earnkit-orgs.ts`, import-free, re-exported by `programs.ts` next to `KITS`),
   owner test installs included; the builder's own; else 5+ of the builder's commits that are 30%+
   of the repo's last 100. `match-projects.ts userRepos` drops forks, templates (`is_template`),
-  archived repos, `TUTORIAL` names, descriptions or topics, EarnKit's repos, and repos neither
-  created nor pushed in 365 days before any per-repo call (`droppedRepo`). Repos owned by others
+  archived repos, EarnKit's repos, and repos neither created nor pushed in 365 days before any
+  per-repo call (`droppedRepo`). Ruling G15 (spec A2): a `TUTORIAL` name or topic, or a
+  `TUTORIAL_DESCRIPTION` phrase, is scored and only costs `original`; it is never dropped. Repos owned by others
   come from the commit search: only those with 5+ hits, at most 3, get `GET /repos/{r}` (where
   `template_repository` is checked, P49) and one `commits?per_page=100` read for `ownerOk`. A
   `repos` list without `github_user` counts as owned unless EarnKit's (P28); with one, a repo
@@ -2394,7 +2399,8 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   contracts (P4).
 - **Verdicts.** `matchRepo` with `repo.product` set: noise gets no row; a program's
   `min_product_score` (program file, 0 to 6; `programs:check` requires 5+ on `any_chain`, a16z:
-  5) is a floor; an `any_chain` or `investment` program takes product tier only, and an
+  5) is a floor; an `any_chain` or `investment` program takes an original product only
+  (`fitsWideProgram`, Ruling G15: a docs repo or a tutorial never reaches a16z), and an
   investment row is `after_step`, `INVESTMENT_NOTE`, effort weeks; "needs a live product" is
   never likely (`['live_url', 'real_users']`, or `['real_users']` once `live_verified`); a
   project row that would be likely is `after_step` with its most actionable missing signal
@@ -2413,7 +2419,7 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   repo without `last_commit_at` counts as active (the instruction asks agents to send it). Repos
   the builder names in `repos` skip the 365-day age rule (`droppedRepo(r, now, { named: true })`);
   forks, templates and archived repos are still dropped.
-- **Ruling G4 (fix round 1).** Keys dropped as a fork, template, archived repo or tutorial stay
+- **Ruling G4 (fix round 1).** Keys dropped as a fork, template, archived or EarnKit repo stay
   dropped when the same repo comes back through local_repos. Ruling G5: `runChecks` hands out
   the probe slots, then the getCode slots, to the newest repos first (fresh cached answers,
   `verify.ts peekLive`/`peekContract`, take none), then runs the checks in parallel
@@ -2609,7 +2615,10 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 ## The token offer right after the match; only the token is skippable (v2.9 B10, B11, Task 6)
 
 - **The offer (`present.ts tokenOffer`, pure).** The first reply ends with "TipJar fits Arc
-  Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a
+  Microgrants: $500. (Ruling G15 M2: "fits" only for a likely row; a row one step away reads
+  "TipJar is one step from Arc Microgrants: $500.", `TokenOfferFacts.oneStep`, and a likely row is
+  picked before one a step away. On a shared client there is no first-reply offer while the GitHub
+  OAuth variables are unset, since a hosted agent could not accept it.) Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a
   shot at the builder bonus. yes / skip". With no wallet known, the end is "Say yes with your
   wallet address, or skip." `FirstMessage.tokenOffer` replaces the closing offer and the token
   line (`bonusClose`), so the reply has one offer and says "40%" once.
@@ -2692,7 +2701,8 @@ own section above; this is the map.
 
 **Matching (what "What can I earn?" shows).**
 - Ownership and the score: only the builder's own repos are scored (never EarnKit's kits, forks,
-  templates, archived repos or tutorials; a contributed repo needs 30% of its last 100 commits),
+  templates or archived repos; a tutorial-like name only costs the `original` point, Ruling G15;
+  a contributed repo needs 30% of its last 100 commits),
   at most 8, newest first. Each gets the 6-signal real-product score and a tier (product, project,
   noise). See "Owned repos and the real-product score".
 - Statements and claims: `tell_earnkit` stores what the builder said. What lowers a match (applied
@@ -2716,7 +2726,7 @@ a shared (hosted) client the page shows a one-time code (24 hours) that the agen
 See "Sign in with GitHub".
 
 **The token offer.** The first reply ends with one token offer for the best owned, product-tier
-fit. A yes launches it (one entry, one launch); one skip ends the first-reply offer for that repo
+fit (never on a shared client while sign-in is off, Ruling G15). A yes launches it (one entry, one launch); one skip ends the first-reply offer for that repo
 and the confirmation offers it once more. "40%" shows once per entry flow. See "The token offer
 right after the match".
 
@@ -2730,11 +2740,15 @@ check" steps.
 
 | Variable | Feature | When absent |
 |---|---|---|
-| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Sign in with GitHub | The routes answer 404; the proof line is the only proof; a can't-push agent hears "open this in Claude Code or Cursor" |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Sign in with GitHub | The routes answer 404; the proof line is the only proof; a can't-push agent hears "open this in Claude Code or Cursor"; a shared client gets no first-reply token offer |
 | `GAS_WALLET_MIN_WEI` | The gas alert's floor | 0.002 ETH |
 | `ARC_RPC_URL`, `BASE_RPC_URL`, `MONAD_RPC_URL`, `TEMPO_RPC_URL`, `AVALANCHE_RPC_URL`, `ROBINHOOD_RPC_URL` | getCode for contract checks | Each chain's public RPC from its docs |
 
 **Runbooks (Part 1).**
+- **At ship (Ruling G16).** The payout wallet held 0.00037 ETH at the final review, under the
+  0.002 ETH default. Set `GAS_WALLET_MIN_WEI=100000000000000` (0.0001 ETH) on Railway before the
+  deploy, so the first hourly cron does not answer 503, and have the owner top up the payout
+  wallet (an owner top-up, never a builder one). Check its Base balance read-only before merging.
 - **A 503 from `/api/cron` with `bonus-ledger` and "is low on ETH for gas".** The payout wallet
   holds less than `GAS_WALLET_MIN_WEI`. Send ETH on Base to the address named in the note. The
   note ends with "Payouts resume once it is topped up." and the next run clears it.
@@ -2753,7 +2767,8 @@ claims. Every other fetch gets a 503.
   yes launches once; the entry completes. 12.1b: noise only, so no row and no offer.
 - 12.2: Grok Bot (shared client) with sign-in on. The offer asks for the wallet; the yes gives the
   sign-in line; the browser sign-in returns a code; without it nothing launches; with it `$TIP`
-  launches. 12.2b: sign-in off, so can't-push says so, and the pushed proof line launches.
+  launches. 12.2b: sign-in off, so no first-reply token offer (Ruling G15), the usual close, and
+  an offer never shown launches nothing.
 - 12.4: statements lower (applied, not interested, testnet only) and raise (a mainnet claim cleared
   by a contract with code; users stays "confirm"); Base returns once its round changes.
 - 12.5: placeholders are refused or dropped and never probed; a link that doesn't load keeps the
