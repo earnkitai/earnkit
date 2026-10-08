@@ -2180,7 +2180,9 @@ throwaway database, real program files, fakes for tokens.fun and GitHub, no netw
   the caller's group, with at least one entry in a GitHub repo, prepend "Pick up your N earlier
   entries?" to `show_to_builder` and add `pick_up`. Final fix wave: only the groups with an entry
   in the repo the proof goes in are offered, counted and linked (C1; a stranger naming the same
-  public GitHub user or wallet stays out), and a group holding a hosted (`shared_client`)
+  public GitHub user or wallet stays out; Ruling F13: a covered group also has to have proven the
+  repo itself, by its launched token there or its own installations' line in the repo's
+  earnkit.txt, read once at the offer and again at the answer), and a group holding a hosted (`shared_client`)
   installation is never matched, and a hosted caller never offered (C2). Asked once per set; a no is stored in
   `installations.pickup.declined` and never asked again. The answer goes to the `pick_up_entries`
   tool. A yes alone never links (a GitHub user or wallet is public): this agent's proof line

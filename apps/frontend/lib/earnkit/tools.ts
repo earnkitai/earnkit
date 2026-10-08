@@ -592,7 +592,7 @@ export const tools = {
               ...(local_repos ?? []).map((r) => (r.url ? githubRepo(r.url)?.owner : undefined)),
             ],
             wallet: wallet ?? null,
-          }).catch((err: unknown) => {
+          }, ctx.pickupDeps).catch((err: unknown) => {
             console.error('[list_programs] pickup', err instanceof Error ? err.name : 'error');
             return null;
           })
