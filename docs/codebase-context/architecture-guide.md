@@ -2574,3 +2574,58 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
   `matchRepo` caps a repo below `match_floor` at `after_step` (`BELOW_FLOOR_NOTE`: "winners so far
   had a live product and recent commits"), said before the project-tier note.
 
+
+## The token offer right after the match; only the token is skippable (v2.9 B10, B11, Task 6)
+
+- **The offer (`present.ts tokenOffer`, pure).** The first reply ends with "TipJar fits Arc
+  Microgrants: $500. Launch $TIP (TipJar) on Base now? You earn 40% of its trading fees, plus a
+  shot at the builder bonus. yes / skip". With no wallet known, the end is "Say yes with your
+  wallet address, or skip." `FirstMessage.tokenOffer` replaces the closing offer and the token
+  line (`bonusClose`), so the reply has one offer and says "40%" once.
+- **The pick (`present.ts tokenOfferFit`, Ruling 12, pure).** It takes the first matched row in
+  table order where all of these hold:
+  - the repo has a GitHub link, is product tier, and is owned (`owned` not missing);
+  - the verdict is `likely` or `after_step`, with effort `none`, `minutes` or `hours`;
+  - the program is curated (not sponsored, an EarnKit campaign or an investment), its
+    `token_policy` is not `off`, and it has a known per-winner prize;
+  - the builder has no entry in the program, and has not hidden it (applied or not interested);
+  - the repo has no token (`repoCoins`) and is not blocked (declined twice).
+- **`list_programs` (`tools.ts firstTokenOffer`).** It runs only while launches are configured.
+  It reads `token_declines` and picks the fit. It names the token with the pair already in
+  `token_offers` for this program and repo, else `proposeToken` (`ctx.tokenDeps.check` in tests).
+  It stores the pair with `saveOffer`, so later offers name the same token.
+  - **Wallet:** "known" only when remembered on a non-shared client (`walletMemory`, G7).
+  - **Reply:** `token_offer: { program_id, repo_url, project_name, proposed, agent_note }`.
+  - **Errors:** any error drops the offer, never the reply.
+- **`launch_token` with `offer` (`tools.ts launchFromOffer`).** `LaunchTokenInput` takes exactly
+  one of `project_id` or `offer`, plus `decision` (default `go`) and `agent: { can_push }`.
+  `builder_confirmed` is required for `go` only. `mcp.ts` registers the same fields (P45).
+  - **`skip`:** `recordDecline` returns the decline count. The builder sees "No token for now.",
+    and no entry is made.
+  - **`go`:** the program must be open and not a campaign. `startEntry` (choice `go`, no answers)
+    makes or finds the draft entry; the 20 a day is charged only for a new row. An entry that
+    already has a token returns it, and nothing launches twice.
+  - **The launch:** `launchToken` runs through the usual flow and gate, using the pair from
+    `token_offers`. The agent's name or ticker edits win.
+  - **Sign-in:** if the gate stops on the proof line, `SIGN_IN_FIRST` or `WALLET_CHANGED`, and
+    sign-in is on, the reply carries `sign_in`, `sign_in_line` and `fixable: true`. The link is
+    bound to the entry and this call's `creator_wallet` (G11).
+  - **Can't push:** with `can_push: false` and sign-in off, the reply is `CANT_PUSH`, with no
+    entry made.
+- **Declines (`token-offers.ts recordDecline`, `declines`, table `token_declines`).** Declines are
+  counted per installation and `repoKey` (owner/repo, P7). `confirm_entry` "skip" on a token
+  offer also counts one. `offerFacts` reads the count:
+  - **One or more (P21):** the next Yes line is `again` (no "40%"), in `prepare_submission`, the
+    `confirm_entry` offer and the reoffer.
+  - **Two (P23):** the first reply never offers that repo again, and `prepare_submission` and
+    `confirm_entry` treat the repo as tokens off: "Ready to submit?", and "go" gets the kit with
+    "No token for this entry."
+- **Token already here.** `offerFacts.tokenHere` is set when the repo's token is this program's
+  (launched from the first reply's offer). The later offers are then "Ready to submit?" alone, so
+  "40%" stays once per entry flow (test 6.8).
+- **Only the token is skippable (B11).** Copy review 6.9: "skip" appears in builder text only in
+  token offers (`tokenOffer`, `SKIP_LINE`, `confirmOffer`, `coinRow`, `tokenRow` (P33)). The
+  policy page now reads "Say no when your agent offers it". The coach asks only required fields
+  (6.10, a regression guard, P34).
+- **v2.8.1 journey (P22).** J1's fixtures stay below product tier, so the first reply keeps the
+  v2.8.1 close and the first "40%" stays in the Base draft.

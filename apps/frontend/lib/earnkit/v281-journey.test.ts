@@ -337,7 +337,8 @@ test('J2, J3, J7: a repo in Claude Code, Base then Avalanche then Arc, and the n
       name: 'tipjar',
       url: repo,
       chains: [{ chain: 'base', mainnet: true }, { chain: 'avalanche', mainnet: true }, { chain: 'arc', mainnet: true }],
-      live_url: 'https://tipjar.xyz',
+      // v2.9 Pre-flight P22: no live link reported, so the repo stays below product tier and the
+      // v2.8.1 first reply (no token offer) and its "40%" placement hold.
       last_commit_at: new Date().toISOString(),
     },
   ];
@@ -517,7 +518,8 @@ test('J1c: Grok Bot (a hosted agent) with a repo, then Claude Code: no pickup is
   // (C2): the Grok Bot installation is hosted, so it is never offered or linked.
   const ccId = await newInstallation();
   const cc: Ctx = { ...ctxFor(ccId), ownInstallationId: ccId };
-  const localRepos = [{ name: 'arcpay', url: repo, chains: [{ chain: 'arc', mainnet: true }], live_url: project.live_url }];
+  // v2.9 Pre-flight P22: no live link reported, so the repo stays below product tier (no token offer).
+  const localRepos = [{ name: 'arcpay', url: repo, chains: [{ chain: 'arc', mainnet: true }] }];
   const first = await call(J, 'cc list', 'list_programs', { local_repos: localRepos }, cc);
   assert.doesNotMatch(first.show_to_builder, /Pick up/);
   assert.ok(!('pick_up' in first), 'no pickup question for the agent');
