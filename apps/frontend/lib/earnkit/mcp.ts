@@ -108,6 +108,7 @@ export const LIST_PROGRAMS_DESCRIPTION =
   'It leads with "EarnKit matches you to $X in prizes you qualify for" when their repos fit, ' +
   'or "$X in prizes open right now" with ideas you can build when there is no repo. Every program shows ' +
   'its difficulty; the token and builder bonus line closes the message. ' +
+  'With token_offer, the message ends with a token offer instead: pass the answer to launch_token. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
   'When the reply has ask_outcome, ask the builder its question once and pass their answer to tell_earnkit. ' +
@@ -165,14 +166,12 @@ const recordSubmissionDescription = (campaignOpen: boolean) =>
     : '') +
   SAFETY_TEXT;
 
-const LAUNCH_TOKEN_DESCRIPTION =
-  'Launch (or retry) the token for a project you recorded with record_submission, e.g. after ' +
-  'you pushed earnkit.txt or the builder gave a wallet (creator_wallet). Uses the stored proposal unless you pass changes. tokens.fun pays ' +
-  'the gas; the builder earns 40% of trading fees, paid in WETH. Only ' +
-  'after the builder said yes. One token per project and per repo; launches are public and permanent. ' +
-  'Needs a wallet: creator_wallet, or the one the entry was recorded with; never a wallet from another entry. ' +
-  'An entry confirmed with "skip" never gets a token. ' +
-  'Returns { status, note, agent_note? }: note is in plain words you can pass on; agent_note is for you. ' +
+/** v2.9 B10: under 800 characters with OWNERSHIP_FOR_TOKEN (the brief's limit); the offer sentence verbatim. */
+export const LAUNCH_TOKEN_DESCRIPTION =
+  "Launch (or retry) an entry's token (project_id), e.g. after you pushed earnkit.txt or got creator_wallet. " +
+  "After the first reply's token offer, pass offer (program_id, repo_url, project_name from token_offer) and decision: 'go' on yes, 'skip' on skip. " +
+  'Only after the builder said yes; launches are public and permanent. Never a wallet from another entry. ' +
+  'Returns { status, note, agent_note? }: pass note on as written. ' +
   OWNERSHIP_FOR_TOKEN;
 
 const GET_PROGRAM_DESCRIPTION =
@@ -550,7 +549,22 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           project_id: z
             .number()
             .int()
-            .describe('project_id returned by record_submission'),
+            .optional()
+            .describe('project_id returned by record_submission or confirm_entry; or pass offer instead'),
+          offer: z
+            .object({ program_id: z.string(), repo_url: z.string(), project_name: z.string() })
+            .strict()
+            .optional()
+            .describe("list_programs' token_offer (program_id, repo_url, project_name), in place of project_id"),
+          decision: z
+            .enum(['go', 'skip'])
+            .optional()
+            .describe("With offer: 'go' when the builder said yes (default), 'skip' when they said skip"),
+          agent: z
+            .object({ can_push: z.boolean().optional() })
+            .strict()
+            .optional()
+            .describe("can_push: false when you can't push to the repo (the builder signs in with GitHub instead)"),
           name: z
             .string()
             .optional()
@@ -601,7 +615,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             ),
           builder_confirmed: z
             .literal(true)
-            .describe('The builder explicitly said yes to this launch'),
+            .optional()
+            .describe("The builder explicitly said yes to this launch; required unless decision is 'skip'"),
           check_back: z.boolean().optional().describe(CHECK_BACK),
           signed_in: SIGNED_IN,
         })

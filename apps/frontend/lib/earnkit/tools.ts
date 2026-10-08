@@ -14,7 +14,7 @@ import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl,
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
-import { offerKey, readOffer, saveOffer, type Offered } from './token-offers';
+import { DECLINES_MAX, declines, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -49,6 +49,9 @@ import {
   layout,
   presentFirstMessage,
   programUpdates,
+  tokenOffer,
+  tokenOfferFit,
+  type FirstMessage,
   type RepoFit,
   type YourRepos,
 } from './present';
@@ -78,7 +81,7 @@ import {
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
 import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
@@ -319,6 +322,8 @@ const ConfirmEntryInput = z
 async function offerFacts(program: ProgramRow, repoUrl: string | null | undefined, ctx: ToolContext) {
   const key = repoUrl ? normalizeRepoUrl(repoUrl) : null;
   let coinIn: string | null = null;
+  // v2.9 B10: the repo's token is already this program's (launched from the first reply's offer).
+  let tokenHere = false;
   if (key) {
     const coins = await (ctx.repoCoins ?? repoCoinPrograms)([key]).catch((err: unknown) => {
       console.error('[confirm] repo token lookup', err instanceof Error ? err.name : 'error');
@@ -326,13 +331,32 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
     });
     const coin = coins.get(key);
     if (coin && coin.program_id !== program.id) coinIn = coin.title;
+    tokenHere = coin?.program_id === program.id;
   }
+  // v2.9 B10: how often the builder said skip to this repo's token offer. A failed read counts none.
+  const declined = repoUrl ? await declineCount(ctx.installationId, repoUrl) : 0;
   return {
     hasBonus: hasBuilderBonus(program),
     coinIn,
+    tokenHere,
+    /** v2.9 B10 (Pre-flight P21): a token offer was skipped once: the next one is said without "40%". */
+    declinedOnce: declined >= 1,
+    /** Pre-flight P23: skipped twice: this repo is tokens off (no offer; "go" gets the kit). */
+    declinedOut: declined >= DECLINES_MAX,
     policyOff: program.token_policy === 'off',
     available: (ctx.tokenDeps?.available ?? tokenLaunchesAvailable)(),
   };
+}
+
+/** v2.9 B10: the decline count for a repo (token_declines, keyed by repoKey); a failed read is 0. */
+async function declineCount(installationId: number, repoUrl: string): Promise<number> {
+  const key = repoKey({ url: repoUrl, name: '' });
+  try {
+    return (await declines(installationId, [key])).get(key) ?? 0;
+  } catch (err) {
+    console.error('[token] declines', err instanceof Error ? err.name : 'error');
+    return 0;
+  }
 }
 
 /**
@@ -541,7 +565,7 @@ async function walletToAsk(
   if (program.campaign || !repoUrl || !canPush || given || remembered) return null;
   try {
     const facts = await offerFacts(program, repoUrl, ctx);
-    if (facts.coinIn || facts.policyOff || !facts.available) return null;
+    if (facts.coinIn || facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere) return null;
     const stored = await entryWallet(ctx, {
       programId: program.id,
       installationId: ctx.installationId,
@@ -725,6 +749,143 @@ async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installation
   return { ...(line && { since_you_last_checked: line }), ...result };
 }
 
+/** v2.9 B10: what the agent does with list_programs' token_offer. */
+export const TOKEN_OFFER_NOTE =
+  "The reply ends with a token offer. On yes, call launch_token with offer (program_id, repo_url, project_name), " +
+  "decision 'go', builder_confirmed: true and creator_wallet (the wallet the builder gives, else ask for it); " +
+  "on skip, call launch_token with offer and decision 'skip'.";
+
+/**
+ * v2.9 B10, Ruling 12: the first reply's token offer, or null: the fit (present.ts tokenOfferFit),
+ * launches configured, the repo not declined twice; the pair shown before for this repo and program,
+ * else EarnKit's proposal, stored (token_offers) so a later offer names the same token. The wallet
+ * is "known" only when remembered on a non-shared client. Never fails the reply (null on any error).
+ */
+async function firstTokenOffer(m: FirstMessage, ctx: ToolContext) {
+  if (!(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)()) return null;
+  try {
+    const urls = m.repos && 'fits' in m.repos ? m.repos.fits.flatMap((f) => (f.repo_url ? [f.repo_url] : [])) : [];
+    if (urls.length === 0) return null;
+    const keyOf = (url: string) => repoKey({ url, name: '' });
+    const counts = await declines(ctx.installationId, [...new Set(urls.map(keyOf))]);
+    const blocked = new Set(urls.filter((u) => (counts.get(keyOf(u)) ?? 0) >= DECLINES_MAX).map((u) => normalizeRepoUrl(u)));
+    const fit = tokenOfferFit(m, blocked);
+    if (!fit?.repo_url) return null;
+    const project = titleCase(repoNameOf(fit.repo_url) ?? fit.repo);
+    const key = offerKey(fit.repo_url, project);
+    const proposal =
+      (await readOffer(ctx.installationId, fit.card.id, key)) ??
+      (await proposeToken(project, ctx.tokenDeps?.check ?? tokensFunTickerCheck, fit.repo_url));
+    const proposed = { name: proposal.name, symbol: proposal.symbol };
+    await saveOffer(ctx.installationId, fit.card.id, key, proposed);
+    const walletKnown = (await walletMemory(ctx)) !== null;
+    return {
+      text: tokenOffer({
+        project,
+        program: fit.card.title,
+        prize_usd: fit.card.max_award_usd ?? 0,
+        proposal: proposed,
+        hasBonus: fit.card.builder_bonus !== false,
+        walletKnown,
+      }),
+      offer: { program_id: fit.card.id, repo_url: fit.repo_url, project_name: project, proposed, agent_note: TOKEN_OFFER_NOTE },
+    };
+  } catch (err) {
+    console.error('[list_programs] token offer', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
+/** v2.9 B10: launch_token's builder line when the builder said skip to the token offer. */
+export const NO_TOKEN_FOR_NOW = 'No token for now.';
+
+/**
+ * v2.9 B10: launch_token with the first reply's offer. 'skip' records a decline for the repo (at two
+ * it is never offered again) and makes no entry. 'go' makes (or finds) the draft entry for that
+ * program and repo (startEntry, choice 'go'; the 20 a day only for a new row), then launches the pair
+ * the offer showed (token_offers) through the usual flow and gate. A stop the GitHub sign-in can
+ * clear (sign-in on) returns the sign-in line, bound to this entry and the wallet of this call (G11).
+ */
+async function launchFromOffer(
+  parsed: z.infer<typeof LaunchTokenInput>,
+  offer: NonNullable<z.infer<typeof LaunchTokenInput>['offer']>,
+  ctx: ToolContext,
+) {
+  const program = await getProgramRow(offer.program_id);
+  if (program.campaign) throw new EntryError('EarnKit campaigns are entered in one step.');
+  if (!isOpen(program)) throw new EntryError('This program is closed or past its deadline.');
+  const project = ProjectInfo.parse({ name: offer.project_name, repo_url: offer.repo_url }) as { name: string; repo_url: string };
+  const repo = repoKey({ url: project.repo_url, name: project.name });
+  if (parsed.decision === 'skip') {
+    const count = await recordDecline(ctx.installationId, repo);
+    return {
+      status: 'skipped' as const,
+      note: NO_TOKEN_FOR_NOW,
+      agent_note:
+        count >= DECLINES_MAX
+          ? 'Nothing launched. This repo is not offered a token again.'
+          : 'Nothing launched. The token is offered once more when the builder confirms an entry for this repo.',
+    };
+  }
+  if (program.token_policy === 'off' || !(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)())
+    return { status: 'skipped' as const, note: NO_TOKEN_HERE };
+  const signIn = githubVerifyEnabled();
+  if (parsed.agent?.can_push === false && !signIn) return { status: 'skipped' as const, note: CANT_PUSH };
+  const entry = await startEntry({
+    program,
+    installationId: ctx.installationId,
+    project,
+    answers: {},
+    choice: 'go',
+    now: new Date(),
+    // A new entry counts against the 20 a day (Ruling 1 (plan)); a retry finds the same entry.
+    charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
+  });
+  // A retry after the launch: never a second token.
+  if (entry.token_url)
+    return entry.token_url === 'pending'
+      ? { ...pendingOutcome(entry.token_claimed_at, entry.token_settled), project_id: entry.id }
+      : { status: 'launched' as const, tokens_fun: entry.token_url, note: 'This entry already has its token.', project_id: entry.id };
+  // The pair the offer showed (the agent's edits win, as on any launch).
+  const shown = await readOffer(ctx.installationId, program.id, offerKey(project.repo_url, project.name)).catch(() => null);
+  const verifiedLogin = ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined;
+  const out = await launchToken(
+    { ...parsed, offer: undefined, project_id: entry.id, name: parsed.name ?? shown?.name, symbol: parsed.symbol ?? shown?.symbol },
+    ctx.installationId,
+    ctx.tokenDeps,
+    Date.now() + launchReplyMs(),
+    verifiedLogin,
+  );
+  // v2.9 B9: the proof line isn't there (or only a sign-in proves it, G10/G11): the one-time link.
+  const stopped = [PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED].some((p) => out.note?.startsWith(p));
+  const wallet = parsed.creator_wallet;
+  const link =
+    out.status === 'gate_failed' && stopped && signIn && wallet
+      ? await createVerifyLink({
+          installationId: ctx.installationId,
+          projectId: entry.id,
+          repoKey: repo,
+          purpose: 'entry',
+          wallet,
+          symbol: out.symbol ?? shown?.symbol ?? null,
+        })
+      : null;
+  if (!link) return { ...out, project_id: entry.id };
+  const line = out.note?.startsWith(WALLET_CHANGED)
+    ? `${WALLET_CHANGED} Sign in again: ${link}`
+    : signInLine(project.name, out.symbol ?? shown?.symbol ?? null, link);
+  return {
+    ...out,
+    project_id: entry.id,
+    fixable: true,
+    sign_in: link,
+    sign_in_line: line,
+    agent_note:
+      'Show sign_in_line. When the builder says they signed in, call launch_token again with project_id' +
+      (ctx.sharedClient ? ' and signed_in: the code the sign-in page gave them.' : '.'),
+  };
+}
+
 /** Campaigns (v2.4): a valid wallet answer or null (still missing); the one rule, isWalletAddress. */
 const validWallet = (w: string | undefined) =>
   w && isWalletAddress(w.trim()) ? w.trim() : null;
@@ -875,7 +1036,7 @@ export const tools = {
       return [];
     });
 
-    const show_to_builder = presentFirstMessage({
+    const first: FirstMessage = {
       alerts: alerts.lines,
       updates: programUpdates(cards, lastCheck === null),
       campaigns,
@@ -889,7 +1050,10 @@ export const tools = {
       repoCoins,
       entries: myEntries,
       hidden,
-    });
+    };
+    // v2.9 B10 (Ruling 12): the token offer for the best owned, product-tier fit closes the reply.
+    const tokenPick = await firstTokenOffer(first, ctx);
+    const show_to_builder = presentFirstMessage(tokenPick ? { ...first, tokenOffer: tokenPick.text } : first);
     // v2.9 A8: what matching showed (the matched rows on screen, one per program), for the outcome
     // loop. Never fails the tool. Ruling G7: not on a shared client (its repo keys and scores may be
     // another builder's) until memoryKey names a verified builder.
@@ -941,6 +1105,7 @@ export const tools = {
               (r) => !hide.has(r.program_id),
             )
           : [],
+      ...(tokenPick && { token_offer: tokenPick.offer }),
       working_on: workingOn,
       programs: programs.map((p) => ({
         id: p.id,
@@ -1162,7 +1327,9 @@ export const tools = {
         : null;
     // v2.9 B9: with GitHub sign-in on, an agent that can't push still offers the token.
     const signIn = githubVerifyEnabled();
-    if (shownPair && facts && !facts.coinIn && (canPush || signIn) && !facts.policyOff && facts.available)
+    // v2.9 B10: no token offer once the repo's token is this program's, or after two skips (P23).
+    const prepTokensOff = facts !== null && (facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere);
+    if (shownPair && facts && !facts.coinIn && (canPush || signIn) && !prepTokensOff)
       await rememberOffer(ctx, program.id, shownKey, shownPair);
     const offer = facts
       ? confirmOffer({
@@ -1172,14 +1339,16 @@ export const tools = {
           signIn,
           wallet: offerWallet,
           remembered: !given && offerWallet !== null,
-          tokensOff: facts.policyOff || !facts.available,
+          tokensOff: prepTokensOff,
           proposal: shownPair,
+          // v2.9 B10 (P21): the first reply's offer was skipped: no "40%" a second time.
+          again: facts.declinedOnce,
         })
       : null;
-    const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !facts.policyOff && facts.available;
+    const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !prepTokensOff;
     // Ruling 25 (plan) / Part C: the token line, once the repo is known, for the agent to push with
     // its work before the builder confirms (an agent that can't push gets none).
-    const line = repoUrl && canPush && program.token_policy !== 'off' ? tokenLineFor(ctx.installationId, repoUrl) : null;
+    const line = repoUrl && canPush && program.token_policy !== 'off' && !prepTokensOff ? tokenLineFor(ctx.installationId, repoUrl) : null;
     // Part D.4: the check before submitting, never blocking; shown with the draft once ready.
     const checked = prep.ready
       ? preSubmitCheck({
@@ -1285,11 +1454,13 @@ export const tools = {
       coinIn: facts.coinIn,
       canPush,
       hasRepo: Boolean(repoUrl),
-      policyOff: facts.policyOff,
+      // Pre-flight P23: skipped twice, the repo is tokens off ("go" gets the kit, no token).
+      policyOff: facts.policyOff || facts.declinedOut,
       available: facts.available,
       signIn,
     });
-    const tokensOff = facts.policyOff || !facts.available;
+    // v2.9 B10: the offer is "Ready to submit?" alone once the repo's token is this program's.
+    const tokensOff = facts.policyOff || !facts.available || facts.declinedOut || facts.tokenHere;
     const offersToken = !facts.coinIn && (canPush || signIn) && !tokensOff;
     if (decision.kind === 'offer') {
       // Fix round 1 (item 1): the entry's own wallet first (a "go" without a wallet uses it), then
@@ -1307,7 +1478,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1331,6 +1502,11 @@ export const tools = {
       // A new entry counts against the 20 a day (Ruling 1 (plan)); an update never does.
       charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
     });
+    // v2.9 B10: a skip to the token offer counts toward the repo's two (then never offered again).
+    if (decision.kind === 'skip' && offersToken && repoUrl && !entry.token_url)
+      await recordDecline(ctx.installationId, repoKey({ url: repoUrl, name: i.project.name })).catch((err: unknown) =>
+        console.error('[confirm_entry] decline', err instanceof Error ? err.name : 'error'),
+      );
     // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never
     // fails the confirmation. Ruling G7: not on a shared client (nothing is recorded there).
     if (remembers(ctx))
@@ -1361,7 +1537,7 @@ export const tools = {
         answered ??
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again: again || facts.declinedOnce });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },
@@ -1721,6 +1897,8 @@ export const tools = {
 
   launch_token: async (input: unknown, ctx: ToolContext) => {
     const parsed = LaunchTokenInput.parse(input);
+    // v2.9 B10: the answer to the first reply's token offer: a draft entry, then the launch.
+    if (parsed.offer) return withAlerts(ctx, await launchFromOffer(parsed, parsed.offer, ctx));
     const out = await launchToken(
       parsed,
       ctx.installationId,
@@ -1734,7 +1912,7 @@ export const tools = {
     // Ruling G10: on a shared client only the sign-in proves it; G11: the wallet changed since it.
     const stopped = [PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED].some((p) => out.note?.startsWith(p));
     const signIn =
-      out.status === 'gate_failed' && stopped && githubVerifyEnabled()
+      out.status === 'gate_failed' && stopped && githubVerifyEnabled() && parsed.project_id !== undefined
         ? await entryVerifyLink(ctx.installationId, parsed.project_id)
         : null;
     return withAlerts(
