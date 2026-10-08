@@ -16,7 +16,7 @@ import { enteredProgramIds } from './projects';
 import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
-import { TOKEN_LINE, endsOf } from './present';
+import { TOKEN_LINE, endsOf, type RepoFit } from './present';
 import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
 import { offerKey, readOffer, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
@@ -2609,10 +2609,10 @@ test('4.A7/A8 list_programs remembers the best owned fit repos and records the r
     name, url: `https://github.com/alice/${name}`, homepage: 'https://tipjar.xyz', created_at: '2026-01-01T00:00:00Z',
     chains: { arc: { mainnet: true, testnet: false, evidence: 'x' } }, commits_in_window: {}, live_verified: true,
   });
-  const fit = (name: string, score: number, missing: string[] = []) => ({
+  const fit = (name: string, score: number, missing: ('owned' | 'readme')[] = []): RepoFit => ({
     ...scoredFit(name, score, pid),
     key: `alice/${name}`,
-    product: { score, tier: score >= 5 ? 'product' : score >= 3 ? 'project' : 'noise', missing },
+    product: { score, tier: score >= 5 ? 'product' : 'project', missing },
     live_verified: true,
     facts: facts(name),
   });
