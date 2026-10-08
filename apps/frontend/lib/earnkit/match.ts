@@ -372,7 +372,15 @@ export type ProgramFacts = {
   investment: boolean;
   /** v2.9 A2: the lowest product score a repo needs for a row (a16z: 5); 0: no floor. */
   min_product_score: number;
+  /**
+   * v2.9 A8 (match-loop.ts): the lowest product score among announced winners, once 30 entries have
+   * an announced result; null (or absent) until then. A repo below it is at most after_step.
+   */
+  match_floor?: number | null;
 };
+
+/** v2.9 A8: the note on a row whose repo scores below the program's match floor. */
+export const BELOW_FLOOR_NOTE = 'winners so far had a live product and recent commits';
 
 /** What still stands between a repo and a program, as keys agents can act on. */
 export type Missing = 'live_url' | 'mainnet_deploy' | 'new_work' | 'real_users';
@@ -484,13 +492,15 @@ export function matchRepo(
       missing: Missing[] = [],
       effort?: Effort,
     ) => {
+      // v2.9 A8: below the score every announced winner so far had: at most after_step, said first.
+      const below = status === 'likely' && product != null && p.match_floor != null && product.score < p.match_floor;
       // v2.9 A2: only a product can be likely. v2.9 A3: never on an unverified claim ("confirm").
-      const project = status === 'likely' && product && product.tier !== 'product';
-      const unconfirmed = status === 'likely' && !project && open.length > 0;
+      const project = status === 'likely' && !below && product && product.tier !== 'product';
+      const unconfirmed = status === 'likely' && !below && !project && open.length > 0;
       verdicts.push({
         program_id: p.id,
         program: p.title,
-        status: project || unconfirmed ? 'after_step' : status,
+        status: project || unconfirmed || below ? 'after_step' : status,
         missing,
         effort:
           effort ??
@@ -501,11 +511,13 @@ export function matchRepo(
                 : max,
             'none',
           ),
-        note: project
-          ? missingSignalNote(product!)
-          : unconfirmed
-            ? `confirm: ${open.map((c) => CLAIM_WORDS[c]).join(' and ')}`
-            : note,
+        note: below
+          ? BELOW_FLOOR_NOTE
+          : project
+            ? missingSignalNote(product!)
+            : unconfirmed
+              ? `confirm: ${open.map((c) => CLAIM_WORDS[c]).join(' and ')}`
+              : note,
       });
     };
 
