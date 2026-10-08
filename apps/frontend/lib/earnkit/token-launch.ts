@@ -532,7 +532,7 @@ function storedProposal(p: FlowProject) {
 
 /** Ruling 31: tool, field or file names a builder-facing note must never carry. */
 export const TECHNICAL_TERMS =
-  /\b(launch_token|record_submission|prepare_submission|confirm_entry|report_outcome|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
+  /\b(launch_token|record_submission|prepare_submission|confirm_entry|tell_earnkit|pick_up_entries|list_programs|get_program|creator_wallet|payout_wallet|repo_url|live_url|image_data|image_url|builder_x|builder_confirmed|builder_submitted|project_id|external_submission_url|token_line)\b|earnkit\.txt/;
 
 /**
  * A LaunchError or RateLimitError as an outcome. Ruling 31: a message naming a field (an image or

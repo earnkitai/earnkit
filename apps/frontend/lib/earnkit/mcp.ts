@@ -110,13 +110,9 @@ export const LIST_PROGRAMS_DESCRIPTION =
   'its difficulty; the token and builder bonus line closes the message. ' +
   'matches lists, per repo and program, what is missing (live_url, mainnet_deploy, new_work, ' +
   'real_users) and the effort (minutes to weeks), for your own plan. ' +
-  'When the reply has ask_outcome, ask the builder its question once and pass their answer to report_outcome. ' +
+  'When the reply has ask_outcome, ask the builder its question once and pass their answer to tell_earnkit. ' +
   SAFETY_TEXT;
 
-/**
- * v2.8 Ruling C21: report_outcome is its own tool, so list_programs stays read-only (no approval
- * prompt on "What can I earn?").
- */
 /** v2.8.1 §E18: pick_up_entries' description. */
 const PICK_UP_ENTRIES_DESCRIPTION =
   "Answers list_programs' pick_up question (\"Pick up your 2 earlier entries?\"): the builder's earlier entries from another " +
@@ -124,10 +120,17 @@ const PICK_UP_ENTRIES_DESCRIPTION =
   'On yes, their entries, saved answers and alerts move here once your proof line is in one of those repos; the reply says ' +
   'what to push if it is missing. On no, nothing changes and it is not asked again.';
 
-const REPORT_OUTCOME_DESCRIPTION =
-  "Stores the builder's answer to list_programs' ask_outcome question (did their entry win?) for their own entry. " +
-  'Call it only with what the builder said; pass nothing when they do not know yet. It is kept as their own report: ' +
-  'it never shows publicly, never counts in EarnKit numbers, and never triggers a win alert (only published results do).';
+/**
+ * v2.9 A3: tell_earnkit's description (it replaced report_outcome, so list_programs stays read-only:
+ * no approval prompt on "What can I earn?"). Exported for the copy review.
+ */
+export const TELL_EARNKIT_DESCRIPTION =
+  'Remembers what the builder told you, so list_programs fits them better. program_status: a program they applied to ' +
+  'outside EarnKit (applied), one they are not interested in (not_interested), or their own result (won, placed, lost; ' +
+  "the project_id from ask_outcome, prize_usd if they won money). repo_facts, per repo: the chains it is live on " +
+  '(mainnet_chains), testnet only (testnet_chains), its live link, whether it has real users, or not_mine. ' +
+  'Call it only with what the builder said. What lowers a match counts at once; what raises one waits until EarnKit ' +
+  'can check it. Results they report stay their own: never public, never counted.';
 
 /**
  * v2.8 Ruling 23 (plan): record_submission's description. Its campaign sentences show only while an
@@ -262,7 +265,7 @@ export function toolDescriptions(campaignOpen: boolean) {
     record_submission: recordSubmissionDescription(campaignOpen),
     confirm_entry: CONFIRM_ENTRY_DESCRIPTION,
     launch_token: LAUNCH_TOKEN_DESCRIPTION,
-    report_outcome: REPORT_OUTCOME_DESCRIPTION,
+    tell_earnkit: TELL_EARNKIT_DESCRIPTION,
     pick_up_entries: PICK_UP_ENTRIES_DESCRIPTION,
     sponsor_campaign: SPONSOR_CAMPAIGN_DESCRIPTION,
   };
@@ -590,22 +593,47 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'launch_token', input),
   );
 
-  // v2.8 Ruling C21: the builder's own answer to "Did it win?". It writes, so it is not read-only;
-  // list_programs stays read-only.
+  // v2.9 A3: what the builder tells EarnKit (programs and repos). It writes, so it is not read-only;
+  // list_programs stays read-only. The tool reads chains and links leniently (builder-memory.ts TellInput).
   server.registerTool(
-    'report_outcome',
+    'tell_earnkit',
     {
-      description: descriptions.report_outcome,
+      description: descriptions.tell_earnkit,
       inputSchema: z
         .object({
-          project_id: z.number().int().positive().describe("ask_outcome's project_id"),
-          result: z.enum(['won', 'placed', 'finalist', 'not_selected']),
-          prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
+          program_status: z
+            .array(
+              z
+                .object({
+                  program_id: z.string(),
+                  status: z.enum(['applied', 'not_interested', 'won', 'placed', 'lost']),
+                  project_id: z.number().int().positive().optional().describe("For won, placed or lost: ask_outcome's project_id"),
+                  prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
+                })
+                .strict(),
+            )
+            .max(20)
+            .optional(),
+          repo_facts: z
+            .array(
+              z
+                .object({
+                  repo: z.string().max(300).describe('owner/repo, a github.com link, or the repo name'),
+                  mainnet_chains: z.array(z.string()).max(20).optional().describe('Chains it is deployed on, e.g. ["base"]'),
+                  testnet_chains: z.array(z.string()).max(20).optional().describe('Chains it is only on testnet'),
+                  live_url: z.string().max(300).optional(),
+                  has_users: z.boolean().optional(),
+                  not_mine: z.boolean().optional().describe('true when the builder says it is not their repo'),
+                })
+                .strict(),
+            )
+            .max(20)
+            .optional(),
         })
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    (input) => run(ctx, 'report_outcome', input),
+    (input) => run(ctx, 'tell_earnkit', input),
   );
 
   // v2.8.1 §E18: the builder's yes or no to picking up earlier entries. Lenient input: the tool reads

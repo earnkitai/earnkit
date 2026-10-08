@@ -223,7 +223,7 @@ export async function saveSelfReport(installationId: number, r: ReportOutcome, d
  * Marks it asked in the same statement, so the question is asked once. Null when there is none.
  */
 export async function outcomeToAsk(installationId: number, now = new Date()) {
-  const [row] = await sql()<{ project_id: number; name: string; program_title: string }[]>`
+  const [row] = await sql()<{ project_id: number; program_id: string; name: string; program_title: string }[]>`
     WITH pick AS (
       SELECT p.id FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${installationId}
@@ -241,6 +241,6 @@ export async function outcomeToAsk(installationId: number, now = new Date()) {
     UPDATE projects p SET outcome_asked_at = now()
     FROM pick, programs pr
     WHERE p.id = pick.id AND pr.id = p.program_id AND p.outcome_asked_at IS NULL
-    RETURNING p.id AS project_id, p.name, pr.title AS program_title`;
+    RETURNING p.id AS project_id, p.program_id, p.name, pr.title AS program_title`;
   return row ?? null;
 }

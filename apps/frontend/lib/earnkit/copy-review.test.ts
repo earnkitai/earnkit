@@ -18,9 +18,9 @@ import {
   walletLine,
   BONUS_MOVES,
 } from './entry-text';
-import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SERVER_INSTRUCTIONS, TELL_EARNKIT_DESCRIPTION, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { bonusClose, presentFirstMessage, type Card, type FirstMessage } from './present';
-import { ASK_OUTCOME_NOTE, COACH_NOTES, OUTCOME_SAVED_NOTE, tools } from './tools';
+import { ASK_OUTCOME_NOTE, COACH_NOTES, OUTCOME_SAVED_NOTE, TELL_SAVED_NOTE, tools } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -839,7 +839,15 @@ test('v2.8 Task 12: the outcome and new program alert lines render as expected',
   ]);
 });
 
+/** v2.9 A3: "Your entries" with a program the builder applied to outside EarnKit. */
+const appliedOutsideText = presentFirstMessage({
+  alerts: [], campaigns: [], repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: new Date('2026-10-08T12:00:00Z'),
+  cards: [{ id: 'base-builder-grants', title: 'Base Builder Grant Program', summary: 'up to $5,000', tag: null, each_time: [], ends_at: null }],
+  hidden: { notInterested: new Set(), applied: new Set(['base-builder-grants']) },
+});
+
 const builderFacing: [string, string][] = [
+  ['applied outside EarnKit', appliedOutsideText],
   ...coachTexts,
   ...outcomeTexts,
   ...alsoQualifiesTexts,
@@ -904,6 +912,8 @@ const agentFacing: [string, string][] = [
   ...kitAgentTexts,
   ['ASK_OUTCOME_NOTE', ASK_OUTCOME_NOTE],
   ['OUTCOME_SAVED_NOTE', OUTCOME_SAVED_NOTE],
+  ['TELL_SAVED_NOTE', TELL_SAVED_NOTE],
+  ['TELL_EARNKIT_DESCRIPTION', TELL_EARNKIT_DESCRIPTION],
   // v2.7 fix round 1 (Minor 6): llms.txt is what agents read about EarnKit.
   ['llms.txt', readFileSync(join(import.meta.dirname, '../../public/llms.txt'), 'utf8')],
 ];
@@ -1191,4 +1201,8 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
   for (const [label, text] of coachTexts.filter(([l]) => l.startsWith('fixesLine')))
     for (const line of text.split('\n').slice(1)) assert.match(line, /^\d\. [^:\n]{1,41}: [a-z][^\n]*\.$/, label);
   for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
+});
+
+test('v2.9 A3: the applied line reads "applied outside EarnKit"', () => {
+  assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
 });

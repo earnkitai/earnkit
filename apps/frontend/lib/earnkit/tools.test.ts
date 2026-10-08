@@ -1813,7 +1813,7 @@ test('11 Also qualifies: after confirm_entry "go" and record_submission on Arc, 
   }));
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): the outcome question, asked once; the builder's answer.
-test('12 list_programs: ask_outcome once after results are due; the report_outcome tool stores a self-report for the own entry only', dbTest, async () => {
+test('12 list_programs: ask_outcome once after results are due; tell_earnkit (v2.9 A3) stores a self-report for the own entry only', dbTest, async () => {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants');
   const due = { ...arc, id: `t12-due-${stamp}`, title: `Arc Due ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', results: { url: arc.source_url, expected: '2026-01-01' } };
@@ -1833,28 +1833,35 @@ test('12 list_programs: ask_outcome once after results are due; the report_outco
   await entry(later.id, mine, 'TooEarly'); // results not due yet
   const theirs = await entry(due.id, other, 'Theirs');
   const ctx = { installationId: mine, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() };
-  type Listed = { ask_outcome?: { project_id: number; question: string; agent_note: string } };
+  type Listed = { ask_outcome?: { project_id: number; program_id: string; question: string; agent_note: string } };
   try {
     const first = (await tools.list_programs({}, ctx)) as Listed;
     assert.deepEqual(first.ask_outcome && { ...first.ask_outcome, agent_note: undefined }, {
       project_id: tipjar,
+      program_id: due.id,
       question: `Did TipJar win anything in Arc Due ${stamp}?`,
       agent_note: undefined,
     });
-    assert.match(first.ask_outcome!.agent_note, /report_outcome/);
+    assert.match(first.ask_outcome!.agent_note, /tell_earnkit/);
+    assert.doesNotMatch(first.ask_outcome!.agent_note, /report_outcome/);
     // Asked once: not on the next call.
     const second = (await tools.list_programs({}, ctx)) as Listed;
     assert.ok(!('ask_outcome' in second));
-    // Ruling C21: list_programs takes no answer (it stays read-only); report_outcome stores it.
+    // Ruling C21: list_programs takes no answer (it stays read-only); tell_earnkit stores it.
     await assert.rejects(tools.list_programs({ report_outcome: { project_id: tipjar, result: 'won' } }, ctx));
-    const saved = (await tools.report_outcome({ project_id: tipjar, result: 'won', prize_usd: 500 }, ctx)) as { saved: boolean; agent_note: string };
-    assert.equal(saved.saved, true);
+    assert.ok(!('report_outcome' in tools));
+    const saved = (await tools.tell_earnkit(
+      { program_status: [{ program_id: due.id, status: 'won', project_id: tipjar, prize_usd: 500 }] },
+      ctx,
+    )) as { saved: string[]; agent_note: string };
+    assert.equal(saved.saved.length, 1);
+    assert.match(saved.agent_note, /never shows publicly/);
     const rows = await sql()<{ basis: string; result: string; prize_usd: string }[]>`
       SELECT basis, result, prize_usd::text FROM entry_outcomes WHERE project_id = ${tipjar}`;
     assert.deepEqual([...rows], [{ basis: 'self_reported', result: 'won', prize_usd: '500' }]);
     // Another installation's entry: refused, nothing stored.
     await assert.rejects(
-      tools.report_outcome({ project_id: theirs, result: 'won' }, ctx),
+      tools.tell_earnkit({ program_status: [{ program_id: due.id, status: 'won', project_id: theirs }] }, ctx),
       (err: Error) => err.constructor.name === 'NotFoundError',
     );
     assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${theirs}`)[0].n, 0);
@@ -2388,4 +2395,42 @@ test('2.12 list_programs: 5 repos fitting Base give 3 Base rows in matches, best
   )) as { matches: { repo: string; program_id: string }[] };
   const base = r.matches.filter((m) => m.program_id === 'base-builder-grants');
   assert.deepEqual(base.map((m) => m.repo), ['r1', 'r3', 'r2']);
+});
+
+test('3.10 list_programs reads the builder memory once: not interested leaves the reply and matches; said reaches matching', dbTest, async () => {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const id1 = `t3-arc-${stamp}`;
+  await upsertProgram(ProgramFile.parse({ ...arc, id: id1, title: `Arc T3 ${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' }));
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t3-memory-${stamp}`}) RETURNING id`;
+  let given: { said?: Record<string, unknown> } | undefined;
+  const ctx = {
+    installationId: id,
+    roundPoolsWei: async () => new Map(),
+    repoCoins: async () => new Map(),
+    matchProjects: async (input: { said?: Record<string, unknown> }) => {
+      given = input;
+      return { checked: 1, scored: 1, fits: [scoredFit('tipjar', 6, id1)] };
+    },
+  };
+  type Listed = { show_to_builder: string; matches: { program_id: string }[] };
+  try {
+    const before = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    assert.match(before.show_to_builder, new RegExp(`Arc T3 ${stamp}`));
+    assert.ok(before.matches.some((m) => m.program_id === id1));
+    assert.equal(given?.said, undefined);
+    const told = (await tools.tell_earnkit(
+      { program_status: [{ program_id: id1, status: 'not_interested' }], repo_facts: [{ repo: 'tipjar', testnet_chains: ['arc'] }] },
+      ctx,
+    )) as { saved: string[]; agent_note: string };
+    assert.equal(told.saved.length, 2);
+    const after = (await tools.list_programs({ local_repos: [{ name: 'tipjar', chains: ['arc'] }] }, ctx)) as Listed;
+    assert.doesNotMatch(after.show_to_builder, new RegExp(`Arc T3 ${stamp}`));
+    assert.ok(!after.matches.some((m) => m.program_id === id1));
+    assert.deepEqual(given?.said, { 'name:tipjar': { mainnet: [], testnet: ['arc'], live_url: null, has_users: null, not_mine: false } });
+  } finally {
+    await sql()`DELETE FROM installations WHERE id = ${id}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${id1}`;
+  }
 });

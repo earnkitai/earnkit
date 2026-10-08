@@ -134,7 +134,16 @@ export type FirstMessage = {
    * open the message ("Your entries"), mark their programs "entered", and are never offered again.
    */
   entries?: { program_id: string; title: string; name: string; submitted: boolean }[];
+  /**
+   * v2.9 A3 (builder-memory.ts hiddenPrograms): programs the builder is not interested in, or applied
+   * to outside EarnKit this round. Never in a table or the offer; applied ones are listed in "Your
+   * entries" as "applied outside EarnKit".
+   */
+  hidden?: { notInterested: Set<string>; applied: Set<string> };
 };
+
+/** v2.9 A3: a program the builder applied to outside EarnKit, in "Your entries". */
+export const APPLIED_OUTSIDE = 'applied outside EarnKit';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
@@ -402,15 +411,17 @@ const MAX_ENTRIES = 3;
  * "Your entries: Base Builder Grant Program (tipjar, submitted); Arc Microgrants (tipjar, not
  * submitted yet)." Pure; exported for tests.
  */
-export function entriesLine(m: Pick<FirstMessage, 'entries' | 'cards'>): string | null {
-  const entries = m.entries ?? [];
-  if (entries.length === 0) return null;
+export function entriesLine(m: Pick<FirstMessage, 'entries' | 'cards' | 'hidden'>): string | null {
   const titles = new Map(m.cards.map((c) => [c.id, c.title]));
-  const shown = entries
-    .slice(0, MAX_ENTRIES)
-    .map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`);
-  const more = entries.length - MAX_ENTRIES;
-  return `Your entries: ${shown.join('; ')}${more > 0 ? `; ${more} more` : ''}.`;
+  // v2.9 A3: programs applied to outside EarnKit (open ones, so they have a title) come after the entries.
+  const applied = [...(m.hidden?.applied ?? [])].filter((id) => titles.has(id));
+  const lines = [
+    ...(m.entries ?? []).map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`),
+    ...applied.map((id) => `${titles.get(id)}: ${APPLIED_OUTSIDE}`),
+  ];
+  if (lines.length === 0) return null;
+  const more = lines.length - MAX_ENTRIES;
+  return `Your entries: ${lines.slice(0, MAX_ENTRIES).join('; ')}${more > 0 ? `; ${more} more` : ''}.`;
 }
 
 /**
@@ -468,13 +479,17 @@ const openHeadline = (fig: string | null) =>
   fig ? `${fig} in prizes open right now.` : 'These programs are open right now.';
 
 /** The first message: see the type and the module comment for the order. Pure; exported for tests. */
-export function presentFirstMessage(m: FirstMessage): string {
+export function presentFirstMessage(given: FirstMessage): string {
   const sections: string[] = [];
-  if (m.alerts.length) sections.push(`Since you last checked: ${m.alerts.join('; ')}.`);
+  if (given.alerts.length) sections.push(`Since you last checked: ${given.alerts.join('; ')}.`);
   // v2.8.1 §B9: the returning builder's entries come first, right after any news (the daily check
   // messages the builder only when the reply starts with news).
-  const recap = entriesLine(m);
+  const recap = entriesLine(given);
   if (recap) sections.push(recap);
+  // v2.9 A3: a program the builder is not interested in, or applied to outside EarnKit, leaves
+  // every table and the offer.
+  const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
+  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
   // Only open EarnKit campaigns get a table (Campaign #1 is closed: none).
   const campaigns = m.campaigns.filter((r) => r.open).sort(byCampaignPrize);
   if (campaigns.length === 0 && m.cards.length === 0) {
