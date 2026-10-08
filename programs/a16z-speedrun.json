@@ -19,6 +19,7 @@
   "chains": [],
   "any_chain": true,
   "investment": true,
+  "min_product_score": 5,
   "setup": [
     "start the application with your email"
   ],

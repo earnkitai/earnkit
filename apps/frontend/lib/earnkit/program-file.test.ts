@@ -569,7 +569,7 @@ test('v2.8 Ruling 11: an estimate override parses', () => {
 test('v2.8 Ruling 13: chains need one entry unless any_chain, and any_chain lists none', () => {
   const base = baseProgram();
   assert.equal(ProgramFile.safeParse({ ...base, chains: [] }).success, false);
-  const any = ProgramFile.parse({ ...base, chains: [], any_chain: true });
+  const any = ProgramFile.parse({ ...base, chains: [], any_chain: true, min_product_score: 5 });
   assert.equal(any.any_chain, true);
   assert.deepEqual(any.chains, []);
   assert.equal(ProgramFile.parse(base).any_chain, false);
@@ -735,4 +735,18 @@ test('ProgramFile: needs_contract is one of the chains (v2.9 A5)', () => {
   assert.throws(() => ProgramFile.parse({ ...arc, needs_contract: 'solana' }));
   delete arc.needs_contract;
   assert.equal(ProgramFile.parse(arc).needs_contract, undefined);
+});
+
+test('2.13 min_product_score: 0 to 6; an any_chain program needs 5 or more (programs:check)', () => {
+  const base = baseProgram();
+  assert.equal(ProgramFile.parse(base).min_product_score, 0);
+  assert.equal(ProgramFile.parse({ ...base, min_product_score: 6 }).min_product_score, 6);
+  assert.equal(ProgramFile.safeParse({ ...base, min_product_score: 7 }).success, false);
+  assert.equal(ProgramFile.safeParse({ ...base, min_product_score: 2.5 }).success, false);
+  const anyChain = ProgramFile.safeParse({ ...base, chains: [], any_chain: true });
+  assert.equal(anyChain.success, false);
+  assert.match(JSON.stringify(anyChain.error!.issues), /any_chain programs need min_product_score of 5 or more/);
+  assert.equal(ProgramFile.safeParse({ ...base, chains: [], any_chain: true, min_product_score: 4 }).success, false);
+  // The committed a16z file holds the floor.
+  assert.equal(ProgramFile.parse(programJson('a16z-speedrun')).min_product_score, 5);
 });

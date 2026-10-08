@@ -679,3 +679,11 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS contract_verified_at timestamptz;
 -- v2.9 A5: the chain whose mainnet must hold a deployed contract for the live link to count
 -- (program file needs_contract; Arc Microgrants: 'arc'). NULL: none.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS needs_contract text;
+
+-- v2.9 A2: the repo's own real-product signals for this version (young, original, readme, contract
+-- candidates from its files), cached with its chains (repo-cache.ts). The builder-dependent ones
+-- (owned, active, deployed) are never cached (Pre-flight P6). NULL: read before v2.9.
+ALTER TABLE github_repo_facts ADD COLUMN IF NOT EXISTS product jsonb;
+-- v2.9 A2: the lowest product score a repo needs for a matched row (program file
+-- min_product_score; a16z: 5). 0: no floor.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_product_score int NOT NULL DEFAULT 0;

@@ -440,5 +440,17 @@ await db.unsafe(now);
 const [check] = await db<{ ok: boolean; checked_at: Date }[]>`SELECT ok, checked_at FROM url_checks WHERE key = 'url:https://tipjar.xyz'`;
 ok(check?.ok === true && check.checked_at instanceof Date, 'url_checks rows survive the schema running again, checked_at defaults to now()');
 
+// v2.9 A2: the product column and the program floor; existing rows read as unscored and no floor.
+const [floor] = await db<{ n: number; set: number }[]>`
+  SELECT count(*)::int AS n, count(*) FILTER (WHERE min_product_score <> 0)::int AS set FROM programs`;
+ok(floor.n > 0 && floor.set === 0, 'existing programs get min_product_score = 0');
+await db`INSERT INTO github_repo_facts (full_name, pushed_at, chains) VALUES ('v29/check', now(), '{}')`;
+const [unscored] = await db<{ product: unknown }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
+ok(unscored && unscored.product === null, 'existing repo facts get product = NULL');
+await db`UPDATE github_repo_facts SET product = '{"young":true}' WHERE full_name = 'v29/check'`;
+await db.unsafe(now);
+const [kept] = await db<{ product: { young?: boolean } | null }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
+ok(kept?.product?.young === true, 'github_repo_facts.product survives the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
