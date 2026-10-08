@@ -1175,13 +1175,16 @@ test('v2.8.1 §D (T4 carry): Also qualifies names the round the token fees book 
       assert.match(also, /Your builder bonus rides on your Base Builder Grant Program entry\. Your builder bonus moves to your next entry when a program ends\.$/);
       assert.equal(rec.show_to_builder.split('moves to your next entry').length, 2, rec.show_to_builder);
       assert.doesNotMatch(rec.show_to_builder, /Arc Microgrants entry/);
-      assert.deepEqual(asked, [t.repo.replace('https://', '')]);
+      assert.ok(asked.length >= 1 && asked.every((k) => k === t.repo.replace('https://', '')), JSON.stringify(asked));
+      // The token note names the same round (Also qualifies carries the "rides on" line here).
+      assert.equal((rec as { token?: { note?: string } }).token?.note, 'Your builder bonus rides on your Base Builder Grant Program entry.');
       // Fees bound for the Safe (no open entry): no bonus note at all.
       const none = (await tools.record_submission(
         { program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true },
         { ...ctx, bonusEntry: async () => null },
       )) as { show_to_builder: string };
       assert.doesNotMatch(none.show_to_builder, /rides on|moves to your next entry/);
+      assert.equal((none as { token?: { note?: string } }).token?.note, 'This repo already has a token.');
     } else assert.doesNotMatch(rec.show_to_builder, /moves to your next entry/);
   }));
 

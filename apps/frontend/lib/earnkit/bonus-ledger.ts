@@ -19,7 +19,7 @@ import {
 import type postgres from 'postgres';
 import type { LocalAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
-import { bookingFor, rollsOver, rolloverPrograms, rolloverRounds, type Round } from './bonus-rounds';
+import { bookingFor, currentBonusRound, rollsOver, rolloverPrograms, rolloverRounds, type Round } from './bonus-rounds';
 import { blockscout } from './campaigns';
 import { sql } from './db';
 import { LOG_CHUNK, LOG_CHUNK_MIN, RATE_BACKOFF_MS, logError } from './escrow';
@@ -533,7 +533,8 @@ async function tradedSince(coin: Hex, since: Date, deadline: number) {
 
 /**
  * Step 2 (Ruling 5): EarnKit sends `collectRewards(coin)` itself only for an EarnKit coin whose
- * program's round ends within COLLECT_WINDOW_MS, and only when no deposit from it was booked, and
+ * current round (its program's, or, v2.8.1 §D, the round its fees rolled over to) ends within
+ * COLLECT_WINDOW_MS, and only when no deposit from it was booked, and
  * EarnKit didn't collect it, in the last COLLECT_QUIET_MS. The locker is the first that simulates
  * cleanly (tokens.fun `pickLocker`); a coin whose split doesn't pay the bonus wallet (launched
  * before the v2.5 split) is skipped. Its deposits are booked by the next index run. One coin's
@@ -543,9 +544,9 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
   const now = d.now ?? new Date();
   const quiet = new Date(now.getTime() - COLLECT_QUIET_MS);
   const coins = await sql()<
-    { project: number; coin: Hex; id: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]
+    { project: number; coin: Hex; repo_key: string | null; id: string; title: string; starts_at: Date | null; ends_at: Date | null; status: string; builder_bonus: boolean | null; campaign: unknown }[]
   >`
-    SELECT p.id AS project, p.coin_address AS coin, g.id, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
+    SELECT p.id AS project, p.coin_address AS coin, p.token_repo_key AS repo_key, g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
     FROM projects p JOIN programs g ON g.id = p.program_id
     WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched'
       AND (p.coin_collected_at IS NULL OR p.coin_collected_at < ${quiet})
@@ -554,9 +555,13 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
   const out: { coin: string; result: string }[] = [];
   const active = d.active ?? ((coin: Hex, since: Date) => tradedSince(coin, since, toDeadline(d)));
   for (const c of coins) {
-    const b = bookingFor(c, now);
-    if (b.destination !== 'round' || b.round.ends.getTime() - now.getTime() > COLLECT_WINDOW_MS) continue;
     if (Date.now() >= toDeadline(d)) break;
+    // v2.8.1 §D: the round the coin's fees book to now: its own program's, or, once that program
+    // is over, the round they roll over to (currentBonusRound, read only for those coins).
+    const b = bookingFor(c, now);
+    let round = b.destination === 'round' ? b.round : null;
+    if (!round && rollsOver(c, now)) round = (await currentBonusRound(c, now))?.round ?? null;
+    if (!round || round.ends.getTime() - now.getTime() > COLLECT_WINDOW_MS) continue;
     try {
       // Only a coin that traded in the last 24 h has new fees worth the gas (fix round 1, a).
       if (!(await active(c.coin, new Date(now.getTime() - COLLECT_WINDOW_MS)))) {

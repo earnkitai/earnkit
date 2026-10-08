@@ -1058,3 +1058,26 @@ test('v2.8.1 §D: bonusEntryProgram names the program whose round the token fees
     await cleanup();
   }
 });
+
+test('v2.8.1 §D: the near-end collect follows the round a coin rolled into (its last 24 h), never the ended home round', db, async () => {
+  try {
+    await rolloverSetup({ r3: false });
+    const f = fakeChain();
+    const run = (now: string) => collectNearEnd(ACCOUNT, { rpc: f.rpc, chain: C, now: new Date(now), active: async () => true });
+    // Home ended Oct 8; the fees roll to R2 (ends Oct 20). Mid-R2: nothing to collect.
+    assert.deepEqual(await run('2026-10-12T00:00:00Z'), []);
+    // R2's last 24 h: EarnKit collects the coin itself.
+    const out = await run('2026-10-19T12:00:00Z');
+    assert.equal(out.length, 1, JSON.stringify(out));
+    assert.equal(out[0].coin, COIN_A);
+    assert.match(out[0].result, /^collect success/);
+    // A frozen rolled-to round, or no open entry: no collect.
+    await sql()`UPDATE projects SET coin_collected_at = NULL WHERE coin_address = ${COIN_A}`;
+    await sql()`INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
+      VALUES (${ROUND2}, ${R2}, '2026-10-05T00:00:00Z', '2026-10-20T00:00:00Z', 'frozen')
+      ON CONFLICT (round_key) DO UPDATE SET state = 'frozen'`;
+    assert.deepEqual(await run('2026-10-19T13:00:00Z'), []);
+  } finally {
+    await cleanup();
+  }
+});
