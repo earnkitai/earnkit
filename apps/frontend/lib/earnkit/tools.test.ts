@@ -3122,7 +3122,7 @@ test('6.8 "40%" once per entry flow: the first reply offer, launch, prepare, con
     assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.filter((x) => x.includes('40%')).join('\n---\n'));
   }));
 
-test("G12 (b): on one Grok install, user A's two skips never stop user B's offer; without a code nothing is recorded", dbTest, () =>
+test("G12 (b): on one Grok install, user A's skip never stops user B's offer; without a code nothing is recorded", dbTest, () =>
   withTokenEnv(() =>
     withSignIn(async () => {
       const t = await offerSetup('g12');
@@ -3142,11 +3142,10 @@ test("G12 (b): on one Grok install, user A's two skips never stop user B's offer
       await skip();
       const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM token_declines WHERE installation_id = ${t.inst}`;
       assert.equal(n, 0);
-      // A skips two offers: A's offer is gone, B's stays.
-      await skip(codeA);
+      // A skips: A's first-reply offer is gone (G14), B's stays.
       await skip(codeA);
       const rows = await sql()<{ login: string; count: number }[]>`SELECT login, count FROM token_declines WHERE installation_id = ${t.inst}`;
-      assert.deepEqual(rows.map((r) => [r.login, r.count]), [['alice', 2]]);
+      assert.deepEqual(rows.map((r) => [r.login, r.count]), [['alice', 1]]);
       assert.ok(!(await list(codeA)).token_offer);
       assert.ok((await list()).token_offer);
     }),
@@ -3200,4 +3199,44 @@ test('G13 (I2): the offer path launches only an offer shown, re-checks the progr
     assert.equal(launched.status, 'launched', JSON.stringify(launched));
     const [{ token_symbol }] = await sql()<{ token_symbol: string }[]>`SELECT token_symbol FROM projects WHERE installation_id = ${t.inst}`;
     assert.equal(token_symbol, 'MYTIP');
+  }));
+
+/** Every builder-facing text of a reply (show_to_builder, notes, the sign-in line). */
+const builderText = (r: unknown) => {
+  const o = r as { show_to_builder?: string; note?: string; sign_in_line?: string; token?: { note?: string } };
+  return [o.show_to_builder, o.note, o.sign_in_line, o.token?.note].filter((x): x is string => typeof x === 'string').join('\n');
+};
+
+test('G14 (M1): an unanswered first-reply offer starts the flow: the confirmation uses the repeat wording, "40%" once', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('g14m1');
+    const texts: string[] = [];
+    const listed = await t.list();
+    assert.ok(listed.token_offer);
+    texts.push(builderText(listed));
+    // The builder doesn't answer it and starts the entry instead.
+    const prep = await tools.prepare_submission(t.input, t.ctx);
+    assert.match(builderText(prep), /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
+    texts.push(builderText(prep));
+    const offer = await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx);
+    assert.match(builderText(offer), /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
+    texts.push(builderText(offer));
+    const confirmed = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.equal(confirmed.token?.status, 'launched');
+    texts.push(builderText(confirmed));
+    texts.push(builderText(await tools.record_submission({ program_id: t.p.id, project: t.project, submission_data: t.answers, builder_submitted: true }, t.ctx)));
+    assert.equal(texts.join('\n').split('40%').length - 1, 1, texts.join('\n---\n'));
+  }));
+
+test('G14 (M2): after one skip the first reply never offers that repo again; the confirmation offers it once more', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await offerSetup('g14m2');
+    const offer = t.offerOf(await t.list());
+    await tools.launch_token({ offer, decision: 'skip' }, t.ctx);
+    const again = await t.list();
+    assert.ok(!again.token_offer);
+    assert.doesNotMatch(again.show_to_builder, /40%|\bskip\b/);
+    const confirm = (await tools.confirm_entry({ ...t.input, wallet: W8 }, t.ctx)) as Confirmed;
+    assert.match(confirm.show_to_builder, /\nYes: launches \$\w+ \(.+\) on Base\.\n/);
+    assert.doesNotMatch(confirm.show_to_builder, /40%/);
   }));

@@ -14,7 +14,7 @@ import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl,
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
 import { proposeToken, repoNameOf, titleCase, tokensFunTickerCheck } from './token-proposal';
-import { DECLINES_MAX, declines, offerIdentity, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
+import { DECLINES_MAX, declines, firstReplyShown, offerIdentity, offerKey, readOffer, recordDecline, saveOffer, type Offered } from './token-offers';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -343,12 +343,18 @@ async function offerFacts(
   }
   // v2.9 B10: how often the builder said skip to this repo's token offer. A failed read counts none.
   const declined = repoUrl && login !== null ? await declineCount(ctx.installationId, repoUrl, login) : 0;
+  // Ruling G14 (M1): the first reply offered this repo's token for this program: the flow said "40%".
+  const firstShown = repoUrl
+    ? await firstReplyShown(ctx.installationId, program.id, offerKey(repoUrl, '')).catch(() => false)
+    : false;
   return {
     hasBonus: hasBuilderBonus(program),
     coinIn,
     tokenHere,
     /** v2.9 B10 (Pre-flight P21): a token offer was skipped once: the next one is said without "40%". */
     declinedOnce: declined >= 1,
+    /** Ruling G14 (M1): the first reply's offer for this repo and program was shown. */
+    firstShown,
     /** Pre-flight P23: skipped twice: this repo is tokens off (no offer; "go" gets the kit). */
     declinedOut: declined >= DECLINES_MAX,
     policyOff: program.token_policy === 'off',
@@ -795,7 +801,9 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
     const keyOf = (url: string) => repoKey({ url, name: '' });
     // Ruling G12: this builder's declines only (none read on a shared client without a login).
     const counts = login === null ? new Map<string, number>() : await declines(ctx.installationId, [...new Set(urls.map(keyOf))], login);
-    const blocked = new Set(urls.filter((u) => (counts.get(keyOf(u)) ?? 0) >= DECLINES_MAX).map((u) => normalizeRepoUrl(u)));
+    // Ruling G14 (M2): after one skip the first reply never offers that repo's token again; only the
+    // confirmation offers it once more (B10).
+    const blocked = new Set(urls.filter((u) => (counts.get(keyOf(u)) ?? 0) >= 1).map((u) => normalizeRepoUrl(u)));
     const fit = tokenOfferFit(m, blocked);
     if (!fit?.repo_url) return null;
     const project = titleCase(repoNameOf(fit.repo_url) ?? fit.repo);
@@ -804,7 +812,7 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
       (await readOffer(ctx.installationId, fit.card.id, key)) ??
       (await proposeToken(project, ctx.tokenDeps?.check ?? tokensFunTickerCheck, fit.repo_url));
     const proposed = { name: proposal.name, symbol: proposal.symbol };
-    await saveOffer(ctx.installationId, fit.card.id, key, proposed);
+    await saveOffer(ctx.installationId, fit.card.id, key, proposed, true);
     // Ruling G13 (I1): the remembered wallet (never on a shared client, G7) is named in the line and
     // carried as shown_wallet, so "yes" launches to the wallet the builder saw.
     const wallet = await walletMemory(ctx);
@@ -1431,7 +1439,7 @@ export const tools = {
           tokensOff: prepTokensOff,
           proposal: shownPair,
           // v2.9 B10 (P21): the first reply's offer was skipped: no "40%" a second time.
-          again: facts.declinedOnce,
+          again: facts.declinedOnce || facts.firstShown,
         })
       : null;
     const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !prepTokensOff;
@@ -1569,7 +1577,7 @@ export const tools = {
       return {
         show_to_builder:
           (proposal?.taken ? `$${proposal.taken} is taken.\n` : '') +
-          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce }),
+          confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, tokensOff, proposal: pair, again: Boolean(proposal?.taken) || facts.declinedOnce || facts.firstShown }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
         ...(pair && { token: { proposed: pair } }),
         agent_note:
@@ -1628,7 +1636,7 @@ export const tools = {
         answered ??
         (await entryWallet(ctx, { programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
         (await walletMemory(ctx));
-      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again: again || facts.declinedOnce });
+      const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, signIn, wallet, remembered: !given && !answered && wallet !== null, proposal, again: again || facts.declinedOnce || facts.firstShown });
       return {
         project_id: projectId,
         token: { status: 'skipped' as const, fixable: true, proposed: proposal },

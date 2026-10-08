@@ -524,5 +524,9 @@ const declined = await db<{ login: string; count: number; offers: string[] }[]>`
 ok(declined.length === 2 && declined[0].login === '' && declined[0].offers.length === 0,
   "token_declines keeps one row per installation, login ('' by default) and repo, and survives the schema running again");
 
+const [firstReply] = await db<{ n: number }[]>`
+  SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'token_offers' AND column_name = 'first_reply_at'`;
+ok(firstReply.n === 1, 'token_offers has first_reply_at (Ruling G14)');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

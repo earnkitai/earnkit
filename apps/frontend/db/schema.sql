@@ -799,3 +799,7 @@ CREATE TABLE IF NOT EXISTS token_declines (
   last_at         timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (installation_id, login, repo_key)
 );
+
+-- v2.9 Ruling G14: when the first reply (list_programs) showed this token offer; later offers in the
+-- entry flow then leave out "40%". Kept when a later offer replaces the pair.
+ALTER TABLE token_offers ADD COLUMN IF NOT EXISTS first_reply_at timestamptz;
