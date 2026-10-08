@@ -221,3 +221,28 @@ test('v2.8.1 §A3: the default branch first; else the most recently pushed branc
   const odd = (await tokenGate(input, deps({ status: 'missing' }, { branch: 'x"; rm', file: { status: 'missing' } }))) as { agent_note: string };
   assert.match(odd.agent_note, /most recently pushed branch \(another branch\)/);
 });
+
+test('5.8 v2.9 B9: a passing GitHub sign-in for the entry stands in for the proof line; the code check and the screen still run', async () => {
+  const seen: string[] = [];
+  const missing: Required<GateDeps> = {
+    ...ok,
+    owner: async () => { seen.push('owner'); return { status: 'missing' }; },
+    screen: async () => { seen.push('screen'); },
+    verified: async (id, key) => { seen.push(`verified ${id} ${key}`); return true; },
+  };
+  assert.deepEqual(await tokenGate({ ...input, projectId: 7 }, missing), { ok: true });
+  assert.deepEqual(seen, ['verified 7 acme/kit', 'screen'], 'no earnkit.txt read');
+  const notYet = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => false });
+  assert.equal(notYet.ok, false);
+  assert.match((notYet as { reason: string }).reason, /^I need to add a short proof line to your repo/);
+  // No entry id (record_submission's older paths): never asked.
+  let asked = false;
+  await tokenGate(input, { ...missing, verified: async () => { asked = true; return true; } });
+  assert.equal(asked, false);
+  // The repo's code is still checked first.
+  const empty = await tokenGate({ ...input, projectId: 7 }, { ...missing, repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) });
+  assert.match((empty as { reason: string }).reason, /no commits/);
+  // A failed read is no verification.
+  const broken = await tokenGate({ ...input, projectId: 7 }, { ...missing, verified: async () => { throw new Error('db'); } });
+  assert.equal(broken.ok, false);
+});

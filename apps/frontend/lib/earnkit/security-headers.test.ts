@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import nextConfig, { IMAGE_CSP, securityHeaders } from '../../next.config';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { csrfCookieName, verifyCallback, verifyStart } from './github-verify';
 
 test('every response gets the anti-framing and referrer headers', async () => {
   const rules = await nextConfig.headers!();
@@ -68,4 +71,57 @@ test('HSTS in production only (local http is never pinned)', () => {
     )?.value;
   assert.equal(hsts(true), 'max-age=31536000');
   assert.equal(hsts(false), undefined);
+});
+
+// ---- v2.9 B9, Ruling 7, Ruling G8: cookies
+
+
+const sources = (dir: string): string[] =>
+  readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    if (statSync(p).isDirectory()) return f === 'node_modules' ? [] : sources(p);
+    return /\.(ts|tsx|mts)$/.test(f) && !/\.test\.ts$/.test(f) ? [p] : [];
+  });
+
+test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ and lib/); only the sign-in sets one', () => {
+  const root = join(import.meta.dirname, '..', '..');
+  const setting = [...sources(join(root, 'app')), ...sources(join(root, 'lib'))].filter((p) =>
+    /Set-Cookie|cookies\(\)\.set|\.cookies\.set/i.test(readFileSync(p, 'utf8')),
+  );
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)), ['lib/earnkit/github-verify.ts']);
+  const src = readFileSync(setting[0], 'utf8');
+  // Each Set-Cookie value is built from csrfCookieName, which is __Host- with Path=/ and Secure.
+  for (const m of src.matchAll(/=>\s*`\$\{csrfCookieName\(nonce\)\}=([^`]*)`/g)) {
+    assert.match(m[1], /Path=\/;/);
+    assert.match(m[1], /HttpOnly; Secure; SameSite=Lax$/);
+  }
+  assert.equal([...src.matchAll(/=>\s*`\$\{csrfCookieName\(nonce\)\}=/g)].length, 2, 'set and clear');
+  assert.match(csrfCookieName('n'), /^__Host-/);
+});
+
+test('5.12 the verify routes: off, no cookie at all; on, only the __Host- cookie (G8)', async () => {
+  const old = [process.env.GITHUB_OAUTH_CLIENT_ID, process.env.GITHUB_OAUTH_CLIENT_SECRET];
+  delete process.env.GITHUB_OAUTH_CLIENT_ID;
+  delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+  try {
+    for (const res of [
+      await verifyStart(new Request('https://earnkit.com/github/verify?n=x')),
+      await verifyCallback(new Request('https://earnkit.com/github/verify/callback?code=c&state=x.y')),
+    ])
+      assert.equal(res.headers.get('set-cookie'), null);
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'id';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'secret';
+    const refused = await verifyCallback(new Request('https://earnkit.com/github/verify/callback?code=c&state=x.y'), undefined, { limit: async () => {} });
+    assert.equal(refused.headers.get('set-cookie'), null);
+  } finally {
+    if (old[0] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_ID;
+    else process.env.GITHUB_OAUTH_CLIENT_ID = old[0];
+    if (old[1] === undefined) delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+    else process.env.GITHUB_OAUTH_CLIENT_SECRET = old[1];
+  }
+});
+
+test('Ruling 7: HSTS never has includeSubDomains', () => {
+  const hsts = securityHeaders(true).find((h) => h.key === 'Strict-Transport-Security')?.value ?? '';
+  assert.doesNotMatch(hsts, /includeSubDomains/i);
 });

@@ -155,8 +155,9 @@ export async function provenRoots(roots: number[], repo: string, codes: readonly
       SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM projects p JOIN installations i ON i.id = p.installation_id
       WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND p.token_repo_key = ${key}
         AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`,
-    // v2.9 B9 (P8): or one of the group's installations signed in with GitHub for the repo.
-    db<{ root: number }[]>`
+    // v2.9 B9 (P8): or one of the group's installations signed in with GitHub for the repo (only
+    // while the feature is on).
+    !githubVerifyEnabled() ? Promise.resolve([]) : db<{ root: number }[]>`
       SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM github_verifications v JOIN installations i ON i.id = v.installation_id
       WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.repo_key = ${repoKey({ url: repo, name: '' })}
         AND v.used_at IS NULL`,
@@ -284,6 +285,7 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
   // v2.9 B9 (P8): this installation's GitHub sign-in for the offer's repo, made after the offer,
   // stands in for its proof line.
   const signedIn =
+    githubVerifyEnabled() &&
     state.at !== undefined &&
     (await verifiedFor({ installationId: own, repoKey: key, since: new Date(state.at), purpose: 'pickup' })) !== null;
   const file = await repoCodes(state.repo, deps);
