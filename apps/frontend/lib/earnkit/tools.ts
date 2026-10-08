@@ -667,9 +667,17 @@ async function alertsFor(
   }
 }
 
-/** v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news. */
-async function withAlerts<T extends object>(installationId: number, result: T) {
-  const a = await alertsFor(installationId);
+/**
+ * Ruling G7: whether this call may show what the installation remembers (entries, standings,
+ * alerts, the outcome question, remembered repos). Not on a shared client until memoryKey names a
+ * verified builder: one hosted installation serves many builders. Entries are still recorded.
+ */
+const remembers = (ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>) => memoryKey(ctx) !== null;
+
+/** v2.4 §4: a builder tool's reply opens with "Since you last checked" when there's news (Ruling G7: not on a shared client). */
+async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installationId' | 'sharedClient'>, result: T) {
+  if (!remembers(ctx)) return result;
+  const a = await alertsFor(ctx.installationId);
   const line = sinceLine(a.lines);
   return { ...(line && { since_you_last_checked: line }), ...result };
 }
@@ -725,18 +733,23 @@ export const tools = {
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
+    // Ruling G7: a shared client shows nothing the installation remembers (another builder's).
+    const own = remembers(ctx);
+    const workingOn = own ? memory.working_on : [];
     // Remembered from an earlier call when not given now.
     const user =
       github_user ??
-      (repos?.length ? undefined : (memory.github_user ?? undefined));
+      (repos?.length || !own ? undefined : (memory.github_user ?? undefined));
     const repoList = repos?.length
       ? repos
-      : github_user
+      : github_user || !own
         ? undefined
         : (memory.repos ?? undefined);
     const local = local_repos?.length
       ? local_repos
-      : (memory.local_repos ?? undefined);
+      : own
+        ? (memory.local_repos ?? undefined)
+        : undefined;
     // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
     // Local repos count too (fix round 1, Minor 5): the spec's gate is "no repos are reported or
     // found", and a repo the agent reported is a repo reported, matching error or not.
@@ -779,7 +792,7 @@ export const tools = {
     }
 
     // The builder's campaign entries: rank (or the sponsor campaign's state), prize once paid.
-    const yourEntries = await yourCampaignEntries(ctx.installationId);
+    const yourEntries = own ? await yourCampaignEntries(ctx.installationId) : [];
     // EarnKit campaign standings are in the campaigns table; only sponsor entries get a section.
     const entries = presentYourEntries(
       yourEntries.filter((e) => e.campaign.kind === 'sponsor'),
@@ -787,7 +800,9 @@ export const tools = {
     );
     // EarnKit wins come from the alerts engine (shown once); sponsor wins from here, placed right
     // after them (money first). Read last, so nothing after it can throw away the news.
-    const alerts = await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins });
+    const alerts = own
+      ? await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins })
+      : { lines: [] as string[], scheduleNote: null };
 
     // The builder bonus pools: one read, only for provable programs the message shows.
     const pools = await poolsOf(
@@ -801,7 +816,7 @@ export const tools = {
     }));
     const repoCoins = await repoCoinsOf(ctx.repoCoins ?? repoCoinPrograms, yourRepos);
     // v2.8.1 §B9: "Your entries" and the "entered" marks; never fails the tool (none on an error).
-    const myEntries = await openEntries(ctx.installationId).catch((err: unknown) => {
+    const myEntries = !own ? [] : await openEntries(ctx.installationId).catch((err: unknown) => {
       console.error('[list_programs] entries', err instanceof Error ? err.name : 'error');
       return [];
     });
@@ -813,7 +828,7 @@ export const tools = {
       cards: withPools,
       repos: yourRepos,
       githubGiven,
-      workingOn: memory.working_on,
+      workingOn,
       agentCanBuild: agent_can_build,
       sponsorEntries: entries.section,
       now: new Date(),
@@ -825,7 +840,7 @@ export const tools = {
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // last (review minor 11), so nothing after marking it asked can lose the question. Never fails
     // the tool (the entry is then asked on a later call).
-    const ask = await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
+    const ask = !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
@@ -835,7 +850,9 @@ export const tools = {
       ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
-        (user || repoList?.length
+        (!own && (user || repoList?.length || local?.length)
+          ? 'This agent serves many builders, so pass their repos again on each call. '
+          : user || repoList?.length
           ? 'EarnKit remembers their GitHub username or repos for next time. '
           : local?.length
             ? 'EarnKit remembers the repos you reported for next time. '
@@ -858,7 +875,7 @@ export const tools = {
               (r) => !hide.has(r.program_id),
             )
           : [],
-      working_on: memory.working_on,
+      working_on: workingOn,
       programs: programs.map((p) => ({
         id: p.id,
         title: p.title,
@@ -873,18 +890,18 @@ export const tools = {
   get_program: async (input: unknown, ctx: ToolContext) => {
     const { program_id, repo } = GetProgramInput.parse(input);
     const program = await getProgram(program_id);
-    if (!repo) return withAlerts(ctx.installationId, program);
+    if (!repo) return withAlerts(ctx, program);
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
       await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
-      return withAlerts(ctx.installationId, {
+      return withAlerts(ctx, {
         ...program,
         eligibility: await checkEligibility(repo, program_id),
       });
     } catch (err) {
       if (!(err instanceof GitHubError || err instanceof RateLimitError))
         throw err;
-      return withAlerts(ctx.installationId, {
+      return withAlerts(ctx, {
         ...program,
         eligibility: { error: err.message },
       });
@@ -989,7 +1006,7 @@ export const tools = {
         : null,
     });
     if (program.campaign)
-      return withAlerts(ctx.installationId, {
+      return withAlerts(ctx, {
         program_id,
         ...(!open && { warning: 'This program is closed or past its deadline.' }),
         show_to_builder: table,
@@ -1045,7 +1062,7 @@ export const tools = {
     // the questions, never only after answering them, and gets a program they can enter as they are.
     const repoFirst = intro && program.needs_repo && !repoUrl ? await needsRepoLine(program) : null;
     if (intro)
-      return withAlerts(ctx.installationId, {
+      return withAlerts(ctx, {
         program_id,
         show_to_builder: repoFirst ? `${repoFirst}\n\n${intro}` : intro,
         questions,
@@ -1118,7 +1135,7 @@ export const tools = {
       line && TOKEN_LINE_NOTE,
       ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
-    return withAlerts(ctx.installationId, {
+    return withAlerts(ctx, {
       program_id,
       ...(!open && { warning: 'This program is closed or past its deadline.' }),
       show_to_builder,
@@ -1468,7 +1485,7 @@ export const tools = {
     );
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx.installationId, { ...result, token });
+      return withAlerts(ctx, { ...result, token });
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin, then the bonus round.
     // Ruling 29: the round's end as the first message shows it.
     const endsLabel = result.bonus_round?.ends_label ?? null;
@@ -1522,7 +1539,7 @@ export const tools = {
     const ridesOn = ridesOnTitle && !also?.text ? ` ${bonusRidesOn(ridesOnTitle)}` : '';
     const show_to_builder =
       enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + ridesOn + (also?.text ? `\n\n${also.text}` : '');
-    return withAlerts(ctx.installationId, {
+    return withAlerts(ctx, {
       ...result,
       token: tokenOut,
       show_to_builder,
@@ -1573,7 +1590,7 @@ export const tools = {
 
   launch_token: async (input: unknown, ctx: ToolContext) =>
     withAlerts(
-      ctx.installationId,
+      ctx,
       await launchToken(
         LaunchTokenInput.parse(input),
         ctx.installationId,
