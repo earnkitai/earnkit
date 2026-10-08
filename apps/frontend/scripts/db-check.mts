@@ -452,5 +452,22 @@ await db.unsafe(now);
 const [keptProduct] = await db<{ product: { young?: boolean } | null }[]>`SELECT product FROM github_repo_facts WHERE full_name = 'v29/check'`;
 ok(keptProduct?.product?.young === true, 'github_repo_facts.product survives the schema running again');
 
+// v2.9 A3: builder memory; rows survive the schema running again, defaults hold, statuses are checked.
+const [{ id: memInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v29-memory') RETURNING id`;
+await db`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${memInst}, 'arc-microgrants', 'not_interested')`;
+await db`INSERT INTO builder_repo_facts (installation_id, repo_key) VALUES (${memInst}, 'alice/tipjar')`;
+await db.unsafe(now);
+const [said] = await db<{ mainnet_chains: string[]; testnet_chains: string[]; not_mine: boolean; at: Date }[]>`
+  SELECT mainnet_chains, testnet_chains, not_mine, at FROM builder_repo_facts WHERE installation_id = ${memInst}`;
+ok(said && said.mainnet_chains.length === 0 && said.testnet_chains.length === 0 && said.not_mine === false && said.at instanceof Date,
+  'builder_repo_facts rows survive the schema running again with empty chains, not_mine false and at = now()');
+const [status] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_program_status WHERE installation_id = ${memInst}`;
+ok(status.n === 1, 'builder_program_status rows survive the schema running again');
+const badStatus = await db`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${memInst}, 'x', 'won')`.then(
+  () => false,
+  () => true,
+);
+ok(badStatus, "builder_program_status only takes 'applied' or 'not_interested'");
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

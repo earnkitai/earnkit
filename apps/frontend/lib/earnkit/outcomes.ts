@@ -119,7 +119,7 @@ export function winLine(o: { prize_usd: number | null; program_title: string; na
     : `${o.name} won in ${o.program_title}`;
 }
 
-/** list_programs' `report_outcome`: the builder's own answer to the outcome question. */
+/** The builder's own answer to the outcome question (v2.9 A3: given through tell_earnkit). */
 export const ReportOutcome = z
   .object({
     project_id: z.number().int().positive(),
@@ -206,8 +206,8 @@ export async function syncOutcomeFile(
  * Stores the builder's answer for one of this installation's own entries (basis 'self_reported').
  * Another installation's entry, or none: NotFoundError.
  */
-export async function saveSelfReport(installationId: number, r: ReportOutcome): Promise<void> {
-  const rows = await sql()<{ id: number }[]>`
+export async function saveSelfReport(installationId: number, r: ReportOutcome, db: Db = sql()): Promise<void> {
+  const rows = await db<{ id: number }[]>`
     INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis)
     SELECT p.id, p.program_id, ${SELF_REPORT_ROUND}, ${r.result}, ${r.prize_usd ?? null}, 'self_reported'
     FROM projects p WHERE p.id = ${r.project_id} AND p.installation_id = ${installationId}

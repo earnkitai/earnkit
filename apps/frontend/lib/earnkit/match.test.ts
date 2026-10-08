@@ -5,6 +5,7 @@ import {
   DEFAULT_README,
   INVESTMENT_NOTE,
   TUTORIAL,
+  applyBuilderFacts,
   matchRepo,
   ownerOk,
   productScore,
@@ -436,4 +437,76 @@ test('2.7 needs a live product: never likely; a verified link leaves only real u
   assert.equal(verified.status, 'after_step');
   assert.deepEqual(verified.missing, ['real_users']);
   assert.equal(verified.effort, 'weeks');
+});
+
+// ---- v2.9 A3: the builder's statements (tell_earnkit) ----
+
+const saidNothing = { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: false } as const;
+const said = (over: Partial<{ mainnet: ('arc' | 'monad' | 'base')[]; testnet: ('arc' | 'monad' | 'base')[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }>) => ({
+  ...saidNothing,
+  mainnet: [],
+  testnet: [],
+  ...over,
+});
+
+test('3.1 applyBuilderFacts: a repo the builder says is not theirs is dropped', () => {
+  assert.equal(applyBuilderFacts(repo({ chains: arcMain }), said({ not_mine: true })), null);
+  assert.deepEqual(applyBuilderFacts(repo({ chains: arcMain }), undefined)!.claims, []);
+});
+
+test('3.2 testnet only wins over mainnet code: Arc needs the mainnet deploy, hours of work', () => {
+  const f = applyBuilderFacts(repo({ homepage: 'https://app.x', chains: arcMain, product: product(), live_verified: true }), said({ testnet: ['arc'] }))!;
+  assert.equal(f.chains.arc!.mainnet, false);
+  assert.deepEqual(f.claims, []);
+  const v = matchRepo(f, programs).find((x) => x.program_id === 'arc-micro')!;
+  assert.equal(v.status, 'after_step');
+  assert.ok(v.missing.includes('mainnet_deploy'));
+  assert.equal(v.effort, 'hours');
+  // Testnet only with no live link either: the deploy is the long step, the link is not a separate minutes step.
+  const bare = applyBuilderFacts(repo({ chains: arcMain }), said({ testnet: ['arc'] }))!;
+  assert.equal(matchRepo(bare, programs).find((x) => x.program_id === 'arc-micro')!.effort, 'hours');
+});
+
+test('3.3 a mainnet the code does not show is a claim: after_step "confirm: mainnet", never likely, even for a product', () => {
+  const monad: ProgramFacts = { ...programs[0], id: 'monad-live', title: 'Monad Live', chains: ['monad'] };
+  const f = applyBuilderFacts(repo({ homepage: 'https://app.x', product: product(), live_verified: true }), said({ mainnet: ['monad'] }))!;
+  assert.deepEqual(f.claims, ['mainnet']);
+  assert.equal(f.chains.monad!.mainnet, true);
+  const [v] = matchRepo(f, [monad]);
+  assert.equal(v.status, 'after_step');
+  assert.equal(v.note, 'confirm: mainnet');
+  assert.deepEqual(v.missing, []);
+  // A mainnet the code already shows is no claim.
+  const shown = applyBuilderFacts(repo({ homepage: 'https://app.x', chains: arcMain, product: product(), live_verified: true }), said({ mainnet: ['arc'] }))!;
+  assert.deepEqual(shown.claims, []);
+  assert.equal(matchRepo(shown, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
+});
+
+test('3.3b a claimed live link waits on "confirm: live link" until it loads from here', () => {
+  const f = applyBuilderFacts(repo({ chains: arcMain, product: product() }), said({ live_url: 'https://tipjar.xyz' }))!;
+  assert.equal(f.homepage, 'https://tipjar.xyz');
+  assert.deepEqual(f.claims, ['live']);
+  const v = matchRepo({ ...f, live_verified: false }, programs).find((x) => x.program_id === 'arc-micro')!;
+  assert.equal(v.status, 'after_step');
+  assert.equal(v.note, 'confirm: live link');
+  assert.equal(matchRepo({ ...f, live_verified: true }, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
+  // A homepage already there is kept; the statement's link is no claim then.
+  assert.deepEqual(applyBuilderFacts(repo({ homepage: 'https://own.xyz' }), said({ live_url: 'https://tipjar.xyz' }))!.claims, []);
+});
+
+test('3.4 users on a "needs a live product" program: real_users leaves missing, the row waits on "confirm: users"', () => {
+  const base: ProgramFacts = { ...programs[1], id: 'base', title: 'Base Builder Grants', chains: ['base'] };
+  const baseMain = { base: { mainnet: true, testnet: false, evidence: 'x' } };
+  const f = applyBuilderFacts(repo({ homepage: 'https://app.x', chains: baseMain, product: product(), live_verified: true }), said({ has_users: true }))!;
+  assert.deepEqual(f.claims, ['users']);
+  const [v] = matchRepo(f, [base]);
+  assert.ok(!v.missing.includes('real_users'));
+  assert.equal(v.status, 'after_step');
+  assert.equal(v.note, 'confirm: users');
+  // Without a verified link the link is still missing, and users never make it likely.
+  const [unverified] = matchRepo({ ...f, live_verified: false }, [base]);
+  assert.deepEqual(unverified.missing, ['live_url']);
+  assert.equal(unverified.status, 'after_step');
+  // Users don't matter where the program doesn't ask for them.
+  assert.equal(matchRepo({ ...f, chains: arcMain }, programs).find((x) => x.program_id === 'arc-micro')!.status, 'likely');
 });

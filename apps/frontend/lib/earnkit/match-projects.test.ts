@@ -582,3 +582,50 @@ test('G5 I3: a local repo in an org GitHub can\'t read (private or missing) is n
     console.error = log;
   }
 });
+
+// ---- v2.9 A3: the builder's statements, applied before the checks (Pre-flight P15) ----
+
+test('3.P15 a live link the builder told EarnKit is probed like a homepage; a passing probe makes it count', async () => {
+  const said = { mainnet: [], testnet: [], live_url: 'https://tipjar.xyz', has_users: null, not_mine: false };
+  const local = { name: 'tipjar', chains: ['base'] };
+  const { n, deps } = checkDeps({ probeOk: true });
+  const r = await matchProjects(MatchProjectsInput.parse({ local_repos: [local], said: { 'name:tipjar': said } }), deps);
+  assert.equal(n.probes, 1, 'the claimed link was probed');
+  assert.equal(r.fits[0].live_verified, true);
+  assert.equal(r.fits[0].product.tier, 'product');
+  assert.equal(r.fits[0].verdicts[0].status, 'likely');
+  // A link that doesn't load stays a claim: "confirm: live link", never likely.
+  const failing = checkDeps();
+  const log = console.error;
+  console.error = () => {};
+  try {
+    const down = await matchProjects(MatchProjectsInput.parse({ local_repos: [local], said: { 'name:tipjar': said } }), failing.deps);
+    assert.equal(failing.n.probes, 1);
+    assert.equal(down.fits[0].verdicts[0].status, 'after_step');
+  } finally {
+    console.error = log;
+  }
+});
+
+test('3.P15b a repo the builder said is not theirs is never scored; testnet only clears a reported mainnet', async () => {
+  const { deps } = checkDeps({ probeOk: true });
+  const local = [
+    { name: 'tipjar', chains: ['base'], live_url: 'https://tipjar.xyz' },
+    { name: 'theirs', chains: ['base'], live_url: 'https://theirs.xyz' },
+  ];
+  const r = await matchProjects(
+    MatchProjectsInput.parse({
+      local_repos: local,
+      said: {
+        'name:theirs': { mainnet: [], testnet: [], live_url: null, has_users: null, not_mine: true },
+        'name:tipjar': { mainnet: [], testnet: ['base'], live_url: null, has_users: null, not_mine: false },
+      },
+    }),
+    deps,
+  );
+  assert.equal(r.checked, 2);
+  assert.equal(r.scored, 1);
+  assert.deepEqual(r.fits.map((f) => f.repo), ['tipjar']);
+  assert.deepEqual(r.fits[0].verdicts[0].missing, ['mainnet_deploy']);
+  assert.equal(r.fits[0].verdicts[0].status, 'after_step');
+});
