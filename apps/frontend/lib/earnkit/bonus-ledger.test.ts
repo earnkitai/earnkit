@@ -13,8 +13,12 @@ import {
   STORE_TOKENS,
   bonusDeposits,
   bookDeposit,
+  GAS_LOW,
   claimFees,
+  claimOwners,
   collectNearEnd,
+  feeRecipients,
+  gasMinWei,
   indexDeposits,
   indexedThrough,
   isRevert,
@@ -31,6 +35,8 @@ import { bonusEntryProgram, roundPoolsWei } from './bonus-rounds';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 import { deployToken } from './tokens';
 import { BONUS_WALLET_UNSET, cronPost, runCron } from './cron';
+import { TOP_UP, needsOwner } from './payout';
+import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy';
 
 const C = BASE_BONUS;
 const [NEW_LOCKER, OLD_LOCKER] = C.lockers;
@@ -170,6 +176,12 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
     autoMine: true,
     recipients: [BONUS] as string[],
     collectable: new Set<string>([`${NEW_LOCKER}:${COIN_A}`]),
+    // v2.9 D16: tokenRewards by `${locker}:${coin}` (a locker that doesn't know the coin: empty, as on Base).
+    rewards: {} as Record<string, { recipients: string[]; bps: number[] }>,
+    rewardReads: 0,
+    rewardFails: false,
+    eth: 10n ** 18n,
+    ethFails: false,
   };
   const gas = o.gas ?? 50_000n;
   const maxFee = o.maxFee ?? 1_000_000n; // 0.001 gwei: Base-like
@@ -212,6 +224,15 @@ function fakeChain(o: { head?: bigint; available?: Record<string, bigint>; balan
     availableFees: async (owner) => state.available[owner.toLowerCase()] ?? 0n,
     canCollect: async (locker, coin) => state.collectable.has(`${locker.toLowerCase()}:${coin.toLowerCase()}`),
     rewardRecipients: async () => state.recipients,
+    rewardInfo: async (locker, coin) => {
+      state.rewardReads++;
+      if (state.rewardFails) throw new Error('rpc down');
+      return state.rewards[`${locker.toLowerCase()}:${coin.toLowerCase()}`] ?? { recipients: [], bps: [] };
+    },
+    ethBalance: async () => {
+      if (state.ethFails) throw new Error('rpc down');
+      return state.eth;
+    },
   };
   let n = 0;
   const add = (block: bigint, logs: RawLog[]) => {
@@ -355,7 +376,7 @@ test('claims: nothing below 10x gas; above it, claim(owner, WETH) for the bonus 
       return decodeFunctionData({ abi: FEE_LOCKER_ABI, data: tx.data! }).args!.map((a) => String(a).toLowerCase());
     });
     assert.deepEqual(calls, [[BONUS, C.weth], [C.safe, C.weth]]);
-    assert.ok(out.every((o) => o.result.startsWith('claim success')));
+    assert.ok(out.filter((o) => o.owner === BONUS || o.owner === C.safe).every((o) => o.result.startsWith('claim success')));
   } finally {
     await cleanup();
   }
@@ -1080,4 +1101,216 @@ test('v2.8.1 §D: the near-end collect follows the round a coin rolled into (its
   } finally {
     await cleanup();
   }
+});
+
+// ---- v2.9 Task 9 (D16 to D18): claims for creators and MINI, the gas-out alert, the claims log ----
+
+const CREATOR_2 = '0x4444444444444444444444444444444444444444';
+const SAFE = C.safe;
+/** An EarnKit token's split on the current locker: Safe, creator, MINI, bonus wallet (bps as on Base). */
+const split = (creator: string, mini = MINI) => ({ recipients: [SAFE, creator, mini, BONUS], bps: [3000, 4000, 1000, 2000] });
+
+test('9.1 claimOwners: unique by address, first role wins, order bonus, Safe, creators, MINI', () => {
+  const B = BONUS;
+  // A test token whose creator is the bonus wallet: listed once, as the bonus wallet.
+  assert.deepEqual(claimOwners({ bonus: B, safe: SAFE, creators: [B.toUpperCase().replace('0X', '0x') as Hex], mini: MINI }), [
+    { owner: B, role: 'bonus' },
+    { owner: SAFE, role: 'safe' },
+    { owner: MINI, role: 'mini' },
+  ]);
+  // Two tokens sharing a creator: that creator once. A token with no known creator: none.
+  assert.deepEqual(claimOwners({ bonus: B, safe: SAFE, creators: [CREATOR, null, CREATOR, CREATOR_2], mini: null }), [
+    { owner: B, role: 'bonus' },
+    { owner: SAFE, role: 'safe' },
+    { owner: CREATOR, role: 'creator' },
+    { owner: CREATOR_2, role: 'creator' },
+  ]);
+});
+
+/** A launched EarnKit token row (the claim loop's creators); `recipients` pre-caches projects.fee_recipients. */
+async function launched(coin: string, recipients?: { creator: string | null; mini: string | null }) {
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
+    VALUES (${PROG}, 'X', ${PROG}, 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed')
+    ON CONFLICT (id) DO NOTHING`;
+  await sql()`
+    INSERT INTO projects (program_id, name, token_status, coin_address, fee_recipients)
+    VALUES (${PROG}, ${`t9 ${coin}`}, 'launched', ${coin}, ${recipients ? sql().json(recipients) : null})`;
+}
+const feeClaims = () =>
+  sql()<{ tx_hash: string; owner: string; role: string; weth: string; gas_wei: string }[]>`
+    SELECT tx_hash, owner, role, weth::text, gas_wei::text FROM fee_claims WHERE owner IN (${BONUS}, ${SAFE}, ${CREATOR}, ${CREATOR_2}, ${MINI}, ${MINI_FEE_RECIPIENT.toLowerCase()})`;
+async function t9cleanup() {
+  await sql()`DELETE FROM fee_claims WHERE owner IN (${BONUS}, ${SAFE}, ${CREATOR}, ${CREATOR_2}, ${MINI}, ${MINI_FEE_RECIPIENT.toLowerCase()})`;
+  await cleanup();
+}
+
+test('9.2 / 9.6 claimFees: creator and MINI claimed only at 10x gas, each paying its owner; every sent claim is logged in fee_claims', db, async () => {
+  try {
+    await t9cleanup();
+    await launched(COIN_A, { creator: CREATOR, mini: MINI });
+    await launched(COIN_B, { creator: CREATOR_2, mini: MINI });
+    const cost = 50_000n * 1_000_000n;
+    const f = fakeChain({ available: { [CREATOR]: 9n * cost, [CREATOR_2]: 10n * cost, [MINI]: 10n * cost } });
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    const by = Object.fromEntries(out.map((o) => [o.owner, o]));
+    assert.match(by[CREATOR].result, /under 10x gas/, 'the creator at 9x gas is skipped');
+    assert.match(by[CREATOR_2].result, /^claim success/);
+    assert.match(by[MINI].result, /^claim success/);
+    assert.equal(by[MINI].role, 'mini');
+    // claim(owner, WETH): the FeeLocker pays the owner, never the payout wallet.
+    const owners = f.state.sent.map((raw) => {
+      const tx = parseTransaction(raw);
+      assert.equal(tx.to?.toLowerCase(), C.feeLocker);
+      const d = decodeFunctionData({ abi: FEE_LOCKER_ABI, data: tx.data! });
+      assert.equal(d.functionName, 'claim');
+      assert.equal(String(d.args![1]).toLowerCase(), C.weth);
+      return String(d.args![0]).toLowerCase();
+    });
+    assert.deepEqual(owners, [CREATOR_2, MINI]);
+    // D18: one fee_claims row per sent claim, with its role; gas_wei = estimate x maxFeePerGas (an upper bound).
+    const logged = (await feeClaims()).sort((a, b) => a.role.localeCompare(b.role));
+    assert.deepEqual(
+      logged.map((r) => [r.owner, r.role, r.weth, r.gas_wei]),
+      [[CREATOR_2, 'creator', String(10n * cost), String(cost)], [MINI, 'mini', String(10n * cost), String(cost)]],
+    );
+    assert.deepEqual(new Set(logged.map((r) => r.tx_hash)), new Set(f.state.sent.map((r) => keccak256(r))));
+    assert.equal(f.state.rewardReads, 0, 'cached recipients: no locker read');
+  } finally {
+    await t9cleanup();
+  }
+});
+
+test('9.3 feeRecipients: read once per token and cached; a failed read falls back to MINI_FEE_RECIPIENT and claims no creator', db, async () => {
+  try {
+    await t9cleanup();
+    await launched(COIN_A);
+    const f = fakeChain({ available: { [CREATOR]: 10n ** 18n, [MINI]: 10n ** 18n } });
+    // The old locker doesn't know the coin (an empty struct, as on Base); the current one does.
+    f.state.rewards[`${NEW_LOCKER}:${COIN_A}`] = split(CREATOR);
+    assert.deepEqual(await feeRecipients(COIN_A as Hex, { rpc: f.rpc, chain: { ...C, lockers: [OLD_LOCKER, NEW_LOCKER] } }), { creator: CREATOR, mini: MINI });
+    const [row] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
+    assert.deepEqual(row.fee_recipients, { creator: CREATOR, mini: MINI });
+    // The claim run reads the cache: no locker read, and both are claimed.
+    f.state.rewardReads = 0;
+    const out = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+    assert.equal(f.state.rewardReads, 0);
+    assert.deepEqual(out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner), [CREATOR, MINI]);
+
+    // A token whose read fails: MINI falls back to the constant, no creator, nothing cached.
+    await sql()`UPDATE projects SET fee_recipients = NULL WHERE coin_address = ${COIN_A}`;
+    f.state.rewardFails = true;
+    const err = console.error;
+    console.error = () => {};
+    try {
+      assert.deepEqual(await feeRecipients(COIN_A as Hex, { rpc: f.rpc, chain: C }), { creator: null, mini: MINI_FEE_RECIPIENT.toLowerCase() });
+      const sentBefore = f.state.sent.length;
+      const failed = await claimFees(ACCOUNT, { rpc: f.rpc, chain: C });
+      assert.ok(!failed.some((o) => o.role === 'creator'), 'no creator claim');
+      assert.deepEqual(failed.filter((o) => o.role === 'mini').map((o) => o.owner), [MINI_FEE_RECIPIENT.toLowerCase()]);
+      assert.equal(f.state.sent.length, sentBefore, 'nothing available for the fallback here, so nothing sent');
+    } finally {
+      console.error = err;
+    }
+    const [after] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
+    assert.equal(after.fee_recipients, null, 'a failed read is never cached');
+  } finally {
+    await t9cleanup();
+  }
+});
+
+test('9.4 a payout wallet under gasMinWei is low on gas: GAS_LOW with TOP_UP, bonus-ledger in needs_owner, cron 503', db, async () => {
+  const secret = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = 't9-cron-secret-0123456789abcdef0123456789';
+  try {
+    await t9cleanup();
+    const f = fakeChain({ head: 1_100n + CONFIRMATIONS });
+    f.state.eth = GAS_WALLET_MIN_WEI_DEFAULT - 1n;
+    const r = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet })) as { gas: { balance_wei: string; low: boolean; note?: string } };
+    assert.deepEqual(r.gas, { balance_wei: String(GAS_WALLET_MIN_WEI_DEFAULT - 1n), low: true, note: GAS_LOW(ACCOUNT.address) });
+    assert.ok(r.gas.note!.includes(TOP_UP) && r.gas.note!.includes(ACCOUNT.address));
+    const run = () =>
+      runCron({ now: new Date('2026-10-02T00:00:00Z'), only: ['t4-ledger-none'], deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } } });
+    assert.deepEqual((await run()).needs_owner, ['bonus-ledger']);
+    const res = await cronPost(new Request('http://x/api/cron', { method: 'POST', headers: { authorization: 'Bearer t9-cron-secret-0123456789abcdef0123456789' } }), {
+      limit: async () => {},
+      run,
+    });
+    assert.equal(res.status, 503);
+    // At the floor: not low. An unread balance never blocks the run.
+    f.state.eth = GAS_WALLET_MIN_WEI_DEFAULT;
+    assert.deepEqual(((await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, log: quiet })) as { gas: unknown }).gas, {
+      balance_wei: String(GAS_WALLET_MIN_WEI_DEFAULT),
+      low: false,
+    });
+    f.state.ethFails = true;
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const unread = (await runBonusLedger({ account: ACCOUNT, rpc: f.rpc, chain: C, log: quiet })) as { gas: unknown; sweep: unknown };
+      assert.deepEqual(unread.gas, { low: false, note: 'unread' });
+      assert.deepEqual(unread.sweep, { result: 'nothing to sweep' }, 'the run goes on');
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    if (secret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = secret;
+    await t9cleanup();
+  }
+});
+
+test('9.5 a claim the wallet cannot pay gas for waits on the owner; the sweep out of gas says TOP_UP', db, async () => {
+  try {
+    await t9cleanup();
+    const f = fakeChain({ head: 1_100n + CONFIRMATIONS, available: { [BONUS]: 10n ** 18n } });
+    f.rpc.broadcast = async () => {
+      throw new Error('insufficient funds for gas * price + value');
+    };
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const out = await runCron({
+        now: new Date('2026-10-02T00:00:00Z'),
+        only: ['t4-ledger-none'],
+        deps: { bonus: { account: ACCOUNT, rpc: f.rpc, chain: C, startBlock: 1_000n, log: quiet } },
+      });
+      const claim = (out.bonus as { claim: { owner: string; result: string }[] }).claim;
+      assert.equal(claim.find((c) => c.owner === BONUS)?.result, 'the payout wallet needs ETH for gas');
+      assert.deepEqual(out.needs_owner, ['bonus-ledger']);
+    } finally {
+      console.error = err;
+    }
+    // The sweep's gas-out result carries TOP_UP, so needsOwner reads it.
+    await setup();
+    await sql()`INSERT INTO bonus_ledger (tx_hash, log_index, block_number, block_time, coin, destination, amount_wei)
+      VALUES (${`0x${'9'.repeat(64)}`}, 1, 1, now(), ${COIN_B}, 'safe', ${String(10n ** 18n)})`;
+    f.state.balance = 10n ** 18n;
+    console.error = () => {};
+    try {
+      const sweep = await sweepToSafe(ACCOUNT, { rpc: f.rpc, chain: C });
+      assert.equal(sweep.result, `the payout wallet needs ETH for gas. ${TOP_UP}`);
+      assert.ok(needsOwner(sweep.result));
+    } finally {
+      console.error = err;
+    }
+  } finally {
+    await t9cleanup();
+  }
+});
+
+test('9.7 gasMinWei: GAS_WALLET_MIN_WEI, else 0.002 ETH; a malformed value is the default, logged once without the value', () => {
+  assert.equal(gasMinWei({}), 2_000_000_000_000_000n);
+  assert.equal(gasMinWei({ GAS_WALLET_MIN_WEI: '5000' }), 5000n);
+  const lines: string[] = [];
+  const err = console.error;
+  console.error = (...a: unknown[]) => void lines.push(a.map(String).join(' '));
+  try {
+    assert.equal(gasMinWei({ GAS_WALLET_MIN_WEI: 'abc' }), GAS_WALLET_MIN_WEI_DEFAULT);
+    assert.equal(gasMinWei({ GAS_WALLET_MIN_WEI: 'abc' }), GAS_WALLET_MIN_WEI_DEFAULT);
+  } finally {
+    console.error = err;
+  }
+  assert.equal(lines.length, 1);
+  assert.ok(!lines[0].includes('abc'));
 });

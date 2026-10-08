@@ -803,3 +803,15 @@ CREATE TABLE IF NOT EXISTS token_declines (
 -- v2.9 Ruling G14: when the first reply (list_programs) showed this token offer; later offers in the
 -- entry flow then leave out "40%". Kept when a later offer replaces the pair.
 ALTER TABLE token_offers ADD COLUMN IF NOT EXISTS first_reply_at timestamptz;
+
+-- v2.9 D16: each EarnKit token's creator and MINI fee recipients, read once from its locker.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS fee_recipients jsonb;
+-- v2.9 D18: claims sent by the hourly cron. An ops log, never revenue (revenue stays tokens.fun's fee_events).
+CREATE TABLE IF NOT EXISTS fee_claims (
+  tx_hash text PRIMARY KEY,
+  owner   text NOT NULL,
+  role    text NOT NULL CHECK (role IN ('safe', 'bonus', 'creator', 'mini')),
+  weth    numeric NOT NULL,
+  gas_wei numeric NOT NULL,
+  at      timestamptz NOT NULL DEFAULT now()
+);

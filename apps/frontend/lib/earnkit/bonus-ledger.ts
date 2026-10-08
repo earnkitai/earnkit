@@ -27,6 +27,7 @@ import {
   MANUAL_CHECK,
   NOT_MAINNET,
   NO_PAYOUT_KEY,
+  TOP_UP,
   openStoredSends,
   payWinner,
   payoutAccount,
@@ -35,6 +36,7 @@ import {
   type PayoutRpc,
   type PayoutStore,
 } from './payout';
+import { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
 import { BASE_MAINNET } from './sanctions';
 import { withScoringLock } from './sponsor';
 
@@ -48,7 +50,8 @@ import { withScoringLock } from './sponsor';
  *    to that coin's program's open round at the block's time, or to the Safe;
  * 2. collect: sends `collectRewards(coin)` itself only for an EarnKit coin in its round's last 24 h
  *    with no deposit seen from it in 12 h (so its pending fees count before the round freezes);
- * 3. claim: `claim(bonus wallet, WETH)` and `claim(Safe, WETH)` when worth ≥ 10× their gas;
+ * 3. claim: `claim(owner, WETH)` for the bonus wallet, the Safe, each EarnKit token's creator and
+ *    MINI (v2.9 D16) when worth ≥ 10× its gas; the FeeLocker always pays the owner;
  * 4. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
  *    worth ≥ 10× its gas (the v2.4 idempotent payout: signed and stored before it is broadcast).
  */
@@ -137,6 +140,10 @@ export type BonusRpc = PayoutRpc & {
   /** Whether `collectRewards(coin)` on `locker` simulates cleanly from `from`. */
   canCollect: (locker: Hex, coin: Hex, from: Hex) => Promise<boolean>;
   rewardRecipients: (locker: Hex, coin: Hex) => Promise<string[]>;
+  /** v2.9 D16: the locker's `tokenRewards(coin)` split (recipients lowercase); empty when the locker doesn't know the coin. */
+  rewardInfo: (locker: Hex, coin: Hex) => Promise<{ recipients: string[]; bps: number[] }>;
+  /** v2.9 D17: the ETH balance of `address` (wei). */
+  ethBalance: (address: Hex) => Promise<bigint>;
 };
 
 /**
@@ -190,6 +197,11 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
         ),
     rewardRecipients: async (locker, coin) =>
       (await c.readContract({ address: locker, abi: LOCKER_ABI, functionName: 'tokenRewards', args: [coin] })).rewardRecipients.map(lower),
+    rewardInfo: async (locker, coin) => {
+      const r = await c.readContract({ address: locker, abi: LOCKER_ABI, functionName: 'tokenRewards', args: [coin] });
+      return { recipients: r.rewardRecipients.map(lower), bps: r.rewardBps.map(Number) };
+    },
+    ethBalance: (address) => c.getBalance({ address }),
   };
 }
 
@@ -457,6 +469,22 @@ export async function indexDeposits(wallet: Hex, d: BonusDeps & { rpc: BonusRpc;
   return { from, to: head, next: scan.next, ...counts, receipts, ...(scan.rateLimited && { rateLimited: true }), ...(scan.outOfTime && { outOfTime: true }) };
 }
 
+/** A claim's or collect's result when the payout wallet can't pay its gas (the cron waits on the owner). */
+export const NEEDS_GAS = 'the payout wallet needs ETH for gas';
+/** v2.9 D17: the gas check's note when the payout wallet holds less than gasMinWei() ETH. */
+export const GAS_LOW = (address: string) => `The payout wallet ${address} is low on ETH for gas. ${TOP_UP}`;
+
+let gasMinWarned = false;
+/** v2.9 D17: GAS_WALLET_MIN_WEI (wei), else 0.002 ETH. A malformed value is the default, logged once (never the value). */
+export const gasMinWei = (env: Record<string, string | undefined> = process.env): bigint => {
+  const v = env.GAS_WALLET_MIN_WEI?.trim();
+  if (!v) return GAS_WALLET_MIN_WEI_DEFAULT;
+  if (/^\d+$/.test(v)) return BigInt(v);
+  if (!gasMinWarned) console.error('[bonus] GAS_WALLET_MIN_WEI is not a whole number of wei; using the default (0.002 ETH)');
+  gasMinWarned = true;
+  return GAS_WALLET_MIN_WEI_DEFAULT;
+};
+
 /** The payout wallet can't pay gas (as payout.ts judges it). Pure. */
 const outOfGas = (err: unknown) =>
   /insufficient funds|exceeds the balance of the account/i.test(err instanceof Error ? `${err.name} ${err.message}` : String(err));
@@ -610,41 +638,113 @@ export async function collectNearEnd(account: LocalAccount, d: BonusDeps & { rpc
       out.push({ coin: c.coin, result: `collect ${sent.status} ${sent.hash}` });
     } catch (err) {
       console.error('[bonus] collect', c.coin, err);
-      out.push({ coin: c.coin, result: outOfGas(err) ? 'the payout wallet needs ETH for gas' : 'failed' });
+      out.push({ coin: c.coin, result: outOfGas(err) ? NEEDS_GAS : 'failed' });
     }
   }
   return out;
 }
 
+/** v2.9 D16: who a claim pays. */
+export type ClaimRole = 'bonus' | 'safe' | 'creator' | 'mini';
+
+/** v2.9 D16: every recipient EarnKit claims for, once each, in a fixed order (bonus wallet, Safe, creators, MINI). Pure. */
+export function claimOwners(a: { bonus: Hex; safe: Hex; creators: (Hex | null)[]; mini: Hex | null }) {
+  const out: { owner: Hex; role: ClaimRole }[] = [];
+  const seen = new Set<string>();
+  const add = (owner: Hex | null, role: ClaimRole) => {
+    if (!owner || seen.has(owner.toLowerCase())) return;
+    seen.add(owner.toLowerCase());
+    out.push({ owner: owner.toLowerCase() as Hex, role });
+  };
+  add(a.bonus, 'bonus');
+  add(a.safe, 'safe');
+  for (const c of a.creators) add(c, 'creator');
+  add(a.mini, 'mini');
+  return out;
+}
+
+type FeeRecipients = { creator: Hex | null; mini: Hex | null };
+/** Locker reads of uncached recipients per run; the rest wait for the next run. */
+export const RECIPIENT_READS_PER_RUN = 20;
+
 /**
- * Step 3: `claim(bonus wallet, WETH)`, then `claim(Safe, WETH)` on the FeeLocker (anyone may call
- * it; it always pays the fee owner), each only when its available WETH is at least 10× the
- * estimated gas cost, or (the bonus wallet's, M10) when the sweep to the Safe waits on it.
+ * v2.9 D16: a token's creator (slot 1) and MINI (slot 2) fee recipients, from the first locker that
+ * knows it (a locker that doesn't returns an empty split), cached on `projects.fee_recipients`. A
+ * failed read (an RPC error, or no locker knows the coin): the creator unknown, MINI the
+ * policy.ts fallback (Ruling 17), nothing cached, so the next run reads again.
+ */
+export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusChain }): Promise<FeeRecipients> {
+  try {
+    for (const locker of d.chain.lockers) {
+      const { recipients } = await d.rpc.rewardInfo(locker, coin);
+      if (recipients.length === 0) continue;
+      const r: FeeRecipients = { creator: (recipients[1] as Hex | undefined) ?? null, mini: (recipients[2] as Hex | undefined) ?? null };
+      await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`;
+      return r;
+    }
+    console.error('[bonus] no locker knows', coin, '(fee recipients unread; MINI falls back to policy.ts)');
+  } catch (err) {
+    console.error('[bonus] fee recipients of', coin, err);
+  }
+  return { creator: null, mini: lower(MINI_FEE_RECIPIENT) as Hex };
+}
+
+/**
+ * Step 3 (v2.9 D16): `claim(owner, WETH)` on the FeeLocker for the bonus wallet, the Safe, each
+ * launched EarnKit token's creator (test installations' too: their fees are real) and MINI, each
+ * owner once (claimOwners). Anyone may call it and it always pays the owner, so EarnKit never holds
+ * the creator's or MINI's money. Each is sent only when its available WETH is at least 10× the
+ * estimated gas cost, or (the bonus wallet's, M10) when the sweep to the Safe waits on it. D18:
+ * every sent claim is logged in `fee_claims` (an ops log, never revenue); `gas_wei` is the
+ * estimate times maxFeePerGas, an upper bound on what the claim cost.
  */
 export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: BonusRpc; chain: BonusChain }) {
-  const out: { owner: string; result: string }[] = [];
-  for (const owner of [lower(account.address) as Hex, d.chain.safe]) {
+  const tokens = await sql()<{ coin: Hex; fee_recipients: FeeRecipients | null }[]>`
+    SELECT coin_address AS coin, fee_recipients FROM projects
+    WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id`;
+  const known: FeeRecipients[] = [];
+  let reads = 0;
+  for (const t of tokens) {
+    if (t.fee_recipients) known.push(t.fee_recipients);
+    else if (reads < RECIPIENT_READS_PER_RUN && Date.now() < toDeadline(d)) {
+      reads++;
+      known.push(await feeRecipients(t.coin, d));
+    }
+  }
+  const owners = claimOwners({
+    bonus: lower(account.address) as Hex,
+    safe: d.chain.safe,
+    creators: known.map((r) => r.creator),
+    mini: known.find((r) => r.mini)?.mini ?? null,
+  });
+  const out: { owner: string; role: ClaimRole; result: string }[] = [];
+  for (const { owner, role } of owners) {
     if (Date.now() >= toDeadline(d)) break;
     try {
       const available = await d.rpc.availableFees(owner, d.chain.weth);
       if (available === 0n) {
-        out.push({ owner, result: 'nothing to claim' });
+        out.push({ owner, role, result: 'nothing to claim' });
         continue;
       }
       const data = encodeFunctionData({ abi: FEE_LOCKER_ABI, functionName: 'claim', args: [owner, d.chain.weth] });
       const [gas, fees] = await Promise.all([d.rpc.estimateGas({ account: account.address, to: d.chain.feeLocker, data }), d.rpc.fees()]);
       // M10: the bonus wallet's claim is also worth it when it unblocks a sweep worth 10x gas
       // (the Safe's own deposits sit unclaimed behind a small balance).
-      const unblocks = () => owner !== d.chain.safe && sweepWaitsOnClaim(account, d, gas, fees.maxFeePerGas);
+      const unblocks = () => role === 'bonus' && sweepWaitsOnClaim(account, d, gas, fees.maxFeePerGas);
       if (!worthIt(available, gas, fees.maxFeePerGas) && !(await unblocks())) {
-        out.push({ owner, result: `${available} wei: under 10x gas` });
+        out.push({ owner, role, result: `${available} wei: under 10x gas` });
         continue;
       }
       const sent = await sendCall(account, d.rpc, d.chain.feeLocker, data, gas, toDeadline(d), d.nonces);
-      out.push({ owner, result: `claim ${sent.status} ${sent.hash}` });
+      out.push({ owner, role, result: `claim ${sent.status} ${sent.hash}` });
+      // The claim is sent: a failed log write never turns it into a failure.
+      await sql()`
+        INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei)
+        VALUES (${sent.hash}, ${owner}, ${role}, ${available.toString()}, ${(gas * fees.maxFeePerGas).toString()})
+        ON CONFLICT DO NOTHING`.catch((err: unknown) => console.error('[bonus] fee_claims insert', sent.hash, err));
     } catch (err) {
       console.error('[bonus] claim', owner, err);
-      out.push({ owner, result: outOfGas(err) ? 'the payout wallet needs ETH for gas' : 'failed' });
+      out.push({ owner, role, result: outOfGas(err) ? NEEDS_GAS : 'failed' });
     }
   }
   return out;
@@ -806,7 +906,8 @@ export async function sweepToSafe(account: LocalAccount, d: BonusDeps & { rpc: B
     return { result: r === 'manual' ? MANUAL_CHECK : `sweep ${open.id} ${r}`, sweep: open.id, status: r };
   } catch (err) {
     if (!outOfGas(err)) throw err;
-    return { result: 'the payout wallet needs ETH for gas' };
+    // v2.9 D17: TOP_UP makes it wait on the owner (needsOwner), as a payout short of gas does.
+    return { result: `${NEEDS_GAS}. ${TOP_UP}` };
   }
 }
 
@@ -821,6 +922,7 @@ async function countIndexRun(ok: boolean) {
 
 /**
  * The cron step: index, collect, claim, the rounds (`deps.rounds`), sweep, under one lease (a concurrent run gets 'busy').
+ * v2.9 D17: first the payout wallet's ETH balance (`gas`; under gasMinWei() it is `low`, which the cron escalates).
  * Skipped without a usable CAMPAIGN_PAYOUT_PRIVATE_KEY (missing, or malformed: `problem`) or off
  * Base mainnet; the cron escalates a skip once the bonus can earn (Ruling 20). One step's failure
  * never stops the next; its cause stays in the server log.
@@ -840,10 +942,20 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
   const chain = deps.chain ?? BASE_BONUS;
   if ((await rpc.getChainId()) !== BASE_MAINNET) return { skipped: NOT_MAINNET };
   const d = { ...deps, rpc, chain, nonces: deps.nonces ?? { next: 0 } };
+  // v2.9 D17: the payout wallet's gas, read before any step; a failed read never blocks the run.
+  let gas: { balance_wei?: string; low: boolean; note?: string };
+  try {
+    const balance = await rpc.ethBalance(account.address);
+    const low = balance < gasMinWei(deps.env);
+    gas = { balance_wei: balance.toString(), low, ...(low && { note: GAS_LOW(account.address) }) };
+  } catch (err) {
+    console.error('[bonus] gas balance', err);
+    gas = { low: false, note: 'unread' };
+  }
   // The lease outlives the run's deadline (as the cron's campaign leases do), so calls never overlap.
   const leaseMs = Number.isFinite(toDeadline(d)) ? Math.max(60_000, toDeadline(d) - Date.now() + 60_000) : 10 * 60_000;
   const r = await withScoringLock('bonus-ledger', async () => {
-    const out: Record<string, unknown> = {};
+    const out: Record<string, unknown> = { gas };
     const step = async (name: string, fn: () => Promise<unknown>) => {
       try {
         out[name] = await fn();
