@@ -406,6 +406,13 @@ export const ProgramFile = z
      * speedrun), not a prize: the card reads "up to $1M investment", never "per winner".
      */
     investment: z.boolean().default(false),
+    /**
+     * v2.8.1 §B8 (fix round 1): entering needs a repo or a live product, per the program's source.
+     * An editorial call, never inferred: a no-repo builder sees "needs a repo" on it, and only a
+     * program with `false` can be their offer. Optional in the schema (sponsor campaigns have none);
+     * `pnpm programs:check` requires it on every file.
+     */
+    needs_repo: z.boolean().optional(),
     /** One short line the builder sees: reward + deadline as the organizer states it. */
     summary: z.string().min(1).max(90),
     /**
@@ -674,5 +681,8 @@ export const requiredWithoutTodo = (p: Pick<ProgramFile, 'submission_requirement
  * A check-time rule, so DB rows and fixtures without one still parse (runtime default `other`).
  * Returns the keys missing one. Pure.
  */
+/** v2.8.1 §B8 (fix round 1): `pnpm programs:check` requires `needs_repo` on every program file. Pure. */
+export const needsRepoMissing = (p: Pick<ProgramFile, 'needs_repo'>): boolean => p.needs_repo === undefined;
+
 export const requirementsWithoutKind = (p: Pick<ProgramFile, 'submission_requirements'>): string[] =>
   p.submission_requirements.filter((r) => !r.kind).map((r) => r.key);

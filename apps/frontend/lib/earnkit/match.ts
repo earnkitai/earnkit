@@ -78,6 +78,15 @@ const SIGNALS: Record<Chain, Signals> = {
   },
 };
 
+/** v2.8.1 §B6 (fix round 1): a chain id an agent reports (8453, 84532), or null when EarnKit doesn't know it. Pure. */
+export function chainOfId(id: number): { chain: Chain; mainnet: boolean } | null {
+  for (const chain of CHAINS) {
+    if (SIGNALS[chain].mainnet.ids.includes(id)) return { chain, mainnet: true };
+    if (SIGNALS[chain].testnet.ids.includes(id)) return { chain, mainnet: false };
+  }
+  return null;
+}
+
 /** Chain IDs only count next to a chain-id-like key, so a stray "143" in code doesn't match. */
 const CHAIN_ID =
   /(?:chain[_-]?id|chainid|\bid)["']?\s*[:=]\s*["']?(\d{3,8})\b|--chain(?:-id)?\s+(\d{3,8})\b/gi;

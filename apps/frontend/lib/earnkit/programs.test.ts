@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  needsRepo,
   perWinnerUsd,
   programCard,
   programDetails,
@@ -11,6 +10,7 @@ import {
 } from './programs';
 import { presentFirstMessage } from './present';
 import { committedProgram } from './fixtures/program-file';
+import { ProgramFile } from './program-file';
 import { trackRecordOf } from './sponsor-identity';
 import { DraftInput, sponsorProgramFile, withDefaults } from './sponsor-rules';
 
@@ -19,7 +19,7 @@ const fileRow = (campaign: ProgramRow['campaign']): ProgramRow => ({
   id: 'p', organizer: 'O', title: 'T', description: 'D', source_url: 'https://o.example',
   submission_url: 'https://o.example/s', reward: 'R', starts_at: null, ends_at: null, status: 'active',
   verified_at: null, existing_work: 'allowed', token_policy: 'encouraged', setup: [], each_time: [],
-  summary: 'S', tag: null, chains: ['base'], any_chain: false, investment: false, campaign, created_at: new Date(), opened_at: null, rules: [],
+  summary: 'S', tag: null, chains: ['base'], any_chain: false, investment: false, needs_repo: null, campaign, created_at: new Date(), opened_at: null, rules: [],
   source: 'file', max_award_usd: null, pool_usd: null, min_award_usd: null, pool_source_url: null, submission_requirements: [],
   ideas: [], submission_proof: null, builder_bonus: true,
   logo: null, past_rounds: [], focus: null, best_bet: null, difficulty_override: null, winners_per_round: null, judging: null,
@@ -375,11 +375,13 @@ test('v2.8 Ruling 13: an any_chain row lists no chains; its landing tile reads "
   assert.equal(baseTile.chain, 'Base');
 });
 
-test('v2.8.1 §B8: needsRepo: a required repo, code or live product link; idea-stage and email-only programs need none', () => {
-  const needs = (id: string) => needsRepo(committedProgram(id).submission_requirements);
-  for (const id of ['arc-microgrants', 'base-builder-grants', 'colosseum-worlds-fair', 'monad-metropolis']) assert.equal(needs(id), true, id);
+test('v2.8.1 §B8 (fix round 1): needs_repo comes from the program file, never inferred; programs:check requires it', async () => {
+  const { needsRepoMissing } = await import('./program-file');
+  const needs = (id: string) => ProgramFile.parse(committedProgram(id)).needs_repo;
+  for (const id of ['arc-microgrants', 'base-builder-grants', 'colosseum-worlds-fair', 'monad-metropolis', 'earnkit-campaign-1-base'])
+    assert.equal(needs(id), true, id);
+  // Avalanche takes idea-stage projects (its project_url is a live_url field, yet no repo is needed).
   for (const id of ['avalanche-team1-mini-grants', 'circle-developer-grants', 'a16z-speedrun']) assert.equal(needs(id), false, id);
-  // An optional link never counts; a builder's own link never counts.
-  assert.equal(needsRepo([{ key: 'repo_url', kind: 'links', from: 'project', required: false }]), false);
-  assert.equal(needsRepo([{ key: 'github_profile', kind: 'links', from: 'builder', required: true }]), false);
+  assert.equal(needsRepoMissing({ needs_repo: undefined }), true);
+  assert.equal(needsRepoMissing({ needs_repo: false }), false);
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CHAINS,
+  chainOfId,
   detectChains,
   matchRepo,
   reportedFacts,
@@ -287,6 +288,10 @@ const CHAIN_ALIASES: Record<string, Chain> = { avax: 'avalanche', 'c-chain': 'av
  * (never a claim EarnKit can't back). Pure; exported for tests.
  */
 export function reportedChain(item: unknown): { chain: Chain; mainnet: boolean } | null {
+  // Fix round 1: a chain id (8453, "84532", or { chain: 8453 }) counts as that chain and network.
+  const id = typeof item === 'object' && item !== null ? (item as { chain?: unknown }).chain : item;
+  if (typeof id === 'number' || (typeof id === 'string' && /^\d{1,8}$/.test(id.trim())))
+    return Number.isSafeInteger(Number(id)) ? chainOfId(Number(id)) : null;
   const obj = item !== null && typeof item === 'object' ? (item as { chain?: unknown; mainnet?: unknown }) : null;
   const raw = typeof item === 'string' ? item : typeof obj?.chain === 'string' ? obj.chain : null;
   if (raw === null || raw.length > 60) return null;
@@ -344,10 +349,12 @@ export function reportedUrl(s: string | undefined): string | undefined {
  */
 export const ReportedRepoInput = z
   .object({
-    name: z.string().trim().min(1).max(100),
+    // Fix round 1: a long name is cut to 100 characters, not refused.
+    name: z.preprocess((v) => (typeof v === 'string' ? v.trim().slice(0, 100) : v), z.string().min(1)),
     /** Chains the code targets, and whether it's on mainnet (else testnet only). */
+    // Fix round 1: past 20, chains are truncated (the repo is kept).
     chains: z
-      .preprocess((v) => (v == null ? [] : Array.isArray(v) ? v : [v]), z.array(z.unknown()).max(20))
+      .preprocess((v) => (v == null ? [] : Array.isArray(v) ? v.slice(0, 20) : [v]), z.array(z.unknown()))
       .transform(reportedChains),
     live_url: z.unknown().transform((v) => reportedUrl(typeof v === 'string' ? v : undefined)).optional(),
     last_commit_at: z.unknown().transform((v) => reportedDate(typeof v === 'string' ? v : undefined)).optional(),
@@ -359,6 +366,18 @@ export const ReportedRepoInput = z
     url: z.unknown().transform((u) => (typeof u !== 'string' || u.length > 300 ? undefined : u)).optional(),
   });
 
+/** Fix round 1: a repo reported without a name takes its GitHub link's repo name, when it has one. Pure. */
+function withName(i: unknown): unknown {
+  if (typeof i === 'string') return { name: i, chains: [] };
+  if (i !== null && typeof i === 'object' && typeof (i as { name?: unknown }).name === 'number')
+    return { ...i, name: String((i as { name: number }).name) };
+  if (i === null || typeof i !== 'object') return i;
+  const r = i as { name?: unknown; url?: unknown };
+  if (typeof r.name === 'string' && r.name.trim() !== '') return i;
+  const m = typeof r.url === 'string' ? r.url.match(/github\.com[/:][^/\s]+\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/) : null;
+  return m ? { ...r, name: m[1] } : i;
+}
+
 /**
  * v2.8.1 §B6: list_programs' local_repos. A repo EarnKit can't read (no name) is skipped, never an
  * error; past the first 20, repos are ignored (the limit stays).
@@ -369,7 +388,7 @@ export const LocalReposInput = z
     items
       .slice(0, 20)
       .flatMap((i) => {
-        const r = ReportedRepoInput.safeParse(i);
+        const r = ReportedRepoInput.safeParse(withName(i));
         return r.success ? [r.data] : [];
       }),
   );

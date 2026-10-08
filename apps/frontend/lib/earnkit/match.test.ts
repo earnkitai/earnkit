@@ -287,8 +287,16 @@ test('v2.8.1 §B6: any chain string is accepted; unknown chains are ignored, kno
   // A single string instead of a list, or no chains at all.
   assert.deepEqual(ReportedRepoInput.parse({ name: 'x', chains: 'base' }).chains, [{ chain: 'base', mainnet: true }]);
   assert.deepEqual(ReportedRepoInput.parse({ name: 'x' }).chains, []);
-  // The size limit stays.
-  assert.equal(ReportedRepoInput.safeParse({ name: 'x', chains: Array(21).fill('base') }).success, false);
+  // Fix round 1: past 20, chains are truncated; the repo is kept.
+  const many = ReportedRepoInput.safeParse({ name: 'x', chains: [...Array(20).fill('solana'), 'base'] });
+  assert.equal(many.success, true);
+  assert.deepEqual(many.success && many.data.chains, []);
+  // Fix round 1: chain ids, as numbers or digit strings, alone or in an object.
+  assert.deepEqual(reportedChain(8453), { chain: 'base', mainnet: true });
+  assert.deepEqual(reportedChain('84532'), { chain: 'base', mainnet: false });
+  assert.deepEqual(reportedChain({ chain: 43114 }), { chain: 'avalanche', mainnet: true });
+  assert.equal(reportedChain(1), null);
+  assert.equal(reportedChain(1e20), null);
 });
 
 test('v2.8.1 §B6: dates without a timezone count as UTC; unreadable ones are dropped, never an error', () => {
@@ -313,8 +321,19 @@ test('v2.8.1 §B6: a live link without a scheme is kept; a bad one is dropped; e
   assert.deepEqual(r.success && JSON.parse(JSON.stringify(r.data)), { name: 'x', chains: [] });
 });
 
+test('v2.8.1 §B6 (fix round 1): a repo without a name takes the name in its GitHub link; a bare string is a name; a long name is cut', () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(LocalReposInput.parse([{ chains: ['base'], url: 'https://github.com/acme/tipjar.git' }, 'ethapp', { name: 'n'.repeat(150), chains: [] }]))),
+    [
+      { name: 'tipjar', chains: [{ chain: 'base', mainnet: true }], url: 'https://github.com/acme/tipjar.git' },
+      { name: 'ethapp', chains: [] },
+      { name: 'n'.repeat(100), chains: [] },
+    ],
+  );
+});
+
 test('v2.8.1 §B6: local_repos never fails list_programs: an unreadable repo is skipped; past 20 are ignored', () => {
-  const out = LocalReposInput.parse([{ chains: ['base'] }, { name: 'ok', chains: ['ethereum'] }, 'tipjar']);
+  const out = LocalReposInput.parse([{ chains: ['base'] }, { name: 'ok', chains: ['ethereum'] }, 7, null]);
   assert.deepEqual(out, [{ name: 'ok', chains: [] }]);
   assert.equal(LocalReposInput.parse(Array.from({ length: 25 }, (_, i) => ({ name: `r${i}`, chains: [] }))).length, 20);
   // What it outputs parses again unchanged (list_programs remembers it and re-reads it later).

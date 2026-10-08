@@ -498,6 +498,8 @@ async function ownEntry(
  * v2.8 Ruling 29 (plan), Task 8 carry: every non-campaign program this installation already has a
  * row for, for the same project (ownEntry's own repo/name match: a confirmed-but-unsubmitted entry
  * counts too). For "Also qualifies": a program already entered is never offered a second time.
+ * Not the same rule as present.ts enteredIds (the first message), which counts only submitted
+ * entries so an unsubmitted one can still be finished.
  */
 export async function enteredProgramIds(installationId: number, k: { repoUrl: string | null; name: string }): Promise<Set<string>> {
   const q = sql();

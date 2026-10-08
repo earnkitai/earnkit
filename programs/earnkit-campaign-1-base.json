@@ -13,6 +13,7 @@
   "verified_at": "2026-09-30",
   "status": "closed",
   "existing_work": "new_work_only",
+  "needs_repo": true,
   "chains": [
     "base"
   ],

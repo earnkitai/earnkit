@@ -463,7 +463,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   any news, a returning builder sees "Your entries: <program> (<repo>, submitted)" (open, non-
   campaign programs; `openEntries`). A submitted entry marks its program "(entered)", sorts it
   last and is never offered or resumed; one confirmed but not submitted stays offerable. With no
-  repo, rows whose program needs one (`needsRepo`) say "(needs a repo)". The offer is never an
+  repo, rows whose program needs one (the program file's required `needs_repo`, checked by
+  `programs:check`) say "(needs a repo)". The MCP inputSchema is as lenient as `tools.ts`, so the SDK
+  never refuses the call first. The offer is never an
   investment program: a fit for the builder's repo first (Easy first, then the top prize; Ruling
   F5), and "build something new" for the Easy program with the most money only when no repo fits;
   with no repo, the best program known not to need one.

@@ -24,6 +24,7 @@
   "verified_at": "2026-10-07",
   "status": "active",
   "existing_work": "new_work_only",
+  "needs_repo": true,
   "chains": [
     "base",
     "tempo",

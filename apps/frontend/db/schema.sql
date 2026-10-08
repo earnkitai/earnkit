@@ -556,6 +556,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pool_source_url text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS any_chain boolean NOT NULL DEFAULT false;
 -- v2.8 Ruling C5: the award is an investment ("up to $1M investment"), not a prize. Additive.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS investment boolean NOT NULL DEFAULT false;
+-- v2.8.1 §B8 (fix round 1): entering needs a repo or a live product (program file needs_repo);
+-- NULL when unknown (sponsor campaigns). Additive.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS needs_repo boolean;
 
 -- v2.8 Rulings 1-3 (plan): the confirmation step and bonus eligibility. Additive.
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS confirmed_at timestamptz;
