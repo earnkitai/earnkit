@@ -528,5 +528,19 @@ const [firstReply] = await db<{ n: number }[]>`
   SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'token_offers' AND column_name = 'first_reply_at'`;
 ok(firstReply.n === 1, 'token_offers has first_reply_at (Ruling G14)');
 
+// v2.9 D16, D18: existing entries get no cached fee recipients; fee_claims takes only the four roles and
+// survives the schema running again.
+const [recipientsCol] = await db<{ n: number }[]>`SELECT count(fee_recipients)::int AS n FROM projects`;
+ok(recipientsCol.n === 0, 'existing entries get fee_recipients = NULL');
+await db`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei) VALUES ('0xc1', ${W}, 'creator', 10, 1)`;
+const badRole = await db`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei) VALUES ('0xc2', ${W}, 'builder', 10, 1)`.then(
+  () => false,
+  () => true,
+);
+ok(badRole, "fee_claims only takes 'safe', 'bonus', 'creator' or 'mini'");
+await db.unsafe(now);
+const [claimRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM fee_claims`;
+ok(claimRows.n === 1, 'fee_claims rows survive the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

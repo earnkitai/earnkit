@@ -286,3 +286,22 @@ test('v2.8 Ruling 30 (plan): announcements count, self-reports and test installa
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
   }
 });
+
+test('v2.9 D18: fee_claims rows (an ops log, never revenue) never change fees_to_safe_eth', db, async () => {
+  const tag = `0x${'f9'.repeat(32)}`;
+  const roles = ['safe', 'bonus', 'creator', 'mini'] as const;
+  try {
+    const { before, afterRows } = await sql().begin('isolation level repeatable read', async (tx) => {
+      const before = await readStats(new Date(), tx);
+      for (const [i, role] of roles.entries())
+        await tx`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei)
+          VALUES (${`${tag.slice(0, -1)}${i}`}, ${`0x${String(i).repeat(40)}`}, ${role}, ${E18.toString()}, 1000)`;
+      const afterRows = await readStats(new Date(), tx);
+      return { before, afterRows };
+    });
+    assert.equal(afterRows.fees_to_safe_eth, before.fees_to_safe_eth);
+    assert.deepEqual(afterRows, before, 'no public stat moves (statsFrom reads only the aggregate row, which never reads fee_claims)');
+  } finally {
+    await sql()`DELETE FROM fee_claims WHERE tx_hash LIKE ${`${tag.slice(0, -1)}%`}`;
+  }
+});

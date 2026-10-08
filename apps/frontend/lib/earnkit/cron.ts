@@ -1,4 +1,4 @@
-import { INDEX_FAILED_RUNS, runBonusLedger, type BonusDeps } from './bonus-ledger';
+import { INDEX_FAILED_RUNS, NEEDS_GAS, runBonusLedger, type BonusDeps } from './bonus-ledger';
 import { advanceRounds } from './bonus-payout';
 import { sql } from './db';
 import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } from './campaigns';
@@ -316,11 +316,8 @@ export async function runCron(
     .map((c) => c.id as string);
   // A bonus sweep that can't be proven dead or sent waits on the owner, like a stuck payout.
   // So does an index step that failed INDEX_FAILED_RUNS runs in a row (deposits would go unbooked).
-  if (
-    needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
-    Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS
-  )
-    needs_owner.push('bonus-ledger');
+  // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim or collect it couldn't pay gas for.
+  if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
   // A builder bonus round waiting on the owner: a pay note that does, failed pay steps in a row, or
   // flagged entries in its review (bonus-payout.ts advanceRounds).
   const rounds = bonus?.rounds as { needs_owner?: string[] } | undefined;
@@ -371,6 +368,23 @@ export async function runCron(
  * waits on the owner (`needs_owner`), so the GitHub Actions run fails and GitHub emails the owner.
  * `deps` for tests.
  */
+/**
+ * Whether the bonus ledger's run waits on the owner (the cron answers 503): its sweep's note does
+ * (needsOwner), its index failed INDEX_FAILED_RUNS runs in a row, or (v2.9 D17) the payout wallet is
+ * low on ETH for gas, or a claim or collect result says it needs ETH for gas. Pure.
+ */
+export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
+  const gasOut = (results: unknown) =>
+    Array.isArray(results) && results.some((r) => String((r as { result?: unknown } | null)?.result ?? '').includes(NEEDS_GAS));
+  return (
+    needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
+    Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS ||
+    (bonus?.gas as { low?: boolean } | undefined)?.low === true ||
+    gasOut(bonus?.claim) ||
+    gasOut(bonus?.collect)
+  );
+}
+
 export async function cronPost(
   request: Request,
   deps: { limit?: (ip: string) => Promise<unknown>; run?: () => Promise<unknown> } = {},

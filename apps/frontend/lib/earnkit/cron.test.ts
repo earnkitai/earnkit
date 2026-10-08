@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { PAY_FAILED_RUNS, TERMS_CHANGED, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
+import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
@@ -510,4 +510,19 @@ test('the payout key unset or BASE_RPC_URL off Base mainnet wait on the owner (5
   } finally {
     await teardown(tag);
   }
+});
+
+test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out of gas, waits on the owner; other results do not', () => {
+  const ok = { index_failures: 0, sweep: { result: 'nothing to sweep' } };
+  assert.equal(bonusWaitsOnOwner(undefined), false);
+  assert.equal(bonusWaitsOnOwner(ok), false);
+  assert.equal(bonusWaitsOnOwner({ ...ok, gas: { balance_wei: '1', low: true, note: `low. ${TOP_UP}` } }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, gas: { low: false, note: 'unread' } }), false, 'an unread balance never blocks');
+  const gasOut = 'the payout wallet needs ETH for gas';
+  assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'nothing to claim' }, { owner: '0x2', result: gasOut }] }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, collect: [{ coin: '0x1', result: gasOut }] }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'failed' }], collect: 'waiting on a stored send' }), false);
+  // Unchanged: the sweep's TOP_UP note and INDEX_FAILED_RUNS failed index steps.
+  assert.equal(bonusWaitsOnOwner({ ...ok, sweep: { result: `${gasOut}. ${TOP_UP}` } }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, index_failures: 6 }), true);
 });

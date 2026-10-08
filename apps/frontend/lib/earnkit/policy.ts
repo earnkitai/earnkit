@@ -11,6 +11,13 @@ import { WEIGHTS } from './traction';
 /** A coin's fee split after Clanker's 20%, bps. A copy of tokens.fun's EarnKit reward recipients. */
 export const FEE_SPLIT_BPS = { project: 4000, buyback: 1000, bonus: 2000, earnkit: 3000 } as const;
 
+/**
+ * v2.9 D16, D17 (Ruling 17): the MINI fallback fee recipient and the payout wallet's gas floor. They
+ * live in a leaf module because bonus-ledger.ts reads them, and this file imports bonus-payout.ts and
+ * traction.ts, which import bonus-ledger.ts (an import cycle).
+ */
+export { GAS_WALLET_MIN_WEI_DEFAULT, MINI_FEE_RECIPIENT } from './policy-constants';
+
 /** Clanker's own cut of trading fees, before the split. */
 export const CLANKER_CUT_PCT = 20;
 
