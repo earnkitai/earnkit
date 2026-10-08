@@ -622,6 +622,19 @@ test('LaunchTokenInput: only project_id and builder_confirmed are required; chai
   assert.throws(() => LaunchTokenInput.parse({ project_id: 7, builder_confirmed: true, extra: 1 }));
 });
 
+test('v2.9 B10: LaunchTokenInput takes offer, decision and agent; exactly one of project_id or offer; skip needs no yes', () => {
+  const offer = { program_id: 'arc-microgrants', repo_url: 'https://github.com/alice/tipjar', project_name: 'TipJar' };
+  const go = LaunchTokenInput.parse({ offer, builder_confirmed: true, creator_wallet: WALLET, agent: { can_push: false } });
+  assert.deepEqual([go.decision, go.project_id, go.agent], ['go', undefined, { can_push: false }]);
+  assert.equal(LaunchTokenInput.parse({ offer, decision: 'skip' }).decision, 'skip');
+  assert.equal(launchInput().decision, 'go');
+  assert.throws(() => LaunchTokenInput.parse({ offer, project_id: 7, builder_confirmed: true }), /exactly one of project_id or offer/);
+  assert.throws(() => LaunchTokenInput.parse({ builder_confirmed: true }), /exactly one of project_id or offer/);
+  assert.throws(() => LaunchTokenInput.parse({ offer }), /builder_confirmed/);
+  assert.throws(() => LaunchTokenInput.parse({ project_id: 7, decision: 'skip' }), /pass offer/);
+  assert.throws(() => LaunchTokenInput.parse({ offer: { ...offer, extra: 1 }, builder_confirmed: true }));
+});
+
 test('launchToken: not your project throws', async () => {
   const h = harness({ installation_id: 2 });
   await assert.rejects(launchToken(launchInput(), 1, h.deps), (e: unknown) => e instanceof LaunchError && /No project 7 recorded by you/.test(e.message));

@@ -186,8 +186,8 @@ export default function PolicyPage() {
 
         <Section title="The token is optional">
           <p>
-            Every entry gets a token by default, named after the project. Tell your agent to skip it and there&apos;s
-            no token. Skipping means no builder bonus, nothing else.
+            Every entry gets a token by default, named after the project. Say no when your agent offers it and
+            there&apos;s no token. No token means no builder bonus, nothing else.
           </p>
         </Section>
 
