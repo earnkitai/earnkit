@@ -5,9 +5,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
 import {
+  CODE_TTL_MS,
+  CONFIRM_WARNING,
   VERIFY_PAGE,
   VERIFY_TTL_MS,
   callerLogin,
+  codeLine,
+  csrfCookieName,
+  formatCode,
+  normalizeCode,
+  verifyConfirm,
   completeVerify,
   createVerifyLink,
   githubOAuth,
@@ -60,7 +67,9 @@ test('5.5 the callback route reads only code and state (the repo is the nonce\'s
   await withEnv(ON, async () => {
     const seen: [string, string][] = [];
     const res = await verifyCallback(
-      new Request('https://earnkit.com/github/verify/callback?code=C1&state=S1&repo=mallory/x&repo_key=mallory/x&project_id=9'),
+      new Request('https://earnkit.com/github/verify/callback?code=C1&state=S1.K1&repo=mallory/x&repo_key=mallory/x&project_id=9', {
+        headers: { cookie: `${csrfCookieName('S1')}=K1` },
+      }),
       async (code, nonce) => {
         seen.push([code, nonce]);
         return { ok: true, repoKey: 'alice/tipjar' };
@@ -72,11 +81,69 @@ test('5.5 the callback route reads only code and state (the repo is the nonce\'s
     assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8');
     assert.equal(res.headers.get('cache-control'), 'no-store');
     assert.match(await res.text(), new RegExp(VERIFY_PAGE.done.replace('.', '\\.')));
-    // The handler's own source names no other parameter.
+    assert.match(res.headers.get('set-cookie') ?? '', /^__Host-ekv-[0-9a-f]{16}=; Path=\/; Max-Age=0; HttpOnly; Secure; SameSite=Lax$/, 'cleared');
+    // The callback's own source reads no other parameter (the cookie through cookieValue).
     const src = readFileSync(join(import.meta.dirname, 'github-verify.ts'), 'utf8');
-    const params = [...src.matchAll(/\.get\('([^']+)'\)/g)].map((m) => m[1]).sort();
-    assert.deepEqual(params, ['code', 'n', 'state']);
+    const body = src.slice(src.indexOf('export async function verifyCallback'));
+    const params = [...body.matchAll(/\.get\('([^']+)'\)/g)].map((m) => m[1]).sort();
+    assert.deepEqual(params, ['code', 'state']);
   });
+});
+
+test('G8: a missing or mismatched cookie is refused before the nonce is used or the code exchanged', async () => {
+  await withEnv(ON, async () => {
+    let called = 0;
+    const complete = async () => {
+      called++;
+      return { ok: true as const, repoKey: 'alice/tipjar' };
+    };
+    const limit = { limit: async () => {} };
+    const at = (state: string, cookie?: string) =>
+      new Request(`https://earnkit.com/github/verify/callback?code=C&state=${state}`, cookie ? { headers: { cookie } } : {});
+    for (const req of [
+      at('N1.K1'),
+      at('N1.K1', `${csrfCookieName('N1')}=K2`),
+      at('N1.K1', `${csrfCookieName('N2')}=K1`),
+      at('N1', `${csrfCookieName('N1')}=K1`),
+      at('.K1', `${csrfCookieName('')}=K1`),
+    ]) {
+      const res = await verifyCallback(req, complete, limit);
+      assert.equal(res.status, 403);
+      assert.match(await res.text(), /Sign-in didn&#39;t finish/);
+    }
+    assert.equal(called, 0, 'never reached takeNonce or the exchange');
+    // The confirm POST checks the same binding before sending anyone to GitHub.
+    const post = (cookie: string | null, csrf: string) =>
+      verifyConfirm(
+        new Request('https://earnkit.com/github/verify', {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', ...(cookie && { cookie }) },
+          body: new URLSearchParams({ n: 'N1', csrf }),
+        }),
+        limit,
+      );
+    assert.equal((await post(null, 'K1')).status, 403);
+    assert.equal((await post(`${csrfCookieName('N1')}=K2`, 'K1')).status, 403);
+    const cross = await verifyConfirm(
+      new Request('https://earnkit.com/github/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example', cookie: `${csrfCookieName('N1')}=K1` },
+        body: new URLSearchParams({ n: 'N1', csrf: 'K1' }),
+      }),
+      limit,
+    );
+    assert.equal(cross.status, 403, 'another origin');
+  });
+});
+
+test('G9: the code is 10 base32 characters, shown as ABCD-EFGH-JK, read in any case with dashes', () => {
+  assert.equal(formatCode('ABCDEFGHJK'), 'ABCD-EFGH-JK');
+  assert.equal(normalizeCode('abcd-efgh-jk'), 'ABCDEFGHJK');
+  assert.equal(normalizeCode(' ABCD EFGH JK '), 'ABCDEFGHJK');
+  assert.equal(normalizeCode('ABCD-EFGH'), null);
+  assert.equal(normalizeCode('ABCD-EFGH-J1'), null, '1 is not base32');
+  assert.equal(normalizeCode(undefined), null);
+  assert.equal(codeLine('ABCDEFGHJK'), 'Done. Paste this code to your agent: ABCD-EFGH-JK');
 });
 
 test('5.7 a failing exchange logs no client secret, code, token or nonce', async () => {
@@ -269,18 +336,104 @@ test('P11: on a shared client a host verification is single-use and lasts 15 min
   assert.ok(await takeHostVerification({ installationId: own.inst, repoKey: own.repoKey, shared: false }), 'kept');
 });
 
-test('G6/G7: the caller\'s login on a shared client: a recent sign-in matching what the call names; one login only', db, async () => {
-  const a = await fixture('callerA', { shared: true });
-  const b = await fixture('callerB', { shared: true, inst: a.inst, owner: 'bob' });
+test('G8: the link shows a confirm page (repo, token, wallet, warning), never a redirect; its POST goes to GitHub with state = nonce.csrf', db, async () => {
+  await withEnv(ON, async () => {
+    const f = await fixture('confirm');
+    const wallet = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
+    await sql()`UPDATE projects SET token_symbol = 'TIP', creator_wallet = ${wallet.toLowerCase()} WHERE id = ${f.project}`;
+    const nonce = await linkNonce(f);
+    const limit = { limit: async () => {} };
+    const page = await verifyStart(new Request(`https://evil.example/github/verify?n=${nonce}`), limit);
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get('location'), null, 'never a redirect');
+    const html = await page.text();
+    assert.match(html, new RegExp(`Repo: github\\.com/${f.repoKey}`));
+    assert.match(html, /Token: \$TIP/);
+    assert.match(html, new RegExp(`Wallet for fees: ${wallet.toLowerCase()}`));
+    assert.ok(html.includes(CONFIRM_WARNING));
+    assert.match(html, /<form method="post" action="https:\/\/earnkit\.com\/github\/verify">/, 'siteUrl, never the request host');
+    assert.doesNotMatch(html, /evil\.example|<script/);
+    const cookie = page.headers.get('set-cookie') ?? '';
+    assert.match(cookie, new RegExp(`^${csrfCookieName(nonce)}=[A-Za-z0-9_-]{43}; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax$`));
+    const csrf = cookie.split(';')[0].split('=')[1];
+    assert.ok(html.includes(`name="csrf" value="${csrf}"`));
+    assert.equal(await peekNonce(nonce), true, 'showing the page uses nothing');
+    const go = await verifyConfirm(
+      new Request('https://earnkit.com/github/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://earnkit.com', cookie: `${csrfCookieName(nonce)}=${csrf}` },
+        body: new URLSearchParams({ n: nonce, csrf }),
+      }),
+      limit,
+    );
+    assert.equal(go.status, 303);
+    const to = new URL(go.headers.get('location')!);
+    assert.equal(to.origin + to.pathname, 'https://github.com/login/oauth/authorize');
+    assert.equal(to.searchParams.get('state'), `${nonce}.${csrf}`);
+    assert.equal(to.searchParams.get('redirect_uri'), 'https://earnkit.com/github/verify/callback');
+    assert.equal(to.searchParams.get('client_id'), 'test-client');
+    assert.equal(to.searchParams.get('scope'), null);
+    assert.equal(to.searchParams.get('allow_signup'), 'false');
+    assert.doesNotMatch(go.headers.get('location')!, /test-secret/);
+    // The callback in the same browser verifies; the page clears the cookie.
+    const back = await verifyCallback(
+      new Request(`https://earnkit.com/github/verify/callback?code=C&state=${nonce}.${csrf}`, { headers: { cookie: `${csrfCookieName(nonce)}=${csrf}` } }),
+      (code, n) => completeVerify(code, n, github('alice')),
+      limit,
+    );
+    assert.equal(back.status, 200);
+    assert.ok((await back.text()).includes(VERIFY_PAGE.done));
+    // An expired link: the expired line, no cookie.
+    const gone = await verifyStart(new Request(`https://earnkit.com/github/verify?n=${nonce}`), limit);
+    assert.equal(gone.status, 410);
+    assert.equal(gone.headers.get('set-cookie'), null);
+  });
+});
+
+test('G9: on a shared client the sign-in page shows a one-time code; only that code names the caller', db, async () => {
+  const a = await fixture('codeA', { shared: true });
+  const b = await fixture('codeB', { shared: true, inst: a.inst, owner: 'bob' });
   const t0 = new Date();
-  assert.equal(await callerLogin(a.inst, { github_user: 'alice' }, t0), null, 'no sign-in yet');
-  await completeVerify('code', await linkNonce(a, 'entry', t0), github('alice'), t0);
-  await completeVerify('code', await linkNonce(b, 'entry', t0), github('bob'), t0);
-  assert.equal(await callerLogin(a.inst, { github_user: 'Alice' }, t0), 'alice');
-  assert.equal(await callerLogin(a.inst, { project_ids: [b.project] }, t0), 'bob');
-  assert.equal(await callerLogin(a.inst, { repo_keys: [a.repoKey] }, t0), 'alice');
-  assert.equal(await callerLogin(a.inst, { github_user: 'alice', project_ids: [b.project] }, t0), null, 'two logins: never a guess');
-  assert.equal(await callerLogin(a.inst, {}, t0), null);
-  assert.equal(await callerLogin(a.inst, { github_user: 'alice' }, new Date(t0.getTime() + VERIFY_TTL_MS + 1000)), null, 'not current');
+  const outA = await completeVerify('code', await linkNonce(a, 'entry', t0), github('alice'), t0);
+  const outB = await completeVerify('code', await linkNonce(b, 'entry', t0), github('bob'), t0);
+  assert.ok(outA.ok && outA.code && /^[A-Z2-7]{10}$/.test(outA.code));
+  assert.ok(outB.ok && outB.code);
+  const codeA = formatCode((outA as { code: string }).code);
+  const codeB = (outB as { code: string }).code;
+  const [row] = await sql()<{ code_hash: string }[]>`SELECT code_hash FROM github_verifications WHERE project_id = ${a.project}`;
+  assert.match(row.code_hash, /^[0-9a-f]{64}$/, 'only the hash is kept');
+  assert.equal(await callerLogin(a.inst, codeA.toLowerCase(), t0), 'alice');
+  assert.equal(await callerLogin(a.inst, codeB, t0), 'bob', "B's code never names A");
+  assert.equal(await callerLogin(a.inst, 'alice', t0), null, 'a claimed name is no code');
+  assert.equal(await callerLogin(a.inst, undefined, t0), null);
+  assert.equal(await callerLogin(a.inst, 'AAAA-AAAA-AA', t0), null);
+  const other = await fixture('codeOther', { shared: true });
+  assert.equal(await callerLogin(other.inst, codeA, t0), null, 'another installation');
+  assert.equal(await callerLogin(a.inst, codeA, new Date(t0.getTime() + CODE_TTL_MS + 1000)), null, 'expired');
   assert.deepEqual(await verifiedEntryIds(a.inst, 'alice'), [a.project]);
+  // Not a shared client: no code (the installation is the identity).
+  const own = await fixture('codeOwn');
+  const outOwn = await completeVerify('code', await linkNonce(own), github('alice'));
+  assert.deepEqual(outOwn, { ok: true, repoKey: own.repoKey });
+});
+
+test('G8/G9: on a shared client, A\'s sign-in launches only for A\'s code; B (or no code) still needs the proof', db, async () => {
+  const a = await fixture('gateA', { shared: true });
+  await completeVerify('code', await linkNonce(a), github('alice'));
+  const deps: GateDeps = {
+    repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
+    owner: async () => ({ status: 'missing' }),
+    screen: async () => {},
+  };
+  const gate = (verifiedLogin: string | null | undefined) =>
+    tokenGate(
+      { policy: 'encouraged', repoUrl: `https://github.com/${a.repoKey}`, wallet: `0x${'1'.repeat(40)}`, symbol: 'TIP', installationId: a.inst, projectId: a.project, verifiedLogin },
+      deps,
+    );
+  await withEnv(ON, async () => {
+    assert.deepEqual(await gate('alice'), { ok: true });
+    assert.equal((await gate('bob')).ok, false);
+    assert.equal((await gate(null)).ok, false, 'a shared caller without a code');
+    assert.deepEqual(await gate(undefined), { ok: true }, 'not a shared client: the entry\'s sign-in');
+  });
 });
