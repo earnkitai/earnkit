@@ -305,15 +305,16 @@ export const STUCK_LAUNCH_MS = 10 * 60_000;
 
 /**
  * v2.8.1 §A1: the projects whose launch claim (`token_url = 'pending'`) is older than 10 minutes
- * (claims from before v2.8.1 got the migration's time, schema.sql), oldest first. The owner checks each
+ * (claims from before v2.8.1 got the migration's time, schema.sql; a claim with no time, taken by old
+ * code after the migration, counts too), oldest first. The owner checks each
  * with the "token stuck in pending" runbook; EarnKit never releases one on a guess.
  */
 export async function stuckLaunches(now: Date): Promise<number[]> {
   const rows = await sql()<{ id: number }[]>`
     SELECT id FROM projects
     WHERE token_url = 'pending'
-      AND token_claimed_at < ${new Date(now.getTime() - STUCK_LAUNCH_MS)}
-    ORDER BY token_claimed_at, id`;
+      AND (token_claimed_at IS NULL OR token_claimed_at < ${new Date(now.getTime() - STUCK_LAUNCH_MS)})
+    ORDER BY token_claimed_at NULLS FIRST, id`;
   return rows.map((r) => r.id);
 }
 
@@ -336,9 +337,13 @@ export async function launchClaimedAt(
   };
 }
 
-/** Whether a launch claimed at `claimedAt` is past STUCK_LAUNCH_MS (no time: not counted). Pure. */
+/**
+ * Whether a pending launch claimed at `claimedAt` is past STUCK_LAUNCH_MS. Final fix wave (M1): a
+ * pending claim with no time (taken by pre-v2.8.1 code after the migration's backfill) counts as
+ * stuck, so it never shows "launching" forever. Pure.
+ */
 export const launchStuck = (claimedAt: Date | string | null | undefined, now = new Date()) =>
-  Boolean(claimedAt) && now.getTime() - new Date(claimedAt!).getTime() > STUCK_LAUNCH_MS;
+  claimedAt == null || now.getTime() - new Date(claimedAt).getTime() > STUCK_LAUNCH_MS;
 
 /** v2.8.1 §A1: the pause before the one automatic retry of a launch tokens.fun refused before minting. */
 export const RETRY_PAUSE_MS = 3_000;

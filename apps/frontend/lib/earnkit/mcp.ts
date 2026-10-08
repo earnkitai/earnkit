@@ -71,9 +71,17 @@ async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
     }
     // v2.8.1 §C15: logged on the server with an id; the agent gets a plain message.
     const id = randomBytes(4).toString('hex');
-    console.error(`[mcp] ${tool} error ${id}`, err);
+    // Final fix wave (M6): only the name, message and stack, never the whole object (a database
+    // error carries its query and parameters, which may hold answers, emails or wallets).
+    console.error(`[mcp] ${tool} error ${id}`, errorSummary(err));
     return { content: [{ type: 'text' as const, text: unexpectedErrorText(id) }], isError: true };
   }
+}
+
+/** What the unexpected-error log prints: name, message and stack only. Pure; exported for tests. */
+export function errorSummary(err: unknown): { name: string; message: string; stack?: string } {
+  if (err instanceof Error) return { name: err.name, message: err.message, ...(err.stack && { stack: err.stack }) };
+  return { name: typeof err, message: 'non-Error thrown' };
 }
 
 const TO_LAUNCH =

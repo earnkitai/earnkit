@@ -655,8 +655,9 @@ test('v2.8.1 §A1, §A5: a launch in progress says "launching"; settled or past 
     // The deploy answered without a clear result (its note is set): no polling.
     [{ token_claimed_at: new Date(now - 60_000), token_note: LAUNCH_STUCK }, false],
     [{ token_claimed_at: new Date(now - 11 * 60_000) }, false],
-    // A claim with no time (none after the v2.8.1 backfill) is never counted as stuck by itself.
-    [{ token_claimed_at: null }, true],
+    // Final fix wave (M1): a pending claim with no time (taken by old code after the backfill) is
+    // stuck, never "launching" forever.
+    [{ token_claimed_at: null }, false],
   ] as const) {
     const h = harness({ token_url: 'pending', ...p });
     const out = await launchToken(launchInput(), 1, h.deps);

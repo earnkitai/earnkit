@@ -1377,6 +1377,26 @@ test('fix 1: the entry\'s own wallet is the one shown and the one used; the reme
     assert.deepEqual(t.calls.wallets, [A]);
   }));
 
+test('final fix wave (M5): on a hosted agent the entry\'s stored wallet is never shown or suggested', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('sharedwallet', { remembered: W8 });
+    const A = '0x' + 'a'.repeat(39) + '9';
+    await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+    const ctx = { ...t.ctx, sharedClient: true };
+    const prep = (await tools.prepare_submission(t.input, ctx)) as { show_to_builder: string; shown_wallet?: string };
+    assert.ok(!('shown_wallet' in prep), JSON.stringify(prep.shown_wallet));
+    assert.doesNotMatch(prep.show_to_builder, /0xaaaa|0x1581/);
+    const offer = (await tools.confirm_entry(t.input, ctx)) as Confirmed;
+    assert.ok(!('shown_wallet' in offer));
+    assert.doesNotMatch(offer.show_to_builder, /0xaaaa|0x1581/);
+    // "go" without a wallet: nothing launches and no wallet is suggested.
+    const r = (await tools.confirm_entry({ ...t.input, ...go }, ctx)) as Confirmed;
+    assert.equal(t.calls.deploy, 0);
+    assert.ok(!('shown_wallet' in r));
+    assert.doesNotMatch(r.show_to_builder, /0xaaaa|0x1581/);
+  }));
+
 test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launches EarnKit's, and never claims theirs", dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('typed');
@@ -2057,6 +2077,13 @@ test('v2.8.1 §A1: an unknown outcome (502, or a tx hash) keeps the claim: never
         assert.ok((await stuckLaunches(new Date(claimed + STUCK_LAUNCH_MS + 1_000))).includes(row.id));
         const out = await runCron({ now: new Date(claimed + STUCK_LAUNCH_MS + 1_000), only: ['none'], deps: { stuckLaunches, refreshFees: async () => 0 } });
         assert.ok(out.needs_owner.includes(`token-pending:${row.id}`), JSON.stringify(out.needs_owner));
+        // Final fix wave (M1): a claim with no time (taken by old code after the backfill) is stuck
+        // now, for the cron and for the builder (never "launching" forever).
+        await sql()`UPDATE projects SET token_claimed_at = NULL, token_note = NULL WHERE id = ${row.id}`;
+        assert.ok((await stuckLaunches(new Date())).includes(row.id));
+        const untimed = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(t.posts.length, 1);
+        assert.equal(untimed.token?.note, LAUNCH_STUCK);
       } finally {
         await t.done();
       }

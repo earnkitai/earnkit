@@ -167,6 +167,11 @@ test('C16: banked contact details are never filled silently; the contact questio
   assert.equal(q[0].text, 'Use a@b.co and @alice again? Plus your Telegram?');
   assert.deepEqual(q[0].suggested, { contact_email: 'a@b.co', x_profile: '@alice' });
   assert.equal(questionsFor({ reqs: later.slice(0, 2), answers: {}, first: false, suggested: f.suggested })[0].text, 'Use a@b.co and @alice again?');
+  // Final fix wave (M4): on a hosted agent the yes/no names the kind, never the saved value.
+  const hosted = questionsFor({ reqs: later, answers: f.answers, first: false, suggested: f.suggested, shared: true });
+  assert.equal(hosted[0].text, 'Use your saved contact email and X profile? Plus your Telegram?');
+  assert.doesNotMatch(hosted[0].text, /a@b\.co|@alice/);
+  assert.equal(questionsFor({ reqs: later.slice(0, 2), answers: {}, first: false, suggested: f.suggested, shared: true })[0].text.includes('a@b.co'), false);
   // A later program's new slot merges with what was banked.
   const merged = bankEntries([req('telegram', 'contact', { label: 'Telegram' })], { telegram: '@alice_tg' }, banked);
   assert.deepEqual(JSON.parse(merged.get('contact')!), { name: 'Alice Doe', email: 'a@b.co', x: '@alice', telegram: '@alice_tg' });

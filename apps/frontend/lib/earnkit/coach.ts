@@ -325,10 +325,17 @@ const contactLabel = (r: SubmissionRequirement) =>
  * Saved details are a yes/no and the rest are asked in the same bullet: "Use a@b.co and @alice
  * again? Plus your Telegram?"
  */
-function contactText(reqs: SubmissionRequirement[], suggested: Record<string, string>) {
+function contactText(reqs: SubmissionRequirement[], suggested: Record<string, string>, shared = false) {
   const saved = reqs.filter((r) => suggested[r.key]);
   const fresh = list(reqs.filter((r) => !suggested[r.key]).map(contactLabel));
-  const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again?` : '';
+  // Final fix wave (M4): on a hosted agent (shared_client) the yes/no names the kind, never the
+  // value: "Use your saved email?" (a saved value there may be another user's).
+  const use =
+    saved.length === 0
+      ? ''
+      : shared
+        ? `Use your saved ${list([...new Set(saved.map(contactLabel))])}?`
+        : `Use ${list(saved.map((r) => suggested[r.key]))} again?`;
   if (use && fresh) return `${use} Plus your ${fresh}?`;
   return use || `Your ${fresh}?`;
 }
@@ -400,6 +407,8 @@ export function questionsFor(a: {
   project?: string;
   suggested?: Record<string, string>;
   wallet?: { hasBonus: boolean } | null;
+  /** On a hosted agent (shared_client): saved contact details are named by kind, never quoted. */
+  shared?: boolean;
 }): Question[] {
   const items = baseQuestions(a);
   // A form with its own wallet field (an EarnKit campaign) asks it there, never twice.
@@ -429,6 +438,7 @@ function baseQuestions(a: {
   first: boolean;
   project?: string;
   suggested?: Record<string, string>;
+  shared?: boolean;
 }): Question[] {
   const keys = new Set(askableKeys(a.reqs, a.answers));
   const empty = a.reqs.filter((r) => keys.has(r.key));
@@ -450,7 +460,7 @@ function baseQuestions(a: {
     return saved.length > 0 ? savedText(saved) : groupText(g.kind, g.reqs, name);
   };
   const tail: Question[] = [
-    ...(contact.length > 0 ? [make('contact', contact, contactText(contact, suggested))] : []),
+    ...(contact.length > 0 ? [make('contact', contact, contactText(contact, suggested, a.shared))] : []),
     ...(rest.length > 0
       ? [make(kindOf(rest[0]), rest, rest.some((r) => suggested[r.key]) ? `${savedText(rest.map((r) => suggested[r.key]).filter(Boolean))}${rest.some((r) => !suggested[r.key]) ? ` Plus: ${lowerFirst(groupText('other', rest.filter((r) => !suggested[r.key]), name))}` : ''}` : groupText('other', rest, name))]
       : []),
