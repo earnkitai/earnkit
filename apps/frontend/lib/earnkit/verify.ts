@@ -172,6 +172,11 @@ async function cachedCheck<T>(a: {
  * link is false without a probe. Cache key `url:<canonical url>`.
  */
 export async function liveVerified(url: string, deps: CheckDeps = {}): Promise<boolean> {
+  return (await liveChecked(url, deps)) === true;
+}
+
+/** v2.9 Ruling G4: liveVerified, but null when no probe was left (not checked, never a failure). */
+export async function liveChecked(url: string, deps: CheckDeps = {}): Promise<boolean | null> {
   const canonical = canonicalBuilderUrl(url).url;
   if (!canonical || placeholderLink(canonical)) return false;
   const probe = deps.probe ?? checkDefaults.probe ?? ((u: string) => safeProbe(u));
@@ -180,7 +185,7 @@ export async function liveVerified(url: string, deps: CheckDeps = {}): Promise<b
     key: `url:${canonical}`,
     deps,
     take: (b) => b.takeProbe(),
-    spent: false,
+    spent: null,
     run: async () => {
       await probe(canonical);
       return true;
