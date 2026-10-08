@@ -248,7 +248,7 @@ const project = (name: string, extra: Record<string, string> = {}, tag = '') => 
   return {
     name,
     repo_url: `https://github.com/e2e-builder/token-e2e-${tag}${Date.now()}-${seq}`,
-    live_url: `https://token-e2e-${seq}.example.com`,
+    live_url: `https://token-e2e-${seq}.tipjar.xyz`,
     ...extra,
   };
 };

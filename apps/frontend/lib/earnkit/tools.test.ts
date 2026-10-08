@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
@@ -208,7 +209,7 @@ test('v2.4 §2: a failed entry uses none of the daily 20; a recorded one uses on
       deployer: { creationTx: async () => '0xabc', txSender: async () => deployer },
     },
   };
-  const project = { name: 'Tip Jar', description: 'Tips for creators', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.example' };
+  const project = { name: 'Tip Jar', description: 'Tips for creators', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.xyz' };
   const entry = {
     program_id: f.id,
     project,
@@ -296,7 +297,7 @@ test('campaign fee wallet: only a payout wallet given in this call, never the re
   globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
   type Token = { creator_wallet: string | null; note: string; say_to_builder: string };
   // v2.7 Ruling 15 (plan): the token block appears only once the entry is ready, so every answer is given.
-  const project = { name: 'Tip Jar', description: 'Tips', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.example' };
+  const project = { name: 'Tip Jar', description: 'Tips', repo_url: 'https://github.com/alice/tipjar', live_url: 'https://tipjar.xyz' };
   const full = { contracts: '0x' + '1'.repeat(40), builder_profile: 'https://github.com/alice', description: 'Tips' };
   const call = async (program_id: string, answers?: Record<string, string>) =>
     (await tools.prepare_submission({ program_id, project, answers: { ...full, ...answers } }, { installationId: id })) as {
@@ -358,17 +359,17 @@ test('v2.7 §3, Ruling 15 (plan): prepare_submission leads with what is missing;
     assert.doesNotMatch(notReady.show_to_builder, /Token|Wallet|Fees in WETH|0x1581/);
     assert.equal(tickerChecks, 0, 'no ticker check while not ready');
     // Every required answer: v2.8 Part C, the confirmation offer (the builder bonus comes with a token).
-    const ready = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}`, live_url: 'https://tipjar.example' }, answers);
+    const ready = await prep({ name: 'TipJar', repo_url: `https://github.com/alice/tipjar-${stamp}`, live_url: 'https://tipjar.xyz' }, answers);
     assert.equal(ready.ready, true);
     assert.match(ready.show_to_builder, /\n\nReady\. Want the builder bonus\? It comes with a token\.\n/);
     assert.match(ready.show_to_builder, /\nWallet for fees and any bonus: 0x1581…b9a3 \(used last time\), or tell me another\.\n/);
     assert.equal(ready.shown_wallet, W);
     assert.ok(tickerChecks > 0);
     // No project name, but a GitHub repo: the repo name is the name.
-    const noName = await prep({ repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.example' }, answers);
+    const noName = await prep({ repo_url: 'https://github.com/a/tipjar', live_url: 'https://tipjar.xyz' }, answers);
     assert.equal(noName.token?.proposed.symbol, 'TIPJAR');
     // v2.8 Part D: once ready, the draft table leads (the Entry table stays for what is missing).
-    assert.match(noName.show_to_builder, /^\| Field \| Answer \|\n\|---\|---\|\n\| Live deployment on Arc mainnet \| https:\/\/tipjar\.example/);
+    assert.match(noName.show_to_builder, /^\| Field \| Answer \|\n\|---\|---\|\n\| Live deployment on Arc mainnet \| https:\/\/tipjar\.xyz/);
     assert.match(noName.show_to_builder, /Want the builder bonus\? It comes with a token\./);
     // C5: an item given but invalid says "(check it)"; at most 3 items, then "and N more".
     const bad = await prep({ name: 'TipJar' }, { live_deployment_url: 'not a link', builder_profile: 'not a link either' });
@@ -504,7 +505,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t4-${tag}-${stamp}`}) RETURNING id`)[0].id;
   const entry = (program_id: string, n: number, extra: Record<string, unknown>) => ({
     program_id,
-    project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: `https://github.com/alice/t4-${stamp}-${n}`, live_url: `https://t4-${n}.example` },
+    project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: `https://github.com/alice/t4-${stamp}-${n}`, live_url: `https://t4-${n}.xyz` },
     // C7: a complete entry (every required item), so the token step runs.
     submission_data: { description: 'Tips', builder_profile: 'https://github.com/alice' },
     ...extra,
@@ -519,7 +520,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
   const pools = async (ids: string[]) => new Map(ids.map((id) => [id, 180000000000000000n] as [string, bigint]));
   // v2.7 Ruling 15 (plan): every required answer, so the token step shows.
   const ready = (name = 'Tip Jar', repo_url = `https://github.com/alice/t4-${stamp}-ready`) => ({
-    project: { name, repo_url, live_url: 'https://tipjar.example' },
+    project: { name, repo_url, live_url: 'https://tipjar.xyz' },
     answers: { description: 'Tips', builder_profile: 'https://github.com/alice' },
   });
   try {
@@ -670,7 +671,7 @@ test('v2.6 §3: the wallet is remembered on any entry and prefilled; no wallet r
     // holds it: one plain line, no bonus line, no wallet ask, and the agent is never told to launch.
     type Held = { repo_held?: boolean; bonus_round: unknown; show_to_builder: string; token: { note?: string } };
     const sameRepo = (n: number) =>
-      entry(a.id, 4, { project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: repoUrl(4), live_url: 'https://t4-4.example' }, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
+      entry(a.id, 4, { project: { name: `Tip Jar ${n}`, description: 'Tips', repo_url: repoUrl(4), live_url: 'https://t4-4.xyz' }, token: { name: 'TipJar', symbol: 'TIPJAR' }, builder_confirmed: true });
     const held = (await tools.record_submission(sameRepo(5), { installationId: await inst('three'), roundPoolsWei: pools })) as Held;
     assert.equal(held.repo_held, true);
     assert.equal(held.bonus_round, null);
@@ -791,7 +792,7 @@ test('v2.8 Ruling 2 (plan): record_submission launches the token on an incomplet
     const again = (await tools.record_submission(
       {
         program_id: p.id,
-        project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' },
+        project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' },
         submission_data: { description: 'Tips', builder_profile: 'https://github.com/alice' },
         payout_wallet: W,
         token: { name: 'Tip Jar', symbol: 'TIPJAR' },
@@ -841,9 +842,9 @@ test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is
   const entry = async (n: number, o: { choice?: 'go' | 'skip'; complete_at?: Date }) => {
     const repo = `https://github.com/alice/t7lt-${stamp}-${n}`;
     const [{ id }] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, confirm_choice, complete_at)
-      VALUES (${p.id}, ${`Kit ${n}`}, ${repo}, ${`https://kit${n}.example`}, ${inst}, ${repo.replace('https://', '')},
-        ${o.choice ?? null}, ${o.complete_at ?? null})
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, confirm_choice, complete_at, live_verified_at)
+      VALUES (${p.id}, ${`Kit ${n}`}, ${repo}, ${`https://kit${n}.xyz`}, ${inst}, ${repo.replace('https://', '')},
+        ${o.choice ?? null}, ${o.complete_at ?? null}, now())
       RETURNING id`;
     await sql()`INSERT INTO submissions (project_id, submission_data)
       VALUES (${id}, ${sql().json({ description: 'A kit.', builder_profile: 'https://github.com/alice' })})`;
@@ -853,14 +854,14 @@ test('v2.8 Rulings 2-3 (plan), C8: launch_token on real rows: a skipped entry is
     // dbStore.load reads confirm_choice from the row: the refusal fires, nothing deploys or changes.
     const skipped = await entry(1, { choice: 'skip' });
     const out = (await tools.launch_token(
-      { project_id: skipped, builder_confirmed: true, creator_wallet: W, live_url: 'https://other.example' },
+      { project_id: skipped, builder_confirmed: true, creator_wallet: W, live_url: 'https://other.xyz' },
       ctx,
     )) as { status: string; note: string };
     assert.deepEqual([out.status, out.note], ['failed', SKIPPED_ENTRY]);
     assert.deepEqual(deploys, []);
     const [row] = await sql()<{ live_url: string; token_url: string | null; complete_at: Date | null }[]>`
       SELECT live_url, token_url, complete_at FROM projects WHERE id = ${skipped}`;
-    assert.deepEqual([row.live_url, row.token_url, row.complete_at], ['https://kit1.example', null, null]);
+    assert.deepEqual([row.live_url, row.token_url, row.complete_at], ['https://kit1.xyz', null, null]);
     // A complete entry with complete_at already set: launch_token's COALESCE keeps the earlier value.
     const earlier = new Date('2026-10-01T00:00:00Z');
     const set = await entry(2, { complete_at: earlier });
@@ -936,7 +937,7 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
     },
   } as unknown as TokenFlowDeps;
   const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
-  const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' };
+  const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' };
   // v2.8.1 fix round 1: the Yes line the builder saw (prepare_submission or the offer stores it);
   // "go" launches exactly this pair.
   const offered = await proposeToken('Tip Jar', tokenDeps.check, repo);
@@ -1199,7 +1200,7 @@ test('v2.8.1 §D, T5 fix round 1: no mocks: home ended, first entry elsewhere: b
     await sql()`
       INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
         status, existing_work, starts_at, ends_at)
-      VALUES (${home}, 'X', 'Ended Grants', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+      VALUES (${home}, 'X', 'Ended Grants', 'd', 'https://x.xyz', 'https://x.xyz', 'r', 's', 'active', 'allowed',
         '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')`;
     await sql()`
       INSERT INTO projects (program_id, name, repo_url, bonus_repo_key, token_repo_key, token_url, token_status, coin_address, coin_launched_at)
@@ -1357,7 +1358,7 @@ test('fix 1: the entry\'s own wallet is the one shown and the one used; the reme
     const A = '0x' + 'a'.repeat(39) + '9';
     // An earlier attempt (or a v2.7 record) left wallet A on this entry; the remembered wallet is B (W8).
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
-      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.xyz', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
     const prep = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string; shown_wallet?: string };
     assert.equal(prep.shown_wallet, A);
     assert.ok(prep.show_to_builder.includes('Wallet for fees and any bonus: 0xaaaa…aaa9 (used last time), or tell me another.'), prep.show_to_builder);
@@ -1382,7 +1383,7 @@ test('final fix wave (M5): on a hosted agent the entry\'s stored wallet is never
     const t = await confirmSetup('sharedwallet', { remembered: W8 });
     const A = '0x' + 'a'.repeat(39) + '9';
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
-      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.xyz', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
     const ctx = { ...t.ctx, sharedClient: true };
     const prep = (await tools.prepare_submission(t.input, ctx)) as { show_to_builder: string; shown_wallet?: string };
     assert.ok(!('shown_wallet' in prep), JSON.stringify(prep.shown_wallet));
@@ -1401,7 +1402,7 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
   withTokenEnv(async () => {
     const t = await confirmSetup('typed');
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, token_url)
-      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, 'https://mytoken.example/tip')`;
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.xyz', ${t.inst}, ${t.repo.replace('https://', '')}, 'https://mytoken.xyz/tip')`;
     const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(t.calls.deploy, 1);
     assert.equal(r.token?.status, 'launched');
@@ -1411,19 +1412,19 @@ test("fix 2: a token link the builder typed is not EarnKit's token: \"go\" launc
     // Ruling C11: the builder's own link is kept, never as EarnKit's token.
     const [kept] = await sql()<{ own_token_url: string | null; token_url: string | null }[]>`
       SELECT own_token_url, token_url FROM projects WHERE installation_id = ${t.inst}`;
-    assert.equal(kept.own_token_url, 'https://mytoken.example/tip');
+    assert.equal(kept.own_token_url, 'https://mytoken.xyz/tip');
     assert.match(kept.token_url ?? '', /^https:\/\/tokens\.fun\/coin\//);
     assert.doesNotMatch(JSON.stringify(r), /mytoken/, 'never in the reply');
     // "skip" on such an entry is a real skip (the typed link is not a token that holds the choice).
     const s = await confirmSetup('typedskip');
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, token_url)
-      VALUES (${s.p.id}, 'Tip Jar', ${s.repo}, 'https://tipjar.example', ${s.inst}, ${s.repo.replace('https://', '')}, 'https://mytoken.example/tip')`;
+      VALUES (${s.p.id}, 'Tip Jar', ${s.repo}, 'https://tipjar.xyz', ${s.inst}, ${s.repo.replace('https://', '')}, 'https://mytoken.xyz/tip')`;
     const k = (await tools.confirm_entry({ ...s.input, builder_confirmed: true, decision: 'skip' }, s.ctx)) as Confirmed;
     assert.ok(k.show_to_builder.startsWith('No token, no builder bonus.'), k.show_to_builder);
     assert.equal((await s.rows())[0].confirm_choice, 'skip');
     const [untouched] = await sql()<{ own_token_url: string | null; token_url: string | null }[]>`
       SELECT own_token_url, token_url FROM projects WHERE installation_id = ${s.inst}`;
-    assert.deepEqual([untouched.own_token_url, untouched.token_url], [null, 'https://mytoken.example/tip'], 'skip changes nothing');
+    assert.deepEqual([untouched.own_token_url, untouched.token_url], [null, 'https://mytoken.xyz/tip'], 'skip changes nothing');
     assert.equal(s.calls.deploy, 0);
   }));
 
@@ -1453,7 +1454,7 @@ test('fix round 2: wallet X shown, "go" with no echo, stored wallet A on the ent
     const A = '0x' + 'a'.repeat(39) + '9';
     const X = '0x' + 'c'.repeat(39) + '1';
     await sql()`INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, bonus_repo_key, creator_wallet)
-      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.example', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
+      VALUES (${t.p.id}, 'Tip Jar', ${t.repo}, 'https://tipjar.xyz', ${t.inst}, ${t.repo.replace('https://', '')}, ${A})`;
     // The offer is given X: it shows X.
     const offer = (await tools.confirm_entry({ ...t.input, wallet: X }, t.ctx)) as Confirmed;
     assert.equal(offer.shown_wallet, X);
@@ -1499,7 +1500,7 @@ test('9 coach: no builder answers on Arc: the three questions are the whole scre
     assert.deepEqual(r.questions?.map((x) => x.kind), ['traction', 'why_you', 'use_of_funds']);
     assert.equal(r.coach?.fields.length, reqs.length);
     for (const f of r.coach!.fields) for (const k of ['key', 'kind', 'judges', 'pattern', 'limit_words']) assert.ok(k in f, k);
-    assert.deepEqual(r.coach?.facts, { chains: ['arc'], live_url: 'https://tipjar.example/', repo_url: t.repo });
+    assert.deepEqual(r.coach?.facts, { chains: ['arc'], live_url: 'https://tipjar.xyz/', repo_url: t.repo });
     assert.doesNotMatch(r.show_to_builder, /builder bonus|Ready|Wallet|Fees in WETH/);
     assert.ok(!('shown_wallet' in r) && !('token' in r) && !('token_line' in r));
     assert.match(r.agent_note ?? '', /Draft every field from the repo, onchain data and the builder's answers/);
@@ -1513,7 +1514,7 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
     const answers = { ...COACH_ANSWERS, traction: 'Creators love it.' };
     const r = (await tools.prepare_submission({ ...t.input, answers }, t.ctx)) as Coached;
     const p = ProgramFile.parse(t.p);
-    const values = { ...answers, live_deployment_url: 'https://tipjar.example/', repo_url: t.repo };
+    const values = { ...answers, live_deployment_url: 'https://tipjar.xyz/', repo_url: t.repo };
     const fixes = preSubmitCheck({ reqs: p.submission_requirements, answers: values, judging: p.judging ?? null, knownLinks: [t.repo] }).filter(
       (f) => f.for === 'builder',
     );
@@ -1614,7 +1615,7 @@ test('C15/C17, v2.8.1 §C12: Base Builder Grants, first program: 3 questions and
     await upsertProgram(ProgramFile.parse(base));
     const draft = {
       project_name_description: 'TipJar: tips for creators in USDC.',
-      live_product_url: 'https://tipjar.example',
+      live_product_url: 'https://tipjar.xyz',
       contract_address: '0x' + '1'.repeat(40),
       track: 'Trading',
     };
@@ -1696,7 +1697,7 @@ test('10.9 Ruling 4, Part E: Base (its Google form in the file): prepare_submiss
     const answers: Record<string, string> = {
       ...Object.fromEntries(reqs.map((r) => [r.key, `${r.label.slice(0, 20)} answer`])),
       email: 'alice@example.com',
-      live_product_url: 'https://tipjar.example',
+      live_product_url: 'https://tipjar.xyz',
       demo_loom: 'https://loom.com/share/abc',
       contract_address: '0x' + '1'.repeat(40),
       track: 'Trading',
@@ -1971,7 +1972,7 @@ async function launchSetup(tag: string, answers: Answer[]) {
   await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: 'Tip Jar', symbol: 'TIPJAR' });
   const input = {
     program_id: p.id,
-    project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' },
+    project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' },
     answers: { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' },
   };
   const row = async () =>
@@ -2259,3 +2260,42 @@ test('v2.8.1 §E17 (T2 carry): a hosted agent launches past the 10-a-day agent f
   await assert.rejects(launchLimit(plain, '0x' + randomBytes(20).toString('hex')), /this agent reached today's launch limit of 10\./);
   await sql()`DELETE FROM rate_windows WHERE key IN ${sql()([`tokenLaunchShared:${id}`, `tokenLaunch:${plain}`])}`;
 });
+
+test('1.11 v2.9 A5: a placeholder link is refused; a failed probe is one fix line, never complete', dbTest, () =>
+  withTokenEnv(async () => {
+    const { LIVE_FAILED_LINE, PLACEHOLDER_LINE } = await import('./verify');
+    const t = await confirmSetup('a5');
+    await assert.rejects(
+      tools.prepare_submission({ ...t.input, project: { ...t.project, live_url: 'https://example.com' } }, t.ctx),
+      (err: unknown) => String((err as Error).message).includes(PLACEHOLDER_LINE),
+    );
+    let probes = 0;
+    const live = `https://a5-${t.inst}.tipjar.xyz`;
+    const ctx = {
+      ...t.ctx,
+      verifyDeps: {
+        probe: async () => {
+          probes++;
+          throw new Error('no answer');
+        },
+      },
+    };
+    const input = { ...t.input, project: { ...t.project, live_url: live, contracts: [`0x${'a'.repeat(40)}`] } };
+    const r = (await tools.prepare_submission(input, ctx)) as {
+      ready: boolean;
+      show_to_builder: string;
+      fixes: { text: string }[];
+      missing: { key: string; problem?: string }[];
+    };
+    assert.equal(r.ready, false);
+    assert.deepEqual(r.fixes.filter((f) => f.text === LIVE_FAILED_LINE).length, 1);
+    assert.equal(r.show_to_builder.split(LIVE_FAILED_LINE).length - 1, 1);
+    assert.deepEqual(r.missing.find((m) => m.key === 'live_deployment_url')?.problem, LIVE_FAILED_LINE);
+    assert.equal(probes, 1);
+    // The confirmation of that entry never sets complete_at (the failure is cached for the hour).
+    await tools.confirm_entry({ ...input, ...go, decision: 'skip' }, ctx);
+    const [row] = await t.rows();
+    assert.equal(row.complete_at, null);
+    const [v] = await sql()<{ live_verified_at: Date | null }[]>`SELECT live_verified_at FROM projects WHERE id = ${row.id}`;
+    assert.equal(v.live_verified_at, null);
+  }));

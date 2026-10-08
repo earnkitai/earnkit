@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EntryError } from './campaigns';

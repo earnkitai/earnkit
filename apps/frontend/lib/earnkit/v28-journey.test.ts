@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -177,7 +178,7 @@ test('v2.8 journey: Arc from no repo to a sourced win, through the coach, the co
 
     // 3. Arc, with the project only: the coach's questions are the whole screen.
     const W = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-    const project = { name: 'TipJar', repo_url: repo, live_url: 'https://tipjar.example' };
+    const project = { name: 'TipJar', repo_url: repo, live_url: 'https://tipjar.xyz', contracts: ['0xcccccccccccccccccccccccccccccccccccccccc'] };
     const asked = keep('prepare_submission (questions)', (await tools.prepare_submission({ program_id: 'arc-microgrants', project }, ctx)) as Reply & {
       questions: { keys: string[]; text: string }[];
     });

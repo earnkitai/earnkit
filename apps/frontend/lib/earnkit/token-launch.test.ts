@@ -1,3 +1,4 @@
+import './fixtures/no-network-checks';
 import { test } from 'node:test';
 process.env.EARNKIT_AUTH_SECRET = 'launch-test-secret';
 import assert from 'node:assert/strict';
