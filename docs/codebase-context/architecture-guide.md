@@ -2438,6 +2438,12 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   T5's GitHub sign-in gives a verified builder a key). With null, `list_programs` and Also
   qualifies read no memory, `tell` stores no program or repo statement, an outcome needs its
   `project_id` (else `NotFoundError`), and the builder sees `Noted for now.` (`NOTED_FOR_NOW`).
+- **Shared clients show nothing remembered (Ruling G7).** `tools.ts remembers(ctx)`
+  (`memoryKey(ctx) !== null`) gates, on a shared client: the remembered `github_user`, `repos`
+  and `local_repos` fallback and `working_on` in `list_programs`; `outcomeToAsk`/`ask_outcome`;
+  `openEntries` ("Your entries"), `yourCampaignEntries` (standing) and alerts, including
+  `withAlerts` (now `withAlerts(ctx, result)`) on every tool. Entries are still recorded; the
+  builder text says nothing about it.
 - **Claims verified (Ruling G6).** `runChecks` checks the contracts on a repo's claimed mainnets
   (`claimedMainnets`, their pairs first within `GETCODE_PER_REPO`) even when the live link loads,
   within `LIST_BUDGET` and recency order; `Deployed.withCode` lists the chains with code, and
