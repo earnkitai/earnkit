@@ -366,6 +366,35 @@ export const ReportedRepoInput = z
     url: z.unknown().transform((u) => (typeof u !== 'string' || u.length > 300 ? undefined : u)).optional(),
   });
 
+/**
+ * v2.8.1 §B6 (fix round 2): a GitHub username as an agent gives it ("@octocat",
+ * "https://github.com/octocat", "github.com/octocat/"), or undefined when it can't be one (dropped,
+ * never an error). Pure; exported for tests.
+ */
+export function reportedGithubUser(v: unknown): string | undefined {
+  if (typeof v !== 'string' || v.length > 200) return undefined;
+  const t = v
+    .trim()
+    .replace(/^@/, '')
+    .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '')
+    .replace(/\/.*$/, '');
+  return /^[A-Za-z0-9-]{1,39}$/.test(t) ? t : undefined;
+}
+
+/**
+ * v2.8.1 §B6 (fix round 2): repos as an agent gives them, with local_repos' leniency: one string or
+ * a list; anything that isn't an "owner/repo" or github.com link is dropped; the first 30 are kept
+ * (REPO_LIMIT). Pure; exported for tests.
+ */
+export function reportedRepos(v: unknown): string[] {
+  const items = v == null ? [] : Array.isArray(v) ? v : [v];
+  return items
+    .filter((r): r is string => typeof r === 'string' && r.length <= 300)
+    .map((r) => r.trim().replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, 'https://github.com/'))
+    .filter((r) => /^(?:https:\/\/github\.com\/)?[A-Za-z0-9-]+\/[A-Za-z0-9._-]+?(?:\.git)?\/?$/.test(r))
+    .slice(0, REPO_LIMIT);
+}
+
 /** Fix round 1: a repo reported without a name takes its GitHub link's repo name, when it has one. Pure. */
 function withName(i: unknown): unknown {
   if (typeof i === 'string') return { name: i, chains: [] };
@@ -383,7 +412,7 @@ function withName(i: unknown): unknown {
  * error; past the first 20, repos are ignored (the limit stays).
  */
 export const LocalReposInput = z
-  .array(z.unknown())
+  .preprocess((v) => (v == null ? [] : Array.isArray(v) ? v : [v]), z.array(z.unknown()))
   .transform((items) =>
     items
       .slice(0, 20)

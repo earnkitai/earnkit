@@ -284,6 +284,21 @@ const ODD_LIST_INPUTS: Record<string, unknown>[] = [
   { local_repos: [{ name: 'x'.repeat(500), chains: [] }] },
   { local_repos: ['tipjar', 7] },
   { local_repos: Array.from({ length: 40 }, (_, i) => ({ name: `r${i}`, chains: ['base'] })) },
+  { local_repos: { name: 'tipjar', chains: ['base'] } }, // one repo, not a list
+  // Fix round 2: github_user, repos and agent_can_build.
+  { github_user: '@octocat' },
+  { github_user: 'https://github.com/octocat' },
+  { github_user: 'not a user!!' },
+  { github_user: 42 },
+  { repos: 'acme/tipjar' },
+  { repos: ['https://github.com/acme/tipjar', 5, 'not a repo', null] },
+  { repos: { owner: 'acme' } },
+  { agent_can_build: 'false' },
+  { agent_can_build: 'yes' },
+  { agent_can_build: 0 },
+  { agent_can_build: 1 },
+  { agent_can_build: 'maybe' },
+  { agent_can_build: null },
 ];
 
 test('v2.8.1 §B6 (fix round 1): every odd list_programs input passes the MCP schema; with a database, the call succeeds', async () => {
@@ -291,7 +306,13 @@ test('v2.8.1 §B6 (fix round 1): every odd list_programs input passes the MCP sc
   const installationId = db
     ? (await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`t3fix-${process.pid}-${Date.now()}`}) RETURNING id`)[0].id
     : 1;
-  const server = createMcpServer({ installationId, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map() });
+  // GitHub is never read here: matching is stubbed.
+  const server = createMcpServer({
+    installationId,
+    roundPoolsWei: async () => new Map(),
+    repoCoins: async () => new Map(),
+    matchProjects: async () => ({ checked: 0, fits: [] }),
+  });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);

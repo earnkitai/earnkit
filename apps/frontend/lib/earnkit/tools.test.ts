@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { SafeFetchError } from './safe-fetch';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SponsorCampaignInput, WALLET_IGNORED, listProgramsInput, tools } from './tools';
+import { SponsorCampaignInput, WALLET_IGNORED, canBuild, listProgramsInput, tools } from './tools';
+import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
 import { EntryError } from './campaigns';
 import { earnkitTexts } from './campaign-text';
@@ -109,6 +110,28 @@ test('v2.8.1 §B6: a wallet that is not 0x is ignored with a note; a 0x one is k
   assert.equal(listProgramsInput({}).walletNote, null);
   assert.equal(listProgramsInput({ wallet: '' }).walletNote, null);
   assert.doesNotMatch(WALLET_IGNORED, /—|coin|Clanker/);
+});
+
+test('v2.8.1 §B6 (fix round 2): github_user, repos and agent_can_build are read leniently, never refused', () => {
+  for (const [given, want] of [
+    ['octocat', 'octocat'], ['@octocat', 'octocat'], [' https://github.com/octocat/ ', 'octocat'],
+    ['github.com/octocat/tipjar', 'octocat'], ['not a user!!', undefined], [42, undefined], ['', undefined],
+  ] as const)
+    assert.equal(reportedGithubUser(given), want, String(given));
+  assert.deepEqual(reportedRepos('acme/tipjar'), ['acme/tipjar']);
+  assert.deepEqual(reportedRepos(['github.com/acme/tipjar', 5, 'not a repo', null, 'https://github.com/a/b.git']), [
+    'https://github.com/acme/tipjar',
+    'https://github.com/a/b.git',
+  ]);
+  assert.deepEqual(reportedRepos({ owner: 'acme' }), []);
+  assert.equal(reportedRepos(Array(40).fill('a/b')).length, 30);
+  for (const [given, want] of [
+    [true, true], [false, false], ['true', true], ['false', false], ['yes', true], ['no', false], ['NO', false],
+    [1, true], [0, false], ['maybe', true], [null, true], [undefined, true], [7, true],
+  ] as const)
+    assert.equal(canBuild(given), want, String(given));
+  const i = listProgramsInput({ github_user: '@octocat', repos: ['nope'], agent_can_build: 'no' });
+  assert.deepEqual([i.github_user, i.repos, i.agent_can_build], ['octocat', undefined, false]);
 });
 
 test('v2.8.1 §B6: list_programs input with any chain, dates without a timezone and a bare live link parses', () => {

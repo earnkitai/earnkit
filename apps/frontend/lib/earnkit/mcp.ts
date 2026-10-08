@@ -302,8 +302,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     {
       description: LIST_PROGRAMS_DESCRIPTION,
       inputSchema: {
+        // v2.8.1 §B6 (fix round 2): these four are never refused here; tools.ts reads what it can.
         github_user: z
-          .string()
+          .unknown()
           .optional()
           .describe("The builder's GitHub username"),
         // v2.8.1 §B6 (fix round 1): anything; a wallet that isn't 0x is ignored with wallet_note.
@@ -312,14 +313,14 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           .optional()
           .describe("The builder's 0x wallet, if they named one: its wins show here even from a new connection"),
         repos: z
-          .array(z.string())
+          .unknown()
           .optional()
-          .describe('Or specific "owner/repo" or github.com links'),
+          .describe('Or specific "owner/repo" or github.com links (a list)'),
         // v2.8.1 §B6 (fix round 1): lenient here, so no report fails the call; tools.ts list_programs
         // (match-projects.ts LocalReposInput) reads what it can, drops the rest and keeps the limits
         // (20 repos, 20 chains each, 100-character names, 300-character links).
         local_repos: z
-          .array(
+          .preprocess((v) => (v == null || Array.isArray(v) ? v : [v]), z.array(
             // Anything that isn't an object (a bare name) is read as { name } before validation.
             z.preprocess(
               (v) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? v : { name: v }),
@@ -339,13 +340,13 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   .describe("The repo's GitHub link, if the local remote is on GitHub"),
               }),
             ),
-          )
+          ))
           .optional()
           .describe(
             'Private or local repos you can see: report what you find. EarnKit never needs their code.',
           ),
         agent_can_build: z
-          .boolean()
+          .unknown()
           .optional()
           .describe(
             'false if you cannot write code, deploy, and use a web browser in this session (default true)',
