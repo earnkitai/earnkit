@@ -13,6 +13,11 @@ export type OfferInput = {
   /** v2.6 Ruling 25: the program this repo's token is entered in, or null. */
   coinIn: string | null;
   canPush: boolean;
+  /**
+   * v2.9 B9 (Pre-flight P9): GitHub sign-in is on, so an agent that can't push still gets the token
+   * offer (the builder signs in after "yes"). Off: the CANT_PUSH line, as before.
+   */
+  signIn?: boolean;
   wallet: string | null;
   remembered: boolean;
   /** No token on this entry at all (the program's token policy is off, or launches are unavailable). */
@@ -79,7 +84,7 @@ export function yesLine(proposal: { name: string; symbol: string } | null, hasBo
 export function confirmOffer(a: OfferInput): string {
   if (a.coinIn) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
-  if (!a.canPush) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
+  if (!a.canPush && !a.signIn) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
   const wallet = offerWalletLine(a);
   const lines = a.hasBonus
     ? ['Want the builder bonus? It comes with a token.', yesLine(a.proposal ?? null, true, a.again), SKIP_LINE, wallet]
@@ -91,7 +96,16 @@ export type ConfirmDecision =
   | { kind: 'offer' } // not confirmed yet: show the offer
   | { kind: 'skip' }
   | { kind: 'record_only'; note: string } // lasting reason: no token, kit returned ('' : nothing to say)
-  | { kind: 'launch' };
+  | { kind: 'launch' }
+  // v2.9 B9: an agent that can't push, with GitHub sign-in on: the builder signs in, then it launches.
+  | { kind: 'sign_in' };
+
+/**
+ * v2.9 B9: the builder's one line with the sign-in link: "One click to prove TipJar is yours, then
+ * $TIP launches: <link>". Pure.
+ */
+export const signInLine = (project: string, symbol: string | null, link: string) =>
+  `One click to prove ${project} is yours, then ${symbol ? `$${symbol}` : 'your token'} launches: ${link}`;
 
 /** What a confirm_entry call does (Ruling 4 (plan)). Pure. */
 export function confirmDecision(a: {
@@ -102,13 +116,15 @@ export function confirmDecision(a: {
   hasRepo: boolean;
   policyOff: boolean;
   available: boolean;
+  /** v2.9 B9: GitHub sign-in is on (githubVerifyEnabled). */
+  signIn?: boolean;
 }): ConfirmDecision {
   if (!a.confirmed || !a.decision) return { kind: 'offer' };
   if (a.decision === 'skip') return { kind: 'skip' };
   // v2.8.1 §C13: the repo's token is in another program: the kit alone, no bonus note.
   if (a.coinIn) return { kind: 'record_only', note: '' };
-  if (!a.canPush) return { kind: 'record_only', note: CANT_PUSH };
+  if (!a.canPush && !a.signIn) return { kind: 'record_only', note: CANT_PUSH };
   if (!a.hasRepo) return { kind: 'record_only', note: NEEDS_REPO };
   if (a.policyOff || !a.available) return { kind: 'record_only', note: NO_TOKEN_HERE };
-  return { kind: 'launch' };
+  return a.canPush ? { kind: 'launch' } : { kind: 'sign_in' };
 }

@@ -692,10 +692,13 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS min_product_score int NOT NULL DEF
 CREATE TABLE IF NOT EXISTS builder_program_status (
   installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   program_id      text NOT NULL,
+  -- v2.9 B9 (Ruling G6): '' on the installation's own memory; on a shared (hosted) client, the
+  -- GitHub-verified login the statement was made under.
+  login           text NOT NULL DEFAULT '',
   status          text NOT NULL CHECK (status IN ('applied', 'not_interested')),
   round_label     text,
   at              timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (installation_id, program_id)
+  PRIMARY KEY (installation_id, login, program_id)
 );
 -- v2.9 A3: what the builder told EarnKit about a repo (repo_key: owner/repo or name:<name>).
 CREATE TABLE IF NOT EXISTS builder_repo_facts (
@@ -707,7 +710,9 @@ CREATE TABLE IF NOT EXISTS builder_repo_facts (
   has_users       boolean,
   not_mine        boolean NOT NULL DEFAULT false,
   at              timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (installation_id, repo_key)
+  -- v2.9 B9 (Ruling G6): as builder_program_status.login.
+  login           text NOT NULL DEFAULT '',
+  PRIMARY KEY (installation_id, login, repo_key)
 );
 
 -- v2.9 A7: up to 5 compact facts of the builder's best owned repos, for alerts with no GitHub call.
@@ -726,3 +731,48 @@ CREATE TABLE IF NOT EXISTS match_shown (
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_floor integer;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_precision numeric;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS product_score integer;
+
+-- v2.9 B9 (Ruling G6): builder memory is keyed by login too (a database made before the column).
+ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS login text NOT NULL DEFAULT '';
+ALTER TABLE builder_repo_facts ADD COLUMN IF NOT EXISTS login text NOT NULL DEFAULT '';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'builder_program_status'::regclass AND i.indisprimary AND a.attname = 'login') THEN
+    ALTER TABLE builder_program_status DROP CONSTRAINT builder_program_status_pkey;
+    ALTER TABLE builder_program_status ADD PRIMARY KEY (installation_id, login, program_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'builder_repo_facts'::regclass AND i.indisprimary AND a.attname = 'login') THEN
+    ALTER TABLE builder_repo_facts DROP CONSTRAINT builder_repo_facts_pkey;
+    ALTER TABLE builder_repo_facts ADD PRIMARY KEY (installation_id, login, repo_key);
+  END IF;
+END $$;
+
+-- v2.9 B9: one-time sign-in links (Ruling 5). Only the sha256 of the nonce is stored.
+CREATE TABLE IF NOT EXISTS github_verify_nonces (
+  nonce_hash      text PRIMARY KEY,
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  project_id      integer REFERENCES projects(id) ON DELETE CASCADE,
+  repo_key        text NOT NULL,
+  purpose         text NOT NULL CHECK (purpose IN ('entry', 'pickup', 'host')),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  expires_at      timestamptz NOT NULL,
+  used_at         timestamptz
+);
+CREATE INDEX IF NOT EXISTS github_verify_nonces_project ON github_verify_nonces (project_id) WHERE project_id IS NOT NULL;
+-- v2.9 B9: a passed GitHub ownership check (Ruling 6). The GitHub token is never stored.
+CREATE TABLE IF NOT EXISTS github_verifications (
+  id                 serial PRIMARY KEY,
+  repo_key           text NOT NULL,
+  login              text NOT NULL,
+  installation_id    integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  project_id         integer REFERENCES projects(id) ON DELETE CASCADE,
+  account_created_at timestamptz NOT NULL,
+  public_repos       integer NOT NULL,
+  verified_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS github_verifications_repo ON github_verifications (repo_key, installation_id);
+-- v2.9 B9 (Pre-flight P11): the nonce's purpose, and when a single-use (shared client host) check was used.
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'entry';
+ALTER TABLE github_verifications ADD COLUMN IF NOT EXISTS used_at timestamptz;
