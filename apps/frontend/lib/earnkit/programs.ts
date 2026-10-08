@@ -182,6 +182,10 @@ export type ProgramRow = {
   needs_contract: Chain | null;
   /** v2.9 A2: the lowest product score a repo needs for a matched row (a16z: 5); 0: none. */
   min_product_score: number;
+  /** v2.9 A8 (match-loop.ts): the lowest announced winner's product score; null under 30 labelled entries. */
+  match_floor: number | null;
+  /** v2.9 A8: wins or places per entry from `likely` rows (numeric, so a string); null under 30 labelled entries. */
+  match_precision: string | null;
   campaign: CampaignConfig | null;
   created_at: Date;
   /** When the program last became active (v2.4 §4); null while it never was. */
@@ -264,6 +268,7 @@ export async function listPrograms() {
       | 'rules'
       | 'token_policy'
       | 'starts_at'
+      | 'match_precision'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -275,7 +280,7 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
     ORDER BY p.ends_at NULLS LAST`;
@@ -339,7 +344,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy; starts_at?: Date | null },
+  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -401,6 +406,8 @@ export function programCard(
     investment: p.investment === true,
     // v2.7 §2, Ruling 12 (plan): campaigns (EarnKit or sponsor) have no difficulty.
     difficulty: p.campaign ? null : difficultyOf(p),
+    // v2.9 A8: a matched row reads one step harder under 5% (guide.ts rowDifficulty).
+    match_precision: p.match_precision == null ? null : Number(p.match_precision),
     // v2.8 Task 5 fix round 1: whether entries get a token at all (the first message's token line).
     token_policy: p.token_policy,
   };
@@ -421,9 +428,10 @@ export async function openProgramFacts() {
       | 'source'
       | 'investment'
       | 'min_product_score'
+      | 'match_floor'
     >[]
   >`
-    SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score FROM programs
+    SELECT id, title, existing_work, tag, starts_at, chains, any_chain, source, investment, min_product_score, match_floor FROM programs
     WHERE status = 'active' AND (ends_at IS NULL OR ends_at > now())
     ORDER BY ends_at NULLS LAST`;
   return rows.map(({ source, ...p }) => ({

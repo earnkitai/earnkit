@@ -358,7 +358,8 @@ test('4.4 match precision under 5% makes a row one step harder; 5% leaves it', (
 
 test('4.5 Base after the file edit is Medium (estimate), not Easy', () => {
   const file = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/base-builder-grants.json'), 'utf8'));
-  const d = difficultyOf(ProgramFile.parse(file));
+  const p = ProgramFile.parse(file);
+  const d = difficultyOf({ ...p, tag: p.tag ?? null, best_bet: p.best_bet ?? null, focus: p.focus ?? null, winners_per_round: p.winners_per_round ?? null });
   assert.equal(d.level, 'Medium');
   assert.equal(d.estimate, true);
   assert.equal(difficultyLabel(d), 'Medium (estimate)');

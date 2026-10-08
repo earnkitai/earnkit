@@ -709,3 +709,20 @@ CREATE TABLE IF NOT EXISTS builder_repo_facts (
   at              timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (installation_id, repo_key)
 );
+
+-- v2.9 A7: up to 5 compact facts of the builder's best owned repos, for alerts with no GitHub call.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS fit_repos jsonb NOT NULL DEFAULT '[]';
+-- v2.9 A8: what matching showed, one row per (installation, program, repo) per UTC day.
+CREATE TABLE IF NOT EXISTS match_shown (
+  installation_id integer NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  program_id      text NOT NULL,
+  repo_key        text NOT NULL,
+  status          text NOT NULL,
+  product_score   integer,
+  row_level       text NOT NULL,
+  day             date NOT NULL,
+  PRIMARY KEY (installation_id, program_id, repo_key, day)
+);
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_floor integer;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS match_precision numeric;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS product_score integer;
