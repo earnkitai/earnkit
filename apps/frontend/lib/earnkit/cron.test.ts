@@ -521,6 +521,8 @@ test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out o
   const gasOut = 'the payout wallet needs ETH for gas';
   assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'nothing to claim' }, { owner: '0x2', result: gasOut }] }), true);
   assert.equal(bonusWaitsOnOwner({ ...ok, collect: [{ coin: '0x1', result: gasOut }] }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, claim_others: [{ owner: '0x3', result: 'next run' }, { owner: '0x4', result: gasOut }] }), true);
+  assert.equal(bonusWaitsOnOwner({ ...ok, claim_others: [{ owner: '0x3', result: 'next run' }] }), false);
   assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'failed' }], collect: 'waiting on a stored send' }), false);
   // Unchanged: the sweep's TOP_UP note and INDEX_FAILED_RUNS failed index steps.
   assert.equal(bonusWaitsOnOwner({ ...ok, sweep: { result: `${gasOut}. ${TOP_UP}` } }), true);

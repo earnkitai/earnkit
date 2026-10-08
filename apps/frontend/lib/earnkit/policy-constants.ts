@@ -11,3 +11,10 @@ export const MINI_FEE_RECIPIENT = '0x6DCeEAFA8b06977e5bD2F2D9B0cF949f640f47D1';
 
 /** v2.9 D17: the payout wallet is low on gas below this ETH balance (wei; 0.002 ETH). GAS_WALLET_MIN_WEI overrides it. */
 export const GAS_WALLET_MIN_WEI_DEFAULT = 2_000_000_000_000_000n;
+
+/**
+ * v2.9 D16: an EarnKit token's split by slot, bps (Safe, creator, MINI, bonus wallet), as read from
+ * its locker. Recipients are read by slot only from a token with this split. The same numbers as
+ * policy.ts FEE_SPLIT_BPS (a test keeps them equal).
+ */
+export const EARNKIT_SPLIT_BPS = [3000, 4000, 1000, 2000] as const;

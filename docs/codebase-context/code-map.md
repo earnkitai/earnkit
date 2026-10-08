@@ -780,9 +780,11 @@ apps/frontend/
                                the program window; v2.8.1 §D: once the coin's program is over, the
                                repo's next open entry via rolloverRound, else the Safe; a booked
                                deposit is never moved), lockRound, collectNearEnd (isRevert: only a revert skips a
-                               locker), claimFees (M10: also when the sweep waits on it; v2.9 D16:
-                               claimOwners = bonus, Safe, creators, MINI once each; feeRecipients
-                               cached on projects.fee_recipients; D18 fee_claims ops log),
+                               locker), claimFees (bonus wallet then Safe; M10: also when the sweep
+                               waits on it), v2.9 D16: claimForOthers (step claim_others after the
+                               sweep, OTHERS_CLAIM_MS slice, MINI then creators newest first),
+                               claimOwners (each owner once), feeRecipients (EARNKIT_SPLIT_BPS only,
+                               cached on projects.fee_recipients); D18 fee_claims ops log,
                                v2.9 D17: GAS_LOW, gasMinWei, NEEDS_GAS, BonusRpc.rewardInfo/ethBalance,
                                sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
                                indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
@@ -813,7 +815,7 @@ apps/frontend/
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy; v2.9 re-exports
                                MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT
     policy-constants.ts        v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
-                               GAS_WALLET_MIN_WEI_DEFAULT; a leaf so bonus-ledger.ts can import them
+                               GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
                                (policy.ts imports bonus-payout/traction, which import bonus-ledger)
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
