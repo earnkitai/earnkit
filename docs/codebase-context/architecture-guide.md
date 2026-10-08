@@ -912,7 +912,19 @@ during the build); plan: `v2.4-money-first-plan.md`.
   end, from a builder-bonus program that ended or closed before it) and scoring reads its signals
   (`scoredCoinSql`). The Also qualifies note names the program the fees book to now
   (`bonusEntryProgram`; null, the Safe, drops the note) and adds "Your builder bonus moves to your
-  next entry when a program ends." (`BONUS_MOVES`) once, right after it.
+  next entry when a program ends." (`BONUS_MOVES`) once, right after it. Ruling F6: every
+  builder-facing bonus note names that program the same way (`currentBonusRound`, the booking
+  rule): the "rides on" note after "Entered in…" and the token note (`tools.ts bonusNoteTitle`;
+  fees bound for the Safe read "This repo already has a token."), and the entry-time note
+  (`recordSubmission`). The entry-time "earlier entry holds this repo" and contract checks count
+  the carried token too (`coinSql`). The near-end collect (`collectNearEnd`) runs for the round a
+  coin's fees book to now, including a round it rolled into.
+- **Rollover edge cases (Ruling F6, accepted).** (a) Booking needs the target entry proven and
+  complete at the deposit's block time; eligibility only needs the token's program to have ended
+  (or closed) before the round's end. (b) A home round that froze inside its window (the file
+  extended it after the freeze) rolls deposits over, but `coinSql` doesn't count that case for the
+  next entry. (c) "Submitted" is `submission_proof_ok_at` (`submitted_at` is always set): a
+  deposit that lands before the next entry's proof check goes to the Safe for good.
 - **Hourly cron step** (`bonus-ledger.ts` `runBonusLedger`, after the campaigns, under the
   `bonus-ledger` lease). `CAMPAIGN_PAYOUT_PRIVATE_KEY` is 64 hex characters with or without `0x`
   (Ruling 7; an error about it names the key's length and shape only, never its value). Skipped without a usable key (missing, or malformed: `skipped` plus

@@ -1059,3 +1059,50 @@ test('fix round 2 (N1): a re-record reports a coin only for an EarnKit coin, nev
   const pending = await recordSubmission({ program_id: program.id, project, submission_data: data } as never, installationId);
   assert.equal((pending as { coin_url?: string | null }).coin_url, 'pending');
 });
+
+test('v2.8.1 §D: at entry time, an earlier entry holding the repo on the carried token is named, and the note names the round the fees roll to', dbTest, async () => {
+  const tag = `t5-roll-${process.pid}-${Date.now()}`;
+  const HOME = `${tag}-home`;
+  const repoKey = `github.com/alice/${tag}`;
+  const program = proofProgramFile(tag, { starts_at: '2026-01-01T00:00:00Z', ends_at: '2030-01-01T00:00:00Z' });
+  await upsertProgram(program);
+  // The repo's token is in HOME, whose window has ended: its fees roll over.
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary,
+      status, existing_work, starts_at, ends_at)
+    VALUES (${HOME}, 'X', 'Ended Grants', 'd', 'https://x.example', 'https://x.example', 'r', 's', 'active', 'allowed',
+      '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')`;
+  const other = await freshInstallation();
+  const installationId = await freshInstallation();
+  const project = { ...proofProject(81), repo_url: `https://github.com/alice/${tag}` };
+  await sql()`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, token_repo_key, token_url, token_status,
+      coin_address, coin_launched_at, submission_proof_ok_at, complete_at)
+    VALUES (${HOME}, 'Home', ${project.repo_url}, ${other}, ${repoKey}, ${repoKey}, 'https://tokens.fun/coin/x', 'launched',
+      ${`0x${'5'.repeat(36)}${String(process.pid % 10000).padStart(4, '0')}`}, '2026-01-05T00:00:00Z', '2026-01-05T00:00:00Z', '2026-01-05T00:00:00Z')`;
+  // An earlier, coinless, submitted and complete entry of the repo in this program: it carries the token.
+  const [earlier] = await sql()<{ id: number }[]>`
+    INSERT INTO projects (program_id, name, repo_url, installation_id, bonus_repo_key, submission_proof_ok_at, complete_at, confirm_choice)
+    VALUES (${program.id}, 'Earlier', ${project.repo_url}, ${other}, ${repoKey}, '2026-01-10T00:00:00Z', '2026-01-10T00:00:00Z', 'go')
+    RETURNING id`;
+  try {
+    const result = await recordSubmission(
+      {
+        program_id: program.id,
+        project,
+        submission_data: { live_deployment_url: project.live_url, repo_url: project.repo_url, description: project.description, builder_profile: 'https://github.com/alice' },
+        external_submission_url: 'https://dorahacks.io/buidl/581',
+      } as never,
+      installationId,
+      { fetchProof: async () => `See the repo: ${project.repo_url}` },
+    );
+    assert.equal(result.recorded, true);
+    const note = (result as { bonus_note?: string }).bonus_note ?? '';
+    assert.match(note, new RegExp(`entry #${earlier.id} already holds this repo`), note);
+    assert.match(note, new RegExp(`Your builder bonus rides on your ${program.title} entry\\.`), note);
+    assert.doesNotMatch(note, /Ended Grants/, note);
+  } finally {
+    await sql()`DELETE FROM projects WHERE program_id IN (${program.id}, ${HOME})`;
+    await sql()`DELETE FROM programs WHERE id = ${HOME}`;
+  }
+});

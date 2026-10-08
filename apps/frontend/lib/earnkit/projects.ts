@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { z } from 'zod';
-import { bonusOn, roundFor } from './bonus-rounds';
+import { bonusEntryProgram, bonusOn, roundFor } from './bonus-rounds';
 import { sql } from './db';
 import {
   EntryError,
@@ -14,7 +14,7 @@ import {
 } from './campaigns';
 import { formatDeadline } from './dates';
 import { entryMessage, entrySigner } from './entry-proof';
-import { enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
+import { bonusRidesOn, enteredTable, repoCoinNote, roundEndLabel, siteUrl } from './entry-text';
 import { testInstallationIds } from './installations';
 import {
   checkOwnership,
@@ -34,7 +34,7 @@ import { repoCoinPrograms } from './tokens';
 import { PROOF_LINE_PREFIX } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
-import { CLANKER_ADDRESSES } from './traction';
+import { CLANKER_ADDRESSES, coinSql } from './traction';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
 import {
   RAW_CAP,
@@ -686,8 +686,14 @@ export async function recordSubmission(
     // Ruling 25 is about another program: a coin in this same program is Ruling 13b's case.
     if (coin && coin.program_id !== program.id) {
       coinElsewhere = true;
-      const line = repoCoinNote(coin.title);
-      notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
+      // v2.8.1 §D: once the token's program is over, its fees roll over; the note names the round
+      // they book to now (bonusEntryProgram, the booking rule), else the token's own program.
+      const booked = await bonusEntryProgram(bonusRepoKey).catch(() => undefined);
+      if (booked && booked.program_id !== coin.program_id) notes.push(bonusRidesOn(booked.title));
+      else {
+        const line = repoCoinNote(coin.title);
+        notes.push(`${line[0].toUpperCase()}${line.slice(1)}.`);
+      }
     } else if (coin) coinHere = true;
   }
   // v2.6 §3: the round this entry's coin would enter, for the after-submission reply (null with
@@ -700,9 +706,10 @@ export async function recordSubmission(
   // (traction.ts eligibleSql: coin, proof and, v2.8 Ruling 2 (plan), a complete entry before the
   // round's end, never skipped), like scoring does.
   const roundEnd = roundFor(program, new Date())?.ends ?? null;
-  const beforeEnd = (tx: postgres.TransactionSql) =>
+  // The token's launch time is coinSql's (an own coin before the end, or the carried one's).
+  const beforeEnd = (tx: postgres.TransactionSql, a: 'p') =>
     roundEnd
-      ? tx`AND coin_launched_at < ${roundEnd} AND submission_proof_ok_at < ${roundEnd} AND submitted_at < ${roundEnd} AND complete_at < ${roundEnd}`
+      ? tx`AND ${tx(a)}.submission_proof_ok_at < ${roundEnd} AND ${tx(a)}.submitted_at < ${roundEnd} AND ${tx(a)}.complete_at < ${roundEnd}`
       : tx``;
 
   // Campaign entries store the normalized repo; a unique index on (program_id, repo_key) backs
@@ -777,13 +784,15 @@ export async function recordSubmission(
         // row or the builder's own failed attempt never blocks (traction.ts eligibleSql). v2.6
         // Ruling 6 (plan), fix round 1: an owner test installation's entry never blocks either,
         // the same exclusion eligibleSql applies for its own `q`.
+        // v2.8.1 §D: an earlier entry holds the repo on its own token or on the repo's token
+        // carried from an ended program (traction.ts coinSql, the booking rule).
         const [earlier] = await tx<{ id: number }[]>`
-          SELECT id FROM projects WHERE program_id = ${program.id} AND bonus_repo_key = ${bonusRepoKey}
-            AND id <> ${existing?.id ?? 0}
-            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
-            AND complete_at IS NOT NULL AND confirm_choice IS DISTINCT FROM 'skip'
-            AND NOT COALESCE(installation_id = ANY(${testInstallationIds()}::int[]), false)
-          ORDER BY submitted_at, id LIMIT 1`;
+          SELECT p.id FROM projects p WHERE p.program_id = ${program.id} AND p.bonus_repo_key = ${bonusRepoKey}
+            AND p.id <> ${existing?.id ?? 0}
+            AND ${coinSql('p', roundEnd ?? new Date())} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
+            AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
+            AND NOT COALESCE(p.installation_id = ANY(${testInstallationIds()}::int[]), false)
+          ORDER BY p.submitted_at, p.id LIMIT 1`;
         if (earlier)
           notes.push(
             `Not eligible for the builder bonus: entry #${earlier.id} already holds this repo in this program, and only the earliest eligible entry of a repo is.`,
@@ -798,12 +807,12 @@ export async function recordSubmission(
         // A contract backs only one eligible entry per program, the earliest (Ruling 15; scoring
         // drops it from later entries, traction.ts ownContracts).
         const held = await tx<{ id: number; contracts: string[] }[]>`
-          SELECT id, contracts FROM projects
-          WHERE program_id = ${program.id} AND contracts && ${bonusContracts}::text[]
-            AND id <> ${existing?.id ?? 0}
-            AND coin_address IS NOT NULL AND submission_proof_ok_at IS NOT NULL ${beforeEnd(tx)}
-            AND complete_at IS NOT NULL AND confirm_choice IS DISTINCT FROM 'skip'
-          ORDER BY submitted_at, id`;
+          SELECT p.id, p.contracts FROM projects p
+          WHERE p.program_id = ${program.id} AND p.contracts && ${bonusContracts}::text[]
+            AND p.id <> ${existing?.id ?? 0}
+            AND ${coinSql('p', roundEnd ?? new Date())} AND p.submission_proof_ok_at IS NOT NULL ${beforeEnd(tx, 'p')}
+            AND p.complete_at IS NOT NULL AND p.confirm_choice IS DISTINCT FROM 'skip'
+          ORDER BY p.submitted_at, p.id`;
         const taken = bonusContracts
           .map((c) => ({ c, by: held.find((h) => h.contracts.map((x) => x.toLowerCase()).includes(c)) }))
           .filter((x) => x.by);

@@ -127,7 +127,7 @@ export function rolloverRounds(
     );
 }
 
-type BonusProgram = Window & { status: string; builder_bonus: boolean | null; campaign: unknown; title: string };
+export type BonusProgram = Window & { status: string; builder_bonus: boolean | null; campaign: unknown; title: string };
 
 /**
  * v2.8.1 §D: the programs a deposit at `at` of the repo's token (entered by project `coin.project`
@@ -152,38 +152,53 @@ export async function rolloverPrograms(
 }
 
 /**
- * v2.8.1 §D, the T4 carry: the program whose round the repo's token fees book to now, for the
- * bonus note ("Your builder bonus rides on your <title> entry."): the token's own program while
- * its round is open; once that round is over (rollsOver, or it froze), the program of the
- * earliest still-open round the fees roll over to (bonus-ledger.ts rolloverRound's rule). Null
- * when that round is over and there is no open entry to roll over to (the fees go to the Safe);
- * undefined when the repo has no EarnKit token, or its program has no builder bonus.
+ * v2.8.1 §D: the round a token's fees book to at `now`, by bookDeposit's rule without writing:
+ * its own program's round while that is open (`round` null when the program has no round yet,
+ * e.g. a windowed program with no start, while it still runs); once that is over (rollsOver, or
+ * its round froze), the earliest still-open round it rolls over to (rolloverPrograms,
+ * rolloverRounds). Null: the Safe. `home`: the token's project, its program and its repo key.
  */
-export async function bonusEntryProgram(
-  repoKey: string,
+export async function currentBonusRound(
+  home: BonusProgram & { project: number; repo_key: string | null },
   now = new Date(),
-): Promise<{ program_id: string; title: string } | null | undefined> {
-  const [home] = await sql()<(BonusProgram & { project: number })[]>`
-    SELECT p.id AS project, g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
-    FROM projects p JOIN programs g ON g.id = p.program_id
-    WHERE p.token_repo_key = ${repoKey} AND p.token_url IS NOT NULL
-    ORDER BY p.id LIMIT 1`;
-  // No token, or its program never had the builder bonus (an opt-out, a campaign): nothing rolls.
-  if (!home || !bonusOn({ ...home, status: 'active' })) return undefined;
+): Promise<{ program_id: string; title: string; round: Round | null } | null> {
+  if (!bonusOn({ ...home, status: 'active' })) return null;
   const stateOf = async (key: string) =>
     (await sql()<{ state: string }[]>`SELECT state FROM bonus_rounds WHERE round_key = ${key}`)[0]?.state ?? 'open';
   const b = bookingFor(home, now);
   let over = rollsOver(home, now);
   if (b.destination === 'round') {
-    if ((await stateOf(b.round.key)) === 'open') return { program_id: home.id, title: home.title };
+    if ((await stateOf(b.round.key)) === 'open') return { program_id: home.id, title: home.title, round: b.round };
     over = true;
   }
   // Not over yet: the bonus still rides on the token's own entry.
-  if (!over) return { program_id: home.id, title: home.title };
-  const programs = await rolloverPrograms(sql(), { project: home.project, program: home.id, repoKey }, now);
+  if (!over) return { program_id: home.id, title: home.title, round: null };
+  const programs = await rolloverPrograms(sql(), { project: home.project, program: home.id, repoKey: home.repo_key }, now);
   for (const c of rolloverRounds(programs, now))
-    if ((await stateOf(c.round.key)) === 'open') return { program_id: c.programId, title: programs.find((p) => p.id === c.programId)!.title };
+    if ((await stateOf(c.round.key)) === 'open')
+      return { program_id: c.programId, title: programs.find((p) => p.id === c.programId)!.title, round: c.round };
   return null;
+}
+
+/**
+ * v2.8.1 §D, the T4 carry: the program whose round the repo's token fees book to now, for every
+ * builder-facing bonus note ("Your builder bonus rides on your <title> entry."): currentBonusRound
+ * of the repo's token. Null when the fees go to the Safe; undefined when the repo has no EarnKit
+ * token, or its program has no builder bonus (the caller keeps its own wording).
+ */
+export async function bonusEntryProgram(
+  repoKey: string,
+  now = new Date(),
+): Promise<{ program_id: string; title: string } | null | undefined> {
+  const [home] = await sql()<(BonusProgram & { project: number; repo_key: string | null })[]>`
+    SELECT p.id AS project, p.token_repo_key AS repo_key, g.id, g.title, g.starts_at, g.ends_at, g.status, g.builder_bonus, g.campaign
+    FROM projects p JOIN programs g ON g.id = p.program_id
+    WHERE p.token_repo_key = ${repoKey} AND p.token_url IS NOT NULL
+    ORDER BY p.id LIMIT 1`;
+  // No token, or its program never had the builder bonus (an opt-out, a campaign): nothing rolls.
+  if (!home || !bonusOn({ ...home, status: 'active' })) return undefined;
+  const r = await currentBonusRound(home, now);
+  return r && { program_id: r.program_id, title: r.title };
 }
 
 /**

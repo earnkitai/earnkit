@@ -680,8 +680,9 @@ apps/frontend/
                                roundKeyFromSlug / resolveRoundParam (Ruling 12 (plan)); v2.8.1 §D:
                                rollsOver (the program ended: window passed or closed), rolloverRounds
                                (earliest end first), rolloverPrograms (the repo's submitted, complete
-                               entries by the deposit time), bonusEntryProgram (where the repo token's
-                               fees book now, for the Also qualifies note)
+                               entries by the deposit time), currentBonusRound (the round a token's
+                               fees book to now; also the near-end collect's), bonusEntryProgram
+                               (its program, for every builder-facing bonus note)
     bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
                                ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive

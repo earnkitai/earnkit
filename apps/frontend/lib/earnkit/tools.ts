@@ -266,6 +266,20 @@ async function tokenElsewhere(parsed: z.infer<typeof RecordSubmissionInput>, ctx
 }
 
 /**
+ * v2.8.1 §D: the program every builder-facing bonus note names for a repo whose token is `home`'s:
+ * where its fees book now, by the booking rule (bonus-rounds.ts bonusEntryProgram, after
+ * rollover); null when they go to the Safe (no "rides on" note). A failed read, or no token
+ * found there, keeps `home`.
+ */
+async function bonusNoteTitle(repoKey: string, home: string, ctx: ToolContext): Promise<string | null> {
+  const booked = await (ctx.bonusEntry ?? bonusEntryProgram)(repoKey).catch((err: unknown) => {
+    console.error('[bonus_note] bonus round lookup', err instanceof Error ? err.name : 'error');
+    return undefined;
+  });
+  return booked === undefined ? home : (booked?.title ?? null);
+}
+
+/**
  * v2.8 Ruling 29 (plan): "Also qualifies", right after record_submission records the entry.
  * Chains come from the repo-facts cache for this repo when present, else the entered program's
  * own chains (the repo was just entered there). Never fails the reply: on error the caller logs
@@ -301,17 +315,9 @@ async function alsoQualifiesBlock(
     hasLiveProduct: Boolean(parsed.project.live_url),
     now: new Date(),
   });
-  // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover; a failed
-  // read keeps the token's own program.
+  // v2.8.1 §D (the T4 carry): name the round the token's fees book to, after rollover.
   const home = (repoKey && coins.get(repoKey)) || null;
-  let coinIn = home?.title ?? null;
-  if (home && repoKey && rows.length > 0) {
-    const booked = await (ctx.bonusEntry ?? bonusEntryProgram)(repoKey).catch((err: unknown) => {
-      console.error('[also_qualifies] bonus round lookup', err instanceof Error ? err.name : 'error');
-      return undefined;
-    });
-    if (booked !== undefined) coinIn = booked?.title ?? null;
-  }
+  const coinIn = home && repoKey && rows.length > 0 ? await bonusNoteTitle(repoKey, home.title, ctx) : (home?.title ?? null);
   return { rows, text: alsoText(rows, coinIn) };
 }
 
@@ -1195,6 +1201,9 @@ export const tools = {
     // Final review I3: a confirmed "go" with no token, whose repo's one token is entered in another
     // program (Ruling 5 (plan)): no token here by design, said as the confirmation said it.
     const countsIn = confirmed === 'go' && !hasCoin ? await tokenElsewhere(parsed, ctx) : null;
+    // v2.8.1 §D: the bonus note names the round the token's fees book to now (null: the Safe).
+    const repoForNote = parsed.project.repo_url ?? answersOf(parsed.submission_data).repo_url ?? null;
+    const ridesOnTitle = countsIn && repoForNote ? await bonusNoteTitle(normalizeRepoUrl(repoForNote), countsIn, ctx) : null;
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
         ? // v2.8.1 §A1: launching, or stuck past 10 minutes (the cron has alerted the owner).
@@ -1209,7 +1218,14 @@ export const tools = {
       : confirmed
         ? {
             status: 'skipped',
-            note: confirmed === 'skip' ? SKIPPED_ENTRY : countsIn ? bonusRidesOn(countsIn) : "This entry's token isn't launched.",
+            note:
+              confirmed === 'skip'
+                ? SKIPPED_ENTRY
+                : countsIn
+                  ? ridesOnTitle
+                    ? bonusRidesOn(ridesOnTitle)
+                    : `${REPO_HAS_TOKEN}.`
+                  : "This entry's token isn't launched.",
           }
         : await submissionToken(
       {
@@ -1279,7 +1295,7 @@ export const tools = {
       return null;
     });
     // v2.8.1 §C13: the bonus note once: in Also qualifies, else after "Entered in…".
-    const ridesOn = countsIn && !also?.text ? ` ${bonusRidesOn(countsIn)}` : '';
+    const ridesOn = ridesOnTitle && !also?.text ? ` ${bonusRidesOn(ridesOnTitle)}` : '';
     const show_to_builder =
       enteredText({ programTitle: result.program_title, coin, bonus, repoHeld, countsIn }) + ridesOn + (also?.text ? `\n\n${also.text}` : '');
     return withAlerts(ctx.installationId, {
