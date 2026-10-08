@@ -7,6 +7,7 @@ import {
   HOSTED_REDIRECT_HOSTS,
   clientKeyOf,
   clientLimitKey,
+  registrationLimitKey,
   exchangeCode,
   isAllowedRedirectUri,
   isHostedHost,
@@ -269,7 +270,8 @@ test('v2.8.1 §E17: the flag travels in the client id; the code exchange returns
   const hosted = registerClient({ redirect_uris: [redirect], client_name: 'Grok' });
   const r = exchangeCode(tokenForm(hosted.client_id, codeOf(hosted.client_id)));
   assert.equal(r.shared, true);
-  assert.equal(r.limitKey, 'host:grok.com');
+  // Ruling F11: a new installation counts against its own registration, never the redirect host.
+  assert.equal(r.limitKey, registrationLimitKey(hosted.client_id));
   // Named Muse with a plain redirect: the name is only known at registration, so the id carries it.
   const muse = registerClient({ redirect_uris: ['https://agent.example/cb'], client_name: 'Muse' });
   const code = new URL(
@@ -287,7 +289,7 @@ test('v2.8.1 §E17: the flag travels in the client id; the code exchange returns
     new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: 'https://agent.example/cb', code_verifier: verifier }),
   );
   assert.equal(m.shared, true);
-  assert.equal(m.limitKey, 'host:agent.example');
+  assert.equal(m.limitKey, `client:${clientKeyOf(muse.client_id)}`);
   // A pre-v2.8.1 Grok client id (no flag) is still flagged by its redirect host.
   const body = Buffer.from(JSON.stringify({ r: [redirect], n: 'abc' })).toString('base64url');
   const sig = createHmac('sha256', 'test-secret').update(`client:${body}`).digest('base64url');

@@ -138,17 +138,26 @@ export function isSharedClient(metadata: { client_name?: unknown; redirect_uris?
 }
 
 /**
- * v2.8.1 §E17: who a registration or a new installation counts against, besides its IP: the agent
- * app, by its first https redirect host (a hosted agent's users all share it). A client with no https
- * redirect (loopback or an app scheme: a desktop or CLI agent) runs on the builder's own machine and
- * counts per registration (`clientId`), else (at registration) not at all: the IP floor covers it.
+ * v2.8.1 §E17, Ruling F11: the agent app a registration counts against for the register ceiling
+ * (LIMITS.oauthRegisterHost), by its first https redirect host. A client with no https redirect
+ * (loopback or an app scheme: a desktop or CLI agent) runs on the builder's own machine; it counts
+ * per registration (`clientId`) when one is given, else not at all: the IP floor covers it.
  * Pure; exported for tests.
  */
 export function clientLimitKey(uris: readonly string[], clientId?: string): string | null {
   const host = redirectHosts(uris)[0];
   if (host) return `host:${host}`;
-  return clientId ? `client:${clientKeyOf(clientId)}` : null;
+  return clientId ? registrationLimitKey(clientId) : null;
 }
+
+/**
+ * Ruling F11 (final fix wave, I1): what a new installation counts against besides its IP: its own
+ * registration (client id), never the redirect host, so one agent app's users (claude.ai, ChatGPT,
+ * Grok) never share a bucket that anyone can fill by registering clients with that host. Pure;
+ * exported for tests.
+ */
+export const registrationLimitKey = (clientId: string) => `client:${clientKeyOf(clientId)}`;
+
 /**
  * The installation key of an OAuth client (v2.4 §5): the first 32 hex of sha256(client_id).
  * Re-authorizing the same client maps to the same installation. Never display or log client ids;
@@ -264,7 +273,7 @@ export function exchangeCode(form: URLSearchParams): {
   clientKey: string | undefined;
   /** v2.8.1 §E17: a hosted agent client (isSharedClient), flagged on the installation. */
   shared: boolean;
-  /** v2.8.1 §E17: what a new installation counts against besides its IP (clientLimitKey). */
+  /** v2.8.1 §E17, Ruling F11: what a new installation counts against besides its IP (registrationLimitKey). */
   limitKey: string;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
@@ -300,7 +309,7 @@ export function exchangeCode(form: URLSearchParams): {
     token: `ek_${mac('token', code)}`,
     clientKey,
     shared: client?.s === 1 || isSharedClient({ redirect_uris: uris }),
-    limitKey: clientLimitKey(uris, payload.c)!,
+    limitKey: registrationLimitKey(payload.c),
   };
 }
 

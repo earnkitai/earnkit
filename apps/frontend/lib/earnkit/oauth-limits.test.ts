@@ -2,13 +2,13 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { authorize, registerClient } from './oauth';
+import { authorize, registerClient, registrationLimitKey } from './oauth';
 import {
   authorizeGet as authorizeRoute,
   registerPost as registerRoute,
   tokenPost as tokenRoute,
 } from './oauth-routes';
-import { windowStart } from './rate-limit';
+import { LIMITS, REGISTER_HOST_WARN, windowStart } from './rate-limit';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'test-secret';
 
@@ -95,7 +95,7 @@ test(
       freshCode(registerClient({ redirect_uris: [redirect] }).client_id),
     );
     assert.equal(other.status, 200);
-    await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%:' + ip + '%'} OR key LIKE 'installClient:host:agent-%'`;
+    await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%:' + ip + '%'}`;
   },
 );
 
@@ -151,36 +151,42 @@ async function preload(name: string, key: string, count: number, windowSeconds: 
     ON CONFLICT (key, window_start) DO UPDATE SET count = ${count}`;
 }
 
-test("v2.8.1 §E17: a hosted agent's users are no longer capped by its servers' IP; 500 new installs per client a day", db, async () => {
+test("v2.8.1 §E17, Ruling F11: a hosted agent's users are capped neither by its servers' IP nor by its host; installs count per registration", db, async () => {
   const host = `grok-${process.pid}-${Date.now()}.grok.com`;
   const uri = `https://${host}/oauth/callback`;
-  const ip = `198.22.${process.pid % 250}.${Date.now() % 250}`;
-  // 40 users of the hosted agent sign in through its one server IP within the hour: all succeed
-  // (before v2.8.1 the 11th failed).
-  for (let i = 0; i < 40; i++) {
+  const base = `198.22.${process.pid % 250}`;
+  const ipFor = (i: number) => `${base}.${Math.floor(i / 50) % 250}`;
+  // 501 users of the hosted agent, each with their own registration under the same host, within the
+  // hour (50 per server IP, the floor): none is refused by the client limit (before Ruling F11 the
+  // 501st was, and before v2.8.1 the 11th from one IP).
+  for (let i = 0; i < 501; i++) {
     const { client_id } = registerClient({ redirect_uris: [uri], client_name: 'Grok' });
-    const res = await exchange(ip, freshCode(client_id, uri));
-    assert.equal(res.status, 200, `user ${i + 1}`);
+    const res = await exchange(ipFor(i), freshCode(client_id, uri));
+    assert.equal(res.status, 200, `user ${i + 1}: ${res.status === 200 ? '' : (await res.json()).error_description}`);
   }
-  // The installation is flagged shared_client.
+  // The installations are flagged shared_client.
   const [row] = await sql()<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM installations WHERE shared_client AND last_seen_at > now() - interval '1 minute'`;
-  assert.ok(row.n >= 40);
-  // The client's day: the 501st is refused from any address, with a readable 429.
-  await preload('installClient', `host:${host}`, 500, 86_400);
+    SELECT count(*)::int AS n FROM installations WHERE shared_client AND last_seen_at > now() - interval '5 minutes'`;
+  assert.ok(row.n >= 501);
+  // Nothing is counted against the host.
+  const [hostRow] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM rate_windows WHERE key LIKE ${'installClient:host:' + host}`;
+  assert.equal(hostRow.n, 0);
+  // The per-registration key still refuses past its day, from any address, with a readable 429.
   const { client_id } = registerClient({ redirect_uris: [uri], client_name: 'Grok' });
-  const res = await exchange(ip.replace(/^198\.22\./, '198.23.'), freshCode(client_id, uri));
+  await preload('installClient', registrationLimitKey(client_id), 500, 86_400);
+  const warn = console.warn;
+  console.warn = () => {};
+  const res = await exchange('198.23.1.1', freshCode(client_id, uri)).finally(() => (console.warn = warn));
   assert.equal(res.status, 429);
   assert.ok(Number(res.headers.get('retry-after')) > 0);
   assert.match((await res.json()).error_description, /Too many new EarnKit connections from this agent today\. Try again in/);
-  // Another agent client is unaffected.
-  const other = `https://other-${process.pid}-${Date.now()}.example/cb`;
-  const ok = await exchange(ip, freshCode(registerClient({ redirect_uris: [other] }).client_id, other));
+  // Another registration under the same host is unaffected.
+  const ok = await exchange('198.23.1.2', freshCode(registerClient({ redirect_uris: [uri], client_name: 'Grok' }).client_id, uri));
   assert.equal(ok.status, 200);
-  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%' + host + '%'} OR key LIKE ${'install%:' + ip + '%'} OR key LIKE 'installClient:host:other-%'`;
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${'install%:' + base + '.%'} OR key LIKE 'install%:198.23.1.%' OR key = ${'installClient:' + registrationLimitKey(client_id)}`;
 });
 
-test('v2.8.1 §E17: registration is keyed the same way: 50 an hour per IP, 500 a day per agent client', db, async () => {
+test('v2.8.1 §E17, Ruling F11: registration: 50 an hour per IP; a 10,000 a day ceiling per agent host, logged before it refuses', db, async () => {
   const ip = `198.24.${process.pid % 250}.${Date.now() % 250}`;
   const host = `muse-${process.pid}-${Date.now()}.meta.ai`;
   const register = (from: string, uris: string[], client_name?: string) =>
@@ -195,11 +201,28 @@ test('v2.8.1 §E17: registration is keyed the same way: 50 an hour per IP, 500 a
   const floor = await register(ip, ['http://127.0.0.1:3334/callback']);
   assert.equal(floor.status, 429, 'the 51st from one address in an hour');
   assert.match((await floor.json()).error_description, /Too many client registrations from this address/);
-  // The client's day, from fresh addresses.
-  await preload('oauthRegisterClient', `host:${host}`, 500, 86_400);
-  const day = await register(ip.replace(/^198\.24\./, '198.25.'), [`https://${host}/cb`], 'Muse');
-  assert.equal(day.status, 429);
-  assert.match((await day.json()).error_description, /Too many client registrations from this agent today/);
+  // 500 a day per host is no longer a limit (Ruling F11).
+  await preload('oauthRegisterHost', `host:${host}`, 500, 86_400);
+  assert.equal((await register(ip.replace(/^198\.24\./, '198.27.'), [`https://${host}/cb`], 'Muse')).status, 201);
+  // The ceiling warns the owner in the log at 8,000, before it refuses.
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void warned.push(a.map(String).join(' '));
+  try {
+    await preload('oauthRegisterHost', `host:${host}`, REGISTER_HOST_WARN - 1, 86_400);
+    assert.equal((await register(ip.replace(/^198\.24\./, '198.28.'), [`https://${host}/cb`], 'Muse')).status, 201);
+    assert.ok(warned.some((w) => w.includes('near the daily ceiling') && w.includes(host)), warned.join(' | '));
+    assert.equal((await register(ip.replace(/^198\.24\./, '198.28.'), [`https://${host}/cb`], 'Muse')).status, 201);
+    assert.equal(warned.filter((w) => w.includes('near the daily ceiling')).length, 1, 'warned once');
+    // The ceiling itself, from fresh addresses.
+    await preload('oauthRegisterHost', `host:${host}`, LIMITS.oauthRegisterHost.limit, 86_400);
+    const day = await register(ip.replace(/^198\.24\./, '198.25.'), [`https://${host}/cb`], 'Muse');
+    assert.equal(day.status, 429);
+    assert.match((await day.json()).error_description, /Too many client registrations from this agent today/);
+    assert.ok(warned.some((w) => w.includes('refused by oauthRegisterHost') && w.includes(host)));
+  } finally {
+    console.warn = warn;
+  }
   // A desktop agent (loopback redirect) has only the IP floor.
   assert.equal((await register(ip.replace(/^198\.24\./, '198.26.'), ['http://127.0.0.1:3334/callback'])).status, 201);
   await sql()`DELETE FROM rate_windows WHERE key LIKE ${'oauthRegister%' + host + '%'} OR key LIKE ${'oauthRegister:' + ip.replace(/\.\d+\.\d+$/, '') + '%'}`;
