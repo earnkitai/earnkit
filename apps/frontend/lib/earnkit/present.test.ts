@@ -147,7 +147,8 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
     'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
     'EarnKit matches you to $10K+ in prizes you qualify for.',
     '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14 | tipjar |',
-    'Want me to start on Arc Microgrants with tipjar? Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.42 ETH so far.',
+    // Ruling F5: the top prize among the fits (no difficulty on either).
+    'Want me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you. Every entry gets a token: you earn 40% of its trading fees, and its fees fund the builder bonus. 0.42 ETH so far.',
   ].join('\n\n'));
   noEmoji(text);
 });
@@ -359,17 +360,19 @@ test('other programs are capped at 5 rows, with one line for the rest', () => {
   assert.match(text, /^These programs are open right now\.\n\n/);
 });
 
-test('Fastest: prize per hour of effort; programs needing videos or forms never go first', () => {
-  // The grant pays most per hour but needs a Loom and 10 personal answers: Arc is offered.
+test('Ruling F5: among the fits, Easy first, then the top prize; one needing forms says so', () => {
   const text = presentFirstMessage(msg({
     campaigns: [{ ...campaign, you: '#3, in the top 5' }],
     cards: [base, arc],
     repos: repos(v('base-builder-grants', 'likely', 'looks eligible', 'none'), v('arc-microgrants', 'after_step', 'needs a live link', 'minutes')),
   }));
-  assert.match(text, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? ${NO_POOL_RE}$`));
-  // Only forms programs fit: offered, saying up front what only the builder can give.
-  const only = presentFirstMessage(msg({ cards: [base], repos: repos(v('base-builder-grants', 'likely', 'looks eligible')) }));
-  assert.match(only, new RegExp(`Want me to start on Base Builder Grant Program with tipjar\\? It needs a short Loom from you\\. ${NO_POOL_RE}$`));
+  assert.match(text, new RegExp(`Want me to start on Base Builder Grant Program with tipjar\\? It needs a short Loom from you\\. ${NO_POOL_RE}$`));
+  // An Easy fit beats a larger prize that isn't Easy.
+  const easyFirst = presentFirstMessage(msg({
+    cards: [base, { ...arc, difficulty: { level: 'Easy', estimate: false, rated: true, basis: 'x' } }],
+    repos: repos(v('base-builder-grants', 'likely', ''), v('arc-microgrants', 'likely', '')),
+  }));
+  assert.match(easyFirst, new RegExp(`Want me to start on Arc Microgrants with tipjar\\? ${NO_POOL_RE}$`));
   const answers = presentFirstMessage(msg({
     cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'likely', 'looks eligible')),
   }));
@@ -724,12 +727,12 @@ test('v2.8.1 §B7: an investment program never leads; the offer is the Easy prog
   const only = presentFirstMessage(msg({ cards: [speedrunCard, avax, easyArc], repos: repos(v('a16z-speedrun', 'likely', 'looks eligible')) }));
   assert.match(only, /Want me to build something new for Avalanche Team1 Mini Grants \(up to \$10,000\)\? It needs a summary, milestones and why you deserve a grant from you\./);
   assert.doesNotMatch(only, /(start on|new for) a16z/);
-  // Only a harder fit: an Easy program to build something new for comes first; with no Easy
-  // program open, the harder fit is offered.
+  // Ruling F5: a repo that fits only a Hard program starts on it, even with an Easy program open.
   const colo: Card = { ...colosseum, difficulty: hard };
   const hardFit = repos(withNew('colosseum-worlds-fair'));
-  assert.match(presentFirstMessage(msg({ cards: [colo, avax], repos: hardFit })), /Want me to build something new for Avalanche Team1 Mini Grants/);
-  assert.match(presentFirstMessage(msg({ cards: [colo], repos: hardFit })), /Want me to start on Crypto World's Fair Hackathon with tipjar\?/);
+  const hardOnly = presentFirstMessage(msg({ cards: [colo, avax], repos: hardFit }));
+  assert.match(hardOnly, /Want me to start on Crypto World's Fair Hackathon with tipjar\?/);
+  assert.doesNotMatch(hardOnly, /build something new/);
   // Chat-only agents: same pick, named before the chat-only sentence.
   const chat = presentFirstMessage(msg({ cards: [speedrunCard, easyArc], repos: repos(v('a16z-speedrun', 'likely', ''), v('arc-microgrants', 'likely', '')), agentCanBuild: false }));
   assert.match(chat, /Want me to start on Arc Microgrants with tipjar\? I can't build or deploy from here/);
