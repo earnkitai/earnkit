@@ -11,6 +11,8 @@ import {
   type FetchResult,
 } from './ownership';
 import { tokenCode } from './token-gate';
+import { repoKey } from './answer-bank';
+import { createVerifyLink, githubVerifyEnabled, verifiedFor } from './github-verify';
 import { timingSafeEqual } from 'node:crypto';
 
 /**
@@ -32,9 +34,12 @@ import { timingSafeEqual } from 'node:crypto';
  *   (final fix wave, C1): a group that only shares a public GitHub user or wallet is never linked by
  *   another group's proof, and the question counts only the covered groups' entries.
  * - Ruling F13: an entry naming the repo proves nothing (anyone can name any repo). A covered group
- *   counts only once it has itself proven the repo: its token on the repo launched, or one of its
- *   installations' own proof line is in the repo's earnkit.txt. Unproven groups are never counted
- *   in the question and never linked.
+ *   counts only once it has itself proven the repo: its token on the repo launched, one of its
+ *   installations' own proof line is in the repo's earnkit.txt, or (v2.9 B9, P8) one of its
+ *   installations signed in with GitHub for the repo. Unproven groups are never counted in the
+ *   question and never linked.
+ * - v2.9 B9 (P8): the caller may prove the repo with a GitHub sign-in (a `pickup` verification of the
+ *   offer's repo for its own installation, made after the offer) instead of the proof line.
  * - A hosted agent (shared_client) serves many builders: no group holding one is ever offered or
  *   linked, and a hosted caller is never offered a pickup (final fix wave, C2).
  * - Nothing is linked without the builder's yes; a no is remembered and never asked again for the
@@ -57,7 +62,14 @@ export type Earlier = {
 };
 
 /** What an installation holds for the pickup offer (installations.pickup). */
-type PickupState = { offered?: number[]; repo?: string | null; entries?: number; declined?: number[] };
+type PickupState = {
+  offered?: number[];
+  repo?: string | null;
+  entries?: number;
+  declined?: number[];
+  /** v2.9 B9 (P8): when the offer was made (ISO); a sign-in counts only if made after it. */
+  at?: string;
+};
 
 /** This installation's group root (itself when it isn't linked). */
 export async function rootOf(installationId: number): Promise<number> {
@@ -138,11 +150,18 @@ export async function provenRoots(roots: number[], repo: string, codes: readonly
   if (roots.length === 0) return [];
   const db = sql();
   const key = normalizeRepoUrl(repo);
-  const launched = await db<{ root: number }[]>`
-    SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM projects p JOIN installations i ON i.id = p.installation_id
-    WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND p.token_repo_key = ${key}
-      AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`;
-  const proven = new Set(launched.map((r) => r.root));
+  const [launched, signedIn] = await Promise.all([
+    db<{ root: number }[]>`
+      SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM projects p JOIN installations i ON i.id = p.installation_id
+      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND p.token_repo_key = ${key}
+        AND p.token_status = 'launched' AND p.token_url IS NOT NULL AND p.token_url <> 'pending'`,
+    // v2.9 B9 (P8): or one of the group's installations signed in with GitHub for the repo.
+    db<{ root: number }[]>`
+      SELECT DISTINCT COALESCE(i.builder_id, i.id) AS root FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+      WHERE COALESCE(i.builder_id, i.id) IN ${db(roots)} AND v.repo_key = ${repoKey({ url: repo, name: '' })}
+        AND v.used_at IS NULL`,
+  ]);
+  const proven = new Set([...launched, ...signedIn].map((r) => r.root));
   if (codes.length > 0) {
     const members = await db<{ id: number; root: number }[]>`
       SELECT id, COALESCE(builder_id, id) AS root FROM installations WHERE COALESCE(builder_id, id) IN ${db(roots)}`;
@@ -214,7 +233,7 @@ export async function offerPickup(
   // Asked once: the same earlier installations already offered wait for the answer (it still works later).
   const asked = new Set(row?.pickup?.offered ?? []);
   if (roots.every((r) => asked.has(r))) return null;
-  const state: PickupState = { ...row?.pickup, offered: roots, repo: found.repo, entries };
+  const state: PickupState = { ...row?.pickup, offered: roots, repo: found.repo, entries, at: new Date().toISOString() };
   await sql()`UPDATE installations SET pickup = ${sql().json(state)} WHERE id = ${own}`;
   return { question: pickupQuestion(entries), entries };
 }
@@ -239,7 +258,7 @@ export type PickupResult =
   | { status: 'linked'; entries: number }
   | { status: 'declined' }
   | { status: 'none' }
-  | { status: 'needs_proof'; repo: string; line: string; unreadable: boolean };
+  | { status: 'needs_proof'; repo: string; line: string; unreadable: boolean; sign_in?: string };
 
 /**
  * The builder's answer to the pickup offer. No: remembered, nothing changes. Yes: the earlier groups
@@ -261,9 +280,25 @@ export async function answerPickup(own: number, yes: boolean, deps: PickupDeps =
   const gh = githubRepo(state.repo);
   const code = tokenCode(own, state.repo);
   if (!gh || !code) return { status: 'none' };
+  const key = `${gh.owner}/${gh.repo}`.toLowerCase();
+  // v2.9 B9 (P8): this installation's GitHub sign-in for the offer's repo, made after the offer,
+  // stands in for its proof line.
+  const signedIn =
+    state.at !== undefined &&
+    (await verifiedFor({ installationId: own, repoKey: key, since: new Date(state.at), purpose: 'pickup' })) !== null;
   const file = await repoCodes(state.repo, deps);
-  if (!file.codes.some((c) => same(c, code)))
-    return { status: 'needs_proof', repo: `github.com/${gh.owner}/${gh.repo}`, line: `token: ${code}`, unreadable: file.unreadable };
+  if (!signedIn && !file.codes.some((c) => same(c, code))) {
+    const signIn = githubVerifyEnabled()
+      ? await createVerifyLink({ installationId: own, projectId: null, repoKey: key, purpose: 'pickup' })
+      : null;
+    return {
+      status: 'needs_proof',
+      repo: `github.com/${gh.owner}/${gh.repo}`,
+      line: `token: ${code}`,
+      unreadable: file.unreadable,
+      ...(signIn && { sign_in: signIn }),
+    };
+  }
   // C1, C2: link only the offered groups the proof covers now (an entry in the proven repo) and that
   // hold no hosted installation; read again, so a group that changed since the offer is left out.
   const mine = await rootOf(own);
