@@ -42,6 +42,7 @@ import {
 } from './match-projects';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
 import {
+  NO_CELL,
   bonusCell,
   bonusProgramIds,
   closesInDays,
@@ -50,6 +51,7 @@ import {
   presentFirstMessage,
   programUpdates,
   tokenOffer,
+  tokenOfferAgain,
   tokenOfferFit,
   type FirstMessage,
   type RepoFit,
@@ -82,8 +84,8 @@ import {
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
 import { CANT_PUSH, NO_TOKEN_HERE, READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
-import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
-import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
+import { callerLogin, claimOfferVerification, createVerifyLink, entryVerifyLink, githubVerifyEnabled, offerVerification, verifiedEntryIds } from './github-verify';
+import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED, tokenGate } from './token-gate';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   WALLET_KEY,
@@ -776,7 +778,7 @@ async function withAlerts<T extends object>(ctx: Pick<ToolContext, 'installation
 /** v2.9 B10: what the agent does with list_programs' token_offer. */
 export const TOKEN_OFFER_NOTE =
   "The reply ends with a token offer. On yes, call launch_token with offer (program_id, repo_url, project_name), " +
-  "decision 'go', builder_confirmed: true and creator_wallet (the wallet the builder gives, else ask for it); " +
+  "decision 'go', builder_confirmed: true and creator_wallet: token_offer.shown_wallet, or the wallet the builder gives with the yes; " +
   "on skip, call launch_token with offer and decision 'skip'.";
 
 /**
@@ -803,17 +805,28 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
       (await proposeToken(project, ctx.tokenDeps?.check ?? tokensFunTickerCheck, fit.repo_url));
     const proposed = { name: proposal.name, symbol: proposal.symbol };
     await saveOffer(ctx.installationId, fit.card.id, key, proposed);
-    const walletKnown = (await walletMemory(ctx)) !== null;
+    // Ruling G13 (I1): the remembered wallet (never on a shared client, G7) is named in the line and
+    // carried as shown_wallet, so "yes" launches to the wallet the builder saw.
+    const wallet = await walletMemory(ctx);
     return {
       text: tokenOffer({
         project,
         program: fit.card.title,
         prize_usd: fit.card.max_award_usd ?? 0,
         proposal: proposed,
-        hasBonus: fit.card.builder_bonus !== false,
-        walletKnown,
+        // Review Minor 5: an opted-out program or a frozen round has no bonus to win.
+        hasBonus: bonusCell(fit.card) !== NO_CELL,
+        walletKnown: wallet !== null,
+        wallet,
       }),
-      offer: { program_id: fit.card.id, repo_url: fit.repo_url, project_name: project, proposed, agent_note: TOKEN_OFFER_NOTE },
+      offer: {
+        program_id: fit.card.id,
+        repo_url: fit.repo_url,
+        project_name: project,
+        proposed,
+        ...(wallet && { shown_wallet: wallet }),
+        agent_note: TOKEN_OFFER_NOTE,
+      },
     };
   } catch (err) {
     console.error('[list_programs] token offer', err instanceof Error ? err.name : 'error');
@@ -824,12 +837,22 @@ async function firstTokenOffer(m: FirstMessage, ctx: ToolContext, login: string 
 /** v2.9 B10: launch_token's builder line when the builder said skip to the token offer. */
 export const NO_TOKEN_FOR_NOW = 'No token for now.';
 
+/** Ruling G13 (I2): launch_token with an offer the builder was never shown (no token_offers row). */
+export const OFFER_NOT_SHOWN = 'Nothing launched: this token was not offered yet.';
+const OFFER_NOT_SHOWN_AGENT = "Call list_programs, show its reply (it ends with the token offer), and pass that reply's token_offer.";
+
 /**
- * v2.9 B10: launch_token with the first reply's offer. 'skip' records a decline for the repo (at two
- * it is never offered again) and makes no entry. 'go' makes (or finds) the draft entry for that
- * program and repo (startEntry, choice 'go'; the 20 a day only for a new row), then launches the pair
- * the offer showed (token_offers) through the usual flow and gate. A stop the GitHub sign-in can
- * clear (sign-in on) returns the sign-in line, bound to this entry and the wallet of this call (G11).
+ * v2.9 B10, Ruling G13 (I2): launch_token with the first reply's offer. Nothing launches that the
+ * builder wasn't shown, and no entry is made before the gate passes:
+ * - the program must still be offerable (open, curated, not an investment, a known prize, tokens on);
+ * - 'skip' records a decline (once per offer, this builder's, G12) and makes no entry;
+ * - 'go' needs the stored offer (token_offers); a name or ticker other than the one shown is offered
+ *   again instead of launched; a wallet is needed (the one shown, or the one given with the yes);
+ * - the gate runs before any entry: a failure returns its words (and, sign-in on, a sign-in link
+ *   bound to the repo and this wallet, not to an entry yet) and leaves no row behind;
+ * - once it passes (or the builder signed in from such a link), the draft entry is made (startEntry,
+ *   choice 'go'; the 20 a day only for a new row), the sign-in is bound to it, and the usual launch
+ *   runs (the same gate again, one token per repo, the limits). A retry never launches twice.
  */
 async function launchFromOffer(
   parsed: z.infer<typeof LaunchTokenInput>,
@@ -854,10 +877,78 @@ async function launchFromOffer(
           : 'Nothing launched. The token is offered once more when the builder confirms an entry for this repo.',
     };
   }
-  if (program.token_policy === 'off' || !(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)())
+  // The program filters the offer applied (tokenOfferFit), checked again: an agent can't aim the
+  // offer path at a program the builder was never offered.
+  const offerable =
+    program.source !== 'sponsor' && !program.investment && Number(program.max_award_usd ?? 0) > 0 && program.token_policy !== 'off';
+  if (!offerable || !(ctx.tokenDeps?.available ?? tokenLaunchesAvailable)())
     return { status: 'skipped' as const, note: NO_TOKEN_HERE };
   const signIn = githubVerifyEnabled();
   if (parsed.agent?.can_push === false && !signIn) return { status: 'skipped' as const, note: CANT_PUSH };
+  // The pair the offer showed: required; another name or ticker is shown first (§A2, as confirm_entry).
+  const key = offerKey(project.repo_url, project.name);
+  const shown = await readOffer(ctx.installationId, program.id, key);
+  if (!shown) return { status: 'failed' as const, note: OFFER_NOT_SHOWN, agent_note: OFFER_NOT_SHOWN_AGENT };
+  const asked = editsOf({ name: parsed.name, symbol: parsed.symbol });
+  if ((asked.name !== undefined && asked.name !== shown.name) || (asked.symbol !== undefined && asked.symbol !== shown.symbol)) {
+    const proposal = await offerProposal(project.name, project.repo_url, asked, shown, ctx);
+    const pair = proposal ? { name: proposal.name, symbol: proposal.symbol } : shown;
+    await rememberOffer(ctx, program.id, key, pair);
+    const wallet = parsed.creator_wallet ?? (await walletMemory(ctx));
+    return {
+      status: 'skipped' as const,
+      fixable: true,
+      proposed: pair,
+      show_to_builder: tokenOfferAgain({ proposal: pair, walletKnown: wallet !== null, wallet }, proposal?.taken ?? null),
+      ...(wallet && { shown_wallet: wallet }),
+      agent_note:
+        'Nothing launched: the builder has not seen this token yet. Show show_to_builder as written; on yes, call launch_token again ' +
+        "with offer, decision 'go' and creator_wallet (shown_wallet, or the wallet they give), without name or symbol.",
+    };
+  }
+  // Review Minor 7: the wallet comes first (the sign-in link is bound to it, G11). Nothing is made.
+  const wallet = parsed.creator_wallet;
+  if (!wallet)
+    return {
+      status: 'skipped' as const,
+      fixable: true,
+      no_wallet: true,
+      note: NO_WALLET_HINT,
+      agent_note: "Ask the builder for their wallet and call launch_token again with it as creator_wallet (offer and decision 'go').",
+    };
+  // A sign-in made from an earlier offer link (no entry yet) proves the repo for this wallet.
+  const signedIn = signIn
+    ? await offerVerification({ installationId: ctx.installationId, repoKey: repo, wallet, login: verifiedLogin }).catch(() => null)
+    : null;
+  if (signedIn === null) {
+    const gate = await tokenGate(
+      { policy: program.token_policy, repoUrl: project.repo_url, wallet, symbol: shown.symbol, installationId: ctx.installationId, verifiedLogin },
+      ctx.tokenDeps?.gate,
+    );
+    if (!gate.ok) {
+      const stop = gate.sign_in !== undefined || gate.reason.startsWith(PROOF_LINE_PREFIX);
+      const link =
+        stop && signIn && gate.fixable
+          ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: repo, purpose: 'entry', wallet, symbol: shown.symbol })
+          : null;
+      const base = {
+        status: 'gate_failed' as const,
+        note: gate.reason,
+        ...(gate.fixable && { fixable: true as const }),
+        ...(gate.agent_note && { agent_note: gate.agent_note }),
+      };
+      if (!link) return base;
+      return {
+        ...base,
+        sign_in: link,
+        sign_in_line: gate.reason.startsWith(WALLET_CHANGED) ? `${WALLET_CHANGED} Sign in again: ${link}` : signInLine(project.name, shown.symbol, link),
+        agent_note:
+          `${gate.agent_note ? `${gate.agent_note} ` : ''}If you can't push, show sign_in_line instead; when the builder says they signed in, ` +
+          "call launch_token again with offer and decision 'go'" +
+          (ctx.sharedClient ? ' and signed_in: the code the sign-in page gave them.' : '.'),
+      };
+    }
+  }
   const entry = await startEntry({
     program,
     installationId: ctx.installationId,
@@ -868,48 +959,20 @@ async function launchFromOffer(
     // A new entry counts against the 20 a day (Ruling 1 (plan)); a retry finds the same entry.
     charge: () => enforce('recordSubmission', ctx.installationId, 'This agent has recorded 20 submissions today, the daily limit.'),
   });
+  if (signedIn !== null) await claimOfferVerification(signedIn, entry.id);
   // A retry after the launch: never a second token.
   if (entry.token_url)
     return entry.token_url === 'pending'
       ? { ...pendingOutcome(entry.token_claimed_at, entry.token_settled), project_id: entry.id }
       : { status: 'launched' as const, tokens_fun: entry.token_url, note: 'This entry already has its token.', project_id: entry.id };
-  // The pair the offer showed (the agent's edits win, as on any launch).
-  const shown = await readOffer(ctx.installationId, program.id, offerKey(project.repo_url, project.name)).catch(() => null);
   const out = await launchToken(
-    { ...parsed, offer: undefined, project_id: entry.id, name: parsed.name ?? shown?.name, symbol: parsed.symbol ?? shown?.symbol },
+    { ...parsed, offer: undefined, project_id: entry.id, name: shown.name, symbol: shown.symbol },
     ctx.installationId,
     ctx.tokenDeps,
     Date.now() + launchReplyMs(),
     verifiedLogin,
   );
-  // v2.9 B9: the proof line isn't there (or only a sign-in proves it, G10/G11): the one-time link.
-  const stopped = [PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED].some((p) => out.note?.startsWith(p));
-  const wallet = parsed.creator_wallet;
-  const link =
-    out.status === 'gate_failed' && stopped && signIn && wallet
-      ? await createVerifyLink({
-          installationId: ctx.installationId,
-          projectId: entry.id,
-          repoKey: repo,
-          purpose: 'entry',
-          wallet,
-          symbol: out.symbol ?? shown?.symbol ?? null,
-        })
-      : null;
-  if (!link) return { ...out, project_id: entry.id };
-  const line = out.note?.startsWith(WALLET_CHANGED)
-    ? `${WALLET_CHANGED} Sign in again: ${link}`
-    : signInLine(project.name, out.symbol ?? shown?.symbol ?? null, link);
-  return {
-    ...out,
-    project_id: entry.id,
-    fixable: true,
-    sign_in: link,
-    sign_in_line: line,
-    agent_note:
-      'Show sign_in_line. When the builder says they signed in, call launch_token again with project_id' +
-      (ctx.sharedClient ? ' and signed_in: the code the sign-in page gave them.' : '.'),
-  };
+  return { ...out, project_id: entry.id };
 }
 
 /** Campaigns (v2.4): a valid wallet answer or null (still missing); the one rule, isWalletAddress. */

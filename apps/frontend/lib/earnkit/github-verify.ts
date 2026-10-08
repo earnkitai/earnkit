@@ -274,6 +274,28 @@ export async function verifiedFor(a: {
 }
 
 /**
+ * Ruling G13 (I2): a sign-in made from the first reply's token offer, before any entry exists (an
+ * `entry` link with no project): this installation and repo, for exactly this fee wallet (G11), and on
+ * a shared client only the caller's login (G10; null: none). Its id, or null.
+ */
+export async function offerVerification(a: { installationId: number; repoKey: string; wallet: string; login?: string | null }): Promise<number | null> {
+  if (a.login === null) return null;
+  const db = sql();
+  const [row] = await db<{ id: number }[]>`
+    SELECT id FROM github_verifications
+    WHERE installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()} AND purpose = 'entry'
+      AND project_id IS NULL AND used_at IS NULL AND wallet = ${a.wallet.toLowerCase()}
+      ${a.login !== undefined ? db`AND login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+  return row?.id ?? null;
+}
+
+/** Ruling G13 (I2): binds that sign-in to the draft entry made once the gate passed (once only). */
+export async function claimOfferVerification(id: number, projectId: number): Promise<void> {
+  await sql()`UPDATE github_verifications SET project_id = ${projectId} WHERE id = ${id} AND project_id IS NULL`;
+}
+
+/**
  * Pre-flight P11: a host verification of this installation and repo. On a shared (hosted) client it
  * is single-use and valid for 15 minutes: this consumes it (one atomic update), so another user of
  * the same installation can't reuse it. Elsewhere the installation-plus-repo binding holds.

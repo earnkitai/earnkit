@@ -81,7 +81,7 @@ test('/policy: every section, the fee split and payout tables, the weights, plai
   assert.doesNotMatch(t, /submissions aren't public/);
   assert.doesNotMatch(t, /round ends go to EarnKit/);
   // v2.9 B11: the token is optional, said without "skip" (only token offers say it).
-  assert.match(t, /Say no when your agent offers it and there's no token\. No token means no builder bonus, nothing else\./);
+  assert.match(t, /Every entry is offered a token, named after the project\. Turn it down and there's no token\. No token means no builder bonus, nothing else\./);
   assert.doesNotMatch(t, /\bskip\b/i);
   assert.match(t, /isn't affiliated with or endorsed by/);
   assert.match(h, /mailto:j@earnkit\.com/);
