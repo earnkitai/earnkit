@@ -2457,7 +2457,9 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
 
 - **Program level (`guide.ts difficultyOf`, Pre-flight P30).** Still odds, override or estimate,
   then two floors in `difficultyFrom`: an `investment` program is Hard; a `needs a live product`
-  program (`NEEDS_LIVE_PRODUCT`) is at least Medium, even with an EarnKit rating. The landing page,
+  program (`NEEDS_LIVE_PRODUCT`) is at least Medium, even with an EarnKit rating. A program whose
+  `match_precision` is under 5% (`LOW_PRECISION`, A8) is then one step harder (`harder`; not an
+  estimate; the basis adds "under 5% of strong matches won"). The landing page,
   guides, "Also open" and Also qualifies show this level. `programs:check` refuses an Easy
   `difficulty_override` (rated or stated) on a `needs a live product` program
   (`program-file.ts` superRefine). Base lost its EarnKit Easy rating (A6): Medium (estimate).
@@ -2465,7 +2467,7 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   from the verdict's effort: none/minutes Easy, hours/days Medium, weeks Hard; with `real_users`
   missing, distance comes from the other missing items (`match.ts effortOf`, Pre-flight P2), then
   `real_users` makes the row Hard while unverified, Medium after a verified link or a users claim.
-  A program with `match_precision` under 5% (`LOW_PRECISION`) reads one step harder (`harder`).
+  Match precision reaches the row through the program level only.
   `present.ts rowLevel(card, fit, v)` computes it per matched row (`Fit.row`); the matched table's
   Difficulty cell, the row sort and the closing offer (`bestFit`) use it: easiest first, then
   prize, then the quicker fit.
@@ -2485,8 +2487,8 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   "not mine" or "testnet only" wins. A linked installation keeps the root's list, else the other's.
   Only repos that fit some program are remembered (as `fit_chains` before).
 - **Outcome loop (`match-loop.ts`, inside `programs:sync`).** `list_programs` records the matched
-  rows on screen in `match_shown` (`recordShown`, one row per installation, program, repo key and
-  UTC day; the latest wins). `confirm_entry` stores `projects.product_score` from the latest
+  rows on screen in `match_shown` (not on a shared client, Ruling G7; `recordShown`, one row per installation, program, repo key and
+  UTC day; the latest wins). `confirm_entry` (not on a shared client) stores `projects.product_score` from the latest
   `match_shown` score for that repo (`saveEntryScore`; the GitHub cache keeps no builder-dependent
   signal). `updateMatchFloors` (after the outcome files) takes each entry's latest announced result
   other than `unknown` (never a self-report, never an owner test installation), the status its repo
