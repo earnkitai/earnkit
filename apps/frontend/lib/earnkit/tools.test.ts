@@ -908,9 +908,9 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
 
 // ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only
 // from confirm_entry, after the builder's yes or skip; the token launches on yes.
-async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean } = {}) {
+async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean; keepContract?: boolean } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const arc = committedProgram('arc-microgrants');
+  const arc = committedProgram('arc-microgrants', { keepContract: o.keepContract });
   const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_requirements: [...arc.submission_requirements, ...(o.extra ?? [])] };
   await upsertProgram(ProgramFile.parse(p));
   const [{ id: inst }] = await sql()<{ id: number }[]>`
@@ -2298,4 +2298,66 @@ test('1.11 v2.9 A5: a placeholder link is refused; a failed probe is one fix lin
     assert.equal(row.complete_at, null);
     const [v] = await sql()<{ live_verified_at: Date | null }[]>`SELECT live_verified_at FROM projects WHERE id = ${row.id}`;
     assert.equal(v.live_verified_at, null);
+  }));
+
+test('v2.9 A5 fix round 1: Arc (needs_contract) through startEntry and recordSubmission: complete only with a loading link and a contract with code', dbTest, () =>
+  withTokenEnv(async () => {
+    const { LIVE_FAILED_LINE } = await import('./verify');
+    const NO_CONTRACT = 'No contract found on Arc mainnet yet.';
+    type Prep = { ready: boolean; show_to_builder: string; fixes?: { text: string }[] };
+    const cols = async (inst: number) =>
+      sql()<{ complete_at: Date | null; live_verified_at: Date | null; contract_verified_at: Date | null }[]>`
+        SELECT complete_at, live_verified_at, contract_verified_at FROM projects WHERE installation_id = ${inst} ORDER BY id`;
+    // One case per entry: its own installation, live link and contract (the memory cache is per link and address).
+    const arcCase = async (tag: string, o: { probeOk: boolean; code: string }) => {
+      const t = await confirmSetup(tag, { remembered: W8, keepContract: true });
+      assert.equal(t.p.needs_contract, 'arc');
+      const contract = `0x${randomBytes(20).toString('hex')}`;
+      const project = { ...t.project, live_url: `https://${tag}-${t.inst}.tipjar.xyz`, contracts: [contract] };
+      const ctx = {
+        ...t.ctx,
+        verifyDeps: {
+          probe: async () => {
+            if (!o.probeOk) throw new Error('no answer');
+          },
+          getCode: async () => o.code,
+        },
+      };
+      return { t, ctx, input: { ...t.input, project } };
+    };
+
+    // A loading link and a contract with code: complete, both columns set (startEntry).
+    const ok = await arcCase('a5ok', { probeOk: true, code: '0x6080' });
+    const okPrep = (await tools.prepare_submission(ok.input, ok.ctx)) as Prep;
+    assert.equal(okPrep.ready, true, okPrep.show_to_builder);
+    await tools.confirm_entry({ ...ok.input, ...go, decision: 'skip' }, ok.ctx);
+    const [okRow] = await cols(ok.t.inst);
+    assert.ok(okRow.complete_at instanceof Date && okRow.live_verified_at instanceof Date && okRow.contract_verified_at instanceof Date);
+    // The same through recordSubmission (a new entry, never confirmed): complete, both columns set.
+    const rec = await arcCase('a5rec', { probeOk: true, code: '0x6080' });
+    await tools.record_submission({ program_id: rec.t.p.id, project: rec.input.project, submission_data: rec.t.answers, token: 'skip' }, rec.ctx);
+    const [recRow] = await cols(rec.t.inst);
+    assert.ok(recRow.complete_at instanceof Date && recRow.live_verified_at instanceof Date && recRow.contract_verified_at instanceof Date);
+
+    // A loading link, but 0x at the address: not complete, the contract fix line, the offer still shown.
+    const empty = await arcCase('a5empty', { probeOk: true, code: '0x' });
+    const emptyPrep = (await tools.prepare_submission(empty.input, empty.ctx)) as Prep;
+    assert.equal(emptyPrep.ready, false);
+    assert.deepEqual(emptyPrep.fixes?.filter((f) => f.text === NO_CONTRACT).length, 1);
+    assert.match(emptyPrep.show_to_builder, /Want the builder bonus\?/);
+    await tools.confirm_entry({ ...empty.input, ...go, decision: 'skip' }, empty.ctx);
+    const [emptyRow] = await cols(empty.t.inst);
+    assert.equal(emptyRow.complete_at, null);
+    assert.ok(emptyRow.live_verified_at instanceof Date);
+    assert.equal(emptyRow.contract_verified_at, null);
+
+    // A failed probe: not complete, the live link fix line, the offer still shown (recordSubmission).
+    const down = await arcCase('a5down', { probeOk: false, code: '0x6080' });
+    const downPrep = (await tools.prepare_submission(down.input, down.ctx)) as Prep;
+    assert.equal(downPrep.ready, false);
+    assert.deepEqual(downPrep.fixes?.filter((f) => f.text === LIVE_FAILED_LINE).length, 1);
+    assert.match(downPrep.show_to_builder, /Want the builder bonus\?/);
+    await tools.record_submission({ program_id: down.t.p.id, project: down.input.project, submission_data: down.t.answers, token: 'skip' }, down.ctx);
+    const [downRow] = await cols(down.t.inst);
+    assert.deepEqual([downRow.complete_at, downRow.live_verified_at], [null, null]);
   }));

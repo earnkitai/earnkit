@@ -8,10 +8,11 @@ import { join } from 'node:path';
  * `needs_contract` (v2.9 A5: a clone tests something else; the contract check has its own tests).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function committedProgram(name: string): any {
+export function committedProgram(name: string, o: { keepContract?: boolean } = {}): any {
   const p = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../../programs', `${name}.json`), 'utf8'));
   delete p.logo;
-  delete p.needs_contract;
+  // keepContract: a test of the contract check itself keeps the file's needs_contract.
+  if (!o.keepContract) delete p.needs_contract;
   return p;
 }
 
