@@ -1,4 +1,5 @@
 import { githubRepo } from './campaigns';
+import { CHAINS, CHAIN_NAMES, type Chain } from './chains';
 
 /**
  * Matching a builder's public repos to open programs (pure; no network).
@@ -6,17 +7,7 @@ import { githubRepo } from './campaigns';
  * Recognizing which chains a codebase targets, from chain IDs and RPC hosts in its files.
  * IDs and hosts come from each chain's official docs (checked 2026-09-28).
  */
-export const CHAINS = ['base', 'arc', 'tempo', 'monad', 'robinhood', 'avalanche'] as const;
-export type Chain = (typeof CHAINS)[number];
-
-export const CHAIN_NAMES: Record<Chain, string> = {
-  base: 'Base',
-  arc: 'Arc',
-  tempo: 'Tempo',
-  monad: 'Monad',
-  robinhood: 'Robinhood Chain',
-  avalanche: 'Avalanche',
-};
+export { CHAINS, CHAIN_NAMES, type Chain } from './chains';
 
 type Signals = {
   mainnet: { ids: number[]; hosts: string[] };
@@ -77,6 +68,13 @@ const SIGNALS: Record<Chain, Signals> = {
     testnet: { ids: [43113], hosts: ['api.avax-test.network', 'testnet.snowtrace.io'] },
   },
 };
+
+/**
+ * v2.9 A5 (Pre-flight P1): the block explorer hosts among a chain's mainnet signals (for an
+ * explorer `/address/0x...` live link). Rpc hosts are left out. Pure.
+ */
+export const mainnetExplorerHosts = (chain: Chain): string[] =>
+  (SIGNALS[chain]?.mainnet.hosts ?? []).filter((h) => h.includes('.') && /scan|explorer|snowtrace/.test(h));
 
 /** v2.8.1 §B6 (fix round 1): a chain id an agent reports (8453, 84532), or null when EarnKit doesn't know it. Pure. */
 export function chainOfId(id: number): { chain: Chain; mainnet: boolean } | null {
@@ -245,6 +243,8 @@ export type ReportedRepo = {
   last_commit_at?: string;
   /** Ruling 13 (plan): the repo's GitHub link, if the local remote is on GitHub. */
   url?: string;
+  /** v2.9 A5 (Pre-flight P4): up to 2 mainnet contracts the agent saw deployed, lowercase. */
+  contracts?: string[];
 };
 
 /** Turns an agent's report into the same facts matching uses for public repos. */

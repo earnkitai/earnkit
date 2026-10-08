@@ -664,3 +664,18 @@ CREATE INDEX IF NOT EXISTS installations_github_user ON installations (lower(git
 -- collect's prefilter) find a repo's entries across programs by bonus_repo_key alone.
 -- Additive and idempotent.
 CREATE INDEX IF NOT EXISTS projects_bonus_repo_key_any ON projects (bonus_repo_key) WHERE bonus_repo_key IS NOT NULL;
+
+-- v2.9 A5: link and contract checks, cached: a pass 24 h, a failure 1 h (verify.ts cacheFresh).
+-- key: url:<canonical url> or getcode:<chain>:<lowercase address>.
+CREATE TABLE IF NOT EXISTS url_checks (
+  key        text PRIMARY KEY,
+  ok         boolean NOT NULL,
+  checked_at timestamptz NOT NULL DEFAULT now()
+);
+-- v2.9 A5: when an entry step last found the live link loading / a contract with code on the
+-- program's needs_contract chain (NULL: not verified). entryMissing reads them (token-launch.ts).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS live_verified_at timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contract_verified_at timestamptz;
+-- v2.9 A5: the chain whose mainnet must hold a deployed contract for the live link to count
+-- (program file needs_contract; Arc Microgrants: 'arc'). NULL: none.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS needs_contract text;

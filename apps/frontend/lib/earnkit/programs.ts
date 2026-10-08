@@ -176,6 +176,8 @@ export type ProgramRow = {
   investment: boolean;
   /** v2.8.1 §B8 (fix round 1): entering needs a repo (program file needs_repo); null when unknown. */
   needs_repo: boolean | null;
+  /** v2.9 A5: the chain whose mainnet must hold a deployed contract for the live link to count; null: none. */
+  needs_contract: Chain | null;
   campaign: CampaignConfig | null;
   created_at: Date;
   /** When the program last became active (v2.4 §4); null while it never was. */
@@ -254,6 +256,7 @@ export async function listPrograms() {
       | 'any_chain'
       | 'investment'
       | 'needs_repo'
+      | 'needs_contract'
       | 'rules'
       | 'token_policy'
     > & {
@@ -266,7 +269,7 @@ export async function listPrograms() {
       p.summary, p.tag, p.created_at, p.verified_at, p.source, p.campaign, p.max_award_usd, p.pool_usd, p.min_award_usd,
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
-      p.chains, p.any_chain, p.investment, p.needs_repo, p.rules, p.token_policy,
+      p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy,
       sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
@@ -712,6 +715,7 @@ export async function upsertProgram(
       any_chain: p.any_chain ?? false,
       investment: p.investment ?? false,
       needs_repo: p.needs_repo ?? null,
+      needs_contract: p.needs_contract ?? null,
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,

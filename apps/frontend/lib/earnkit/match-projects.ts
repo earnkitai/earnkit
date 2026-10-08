@@ -14,6 +14,7 @@ import {
 import { openProgramFacts } from './programs';
 import { loadRepoFacts, saveRepoFacts } from './repo-cache';
 import { sql } from './db';
+import { placeholderLink } from './placeholder';
 
 /**
  * Reads public GitHub data with EarnKit's own token (GITHUB_TOKEN). Builders only give a
@@ -339,7 +340,23 @@ export function reportedUrl(s: string | undefined): string | undefined {
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`;
   if (!URL.canParse(withScheme)) return undefined;
   const u = new URL(withScheme);
+  // v2.9 A5: a placeholder (example.com, an IP, earnkit.com) is no live link.
+  if (placeholderLink(withScheme)) return undefined;
   return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') ? withScheme : undefined;
+}
+
+/**
+ * v2.9 A5 (Pre-flight P4): contract addresses as an agent reports them: one string or a list, the
+ * 0x addresses in it, lowercase, at most 2; anything else is dropped (never an error). Pure.
+ */
+export function reportedContracts(v: unknown): string[] | undefined {
+  const items = v == null ? [] : Array.isArray(v) ? v : [v];
+  const found = items
+    .filter((x): x is string => typeof x === 'string' && x.length <= 300)
+    .flatMap((x) => x.match(/0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g) ?? [])
+    .map((x) => x.toLowerCase());
+  const out = [...new Set(found)].slice(0, 2);
+  return out.length ? out : undefined;
 }
 
 /**
@@ -364,6 +381,7 @@ export const ReportedRepoInput = z
      * anything over 300 characters becomes undefined instead of a parse error.
      */
     url: z.unknown().transform((u) => (typeof u !== 'string' || u.length > 300 ? undefined : u)).optional(),
+    contracts: z.unknown().transform(reportedContracts).optional(),
   });
 
 /**
@@ -501,7 +519,8 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[]) {
   const facts: RepoFacts = {
     name: repo.name,
     url: repo.html_url,
-    homepage: repo.homepage || null,
+    // v2.9 A5: a placeholder homepage is no homepage.
+    homepage: repo.homepage && !placeholderLink(repo.homepage) ? repo.homepage : null,
     created_at: repo.created_at,
     chains,
     commits_in_window,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DOT_LOOKALIKES } from './confusables';
+import { PLACEHOLDER_LINE, placeholderLink } from './placeholder';
 
 /**
  * Text written by sponsors or builders reaches other people's agents. One sanitizer for all of
@@ -338,6 +339,8 @@ export function canonicalBuilderUrl(
     return { problem: 'no user or password in the link' };
   if (!u.hostname.includes('.'))
     return { problem: 'must be a full https:// link' };
+  // v2.9 A5: no product lives on a reserved name, an IP address or EarnKit's own site.
+  if (placeholderLink(v)) return { problem: PLACEHOLDER_LINE };
   const at = v.search(/[?#]/);
   const tail = at < 0 ? '' : v.slice(at);
   if (!BUILDER_PATH.test(u.pathname) || !BUILDER_TAIL.test(tail))

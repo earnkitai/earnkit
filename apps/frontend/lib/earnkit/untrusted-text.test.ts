@@ -493,3 +493,11 @@ test('every single-line field refuses @ and runs of 7+ digits (fix round 2: also
   ])
     assert.equal(cleanText(ok, title), ok, ok);
 });
+
+test('1.9 canonicalBuilderUrl refuses placeholder links (v2.9 A5)', async () => {
+  const { canonicalBuilderUrl } = await import('./untrusted-text');
+  const { PLACEHOLDER_LINE } = await import('./placeholder');
+  for (const raw of ['https://example.com', 'yourdomain.com', 'https://1.2.3.4/x', 'https://github.com/earnkitai/chain-kits', 'https://app.example'])
+    assert.deepEqual(canonicalBuilderUrl(raw), { problem: PLACEHOLDER_LINE }, raw);
+  assert.deepEqual(canonicalBuilderUrl('https://tipjar.xyz'), { url: 'https://tipjar.xyz/' });
+});

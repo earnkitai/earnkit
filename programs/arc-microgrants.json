@@ -28,6 +28,7 @@
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
+  "needs_contract": "arc",
   "chains": [
     "arc"
   ],

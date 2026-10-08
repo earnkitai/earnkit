@@ -39,7 +39,7 @@ function baseProgram() {
       'utf8',
     ),
   );
-  for (const k of ['logo', 'past_rounds', 'focus', 'best_bet', 'difficulty_override', 'winners_per_round']) delete p[k];
+  for (const k of ['logo', 'past_rounds', 'focus', 'best_bet', 'difficulty_override', 'winners_per_round', 'needs_contract']) delete p[k];
   return p;
 }
 
@@ -726,4 +726,13 @@ test('12 the committed Arc file states when its decisions are due', () => {
   const arc = ProgramFile.parse(programJson('arc-microgrants'));
   assert.equal(arc.results?.expected, '2026-10-21');
   assert.match(arc.description, /all decisions by October 21, 2026/);
+});
+
+test('ProgramFile: needs_contract is one of the chains (v2.9 A5)', () => {
+  const arc = JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs/arc-microgrants.json'), 'utf8'));
+  assert.equal(ProgramFile.parse(arc).needs_contract, 'arc');
+  assert.throws(() => ProgramFile.parse({ ...arc, needs_contract: 'base' }), /needs_contract must be one of the chains/);
+  assert.throws(() => ProgramFile.parse({ ...arc, needs_contract: 'solana' }));
+  const { needs_contract: _, ...none } = arc;
+  assert.equal(ProgramFile.parse(none).needs_contract, undefined);
 });
