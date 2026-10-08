@@ -5,6 +5,7 @@ import {
   cleanTokenName,
   initialsCandidates,
   monogramFor,
+  nameCandidates,
   proposeToken,
   repoNameOf,
   type TickerCheck,
@@ -12,6 +13,7 @@ import {
   tickerProblem,
   tokenNameProblem,
   tokensFunTickerCheck,
+  unbranded,
 } from './token-proposal';
 
 test('ticker candidates: initials for 3+ words, then the first word, then numbered', () => {
@@ -243,4 +245,37 @@ test('C6: every group\'s unnumbered ticker is checked before any numbered varian
   assert.deepEqual(seen.slice(0, 3), ['TIPJAR', 'TIP', 'ENTRY']);
   const free = await proposeToken('Chain Kits Bridge', async (sym) => sym !== 'CKB');
   assert.equal(free.symbol, 'CHAIN');
+});
+
+test('v2.8.1 §A2: a brand in the project name falls back to its readable words, and the ticker follows ("ArcPay" is $PAY (Pay Token), never $ARCPA2)', async () => {
+  const free = async () => true;
+  assert.deepEqual(await proposeToken('ArcPay', free, 'https://github.com/alice/arcpay'), { name: 'Pay Token', symbol: 'PAY' });
+  assert.deepEqual(await proposeToken('Base Builder Grants Bot', free), { name: 'Builder Grants Bot', symbol: 'BGB' });
+  // A readable project name is kept as is.
+  assert.deepEqual(await proposeToken('TipJar', free), { name: 'TipJar', symbol: 'TIPJAR' });
+  assert.equal(unbranded('ArcPay'), 'Pay');
+  assert.equal(unbranded('Arc Pay'), 'Pay');
+  assert.equal(unbranded('TipJar'), null, 'no brand word: nothing to drop');
+  assert.equal(unbranded('Base'), null, 'every word a brand: nothing left');
+  assert.deepEqual(nameCandidates('ArcPay', 'arcpay'), ['ArcPay', 'ArcPay Token', 'Arcpay', 'Pay Token']);
+  // "<TICKER> Token" only when no readable name exists.
+  assert.match((await proposeToken('Base', free)).name, /^[A-Z0-9]{3,6} Token$/);
+});
+
+test('v2.8.1 §A5: ticker checks run in parallel batches; the first free candidate in order wins', async () => {
+  let inFlight = 0;
+  let most = 0;
+  const seen: string[] = [];
+  const check = async (s: string) => {
+    seen.push(s);
+    inFlight++;
+    most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight--;
+    return !['TIPJAR', 'TIP'].includes(s);
+  };
+  const p = await proposeToken('TipJar', check);
+  assert.equal(p.symbol, seen.find((s) => !['TIPJAR', 'TIP'].includes(s)));
+  assert.ok(most > 1 && most <= 4, `at most 4 at once (saw ${most})`);
+  assert.ok(seen.length <= 12);
 });

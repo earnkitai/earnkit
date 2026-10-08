@@ -948,6 +948,10 @@ export async function startEntry(a: {
   confirm_choice: 'go' | 'skip';
   /** Ruling C24: the last "go" on this entry stopped at the repo's proof line. */
   proof_line_missed: boolean;
+  /** v2.8.1 §A1: when the launch claim was taken (token_url 'pending'); null otherwise or before v2.8.1. */
+  token_claimed_at: Date | null;
+  /** v2.8.1 §A1: a pending claim whose deploy answered without a clear result (its note is set). */
+  token_settled: boolean;
 }> {
   const { program, installationId, project, answers, choice, now } = a;
   const tooLarge = submissionDataProblem(answers, OTHER_VALUE_MAX);
@@ -962,7 +966,7 @@ export async function startEntry(a: {
     // the entry is submitted or proven (the choice is then locked). Fresh fragments per use.
     const earnkit = () => tx`(coin_address IS NOT NULL OR COALESCE(token_status IN ('launched', 'pending'), false))`;
     const locked = () => tx`(submission_confirmed_at IS NOT NULL OR submission_proof_ok_at IS NOT NULL)`;
-    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip'; proof_line_missed: boolean };
+    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip'; proof_line_missed: boolean; token_claimed_at: Date | null; token_settled: boolean };
     if (own) {
       [row] = await tx<typeof row[]>`
         UPDATE projects SET
@@ -984,7 +988,8 @@ export async function startEntry(a: {
           complete_at = COALESCE(complete_at, ${completeNow})
         WHERE id = ${own.id}
         RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
-          COALESCE(token_status = 'gate_failed' AND starts_with(token_note, ${PROOF_LINE_PREFIX}), false) AS proof_line_missed`;
+          COALESCE(token_status = 'gate_failed' AND starts_with(token_note, ${PROOF_LINE_PREFIX}), false) AS proof_line_missed,
+          token_claimed_at, (token_url = 'pending' AND token_note IS NOT NULL) IS TRUE AS token_settled`;
     } else {
       await a.charge?.();
       [row] = await tx<typeof row[]>`
@@ -1000,7 +1005,7 @@ export async function startEntry(a: {
           confirmed_at: now,
           confirm_choice: choice,
           complete_at: completeNow,
-        })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed`;
+        })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed, NULL::timestamptz AS token_claimed_at, false AS token_settled`;
     }
     return {
       id: row.id,
@@ -1008,6 +1013,8 @@ export async function startEntry(a: {
       token_url: row.token_url,
       confirm_choice: row.confirm_choice,
       proof_line_missed: row.proof_line_missed,
+      token_claimed_at: row.token_claimed_at,
+      token_settled: row.token_settled,
     };
   });
 }

@@ -15,8 +15,10 @@ import { setSanctionsOracle } from './sanctions';
 import { tokenLineFor } from './token-gate';
 import { REPO_HELD } from './entry-text';
 import { TOKEN_LINE, endsOf } from './present';
-import { SKIPPED_ENTRY, tickerTakenNote, type TokenFlowDeps } from './token-launch';
-import { CANT_PUSH, NO_WALLET_HINT, confirmOffer } from './confirm';
+import { LAUNCHING, LAUNCH_STUCK, SKIPPED_ENTRY, launchLimit, tickerTakenNote, type TokenFlowDeps } from './token-launch';
+import { LaunchError, NOT_LAUNCHED_YET, STUCK_LAUNCH_MS, deployToken, stuckLaunches } from './tokens';
+import { runCron } from './cron';
+import { CANT_PUSH, NO_WALLET_HINT, confirmOffer, proofLineWaiting } from './confirm';
 import { eligibleSql } from './traction';
 import { committedProgram } from './fixtures/program-file';
 import { alsoQualifies, alsoText, type AlsoRow } from './also-qualifies';
@@ -908,7 +910,7 @@ async function withTokenEnv<T>(fn: () => Promise<T>) {
 }
 
 const W8 = '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3';
-type Confirmed = { show_to_builder: string; project_id?: number; token?: { status: string; note?: string; fixable?: boolean; tokens_fun?: string; symbol?: string }; kit?: { show_to_builder: string; mode: string }; agent_note?: string; shown_wallet?: string };
+type Confirmed = { show_to_builder: string; project_id?: number; token?: { status: string; note?: string; fixable?: boolean; tokens_fun?: string; symbol?: string; agent_note?: string }; kit?: { show_to_builder: string; mode: string }; agent_note?: string; shown_wallet?: string };
 const go = { builder_confirmed: true, decision: 'go' } as const;
 
 test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit, submission link, prefilled link or paste list at any depth', dbTest, () =>
@@ -933,11 +935,16 @@ test('8.1 Ruling 4 (plan): prepare_submission ready ends with the offer; no kit,
 test('8.2/8.3: confirm_entry without the yes (or without a decision) is the offer only, nothing recorded; record_submission never returns a kit', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('offer', { remembered: W8 });
-    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true });
+    // v2.8.1 §A2: the Yes line names the token that launches.
+    const proposal = { name: 'Tip Jar', symbol: 'TIP' };
+    const expected = confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true, proposal });
+    assert.match(expected, /\nYes: launches \$TIP \(Tip Jar\) on Base\. You earn 40% of its trading fees, plus a shot at the builder bonus\.\n/);
     for (const extra of [{}, { builder_confirmed: true }, { decision: 'go' }]) {
-      const r = (await tools.confirm_entry({ ...t.input, ...extra }, t.ctx)) as Confirmed;
+      const r = (await tools.confirm_entry({ ...t.input, ...extra }, t.ctx)) as Confirmed & { token?: { proposed?: unknown } };
       assert.equal(r.show_to_builder, expected, JSON.stringify(extra));
-      assert.ok(!('kit' in r) && !('token' in r) && !('project_id' in r));
+      assert.ok(!('kit' in r) && !('project_id' in r));
+      assert.deepEqual(r.token, { proposed: proposal });
+      assert.match(r.agent_note ?? '', /token: token\.proposed/);
       assert.equal(r.shown_wallet, W8);
     }
     assert.equal((await t.rows()).length, 0, 'no entry before the yes');
@@ -1119,7 +1126,7 @@ test('8.10b: the proof line not pushed yet is fixable (no kit, "say go"); a priv
     assert.equal(t.calls.deploy, 0);
   }));
 
-test('C24: the proof line still missing on the next "go" returns the kit with the can\'t-push line; the first miss tells the agent about can_push: false', dbTest, () =>
+test('C24, v2.8.1 §A3: the proof line still missing on the next "go" returns the kit with what the token waits on (never "open this in Claude Code"); the first miss tells the agent about can_push: false', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('c24');
     const noLine = { ...t.ctx, tokenDeps: { ...t.ctx.tokenDeps, gate: { ...t.ctx.tokenDeps.gate, owner: async () => ({ status: 'missing' as const }) } } as TokenFlowDeps };
@@ -1131,7 +1138,10 @@ test('C24: the proof line still missing on the next "go" returns the kit with th
     const second = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, noLine)) as Confirmed;
     assert.ok(second.kit, 'the kit');
     assert.ok(!second.token?.fixable);
-    assert.ok(second.show_to_builder.startsWith(`${CANT_PUSH}\n\nReady for `), second.show_to_builder);
+    assert.ok(second.show_to_builder.startsWith(`${proofLineWaiting(null)}\n\nReady for `), second.show_to_builder);
+    assert.doesNotMatch(second.show_to_builder, /Claude Code|Cursor/);
+    assert.match(second.token?.agent_note ?? '', /isn't on the default branch\. Write the line "token: [0-9a-f]{16}" to earnkit\.txt at the root of github\.com\/[^ ]+ on the default branch and push it yourself/);
+    assert.doesNotMatch(second.token?.agent_note ?? '', /can_push/);
     assert.equal(t.calls.deploy, 0);
     assert.equal((await t.rows())[0].confirm_choice, 'go');
     // An agent that did push in between: the next "go" launches as usual.
@@ -1336,7 +1346,7 @@ test('9 coach: all answers: the draft, the fixes, then Ready and the offer; stil
       [
         draftTable(p.submission_requirements, values),
         fixesLine(fixes),
-        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true })}`,
+        `Ready. ${confirmOffer({ hasBonus: true, coinIn: null, canPush: true, wallet: W8, remembered: true, proposal: { name: 'Tip Jar', symbol: 'TIP' } })}`,
       ].join('\n\n'),
     );
     assert.match(r.show_to_builder, /\n1\. Traction: add how many people used it \(e\.g\. 120 users, 900 payments\)\./);
@@ -1649,4 +1659,220 @@ test('12 list_programs: a new fitting program shows exactly once (the alert), ne
     await sql()`DELETE FROM installations WHERE id = ${inst}`;
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
   }
+});
+
+// ---------------------------------------------------------------------------------------------
+// v2.8.1 §A (token launch never stuck, limits, timeouts): the real deployToken (claim, outcome,
+// release, one retry) against a mocked tokens.fun, through confirm_entry. DB only; no network.
+type LaunchReply = {
+  show_to_builder: string;
+  project_id?: number;
+  token?: { status: string; note?: string; launching?: boolean; agent_note?: string };
+  kit?: unknown;
+  agent_note?: string;
+};
+
+/** One tokens.fun answer: a status and a JSON body (or a delay before it). */
+type Answer = { status: number; body: unknown; headers?: Record<string, string>; delayMs?: number };
+
+async function launchSetup(tag: string, answers: Answer[]) {
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const arc = committedProgram('arc-microgrants');
+  const p = { ...arc, id: `t281-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z' };
+  await upsertProgram(ProgramFile.parse(p));
+  const [{ id: inst }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`t281-${tag}-${stamp}`}) RETURNING id`;
+  const repo = `https://github.com/alice/t281-${tag}-${stamp}`;
+  const posts: unknown[] = [];
+  const queue = [...answers];
+  const fakeFetch = (async (_url: string, init: { body: string }) => {
+    posts.push(JSON.parse(init.body));
+    const a = queue.shift() ?? { status: 500, body: { error: 'no more answers' } };
+    if (a.delayMs) await new Promise((r) => setTimeout(r, a.delayMs));
+    return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json', ...a.headers } });
+  }) as unknown as typeof fetch;
+  const tokenDeps: TokenFlowDeps = {
+    available: () => true,
+    limit: async () => {},
+    check: async () => true,
+    gate: {
+      repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null, defaultBranch: 'main' }),
+      owner: async () => ({ status: 'ok', text: tokenLineFor(inst, repo)! }),
+      screen: async () => {},
+    },
+    deploy: (a) => deployToken(a, { fetch: fakeFetch, sleep: async () => {} }),
+  };
+  const ctx = { installationId: inst, roundPoolsWei: async () => new Map(), repoCoins: async () => new Map(), tokenDeps };
+  const input = {
+    program_id: p.id,
+    project: { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.example' },
+    answers: { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' },
+  };
+  const row = async () =>
+    (
+      await sql()<{ id: number; token_url: string | null; token_status: string | null; token_note: string | null; token_claimed_at: Date | null }[]>`
+        SELECT id, token_url, token_status, token_note, token_claimed_at FROM projects WHERE installation_id = ${inst}`
+    )[0];
+  const done = async () => {
+    await sql()`DELETE FROM projects WHERE installation_id = ${inst}`;
+    await sql()`DELETE FROM installations WHERE id = ${inst}`;
+    await sql()`UPDATE programs SET status = 'closed' WHERE id = ${p.id}`;
+  };
+  return { ctx, input, posts, queue, row, done };
+}
+
+async function withLaunchEnv<T>(fn: () => Promise<T>, env: Record<string, string> = {}) {
+  const keys = ['TOKENSFUN_DEPLOY_API_KEY', 'EARNKIT_AUTH_SECRET', ...Object.keys(env)];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
+  process.env.EARNKIT_AUTH_SECRET ||= 't281-secret';
+  Object.assign(process.env, env);
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+const OK = (addr = '0x' + 'ab'.repeat(20)) => ({
+  status: 200,
+  body: { success: true, tokenAddress: addr, txHash: '0x' + '12'.repeat(32), urls: { tokensfun: `https://tokens.fun/coin/${addr}` } },
+});
+const PENDING_TX = { status: 503, body: { error: 'Pending transactions detected. Try again in a few minutes.', pendingCount: 1 } };
+
+test('v2.8.1 §A1: a 503 "Pending transactions" is retried once under the same claim and launches', dbTest, () =>
+  withLaunchEnv(async () => {
+    const t = await launchSetup('retry-ok', [PENDING_TX, OK()]);
+    try {
+      const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+      assert.equal(t.posts.length, 2, 'one automatic retry');
+      assert.equal(r.token?.status, 'launched');
+      assert.ok(r.kit);
+      const row = await t.row();
+      assert.equal(row.token_status, 'launched');
+      assert.ok(row.token_claimed_at, 'the claim time is stamped');
+    } finally {
+      await t.done();
+    }
+  }));
+
+test('v2.8.1 §A1: nothing minted twice (503, then a revert): the claim is released, the builder says go, and "go" launches', dbTest, () =>
+  withLaunchEnv(async () => {
+    const t = await launchSetup('release', [
+      PENDING_TX,
+      { status: 500, body: { error: 'Deployment failed', message: 'Contract execution reverted. Please try again or contact support.' } },
+      OK(),
+    ]);
+    try {
+      const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+      assert.equal(t.posts.length, 2, 'retried once, never more');
+      assert.equal(r.token?.status, 'failed');
+      assert.ok(r.show_to_builder.startsWith("Your token didn't launch yet; say go to try again.\n\n"), r.show_to_builder);
+      assert.ok(r.kit, 'never a dead end');
+      const row = await t.row();
+      assert.equal(row.token_url, null, 'released');
+      assert.equal(row.token_status, 'failed');
+      assert.equal(row.token_note, NOT_LAUNCHED_YET);
+      // The builder says go: it launches.
+      const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+      assert.equal(again.token?.status, 'launched');
+      assert.equal(t.posts.length, 3);
+    } finally {
+      await t.done();
+    }
+  }));
+
+test('v2.8.1 §A1: an unknown outcome (502, or a tx hash) keeps the claim: never retried, plain words, the owner is alerted after 10 minutes', dbTest, () =>
+  withLaunchEnv(async () => {
+    for (const answer of [
+      { status: 502, body: { error: 'Deployment status unknown' } },
+      { status: 503, body: { error: 'Pending transactions detected.', txHash: '0x' + '34'.repeat(32) } },
+    ]) {
+      const t = await launchSetup('unknown', [answer, OK()]);
+      try {
+        const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(t.posts.length, 1, 'no retry');
+        assert.equal(r.token?.status, 'pending');
+        assert.ok(r.show_to_builder.startsWith(`${LAUNCH_STUCK}\n\n`), r.show_to_builder);
+        assert.match(r.token?.agent_note ?? '', /never retried/);
+        const row = await t.row();
+        assert.equal(row.token_url, 'pending');
+        // A second "go": nothing deploys; the settled claim is said plainly, with the kit.
+        const again = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(t.posts.length, 1);
+        assert.equal(again.token?.note, LAUNCH_STUCK);
+        assert.ok(again.kit);
+        // The cron: not yet at 9 minutes, then needs_owner past 10.
+        const claimed = row.token_claimed_at!.getTime();
+        assert.ok(!(await stuckLaunches(new Date(claimed + 9 * 60_000))).includes(row.id));
+        assert.ok((await stuckLaunches(new Date(claimed + STUCK_LAUNCH_MS + 1_000))).includes(row.id));
+        const out = await runCron({ now: new Date(claimed + STUCK_LAUNCH_MS + 1_000), only: ['none'], deps: { stuckLaunches, refreshFees: async () => 0 } });
+        assert.ok(out.needs_owner.includes(`token-pending:${row.id}`), JSON.stringify(out.needs_owner));
+      } finally {
+        await t.done();
+      }
+    }
+  }));
+
+test('v2.8.1 §A5: a slow deploy replies "launching" before the reply time (no kit); the next call returns the token and the kit', dbTest, () =>
+  withLaunchEnv(
+    async () => {
+      const t = await launchSetup('slow', [{ ...OK(), delayMs: 900 }]);
+      try {
+        const started = Date.now();
+        const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        const took = Date.now() - started;
+        assert.ok(took < 850, `replied in ${took} ms, before the deploy answered`);
+        assert.equal(r.show_to_builder, LAUNCHING);
+        assert.equal(r.token?.launching, true);
+        assert.ok(!r.kit, 'the kit comes with the result');
+        assert.match(r.agent_note ?? '', /Call the same tool again with the same arguments/);
+        // Asked again while it still runs: launching again, nothing new deployed.
+        const mid = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(mid.show_to_builder, LAUNCHING);
+        assert.equal(t.posts.length, 1);
+        // The deploy finishes in the background and records itself.
+        await new Promise((res) => setTimeout(res, 1_200));
+        assert.equal((await t.row()).token_status, 'launched');
+        const next = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+        assert.equal(next.token?.status, 'launched');
+        assert.ok(next.kit);
+        assert.equal(t.posts.length, 1);
+      } finally {
+        await t.done();
+      }
+    },
+    { EARNKIT_LAUNCH_REPLY_MS: '300' },
+  ));
+
+test('v2.8.1 §A4: tokens.fun\'s wallet limit says when to retry (retry_after), releases the claim, and the kit comes back', dbTest, () =>
+  withLaunchEnv(async () => {
+    const at = new Date(Date.now() + 3 * 3_600_000);
+    const t = await launchSetup('limit', [{ status: 429, body: { error: 'Daily token limit reached', retry_after: at.toISOString(), retry_after_seconds: 10_800 }, headers: { 'retry-after': '10800' } }]);
+    try {
+      const r = (await tools.confirm_entry({ ...t.input, ...go, wallet: W8 }, t.ctx)) as LaunchReply;
+      const hhmm = new Date(Math.ceil(at.getTime() / 60_000) * 60_000).toISOString().slice(11, 16);
+      assert.ok(r.show_to_builder.startsWith(`Your token didn't launch: this wallet reached today's launch limit. Try again after ${hhmm} UTC.\n\n`), r.show_to_builder);
+      assert.ok(r.kit);
+      assert.equal(t.posts.length, 1, 'a limit is never retried at once');
+      assert.equal((await t.row()).token_url, null);
+    } finally {
+      await t.done();
+    }
+  }));
+
+test('v2.8.1 §A4: EarnKit allows 10 launches per wallet per UTC day; the 11th says when to retry', dbTest, async () => {
+  const wallet = '0x' + Math.random().toString(16).slice(2).padEnd(40, '7').slice(0, 40);
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${`tokenLaunch%`} AND key LIKE ${`%${wallet}`}`;
+  // Different agents: the wallet's own limit, not the agent's.
+  for (let i = 0; i < 10; i++) await launchLimit(900_000 + i, wallet);
+  await assert.rejects(launchLimit(900_100, wallet), (err: unknown) => {
+    assert.ok(err instanceof LaunchError);
+    assert.match(err.message, /^Your token didn't launch: this wallet reached today's launch limit of 10\. Try again after 00:00 UTC\.$/);
+    return true;
+  });
+  await sql()`DELETE FROM rate_windows WHERE key LIKE ${`%${wallet}`} OR key LIKE 'tokenLaunch:9001%' OR key LIKE 'tokenLaunch:9000%'`;
 });

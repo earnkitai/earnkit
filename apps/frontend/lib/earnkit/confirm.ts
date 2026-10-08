@@ -17,10 +17,19 @@ export type OfferInput = {
   remembered: boolean;
   /** No token on this entry at all (the program's token policy is off, or launches are unavailable). */
   tokensOff?: boolean;
+  /** v2.8.1 §A2: the token that launches on "yes", named in the Yes line. */
+  proposal?: { name: string; symbol: string } | null;
 };
 
 export const NO_WALLET_HINT = 'No wallet? Make one at keys.coinbase.com, then send me the address.';
+/** Only for an agent that said it can't push (agent.can_push: false); never after a proof-line miss. */
 export const CANT_PUSH = 'To launch your token, open this in Claude Code or Cursor.';
+/**
+ * v2.8.1 §A3: the proof line still isn't on the repo after a second "go" (an agent that can push).
+ * The entry is saved with the kit and the launch stays open: "go" again launches it.
+ */
+export const proofLineWaiting = (branch?: string | null) =>
+  `Your entry is saved. Your token is waiting on a short proof line on your repo's ${branch ? `${branch} branch` : 'default branch'}; say go once I've pushed it.`;
 export const SKIP_LINE = 'Skip: no token, no builder bonus.';
 export const READY_TO_SUBMIT = 'Ready to submit?';
 /** Ruling 4 (plan): a `go` on an entry with no repo to prove. */
@@ -46,6 +55,16 @@ export const walletQuestion = (wallet: string, hasBonus: boolean) =>
 /** Review Minor 8: confirm_entry's builder line when a fixable problem has no note. */
 export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
+/**
+ * v2.8.1 §A2, §F19: the Yes line names the token that launches, and is the one place an entry's flow
+ * says "40%": "Yes: launches $TIP (TipJar) on Base. You earn 40% of its trading fees, plus a shot at
+ * the builder bonus." Pure; exported for tests.
+ */
+export function yesLine(proposal: { name: string; symbol: string } | null, hasBonus: boolean) {
+  const what = proposal ? `launches $${proposal.symbol} (${proposal.name}) on Base` : 'your entry gets a token on Base';
+  return `Yes: ${what}. You earn 40% of its trading fees${hasBonus ? ', plus a shot at the builder bonus' : ''}.`;
+}
+
 /** The confirmation offer the builder answers with one word. Pure. */
 export function confirmOffer(a: OfferInput): string {
   if (a.coinIn) return `${bonusCountsIn(a.coinIn)}\n${READY_TO_SUBMIT}`;
@@ -53,13 +72,8 @@ export function confirmOffer(a: OfferInput): string {
   if (!a.canPush) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
   const wallet = offerWalletLine(a);
   const lines = a.hasBonus
-    ? [
-        'Want the builder bonus? It comes with a token.',
-        'Yes: your entry gets a token on Base. You earn 40% of its trading fees and compete for the builder bonus (top 10 on each program, paid in ETH).',
-        SKIP_LINE,
-        wallet,
-      ]
-    : ['Want a token for your entry? It earns you 40% of its trading fees.', 'Yes: your entry gets a token on Base.', 'Skip: no token.', wallet];
+    ? ['Want the builder bonus? It comes with a token.', yesLine(a.proposal ?? null, true), SKIP_LINE, wallet]
+    : ['Want a token for your entry?', yesLine(a.proposal ?? null, false), 'Skip: no token.', wallet];
   return `${lines.join('\n')}\n\n${COIN_FOOTNOTE}`;
 }
 

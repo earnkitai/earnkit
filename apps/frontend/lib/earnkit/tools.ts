@@ -12,7 +12,7 @@ import {
 import { EntryError, githubRepo, givenWallet, isWalletAddress, normalizeRepoUrl, presentYourEntries } from './campaigns';
 import { signToEnter } from './entry-proof';
 import { boardLink, confirmTable, enteredText, noCoinYet, todoOf, type EnteredText } from './entry-text';
-import { repoNameOf, titleCase } from './token-proposal';
+import { cleanTokenName, proposeToken, repoNameOf, tickerProblem, titleCase } from './token-proposal';
 import { earnkitCampaignRows, yourCampaignEntries } from './leaderboard';
 import {
   checkPrograms,
@@ -50,18 +50,21 @@ import {
 } from './submission';
 import { OWNERSHIP_FILE } from './ownership';
 import {
+  CANT_PUSH_RETRY_NOTE,
   LaunchTokenInput,
   SKIPPED_ENTRY,
   confirmToken,
   hasBuilderBonus,
+  launchReplyMs,
   launchToken,
+  pendingOutcome,
   submissionToken,
   tokenProposalBlock,
   type TokenFlowDeps,
 } from './token-launch';
 import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
-import { CANT_PUSH, READY_TO_SUBMIT, bonusCountsIn, confirmDecision, confirmOffer, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, bonusCountsIn, confirmDecision, confirmOffer, proofLineWaiting, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   applicationOf,
@@ -79,7 +82,7 @@ import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
 import { roundPoolsWei as readRoundPools } from './bonus-rounds';
-import { REPO_HAS_TOKEN, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
+import { LAUNCHING, REPO_HAS_TOKEN, launchClaimedAt, repoCoinPrograms, tokenLaunchesAvailable, type TokenOutcome } from './tokens';
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
@@ -195,6 +198,28 @@ async function offerFacts(program: ProgramRow, repoUrl: string | null | undefine
 }
 
 /**
+ * v2.8.1 §A2: the token the confirmation offer names: the builder's own name and ticker when the
+ * agent passed both, else EarnKit's proposal (the project name, else the repo name). Null when there
+ * is nothing to name it from. The launch re-checks the ticker before it deploys (C6).
+ */
+async function offerProposal(
+  projectName: string | undefined,
+  repoUrl: string | null,
+  edit: { name?: string; symbol?: string } | undefined,
+  ctx: ToolContext,
+): Promise<{ name: string; symbol: string } | null> {
+  if (edit?.name?.trim() && edit.symbol?.trim()) {
+    const name = cleanTokenName(edit.name);
+    const symbol = edit.symbol.trim().toUpperCase();
+    if ('name' in name && !tickerProblem(symbol)) return { name: name.name, symbol };
+  }
+  const base = projectName?.trim() || titleCase(repoNameOf(repoUrl ?? undefined) ?? '');
+  if (!base) return null;
+  const p = await proposeToken(base, ctx.tokenDeps?.check, repoUrl ?? undefined);
+  return { name: p.name, symbol: p.symbol };
+}
+
+/**
  * Final review I3: the other program this entry's repo token is entered in, or null (no repo, no
  * token, or the token is this program's). A failed read logs the error class and is null.
  */
@@ -258,7 +283,7 @@ function tokenLine(token: TokenOutcome | null, fallback: string) {
   // Final review M8: the ticker, when known, so the builder recognizes and shares their token.
   if (token?.status === 'launched' && token.tokens_fun)
     return `Your token${token.symbol ? ` $${token.symbol}` : ''}: ${token.tokens_fun.replace(/^https?:\/\//, '')}. You earn 40% of its fees.`;
-  if (token?.status === 'pending') return 'Your token is launching.';
+  if (token?.status === 'pending') return token.note ?? LAUNCHING;
   return token?.note ?? fallback;
 }
 
@@ -716,6 +741,7 @@ export const tools = {
           wallet: offerWallet,
           remembered: !given && offerWallet !== null,
           tokensOff: facts.policyOff || !facts.available,
+          proposal: token?.proposed ?? null,
         })
       : null;
     const offersToken = facts !== null && !facts.coinIn && canPush && !facts.policyOff && facts.available;
@@ -781,6 +807,8 @@ export const tools = {
   // v2.8 Part C, Rulings 1, 4, 5 and 7 (plan): the confirmation step. Without the builder's yes it
   // returns the offer; on "go" the token launches; the submit kit comes only from here.
   confirm_entry: async (input: unknown, ctx: ToolContext) => {
+    // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
+    const deadline = Date.now() + launchReplyMs();
     const i = ConfirmEntryInput.parse(input);
     const program = await getProgramRow(i.program_id);
     if (program.campaign) throw new EntryError('EarnKit campaigns are entered in one step.');
@@ -824,12 +852,16 @@ export const tools = {
         ? null
         : await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
       const wallet = given ?? stored ?? (await rememberedWallet(ctx.installationId));
+      // v2.8.1 §A2: the Yes line names the token that launches: the builder's own edit, else EarnKit's proposal.
+      const proposal = offersToken ? await offerProposal(i.project.name, repoUrl, i.token, ctx) : null;
       return {
-        show_to_builder: confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && wallet !== null, tokensOff }),
+        show_to_builder: confirmOffer({ hasBonus: facts.hasBonus, coinIn: facts.coinIn, canPush, wallet, remembered: !given && wallet !== null, tokensOff, proposal }),
         ...(offersToken && wallet && { shown_wallet: wallet }),
+        ...(proposal && { token: { proposed: proposal } }),
         agent_note:
           "Show show_to_builder as written. When the builder says yes, call confirm_entry again with builder_confirmed: true, decision: 'go'" +
           (offersToken ? ' and wallet: shown_wallet (or the wallet they name instead)' : '') +
+          (proposal ? ', and token: token.proposed (the name and ticker the builder saw)' : '') +
           "; when they say skip, decision: 'skip'.",
       };
     }
@@ -863,17 +895,25 @@ export const tools = {
 
     let token: TokenOutcome | null = null;
     if (entry.token_url)
+      // v2.8.1 §A1, §A5: launching (the next call has the result), or stuck past 10 minutes.
       token = entry.token_url === 'pending'
-        ? { status: 'pending', note: "This entry's token is launching." }
+        ? pendingOutcome(entry.token_claimed_at, entry.token_settled)
         : { status: 'launched', tokens_fun: entry.token_url, note: 'This entry already has its token.' };
     else if (decision.kind === 'launch' && entry.confirm_choice === 'go') {
       token = await confirmToken(
-        { projectId: entry.id, installationId: ctx.installationId, token: i.token, wallet: given },
+        { projectId: entry.id, installationId: ctx.installationId, token: i.token, wallet: given, deadline },
         ctx.tokenDeps,
       );
-      // Ruling C24: never a dead end. The proof line still can't be confirmed after an earlier "go"
-      // stopped on it: the entry records without a token and the kit comes back, as for can_push: false.
-      if (token.fixable && token.proof_line && entry.proof_line_missed) token = { status: 'skipped', note: CANT_PUSH };
+      // Ruling C24, v2.8.1 §A3: never a dead end. The proof line still isn't on the repo after an
+      // earlier "go" stopped on it: the entry records without a token, the kit comes back, and the
+      // builder reads exactly what the token waits on (never "open this in another agent": this
+      // agent can push). The launch stays open: "go" again launches it.
+      if (token.fixable && token.proof_line && entry.proof_line_missed)
+        token = {
+          status: 'skipped',
+          note: proofLineWaiting(token.proof_branch),
+          ...(token.agent_note && { agent_note: token.agent_note.replace(CANT_PUSH_RETRY_NOTE, '').trim() }),
+        };
       // Fixable (no wallet, a ticker, the proof line, a transient read): no kit; fix it and confirm again.
       else if (token.fixable) {
         // Fix round 2: no wallet passed with this "go": nothing launched. The entry's stored wallet,
@@ -897,6 +937,16 @@ export const tools = {
       }
     } else if (decision.kind === 'launch' && entry.confirm_choice === 'skip')
       token = { status: 'skipped', note: SKIPPED_ENTRY };
+
+    // v2.8.1 §A5: the deploy runs on past the reply time: "launching", no kit yet; the agent calls
+    // again shortly and that call returns the token's link with the kit.
+    if (token?.launching)
+      return {
+        project_id: entry.id,
+        token,
+        show_to_builder: token.note ?? LAUNCHING,
+        agent_note: `${token.agent_note ?? ''} The submit kit comes with that reply.`.trim(),
+      };
 
     const skipLine = facts.hasBonus ? 'No token, no builder bonus.' : 'No token.';
     const first =
@@ -925,6 +975,8 @@ export const tools = {
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
+    // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
+    const deadline = Date.now() + launchReplyMs();
     const parsed = RecordSubmissionInput.parse(input);
     // Every attempt reads GitHub, Base and the explorer, and (v2.5 §3, external programs) the
     // submission proof page: bounded per hour. Only a recorded entry uses one of the 20 a day
@@ -955,7 +1007,8 @@ export const tools = {
     const countsIn = confirmed === 'go' && !hasCoin ? await tokenElsewhere(parsed, ctx) : null;
     const token: TokenOutcome = 'coin_url' in result && result.coin_url
       ? result.coin_url === 'pending'
-        ? { status: 'pending', note: 'This entry\'s token is launching.' }
+        ? // v2.8.1 §A1: launching, or stuck past 10 minutes (the cron has alerted the owner).
+          (({ claimedAt, settled }) => pendingOutcome(claimedAt, settled))(await launchClaimedAt(result.project_id))
         : { status: 'launched', tokens_fun: result.coin_url, note: 'This entry already has its token.' }
       : confirmed
         ? {
@@ -974,6 +1027,7 @@ export const tools = {
         givenWallet: 'campaign_entry' in result ? null : (parsed.payout_wallet?.trim() || null),
       },
       ctx.tokenDeps,
+      deadline,
     );
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
@@ -1004,7 +1058,7 @@ export const tools = {
           : skipped
             ? { status: 'skipped' }
             : token.status === 'pending'
-              ? { status: 'pending' }
+              ? { status: 'pending', stuck: !token.launching }
               : { status: 'other', ...(token.needs && { needs: token.needs }) };
     let bonus: EnteredText['bonus'] = null;
     if (result.bonus_round && coin.status !== 'skipped') {
@@ -1049,6 +1103,8 @@ export const tools = {
         LaunchTokenInput.parse(input),
         ctx.installationId,
         ctx.tokenDeps,
+        // v2.8.1 §A5: the reply comes within 50 s; a deploy still running then answers "launching".
+        Date.now() + launchReplyMs(),
       ),
     ),
 

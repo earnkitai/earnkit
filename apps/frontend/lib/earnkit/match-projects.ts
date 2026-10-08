@@ -139,7 +139,13 @@ export async function repoHasCommits(fullName: string) {
 }
 
 /** What the coin gate needs to know about a repo's code (Ruling 3 (plan)). */
-export type RepoCode = { fork: boolean; hasCommits: boolean; aheadOfParent: number | null };
+export type RepoCode = {
+  fork: boolean;
+  hasCommits: boolean;
+  aheadOfParent: number | null;
+  /** v2.8.1 §A3: the repo's default branch, where the proof line goes (absent in older test doubles). */
+  defaultBranch?: string;
+};
 
 /** The fork compare failed (ForkCheckError): the repo itself was read fine. */
 export class ForkCheckError extends GitHubError {}
@@ -157,15 +163,16 @@ export async function repoCodeFacts(fullName: string): Promise<RepoCode> {
   ]);
   if (r.private || (r.visibility !== undefined && r.visibility !== 'public'))
     throw new GitHubError(`GitHub: /repos/${fullName} not found (or private)`, 404);
+  const defaultBranch = r.default_branch;
   if (!r.fork || !r.parent || !hasCommits)
-    return { fork: r.fork, hasCommits, aheadOfParent: null };
+    return { fork: r.fork, hasCommits, aheadOfParent: null, defaultBranch };
   const owner = r.full_name.split('/')[0];
   try {
     // per_page=1: only ahead_by is needed, not the commit list or the file diffs.
     const c = await gh<{ ahead_by: number }>(
       `/repos/${r.parent.full_name}/compare/${encodeURIComponent(r.parent.default_branch)}...${encodeURIComponent(owner)}:${encodeURIComponent(r.default_branch)}?per_page=1`,
     );
-    return { fork: true, hasCommits, aheadOfParent: c.ahead_by };
+    return { fork: true, hasCommits, aheadOfParent: c.ahead_by, defaultBranch };
   } catch (err) {
     throw new ForkCheckError(
       `GitHub: couldn't compare the fork with its parent (${err instanceof Error ? err.message : String(err)})`,

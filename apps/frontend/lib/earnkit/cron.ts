@@ -21,6 +21,7 @@ import {
   type PayDeps,
 } from './payout';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
+import { stuckLaunches } from './tokens';
 import { withScoringLock } from './sponsor';
 import { recheckSubmissionProofs } from './submission-proof';
 import { scoreOpenRounds, type TractionDeps } from './traction';
@@ -78,6 +79,8 @@ export type CronDeps = {
   traction?: TractionDeps & Pick<NonNullable<Parameters<typeof scoreOpenRounds>[0]>, 'only' | 'score'>;
   /** The builder bonus payout's sanctions screen (default: the v2.4 screen); `only`: these round keys. */
   rounds?: { listed?: (wallet: string) => Promise<boolean>; only?: string[] };
+  /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
+  stuckLaunches?: (now: Date) => Promise<number[]>;
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -339,9 +342,21 @@ export async function runCron(
       bonus!.note = BONUS_WALLET_UNSET;
     }
   }
+  // v2.8.1 §A1: a token launch still pending after 10 minutes waits on the owner (the runbook
+  // "a token stuck in pending" decides launched or released). A failed read never stops the run.
+  let stuck: number[] = [];
+  if (!opts.only || deps.stuckLaunches) {
+    try {
+      stuck = await (deps.stuckLaunches ?? stuckLaunches)(now);
+    } catch (err) {
+      console.error('[cron] stuck launches', err);
+    }
+  }
+  for (const id of stuck) needs_owner.push(`token-pending:${id}`);
   return {
     now: now.toISOString(),
     campaigns,
+    ...(stuck.length > 0 && { stuck_launches: stuck }),
     ...(bonusScoring !== undefined && { bonus_scoring: bonusScoring }),
     ...(bonus && { bonus }),
     ...(proofRecheck && { proof_recheck: proofRecheck }),

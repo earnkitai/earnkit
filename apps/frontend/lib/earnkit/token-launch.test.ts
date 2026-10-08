@@ -8,6 +8,9 @@ import { RecordSubmissionInput } from './projects';
 import { legacyTokenLineCode, tokenLineFor } from './token-gate';
 import { COIN_FOOTNOTE, coinRow, tokenFootnote, tokenRow, walletLine } from './entry-text';
 import {
+  LAUNCHING,
+  LAUNCH_STUCK,
+  STILL_CHECKING_LAUNCH,
   NON_BASE_NO_BONUS,
   SKIPPED_ENTRY,
   LaunchTokenInput,
@@ -473,7 +476,7 @@ test('tokenAfterSubmission: the choice wallet beats the project wallet beats the
 test('ownership: a repo whose earnkit.txt is missing or lacks this agent\'s line gets no token', async () => {
   const LINE = tokenLines();
   for (const [got, re] of [
-    [{ status: 'missing' }, new RegExp(`^Write earnkit\\.txt at the root of github\\.com/acme/kit .*"${LINE}"`)],
+    [{ status: 'missing' }, new RegExp(`^earnkit\\.txt isn't on the default branch\\. Write the line "${LINE}" to earnkit\\.txt at the root of github\\.com/acme/kit on the default branch`)],
     // A wallet line alone (copied or not) proves nothing.
     [{ status: 'ok', text: `payout_wallet: ${WALLET}\ntoken: OTHER 0123456789` }, new RegExp(`"${LINE}"`)],
     // Another agent's line for the same repo (copied from the public file).
@@ -637,14 +640,35 @@ test('launchToken: policy off is a skipped outcome', async () => {
 });
 
 test('launchToken: an existing token is a failed outcome and nothing is overwritten', async () => {
-  for (const url of ['https://tokens.fun/coin/0x1', 'pending']) {
-    const h = harness({ token_url: url });
+  const h = harness({ token_url: 'https://tokens.fun/coin/0x1' });
+  const out = await launchToken(launchInput(), 1, h.deps);
+  assert.equal(out.status, 'failed');
+  assert.match(out.note ?? '', /already has a token/);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.deploys.length, 0);
+});
+
+test('v2.8.1 §A1, §A5: a launch in progress says "launching"; settled or past 10 minutes it says so plainly; never a second launch', async () => {
+  const now = Date.now();
+  for (const [p, launching] of [
+    [{ token_claimed_at: new Date(now - 60_000) }, true],
+    // The deploy answered without a clear result (its note is set): no polling.
+    [{ token_claimed_at: new Date(now - 60_000), token_note: LAUNCH_STUCK }, false],
+    [{ token_claimed_at: new Date(now - 11 * 60_000) }, false],
+    // A claim from before v2.8.1 has no time: old.
+    [{ token_claimed_at: null }, false],
+  ] as const) {
+    const h = harness({ token_url: 'pending', ...p });
     const out = await launchToken(launchInput(), 1, h.deps);
-    assert.equal(out.status, 'failed');
-    assert.match(out.note ?? '', url === 'pending' ? /in progress/ : /already has a token/);
+    assert.equal(out.status, 'pending');
+    assert.equal(out.note, launching ? LAUNCHING : LAUNCH_STUCK);
+    assert.equal(out.launching, launching ? true : undefined);
     assert.equal(h.writes.length, 0);
     assert.equal(h.deploys.length, 0);
+    assert.ok(!h.calls.includes('limit') && !h.calls.includes('repo'));
   }
+  assert.equal(LAUNCHING, 'Your token is launching. Ask me again in a minute for its link.');
+  assert.doesNotMatch(LAUNCH_STUCK, /—|coin|Clanker/i);
 });
 
 test('launchToken: reuses the stored name and ticker, and passes the chain', async () => {
@@ -942,4 +966,29 @@ test('final review M8: a repo that already has its token is refused before any t
   assert.doesNotMatch(out.note ?? '', /ticker is taken/);
   assert.deepEqual(h.calls, [], 'no tokens.fun ticker check');
   assert.equal(h.deploys.length, 0);
+});
+
+test('v2.8.1 §A5: past the reply time, launch_token answers at once: "still checking" before the deploy, "launching" after; the flow runs on', async () => {
+  // Slow repo checks: nothing sent when the reply time passes.
+  const slowGate = harness();
+  const repo = slowGate.deps.gate!.repo!;
+  slowGate.deps.gate!.repo = async (o, r) => { await new Promise((res) => setTimeout(res, 150)); return repo(o, r); };
+  const t0 = Date.now();
+  const early = await launchToken(launchInput(), 1, slowGate.deps, Date.now() + 30);
+  assert.ok(Date.now() - t0 < 140, 'replied before the checks ended');
+  assert.equal(early.status, 'skipped');
+  assert.equal(early.note, STILL_CHECKING_LAUNCH);
+  assert.equal(slowGate.deploys.length, 0);
+  await new Promise((res) => setTimeout(res, 250));
+  assert.equal(slowGate.deploys.length, 1, 'the flow ran on and deployed');
+  // A slow deploy: "launching".
+  const slowDeploy = harness();
+  const deploy = slowDeploy.deps.deploy!;
+  slowDeploy.deps.deploy = async (a) => { await new Promise((res) => setTimeout(res, 150)); return deploy(a); };
+  const mid = await launchToken(launchInput(), 1, slowDeploy.deps, Date.now() + 30);
+  assert.deepEqual([mid.status, mid.note, mid.launching], ['pending', LAUNCHING, true]);
+  await new Promise((res) => setTimeout(res, 250));
+  // In time: the flow's own outcome.
+  const fast = harness();
+  assert.equal((await launchToken(launchInput(), 1, fast.deps, Date.now() + 5_000)).status, 'launched');
 });

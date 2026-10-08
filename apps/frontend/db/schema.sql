@@ -618,3 +618,8 @@ CREATE TABLE IF NOT EXISTS entry_outcomes (
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS results jsonb;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS outcome_asked_at timestamptz;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS fit_chains text[] NOT NULL DEFAULT '{}';
+
+-- v2.8.1 §A1: when the current launch claim (token_url = 'pending') was taken, so the cron (hourly)
+-- can alert the owner about a launch still pending after 10 minutes. Additive; NULL on claims taken
+-- before v2.8.1 (the cron counts those as old).
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS token_claimed_at timestamptz;
