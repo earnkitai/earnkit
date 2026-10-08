@@ -1051,8 +1051,10 @@ export async function completeAtWindow(a: { since: Date; until: Date; apply: boo
 export const SKIPPED_ENTRY = 'This entry was entered without a token.';
 
 export const LaunchTokenInput = TokenChoice.extend({
-  project_id: z.number().int().positive(),
-  builder_confirmed: z.literal(true),
+  /** The entry to launch for; or `offer` (v2.9 B10), never both. */
+  project_id: z.number().int().positive().optional(),
+  /** Required for a launch; a skip (decision 'skip') launches nothing. */
+  builder_confirmed: z.literal(true).optional(),
   chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
   /** A new live link (e.g. the old one 404s). */
   live_url: z.string().optional(),
@@ -1062,7 +1064,24 @@ export const LaunchTokenInput = TokenChoice.extend({
   check_back: z.boolean().optional(),
   /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
   signed_in: z.string().max(40).optional(),
-}).strict();
+  /** v2.9 B10: the first reply's token offer (list_programs token_offer): a draft entry is made for it. */
+  offer: z
+    .object({ program_id: z.string().min(1), repo_url: z.string().min(1).max(500), project_name: z.string().trim().min(1).max(200) })
+    .strict()
+    .optional(),
+  /** v2.9 B10: the builder's answer to that offer: 'go' launches, 'skip' records a decline. */
+  decision: z.enum(['go', 'skip']).default('go'),
+  /** v2.9 B10: what the agent can do (can_push: false, the builder signs in with GitHub instead). */
+  agent: z.object({ can_push: z.boolean().optional() }).strict().optional(),
+})
+  .strict()
+  .superRefine((v, c) => {
+    if ((v.project_id === undefined) === (v.offer === undefined))
+      c.addIssue({ code: 'custom', message: 'pass exactly one of project_id or offer' });
+    if (v.decision === 'skip' && !v.offer) c.addIssue({ code: 'custom', path: ['decision'], message: "'skip' answers a token offer: pass offer" });
+    if (v.decision === 'go' && v.builder_confirmed !== true)
+      c.addIssue({ code: 'custom', path: ['builder_confirmed'], message: 'builder_confirmed: true, after the builder said yes' });
+  });
 
 /**
  * launch_token: launches (or retries) the token for a project this installation recorded, with
@@ -1070,7 +1089,7 @@ export const LaunchTokenInput = TokenChoice.extend({
  * Returns a TokenOutcome for every result; throws only when the project isn't this installation's.
  */
 export async function launchToken(
-  input: z.infer<typeof LaunchTokenInput>,
+  input: Omit<z.infer<typeof LaunchTokenInput>, 'decision'> & { decision?: 'go' | 'skip' },
   installationId: number,
   deps: TokenFlowDeps = {},
   /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
@@ -1078,7 +1097,9 @@ export async function launchToken(
   /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
   verifiedLogin?: string | null,
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, ...choice } = input;
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, offer: _o, decision: _d, agent: _a, ...choice } = input;
+  // v2.9 B10: an offer is made into an entry by the launch_token tool first (tools.ts launchFromOffer).
+  if (project_id === undefined) throw new LaunchError('launch_token needs project_id here');
   const store = deps.store ?? dbStore;
   const project = await ownProject(store, project_id, installationId);
   // v2.8 Ruling 3 (plan): refused before anything is checked, changed or launched.

@@ -515,5 +515,13 @@ const [ver] = await db<{ purpose: string; used_at: Date | null; code_hash: strin
 ok(ver && ver.purpose === 'entry' && ver.used_at === null && ver.code_hash === null && ver.n === 1,
   "sign-in rows survive the schema running again; verifications default to purpose 'entry', unused, no code");
 
+// v2.9 B10: token declines count per (installation, repo) and survive the schema running again.
+await db`INSERT INTO token_declines (installation_id, repo_key) VALUES (${memInst}, 'alice/tipjar')`;
+await db`INSERT INTO token_declines (installation_id, repo_key) VALUES (${memInst}, 'alice/tipjar')
+  ON CONFLICT (installation_id, repo_key) DO UPDATE SET count = token_declines.count + 1, last_at = now()`;
+await db.unsafe(now);
+const [declined] = await db<{ count: number }[]>`SELECT count FROM token_declines WHERE installation_id = ${memInst}`;
+ok(declined?.count === 2, 'token_declines counts per installation and repo, and survives the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

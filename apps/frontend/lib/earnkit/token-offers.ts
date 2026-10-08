@@ -27,3 +27,26 @@ export async function readOffer(installationId: number, programId: string, key: 
     WHERE installation_id = ${installationId} AND program_id = ${programId} AND entry_key = ${key}`;
   return row ? { name: row.offered_name, symbol: row.offered_ticker } : null;
 }
+
+/**
+ * v2.9 B10: the builder said skip to a token offer for this repo (`repoKey`, answer-bank.ts:
+ * owner/repo). Returns the decline count; at 2 the repo's token is never offered again.
+ */
+export async function recordDecline(installationId: number, repoKey: string, now: Date = new Date()): Promise<number> {
+  const [row] = await sql()<{ count: number }[]>`
+    INSERT INTO token_declines (installation_id, repo_key, last_at) VALUES (${installationId}, ${repoKey}, ${now})
+    ON CONFLICT (installation_id, repo_key) DO UPDATE SET count = token_declines.count + 1, last_at = EXCLUDED.last_at
+    RETURNING count`;
+  return row.count;
+}
+
+/** v2.9 B10: the decline count per repo key (owner/repo); a repo never declined is absent. */
+export async function declines(installationId: number, repoKeys: string[]): Promise<Map<string, number>> {
+  if (repoKeys.length === 0) return new Map();
+  const rows = await sql()<{ repo_key: string; count: number }[]>`
+    SELECT repo_key, count FROM token_declines WHERE installation_id = ${installationId} AND repo_key IN ${sql()(repoKeys)}`;
+  return new Map(rows.map((r) => [r.repo_key, r.count]));
+}
+
+/** v2.9 B10, Pre-flight P23: at this many skips a repo's token is never offered again. */
+export const DECLINES_MAX = 2;
