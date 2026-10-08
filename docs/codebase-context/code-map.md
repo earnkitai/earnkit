@@ -311,9 +311,11 @@ apps/frontend/
                                IPv6 keyed on its /64). LIMITS (v2.2 §5): sponsor create 5/day
                                (replacements 10/day), record_submission 20/day, token launches
                                (v2.8.1: tokenLaunchWallet 10/day per creator wallet, tokenLaunch
-                               10/day per installation), OAuth register
-                               20/hour, authorize 60/hour and new installations 10/hour + 30/day
-                               per IP (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
+                               10/day per installation; v2.8.1 §E17: tokenLaunchShared 500/day for a
+                               hosted agent), authorize 60/hour per IP, OAuth register and new
+                               installations 500/day per agent client (oauthRegisterClient,
+                               installClient) + 50/hour per IP (oauthRegister, installHour)
+                               (oauth-routes.ts; replayed codes free), GitHub matching (list_programs with a user/repos,
                                get_program's repo check) 30/hour per installation, chain checks
                                60/min (/check per IP, sponsor status per installation).
                                enforce() throws RateLimitError ("… Try again in 18 minutes.");
@@ -331,10 +333,19 @@ apps/frontend/
                                its v2.4 alias);
                                testInstallationIds (v2.6 Ruling 6 (plan)): EARNKIT_TEST_INSTALLATIONS,
                                comma-separated ids, malformed parts dropped with one console.warn per
-                               distinct value naming positions only, never the text
-    oauth-routes.ts(+limits test) token + authorize handlers (app/oauth/* re-export them)
-    oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id),
-                               authorize, code -> token, metadata, clientKeyOf;
+                               distinct value naming positions only, never the text;
+                               v2.8.1 §E: connectInstallation (the group root to act as, the token's
+                               own id, shared_client), sharedGroup, saveInstallation(..., shared)
+    identity.ts(+test)         v2.8.1 §E18: findEarlier / offerPickup ("Pick up your N earlier
+                               entries?" from what this call states), answerPickup (yes needs this
+                               agent's proof line in an earlier entry's repo), linkInstallations
+                               (installations.builder_id, rows move to the oldest root)
+    oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
+                               logLimited
+    oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
+                               v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
+                               HOSTED_REDIRECT_HOSTS, clientLimitKey,
+                               authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
     mcp.ts(+test)              v2.8.1 §C15: run() logs an unexpected error as "[mcp] <tool> error <id>"
@@ -412,6 +423,9 @@ apps/frontend/
                                ASK_OUTCOME_NOTE) at most once per entry; Ruling C21: report_outcome
                                is its own tool (saveSelfReport; MCP readOnlyHint false) so
                                list_programs stays read-only;
+                               v2.8.1 §E: ToolContext.ownInstallationId / sharedClient / pickupDeps;
+                               walletMemory (no remembered wallet on a hosted agent); list_programs'
+                               pick_up offer (PICKUP_NOTE); pick_up_entries (yesNo, PICKUP_TEXT);
                                final review: record_submission's tokenElsewhere (I3: "Builder bonus
                                counts in <program>." for a later program's entry), confirm_entry's
                                C24 kit after a second proof-line miss, tokenLine with the ticker (M8);

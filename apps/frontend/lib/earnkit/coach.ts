@@ -221,7 +221,23 @@ const slotsOf = (text: string | undefined): Record<string, string> => {
  * distinct answer for the second). Contact details are never filled silently (C16): they come back
  * as `suggested`, for the contact question to confirm ("Use a@b.co again?"). Pure.
  */
-export function bankFill(reqs: SubmissionRequirement[], answers: Record<string, string>, bank: Map<FieldKind, string>) {
+export function bankFill(
+  reqs: SubmissionRequirement[],
+  answers: Record<string, string>,
+  bank: Map<FieldKind, string>,
+  opts: { confirmAll?: boolean } = {},
+): { answers: Record<string, string>; from_bank: Record<string, string>; suggested: Record<string, string> } {
+  // v2.8.1 §E17: on a hosted agent (shared_client) nothing is filled silently: every banked answer
+  // the coach asks about comes back as `suggested`, for a yes/no that names it; the rest (what the
+  // agent drafts) is left out, so the agent drafts it fresh.
+  if (opts.confirmAll) {
+    const askable = new Set(askableKeys(reqs, answers));
+    const plain = bankFill(reqs, answers, bank);
+    const suggested = Object.fromEntries(
+      Object.entries({ ...plain.from_bank, ...plain.suggested }).filter(([k]) => askable.has(k)),
+    );
+    return { answers: { ...answers }, from_bank: {} as Record<string, string>, suggested };
+  }
   const out = { ...answers };
   const from_bank: Record<string, string> = {};
   const suggested: Record<string, string> = {};
@@ -315,6 +331,19 @@ function contactText(reqs: SubmissionRequirement[], suggested: Record<string, st
   const use = saved.length > 0 ? `Use ${list(saved.map((r) => suggested[r.key]))} again?` : '';
   if (use && fresh) return `${use} Plus your ${fresh}?`;
   return use || `Your ${fresh}?`;
+}
+
+/** The longest saved answer a yes/no quotes in full; longer ones are cut at a word. */
+const SAVED_SHOWN = 80;
+const clip = (v: string) => {
+  const t = v.replace(/\s+/g, ' ').trim();
+  if (t.length <= SAVED_SHOWN) return t;
+  const cut = t.slice(0, SAVED_SHOWN);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 40)).replace(/[\s,.;:]+$/, '')}...`;
+};
+/** v2.8.1 §E17: a yes/no that names saved answers: 'Use "3 people" again?'. Pure. */
+function savedText(saved: string[]) {
+  return `Use ${list(saved.map((v) => `"${clip(v)}"`))} again?`;
 }
 
 /** One group's question: the kind's question, or the fields' own to-dos ("How it makes money today?"). */
@@ -415,16 +444,23 @@ function baseQuestions(a: {
     const sugg = Object.fromEntries(reqs.filter((r) => suggested[r.key]).map((r) => [r.key, suggested[r.key]]));
     return { keys: reqs.map((r) => r.key), kind, text, ...(Object.keys(sugg).length > 0 && { suggested: sugg }) };
   };
+  /** v2.8.1 §E17: a work question with a saved answer is a yes/no that names it. */
+  const workText = (g: Group) => {
+    const saved = g.reqs.map((r) => suggested[r.key]).filter(Boolean);
+    return saved.length > 0 ? savedText(saved) : groupText(g.kind, g.reqs, name);
+  };
   const tail: Question[] = [
     ...(contact.length > 0 ? [make('contact', contact, contactText(contact, suggested))] : []),
-    ...(rest.length > 0 ? [make(kindOf(rest[0]), rest, groupText('other', rest, name))] : []),
+    ...(rest.length > 0
+      ? [make(kindOf(rest[0]), rest, rest.some((r) => suggested[r.key]) ? `${savedText(rest.map((r) => suggested[r.key]).filter(Boolean))}${rest.some((r) => !suggested[r.key]) ? ` Plus: ${lowerFirst(groupText('other', rest.filter((r) => !suggested[r.key]), name))}` : ''}` : groupText('other', rest, name))]
+      : []),
   ];
   const room = Math.max(1, MAX_BULLETS - tail.length);
   const work = chunks(prose, room).map((gs) =>
     make(
       gs[0].kind,
       gs.flatMap((g) => g.reqs),
-      gs.map((g, i) => (i === 0 ? groupText(g.kind, g.reqs, name) : `And ${lowerFirst(groupText(g.kind, g.reqs, name))}`)).join(' '),
+      gs.map((g, i) => (i === 0 ? workText(g) : `And ${lowerFirst(workText(g))}`)).join(' '),
     ),
   );
   const items = [...work, ...tail];

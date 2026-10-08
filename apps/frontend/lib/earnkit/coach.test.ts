@@ -505,3 +505,43 @@ test('v2.8.1 §C15: no proof-link fix on a form without a proof field (a16z spee
   const f = preSubmitCheck({ reqs: withLink, answers: { email: 'a@b.co', demo: 'soon' }, judging: null });
   assert.deepEqual(f.map((x) => [x.key, x.rule]), [['demo', 'no_proof_link']]);
 });
+
+test('v2.8.1 §E17: on a hosted agent nothing is filled silently; each saved answer is a yes/no that names it', () => {
+  const reqs = [
+    req('traction', 'traction'),
+    req('why', 'why_you'),
+    req('how', 'how_it_works', { from: 'project' }),
+    req('email', 'contact', { label: 'Email' }),
+  ];
+  const bank = new Map<FieldKind, string>([
+    ['traction', '120 users in the first month, mostly from the Arc Discord, with 40 paying.'],
+    ['why_you', 'Built two tipping apps before'],
+    ['how_it_works', 'Banked how it works'],
+    ['contact', JSON.stringify({ email: 'a@b.co' })],
+  ]);
+  // Without the flag: unchanged (traction, why_you and how_it_works filled; contact suggested).
+  const plain = bankFill(reqs, {}, bank);
+  assert.deepEqual(Object.keys(plain.from_bank).sort(), ['how', 'traction', 'why']);
+  // Hosted: nothing filled; what the coach asks about comes back suggested; what the agent drafts is left out.
+  const f = bankFill(reqs, {}, bank, { confirmAll: true });
+  assert.deepEqual(f.answers, {});
+  assert.deepEqual(f.from_bank, {});
+  assert.deepEqual(f.suggested, {
+    traction: '120 users in the first month, mostly from the Arc Discord, with 40 paying.',
+    why: 'Built two tipping apps before',
+    email: 'a@b.co',
+  });
+  // An answer the builder or agent gave is never replaced, and never suggested over.
+  assert.ok(!('why' in bankFill(reqs, { why: 'Mine' }, bank, { confirmAll: true }).suggested));
+  const q = questionsFor({ reqs, answers: f.answers, first: false, suggested: f.suggested });
+  const texts = q.map((x) => x.text);
+  assert.ok(texts.includes('Use "120 users in the first month, mostly from the Arc Discord, with 40 paying." again?'), texts.join(' | '));
+  assert.ok(texts.includes('Use "Built two tipping apps before" again?'), texts.join(' | '));
+  assert.ok(texts.includes('Use a@b.co again?'), texts.join(' | '));
+  for (const x of q.filter((y) => y.kind !== 'contact')) assert.ok(x.suggested, x.text);
+  for (const t of texts) assert.doesNotMatch(t, /—/);
+  // A long saved answer is cut at a word.
+  const long = bankFill([req('traction', 'traction')], {}, new Map([['traction', 'word '.repeat(40).trim()]]), { confirmAll: true });
+  const lq = questionsFor({ reqs: [req('traction', 'traction')], answers: {}, first: false, suggested: long.suggested });
+  assert.match(lq[0].text, /^Use "(word ){7,}word\.\.\." again\?$/);
+});

@@ -2135,3 +2135,63 @@ test('v2.8.1 fix round 1: without check_back, a same-arguments call within 2 min
     },
     { EARNKIT_LAUNCH_REPLY_MS: '150' },
   ));
+
+// ---- v2.8.1 §E17: hosted agent installs (shared_client).
+
+test('v2.8.1 §E17: on a hosted agent the remembered wallet is never suggested; the builder is asked', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('shared-wallet', { remembered: W8 });
+    const ctx = { ...t.ctx, sharedClient: true };
+    const prep = (await tools.prepare_submission(t.input, ctx)) as Record<string, unknown>;
+    assert.ok(!('shown_wallet' in prep), 'no remembered wallet on the offer');
+    assert.ok(!JSON.stringify(prep).toLowerCase().includes(W8.toLowerCase()));
+    const offer = (await tools.confirm_entry(t.input, ctx)) as Confirmed;
+    assert.ok(!('shown_wallet' in offer));
+    assert.ok(!offer.show_to_builder.toLowerCase().includes(W8.toLowerCase()));
+    // A "go" without a wallet: nothing launched, and the wallet is asked, never the remembered one.
+    const goNoWallet = (await tools.confirm_entry({ ...t.input, ...go }, ctx)) as Confirmed;
+    assert.ok(!JSON.stringify(goNoWallet).toLowerCase().includes(W8.toLowerCase()));
+    assert.equal(t.calls.deploy, 0);
+    // The same installation off a hosted agent keeps v2.8's behavior.
+    const own = (await tools.prepare_submission(t.input, t.ctx)) as Record<string, unknown>;
+    assert.equal(own.shown_wallet, W8);
+  }));
+
+test('v2.8.1 §E17: the coach round asks for the wallet on a hosted agent even with one remembered', dbTest, () =>
+  withTokenEnv(async () => {
+    const t = await confirmSetup('shared-coach', { remembered: W8, extra: [{ key: 'team', label: 'Team', type: 'text', required: true, from: 'builder', kind: 'team' } as SubmissionRequirement] });
+    const asked = (await tools.prepare_submission(t.input, { ...t.ctx, sharedClient: true })) as { show_to_builder: string };
+    assert.match(asked.show_to_builder, /The wallet for your token's fees/);
+    const own = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(own.show_to_builder, /The wallet for your token's fees/, 'a remembered wallet is not asked again off a hosted agent');
+  }));
+
+test('v2.8.1 §E17: a hosted agent saved answers come back only as a named yes/no', dbTest, () =>
+  withTokenEnv(async () => {
+    const team = { key: 'team', label: 'Team', type: 'text', required: true, from: 'builder', kind: 'team' } as SubmissionRequirement;
+    const t = await confirmSetup('shared-bank', { extra: [team] });
+    await sql()`INSERT INTO answer_bank (installation_id, project_key, kind, answer, program_id)
+      VALUES (${t.inst}, ${projectKey({ repo_url: t.repo, name: 'Tip Jar' })}, 'team', 'Alice and Bob', 'other-program')`;
+    const shared = (await tools.prepare_submission(t.input, { ...t.ctx, sharedClient: true })) as { show_to_builder: string; ready: boolean; coach?: { from_bank?: unknown } };
+    assert.match(shared.show_to_builder, /Use "Alice and Bob" again\?/);
+    assert.equal(shared.ready, false, 'not filled until the builder says yes');
+    const own = (await tools.prepare_submission(t.input, t.ctx)) as { show_to_builder: string };
+    assert.doesNotMatch(own.show_to_builder, /Use "Alice and Bob" again\?/, 'off a hosted agent the bank fills it as before');
+  }));
+
+test('v2.8.1 §E17 (T2 carry): a hosted agent launches past the 10-a-day agent floor; the wallet limit stays 10', dbTest, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, shared_client) VALUES (${`shared-launch-${process.pid}-${Date.now()}`}, true) RETURNING id`;
+  const wallets: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const w = '0x' + randomBytes(20).toString('hex');
+    wallets.push(w);
+    await launchLimit(id, w);
+  }
+  // A plain agent still stops at 10.
+  const [{ id: plain }] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash) VALUES (${`plain-launch-${process.pid}-${Date.now()}`}) RETURNING id`;
+  for (let i = 0; i < 10; i++) await launchLimit(plain, '0x' + randomBytes(20).toString('hex'));
+  await assert.rejects(launchLimit(plain, '0x' + randomBytes(20).toString('hex')), /this agent reached today's launch limit of 10\./);
+  await sql()`DELETE FROM rate_windows WHERE key IN ${sql()([`tokenLaunchShared:${id}`, `tokenLaunch:${plain}`])}`;
+});

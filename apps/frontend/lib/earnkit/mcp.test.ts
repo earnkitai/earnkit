@@ -50,13 +50,15 @@ const SIX = [
   'get_program',
   'launch_token',
   'list_programs',
+  // v2.8.1 §E18: the builder's yes or no to picking up earlier entries.
+  'pick_up_entries',
   'prepare_submission',
   'record_submission',
   // v2.8 Ruling C21: the builder's own answer to "Did it win?", its own tool.
   'report_outcome',
 ];
 
-test('without escrow config the server offers exactly the 7 builder tools', async () => {
+test('without escrow config the server offers exactly the 8 builder tools', async () => {
   assert.deepEqual(await toolNames({}), SIX);
 });
 

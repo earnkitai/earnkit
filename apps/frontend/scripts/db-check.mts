@@ -60,6 +60,10 @@ const [p] = await db<{ score: number; score_final: boolean; payout_status: strin
 ok(p.score === 12 && p.score_final === false && p.payout_status === null && p.creator_wallet === null, 'existing entries keep their score and get safe defaults');
 const [i] = await db<{ client_key: string | null }[]>`SELECT client_key FROM installations WHERE token_hash = 'h1'`;
 ok(i.client_key === null, 'installations from before v2.4 keep working by token');
+// v2.8.1 §E17/E18: additive. Installations made before v2.8.1 are not hosted, not linked, no pickup offer.
+const [pre281] = await db<{ shared_client: boolean; builder_id: number | null; pickup: unknown }[]>`
+  SELECT shared_client, builder_id, pickup FROM installations WHERE token_hash = 'h1'`;
+ok(pre281.shared_client === false && pre281.builder_id === null && pre281.pickup === null, 'existing installations get shared_client false, no link and no pickup offer');
 await db`UPDATE installations SET client_key = 'k1' WHERE token_hash = 'h1'`;
 let duplicate = false;
 try {
@@ -415,6 +419,14 @@ ok(kept2.n === 2, 'entry_outcomes rows survive the schema running again');
 await db`DELETE FROM projects WHERE id = ${seeded.eligible}`;
 const [gone] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM entry_outcomes WHERE project_id = ${seeded.eligible}`;
 ok(gone.n === 0, "an entry's outcomes go with it (ON DELETE CASCADE)");
+
+// v2.8.1 §E17/E18: a link and the hosted flag survive the schema running again.
+const [{ id: rootInst }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('v281-root') RETURNING id`;
+await db`INSERT INTO installations (token_hash, builder_id, shared_client) VALUES ('v281-linked', ${rootInst}, true)`;
+await db.unsafe(now);
+const [linked] = await db<{ shared_client: boolean; builder_id: number | null }[]>`
+  SELECT shared_client, builder_id FROM installations WHERE token_hash = 'v281-linked'`;
+ok(linked.shared_client === true && linked.builder_id === rootInst, 'a link and the hosted flag survive the schema running again');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

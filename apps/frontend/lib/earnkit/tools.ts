@@ -85,6 +85,7 @@ import {
   questionsFor,
 } from './coach';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
+import { answerPickup, offerPickup, type PickupDeps } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -93,7 +94,17 @@ import { LAUNCHING, NOT_LAUNCHED_YET, REPO_HAS_TOKEN, launchClaimedAt, repoCoinP
 
 /** Who is calling: the installation behind the MCP connection. */
 export type ToolContext = {
+  /** v2.8.1 §E18: the installation the tools act as (a linked installation's group root). */
   installationId: number;
+  /** v2.8.1 §E18: the token's own installation (the pickup offer's); defaults to installationId. */
+  ownInstallationId?: number;
+  /**
+   * v2.8.1 §E17: the token's installation came from a hosted agent client: saved answers are reused
+   * only after a yes/no that names them, and the remembered wallet is never suggested.
+   */
+  sharedClient?: boolean;
+  /** Test injection only: the pickup's proof line reads. */
+  pickupDeps?: PickupDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -113,6 +124,12 @@ export type ToolContext = {
   /** Test and e2e injection only; never set by the MCP route. */
   matchProjects?: typeof matchProjects;
 };
+
+/**
+ * v2.8.1 §E17 (T6 carry): this installation's remembered wallet, never on a hosted agent
+ * (shared_client): one registration may serve many builders, so the wallet is asked instead.
+ */
+const walletMemory = (ctx: ToolContext) => (ctx.sharedClient ? Promise.resolve(null) : rememberedWallet(ctx.installationId));
 
 /**
  * The open rounds' builder bonus pools so far, by program id, in one grouped read (Ruling 3; the
@@ -345,6 +362,7 @@ async function bankedAnswers(
   project: { name?: string; repo_url?: string; [k: string]: unknown } | undefined,
   repoUrl: string | null | undefined,
   answers: Record<string, string>,
+  shared = false,
 ) {
   const name = project?.name?.trim() || titleCase(repoNameOf(repoUrl ?? undefined) ?? '');
   const none = {} as Record<string, string>;
@@ -358,7 +376,8 @@ async function bankedAnswers(
   }
   const own = (f: string | undefined) => (f && typeof project?.[f] === 'string' ? String(project[f]).trim() : '');
   const reqs = program.submission_requirements.filter((r) => !own(r.project_field));
-  const filled = bankFill(reqs, answers, bank);
+  // v2.8.1 §E17: on a hosted agent, nothing from the bank is used without a yes/no that names it.
+  const filled = bankFill(reqs, answers, bank, { confirmAll: shared });
   // C15: still the project's first program while the bank filled none of what the coach would ask.
   const first = !askableKeys(program.submission_requirements, answers).some((k) => k in filled.from_bank || k in filled.suggested);
   return { ...filled, first, key, name };
@@ -465,6 +484,30 @@ export function listProgramsInput(input: unknown) {
     wallet: valid ?? undefined, walletNote: wallet != null && wallet !== '' && !valid ? WALLET_IGNORED : null };
 }
 
+/** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
+export const PICKUP_NOTE =
+  'Ask the builder pick_up.question once, as written, before anything else. On yes, call pick_up_entries with answer "yes"; ' +
+  'on no, with answer "no". Never answer it for them.';
+/** v2.8.1 §E18: the builder's lines for the pickup answer. */
+export const PICKUP_TEXT = {
+  linked: 'Done. Your earlier entries, saved answers and alerts are here now.',
+  declined: 'Okay. Your earlier entries stay where they are.',
+  none: 'There is nothing to pick up right now.',
+  proof: 'One step first: I need to add a short proof line to your repo, then your earlier entries come over.',
+  unreadable: "EarnKit couldn't read your repo on GitHub right now. Try again in a minute.",
+  unclear: 'Pick up your earlier entries? Yes or no.',
+} as const;
+
+/** v2.8.1 §E18: a yes or a no as an agent passes it; null when it is neither. Pure; exported for tests. */
+export function yesNo(v: unknown): boolean | null {
+  if (typeof v === 'boolean') return v;
+  if (v === 1 || v === 0) return v === 1;
+  const t = typeof v === 'string' ? v.trim().toLowerCase().replace(/[.!]+$/, '') : '';
+  if (['yes', 'y', 'true', 'yeah', 'yep', 'sure', 'ok', 'okay'].includes(t)) return true;
+  if (['no', 'n', 'false', 'nope', 'not now'].includes(t)) return false;
+  return null;
+}
+
 /** v2.8 Ruling 30 (plan): what the agent does with ask_outcome. */
 export const ASK_OUTCOME_NOTE =
   'Results for this entry were due. After showing show_to_builder, ask the builder this question once, as written. ' +
@@ -519,6 +562,23 @@ export const tools = {
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
     const { agent_can_build, github_user, repos, local_repos, wallet, walletNote } = listProgramsInput(input);
+    // v2.8.1 §E18: earlier installations of the builder this call names (its GitHub user, the owners
+    // of the repos it reports, its wallet), never what this installation remembers; read before this
+    // call's details are saved. Never fails the tool.
+    const pickup =
+      github_user || repos?.length || local_repos?.length || wallet
+        ? await offerPickup(ctx.ownInstallationId ?? ctx.installationId, {
+            github_users: [
+              github_user,
+              ...(repos ?? []).map((r) => githubRepo(r)?.owner),
+              ...(local_repos ?? []).map((r) => (r.url ? githubRepo(r.url)?.owner : undefined)),
+            ],
+            wallet: wallet ?? null,
+          }).catch((err: unknown) => {
+            console.error('[list_programs] pickup', err instanceof Error ? err.name : 'error');
+            return null;
+          })
+        : null;
     if (wallet) await rememberWallets(ctx.installationId, [wallet]);
     const [memory, programs, campaigns] = await Promise.all([
       checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
@@ -629,7 +689,8 @@ export const tools = {
     });
 
     return {
-      show_to_builder,
+      show_to_builder: pickup ? `${pickup.question}\n\n${show_to_builder}` : show_to_builder,
+      ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
       note:
         'Show show_to_builder to the builder exactly as written. ' +
         (user || repoList?.length
@@ -706,7 +767,7 @@ export const tools = {
     // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
     // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
     // programs: shown short on the confirmation offer's wallet line.
-    const remembered = await rememberedWallet(ctx.installationId);
+    const remembered = await walletMemory(ctx);
     // Ruling 22: outside campaigns a wallet the builder gave is valid or the call fails.
     const given = program.campaign
       ? validWallet(known.answers?.payout_wallet)
@@ -722,7 +783,7 @@ export const tools = {
     // already answered for another program (never a field the agent or the project info gave).
     const banked = program.campaign
       ? null
-      : await bankedAnswers(ctx.installationId, program, known.project, known.project?.repo_url ?? known.answers?.repo_url, known.answers ?? {});
+      : await bankedAnswers(ctx.installationId, program, known.project, known.project?.repo_url ?? known.answers?.repo_url, known.answers ?? {}, ctx.sharedClient);
     if (banked) known.answers = banked.answers;
     // v2.7 §3, Ruling 15 (plan): readiness first. While required items are missing, the screen
     // leads with them and there is no token offer, wallet or ticker check yet.
@@ -957,7 +1018,7 @@ export const tools = {
     const answered = givenWallet(i.answers[WALLET_KEY]);
     const repoUrl = i.project.repo_url ?? i.answers.repo_url ?? null;
     // v2.8 Part D: the bank fills what the draft showed from it, so the kit and the snapshot match it.
-    const banked = await bankedAnswers(ctx.installationId, program, i.project, repoUrl, i.answers);
+    const banked = await bankedAnswers(ctx.installationId, program, i.project, repoUrl, i.answers, ctx.sharedClient);
     const answers = banked.answers;
     // Every answer (the agent's, the bank's, plus what the project info fills), in the form's order.
     const filled = prepareSubmission(program.submission_requirements, {
@@ -991,7 +1052,7 @@ export const tools = {
       const stored = given ?? answered
         ? null
         : await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name });
-      const wallet = given ?? answered ?? stored ?? (await rememberedWallet(ctx.installationId));
+      const wallet = given ?? answered ?? stored ?? (await walletMemory(ctx));
       // v2.8.1 §A2: the Yes line names the token that launches: the builder's own edit, else EarnKit's proposal.
       const key = offerKey(repoUrl, i.project.name);
       const shown = offersToken ? await readOffer(ctx.installationId, program.id, key).catch(() => null) : null;
@@ -1046,7 +1107,7 @@ export const tools = {
         given ??
         answered ??
         (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
-        (await rememberedWallet(ctx.installationId));
+        (await walletMemory(ctx));
       const offer = confirmOffer({ hasBonus: facts.hasBonus, coinIn: null, canPush, wallet, remembered: !given && !answered && wallet !== null, proposal });
       return {
         project_id: projectId,
@@ -1115,7 +1176,7 @@ export const tools = {
         const remembered = token.no_wallet
           ? (answered ??
             (await ownEntryWallet({ programId: program.id, installationId: ctx.installationId, repoUrl, name: i.project.name })) ??
-            (await rememberedWallet(ctx.installationId)))
+            (await walletMemory(ctx)))
           : null;
         const agentNote = remembered ? 'Pass shown_wallet as wallet once the builder confirms it.' : token.agent_note;
         return {
@@ -1308,6 +1369,31 @@ export const tools = {
 
   // v2.8 Ruling C21: the builder's own answer to ask_outcome's question, for their own entry only
   // (another installation's is NotFoundError). Kept apart so list_programs stays read-only.
+  // v2.8.1 §E18: the builder's yes or no to list_programs' "Pick up your N earlier entries?".
+  pick_up_entries: async (input: unknown, ctx: ToolContext) => {
+    const answer = yesNo((input as { answer?: unknown } | null)?.answer);
+    if (answer === null)
+      return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };
+    const r = await answerPickup(ctx.ownInstallationId ?? ctx.installationId, answer, ctx.pickupDeps);
+    if (r.status === 'linked')
+      return {
+        show_to_builder: PICKUP_TEXT.linked,
+        entries: r.entries,
+        agent_note: 'Call list_programs again to show their entries.',
+      };
+    if (r.status === 'declined') return { show_to_builder: PICKUP_TEXT.declined };
+    if (r.status === 'none') return { show_to_builder: PICKUP_TEXT.none };
+    if (r.unreadable)
+      return { show_to_builder: PICKUP_TEXT.unreadable, agent_note: 'Call pick_up_entries with answer "yes" again in a minute.' };
+    return {
+      show_to_builder: PICKUP_TEXT.proof,
+      agent_note:
+        `Write the line "${r.line}" to earnkit.txt at the root of ${r.repo} (keep any lines already there) and push it ` +
+        'yourself, to any branch; never ask the builder to edit files. Then call pick_up_entries with answer "yes" again. ' +
+        "If you can't push, give the builder the line and where it goes.",
+    };
+  },
+
   report_outcome: async (input: unknown, ctx: ToolContext) => {
     await saveSelfReport(ctx.installationId, ReportOutcome.parse(input));
     return {
