@@ -81,6 +81,8 @@ export const RecordSubmissionInput = z
     builder_submitted: z.unknown().optional(),
     /** v2.8.1 fix round 1: checking back after "launching": the token part is a read, never a launch. */
     check_back: z.boolean().optional(),
+    /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
+    signed_in: z.string().max(40).optional(),
   })
   .strict();
 

@@ -650,8 +650,14 @@ async function runTokenFlow(
   // Token retry (v2.4 §6, audit C14): a creator wallet given now, or the one a launch uses, is
   // kept, so launch_token after a gate failure doesn't ask for it again (and fee reads know it).
   const keep = choice?.creator_wallet ?? a.givenWallet ?? (decision.action === 'launch' ? wallet : null);
-  if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
-    await store.saveCreatorWallet(project.id, a.installationId, keep);
+  // v2.9 B9 (fix round 2): on a shared client the entry may be another builder's, so the wallet is
+  // kept only once the gate passed for this caller.
+  const sharedCaller = a.verifiedLogin !== undefined;
+  const saveWallet = async () => {
+    if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
+      await store.saveCreatorWallet(project.id, a.installationId, keep);
+  };
+  if (!sharedCaller) await saveWallet();
   // Not launching here: at submission it's skipped; launch_token was asked to launch, so a refusal
   // there (an existing token, a refused edit, no wallet) has failed.
   const notNow = decision.action === 'refuse' && a.mode === 'launch' ? 'failed' : 'skipped';
@@ -733,6 +739,7 @@ async function runTokenFlow(
     };
     return gate.fixable ? fix(withNote) : withNote;
   }
+  if (sharedCaller) await saveWallet();
 
   let image: ReturnType<typeof decodeImage> | null;
   try {
@@ -802,6 +809,8 @@ export async function tokenAfterSubmission(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
+    /** Rulings G9, G10: whose GitHub sign-in proves the repo (undefined: not a shared client). */
+    verifiedLogin?: string | null;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -834,6 +843,7 @@ export async function tokenAfterSubmission(
       chain: 'base',
       givenWallet: a.givenWallet,
       checkBack: a.checkBack,
+      verifiedLogin: a.verifiedLogin,
     },
     deps,
     progress,

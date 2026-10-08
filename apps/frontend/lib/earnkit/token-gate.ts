@@ -16,6 +16,7 @@ import { ForkCheckError, repoCodeFacts, type RepoCode } from './match-projects';
 import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
 import { githubVerifyEnabled, verifiedFor } from './github-verify';
+import { sharedGroup } from './installations';
 
 export type GateInput = {
   policy: TokenPolicy;
@@ -51,6 +52,11 @@ export type GateDeps = {
    * the feature is off.
    */
   verified?: (projectId: number, repoKey: string, login?: string) => Promise<{ wallet: string | null } | null>;
+  /**
+   * Ruling G10 (fix round 2): whether the launching installation's group is a shared (hosted) client,
+   * read here so no caller can forget it; false while sign-in is off (nothing changes then).
+   */
+  shared?: (installationId: number) => Promise<boolean>;
 };
 /**
  * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
@@ -88,6 +94,7 @@ const defaults: Required<GateDeps> = {
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
   verified: async (projectId, repoKey, login) =>
     githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
+  shared: async (installationId) => githubVerifyEnabled() && (await sharedGroup(installationId)),
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -256,16 +263,20 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   // v2.9 B9: a GitHub sign-in that proved this entry's repo stands in for the proof line (the
   // repo's code above and the wallet screen below still run). A failed read is no verification.
   // Ruling G11: only for the fee wallet the owner saw when signing in.
+  // Ruling G10 (fix round 2): a shared client is known here too (a caller that passed no login
+  // gets none: only a sign-in with the caller's own code counts there). A failed read fails closed.
+  const shared = input.verifiedLogin !== undefined || (await d.shared(input.installationId).catch(() => true));
+  const login = shared ? (input.verifiedLogin ?? null) : undefined;
   const signIn =
-    input.projectId !== undefined && input.verifiedLogin !== null
-      ? await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), input.verifiedLogin).catch(() => null)
+    input.projectId !== undefined && login !== null
+      ? await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), login).catch(() => null)
       : null;
   const signedIn = signIn !== null && signIn.wallet !== null && signIn.wallet === input.wallet.toLowerCase();
   const walletChanged = { ok: false as const, reason: WALLET_CHANGED, fixable: true as const, sign_in: 'wallet_changed' as const };
   if (!signedIn) {
     // Ruling G10: on a shared client (verifiedLogin given) the proof line is the whole agent's, so
     // while sign-in is on it never proves a launch there.
-    if (input.verifiedLogin !== undefined && githubVerifyEnabled())
+    if (shared && githubVerifyEnabled())
       return signIn ? walletChanged : { ok: false, reason: SIGN_IN_FIRST, fixable: true, sign_in: 'needed' };
     const legacyCode = legacyTokenLineCode(input.installationId, input.repoUrl, input.symbol);
     const legacy = legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null;
