@@ -46,10 +46,11 @@ export type GateDeps = {
   latest?: (r: { owner: string; repo: string }, defaultBranch: string | undefined) => Promise<{ branch: string; file: FetchResult } | null>;
   screen?: (wallet: string) => Promise<void>;
   /**
-   * v2.9 B9: whether a GitHub sign-in proved this entry's repo (owner/repo); defaults to the
-   * github_verifications row, and is false while the feature is off.
+   * v2.9 B9: the GitHub sign-in that proved this entry's repo (owner/repo), with the fee wallet it
+   * was made for (Ruling G11), or null; defaults to the github_verifications row, and is null while
+   * the feature is off.
    */
-  verified?: (projectId: number, repoKey: string, login?: string) => Promise<boolean>;
+  verified?: (projectId: number, repoKey: string, login?: string) => Promise<{ wallet: string | null } | null>;
 };
 /**
  * `reason`: plain builder words. `agent_note` (M7): the technical detail, for the agent only.
@@ -66,6 +67,11 @@ export type GateResult =
       fixable?: true;
       /** v2.8.1 §A3: the proof line is missing; the repo's default branch, when known. */
       branch?: string;
+      /**
+       * v2.9 B9: only a GitHub sign-in proves this launch (`needed`: a shared client, Ruling G10), or
+       * the sign-in was for another fee wallet (`wallet_changed`, Ruling G11).
+       */
+      sign_in?: 'needed' | 'wallet_changed';
     };
 
 const defaults: Required<GateDeps> = {
@@ -81,7 +87,7 @@ const defaults: Required<GateDeps> = {
     process.env.EARNKIT_OWNERSHIP_BASE_URL ? Promise.resolve(null) : fetchOwnershipLatestBranch(r, defaultBranch),
   screen: (wallet) => screenWallet(wallet, BASE_MAINNET, "This wallet can't receive token fees on EarnKit."),
   verified: async (projectId, repoKey, login) =>
-    githubVerifyEnabled() && (await verifiedFor({ projectId, repoKey, login })) !== null,
+    githubVerifyEnabled() ? verifiedFor({ projectId, repoKey, login }) : null,
 };
 
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -95,6 +101,10 @@ const AGAIN = `Try again in a minute: ${SAY}.`;
 export const PROOF_LINE_PREFIX = 'I need to add a short proof line to your repo';
 
 export const TOKENS_NOT_CONFIGURED = "Token launches aren't configured right now.";
+/** v2.9 B9, Ruling G10: on a shared client only a GitHub sign-in proves the repo. */
+export const SIGN_IN_FIRST = `Sign in with GitHub to prove the repo is yours first, then ${SAY}.`;
+/** v2.9 B9, Ruling G11: the sign-in was for another fee wallet (the reply adds "Sign in again: <link>"). */
+export const WALLET_CHANGED = 'Your wallet changed since you signed in.';
 export const TOKEN_CODE_LENGTH = 16;
 
 /**
@@ -245,11 +255,18 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
   if (!code) return { ok: false, reason: TOKENS_NOT_CONFIGURED };
   // v2.9 B9: a GitHub sign-in that proved this entry's repo stands in for the proof line (the
   // repo's code above and the wallet screen below still run). A failed read is no verification.
-  const signedIn =
-    input.projectId !== undefined &&
-    input.verifiedLogin !== null &&
-    (await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), input.verifiedLogin).catch(() => false));
+  // Ruling G11: only for the fee wallet the owner saw when signing in.
+  const signIn =
+    input.projectId !== undefined && input.verifiedLogin !== null
+      ? await d.verified(input.projectId, `${gh.owner}/${gh.repo}`.toLowerCase(), input.verifiedLogin).catch(() => null)
+      : null;
+  const signedIn = signIn !== null && signIn.wallet !== null && signIn.wallet === input.wallet.toLowerCase();
+  const walletChanged = { ok: false as const, reason: WALLET_CHANGED, fixable: true as const, sign_in: 'wallet_changed' as const };
   if (!signedIn) {
+    // Ruling G10: on a shared client (verifiedLogin given) the proof line is the whole agent's, so
+    // while sign-in is on it never proves a launch there.
+    if (input.verifiedLogin !== undefined && githubVerifyEnabled())
+      return signIn ? walletChanged : { ok: false, reason: SIGN_IN_FIRST, fixable: true, sign_in: 'needed' };
     const legacyCode = legacyTokenLineCode(input.installationId, input.repoUrl, input.symbol);
     const legacy = legacyCode ? { symbol: input.symbol.toUpperCase(), code: legacyCode } : null;
     const onDefault = await d.owner(gh);
@@ -262,7 +279,7 @@ export async function tokenGate(input: GateInput, deps: GateDeps = {}): Promise<
       defaultBranch: facts.defaultBranch,
       latest,
     });
-    if (problem) return { ok: false, ...problem, fixable: true };
+    if (problem) return signIn ? walletChanged : { ok: false, ...problem, fixable: true };
   }
   try {
     await d.screen(input.wallet);

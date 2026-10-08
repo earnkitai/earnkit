@@ -31,7 +31,7 @@ import {
 } from './sanctions';
 import { proofCheck, type ProofOutcome } from './submission-proof';
 import { repoCoinPrograms } from './tokens';
-import { PROOF_LINE_PREFIX } from './token-gate';
+import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
 import { CLANKER_ADDRESSES, coinSql } from './traction';
@@ -1068,7 +1068,9 @@ export async function startEntry(a: {
           contract_verified_at = CASE WHEN ${checked !== null} THEN ${checked?.contract_verified_at ?? null}::timestamptz ELSE contract_verified_at END
         WHERE id = ${own.id}
         RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
-          COALESCE(token_status = 'gate_failed' AND starts_with(token_note, ${PROOF_LINE_PREFIX}), false) AS proof_line_missed,
+          -- v2.9 B9: a stop on the GitHub sign-in (G10, G11) counts the same way (P10).
+          COALESCE(token_status = 'gate_failed' AND (starts_with(token_note, ${PROOF_LINE_PREFIX})
+            OR starts_with(token_note, ${SIGN_IN_FIRST}) OR starts_with(token_note, ${WALLET_CHANGED})), false) AS proof_line_missed,
           token_claimed_at, (token_url = 'pending' AND token_note IS NOT NULL) IS TRUE AS token_settled`;
     } else {
       await a.charge?.();

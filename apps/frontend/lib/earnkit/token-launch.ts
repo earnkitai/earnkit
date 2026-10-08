@@ -729,6 +729,7 @@ async function runTokenFlow(
       ...out,
       ...(gate.agent_note && { agent_note: gate.agent_note }),
       ...(gate.branch && { proof_branch: gate.branch }),
+      ...(gate.sign_in && { sign_in_needed: gate.sign_in }),
     };
     return gate.fixable ? fix(withNote) : withNote;
   }

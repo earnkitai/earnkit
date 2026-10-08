@@ -179,6 +179,8 @@ export type TokenOutcome = {
   launching?: true;
   /** v2.9 B9: the one-time GitHub sign-in link that proves the repo instead of the proof line. */
   sign_in?: string;
+  /** v2.9 B9: the gate needs a GitHub sign-in (G10: a shared client) or a new one (G11: another wallet). */
+  sign_in_needed?: 'needed' | 'wallet_changed';
 };
 
 /** What the builder is told about fee splits once a token is live. */

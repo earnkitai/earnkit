@@ -80,7 +80,7 @@ import { RAW_CAP, cleanProject, quoted } from './untrusted-text';
 import { tokenLineFor } from './token-gate';
 import { READY_TO_SUBMIT, bonusRidesOn, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { callerLogin, createVerifyLink, entryVerifyLink, githubVerifyEnabled, verifiedEntryIds } from './github-verify';
-import { PROOF_LINE_PREFIX } from './token-gate';
+import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { kitAgentNote, submitKit, type SubmitKit } from './submit-kit';
 import {
   WALLET_KEY,
@@ -1414,18 +1414,26 @@ export const tools = {
         await rememberOffer(ctx, program.id, key, next);
         return reoffer(entry.id, next, token.ticker_taken);
       }
-      // v2.9 B9: the GitHub sign-in link, for an agent that can't push, or after a proof-line miss
-      // (Pre-flight P10). Bound to this entry and its repo.
+      // v2.9 B9: the GitHub sign-in link, for an agent that can't push, after a proof-line miss
+      // (Pre-flight P10), or when only a sign-in proves the launch (G10: a shared client; G11: the
+      // wallet changed since the sign-in). Bound to this entry, its repo, and the wallet and ticker
+      // of this "go" (G11; the flow asked for a wallet before the gate, so `given` is set).
+      const stop = token.fixable === true && (token.proof_line === true || token.sign_in_needed !== undefined);
+      const symbol = token.symbol ?? shown?.symbol ?? null;
       const link =
-        token.fixable && token.proof_line && signIn && repoUrl && (decision.kind === 'sign_in' || entry.proof_line_missed)
+        stop && signIn && repoUrl && given && (decision.kind === 'sign_in' || entry.proof_line_missed || token.sign_in_needed)
           ? await createVerifyLink({
               installationId: ctx.installationId,
               projectId: entry.id,
               repoKey: repoKey({ url: repoUrl, name: i.project.name }),
               purpose: 'entry',
+              wallet: given,
+              symbol,
             })
           : null;
-      const signLine = link && signInLine(i.project.name, token.symbol ?? shown?.symbol ?? null, link);
+      const signLine =
+        link &&
+        (token.sign_in_needed === 'wallet_changed' ? `${WALLET_CHANGED} Sign in again: ${link}` : signInLine(i.project.name, symbol, link));
       // The first "go" of an agent that can't push: the sign-in line, no kit yet.
       const signNote = ctx.sharedClient ? `${SIGN_IN_NOTE} ${SIGN_IN_CODE_NOTE}` : SIGN_IN_NOTE;
       if (signLine && !entry.proof_line_missed)
@@ -1440,13 +1448,13 @@ export const tools = {
       // builder reads exactly what the token waits on (never "open this in another agent": this
       // agent can push). The launch stays open: "go" again launches it. v2.9 B9 (P10): with sign-in
       // on, the link comes too (alone for an agent that can't push).
-      if (token.fixable && token.proof_line && entry.proof_line_missed) {
+      if (stop && entry.proof_line_missed) {
         const pushNote = token.agent_note?.replace(CANT_PUSH_RETRY_NOTE, '').trim();
         const agentNote = signLine ? (canPush ? `${pushNote ? `${pushNote} ` : ''}${SIGN_IN_OR_NOTE}` : signNote) : pushNote;
         token = {
           status: 'skipped',
           note: signLine
-            ? canPush
+            ? canPush && token.proof_line
               ? `${proofLineWaiting(token.proof_branch)}\n${signLine}`
               : signLine
             : proofLineWaiting(token.proof_branch),
@@ -1719,8 +1727,10 @@ export const tools = {
       ctx.sharedClient ? await sharedLogin(ctx, parsed.signed_in, 'launch_token') : undefined,
     );
     // v2.9 B9: the proof line isn't there: with sign-in on, the one-time link proves the repo instead.
+    // Ruling G10: on a shared client only the sign-in proves it; G11: the wallet changed since it.
+    const stopped = [PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED].some((p) => out.note?.startsWith(p));
     const signIn =
-      out.status === 'gate_failed' && out.note?.startsWith(PROOF_LINE_PREFIX) && githubVerifyEnabled()
+      out.status === 'gate_failed' && stopped && githubVerifyEnabled()
         ? await entryVerifyLink(ctx.installationId, parsed.project_id)
         : null;
     return withAlerts(
@@ -1729,7 +1739,9 @@ export const tools = {
         ? {
             ...out,
             sign_in: signIn.link,
-            sign_in_line: signInLine(signIn.name, out.symbol ?? null, signIn.link),
+            sign_in_line: out.note?.startsWith(WALLET_CHANGED)
+              ? `${WALLET_CHANGED} Sign in again: ${signIn.link}`
+              : signInLine(signIn.name, out.symbol ?? null, signIn.link),
             agent_note:
               `${out.agent_note ? `${out.agent_note} ` : ''}If you can't push, show sign_in_line instead; ` +
               'when the builder says they signed in, call launch_token again' +
